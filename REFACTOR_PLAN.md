@@ -479,7 +479,7 @@ Confirm the four points in §8. Without these the schema and the spreadsheet reb
 
 **Exit criteria:** typecheck passes on both packages, lint clean, `pnpm dev` boots Postgres + api + web and the SPA renders an empty table.
 
-### Phase 2 — Auth + shared lib (~1 day)
+### Phase 2 — Auth + shared lib (~1 day) ✅ DONE
 
 - `services/auth/`
   - Schema: `user` table (uuid id, email unique, password_hash, display_name, role enum, standard timestamps)
@@ -493,7 +493,7 @@ Confirm the four points in §8. Without these the schema and the spreadsheet reb
 
 **Exit criteria:** can log in, refresh page and stay logged in, log out. Bad password → 401. Admin-only test endpoint rejects non-admin.
 
-### Phase 3 — Data layer (~1 day)
+### Phase 3 — Data layer (~1 day) ✅ DONE
 
 Schema everything up front so backend services can be ported in any order.
 
@@ -522,7 +522,7 @@ Seed fixtures: 6 users, a handful of shipments, one quote, one master job — en
 
 **Exit criteria:** `pnpm db:migrate && pnpm db:seed` from a clean Postgres produces a working DB.
 
-### Phase 4 — Backend services (~3–4 days)
+### Phase 4 — Backend services (~3–4 days) ✅ DONE (except: 24-rule automation engine, 3-phase document pipeline)
 
 Build in this order. Each service follows the three-layer pattern and gets at least service-layer tests.
 
@@ -543,18 +543,18 @@ Build in this order. Each service follows the three-layer pattern and gets at le
 
 **Exit criteria:** every endpoint the frontend will call exists, is typed, has a generated client method, and has at least a happy-path test.
 
-### Phase 5 — Frontend tabs (~5–7 days)
+### Phase 5 — Frontend tabs (~5–7 days) 🔧 IN PROGRESS
 
 Build in this order — small tabs first to settle patterns, big spreadsheet last.
 
-1. **App shell** — header, tab nav, theme toggle, logout (~half day)
-2. **Login** — already wired in Phase 2, polish (~quick)
-3. **Dashboard** — KPI tiles + deadlines reading from live data (no more empty `SHIPMENTS = []`) (~half day)
-4. **Invoicing** — costs grid, additional charges, billing inputs, generate invoice + PDF (~1 day)
-5. **Quote** — list table, detail Drawer with 4 tabs (Details, Costs, Documents, Terms) (~1.5 days)
-6. **Warehouse** — single merged tab + the same UI embedded as a sub-tab in the Shipment detail (~1 day)
-7. **Document/Text Reading** — upload UI, pipeline progress, review/validate flow (~1.5 days)
-8. **Shipments / Full Sheet** — the big one. antd `<Table>` with `virtual`, frozen first 6 columns, inline editing via custom cells, column filters, Master Job grouping highlight, soft-delete confirmation, detail Drawer (~2 days)
+1. **App shell** — header, tab nav, theme toggle, logout ✅
+2. **Login** — already wired in Phase 2, polish ✅
+3. **Dashboard** — KPI tiles + active shipments table ✅ (deadlines grouping TODO)
+4. **Invoicing** — costs grid, billing settings, generate invoice ✅ (additional charges UI, PDF generation TODO)
+5. **Quote** — list table, detail Drawer with terms ✅ (Costs tab, Documents tab TODO)
+6. **Warehouse** — inline-editable task table ✅ (sub-tab in Shipment detail TODO)
+7. **Document/Text Reading** — upload UI placeholder ⏳ (pipeline not implemented — needs Claude adapter)
+8. **Shipments / Full Sheet** — inline editing spreadsheet, create/delete, detail drawer ✅ (frozen columns, column filters, Master Job grouping, copy shipment TODO)
 
 **Exit criteria:** every tab renders real data, every CRUD action works end-to-end, no `console.error` in the browser during a 10-minute click-through.
 
