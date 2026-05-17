@@ -1,0 +1,22 @@
+import { authHandler } from "encore.dev/auth";
+import { Header } from "encore.dev/api";
+import { authService } from "../services/auth/services/auth.service";
+
+interface AuthParams {
+  authorization: Header<"Authorization">;
+}
+
+export interface AuthData {
+  userID: string;
+  role: string;
+}
+
+export const auth = authHandler(async (params: AuthParams): Promise<AuthData> => {
+  const header = params.authorization;
+  if (!header) {
+    throw new Error("No authorization header");
+  }
+  const token = header.startsWith("Bearer ") ? header.slice(7) : header;
+  const { userId, role } = await authService.verifyToken(token);
+  return { userID: userId, role };
+});

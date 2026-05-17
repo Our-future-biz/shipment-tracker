@@ -1,0 +1,944 @@
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
+import {
+  X,
+  Check,
+  Upload,
+  FileText,
+  File,
+  Trash2,
+  MapPin,
+  Ship,
+  Package,
+  Anchor,
+  Maximize2,
+  Minimize2,
+  ExternalLink,
+  SplitSquareHorizontal,
+} from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
+
+const TASK_LIST = [
+  { key: "booking_to_agent", label: "Booking to agent" },
+  { key: "booking_confirmed", label: "Booking confirmed" },
+  { key: "pre_alert_received", label: "Pre-alert received" },
+  { key: "arrival_notice_sent", label: "Arrival notice sent" },
+  { key: "paperwork_received", label: "Paperwork received" },
+  { key: "paperwork_to_customs", label: "Paperwork provided to customs" },
+  { key: "shipment_released_agent", label: "Shipment released from the agent" },
+  { key: "haulage_booked", label: "Haulage booked" },
+  { key: "delivery_date_agreed", label: "Delivery date agreed" },
+  { key: "customs_cleared", label: "Customs cleared" },
+  { key: "shipment_released_delivery", label: "Shipment released for the final delivery" },
+  { key: "delivered", label: "Delivered" },
+] as const;
+
+const MILESTONE_STEPS = [
+  "Booking confirmed",
+  "Cargo ready",
+  "In transit",
+  "Arrived at POD",
+  "Customs clearance",
+  "Delivered",
+];
+
+function getStatusStep(status: string): number {
+  const s = status.trim().toUpperCase();
+  if (s === "CHYBÍ PLUTÍ") return 0;
+  if (s === "ČEKÁM NA ODPLUTÍ") return 1;
+  if (s.startsWith("ODPLULO")) return 3;
+  if (s === "ČEKÁM NA VYKLÁDKU") return 4;
+  if (s === "VYFA") return 6;
+  return 0;
+}
+
+function getStatusBadgeColor(status: string): string {
+  const s = status.trim().toUpperCase();
+  if (s === "VYFA") return "#22C55E";
+  if (s === "ČEKÁM NA VYKLÁDKU") return "#EAB308";
+  if (s.startsWith("ODPLULO")) return "#F97316";
+  if (s === "ČEKÁM NA ODPLUTÍ") return "#3B82F6";
+  if (s === "CHYBÍ PLUTÍ") return "#EF4444";
+  return "#6B7280";
+}
+
+interface AttachmentFile {
+  id: string;
+  name: string;
+  size: number;
+  type: string;
+  addedAt?: string;
+}
+
+interface TaskState {
+  completed: boolean;
+  completedAt?: string;
+}
+
+// ─── Linked Quote Panel ─────────────────────────────────────────
+
+const QUOTE_DISPLAY_FIELDS = [
+  "Shipper", "Consignee", "FCL/LCL", "Agent", "PIC email",
+  "INCOTERM ORIGIN", "Incoterm destination", "Cargo origin", "Origin",
+  "POL", "POD", "Destination", "HS code", "Goods description",
+  "Shipment type", "Volume", "Weight", "Number of pieces",
+  "CNTR count [1]", "CNTR length [1]", "CNTR count [2]", "CNTR length [2]",
+] as const;
+
+const COST_CATEGORY_LABELS: Record<string, string> = {
+  freight: "Freight",
+  collection: "Collection/Delivery",
+  locals: "Locals",
+  others: "Others",
+  insurance: "Insurance",
+  customs: "Customs",
+};
+
+interface QuoteCostData {
+  costs: { category: string; realAmount: string; realCurrency: string }[];
+  additionalCharges: { description: string; realAmount: string; realCurrency: string }[];
+  billingOverrides: Record<string, string>;
+  billingCurrency: string;
+}
+
+function LinkedQuotePanel({ quoteNumber, onClose }: { quoteNumber: string; onClose: () => void }) {
+  const [quoteData, setQuoteData] = useState<Record<string, string> | null>(null);
+  const [costData, setCostData] = useState<QuoteCostData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+
+    const fetchAll = async () => {
+      try {
+        // Fetch quote fields
+        const quotesResp = await apiRequest("GET", "/api/quotes");
+        const quotes: any[] = await quotesResp.json();
+        const found = quotes.find((q: any) => q.quoteNumber === quoteNumber);
+        if (found && !cancelled) {
+          const parsed = typeof found.data === "string" ? JSON.parse(found.data) : found.data;
+          setQuoteData(parsed);
+        }
+
+        // Fetch costs
+        const costsResp = await apiRequest("GET", `/api/invoicing/${encodeURIComponent(quoteNumber)}`);
+        const costsJson = await costsResp.json();
+
+        // Fetch billing
+        const billingResp = await apiRequest("GET", `/api/billing/${encodeURIComponent(quoteNumber)}`);
+        const billingJson = await billingResp.json();
+
+        if (!cancelled) {
+          const overridesMap: Record<string, string> = {};
+          for (const ov of billingJson.overrides || []) {
+            overridesMap[ov.rowKey] = ov.billingAmount;
+          }
+          setCostData({
+            costs: costsJson.costs || [],
+            additionalCharges: costsJson.additionalCharges || [],
+            billingOverrides: overridesMap,
+            billingCurrency: billingJson.settings?.billingCurrency || "CZK",
+          });
+        }
+      } catch { /* ignore */ }
+      if (!cancelled) setLoading(false);
+    };
+
+    fetchAll();
+    return () => { cancelled = true; };
+  }, [quoteNumber]);
+
+  // Compute totals
+  const parseCostNum = (v: string) => { const n = parseFloat(v); return isNaN(n) ? 0 : n; };
+  const supplierTotal = costData
+    ? costData.costs.reduce((s, c) => s + parseCostNum(c.realAmount), 0)
+      + costData.additionalCharges.reduce((s, c) => s + parseCostNum(c.realAmount), 0)
+    : 0;
+  const billingTotal = costData
+    ? costData.costs.reduce((s, c) => {
+        const ov = costData.billingOverrides[c.category];
+        return s + parseCostNum(ov || c.realAmount);
+      }, 0)
+      + costData.additionalCharges.reduce((s, c) => s + parseCostNum(c.realAmount), 0)
+    : 0;
+  const profit = billingTotal - supplierTotal;
+
+  const fmtNum = (n: number) => n.toLocaleString("en", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+  return (
+    <div
+      className="flex flex-col h-full border-l overflow-y-auto"
+      style={{ width: "400px", minWidth: "400px", background: "hsl(222 47% 8%)", borderColor: "hsl(217 33% 20%)" }}
+    >
+      {/* Header */}
+      <div className="flex-none flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "hsl(217 33% 20%)", background: "hsl(222 47% 9%)" }}>
+        <div className="flex items-center gap-2 min-w-0">
+          <SplitSquareHorizontal className="w-4 h-4 text-[#14b8a6] flex-none" />
+          <div className="min-w-0">
+            <h3 className="text-xs font-semibold text-foreground">Linked Quote</h3>
+            <p className="text-[10px] text-muted-foreground font-mono">{quoteNumber}</p>
+          </div>
+        </div>
+        <button onClick={onClose} className="w-6 h-6 rounded flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors flex-none">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {loading ? (
+          <div className="flex items-center justify-center h-32 text-xs text-muted-foreground">Loading...</div>
+        ) : !quoteData ? (
+          <div className="flex items-center justify-center h-32 text-xs text-muted-foreground">Quote not found</div>
+        ) : (
+          <div className="space-y-4">
+            {/* Quote fields */}
+            <div>
+              <h4 className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
+                <Ship className="w-3 h-3 text-[#14b8a6]" /> Quote Details
+              </h4>
+              <div className="space-y-1.5">
+                {QUOTE_DISPLAY_FIELDS.map((field) => {
+                  const val = quoteData[field];
+                  if (!val) return null;
+                  return (
+                    <div key={field} className="flex items-start gap-2">
+                      <span className="text-[11px] text-muted-foreground flex-none" style={{ width: "120px" }}>{field}</span>
+                      <span className="text-xs text-foreground">{val}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Cost Breakdown */}
+            {costData && (costData.costs.length > 0 || costData.additionalCharges.length > 0) && (
+              <div>
+                <h4 className="text-[10px] uppercase tracking-wider font-semibold text-muted-foreground mb-2 flex items-center gap-1.5">
+                  <Package className="w-3 h-3 text-[#14b8a6]" /> Cost Breakdown
+                </h4>
+                <div className="rounded-lg overflow-hidden" style={{ background: "hsl(222 47% 11%)" }}>
+                  {/* Table header */}
+                  <div className="grid grid-cols-3 gap-1 px-3 py-1.5 text-[10px] uppercase tracking-wide font-semibold text-muted-foreground border-b" style={{ borderColor: "hsl(217 33% 18%)" }}>
+                    <span>Category</span>
+                    <span className="text-right">Suppliers</span>
+                    <span className="text-right">Billing</span>
+                  </div>
+                  {/* Cost rows */}
+                  {costData.costs.map((c) => {
+                    const billingAmt = costData.billingOverrides[c.category] || c.realAmount;
+                    if (!c.realAmount && !billingAmt) return null;
+                    return (
+                      <div key={c.category} className="grid grid-cols-3 gap-1 px-3 py-1.5 text-xs border-b" style={{ borderColor: "hsl(217 33% 15%)" }}>
+                        <span className="text-foreground/80">{COST_CATEGORY_LABELS[c.category] || c.category}</span>
+                        <span className="text-right tabular-nums text-foreground">
+                          {c.realAmount ? `${fmtNum(parseCostNum(c.realAmount))} ${c.realCurrency}` : "\u2014"}
+                        </span>
+                        <span className="text-right tabular-nums text-foreground">
+                          {billingAmt ? `${fmtNum(parseCostNum(billingAmt))} ${costData.billingCurrency}` : "\u2014"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {/* Additional charges */}
+                  {costData.additionalCharges.map((ac, i) => (
+                    <div key={`ac-${i}`} className="grid grid-cols-3 gap-1 px-3 py-1.5 text-xs border-b" style={{ borderColor: "hsl(217 33% 15%)" }}>
+                      <span className="text-foreground/80">{ac.description || "Additional"}</span>
+                      <span className="text-right tabular-nums text-foreground">
+                        {ac.realAmount ? `${fmtNum(parseCostNum(ac.realAmount))} ${ac.realCurrency}` : "\u2014"}
+                      </span>
+                      <span className="text-right tabular-nums text-foreground">\u2014</span>
+                    </div>
+                  ))}
+                  {/* Totals */}
+                  <div className="grid grid-cols-3 gap-1 px-3 py-2 text-xs font-semibold" style={{ background: "hsl(222 47% 9%)" }}>
+                    <span className="text-foreground">Total</span>
+                    <span className="text-right tabular-nums text-foreground">{fmtNum(supplierTotal)} {costData.billingCurrency}</span>
+                    <span className="text-right tabular-nums text-foreground">{fmtNum(billingTotal)} {costData.billingCurrency}</span>
+                  </div>
+                  {/* Profit */}
+                  <div className="grid grid-cols-3 gap-1 px-3 py-2 text-xs font-semibold" style={{ background: "hsl(222 47% 7%)" }}>
+                    <span className="text-foreground">Profit</span>
+                    <span />
+                    <span className={`text-right tabular-nums font-bold ${profit >= 0 ? "text-green-400" : "text-red-400"}`}>
+                      {profit >= 0 ? "+" : ""}{fmtNum(profit)} {costData.billingCurrency}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Popout Window (full page detail view) ──────────────────────
+
+function PopoutDetailView({ jobNumber, shipmentData, onClose }: { jobNumber: string; shipmentData: Record<string, string>; onClose: () => void }) {
+  const safeData = shipmentData || {};
+  const fields = Object.entries(safeData).filter(([, v]) => v && v.trim() !== "");
+
+  return createPortal(
+    <div className="fixed inset-0 z-[999999] overflow-y-auto" style={{ background: "hsl(222 47% 6%)" }}>
+      <div className="max-w-5xl mx-auto px-8 py-6">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold font-mono text-[#14b8a6]">{jobNumber}</h1>
+            <p className="text-xs text-muted-foreground mt-1">
+              {safeData["POL"] || "—"} → {safeData["POD"] || "—"} → {safeData["Destination"] || "—"}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-colors hover:bg-white/5"
+            style={{ color: "hsl(215 20% 65%)", border: "1px solid hsl(217 33% 20%)" }}
+          >
+            <X className="w-3.5 h-3.5" /> Close
+          </button>
+        </div>
+        <div className="grid grid-cols-3 gap-x-6 gap-y-2">
+          {fields.map(([key, value]) => (
+            <div key={key} className="flex flex-col py-1.5 border-b" style={{ borderColor: "hsl(217 33% 15%)" }}>
+              <span className="text-[10px] text-muted-foreground uppercase tracking-wide">{key}</span>
+              <span className="text-xs text-foreground mt-0.5">{value}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ─── Main Modal ─────────────────────────────────────────────────
+
+interface ShipmentDetailModalProps {
+  jobNumber: string;
+  shipmentData: Record<string, string>;
+  onClose: () => void;
+}
+
+export function ShipmentDetailModal({
+  jobNumber,
+  shipmentData,
+  onClose,
+}: ShipmentDetailModalProps) {
+  const [tasks, setTasks] = useState<Record<string, TaskState>>({});
+  const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isMaximized, setIsMaximized] = useState(false);
+  const [showPopout, setShowPopout] = useState(false);
+  const [showSplit, setShowSplit] = useState(false);
+
+  const safeData = shipmentData || {};
+  const linkedQuote = safeData["Linked Quote"] || "";
+
+  // Load tasks on mount
+  useEffect(() => {
+    let cancelled = false;
+    apiRequest("GET", `/api/tasks/${encodeURIComponent(jobNumber)}`)
+      .then((res) => res.json())
+      .then((data: any) => {
+        if (cancelled) return;
+        // API returns array of {taskKey, completed, completedAt} — convert to keyed object
+        if (Array.isArray(data)) {
+          const map: Record<string, TaskState> = {};
+          for (const t of data) {
+            if (t.taskKey) {
+              map[t.taskKey] = { completed: !!t.completed, completedAt: t.completedAt || undefined };
+            }
+          }
+          setTasks(map);
+        } else if (data && typeof data === "object") {
+          setTasks(data);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [jobNumber]);
+
+  // Load attachments on mount
+  useEffect(() => {
+    let cancelled = false;
+    apiRequest("GET", `/api/attachments/${encodeURIComponent(jobNumber)}`)
+      .then((res) => res.json())
+      .then((data: AttachmentFile[]) => {
+        if (!cancelled) setAttachments(data);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [jobNumber]);
+
+  const toggleTask = useCallback(
+    async (taskKey: string) => {
+      const current = tasks[taskKey];
+      const newCompleted = !current?.completed;
+      const now = new Date().toISOString();
+
+      setTasks((prev) => ({
+        ...prev,
+        [taskKey]: {
+          completed: newCompleted,
+          completedAt: newCompleted ? now : undefined,
+        },
+      }));
+
+      try {
+        await apiRequest("POST", "/api/tasks", {
+          jobNumber,
+          taskKey,
+          completed: newCompleted,
+        });
+      } catch {
+        // revert on failure
+        setTasks((prev) => ({
+          ...prev,
+          [taskKey]: current || { completed: false },
+        }));
+      }
+    },
+    [tasks, jobNumber],
+  );
+
+  const handleFileDrop = useCallback(
+    async (e: React.DragEvent) => {
+      e.preventDefault();
+      setDragOver(false);
+      if (e.dataTransfer.files.length === 0) return;
+
+      for (const file of Array.from(e.dataTransfer.files)) {
+        try {
+          const res = await apiRequest("POST", "/api/attachments", {
+            jobNumber,
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+          });
+          const created: AttachmentFile = await res.json();
+          setAttachments((prev) => [...prev, created]);
+        } catch {
+          // ignore failed uploads
+        }
+      }
+    },
+    [jobNumber],
+  );
+
+  const handleFileInput = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (!e.target.files || e.target.files.length === 0) return;
+      for (const file of Array.from(e.target.files)) {
+        try {
+          const res = await apiRequest("POST", "/api/attachments", {
+            jobNumber,
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+          });
+          const created: AttachmentFile = await res.json();
+          setAttachments((prev) => [...prev, created]);
+        } catch {
+          // ignore
+        }
+      }
+      e.target.value = "";
+    },
+    [jobNumber],
+  );
+
+  const deleteAttachment = useCallback(async (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+    try {
+      await apiRequest("DELETE", `/api/attachments/${encodeURIComponent(id)}`);
+    } catch {
+      // already removed from UI
+    }
+  }, []);
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const formatTimestamp = (iso?: string) => {
+    if (!iso) return "";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) +
+        " " +
+        d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    } catch {
+      return iso;
+    }
+  };
+
+  const getFileIcon = (type: string, name: string) => {
+    const ext = name.split(".").pop()?.toLowerCase() || "";
+    if (type === "application/pdf" || ext === "pdf")
+      return <FileText className="w-4 h-4 text-red-400" />;
+    if (ext === "doc" || ext === "docx")
+      return <FileText className="w-4 h-4 text-blue-400" />;
+    if (ext === "xls" || ext === "xlsx")
+      return <FileText className="w-4 h-4 text-green-400" />;
+    return <File className="w-4 h-4 text-muted-foreground" />;
+  };
+
+  const status = safeData["Status"] || "";
+  const currentStep = getStatusStep(status);
+  const badgeColor = getStatusBadgeColor(status);
+
+  const pol = safeData["POL"] || "—";
+  const pod = safeData["POD"] || "—";
+  const destination = safeData["Destination"] || "—";
+  const etd = safeData["ETD date"] || "—";
+  const eta = safeData["ETA date"] || "—";
+
+  const overviewRows = [
+    { label: "Customer", value: safeData["Customer"] },
+    { label: "Shipper", value: safeData["Shipper"] },
+    { label: "Consignee", value: safeData["Consignee"] },
+    {
+      label: "Incoterm",
+      value: [safeData["INCOTERM ORIGIN"], safeData["Incoterm destination"]]
+        .filter(Boolean)
+        .join(" / "),
+    },
+    { label: "Container", value: safeData["CNTR no."] },
+    { label: "Carrier", value: safeData["Shipping line / Coloader"] },
+    { label: "MBL", value: safeData["M/BL no."] },
+  ];
+
+  if (showPopout) {
+    return <PopoutDetailView jobNumber={jobNumber} shipmentData={safeData} onClose={() => setShowPopout(false)} />;
+  }
+
+  const iconBtnClass = "w-7 h-7 rounded-md flex items-center justify-center transition-colors";
+  const iconBtnStyle = (active?: boolean) => ({
+    background: active ? "rgba(20, 184, 166, 0.15)" : "transparent",
+    color: active ? "#14b8a6" : "hsl(215 20% 55%)",
+  });
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[99999] flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.7)" }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      data-testid="shipment-detail-modal"
+    >
+      <div
+        className={`relative flex ${
+          isMaximized ? "w-[95vw] h-[95vh]" : "max-w-4xl w-full max-h-[90vh]"
+        } rounded-xl overflow-hidden transition-all duration-200`}
+        style={{
+          background: "hsl(222 47% 8%)",
+          border: "1px solid hsl(217 33% 20%)",
+        }}
+      >
+        {/* Main card content */}
+        <div className="flex-1 min-w-0 flex flex-col overflow-y-auto">
+        {/* Header */}
+        <div
+          className="sticky top-0 z-10 px-6 py-4 border-b flex-none"
+          style={{
+            background: "hsl(222 47% 8%)",
+            borderColor: "hsl(217 33% 20%)",
+          }}
+        >
+          {/* Action buttons row */}
+          <div className="flex items-center gap-1 mb-3">
+            <button
+              onClick={() => setIsMaximized((v) => !v)}
+              className={iconBtnClass + " hover:bg-white/5"}
+              style={iconBtnStyle(isMaximized)}
+              title={isMaximized ? "Restore size" : "Maximize"}
+              data-testid="btn-maximize"
+            >
+              {isMaximized ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              onClick={() => setShowPopout(true)}
+              className={iconBtnClass + " hover:bg-white/5"}
+              style={iconBtnStyle()}
+              title="Open in full view"
+              data-testid="btn-popout"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setShowSplit((v) => !v)}
+              className={iconBtnClass + " hover:bg-white/5"}
+              style={iconBtnStyle(showSplit)}
+              title={linkedQuote ? `Split view — ${linkedQuote}` : "No linked quote"}
+              disabled={!linkedQuote}
+              data-testid="btn-split"
+            >
+              <SplitSquareHorizontal className="w-3.5 h-3.5" style={{ opacity: linkedQuote ? 1 : 0.3 }} />
+            </button>
+          </div>
+
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1">
+              <h2 className="text-xl font-bold font-mono text-[#14b8a6]">
+                {jobNumber}
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1.5">
+                <MapPin className="w-3 h-3" />
+                {pol}
+                <span className="text-muted-foreground/50">→</span>
+                {pod}
+                <span className="text-muted-foreground/50">→</span>
+                {destination}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 flex-none">
+              {/* Status badge */}
+              <span
+                className="px-2.5 py-1 rounded-full text-[10px] font-semibold uppercase tracking-wide whitespace-nowrap"
+                style={{
+                  background: `${badgeColor}20`,
+                  color: badgeColor,
+                  border: `1px solid ${badgeColor}40`,
+                }}
+              >
+                {status || "Unknown"}
+              </span>
+
+              {/* Dates */}
+              <div className="text-[10px] text-muted-foreground whitespace-nowrap">
+                <span>ETD {etd}</span>
+                <span className="mx-1">/</span>
+                <span>ETA {eta}</span>
+              </div>
+
+              {/* Close */}
+              <button
+                onClick={onClose}
+                className="w-7 h-7 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-white/5 transition-colors"
+                data-testid="shipment-detail-close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Milestones */}
+        <div
+          className="px-6 py-4 border-b"
+          style={{ borderColor: "hsl(217 33% 20%)" }}
+        >
+          <div className="flex items-center justify-between">
+            {MILESTONE_STEPS.map((step, i) => {
+              const stepIndex = i + 1;
+              const isCompleted = stepIndex < currentStep;
+              const isCurrent = stepIndex === currentStep;
+              const isFuture = stepIndex > currentStep;
+
+              let circleColor = "hsl(217 33% 25%)";
+              let circleBorder = "hsl(217 33% 25%)";
+              if (isCompleted) {
+                circleColor = "#22C55E";
+                circleBorder = "#22C55E";
+              }
+              if (isCurrent) {
+                circleColor = "#14b8a6";
+                circleBorder = "#14b8a6";
+              }
+
+              return (
+                <div key={step} className="flex-1 flex flex-col items-center relative">
+                  {/* Connecting line */}
+                  {i > 0 && (
+                    <div
+                      className="absolute top-3 right-1/2 w-full h-0.5"
+                      style={{
+                        background: isCompleted || isCurrent
+                          ? "#22C55E"
+                          : "hsl(217 33% 25%)",
+                      }}
+                    />
+                  )}
+                  {/* Circle */}
+                  <div
+                    className="relative z-10 w-6 h-6 rounded-full flex items-center justify-center"
+                    style={{
+                      background: isCompleted || isCurrent ? circleColor : "hsl(222 47% 8%)",
+                      border: `2px solid ${circleBorder}`,
+                    }}
+                  >
+                    {isCompleted && (
+                      <Check className="w-3 h-3 text-white" />
+                    )}
+                    {isCurrent && (
+                      <div
+                        className="w-2 h-2 rounded-full"
+                        style={{ background: "white" }}
+                      />
+                    )}
+                  </div>
+                  {/* Label */}
+                  <span
+                    className="text-[9px] mt-1.5 text-center leading-tight"
+                    style={{
+                      color: isCompleted || isCurrent
+                        ? "#d1d5db"
+                        : "hsl(217 33% 40%)",
+                    }}
+                  >
+                    {step}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Main content: two-column grid */}
+        <div className="grid grid-cols-2 gap-4 p-6">
+          {/* Left Column */}
+          <div className="space-y-4">
+            {/* Shipment Overview */}
+            <div
+              className="rounded-lg p-4"
+              style={{ background: "hsl(222 47% 11%)" }}
+            >
+              <h3
+                className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground mb-3 flex items-center gap-1.5"
+              >
+                <Ship className="w-3.5 h-3.5 text-[#14b8a6]" />
+                Shipment Overview
+              </h3>
+              <div className="space-y-2">
+                {overviewRows.map(({ label, value }) => (
+                  <div key={label} className="flex items-start gap-2">
+                    <span
+                      className="text-[11px] text-muted-foreground flex-none"
+                      style={{ width: "110px" }}
+                    >
+                      {label}
+                    </span>
+                    <span className="text-xs text-foreground">
+                      {value || "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Addresses */}
+            <div
+              className="rounded-lg p-4"
+              style={{ background: "hsl(222 47% 11%)" }}
+            >
+              <h3 className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground mb-3 flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-[#14b8a6]" />
+                Addresses
+              </h3>
+              <div className="grid grid-cols-2 gap-4">
+                {/* Shipper side */}
+                <div
+                  className="rounded-md p-3"
+                  style={{ background: "hsl(222 47% 6%)" }}
+                >
+                  <p className="text-[11px] font-bold text-muted-foreground mb-1">
+                    Shipper
+                  </p>
+                  <p className="text-xs text-foreground mb-2">
+                    {safeData["Shipper"] || "—"}
+                  </p>
+                  <p className="text-[11px] font-bold text-muted-foreground mb-1">
+                    Pick Up Address
+                  </p>
+                  <p className="text-xs text-foreground">
+                    {safeData["Pick Up Address"] || "—"}
+                  </p>
+                </div>
+
+                {/* Consignee side */}
+                <div
+                  className="rounded-md p-3"
+                  style={{ background: "hsl(222 47% 6%)" }}
+                >
+                  <p className="text-[11px] font-bold text-muted-foreground mb-1">
+                    Consignee
+                  </p>
+                  <p className="text-xs text-foreground mb-2">
+                    {safeData["Consignee"] || "—"}
+                  </p>
+                  <p className="text-[11px] font-bold text-muted-foreground mb-1">
+                    Delivery Address
+                  </p>
+                  <p className="text-xs text-foreground">
+                    {safeData["Delivery Address"] || "—"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column */}
+          <div className="space-y-4">
+            {/* Tasks */}
+            <div
+              className="rounded-lg p-4"
+              style={{ background: "hsl(222 47% 11%)" }}
+            >
+              <h3 className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground mb-3 flex items-center gap-1.5">
+                <Package className="w-3.5 h-3.5 text-[#14b8a6]" />
+                Tasks
+              </h3>
+              <div className="space-y-1">
+                {TASK_LIST.map(({ key, label }) => {
+                  const task = tasks[key];
+                  const isChecked = task?.completed ?? false;
+
+                  return (
+                    <label
+                      key={key}
+                      className="flex items-center gap-2.5 py-1.5 px-2 rounded-md cursor-pointer hover:bg-white/[0.03] transition-colors"
+                    >
+                      <div className="relative flex-none">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleTask(key)}
+                          className="sr-only"
+                          data-testid={`task-${key}`}
+                        />
+                        <div
+                          className="w-4 h-4 rounded border flex items-center justify-center transition-colors"
+                          style={{
+                            background: isChecked ? "#14b8a6" : "transparent",
+                            borderColor: isChecked
+                              ? "#14b8a6"
+                              : "hsl(217 33% 30%)",
+                          }}
+                        >
+                          {isChecked && (
+                            <Check className="w-3 h-3 text-white" />
+                          )}
+                        </div>
+                      </div>
+                      <span
+                        className="text-xs flex-1"
+                        style={{
+                          color: isChecked
+                            ? "#22C55E"
+                            : "hsl(215 20% 75%)",
+                        }}
+                      >
+                        {label}
+                      </span>
+                      {isChecked && task?.completedAt && (
+                        <span className="text-[9px] text-muted-foreground/50 flex-none">
+                          {formatTimestamp(task.completedAt)}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Documents */}
+            <div
+              className="rounded-lg p-4"
+              style={{ background: "hsl(222 47% 11%)" }}
+            >
+              <h3 className="text-[11px] uppercase tracking-wider font-semibold text-muted-foreground mb-3 flex items-center gap-1.5">
+                <Anchor className="w-3.5 h-3.5 text-[#14b8a6]" />
+                Documents
+                <span className="ml-auto text-[10px] font-normal text-muted-foreground/60">
+                  {attachments.length} file{attachments.length !== 1 ? "s" : ""}
+                </span>
+              </h3>
+
+              {/* Drop zone */}
+              <div
+                className="rounded-md border-2 border-dashed p-3 text-center transition-all cursor-pointer mb-3"
+                style={{
+                  borderColor: dragOver ? "#14b8a6" : "hsl(217 33% 22%)",
+                  background: dragOver
+                    ? "rgba(20, 184, 166, 0.05)"
+                    : "hsl(222 47% 6%)",
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setDragOver(true);
+                }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleFileDrop}
+                onClick={() => fileInputRef.current?.click()}
+                data-testid="documents-drop-zone"
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  onChange={handleFileInput}
+                  className="hidden"
+                />
+                <Upload className="w-5 h-5 text-muted-foreground/40 mx-auto mb-1" />
+                <p className="text-[10px] text-muted-foreground">
+                  Drop files here or click to browse
+                </p>
+              </div>
+
+              {/* File list */}
+              {attachments.length > 0 && (
+                <div className="space-y-1">
+                  {attachments.map((f) => (
+                    <div
+                      key={f.id}
+                      className="group flex items-center gap-2.5 px-2.5 py-1.5 rounded-md transition-colors hover:bg-white/[0.03]"
+                      style={{ background: "hsl(222 47% 6%)" }}
+                    >
+                      <div className="flex-none">
+                        {getFileIcon(f.type, f.name)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[11px] text-foreground truncate">
+                          {f.name}
+                        </p>
+                        <span className="text-[9px] text-muted-foreground/50">
+                          {formatSize(f.size)}
+                        </span>
+                      </div>
+                      <button
+                        onClick={() => deleteAttachment(f.id)}
+                        className="opacity-0 group-hover:opacity-100 w-5 h-5 rounded flex items-center justify-center text-muted-foreground/40 hover:text-red-400 transition-all flex-none"
+                        title="Delete"
+                        data-testid={`delete-attachment-${f.id}`}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        </div>{/* end flex-1 main content */}
+
+        {/* Split: Linked Quote Panel */}
+        {showSplit && linkedQuote && (
+          <LinkedQuotePanel quoteNumber={linkedQuote} onClose={() => setShowSplit(false)} />
+        )}
+      </div>
+    </div>,
+    document.body,
+  );
+}

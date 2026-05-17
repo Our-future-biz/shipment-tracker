@@ -1,0 +1,221 @@
+export interface Shipment {
+  row: number;
+  jobNumber: string;
+  month: string;
+  dept: string;
+  handler: string;
+  shipper: string;
+  consignee: string;
+  customsStatus: string;
+  status: string;
+  shipmentType: string;
+  fclLcl: string;
+  shippingLine: string;
+  pol: string;
+  pod: string;
+  etd: string;
+  eta: string;
+  etaDepo: string;
+  etaCnee: string;
+  etaCneeTime?: string;
+  vessel: string;
+  voyage?: string;
+  goods: string;
+  hsCode: string;
+  booking?: string;
+  myRef?: string;
+  cntr?: string;
+  crd?: string;
+  pu?: string;
+  closing?: string;
+  destination?: string;
+  extra?: Record<string, string>;
+}
+
+export const STATUS_COLORS: Record<string, string> = {
+  "VYFA [IMP]": "#4CAF50",
+  "VYFA [EXP]": "#4CAF50",
+  "ČEKÁM NA VYKLÁDKU": "#FFC107",
+  "ČEKÁM NA VYKLÁDKU [IMP]": "#FFC107",
+  "ODPLULO-NEOBJEDNÁNO": "#FF9800",
+  "ODPLULO-NEOBJEDNÁNO [IMP]": "#FF9800",
+  "ODPLULO-OBJEDNÁNO": "#FFD54F",
+  "ODPLULO-OBJEDNÁNO [IMP]": "#FFD54F",
+  "ČEKÁM NA ODPLUTÍ": "#42A5F5",
+  "ČEKÁM NA ODPLUTÍ [IMP]": "#42A5F5",
+  "ČEKÁM NA ODPLUTÍ [EXP]": "#42A5F5",
+  "CHYBÍ PLUTÍ [EXP]": "#EF5350",
+  "CHYBÍ PLUTÍ [IMP]": "#EF5350",
+  "ČEKÁM NA NAKLÁDKU": "#CE93D8",
+  "ČEKÁM NA NAKLÁDKU [EXP]": "#CE93D8",
+  "FAKTURACE [IMP]": "#66BB6A",
+  "FAKTURACE [EXP]": "#66BB6A",
+  "ODPLULO-AVÍZO-ČEKÁM INSTRUKCE [IMP]": "#9E9E9E",
+  "OBJEDNÁNO-CLENÍ [IMP]": "#F48FB1",
+  "NALOŽENO-CLENÍ [EXP]": "#F48FB1",
+};
+
+export const CUSTOMS_STATUS_COLORS: Record<string, string> = {
+  "Vycleno": "#E8F5E9",
+  "Doklady OK": "#E8F5E9",
+  "Kontrola dokladů": "#FFF9C4",
+  "Čekáme na doklady": "#FFFFFF",
+};
+
+export const COLUMNS = [
+  "Job number", "Job Month", "Department", "Job handled by", "Backup [Vacation]",
+  "Customer", "Pick Up Address", "Shipper", "Consignee", "Delivery Address", "Customs status", "Status", "Comments", "TO DO date",
+  "CNTR no.", "My reference", "Booking number", "FCL/LCL", "Shipment type",
+  "Agent", "PIC email", "Shipping line / Coloader", "Business type",
+  "INCOTERM ORIGIN", "Incoterm destination", "Online tracking", "Insurance",
+  "CRD date", "PU date", "PU time", "Closing date", "ETD date", "ETA date",
+  "ETA depo", "ETA cnee", "ETA cnee time", "Cargo origin", "Country code",
+  "Origin", "POL", "POD", "Destination", "CI a PL", "CI value", "HS code",
+  "Goods description", "Credit Check", "Approved by", "BC shipping line / coloader",
+  "Customs", "BC del/pick", "Suppliers email contact", "VGM", "SI",
+  "AMS [USA only]", "ISF [USA only]", "Draft BL", "Switch B/L", "Switch B/L no.",
+  "HB/L no.", "H/BL type", "M/BL no.", "M/BL type", "Vessel", "Voyage",
+  "CNTR count [1]", "CNTR length [1]", "CNTR type [1]", "CNTR count [2]",
+  "CNTR length [2]", "CNTR type [2]", "CNTR length [3]", "CNTR type [3]",
+  "CNTR count [4]", "CNTR length [4]", "CNTR type [4]", "TEU",
+  "Dims - Width [cm]", "Dims - Length [cm]", "Dims - Height [cm]", "Stackable",
+  "PCS", "KGS [Total]", "CBM", "Area in square meters", "Sales number",
+  "Customer ref.", "Selling", "Validity of cost", "Validity status",
+  "Buying me", "Buying Sales/Rates", "Claim", "Trucking buy",
+  "Trucking sell", "Mutual profit", "Truck no.",
+  "Date",
+];
+
+// Maps shipment fields to full-sheet column positions
+export function getColumnValue(s: Shipment, col: string): string {
+  const map: Record<string, string | undefined> = {
+    "Job number": s.jobNumber,
+    "Job Month": s.month,
+    "Department": s.dept,
+    "Job handled by": s.handler,
+    "Shipper": s.shipper,
+    "Consignee": s.consignee,
+    "Customs status": s.customsStatus,
+    "Status": s.status,
+    "Shipment type": s.shipmentType,
+    "FCL/LCL": s.fclLcl,
+    "Shipping line / Coloader": s.shippingLine,
+    "POL": s.pol,
+    "POD": s.pod,
+    "ETD date": s.etd,
+    "ETA date": s.eta,
+    "ETA depo": s.etaDepo,
+    "ETA cnee": s.etaCnee,
+    "ETA cnee time": s.etaCneeTime,
+    "Vessel": s.vessel,
+    "Voyage": s.voyage,
+    "Goods description": s.goods,
+    "HS code": s.hsCode,
+    "Booking number": s.booking,
+    "My reference": s.myRef,
+    "CNTR no.": s.cntr,
+    "CRD date": s.crd,
+    "PU date": s.pu,
+    "Closing date": s.closing,
+    "Destination": s.destination,
+  };
+  return map[col] ?? (s.extra?.[col] ?? "");
+}
+
+export const SHIPMENTS: Shipment[] = [
+  {"row":1,"jobNumber":"CZ25000362","month":"Leden","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"TENGZHOU EASTERN STEEL CORD CO., LTD.","consignee":"CONTINENTAL BARUM S.R.O.","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"Qingdao","pod":"Bremerhaven","etd":"01/15/25","eta":"03/01/25","etaDepo":"03/10/25","etaCnee":"03/15/25","vessel":"","goods":"ocelový kord","hsCode":"73121041"},
+  {"row":2,"jobNumber":"CZ25000024","month":"Leden","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"Linyi Lida Machinery Factory","consignee":"Area Four Industries Česko s.r.o.","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":3,"jobNumber":"CZ25000037","month":"Leden","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"Foshan Route Automatic Door","consignee":"Assa Abloy","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"Autodoor spare parts","hsCode":""},
+  {"row":4,"jobNumber":"CZ25000069","month":"Únor","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"Tycoons Worldwide Group (Thailand)","consignee":"Fasteners","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"závitové svorníky","hsCode":""},
+  {"row":5,"jobNumber":"CZ25000055","month":"Leden","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"Multitech","consignee":"BOS Automotive Products CZ","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":6,"jobNumber":"CZ25000220","month":"Leden","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"SHANGHAI TOP SUN INDUSTRIAL CO., LTD","consignee":"TOP SUN AUTOMOTIVE COMPONENTS SINGAPORE","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":7,"jobNumber":"CZ25000252","month":"Únor","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"Multitech","consignee":"BOS Automotive Products CZ","customsStatus":"Doklady OK","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":8,"jobNumber":"CZ25000463","month":"Únor","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"WUHAN JIANHENG METAL TECHNOLOGY CO., LTD.","consignee":"VERDENTRADE","customsStatus":"Doklady OK","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":9,"jobNumber":"CZ25000377","month":"Únor","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"Marmon Foodservice Inc","consignee":"Marmon Foodservice Manufacturing s.r.o.","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"Beverage Dispensers","hsCode":""},
+  {"row":10,"jobNumber":"CZ25000378","month":"Únor","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"Marmon Foodservice Inc","consignee":"Marmon Foodservice Manufacturing s.r.o.","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"Beverage Dispensers","hsCode":""},
+  {"row":11,"jobNumber":"CZ25000429","month":"Leden","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"Assa Abloy","consignee":"Assa Abloy","customsStatus":"Doklady OK","status":"VYFA [EXP]","shipmentType":"EXP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":12,"jobNumber":"CZ25000509","month":"Únor","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"LINKFAST CO.,LTD","consignee":"Fasteners","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":13,"jobNumber":"CZ25000510","month":"Únor","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"LINKFAST CO.,LTD","consignee":"Fasteners","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":14,"jobNumber":"CZ25000395","month":"Únor","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"TENGZHOU EASTERN STEEL CORD CO., LTD.","consignee":"CONTINENTAL BARUM S.R.O.","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"ocelový kord","hsCode":"73121041"},
+  {"row":15,"jobNumber":"CZ25000396","month":"Únor","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"TENGZHOU EASTERN STEEL CORD CO., LTD.","consignee":"CONTINENTAL BARUM S.R.O.","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"ocelový kord","hsCode":"73121041"},
+  {"row":16,"jobNumber":"CZ25000397","month":"Únor","dept":"OPS","handler":"lukas@ourfuture.biz","shipper":"TENGZHOU EASTERN STEEL CORD CO., LTD.","consignee":"CONTINENTAL BARUM S.R.O.","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"ocelový kord","hsCode":"73121041"},
+  {"row":17,"jobNumber":"CZ25000449","month":"Únor","dept":"OPS","handler":"","shipper":"Marmon Foodservice Inc","consignee":"Marmon Foodservice Manufacturing s.r.o.","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":18,"jobNumber":"CZ25000455","month":"Únor","dept":"OPS","handler":"","shipper":"SHANGHAI TOP SUN INDUSTRIAL CO., LTD","consignee":"TOP SUN AUTOMOTIVE COMPONENTS SINGAPORE","customsStatus":"Kontrola dokladů","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":19,"jobNumber":"CZ25001063","month":"Březen","dept":"OPS","handler":"","shipper":"TOTA INDUSTRIES CORPORATION LIMITED","consignee":"EPEE Czech s.r.o.","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":20,"jobNumber":"CZ25000968","month":"Březen","dept":"OPS","handler":"","shipper":"HISENER INDUSTRIAL CO., LTD","consignee":"Fasteners","customsStatus":"Vycleno","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":78,"jobNumber":"CZ25005167","month":"July","dept":"OPS","handler":"","shipper":"LINKFAST TECHNOLOGIES","consignee":"Fasteners","customsStatus":"Doklady OK","status":"ČEKÁM NA VYKLÁDKU","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"Zhapu","pod":"Bremerhaven","etd":"04/20/25","eta":"06/14/25","etaDepo":"07/09/25","etaCnee":"07/18/25","etaCneeTime":"8:00","vessel":"MAERSK CAMPTON","voyage":"517W","goods":"závitové svorníky","hsCode":"7318159589","booking":"285334806","myRef":"JBA20250327013","cntr":"DK25040395CNZPGCZM","crd":"02/28/25","pu":"03/31/25"},
+  {"row":79,"jobNumber":"CZ25005721","month":"July","dept":"OPS","handler":"","shipper":"LINKFAST TECHNOLOGIES","consignee":"Fasteners","customsStatus":"Doklady OK","status":"ČEKÁM NA VYKLÁDKU","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"Zhapu","pod":"Bremerhaven","etd":"04/16/25","eta":"06/08/25","etaDepo":"07/10/25","etaCnee":"07/21/25","etaCneeTime":"8:00","vessel":"AL MURAYKH","voyage":"517W","goods":"závitové svorníky","hsCode":"","booking":"252262157","myRef":"JBA20250328010","cntr":"DK25040386CNZPGCZM"},
+  {"row":81,"jobNumber":"CZ25004986","month":"July","dept":"OPS","handler":"","shipper":"HISENER INDUSTRIAL CO., LTD","consignee":"Fasteners","customsStatus":"Doklady OK","status":"ČEKÁM NA VYKLÁDKU","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK / China Global Maritime","pol":"Shanghai","pod":"Bremerhaven","etd":"04/17/25","eta":"06/01/25","etaDepo":"07/05/25","etaCnee":"07/14/25","etaCneeTime":"8:00","vessel":"BERLIN EXPRESS","voyage":"516W","goods":"závitové svorníky","hsCode":"","booking":"252152518","myRef":"JBA20250331011","cntr":"F202513084","crd":"04/10/25"},
+  {"row":91,"jobNumber":"CZ25006259","month":"June","dept":"OPS","handler":"","shipper":"SSF Industrial Co.","consignee":"Fasteners","customsStatus":"Doklady OK","status":"ODPLULO-OBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"05/07/25","eta":"06/19/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":93,"jobNumber":"CZ25006258","month":"June","dept":"OPS","handler":"","shipper":"Chin Well Fasteners","consignee":"Fasteners","customsStatus":"Doklady OK","status":"ODPLULO-OBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"05/12/25","eta":"06/19/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":94,"jobNumber":"CZ25006245","month":"May","dept":"OPS","handler":"","shipper":"Marmon Foodservice Inc","consignee":"Marmon Foodservice Manufacturing s.r.o.","customsStatus":"Doklady OK","status":"ODPLULO-OBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"CMA","pol":"","pod":"","etd":"05/16/25","eta":"06/23/25","etaDepo":"","etaCnee":"","vessel":"","goods":"Beverage Dispensers","hsCode":"","crd":"04/29/25"},
+  {"row":97,"jobNumber":"CZ25006509","month":"June","dept":"OPS","handler":"","shipper":"TENGZHOU EASTERN STEEL CORD","consignee":"CONTINENTAL BARUM","customsStatus":"Doklady OK","status":"ČEKÁM NA VYKLÁDKU","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"Qingdao","pod":"Bremerhaven","etd":"04/24/25","eta":"06/26/25","etaDepo":"","etaCnee":"","vessel":"","goods":"ocelový kord","hsCode":"73121041"},
+  {"row":105,"jobNumber":"CZ25007641","month":"July","dept":"OPS","handler":"","shipper":"Marmon Foodservice Inc","consignee":"Marmon Foodservice Manufacturing s.r.o.","customsStatus":"Doklady OK","status":"ODPLULO-OBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"COSCO","pol":"","pod":"","etd":"06/03/25","eta":"07/06/25","etaDepo":"","etaCnee":"","vessel":"","goods":"Beverage Dispensers","hsCode":"","crd":"05/21/25","pu":"06/09/25","closing":"06/14/25"},
+  {"row":106,"jobNumber":"CZ25007643","month":"July","dept":"OPS","handler":"","shipper":"Marmon Foodservice Inc","consignee":"Marmon Foodservice Manufacturing s.r.o.","customsStatus":"Doklady OK","status":"ODPLULO-NEOBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"COSCO","pol":"","pod":"","etd":"06/20/25","eta":"07/14/25","etaDepo":"","etaCnee":"","vessel":"","goods":"Beverage Dispensers","hsCode":"","crd":"05/30/25"},
+  {"row":108,"jobNumber":"CZ25007875","month":"July","dept":"OPS","handler":"","shipper":"TENGZHOU EASTERN STEEL CORD","consignee":"CONTINENTAL BARUM","customsStatus":"Doklady OK","status":"ODPLULO-OBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"COSCO","pol":"","pod":"","etd":"05/14/25","eta":"07/05/25","etaDepo":"","etaCnee":"","vessel":"","goods":"ocelový kord","hsCode":"73121041"},
+  {"row":109,"jobNumber":"CZ25007879","month":"July","dept":"OPS","handler":"","shipper":"TENGZHOU EASTERN STEEL CORD","consignee":"CONTINENTAL BARUM","customsStatus":"Doklady OK","status":"ČEKÁM NA VYKLÁDKU","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"05/09/25","eta":"06/23/25","etaDepo":"","etaCnee":"","vessel":"","goods":"ocelový kord","hsCode":"73121041"},
+  {"row":110,"jobNumber":"CZ25008395","month":"August","dept":"OPS","handler":"","shipper":"CHUF","consignee":"Yongdelixing Machinery","customsStatus":"Čekáme na doklady","status":"ČEKÁM NA NAKLÁDKU","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"COSCO","pol":"","pod":"","etd":"07/16/25","eta":"08/31/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":111,"jobNumber":"CZ25008137","month":"July","dept":"OPS","handler":"","shipper":"ORVEON GLOBAL","consignee":"MARVINPAC","customsStatus":"Doklady OK","status":"ODPLULO-OBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"COSCO","pol":"","pod":"","etd":"05/25/25","eta":"07/07/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":112,"jobNumber":"CZ25008157","month":"August","dept":"OPS","handler":"","shipper":"Lovetex Industrial","consignee":"TESOTEX","customsStatus":"Doklady OK","status":"ODPLULO-NEOBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"06/18/25","eta":"07/31/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":"","crd":"06/06/25"},
+  {"row":114,"jobNumber":"CZ25008069","month":"August","dept":"OPS","handler":"","shipper":"Marmon Foodservice Inc","consignee":"Marmon Foodservice Manufacturing s.r.o.","customsStatus":"Doklady OK","status":"ODPLULO-NEOBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"YML","pol":"","pod":"","etd":"06/13/25","eta":"07/30/25","etaDepo":"","etaCnee":"","vessel":"","goods":"Beverage Dispensers","hsCode":"","crd":"06/10/25"},
+  {"row":116,"jobNumber":"CZ25008216","month":"July","dept":"OPS","handler":"","shipper":"TENGZHOU EASTERN STEEL CORD","consignee":"CONTINENTAL BARUM","customsStatus":"Doklady OK","status":"ODPLULO-OBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"COSCO","pol":"","pod":"","etd":"05/23/25","eta":"07/10/25","etaDepo":"","etaCnee":"","vessel":"","goods":"ocelový kord","hsCode":"73121041"},
+  {"row":117,"jobNumber":"CZ25008219","month":"July","dept":"OPS","handler":"","shipper":"ASIATECNICA","consignee":"ITALFLEXO","customsStatus":"Doklady OK","status":"ČEKÁM NA VYKLÁDKU","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"ONE","pol":"","pod":"","etd":"05/09/25","eta":"07/03/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":118,"jobNumber":"CZ25008318","month":"August","dept":"OPS","handler":"","shipper":"3 dodavatelé","consignee":"G&G RESOURCES","customsStatus":"Čekáme na doklady","status":"ODPLULO-NEOBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"06/23/25","eta":"08/10/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":"","crd":"06/18/25"},
+  {"row":119,"jobNumber":"CZ25008844","month":"July","dept":"OPS","handler":"","shipper":"GCE, s.r.o.","consignee":"","customsStatus":"Vycleno","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"ONE","pol":"","pod":"","etd":"07/06/25","eta":"07/15/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":"","crd":"06/23/25","closing":"07/01/25"},
+  {"row":120,"jobNumber":"CZ25008798","month":"August","dept":"OPS","handler":"","shipper":"OSANG HEALTHCARE","consignee":"RESTRIALNOVATIONS","customsStatus":"Doklady OK","status":"ODPLULO-NEOBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"HPL","pol":"","pod":"","etd":"06/23/25","eta":"08/07/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":121,"jobNumber":"CZ25008578","month":"July","dept":"OPS","handler":"","shipper":"SHANGHAI TOP SUN INDUSTRIAL","consignee":"TOP SUN AUTOMOTIVE","customsStatus":"Doklady OK","status":"ODPLULO-NEOBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"COSCO","pol":"","pod":"","etd":"05/29/25","eta":"07/14/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":122,"jobNumber":"CZ25009094","month":"August","dept":"OPS","handler":"","shipper":"5 dodavatelů","consignee":"DAKLS","customsStatus":"Čekáme na doklady","status":"ODPLULO-NEOBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"06/25/25","eta":"08/14/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":123,"jobNumber":"CZ25008781","month":"June","dept":"OPS","handler":"","shipper":"ZKL BEARINGS","consignee":"","customsStatus":"Vycleno","status":"VYFA [EXP]","shipmentType":"EXP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":124,"jobNumber":"CZ25008924","month":"August","dept":"OPS","handler":"","shipper":"Multitech","consignee":"BOS Automotive Products CZ","customsStatus":"Čekáme na doklady","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"COSCO","pol":"","pod":"","etd":"07/12/25","eta":"08/06/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":"","pu":"07/01/25"},
+  {"row":125,"jobNumber":"CZ25010072","month":"September","dept":"OPS","handler":"","shipper":"Airwell Residential","consignee":"Klimatika","customsStatus":"Čekáme na doklady","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"07/19/25","eta":"09/02/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":126,"jobNumber":"CZ25008922","month":"August","dept":"OPS","handler":"","shipper":"Marmon Foodservice Inc","consignee":"Marmon Foodservice Manufacturing s.r.o.","customsStatus":"Čekáme na doklady","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"COSCO","pol":"","pod":"","etd":"07/12/25","eta":"08/09/25","etaDepo":"","etaCnee":"","vessel":"","goods":"Beverage Dispensers","hsCode":"","crd":"06/30/25"},
+  {"row":127,"jobNumber":"CZ25008767","month":"August","dept":"OPS","handler":"","shipper":"DANDONG ETON","consignee":"Z - Trade s.r.o.","customsStatus":"Čekáme na doklady","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"06/25/25","eta":"08/10/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":128,"jobNumber":"CZ25008954","month":"July","dept":"OPS","handler":"","shipper":"RHI","consignee":"","customsStatus":"Doklady OK","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"HPL","pol":"","pod":"","etd":"07/05/25","eta":"08/19/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":"","crd":"06/27/25","closing":"07/03/25"},
+  {"row":129,"jobNumber":"CZ25008845","month":"August","dept":"OPS","handler":"","shipper":"SICHUAN Y & J Industries","consignee":"ABO VALVE","customsStatus":"Čekáme na doklady","status":"ODPLULO-NEOBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"06/29/25","eta":"08/17/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":130,"jobNumber":"CZ25009212","month":"August","dept":"OPS","handler":"","shipper":"2 dodavatelé","consignee":"RUDORFER PACKAGING","customsStatus":"Čekáme na doklady","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"COSCO","pol":"","pod":"","etd":"07/15/25","eta":"08/23/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":"","crd":"06/27/25","closing":"07/03/25"},
+  {"row":131,"jobNumber":"CZ25008956","month":"July","dept":"OPS","handler":"","shipper":"RHI","consignee":"","customsStatus":"Doklady OK","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"HPL","pol":"","pod":"","etd":"07/05/25","eta":"09/08/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":132,"jobNumber":"CZ25008978","month":"August","dept":"OPS","handler":"","shipper":"Tycoons Worldwide","consignee":"Fasteners","customsStatus":"Čekáme na doklady","status":"ODPLULO-NEOBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"06/28/25","eta":"08/07/25","etaDepo":"","etaCnee":"","vessel":"","goods":"závitové svorníky","hsCode":"","crd":"06/26/25"},
+  {"row":133,"jobNumber":"CZ25008979","month":"August","dept":"OPS","handler":"","shipper":"Tycoons Worldwide","consignee":"Fasteners","customsStatus":"Čekáme na doklady","status":"ODPLULO-NEOBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"06/29/25","eta":"08/07/25","etaDepo":"","etaCnee":"","vessel":"","goods":"závitové svorníky","hsCode":"","crd":"06/26/25"},
+  {"row":134,"jobNumber":"CZ25008927","month":"August","dept":"OPS","handler":"","shipper":"Jiangsu Kolod Food Ingredients","consignee":"Nevitech","customsStatus":"Čekáme na doklady","status":"ODPLULO-NEOBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"06/24/25","eta":"08/14/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":135,"jobNumber":"CZ25008984","month":"June","dept":"OPS","handler":"","shipper":"Assa Abloy","consignee":"Assa Abloy","customsStatus":"Vycleno","status":"VYFA [EXP]","shipmentType":"EXP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":136,"jobNumber":"CZ25008912","month":"June","dept":"OPS","handler":"","shipper":"SHANGHAI TOP SUN INDUSTRIAL","consignee":"TOP SUN AUTOMOTIVE","customsStatus":"Doklady OK","status":"VYFA [IMP]","shipmentType":"IMP","fclLcl":"","shippingLine":"","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":137,"jobNumber":"CZ25008913","month":"July","dept":"OPS","handler":"","shipper":"SHANGHAI TOP SUN INDUSTRIAL","consignee":"TOP SUN AUTOMOTIVE","customsStatus":"Doklady OK","status":"ČEKÁM NA VYKLÁDKU","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"ONE","pol":"","pod":"","etd":"04/26/25","eta":"06/30/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":138,"jobNumber":"CZ25009070","month":"July","dept":"OPS","handler":"","shipper":"BMT","consignee":"BMT USA","customsStatus":"Vycleno","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"HPL","pol":"","pod":"","etd":"07/07/25","eta":"07/22/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":"","crd":"06/24/25","pu":"06/30/25","closing":"07/05/25"},
+  {"row":139,"jobNumber":"CZ25009039","month":"August","dept":"OPS","handler":"","shipper":"KUO CHAO HENG","consignee":"BUBBLESTAR CZ","customsStatus":"Doklady OK","status":"ODPLULO-OBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"ONE","pol":"","pod":"","etd":"06/20/25","eta":"07/30/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":"","crd":"06/18/25"},
+  {"row":140,"jobNumber":"CZ25009292","month":"July","dept":"OPS","handler":"","shipper":"DUKE","consignee":"GOLDLINE INDUSTRIES","customsStatus":"Vycleno","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"07/15/25","eta":"08/15/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":"","pu":"07/04/25"},
+  {"row":141,"jobNumber":"CZ25009311","month":"July","dept":"OPS","handler":"","shipper":"SHANGHAI TOP SUN INDUSTRIAL","consignee":"TOP SUN AUTOMOTIVE","customsStatus":"Doklady OK","status":"ODPLULO-OBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"ONE","pol":"","pod":"","etd":"04/26/25","eta":"07/08/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":142,"jobNumber":"CZ25009312","month":"July","dept":"OPS","handler":"","shipper":"SHANGHAI TOP SUN INDUSTRIAL","consignee":"TOP SUN AUTOMOTIVE","customsStatus":"Doklady OK","status":"ODPLULO-OBJEDNÁNO","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"EGLV","pol":"","pod":"","etd":"05/17/25","eta":"07/03/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":143,"jobNumber":"CZ25009354","month":"August","dept":"OPS","handler":"","shipper":"Grandstream Networks","consignee":"PCV Computers","customsStatus":"Doklady OK","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"","pod":"","etd":"07/05/25","eta":"08/14/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":144,"jobNumber":"","month":"","dept":"OPS","handler":"","shipper":"LASSELSBERGER","consignee":"JET CONTRACT LOGISTICS","customsStatus":"Čekáme na doklady","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"","shippingLine":"HPL","pol":"","pod":"","etd":"07/07/25","eta":"08/21/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":"","closing":"07/05/25"},
+  {"row":145,"jobNumber":"CZ25010069","month":"September","dept":"OPS","handler":"","shipper":"Airwell Residential","consignee":"Klimatika","customsStatus":"Čekáme na doklady","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"ONE","pol":"","pod":"","etd":"07/19/25","eta":"09/02/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":146,"jobNumber":"","month":"","dept":"OPS","handler":"","shipper":"Qlar Czech s.r.o.","consignee":"Coperion Process Solutions LLC","customsStatus":"Čekáme na doklady","status":"CHYBÍ PLUTÍ [EXP]","shipmentType":"EXP","fclLcl":"","shippingLine":"HPL","pol":"","pod":"","etd":"07/19/25","eta":"08/06/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":"","closing":"07/18/25"},
+  {"row":147,"jobNumber":"","month":"","dept":"OPS","handler":"","shipper":"MLS Holice","consignee":"","customsStatus":"Čekáme na doklady","status":"CHYBÍ PLUTÍ [EXP]","shipmentType":"EXP","fclLcl":"","shippingLine":"HPL","pol":"","pod":"","etd":"","eta":"","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":""},
+  {"row":148,"jobNumber":"CZ25010010","month":"July","dept":"OPS","handler":"","shipper":"Assa Abloy","consignee":"Assa Abloy","customsStatus":"Čekáme na doklady","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"EXP","fclLcl":"FCL","shippingLine":"Austromar","pol":"","pod":"","etd":"07/22/25","eta":"08/26/25","etaDepo":"","etaCnee":"","vessel":"","goods":"","hsCode":"","crd":"07/02/25","pu":"07/04/25"},
+  {"row":167,"jobNumber":"CZ25009844","month":"September","dept":"OPS","handler":"","shipper":"Chin Well Fasteners Co. Ltd","consignee":"Fasteners","customsStatus":"Čekáme na doklady","status":"ČEKÁM NA ODPLUTÍ","shipmentType":"IMP","fclLcl":"FCL","shippingLine":"MSK","pol":"Ho Chi Minh","pod":"Bremerhaven","etd":"07/17/25","eta":"08/28/25","etaDepo":"","etaCnee":"","vessel":"","goods":"závitové svorníky, ocel","hsCode":"7318159589","destination":"Ivančice"},
+];
+
+// Helper to parse MM/DD/YY date strings
+export function parseDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const parts = dateStr.split("/");
+  if (parts.length !== 3) return null;
+  const month = parseInt(parts[0], 10);
+  const day = parseInt(parts[1], 10);
+  const year = 2000 + parseInt(parts[2], 10);
+  return new Date(year, month - 1, day);
+}
+
+export function formatDate(dateStr: string): string {
+  if (!dateStr) return "";
+  const d = parseDate(dateStr);
+  if (!d) return dateStr;
+  return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+export function isActiveStatus(status: string): boolean {
+  return status !== "VYFA [IMP]" && status !== "VYFA [EXP]";
+}
+
+export function isCompletedStatus(status: string): boolean {
+  return status === "VYFA [IMP]" || status === "VYFA [EXP]";
+}

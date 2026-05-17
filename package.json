@@ -1,0 +1,19 @@
+{
+  "name": "shipment-tracker",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "backend": "pnpm --filter api dev",
+    "frontend": "pnpm --filter web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "db:migrate": "pnpm --filter api db:migrate",
+    "db:seed": "pnpm --filter api db:seed",
+    "db:generate": "pnpm --filter api db:generate"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

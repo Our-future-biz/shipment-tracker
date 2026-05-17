@@ -1,0 +1,381 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─── DARK MODE (default) ─────────────────────────────────────────────
+   Slate/charcoal palette + teal accent. */
+:root {
+  --button-outline: rgba(255,255,255, .10);
+  --badge-outline: rgba(255,255,255, .05);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255,255,255, .04);
+  --elevate-2: rgba(255,255,255, .09);
+
+  /* Shadcn primitives */
+  --background: 222 47% 7%;
+  --foreground: 210 40% 96%;
+  --border: 217 33% 17%;
+  --card: 222 47% 9%;
+  --card-foreground: 210 40% 96%;
+  --card-border: 217 33% 14%;
+  --sidebar: 222 47% 8%;
+  --sidebar-foreground: 210 40% 96%;
+  --sidebar-border: 217 33% 15%;
+  --sidebar-primary: 174 60% 40%;
+  --sidebar-primary-foreground: 210 40% 98%;
+  --sidebar-accent: 217 33% 16%;
+  --sidebar-accent-foreground: 210 40% 98%;
+  --sidebar-ring: 174 60% 40%;
+  --popover: 222 47% 11%;
+  --popover-foreground: 210 40% 96%;
+  --popover-border: 217 33% 17%;
+  --primary: 174 60% 40%;
+  --primary-foreground: 210 40% 98%;
+  --secondary: 217 33% 15%;
+  --secondary-foreground: 210 40% 96%;
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 20% 55%;
+  --accent: 217 33% 14%;
+  --accent-foreground: 210 40% 96%;
+  --destructive: 0 63% 50%;
+  --destructive-foreground: 0 0% 98%;
+  --input: 217 33% 25%;
+  --ring: 174 60% 40%;
+  --chart-1: 174 60% 50%;
+  --chart-2: 262 83% 68%;
+  --chart-3: 38 92% 60%;
+  --chart-4: 200 80% 55%;
+  --chart-5: 0 72% 55%;
+  --font-sans: Inter, system-ui, -apple-system, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace;
+  --radius: .5rem;
+  --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+  --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+  --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
+  --shadow: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
+  --shadow-md: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 2px 4px -1px hsl(0 0% 0% / 0.00);
+  --shadow-lg: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 4px 6px -1px hsl(0 0% 0% / 0.00);
+  --shadow-xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 8px 10px -1px hsl(0 0% 0% / 0.00);
+  --shadow-2xl: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+
+  /* ─── App-specific tokens (used by inline styles) ─── */
+  /* surface = slate backgrounds (low number = darkest) */
+  --surface-6: 222 47% 6%;
+  --surface-7: 222 47% 7%;
+  --surface-8: 222 47% 8%;
+  --surface-9: 222 47% 9%;
+  --surface-10: 222 47% 10%;
+  --surface-11: 222 47% 11%;
+  --surface-12: 222 47% 12%;
+  --surface-13: 222 47% 13%;
+  --surface-15: 222 47% 15%;
+  --surface-18: 222 47% 18%;
+  --surface-20: 222 47% 20%;
+  --surface-22: 222 47% 22%;
+
+  /* border = subtle dividers */
+  --border-15: 217 33% 15%;
+  --border-16: 217 33% 16%;
+  --border-17: 217 33% 17%;
+  --border-18: 217 33% 18%;
+  --border-20: 217 33% 20%;
+  --border-22: 217 33% 22%;
+  --border-25: 217 33% 25%;
+  --border-30: 217 33% 30%;
+  --border-40: 217 33% 40%;
+
+  /* fg = bright text */
+  --fg-40: 210 40% 40%;
+  --fg-50: 210 40% 50%;
+  --fg-60: 210 40% 60%;
+  --fg-70: 210 40% 70%;
+  --fg-96: 210 40% 96%;
+
+  /* Brand semantic tokens (used by inline styles) */
+  --brand-teal: #14b8a6;
+  --brand-teal-strong: #14b8a6;
+  --brand-teal-soft: rgba(20,184,166,0.18);
+  --brand-amber: #f59e0b;
+  --brand-amber-soft: rgba(245,158,11,0.18);
+  --brand-orange: #ff9800;
+  --brand-red: #ef4444;
+  --brand-red-strong: #ef5350;
+  --brand-red-soft: rgba(239,83,80,0.18);
+  --brand-green: #22c55e;
+  --brand-blue: #42a5f5;
+  --on-brand-teal: #0a1620;
+  --on-brand-red: #ffffff;
+  --row-stripe: rgba(255,255,255,0.02);
+  --table-header-bg: 222 47% 13%;
+  --table-row-hover: rgba(255,255,255,0.03);
+  /* Conditional cell-tint tokens — muted on dark */
+  --tint-green: rgba(76, 175, 80, 0.25);
+  --tint-green-soft: rgba(76, 175, 80, 0.10);
+  --tint-red: rgba(239, 83, 80, 0.25);
+  --tint-red-soft: rgba(239, 83, 80, 0.12);
+  --tint-yellow: rgba(255, 235, 59, 0.22);
+  --tint-yellow-soft: rgba(255, 235, 59, 0.10);
+  --tint-orange: rgba(255, 152, 0, 0.28);
+  --tint-orange-soft: rgba(255, 152, 0, 0.16);
+  --tint-pink: rgba(244, 143, 177, 0.22);
+  --tint-grey: rgba(158, 158, 158, 0.18);
+  /* Dark yellow / mustard — used for Custom Department row */
+  --dark-yellow: #b8a608;
+  --dark-yellow-bg: rgba(202, 138, 4, 0.20);
+
+  /* muted = secondary text */
+  --muted-15: 215 20% 15%;
+  --muted-30: 215 20% 30%;
+  --muted-35: 215 20% 35%;
+  --muted-40: 215 20% 40%;
+  --muted-45: 215 20% 45%;
+  --muted-50: 215 20% 50%;
+  --muted-55: 215 20% 55%;
+  --muted-60: 215 20% 60%;
+  --muted-65: 215 20% 65%;
+  --muted-75: 215 20% 75%;
+
+  /* Backwards compat: kept fallbacks for older browsers */
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --primary-border: hsl(var(--primary));
+  --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --secondary-border: hsl(var(--secondary));
+  --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --muted-border: hsl(var(--muted));
+  --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --accent-border: hsl(var(--accent));
+  --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --destructive-border: hsl(var(--destructive));
+  --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+/* ─── LIGHT MODE ──────────────────────────────────────────────────────
+   Activated by adding the `light` class on <html>. */
+html.light {
+  --button-outline: rgba(0,0,0, .08);
+  --badge-outline: rgba(0,0,0, .05);
+  --elevate-1: rgba(0,0,0, .04);
+  --elevate-2: rgba(0,0,0, .07);
+
+  --background: 210 20% 98%;
+  --foreground: 222 47% 11%;
+  --border: 217 20% 88%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --card-border: 217 20% 90%;
+  --sidebar: 210 20% 96%;
+  --sidebar-foreground: 222 47% 11%;
+  --sidebar-border: 217 20% 88%;
+  --sidebar-primary: 174 60% 36%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 217 20% 92%;
+  --sidebar-accent-foreground: 222 47% 11%;
+  --sidebar-ring: 174 60% 40%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --popover-border: 217 20% 86%;
+  --primary: 174 60% 36%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 217 20% 94%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 217 20% 92%;
+  --muted-foreground: 215 16% 46%;
+  --accent: 217 20% 92%;
+  --accent-foreground: 222 47% 11%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --input: 217 20% 86%;
+  --ring: 174 60% 40%;
+  --chart-1: 174 60% 38%;
+  --chart-2: 262 60% 55%;
+  --chart-3: 38 80% 50%;
+  --chart-4: 200 65% 45%;
+  --chart-5: 0 60% 50%;
+
+  /* surface = light slates / paper */
+  --surface-6: 210 20% 92%;
+  --surface-7: 210 20% 94%;
+  --surface-8: 210 20% 96%;
+  --surface-9: 0 0% 100%;
+  --surface-10: 0 0% 100%;
+  --surface-11: 210 20% 98%;
+  --surface-12: 210 20% 96%;
+  --surface-13: 210 20% 94%;
+  --surface-15: 210 20% 92%;
+  --surface-18: 217 20% 88%;
+  --surface-20: 217 20% 86%;
+  --surface-22: 217 20% 84%;
+
+  /* borders */
+  --border-15: 217 20% 92%;
+  --border-16: 217 20% 90%;
+  --border-17: 217 20% 88%;
+  --border-18: 217 20% 86%;
+  --border-20: 217 20% 84%;
+  --border-22: 217 20% 80%;
+  --border-25: 217 20% 76%;
+  --border-30: 217 18% 68%;
+  --border-40: 217 18% 60%;
+
+  /* foreground (high-contrast text in light = dark slate) */
+  --fg-40: 222 47% 14%;
+  --fg-50: 222 47% 18%;
+  --fg-60: 222 30% 30%;
+  --fg-70: 222 25% 40%;
+  --fg-96: 222 47% 11%;
+
+  /* Brand semantic tokens — darker / saturated for white backgrounds */
+  --brand-teal: #0d9488;
+  --brand-teal-strong: #0f766e;
+  --brand-teal-soft: rgba(13,148,136,0.14);
+  --brand-amber: #b45309;
+  --brand-amber-soft: rgba(180,83,9,0.12);
+  --brand-orange: #c2410c;
+  --brand-red: #dc2626;
+  --brand-red-strong: #b91c1c;
+  --brand-red-soft: rgba(220,38,38,0.10);
+  --brand-green: #15803d;
+  --brand-blue: #1d4ed8;
+  --on-brand-teal: #ffffff;
+  --on-brand-red: #ffffff;
+  --row-stripe: rgba(0,0,0,0.025);
+  --table-header-bg: 210 20% 94%;
+  --table-row-hover: rgba(0,0,0,0.03);
+  /* Conditional cell-tint tokens — stronger on white so they remain readable */
+  --tint-green: rgba(34, 197, 94, 0.20);
+  --tint-green-soft: rgba(34, 197, 94, 0.10);
+  --tint-red: rgba(220, 38, 38, 0.18);
+  --tint-red-soft: rgba(220, 38, 38, 0.10);
+  --tint-yellow: rgba(234, 179, 8, 0.22);
+  --tint-yellow-soft: rgba(234, 179, 8, 0.12);
+  --tint-orange: rgba(234, 88, 12, 0.22);
+  --tint-orange-soft: rgba(234, 88, 12, 0.12);
+  --tint-pink: rgba(219, 39, 119, 0.16);
+  --tint-grey: rgba(100, 116, 139, 0.16);
+  /* Dark yellow / mustard — readable on cream/white in light mode */
+  --dark-yellow: #a16207;
+  --dark-yellow-bg: rgba(234, 179, 8, 0.35);
+
+  /* muted text scale */
+  --muted-15: 222 25% 80%;
+  --muted-30: 215 20% 70%;
+  --muted-35: 215 16% 60%;
+  --muted-40: 215 16% 55%;
+  --muted-45: 215 16% 50%;
+  --muted-50: 215 16% 46%;
+  --muted-55: 215 16% 42%;
+  --muted-60: 215 16% 38%;
+  --muted-65: 215 16% 32%;
+  --muted-75: 222 30% 22%;
+}
+
+/* When .dark is explicitly set on <html> it just keeps the :root tokens.
+   We do not need a separate .dark block — :root is dark by default. */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    margin: 0;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    transition: background-color 200ms ease, color 200ms ease;
+  }
+}
+
+@layer utilities {
+  input[type="search"]::-webkit-search-cancel-button {
+    @apply hidden;
+  }
+
+  [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+
+  .no-default-hover-elevate {}
+  .no-default-active-elevate {}
+
+  .toggle-elevate::before,
+  .toggle-elevate-2::before {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    border-radius: inherit;
+    z-index: -1;
+  }
+
+  .toggle-elevate.toggle-elevated::before {
+    background-color: var(--elevate-2);
+  }
+
+  .border.toggle-elevate::before {
+    inset: -1px;
+  }
+
+  .hover-elevate:not(.no-default-hover-elevate),
+  .active-elevate:not(.no-default-active-elevate),
+  .hover-elevate-2:not(.no-default-hover-elevate),
+  .active-elevate-2:not(.no-default-active-elevate) {
+    position: relative;
+    z-index: 0;
+  }
+
+  .hover-elevate:not(.no-default-hover-elevate)::after,
+  .active-elevate:not(.no-default-active-elevate)::after,
+  .hover-elevate-2:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:not(.no-default-active-elevate)::after {
+    content: "";
+    pointer-events: none;
+    position: absolute;
+    inset: 0px;
+    border-radius: inherit;
+    z-index: 999;
+  }
+
+  .hover-elevate:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-1);
+  }
+
+  .hover-elevate-2:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:active:not(.no-default-active-elevate)::after {
+    background-color: var(--elevate-2);
+  }
+
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate-2:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate-2:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after {
+    inset: -1px;
+  }
+
+  /* Tabular numbers for data columns */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+
+  /* Hide scrollbar on frozen pane */
+  .hide-scrollbar {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}

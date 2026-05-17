@@ -1,0 +1,41 @@
+{
+  "name": "api",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "encore run --port=4001",
+    "build": "encore build",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "encore test",
+    "db:generate:shipments": "drizzle-kit generate --config=services/shipments/db/drizzle.config.ts",
+    "db:generate:auth": "drizzle-kit generate --config=services/auth/db/drizzle.config.ts",
+    "db:generate:quotes": "drizzle-kit generate --config=services/quotes/db/drizzle.config.ts",
+    "db:generate:invoicing": "drizzle-kit generate --config=services/invoicing/db/drizzle.config.ts",
+    "db:generate:automation": "drizzle-kit generate --config=services/automation/db/drizzle.config.ts",
+    "db:generate:warehouse": "drizzle-kit generate --config=services/warehouse/db/drizzle.config.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "gen:client": "encore gen client --lang=typescript --output=../web/src/lib/api/client.ts"
+  },
+  "dependencies": {
+    "encore.dev": "^1.57.4",
+    "drizzle-orm": "^0.44.5",
+    "pg": "^8.13.0",
+    "zod": "^3.24.0",
+    "@node-rs/argon2": "^2.0.0",
+    "@anthropic-ai/sdk": "^0.80.0",
+    "jose": "^6.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/node": "^20.17.0",
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.31.0",
+    "tsx": "^4.20.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "vitest": "^3.0.0"
+  }
+}

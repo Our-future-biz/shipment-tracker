@@ -1,0 +1,31 @@
+import { eq, and } from "drizzle-orm";
+import { db } from "../db/db";
+import { billingOverrideTable } from "../schemas/billingOverride.schema";
+
+class BillingOverrideRepository {
+  async listByShipmentId(shipmentId: string) {
+    return db.select().from(billingOverrideTable).where(eq(billingOverrideTable.shipmentId, shipmentId));
+  }
+
+  async upsert(shipmentId: string, rowKey: string, billingAmount: string) {
+    const [existing] = await db
+      .select()
+      .from(billingOverrideTable)
+      .where(and(eq(billingOverrideTable.shipmentId, shipmentId), eq(billingOverrideTable.rowKey, rowKey)))
+      .limit(1);
+
+    if (existing) {
+      const [row] = await db
+        .update(billingOverrideTable)
+        .set({ billingAmount, updatedAt: new Date() })
+        .where(eq(billingOverrideTable.id, existing.id))
+        .returning();
+      return row!;
+    }
+
+    const [row] = await db.insert(billingOverrideTable).values({ shipmentId, rowKey, billingAmount }).returning();
+    return row!;
+  }
+}
+
+export const billingOverrideRepository = new BillingOverrideRepository();
