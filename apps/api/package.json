@@ -19,7 +19,7 @@
     "gen:client": "encore gen client --lang=typescript --output=../web/src/lib/api/client.ts"
   },
   "dependencies": {
-    "encore.dev": "^1.57.4",
+    "encore.dev": "^1.57.5",
     "drizzle-orm": "^0.44.5",
     "pg": "^8.13.0",
     "zod": "^3.24.0",
