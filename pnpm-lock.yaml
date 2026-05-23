@@ -20,8 +20,8 @@ importers:
         specifier: ^0.44.5
         version: 0.44.7(@libsql/client@0.15.15)(@types/pg@8.20.0)(pg@8.20.0)
       encore.dev:
-        specifier: ^1.57.4
-        version: 1.57.4
+        specifier: ^1.57.5
+        version: 1.57.5
       jose:
         specifier: ^6.0.0
         version: 6.2.3
@@ -2084,8 +2084,8 @@ packages:
   emoji-regex@9.2.2:
     resolution: {integrity: sha512-L18DaJsXSUk2+42pv8mLs5jJT2hqFkFE4j21wOmgbUqsZ2hL72NsUU785g9RXgo3s0ZNgVl42TiHp3ZtOv/Vyg==}
 
-  encore.dev@1.57.4:
-    resolution: {integrity: sha512-VwoCxxUXS40tnoKWTglApHQlhtgTI6oQ7DXNWTFRI7wcZvNiqMEgMOnDFp8Go9Gj6w+V8mpaO0FTrGr47qHi7Q==}
+  encore.dev@1.57.5:
+    resolution: {integrity: sha512-CSA1ZXWXzFbA45gbQB0bf0FAaJ6WZgza9Rlw/dmi9sqbwukd9Ro3VNBP0hd7P6NnMiObzfRk0lV32ogEgBcszg==}
     engines: {node: '>=18.0.0'}
 
   enhanced-resolve@5.21.3:
@@ -5136,7 +5136,7 @@ snapshots:
 
   emoji-regex@9.2.2: {}
 
-  encore.dev@1.57.4: {}
+  encore.dev@1.57.5: {}
 
   enhanced-resolve@5.21.3:
     dependencies:
