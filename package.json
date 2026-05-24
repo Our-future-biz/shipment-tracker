@@ -13,6 +13,7 @@
     "db:seed": "pnpm --filter api db:seed",
     "db:generate": "pnpm --filter api db:generate"
   },
+  "packageManager": "pnpm@10.28.1",
   "engines": {
     "node": ">=20.0.0"
   },
