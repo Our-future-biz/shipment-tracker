@@ -1,0 +1,1 @@
+ALTER TABLE "shipment" ADD COLUMN "extra" jsonb;

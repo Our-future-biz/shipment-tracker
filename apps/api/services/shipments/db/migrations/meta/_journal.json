@@ -15,6 +15,13 @@
       "when": 1779017596262,
       "tag": "0001_married_newton_destine",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779650900982,
+      "tag": "0002_classy_butterfly",
+      "breakpoints": true
     }
   ]
 }

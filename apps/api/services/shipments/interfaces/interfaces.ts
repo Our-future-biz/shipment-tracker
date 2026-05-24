@@ -35,7 +35,9 @@ export interface ShipmentItem {
   status: string;
   customsStatus: string;
   masterJobId: string | null;
+  masterJobMczNumber: string | null;
   containers: unknown;
+  extra: Record<string, string> | null;
   createdAt: string;
   updatedAt: string;
 }

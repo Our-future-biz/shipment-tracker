@@ -41,6 +41,7 @@ export const shipmentTable = pgTable(
     customsStatus: text("customs_status").notNull().default(""),
     masterJobId: uuid("master_job_id"),
     containers: jsonb("containers"),
+    extra: jsonb("extra").$type<Record<string, string>>(),
   },
   (table) => [
     ...defaultTableIndexes("shipment", table),

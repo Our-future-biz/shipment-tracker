@@ -46,7 +46,7 @@ export const DEPARTMENTS = [
 ] as const;
 export type Department = (typeof DEPARTMENTS)[number];
 
-export const LOAD_TYPES = ["FCL", "LCL"] as const;
+export const LOAD_TYPES = ["Full Load", "Consolidation", "Customs Clearance"] as const;
 export type LoadType = (typeof LOAD_TYPES)[number];
 
 export const BOL_TYPES = ["OBL", "SWB", "TLX", "Express"] as const;

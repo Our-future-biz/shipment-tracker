@@ -24,6 +24,16 @@ interface ShipmentUpdateRequest {
   cargoDescription?: string;
   incotermOrigin?: string;
   incotermDestination?: string;
+  houseBolNumber?: string;
+  masterBolNumber?: string;
+  houseBolType?: string;
+  masterBolType?: string;
+  pcs?: string;
+  totalWeightTons?: string;
+  totalVolumeCbm?: string;
+  cargoOrigin?: string;
+  commercialInvoiceValue?: string;
+  extra?: Record<string, string>;
 }
 
 interface ShipmentUpdateResponse {

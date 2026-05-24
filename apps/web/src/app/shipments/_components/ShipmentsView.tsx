@@ -1,23 +1,29 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Input, Select, Button, Space, Modal, Form, message, Drawer } from "antd";
-import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
-import { useShipments, useShipmentFilter } from "@/hooks/useShipments";
-import { SHIPMENT_STATUSES, TRADE_DIRECTIONS, LOAD_TYPES } from "@/lib/enums";
-import { COLUMNS } from "@/lib/columnConfig";
+import { Input, Select, Button, Space, message } from "antd";
+import { PlusOutlined, SearchOutlined, LinkOutlined } from "@ant-design/icons";
+import { useQueryClient } from "@tanstack/react-query";
+import { useShipments, useShipmentFilter, type ShipmentItem } from "@/hooks/useShipments";
+import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
+import { api } from "@/lib/api";
 import { ShipmentsTable } from "./ShipmentsTable";
-import { ShipmentDetail } from "./ShipmentDetail";
-import { CreateShipmentModal } from "./CreateShipmentModal";
-import type { controllers, interfaces } from "@/lib/api/client";
-
-type ShipmentItem = interfaces.ShipmentItem;
+import { ShipmentDetailModal } from "./ShipmentDetailModal";
+import { CreateShipmentWizard } from "./CreateShipmentWizard";
+import { MasterJobDialog } from "./MasterJobDialog";
+import { MasterJobDetailModal } from "./MasterJobDetailModal";
+import { DimensionsPopup } from "./DimensionsPopup";
+import type { controllers } from "@/lib/api/client";
 
 export const ShipmentsView = () => {
-  const { shipments, isLoading, createShipment, updateShipment, deleteShipment, isCreating } = useShipments();
+  const queryClient = useQueryClient();
+  const { shipments, isLoading, createShipment, updateField, deleteShipment, isCreating } = useShipments();
   const { filtered, search, setSearch, statusFilter, setStatusFilter } = useShipmentFilter(shipments);
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedShipment, setSelectedShipment] = useState<ShipmentItem | null>(null);
+  const [masterJobDialogOpen, setMasterJobDialogOpen] = useState(false);
+  const [masterJobDetailMcz, setMasterJobDetailMcz] = useState<string | null>(null);
+  const [dimensionsShipment, setDimensionsShipment] = useState<ShipmentItem | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
 
   const handleCreate = async (values: controllers.ShipmentCreateRequest) => {
@@ -39,70 +45,135 @@ export const ShipmentsView = () => {
     }
   };
 
-  const handleCellEdit = useCallback(async (shipmentId: string, field: string, value: string) => {
-    await updateShipment({ id: shipmentId, data: { [field]: value } as controllers.ShipmentUpdateRequest });
-  }, [updateShipment]);
+  const handleCellEdit = useCallback((shipmentId: string, field: string, value: string) => {
+    updateField(shipmentId, field, value);
+  }, [updateField]);
+
+  const statusOptions = [
+    { value: "all", label: "All Statuses" },
+    ...(DROPDOWN_OPTIONS["Shipment Status"] ?? [])
+      .filter((s) => s !== "---")
+      .map((s) => ({ value: s, label: s })),
+  ];
 
   return (
-    <div className="h-full flex flex-col">
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", padding: 16, gap: 12 }}>
       {contextHolder}
 
       {/* Toolbar */}
-      <div className="flex-none flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+      <div className="flex-none flex items-center justify-between">
         <Space>
           <Input
-            placeholder="Search..."
-            prefix={<SearchOutlined className="text-gray-400" />}
+            placeholder="Search all columns..."
+            prefix={<SearchOutlined />}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ width: 220 }}
+            style={{ width: 240 }}
             allowClear
             size="small"
           />
           <Select
             value={statusFilter}
             onChange={setStatusFilter}
-            style={{ width: 260 }}
+            style={{ width: 300 }}
             size="small"
-            options={[
-              { value: "all", label: "All Statuses" },
-              ...SHIPMENT_STATUSES.map((s) => ({ value: s, label: s })),
-            ]}
+            options={statusOptions}
           />
         </Space>
-        <Button type="primary" icon={<PlusOutlined />} size="small" onClick={() => setCreateModalOpen(true)}>
-          New Shipment
-        </Button>
+        <Space>
+          <Button size="small" icon={<LinkOutlined />} onClick={() => setMasterJobDialogOpen(true)}>
+            Master Job
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} size="small" onClick={() => setCreateModalOpen(true)}>
+            New Shipment
+          </Button>
+        </Space>
       </div>
 
       {/* Table */}
-      <ShipmentsTable
-        shipments={filtered}
-        isLoading={isLoading}
-        columns={COLUMNS}
-        onCellEdit={handleCellEdit}
-        onRowClick={(shipment) => setSelectedShipment(shipment)}
-        onDelete={handleDelete}
-      />
+      <div style={{ flex: 1, minHeight: 0, background: "#fff", borderRadius: 8, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+        <ShipmentsTable
+          shipments={filtered}
+          isLoading={isLoading}
+          onCellEdit={handleCellEdit}
+          onRowClick={(shipment) => setSelectedShipment(shipment)}
+          onDelete={handleDelete}
+          onMasterJobClick={(mcz) => { if (mcz) setMasterJobDetailMcz(mcz); else setMasterJobDialogOpen(true); }}
+          onRemoveMasterJob={async (shipment) => {
+            try {
+              await api.shipments.shipmentUnlinkMasterJob(shipment.id);
+              queryClient.invalidateQueries({ queryKey: ["shipments"] });
+              messageApi.success("Unlinked from master job");
+            } catch { messageApi.error("Failed to unlink"); }
+          }}
+          onOpenDimensions={(shipment) => setDimensionsShipment(shipment)}
+        />
+      </div>
 
-      {/* Create Modal */}
-      <CreateShipmentModal
+      {/* Create Wizard */}
+      <CreateShipmentWizard
         open={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
         onSubmit={handleCreate}
         isLoading={isCreating}
+        existingShipments={shipments}
       />
 
-      {/* Detail Drawer */}
-      <Drawer
-        title={selectedShipment ? `${selectedShipment.jobNumber} — ${selectedShipment.shipper}` : ""}
-        open={!!selectedShipment}
-        onClose={() => setSelectedShipment(null)}
-        width={640}
-        destroyOnClose
-      >
-        {selectedShipment && <ShipmentDetail shipment={selectedShipment} />}
-      </Drawer>
+      {/* Detail Modal */}
+      {selectedShipment && (
+        <ShipmentDetailModal
+          shipment={selectedShipment}
+          open={!!selectedShipment}
+          onClose={() => setSelectedShipment(null)}
+        />
+      )}
+
+      {/* Master Job Dialog */}
+      <MasterJobDialog
+        open={masterJobDialogOpen}
+        onClose={() => setMasterJobDialogOpen(false)}
+        shipments={shipments}
+        onLink={async (shipmentIds, mczNumber) => {
+          try {
+            for (const id of shipmentIds) {
+              await api.shipments.shipmentLinkMasterJob(id, { mczNumber });
+            }
+            queryClient.invalidateQueries({ queryKey: ["shipments"] });
+            messageApi.success(`Linked ${shipmentIds.length} shipment(s) to ${mczNumber}`);
+          } catch { messageApi.error("Failed to link"); }
+          setMasterJobDialogOpen(false);
+        }}
+      />
+
+      {/* Master Job Detail */}
+      {masterJobDetailMcz && (
+        <MasterJobDetailModal
+          mczNumber={masterJobDetailMcz}
+          open={!!masterJobDetailMcz}
+          onClose={() => setMasterJobDetailMcz(null)}
+          shipments={shipments}
+          onUnlink={async (shipment) => {
+            try {
+              await api.shipments.shipmentUnlinkMasterJob(shipment.id);
+              queryClient.invalidateQueries({ queryKey: ["shipments"] });
+              messageApi.success("Unlinked");
+            } catch { messageApi.error("Failed to unlink"); }
+          }}
+        />
+      )}
+
+      {/* Dimensions Popup */}
+      {dimensionsShipment && (
+        <DimensionsPopup
+          shipment={dimensionsShipment}
+          open={!!dimensionsShipment}
+          onClose={() => setDimensionsShipment(null)}
+          onSave={(json) => {
+            updateField(dimensionsShipment.id, "dimensions", json);
+            setDimensionsShipment(null);
+          }}
+        />
+      )}
     </div>
   );
 };

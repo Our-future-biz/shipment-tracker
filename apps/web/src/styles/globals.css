@@ -1,1 +1,18 @@
 @import "tailwindcss";
+
+/* Ant Design Table fixed columns need opaque background */
+.ant-table-cell-fix-left,
+.ant-table-cell-fix-right {
+  background: #ffffff !important;
+  z-index: 2;
+}
+
+.ant-table-tbody > tr:hover > .ant-table-cell-fix-left,
+.ant-table-tbody > tr:hover > .ant-table-cell-fix-right {
+  background: #f0fdfa !important;
+}
+
+/* Remove extra borders from Ant table inside card */
+.ant-table-wrapper {
+  border-radius: 0;
+}

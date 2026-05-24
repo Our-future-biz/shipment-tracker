@@ -3,7 +3,6 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { useTheme } from "@/lib/theme/ThemeProvider";
 import { LoginPage } from "./login/LoginPage";
 import { Spin } from "antd";
 import {
@@ -14,8 +13,6 @@ import {
   FileTextOutlined,
   InboxOutlined,
   LogoutOutlined,
-  SunOutlined,
-  MoonOutlined,
 } from "@ant-design/icons";
 
 const TABS = [
@@ -33,12 +30,11 @@ interface AppShellProps {
 
 export const AppShell = ({ children }: AppShellProps) => {
   const { user, isLoading, logout } = useAuth();
-  const { isDark, toggle } = useTheme();
   const pathname = usePathname();
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
         <Spin size="large" />
       </div>
     );
@@ -49,28 +45,25 @@ export const AppShell = ({ children }: AppShellProps) => {
   }
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden">
+    <div style={{ height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {/* Header */}
-      <header className="flex-none border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center justify-between bg-white dark:bg-gray-900">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-teal-50 dark:bg-teal-900/30">
-            <TableOutlined className="text-teal-600 dark:text-teal-400 text-lg" />
+      <header style={{ flexShrink: 0, borderBottom: "1px solid #e5e7eb", padding: "10px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 8, background: "#f0fdfa", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <TableOutlined style={{ color: "#0d9488", fontSize: 16 }} />
           </div>
           <div>
-            <h1 className="text-sm font-semibold tracking-tight text-gray-900 dark:text-gray-100">Shipment Tracker</h1>
-            <p className="text-xs text-gray-500 dark:text-gray-400">Operations Dashboard</p>
+            <h1 style={{ fontSize: 14, fontWeight: 600, color: "#1f2937", margin: 0, lineHeight: 1.3 }}>Shipment Tracker</h1>
+            <p style={{ fontSize: 11, color: "#6b7280", margin: 0 }}>Operations Dashboard</p>
           </div>
         </div>
-        <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400">
-          <span className="tabular-nums">
+        <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 12, color: "#6b7280" }}>
+          <span style={{ fontVariantNumeric: "tabular-nums" }}>
             {new Date().toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" })}
           </span>
-          <button onClick={toggle} className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:bg-gray-100 dark:hover:bg-gray-800">
-            {isDark ? <SunOutlined /> : <MoonOutlined />}
-          </button>
-          <div className="flex items-center gap-2 ml-2 pl-2 border-l border-gray-200 dark:border-gray-700">
-            <span className="text-xs text-gray-600 dark:text-gray-300">{user.displayName || user.email}</span>
-            <button onClick={logout} className="flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors hover:bg-gray-100 dark:hover:bg-gray-800">
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: 8, paddingLeft: 12, borderLeft: "1px solid #e5e7eb" }}>
+            <span style={{ fontSize: 12, color: "#374151" }}>{user.displayName || user.email}</span>
+            <button onClick={logout} style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px", borderRadius: 4, border: "none", background: "transparent", cursor: "pointer", color: "#6b7280", fontSize: 12 }}>
               <LogoutOutlined />
             </button>
           </div>
@@ -78,19 +71,21 @@ export const AppShell = ({ children }: AppShellProps) => {
       </header>
 
       {/* Tab navigation */}
-      <div className="flex-none border-b border-gray-200 dark:border-gray-700 px-6 bg-white dark:bg-gray-900">
-        <nav className="flex gap-0 h-10">
+      <div style={{ flexShrink: 0, borderBottom: "1px solid #e5e7eb", padding: "0 24px", background: "#fff" }}>
+        <nav style={{ display: "flex", gap: 0, height: 38 }}>
           {TABS.map((tab) => {
             const isActive = pathname === tab.key || (tab.key === "/dashboard" && pathname === "/");
             return (
               <Link
                 key={tab.key}
                 href={tab.key}
-                className={`flex items-center gap-1.5 px-4 h-10 text-xs font-medium border-b-2 transition-colors ${
-                  isActive
-                    ? "border-teal-500 text-teal-600 dark:text-teal-400"
-                    : "border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                }`}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6, padding: "0 16px", height: 38,
+                  fontSize: 12, fontWeight: 500, textDecoration: "none",
+                  borderBottom: isActive ? "2px solid #0d9488" : "2px solid transparent",
+                  color: isActive ? "#0d9488" : "#6b7280",
+                  transition: "color 0.15s",
+                }}
               >
                 {tab.icon}
                 {tab.label}
@@ -101,7 +96,7 @@ export const AppShell = ({ children }: AppShellProps) => {
       </div>
 
       {/* Content */}
-      <main className="flex-1 min-h-0 overflow-auto bg-gray-50 dark:bg-gray-950">
+      <main style={{ flex: 1, minHeight: 0, overflow: "auto", background: "#f5f5f5" }}>
         {children}
       </main>
     </div>
