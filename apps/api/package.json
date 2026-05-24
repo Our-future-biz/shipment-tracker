@@ -8,7 +8,7 @@
     "build": "echo 'built by encore'",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "db:generate:shipments": "drizzle-kit generate --config=services/shipments/db/drizzle.config.ts",
     "db:generate:auth": "drizzle-kit generate --config=services/auth/db/drizzle.config.ts",
     "db:generate:quotes": "drizzle-kit generate --config=services/quotes/db/drizzle.config.ts",
