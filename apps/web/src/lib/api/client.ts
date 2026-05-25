@@ -34,6 +34,7 @@ const BROWSER = typeof globalThis === "object" && ("window" in globalThis);
 export default class Client {
     public readonly auth: auth.ServiceClient
     public readonly automation: automation.ServiceClient
+    public readonly extraction: extraction.ServiceClient
     public readonly invoicing: invoicing.ServiceClient
     public readonly quotes: quotes.ServiceClient
     public readonly shipments: shipments.ServiceClient
@@ -54,6 +55,7 @@ export default class Client {
         const base = new BaseClient(this.target, this.options)
         this.auth = new auth.ServiceClient(base)
         this.automation = new automation.ServiceClient(base)
+        this.extraction = new extraction.ServiceClient(base)
         this.invoicing = new invoicing.ServiceClient(base)
         this.quotes = new quotes.ServiceClient(base)
         this.shipments = new shipments.ServiceClient(base)
@@ -139,6 +141,66 @@ export namespace automation {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/automation/trigger`, JSON.stringify(params))
             return await resp.json() as controllers.AutomationTriggerResponse
+        }
+    }
+}
+
+export namespace extraction {
+
+    export class ServiceClient {
+        private baseClient: BaseClient
+
+        constructor(baseClient: BaseClient) {
+            this.baseClient = baseClient
+            this.extractDocument = this.extractDocument.bind(this)
+            this.extractInvoice = this.extractInvoice.bind(this)
+            this.extractQuote = this.extractQuote.bind(this)
+            this.extractText = this.extractText.bind(this)
+            this.pipelineExtractHbl = this.pipelineExtractHbl.bind(this)
+            this.pipelineExtractMbl = this.pipelineExtractMbl.bind(this)
+            this.pipelinePrepare = this.pipelinePrepare.bind(this)
+        }
+
+        public async extractDocument(params: controllers.ExtractDocumentRequest): Promise<interfaces.ExtractionResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/document`, JSON.stringify(params))
+            return await resp.json() as interfaces.ExtractionResult
+        }
+
+        public async extractInvoice(params: controllers.ExtractInvoiceRequest): Promise<interfaces.ExtractionResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/invoice`, JSON.stringify(params))
+            return await resp.json() as interfaces.ExtractionResult
+        }
+
+        public async extractQuote(params: controllers.ExtractQuoteRequest): Promise<interfaces.ExtractionResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/quote`, JSON.stringify(params))
+            return await resp.json() as interfaces.ExtractionResult
+        }
+
+        public async extractText(params: controllers.ExtractTextRequest): Promise<interfaces.ExtractionResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/text`, JSON.stringify(params))
+            return await resp.json() as interfaces.ExtractionResult
+        }
+
+        public async pipelineExtractHbl(params: controllers.PipelineExtractHblRequest): Promise<interfaces.ExtractHblResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/pipeline/extract-hbl-batch`, JSON.stringify(params))
+            return await resp.json() as interfaces.ExtractHblResult
+        }
+
+        public async pipelineExtractMbl(params: controllers.PipelineExtractMblRequest): Promise<interfaces.ExtractMblResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/pipeline/extract-mbl`, JSON.stringify(params))
+            return await resp.json() as interfaces.ExtractMblResult
+        }
+
+        public async pipelinePrepare(params: controllers.PipelinePrepareRequest): Promise<interfaces.PrepareResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/pipeline/prepare`, JSON.stringify(params))
+            return await resp.json() as interfaces.PrepareResult
         }
     }
 }
@@ -577,6 +639,26 @@ export namespace controllers {
         ok: boolean
     }
 
+    export interface ExtractDocumentRequest {
+        fileBase64: string
+        fileName: string
+    }
+
+    export interface ExtractInvoiceRequest {
+        fileBase64: string
+        fileName: string
+    }
+
+    export interface ExtractQuoteRequest {
+        fileBase64: string
+        fileName: string
+    }
+
+    export interface ExtractTextRequest {
+        text: string
+        destination: string
+    }
+
     export interface GenerateInvoiceRequest {
         jobNumber: string
         invoiceType: string
@@ -602,6 +684,20 @@ export namespace controllers {
 
     export interface LinkMasterJobResponse {
         shipment: interfaces.ShipmentItem
+    }
+
+    export interface PipelineExtractHblRequest {
+        sessionId: string
+        batchIndex: number
+    }
+
+    export interface PipelineExtractMblRequest {
+        sessionId: string
+    }
+
+    export interface PipelinePrepareRequest {
+        fileBase64: string
+        fileName: string
     }
 
     export interface QuoteAllocateRefResponse {
@@ -1140,6 +1236,26 @@ export namespace interfaces {
         createdAt: string
     }
 
+    export interface ExtractHblResult {
+        shipments: { [key: string]: string }[]
+        batchIndex: number
+        totalBatches: number
+        totalExtracted: number
+        done: boolean
+    }
+
+    export interface ExtractMblResult {
+        mblInfo: { [key: string]: string } | null
+        message?: string
+    }
+
+    export interface ExtractionResult {
+        extracted: { [key: string]: string }
+        fieldCount: number
+        method: "text" | "vision"
+        fileName: string
+    }
+
     export interface GeneratedInvoiceItem {
         id: string
         shipmentId: string
@@ -1160,6 +1276,17 @@ export namespace interfaces {
         realCurrency: string
         invoiceNumber: string
         vendor: string
+    }
+
+    export interface PrepareResult {
+        sessionId: string
+        pageCount: number
+        classification: { [key: string]: number }
+        pages: {
+            pageNum: number
+            type: string
+        }[]
+        fileName: string
     }
 
     export interface QuoteItem {

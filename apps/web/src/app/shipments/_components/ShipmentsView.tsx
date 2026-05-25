@@ -16,13 +16,14 @@ import { DimensionsPopup } from "./DimensionsPopup";
 import { ChatPanel } from "./ChatPanel";
 import { AttachmentsPanel } from "./AttachmentsPanel";
 import { Dashboard } from "./Dashboard";
+import { DocumentReadingTab } from "./DocumentReadingTab";
 import type { controllers } from "@/lib/api/client";
 
 export const ShipmentsView = () => {
   const queryClient = useQueryClient();
   const { shipments, isLoading, createShipment, updateField, deleteShipment, isCreating } = useShipments();
   const { filtered, search, setSearch, statusFilter, setStatusFilter } = useShipmentFilter(shipments);
-  const [view, setView] = useState<"shipments" | "dashboard">("shipments");
+  const [view, setView] = useState<"shipments" | "dashboard" | "extract">("shipments");
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedShipment, setSelectedShipment] = useState<ShipmentItem | null>(null);
   const [masterJobDialogOpen, setMasterJobDialogOpen] = useState(false);
@@ -93,10 +94,11 @@ export const ShipmentsView = () => {
           <Segmented
             size="small"
             value={view}
-            onChange={(v) => setView(v as "shipments" | "dashboard")}
+            onChange={(v) => setView(v as "shipments" | "dashboard" | "extract")}
             options={[
               { value: "shipments", label: "Shipments" },
               { value: "dashboard", label: "Dashboard" },
+              { value: "extract", label: "Extract" },
             ]}
           />
           <Input
@@ -156,6 +158,10 @@ export const ShipmentsView = () => {
             const s = shipments.find((s) => s.id === id);
             if (s) setSelectedShipment(s);
           }} />
+        </div>
+      ) : view === "extract" ? (
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+          <DocumentReadingTab shipments={shipments} />
         </div>
       ) : (
         <div style={{ flex: 1, minHeight: 0, display: "flex", background: "#fff", borderRadius: 8, border: "1px solid #e5e7eb", overflow: "hidden" }}>
