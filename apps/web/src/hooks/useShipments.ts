@@ -22,12 +22,9 @@ export function getFieldValue(shipment: ShipmentItem, key: string): string {
   // Direct API field
   if (col.apiField) {
     const val = shipment[col.apiField as keyof ShipmentItem];
-    return val != null ? String(val) : "";
-  }
-
-  // Extra field
-  if (col.isExtra) {
-    return shipment.extra?.[key] ?? "";
+    if (val == null) return "";
+    if (typeof val === "object") return JSON.stringify(val);
+    return String(val);
   }
 
   return "";
@@ -40,9 +37,9 @@ export function buildRowData(shipment: ShipmentItem): Record<string, string> {
     if (col.type === "computed") continue; // avoid recursion
     if (col.apiField) {
       const val = shipment[col.apiField as keyof ShipmentItem];
-      data[col.key] = val != null ? String(val) : "";
-    } else if (col.isExtra) {
-      data[col.key] = shipment.extra?.[col.key] ?? "";
+      if (val == null) { data[col.key] = ""; }
+      else if (typeof val === "object") { data[col.key] = JSON.stringify(val); }
+      else { data[col.key] = String(val); }
     }
   }
   return data;
@@ -76,11 +73,7 @@ export const useShipments = () => {
             if (s.id !== id) return s;
             // Merge update request into shipment using Object.assign for type safety
             const updated: ShipmentItem = { ...s };
-            const { extra, ...fields } = data;
-            Object.assign(updated, fields);
-            if (extra) {
-              updated.extra = { ...(updated.extra || {}), ...extra };
-            }
+            Object.assign(updated, data);
             return updated;
           }),
         };
@@ -100,19 +93,37 @@ export const useShipments = () => {
 
   const shipments: ShipmentItem[] = query.data?.data ?? [];
 
+  // Fields that trigger automation when changed
+  const AUTOMATION_FIELDS = new Set(["department", "status", "holidayCover"]);
+
   // Update a single field (handles API field vs extra field routing)
   const updateField = useCallback(
     (shipmentId: string, fieldKey: string, value: string) => {
       const col = COLUMN_MAP.get(fieldKey);
       if (!col) return;
 
+      // Get old value for automation comparison
+      const shipment = shipments.find((s) => s.id === shipmentId);
+      const oldValue = shipment ? getFieldValue(shipment, fieldKey) : "";
+
       if (col.apiField) {
         updateMutation.mutate({ id: shipmentId, data: { [col.apiField]: value } as controllers.ShipmentUpdateRequest });
-      } else if (col.isExtra) {
-        updateMutation.mutate({ id: shipmentId, data: { extra: { [fieldKey]: value } } });
+      }
+
+      // Fire automation trigger for watched fields
+      if (AUTOMATION_FIELDS.has(fieldKey) && value !== oldValue && shipment) {
+        const shipmentData = buildRowData(shipment);
+        api.automation.automationTrigger({
+          shipmentId,
+          column: col.title,
+          oldValue,
+          newValue: value,
+          triggeredById: undefined,
+          shipmentData,
+        }).catch(() => { /* fire and forget */ });
       }
     },
-    [updateMutation],
+    [updateMutation, shipments],
   );
 
   return {

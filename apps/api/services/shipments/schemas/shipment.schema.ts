@@ -40,8 +40,89 @@ export const shipmentTable = pgTable(
     status: text("status").notNull().default("active"),
     customsStatus: text("customs_status").notNull().default(""),
     masterJobId: uuid("master_job_id"),
-    containers: jsonb("containers"),
-    extra: jsonb("extra").$type<Record<string, string>>(),
+
+    // — Meta —
+    shipmentsDate: text("shipments_date").notNull().default(""),
+    department: text("department").notNull().default(""),
+    personInCharge: text("person_in_charge").notNull().default(""),
+    holidayCover: text("holiday_cover").notNull().default(""),
+
+    // — Customer —
+    customer: text("customer").notNull().default(""),
+    customerPic: text("customer_pic").notNull().default(""),
+    customerReference: text("customer_reference").notNull().default(""),
+
+    // — Addresses —
+    pickupAddress: text("pickup_address").notNull().default(""),
+    deliveryAddress: text("delivery_address").notNull().default(""),
+
+    // — Status / mode —
+    freeComments: text("free_comments").notNull().default(""),
+    freightMode: text("freight_mode").notNull().default(""),
+
+    // — Agent —
+    agentPic: text("agent_pic").notNull().default(""),
+    serviceType: text("service_type").notNull().default(""),
+
+    // — Insurance —
+    insurance: text("insurance").notNull().default(""),
+
+    // — Dates —
+    cargoReadinessDate: text("cargo_readiness_date").notNull().default(""),
+    pickupDate: text("pickup_date").notNull().default(""),
+    pickupTime: text("pickup_time").notNull().default(""),
+    closingDate: text("closing_date").notNull().default(""),
+    etaWarehouse: text("eta_warehouse").notNull().default(""),
+    plannedDeliveryDate: text("planned_delivery_date").notNull().default(""),
+    plannedDeliveryTime: text("planned_delivery_time").notNull().default(""),
+
+    // — Commercial —
+    commercialInvoice: text("commercial_invoice").notNull().default(""),
+    creditCheck: text("credit_check").notNull().default(""),
+    approvedBy: text("approved_by").notNull().default(""),
+    bookingConfirmation: text("booking_confirmation").notNull().default(""),
+    customsProcedure: text("customs_procedure").notNull().default(""),
+    equipmentDelivery: text("equipment_delivery").notNull().default(""),
+    supplierPic: text("supplier_pic").notNull().default(""),
+
+    // — Compliance —
+    vgm: text("vgm").notNull().default(""),
+    shippingInstructions: text("shipping_instructions").notNull().default(""),
+    ams: text("ams").notNull().default(""),
+    isf: text("isf").notNull().default(""),
+    bolDraft: text("bol_draft").notNull().default(""),
+
+    // — Switch BoL —
+    switchBol: text("switch_bol").notNull().default(""),
+    switchBolApprovedBy: text("switch_bol_approved_by").notNull().default(""),
+    switchBolNumber: text("switch_bol_number").notNull().default(""),
+
+    // — Containers (4 sets) —
+    containerCount1: text("container_count_1").notNull().default(""),
+    containerLength1: text("container_length_1").notNull().default(""),
+    containerType1: text("container_type_1").notNull().default(""),
+    containerCount2: text("container_count_2").notNull().default(""),
+    containerLength2: text("container_length_2").notNull().default(""),
+    containerType2: text("container_type_2").notNull().default(""),
+    containerCount3: text("container_count_3").notNull().default(""),
+    containerLength3: text("container_length_3").notNull().default(""),
+    containerType3: text("container_type_3").notNull().default(""),
+    containerCount4: text("container_count_4").notNull().default(""),
+    containerLength4: text("container_length_4").notNull().default(""),
+    containerType4: text("container_type_4").notNull().default(""),
+
+    // — Dimensions (variable-length array, stays JSONB) —
+    dimensions: jsonb("dimensions"),
+
+    // — Quote —
+    salesNumber: text("sales_number").notNull().default(""),
+    selling: text("selling").notNull().default(""),
+    quoteValidity: text("quote_validity").notNull().default(""),
+    validityStatus: text("validity_status").notNull().default(""),
+
+    // — Other —
+    claim: text("claim").notNull().default(""),
+    createdBy: text("created_by").notNull().default(""),
   },
   (table) => [
     ...defaultTableIndexes("shipment", table),

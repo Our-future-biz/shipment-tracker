@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
-import { Table, Popconfirm, Tag, Input, Select } from "antd";
-import { DeleteOutlined } from "@ant-design/icons";
+import { useState, useMemo, useCallback, useRef } from "react";
+import { Table, Popconfirm, Tag, Input, Select, Button, Checkbox, Space } from "antd";
+import { DeleteOutlined, SearchOutlined, FilterOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
+import type { FilterDropdownProps } from "antd/es/table/interface";
 import {
   COLUMNS,
   COMPUTED_COLUMNS,
@@ -24,6 +25,8 @@ interface ShipmentsTableProps {
   onMasterJobClick?: (mczNumber: string) => void;
   onRemoveMasterJob?: (shipment: ShipmentItem) => void;
   onOpenDimensions?: (shipment: ShipmentItem) => void;
+  onOpenChat?: (shipment: ShipmentItem) => void;
+  onOpenAttachments?: (shipment: ShipmentItem) => void;
 }
 
 interface EditingCell {
@@ -38,6 +41,8 @@ export const ShipmentsTable = ({
   onRowClick,
   onDelete,
   onMasterJobClick,
+  onOpenChat,
+  onOpenAttachments,
   onRemoveMasterJob,
   onOpenDimensions,
 }: ShipmentsTableProps) => {
@@ -72,6 +77,34 @@ export const ShipmentsTable = ({
       width: col.width,
       fixed: idx < 2 ? ("left" as const) : undefined,
       ellipsis: true,
+      // Per-column filtering
+      ...(col.type === "dropdown" && col.options ? {
+        filters: col.options.filter((o) => o !== "---").map((o) => ({ text: o, value: o })),
+        onFilter: (value: unknown, record: ShipmentItem) => getFieldValue(record, col.key) === value,
+      } : col.type === "text" && !col.readonly ? {
+        filterDropdown: ({ setSelectedKeys, selectedKeys, confirm, clearFilters }: FilterDropdownProps) => (
+          <div style={{ padding: 8 }}>
+            <Input
+              placeholder={`Search ${col.title}`}
+              value={selectedKeys[0] as string}
+              onChange={(e) => setSelectedKeys(e.target.value ? [e.target.value] : [])}
+              onPressEnter={() => confirm()}
+              style={{ marginBottom: 8, display: "block" }}
+              size="small"
+            />
+            <Space>
+              <Button type="primary" onClick={() => confirm()} icon={<SearchOutlined />} size="small" style={{ width: 70 }}>
+                Filter
+              </Button>
+              <Button onClick={() => { clearFilters?.(); confirm(); }} size="small" style={{ width: 70 }}>
+                Reset
+              </Button>
+            </Space>
+          </div>
+        ),
+        filterIcon: (filtered: boolean) => <SearchOutlined style={{ color: filtered ? "#0d9488" : undefined, fontSize: 10 }} />,
+        onFilter: (value: unknown, record: ShipmentItem) => getFieldValue(record, col.key).toLowerCase().includes(String(value).toLowerCase()),
+      } : {}),
       onCell: (record: ShipmentItem) => {
         const rowData = rowDataMap.get(record.id) || {};
         const val = COMPUTED_COLUMNS.has(col.key) ? getComputedValue(col.key, rowData) : getFieldValue(record, col.key);
@@ -167,6 +200,28 @@ export const ShipmentsTable = ({
         return val;
       },
     }));
+
+    // Chat + Attachments icons column (after job number)
+    cols.splice(1, 0, {
+      key: "_icons",
+      title: "",
+      width: 50,
+      fixed: "left" as const,
+      render: (_: unknown, record: ShipmentItem) => (
+        <span style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenChat?.(record); }}
+            style={{ border: "none", background: "transparent", cursor: "pointer", color: "#94a3b8", fontSize: 12, padding: 0 }}
+            title="Chat"
+          >💬</button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenAttachments?.(record); }}
+            style={{ border: "none", background: "transparent", cursor: "pointer", color: "#94a3b8", fontSize: 12, padding: 0 }}
+            title="Attachments"
+          >📎</button>
+        </span>
+      ),
+    });
 
     // Action column
     cols.push({

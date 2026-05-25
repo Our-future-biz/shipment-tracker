@@ -18,21 +18,17 @@ interface DimensionsPopupProps {
   shipment: ShipmentItem;
   open: boolean;
   onClose: () => void;
-  onSave: (json: string) => void;
+  onSave: (dimensions: DimensionRow[] | null) => void;
 }
 
 const EMPTY_ROW: DimensionRow = { colli: "", length: "", width: "", height: "", weightPerPiece: "", volumePerPiece: "" };
 
 export const DimensionsPopup = ({ shipment, open, onClose, onSave }: DimensionsPopupProps) => {
   const initial = useMemo(() => {
-    const raw = getFieldValue(shipment, "dimensions");
-    if (!raw) return [{ ...EMPTY_ROW }];
-    try {
-      const parsed = JSON.parse(raw) as DimensionRow[];
-      return parsed.length > 0 ? parsed : [{ ...EMPTY_ROW }];
-    } catch {
-      return [{ ...EMPTY_ROW }];
-    }
+    const dims = shipment.dimensions;
+    if (!dims) return [{ ...EMPTY_ROW }];
+    const arr: DimensionRow[] = Array.isArray(dims) ? dims : (() => { try { return JSON.parse(String(dims)); } catch { return []; } })();
+    return arr.length > 0 ? arr : [{ ...EMPTY_ROW }];
   }, [shipment]);
 
   const [rows, setRows] = useState<DimensionRow[]>(initial);
@@ -63,7 +59,7 @@ export const DimensionsPopup = ({ shipment, open, onClose, onSave }: DimensionsP
 
   const handleSave = () => {
     const filtered = rows.filter((r) => r.colli || r.length || r.width || r.height || r.weightPerPiece);
-    onSave(filtered.length > 0 ? JSON.stringify(filtered) : "");
+    onSave(filtered.length > 0 ? filtered : null);
   };
 
   return (

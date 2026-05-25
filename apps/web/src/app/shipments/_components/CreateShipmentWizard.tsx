@@ -78,11 +78,9 @@ export const CreateShipmentWizard = ({ open, onClose, onSubmit, isLoading, exist
       status: "Booking Confirmation Pending [IMP]",
       tradeDirection: "Import",
       customsStatus: "Waiting For Commercial Paperwork",
-      extra: {
-        department: "Operation Department",
-        personInCharge: user?.email || "",
-        createdBy: `${now} — ${user?.email || "System"}`,
-      },
+      department: "Operation Department",
+      personInCharge: user?.email || "",
+      createdBy: `${now} — ${user?.email || "System"}`,
     };
     onSubmit(request);
     handleReset();
@@ -93,34 +91,21 @@ export const CreateShipmentWizard = ({ open, onClose, onSubmit, isLoading, exist
     if (!source) return;
 
     const now = new Date().toLocaleString("cs-CZ", { timeZone: "Europe/Prague" });
-    const extraData: Record<string, string> = {
-      department: "Operation Department",
-      personInCharge: user?.email || "",
-      createdBy: `${now} — ${user?.email || "System"}`,
-    };
-
     const data: controllers.ShipmentCreateRequest = {
       jobNumber: nextJobNumber,
       status: "Booking Confirmation Pending [IMP]",
       tradeDirection: "Import",
       customsStatus: "Waiting For Commercial Paperwork",
-      extra: extraData,
+      department: "Operation Department",
+      personInCharge: user?.email || "",
+      createdBy: `${now} — ${user?.email || "System"}`,
     };
 
     // Copy selected fields from source
-    const API_COPY_FIELDS = new Set<string>([
-      "shipper", "consignee", "pol", "pod", "destination", "agent",
-      "incotermOrigin", "incotermDestination", "hsCode", "cargoDescription", "cargoOrigin",
-    ]);
     for (const fieldKey of selectedFields) {
       const val = getFieldValue(source, fieldKey);
       if (!val) continue;
-      if (API_COPY_FIELDS.has(fieldKey)) {
-        // These are known string fields on ShipmentCreateRequest
-        Object.assign(data, { [fieldKey]: val });
-      } else {
-        extraData[fieldKey] = val;
-      }
+      Object.assign(data, { [fieldKey]: val });
     }
 
     onSubmit(data);

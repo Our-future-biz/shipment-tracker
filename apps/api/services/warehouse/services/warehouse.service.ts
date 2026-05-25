@@ -1,4 +1,5 @@
 import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
+import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
 
 class WarehouseService {
   async listAll() {
@@ -19,6 +20,15 @@ class WarehouseService {
 
   async softDelete(id: string) {
     return warehouseTaskRepository.softDelete(id);
+  }
+
+  // Warehouse sections
+  async getSection(shipmentId: string, section: string) {
+    return warehouseSectionRepository.findByShipmentAndSection(shipmentId, section);
+  }
+
+  async upsertSection(shipmentId: string, section: string, data: unknown) {
+    return warehouseSectionRepository.upsert(shipmentId, section, data);
   }
 }
 

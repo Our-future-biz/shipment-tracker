@@ -33,7 +33,89 @@ interface ShipmentCreateRequest {
   totalVolumeCbm?: string;
   cargoOrigin?: string;
   commercialInvoiceValue?: string;
-  extra?: Record<string, string>;
+
+  // Meta
+  shipmentsDate?: string;
+  department?: string;
+  personInCharge?: string;
+  holidayCover?: string;
+
+  // Customer
+  customer?: string;
+  customerPic?: string;
+  customerReference?: string;
+
+  // Addresses
+  pickupAddress?: string;
+  deliveryAddress?: string;
+
+  // Status / mode
+  freeComments?: string;
+  freightMode?: string;
+
+  // Agent
+  agentPic?: string;
+  serviceType?: string;
+
+  // Insurance
+  insurance?: string;
+
+  // Dates
+  cargoReadinessDate?: string;
+  pickupDate?: string;
+  pickupTime?: string;
+  closingDate?: string;
+  etaWarehouse?: string;
+  plannedDeliveryDate?: string;
+  plannedDeliveryTime?: string;
+
+  // Commercial
+  commercialInvoice?: string;
+  creditCheck?: string;
+  approvedBy?: string;
+  bookingConfirmation?: string;
+  customsProcedure?: string;
+  equipmentDelivery?: string;
+  supplierPic?: string;
+
+  // Compliance
+  vgm?: string;
+  shippingInstructions?: string;
+  ams?: string;
+  isf?: string;
+  bolDraft?: string;
+
+  // Switch BoL
+  switchBol?: string;
+  switchBolApprovedBy?: string;
+  switchBolNumber?: string;
+
+  // Containers (4 sets)
+  containerCount1?: string;
+  containerLength1?: string;
+  containerType1?: string;
+  containerCount2?: string;
+  containerLength2?: string;
+  containerType2?: string;
+  containerCount3?: string;
+  containerLength3?: string;
+  containerType3?: string;
+  containerCount4?: string;
+  containerLength4?: string;
+  containerType4?: string;
+
+  // Dimensions (JSONB)
+  dimensions?: unknown;
+
+  // Quote
+  salesNumber?: string;
+  selling?: string;
+  quoteValidity?: string;
+  validityStatus?: string;
+
+  // Other
+  claim?: string;
+  createdBy?: string;
 }
 
 interface ShipmentCreateResponse {

@@ -22,6 +22,13 @@
       "when": 1779650900982,
       "tag": "0002_classy_butterfly",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779738078646,
+      "tag": "0003_absent_tinkerer",
+      "breakpoints": true
     }
   ]
 }

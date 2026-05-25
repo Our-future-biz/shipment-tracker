@@ -13,3 +13,12 @@ export interface WarehouseTaskItem {
   data: unknown;
   createdAt: string;
 }
+
+export interface WarehouseSectionItem {
+  id: string;
+  shipmentId: string;
+  section: string;
+  data: unknown;
+  createdAt: string;
+  updatedAt: string;
+}

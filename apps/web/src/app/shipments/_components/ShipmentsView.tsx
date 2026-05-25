@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Input, Select, Button, Space, message } from "antd";
-import { PlusOutlined, SearchOutlined, LinkOutlined } from "@ant-design/icons";
+import { Input, Select, Button, Space, message, Popconfirm, Segmented } from "antd";
+import { PlusOutlined, SearchOutlined, LinkOutlined, DeleteOutlined, CloseOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { useShipments, useShipmentFilter, type ShipmentItem } from "@/hooks/useShipments";
 import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
@@ -13,18 +13,30 @@ import { CreateShipmentWizard } from "./CreateShipmentWizard";
 import { MasterJobDialog } from "./MasterJobDialog";
 import { MasterJobDetailModal } from "./MasterJobDetailModal";
 import { DimensionsPopup } from "./DimensionsPopup";
+import { ChatPanel } from "./ChatPanel";
+import { AttachmentsPanel } from "./AttachmentsPanel";
+import { Dashboard } from "./Dashboard";
 import type { controllers } from "@/lib/api/client";
 
 export const ShipmentsView = () => {
   const queryClient = useQueryClient();
   const { shipments, isLoading, createShipment, updateField, deleteShipment, isCreating } = useShipments();
   const { filtered, search, setSearch, statusFilter, setStatusFilter } = useShipmentFilter(shipments);
+  const [view, setView] = useState<"shipments" | "dashboard">("shipments");
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [selectedShipment, setSelectedShipment] = useState<ShipmentItem | null>(null);
   const [masterJobDialogOpen, setMasterJobDialogOpen] = useState(false);
   const [masterJobDetailMcz, setMasterJobDetailMcz] = useState<string | null>(null);
   const [dimensionsShipment, setDimensionsShipment] = useState<ShipmentItem | null>(null);
   const [messageApi, contextHolder] = message.useMessage();
+
+  // Delete mode
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [deleteJobInput, setDeleteJobInput] = useState("");
+
+  // Chat/Attachments panels
+  const [chatShipment, setChatShipment] = useState<ShipmentItem | null>(null);
+  const [attachShipment, setAttachShipment] = useState<ShipmentItem | null>(null);
 
   const handleCreate = async (values: controllers.ShipmentCreateRequest) => {
     try {
@@ -40,6 +52,21 @@ export const ShipmentsView = () => {
     try {
       await deleteShipment(shipmentId);
       messageApi.success("Deleted");
+    } catch {
+      messageApi.error("Failed to delete");
+    }
+  };
+
+  const handleDeleteByJobNumber = async () => {
+    const jn = deleteJobInput.trim();
+    if (!jn) return;
+    const found = shipments.find((s) => s.jobNumber === jn);
+    if (!found) { messageApi.error(`No shipment found: "${jn}"`); return; }
+    try {
+      await deleteShipment(found.id);
+      messageApi.success(`Deleted ${jn}`);
+      setDeleteJobInput("");
+      setDeleteMode(false);
     } catch {
       messageApi.error("Failed to delete");
     }
@@ -61,8 +88,17 @@ export const ShipmentsView = () => {
       {contextHolder}
 
       {/* Toolbar */}
-      <div className="flex-none flex items-center justify-between">
+      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <Space>
+          <Segmented
+            size="small"
+            value={view}
+            onChange={(v) => setView(v as "shipments" | "dashboard")}
+            options={[
+              { value: "shipments", label: "Shipments" },
+              { value: "dashboard", label: "Dashboard" },
+            ]}
+          />
           <Input
             placeholder="Search all columns..."
             prefix={<SearchOutlined />}
@@ -79,8 +115,31 @@ export const ShipmentsView = () => {
             size="small"
             options={statusOptions}
           />
+          <span style={{ fontSize: 11, color: "#94a3b8" }}>{filtered.length} / {shipments.length} rows</span>
         </Space>
         <Space>
+          {/* Delete mode */}
+          {!deleteMode ? (
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setDeleteMode(true)}>
+              Delete
+            </Button>
+          ) : (
+            <Space size={4}>
+              <Input
+                size="small"
+                placeholder="Job Number..."
+                value={deleteJobInput}
+                onChange={(e) => setDeleteJobInput(e.target.value)}
+                onPressEnter={handleDeleteByJobNumber}
+                style={{ width: 130 }}
+                autoFocus
+              />
+              <Popconfirm title={`Delete ${deleteJobInput}?`} onConfirm={handleDeleteByJobNumber} disabled={!deleteJobInput.trim()}>
+                <Button size="small" danger disabled={!deleteJobInput.trim()}>Confirm</Button>
+              </Popconfirm>
+              <Button size="small" type="text" icon={<CloseOutlined />} onClick={() => { setDeleteMode(false); setDeleteJobInput(""); }} />
+            </Space>
+          )}
           <Button size="small" icon={<LinkOutlined />} onClick={() => setMasterJobDialogOpen(true)}>
             Master Job
           </Button>
@@ -90,25 +149,58 @@ export const ShipmentsView = () => {
         </Space>
       </div>
 
-      {/* Table */}
-      <div style={{ flex: 1, minHeight: 0, background: "#fff", borderRadius: 8, border: "1px solid #e5e7eb", overflow: "hidden" }}>
-        <ShipmentsTable
-          shipments={filtered}
-          isLoading={isLoading}
-          onCellEdit={handleCellEdit}
-          onRowClick={(shipment) => setSelectedShipment(shipment)}
-          onDelete={handleDelete}
-          onMasterJobClick={(mcz) => { if (mcz) setMasterJobDetailMcz(mcz); else setMasterJobDialogOpen(true); }}
-          onRemoveMasterJob={async (shipment) => {
-            try {
-              await api.shipments.shipmentUnlinkMasterJob(shipment.id);
-              queryClient.invalidateQueries({ queryKey: ["shipments"] });
-              messageApi.success("Unlinked from master job");
-            } catch { messageApi.error("Failed to unlink"); }
-          }}
-          onOpenDimensions={(shipment) => setDimensionsShipment(shipment)}
-        />
-      </div>
+      {/* Content area */}
+      {view === "dashboard" ? (
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto" }}>
+          <Dashboard onShipmentClick={(id) => {
+            const s = shipments.find((s) => s.id === id);
+            if (s) setSelectedShipment(s);
+          }} />
+        </div>
+      ) : (
+        <div style={{ flex: 1, minHeight: 0, display: "flex", background: "#fff", borderRadius: 8, border: "1px solid #e5e7eb", overflow: "hidden" }}>
+          {/* Main table */}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <ShipmentsTable
+              shipments={filtered}
+              isLoading={isLoading}
+              onCellEdit={handleCellEdit}
+              onRowClick={(shipment) => setSelectedShipment(shipment)}
+              onDelete={handleDelete}
+              onMasterJobClick={(mcz) => { if (mcz) setMasterJobDetailMcz(mcz); else setMasterJobDialogOpen(true); }}
+              onRemoveMasterJob={async (shipment) => {
+                try {
+                  await api.shipments.shipmentUnlinkMasterJob(shipment.id);
+                  queryClient.invalidateQueries({ queryKey: ["shipments"] });
+                  messageApi.success("Unlinked from master job");
+                } catch { messageApi.error("Failed to unlink"); }
+              }}
+              onOpenDimensions={(shipment) => setDimensionsShipment(shipment)}
+              onOpenChat={(shipment) => { setChatShipment(shipment); setAttachShipment(null); }}
+              onOpenAttachments={(shipment) => { setAttachShipment(shipment); setChatShipment(null); }}
+            />
+          </div>
+
+          {/* Chat panel */}
+          {chatShipment && (
+            <ChatPanel
+              shipmentId={chatShipment.id}
+              jobNumber={chatShipment.jobNumber}
+              onClose={() => setChatShipment(null)}
+            />
+          )}
+
+          {/* Attachments panel */}
+          {attachShipment && (
+            <AttachmentsPanel
+              shipmentId={attachShipment.id}
+              jobNumber={attachShipment.jobNumber}
+              context={`${attachShipment.shipper || ""} → ${attachShipment.consignee || ""}`}
+              onClose={() => setAttachShipment(null)}
+            />
+          )}
+        </div>
+      )}
 
       {/* Create Wizard */}
       <CreateShipmentWizard
@@ -168,8 +260,10 @@ export const ShipmentsView = () => {
           shipment={dimensionsShipment}
           open={!!dimensionsShipment}
           onClose={() => setDimensionsShipment(null)}
-          onSave={(json) => {
-            updateField(dimensionsShipment.id, "dimensions", json);
+          onSave={(dimensions) => {
+            api.shipments.shipmentUpdate(dimensionsShipment.id, { dimensions }).then(() => {
+              queryClient.invalidateQueries({ queryKey: ["shipments"] });
+            });
             setDimensionsShipment(null);
           }}
         />

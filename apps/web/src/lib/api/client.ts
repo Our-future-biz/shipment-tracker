@@ -284,6 +284,7 @@ export namespace shipments {
             this.commentDelete = this.commentDelete.bind(this)
             this.commentList = this.commentList.bind(this)
             this.shipmentCreate = this.shipmentCreate.bind(this)
+            this.shipmentDashboard = this.shipmentDashboard.bind(this)
             this.shipmentDelete = this.shipmentDelete.bind(this)
             this.shipmentGet = this.shipmentGet.bind(this)
             this.shipmentLinkMasterJob = this.shipmentLinkMasterJob.bind(this)
@@ -334,6 +335,12 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/shipments`, JSON.stringify(params))
             return await resp.json() as controllers.ShipmentCreateResponse
+        }
+
+        public async shipmentDashboard(): Promise<controllers.DashboardResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/dashboard`)
+            return await resp.json() as controllers.DashboardResponse
         }
 
         public async shipmentDelete(shipmentId: string): Promise<controllers.ShipmentDeleteResponse> {
@@ -403,6 +410,8 @@ export namespace warehouse {
             this.warehouseCreate = this.warehouseCreate.bind(this)
             this.warehouseDelete = this.warehouseDelete.bind(this)
             this.warehouseList = this.warehouseList.bind(this)
+            this.warehouseSectionGet = this.warehouseSectionGet.bind(this)
+            this.warehouseSectionUpsert = this.warehouseSectionUpsert.bind(this)
             this.warehouseUpdate = this.warehouseUpdate.bind(this)
         }
 
@@ -427,6 +436,18 @@ export namespace warehouse {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/warehouse`, undefined, {query})
             return await resp.json() as controllers.WarehouseListResponse
+        }
+
+        public async warehouseSectionGet(shipmentId: string, section: string): Promise<controllers.WarehouseSectionGetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`)
+            return await resp.json() as controllers.WarehouseSectionGetResponse
+        }
+
+        public async warehouseSectionUpsert(shipmentId: string, section: string, params: controllers.WarehouseSectionUpsertRequest): Promise<controllers.WarehouseSectionUpsertResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseSectionUpsertResponse
         }
 
         public async warehouseUpdate(taskId: string, params: controllers.WarehouseUpdateRequest): Promise<controllers.WarehouseUpdateResponse> {
@@ -523,6 +544,33 @@ export namespace controllers {
 
     export interface CommentListResponse {
         comments: interfaces.CommentItem[]
+    }
+
+    export interface DashboardResponse {
+        kpis: {
+            totalActive: number
+            waitingUnload: number
+            sailedNotOrdered: number
+            sailedOrdered: number
+            waitingDeparture: number
+            missingSailing: number
+        }
+        deadlines: DeadlineGroup[]
+    }
+
+    export interface DeadlineGroup {
+        period: string
+        items: DeadlineItem[]
+    }
+
+    export interface DeadlineItem {
+        id: string
+        jobNumber: string
+        shipper: string
+        consignee: string
+        status: string
+        field: string
+        date: string
     }
 
     export interface DeleteChargeResponse {
@@ -633,7 +681,117 @@ export namespace controllers {
         totalVolumeCbm?: string
         cargoOrigin?: string
         commercialInvoiceValue?: string
-        extra?: { [key: string]: string }
+        /**
+         * Meta
+         */
+        shipmentsDate?: string
+
+        department?: string
+        personInCharge?: string
+        holidayCover?: string
+        /**
+         * Customer
+         */
+        customer?: string
+
+        customerPic?: string
+        customerReference?: string
+        /**
+         * Addresses
+         */
+        pickupAddress?: string
+
+        deliveryAddress?: string
+        /**
+         * Status / mode
+         */
+        freeComments?: string
+
+        freightMode?: string
+        /**
+         * Agent
+         */
+        agentPic?: string
+
+        serviceType?: string
+        /**
+         * Insurance
+         */
+        insurance?: string
+
+        /**
+         * Dates
+         */
+        cargoReadinessDate?: string
+
+        pickupDate?: string
+        pickupTime?: string
+        closingDate?: string
+        etaWarehouse?: string
+        plannedDeliveryDate?: string
+        plannedDeliveryTime?: string
+        /**
+         * Commercial
+         */
+        commercialInvoice?: string
+
+        creditCheck?: string
+        approvedBy?: string
+        bookingConfirmation?: string
+        customsProcedure?: string
+        equipmentDelivery?: string
+        supplierPic?: string
+        /**
+         * Compliance
+         */
+        vgm?: string
+
+        shippingInstructions?: string
+        ams?: string
+        isf?: string
+        bolDraft?: string
+        /**
+         * Switch BoL
+         */
+        switchBol?: string
+
+        switchBolApprovedBy?: string
+        switchBolNumber?: string
+        /**
+         * Containers (4 sets)
+         */
+        containerCount1?: string
+
+        containerLength1?: string
+        containerType1?: string
+        containerCount2?: string
+        containerLength2?: string
+        containerType2?: string
+        containerCount3?: string
+        containerLength3?: string
+        containerType3?: string
+        containerCount4?: string
+        containerLength4?: string
+        containerType4?: string
+        /**
+         * Dimensions (JSONB)
+         */
+        dimensions?: any
+
+        /**
+         * Quote
+         */
+        salesNumber?: string
+
+        selling?: string
+        quoteValidity?: string
+        validityStatus?: string
+        /**
+         * Other
+         */
+        claim?: string
+
+        createdBy?: string
     }
 
     export interface ShipmentCreateResponse {
@@ -693,7 +851,117 @@ export namespace controllers {
         totalVolumeCbm?: string
         cargoOrigin?: string
         commercialInvoiceValue?: string
-        extra?: { [key: string]: string }
+        /**
+         * Meta
+         */
+        shipmentsDate?: string
+
+        department?: string
+        personInCharge?: string
+        holidayCover?: string
+        /**
+         * Customer
+         */
+        customer?: string
+
+        customerPic?: string
+        customerReference?: string
+        /**
+         * Addresses
+         */
+        pickupAddress?: string
+
+        deliveryAddress?: string
+        /**
+         * Status / mode
+         */
+        freeComments?: string
+
+        freightMode?: string
+        /**
+         * Agent
+         */
+        agentPic?: string
+
+        serviceType?: string
+        /**
+         * Insurance
+         */
+        insurance?: string
+
+        /**
+         * Dates
+         */
+        cargoReadinessDate?: string
+
+        pickupDate?: string
+        pickupTime?: string
+        closingDate?: string
+        etaWarehouse?: string
+        plannedDeliveryDate?: string
+        plannedDeliveryTime?: string
+        /**
+         * Commercial
+         */
+        commercialInvoice?: string
+
+        creditCheck?: string
+        approvedBy?: string
+        bookingConfirmation?: string
+        customsProcedure?: string
+        equipmentDelivery?: string
+        supplierPic?: string
+        /**
+         * Compliance
+         */
+        vgm?: string
+
+        shippingInstructions?: string
+        ams?: string
+        isf?: string
+        bolDraft?: string
+        /**
+         * Switch BoL
+         */
+        switchBol?: string
+
+        switchBolApprovedBy?: string
+        switchBolNumber?: string
+        /**
+         * Containers (4 sets)
+         */
+        containerCount1?: string
+
+        containerLength1?: string
+        containerType1?: string
+        containerCount2?: string
+        containerLength2?: string
+        containerType2?: string
+        containerCount3?: string
+        containerLength3?: string
+        containerType3?: string
+        containerCount4?: string
+        containerLength4?: string
+        containerType4?: string
+        /**
+         * Dimensions (JSONB)
+         */
+        dimensions?: any
+
+        /**
+         * Quote
+         */
+        salesNumber?: string
+
+        selling?: string
+        quoteValidity?: string
+        validityStatus?: string
+        /**
+         * Other
+         */
+        claim?: string
+
+        createdBy?: string
     }
 
     export interface ShipmentUpdateResponse {
@@ -784,6 +1052,18 @@ export namespace controllers {
 
     export interface WarehouseListResponse {
         tasks: interfaces.WarehouseTaskItem[]
+    }
+
+    export interface WarehouseSectionGetResponse {
+        section: interfaces.WarehouseSectionItem | null
+    }
+
+    export interface WarehouseSectionUpsertRequest {
+        data: any
+    }
+
+    export interface WarehouseSectionUpsertResponse {
+        section: interfaces.WarehouseSectionItem
     }
 
     export interface WarehouseUpdateRequest {
@@ -929,8 +1209,117 @@ export namespace interfaces {
         customsStatus: string
         masterJobId: string | null
         masterJobMczNumber: string | null
-        containers: any
-        extra: { [key: string]: string } | null
+        /**
+         * Meta
+         */
+        shipmentsDate: string
+
+        department: string
+        personInCharge: string
+        holidayCover: string
+        /**
+         * Customer
+         */
+        customer: string
+
+        customerPic: string
+        customerReference: string
+        /**
+         * Addresses
+         */
+        pickupAddress: string
+
+        deliveryAddress: string
+        /**
+         * Status / mode
+         */
+        freeComments: string
+
+        freightMode: string
+        /**
+         * Agent
+         */
+        agentPic: string
+
+        serviceType: string
+        /**
+         * Insurance
+         */
+        insurance: string
+
+        /**
+         * Dates
+         */
+        cargoReadinessDate: string
+
+        pickupDate: string
+        pickupTime: string
+        closingDate: string
+        etaWarehouse: string
+        plannedDeliveryDate: string
+        plannedDeliveryTime: string
+        /**
+         * Commercial
+         */
+        commercialInvoice: string
+
+        creditCheck: string
+        approvedBy: string
+        bookingConfirmation: string
+        customsProcedure: string
+        equipmentDelivery: string
+        supplierPic: string
+        /**
+         * Compliance
+         */
+        vgm: string
+
+        shippingInstructions: string
+        ams: string
+        isf: string
+        bolDraft: string
+        /**
+         * Switch BoL
+         */
+        switchBol: string
+
+        switchBolApprovedBy: string
+        switchBolNumber: string
+        /**
+         * Containers (4 sets)
+         */
+        containerCount1: string
+
+        containerLength1: string
+        containerType1: string
+        containerCount2: string
+        containerLength2: string
+        containerType2: string
+        containerCount3: string
+        containerLength3: string
+        containerType3: string
+        containerCount4: string
+        containerLength4: string
+        containerType4: string
+        /**
+         * Dimensions (JSONB)
+         */
+        dimensions: any
+
+        /**
+         * Quote
+         */
+        salesNumber: string
+
+        selling: string
+        quoteValidity: string
+        validityStatus: string
+        /**
+         * Other
+         */
+        claim: string
+
+        createdBy: string
         createdAt: string
         updatedAt: string
     }
@@ -942,6 +1331,15 @@ export namespace interfaces {
         completed: boolean
         completedAt: string | null
         completedById: string | null
+    }
+
+    export interface WarehouseSectionItem {
+        id: string
+        shipmentId: string
+        section: string
+        data: any
+        createdAt: string
+        updatedAt: string
     }
 
     export interface WarehouseTaskItem {

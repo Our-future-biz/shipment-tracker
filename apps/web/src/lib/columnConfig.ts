@@ -1,15 +1,14 @@
 export type ColumnType = "text" | "dropdown" | "date" | "checkbox" | "computed" | "popup";
 
 export interface ColumnDef {
-  key: string;        // Internal field key (maps to API field or extra.key)
+  key: string;        // Internal field key (maps to API field)
   title: string;      // Display header
   width: number;
   type: ColumnType;
   options?: string[];
   fixed?: boolean;    // Cannot be moved (always first)
   readonly?: boolean; // Cannot be edited inline
-  apiField?: string;  // Direct API field name (if different from key)
-  isExtra?: boolean;  // Stored in extra JSONB
+  apiField?: string;  // API field name on ShipmentItem (if different from key, or for explicit mapping)
 }
 
 // ─── Dropdown Options ─────────────────────────────────────────────────
@@ -97,18 +96,18 @@ export const COLUMNS: ColumnDef[] = [
   { key: "masterJob", title: "Master job", width: 140, type: "text", fixed: true, readonly: true, apiField: "masterJobMczNumber" },
 
   // Meta
-  { key: "shipmentsDate", title: "Shipments Date", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Shipments Date"], isExtra: true },
-  { key: "department", title: "Department", width: 170, type: "dropdown", options: DROPDOWN_OPTIONS["Department"], isExtra: true },
-  { key: "personInCharge", title: "Person In Charge", width: 180, type: "text", isExtra: true },
-  { key: "holidayCover", title: "Holiday Cover", width: 140, type: "text", isExtra: true },
+  { key: "shipmentsDate", title: "Shipments Date", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Shipments Date"], apiField: "shipmentsDate" },
+  { key: "department", title: "Department", width: 170, type: "dropdown", options: DROPDOWN_OPTIONS["Department"], apiField: "department" },
+  { key: "personInCharge", title: "Person In Charge", width: 180, type: "text", apiField: "personInCharge" },
+  { key: "holidayCover", title: "Holiday Cover", width: 140, type: "text", apiField: "holidayCover" },
 
   // Customer block
-  { key: "customer", title: "Customer", width: 180, type: "text", isExtra: true },
-  { key: "customerPic", title: "Customer's PIC", width: 170, type: "text", isExtra: true },
-  { key: "customerReference", title: "Customer Reference", width: 170, type: "text", isExtra: true },
+  { key: "customer", title: "Customer", width: 180, type: "text", apiField: "customer" },
+  { key: "customerPic", title: "Customer's PIC", width: 170, type: "text", apiField: "customerPic" },
+  { key: "customerReference", title: "Customer Reference", width: 170, type: "text", apiField: "customerReference" },
 
   // Pickup + POL
-  { key: "pickupAddress", title: "Pickup Address", width: 200, type: "text", isExtra: true },
+  { key: "pickupAddress", title: "Pickup Address", width: 200, type: "text", apiField: "pickupAddress" },
   { key: "pol", title: "POL", width: 100, type: "text", apiField: "pol" },
 
   // Shipper/Consignee
@@ -116,14 +115,14 @@ export const COLUMNS: ColumnDef[] = [
   { key: "consignee", title: "Consignee", width: 180, type: "text", apiField: "consignee" },
 
   // Delivery + POD
-  { key: "deliveryAddress", title: "Delivery Address", width: 200, type: "text", isExtra: true },
+  { key: "deliveryAddress", title: "Delivery Address", width: 200, type: "text", apiField: "deliveryAddress" },
   { key: "pod", title: "POD", width: 100, type: "text", apiField: "pod" },
 
   // Status block
   { key: "customsStatus", title: "Customs Status", width: 210, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Status"], apiField: "customsStatus" },
   { key: "status", title: "Shipment Status", width: 320, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
-  { key: "freeComments", title: "Free Comments", width: 200, type: "text", isExtra: true },
-  { key: "freightMode", title: "Freight Mode", width: 130, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Mode"], isExtra: true },
+  { key: "freeComments", title: "Free Comments", width: 200, type: "text", apiField: "freeComments" },
+  { key: "freightMode", title: "Freight Mode", width: 130, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Mode"], apiField: "freightMode" },
 
   // References
   { key: "containerNumber", title: "Container Number", width: 150, type: "text", apiField: "containerNumber" },
@@ -134,46 +133,46 @@ export const COLUMNS: ColumnDef[] = [
 
   // Agents
   { key: "agent", title: "Agent", width: 130, type: "text", apiField: "agent" },
-  { key: "agentPic", title: "Agent's PIC", width: 170, type: "text", isExtra: true },
+  { key: "agentPic", title: "Agent's PIC", width: 170, type: "text", apiField: "agentPic" },
   { key: "shippingLine", title: "Shipping line / Coloader", width: 180, type: "text", apiField: "shippingLine" },
-  { key: "serviceType", title: "Service Type", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Service Type"], isExtra: true },
+  { key: "serviceType", title: "Service Type", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Service Type"], apiField: "serviceType" },
   { key: "incotermOrigin", title: "Incoterm Origin", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterm Origin"], apiField: "incotermOrigin" },
   { key: "incotermDestination", title: "Incoterm Dest.", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Incoterm Destination"], apiField: "incotermDestination" },
-  { key: "insurance", title: "Insurance", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Insurance"], isExtra: true },
+  { key: "insurance", title: "Insurance", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Insurance"], apiField: "insurance" },
 
   // Dates
-  { key: "cargoReadinessDate", title: "Cargo Readyness Date", width: 140, type: "date", isExtra: true },
-  { key: "pickupDate", title: "Pickup Date", width: 110, type: "date", isExtra: true },
-  { key: "pickupTime", title: "Pickup Time", width: 110, type: "date", isExtra: true },
-  { key: "closingDate", title: "Closing Date", width: 110, type: "date", isExtra: true },
+  { key: "cargoReadinessDate", title: "Cargo Readyness Date", width: 140, type: "date", apiField: "cargoReadinessDate" },
+  { key: "pickupDate", title: "Pickup Date", width: 110, type: "date", apiField: "pickupDate" },
+  { key: "pickupTime", title: "Pickup Time", width: 110, type: "date", apiField: "pickupTime" },
+  { key: "closingDate", title: "Closing Date", width: 110, type: "date", apiField: "closingDate" },
   { key: "estimatedDeparture", title: "Estimated Departure", width: 130, type: "date", apiField: "estimatedDeparture" },
   { key: "estimatedArrival", title: "Estimated Arrival", width: 130, type: "date", apiField: "estimatedArrival" },
-  { key: "etaWarehouse", title: "ETA Warehouse/HUB", width: 140, type: "date", isExtra: true },
-  { key: "plannedDeliveryDate", title: "Planned Delivery Date", width: 140, type: "date", isExtra: true },
-  { key: "plannedDeliveryTime", title: "Planned Delivery Time", width: 140, type: "date", isExtra: true },
+  { key: "etaWarehouse", title: "ETA Warehouse/HUB", width: 140, type: "date", apiField: "etaWarehouse" },
+  { key: "plannedDeliveryDate", title: "Planned Delivery Date", width: 140, type: "date", apiField: "plannedDeliveryDate" },
+  { key: "plannedDeliveryTime", title: "Planned Delivery Time", width: 140, type: "date", apiField: "plannedDeliveryTime" },
   { key: "cargoOrigin", title: "Cargo Origin", width: 130, type: "text", apiField: "cargoOrigin" },
 
   // Commercial
-  { key: "commercialInvoice", title: "Commercial Invoice", width: 150, type: "text", isExtra: true },
+  { key: "commercialInvoice", title: "Commercial Invoice", width: 150, type: "text", apiField: "commercialInvoice" },
   { key: "commercialInvoiceValue", title: "Commercial Invoice Value", width: 160, type: "text", apiField: "commercialInvoiceValue" },
   { key: "hsCode", title: "HS Code", width: 110, type: "text", apiField: "hsCode" },
   { key: "cargoDescription", title: "Cargo Description", width: 220, type: "text", apiField: "cargoDescription" },
-  { key: "creditCheck", title: "Credit Check", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Credit Check"], isExtra: true },
-  { key: "approvedBy", title: "Approved By", width: 150, type: "text", isExtra: true },
-  { key: "bookingConfirmation", title: "Booking Confirmation", width: 180, type: "text", isExtra: true },
-  { key: "customsProcedure", title: "Customs Procedure", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Procedure"], isExtra: true },
-  { key: "equipmentDelivery", title: "Equipment Delivery/Pickup", width: 180, type: "text", isExtra: true },
-  { key: "supplierPic", title: "Supplier's PIC", width: 170, type: "text", isExtra: true },
-  { key: "vgm", title: "VGM", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["VGM"], isExtra: true },
-  { key: "shippingInstructions", title: "Shipping Instructions", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Shipping Instructions"], isExtra: true },
-  { key: "ams", title: "AMS (if any)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["AMS (if any)"], isExtra: true },
-  { key: "isf", title: "ISF (if any)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["ISF (if any)"], isExtra: true },
-  { key: "bolDraft", title: "BoL draft", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["BoL draft"], isExtra: true },
+  { key: "creditCheck", title: "Credit Check", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Credit Check"], apiField: "creditCheck" },
+  { key: "approvedBy", title: "Approved By", width: 150, type: "text", apiField: "approvedBy" },
+  { key: "bookingConfirmation", title: "Booking Confirmation", width: 180, type: "text", apiField: "bookingConfirmation" },
+  { key: "customsProcedure", title: "Customs Procedure", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Procedure"], apiField: "customsProcedure" },
+  { key: "equipmentDelivery", title: "Equipment Delivery/Pickup", width: 180, type: "text", apiField: "equipmentDelivery" },
+  { key: "supplierPic", title: "Supplier's PIC", width: 170, type: "text", apiField: "supplierPic" },
+  { key: "vgm", title: "VGM", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["VGM"], apiField: "vgm" },
+  { key: "shippingInstructions", title: "Shipping Instructions", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Shipping Instructions"], apiField: "shippingInstructions" },
+  { key: "ams", title: "AMS (if any)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["AMS (if any)"], apiField: "ams" },
+  { key: "isf", title: "ISF (if any)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["ISF (if any)"], apiField: "isf" },
+  { key: "bolDraft", title: "BoL draft", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["BoL draft"], apiField: "bolDraft" },
 
   // Switch BoL
-  { key: "switchBol", title: "Switch BoL", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Switch BoL"], isExtra: true },
-  { key: "switchBolApprovedBy", title: "Switch BoL Approved By", width: 200, type: "text", isExtra: true },
-  { key: "switchBolNumber", title: "Switch BoL Number", width: 150, type: "text", isExtra: true },
+  { key: "switchBol", title: "Switch BoL", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Switch BoL"], apiField: "switchBol" },
+  { key: "switchBolApprovedBy", title: "Switch BoL Approved By", width: 200, type: "text", apiField: "switchBolApprovedBy" },
+  { key: "switchBolNumber", title: "Switch BoL Number", width: 150, type: "text", apiField: "switchBolNumber" },
   { key: "houseBolNumber", title: "House BoL Number", width: 140, type: "text", apiField: "houseBolNumber" },
   { key: "houseBolType", title: "House BoL Type", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["House BoL Type"], apiField: "houseBolType" },
   { key: "masterBolNumber", title: "Master BoL Number", width: 140, type: "text", apiField: "masterBolNumber" },
@@ -182,36 +181,36 @@ export const COLUMNS: ColumnDef[] = [
   { key: "voyage", title: "Voyage", width: 90, type: "text", apiField: "voyage" },
 
   // Containers
-  { key: "containerCount1", title: "Amount Of Containers (1)", width: 140, type: "text", isExtra: true },
-  { key: "containerLength1", title: "Container's Length (1)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Length (1)"], isExtra: true },
-  { key: "containerType1", title: "Container's Type (1)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Type (1)"], isExtra: true },
-  { key: "containerCount2", title: "Amount Of Containers (2)", width: 140, type: "text", isExtra: true },
-  { key: "containerLength2", title: "Container's Length (2)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Length (2)"], isExtra: true },
-  { key: "containerType2", title: "Container's Type (2)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Type (2)"], isExtra: true },
-  { key: "containerCount3", title: "Amount Of Containers (3)", width: 140, type: "text", isExtra: true },
-  { key: "containerLength3", title: "Container's Length (3)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Length (3)"], isExtra: true },
-  { key: "containerType3", title: "Container's Type (3)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Type (3)"], isExtra: true },
-  { key: "containerCount4", title: "Amount Of Containers (4)", width: 140, type: "text", isExtra: true },
-  { key: "containerLength4", title: "Container's Length (4)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Length (4)"], isExtra: true },
-  { key: "containerType4", title: "Container's Type (4)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Type (4)"], isExtra: true },
+  { key: "containerCount1", title: "Amount Of Containers (1)", width: 140, type: "text", apiField: "containerCount1" },
+  { key: "containerLength1", title: "Container's Length (1)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Length (1)"], apiField: "containerLength1" },
+  { key: "containerType1", title: "Container's Type (1)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Type (1)"], apiField: "containerType1" },
+  { key: "containerCount2", title: "Amount Of Containers (2)", width: 140, type: "text", apiField: "containerCount2" },
+  { key: "containerLength2", title: "Container's Length (2)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Length (2)"], apiField: "containerLength2" },
+  { key: "containerType2", title: "Container's Type (2)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Type (2)"], apiField: "containerType2" },
+  { key: "containerCount3", title: "Amount Of Containers (3)", width: 140, type: "text", apiField: "containerCount3" },
+  { key: "containerLength3", title: "Container's Length (3)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Length (3)"], apiField: "containerLength3" },
+  { key: "containerType3", title: "Container's Type (3)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Type (3)"], apiField: "containerType3" },
+  { key: "containerCount4", title: "Amount Of Containers (4)", width: 140, type: "text", apiField: "containerCount4" },
+  { key: "containerLength4", title: "Container's Length (4)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Length (4)"], apiField: "containerLength4" },
+  { key: "containerType4", title: "Container's Type (4)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Type (4)"], apiField: "containerType4" },
 
   // Computed columns
   { key: "teu", title: "TEU", width: 70, type: "computed", readonly: true },
-  { key: "dimensions", title: "Dimensions", width: 180, type: "popup", isExtra: true },
+  { key: "dimensions", title: "Dimensions", width: 180, type: "popup", apiField: "dimensions" },
   { key: "totalWeightTons", title: "Total Weight In Tons", width: 140, type: "computed", readonly: true, apiField: "totalWeightTons" },
   { key: "totalVolumeCbm", title: "Total Volume In CBM", width: 140, type: "computed", readonly: true, apiField: "totalVolumeCbm" },
   { key: "freightTon", title: "Freight Ton", width: 110, type: "computed", readonly: true },
   { key: "surface", title: "Surface", width: 100, type: "computed", readonly: true },
 
   // Quote
-  { key: "salesNumber", title: "Sales Number", width: 140, type: "text", isExtra: true },
-  { key: "selling", title: "Selling", width: 120, type: "text", isExtra: true },
-  { key: "quoteValidity", title: "Quote Validity", width: 120, type: "date", isExtra: true },
-  { key: "validityStatus", title: "Validity Status", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Validity Status"], isExtra: true },
+  { key: "salesNumber", title: "Sales Number", width: 140, type: "text", apiField: "salesNumber" },
+  { key: "selling", title: "Selling", width: 120, type: "text", apiField: "selling" },
+  { key: "quoteValidity", title: "Quote Validity", width: 120, type: "date", apiField: "quoteValidity" },
+  { key: "validityStatus", title: "Validity Status", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Validity Status"], apiField: "validityStatus" },
 
   // Misc
-  { key: "claim", title: "Claim", width: 100, type: "text", isExtra: true },
-  { key: "createdBy", title: "Created by", width: 210, type: "text", readonly: true, isExtra: true },
+  { key: "claim", title: "Claim", width: 100, type: "text", apiField: "claim" },
+  { key: "createdBy", title: "Created by", width: 210, type: "text", readonly: true, apiField: "createdBy" },
 ];
 
 // Column key lookup for quick access
@@ -379,14 +378,14 @@ export interface DimensionRow {
   volumePerPiece?: string;
 }
 
-export function computeDimensionTotals(dimensionsJson: string): {
+export function computeDimensionTotals(dimensions: unknown): {
   weightKg: number;
   volumeCbm: number;
   surface: number;
 } {
-  if (!dimensionsJson) return { weightKg: 0, volumeCbm: 0, surface: 0 };
+  if (!dimensions) return { weightKg: 0, volumeCbm: 0, surface: 0 };
   try {
-    const rows: DimensionRow[] = JSON.parse(dimensionsJson);
+    const rows: DimensionRow[] = Array.isArray(dimensions) ? dimensions : JSON.parse(String(dimensions));
     let weightKg = 0, volumeCbm = 0, surface = 0;
     for (const r of rows) {
       const colli = parseFloat(r.colli || "0") || 0;

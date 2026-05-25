@@ -2,6 +2,7 @@ import { SQLDatabase } from "encore.dev/storage/sqldb";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as warehouseTaskSchema from "../schemas/warehouseTask.schema";
+import * as warehouseSectionSchema from "../schemas/warehouseSection.schema";
 
 const { Pool } = pg;
 
@@ -16,5 +17,6 @@ const pool = new Pool({
 export const db = drizzle(pool, {
   schema: {
     ...warehouseTaskSchema,
+    ...warehouseSectionSchema,
   },
 });
