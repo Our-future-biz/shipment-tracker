@@ -1,16 +1,18 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { Select, Button, message, Tag } from "antd";
+import { useState, useEffect } from "react";
+import { Select, Button, Tag } from "antd";
 import { PrinterOutlined } from "@ant-design/icons";
 import { useShipments } from "@/hooks/useShipments";
 import { useInvoicing } from "@/hooks/useInvoicing";
 import { CURRENCIES } from "@/lib/enums";
 import { CostGrid } from "./CostGrid";
+import { PageHeader } from "@/components/PageHeader";
+import { AppCard } from "@/components/AppCard";
+import { toast } from "@/lib/toast";
 
 export const InvoicingView = () => {
   const [selectedShipmentId, setSelectedShipmentId] = useState<string | null>(null);
-  const [messageApi, contextHolder] = message.useMessage();
   const { shipments } = useShipments();
   const { data: invoicingData, isLoading: invoicingLoading, upsertCost, upsertBilling, generateInvoice } = useInvoicing(selectedShipmentId);
   const selectedShipment = shipments.find((s) => s.id === selectedShipmentId);
@@ -27,44 +29,123 @@ export const InvoicingView = () => {
   const saveBilling = async () => {
     if (!selectedShipmentId) return;
     await upsertBilling({ billingCurrency, roe });
-    messageApi.success("Billing saved");
+    toast.success("Billing saved");
   };
 
   const handleGenerate = async (type: string) => {
     const result = await generateInvoice({ jobNumber: selectedShipment?.jobNumber ?? "", invoiceType: type, billingCurrency, totalAmount: "0.00" });
-    messageApi.success(`Invoice ${result.invoice.invoiceNumber} generated`);
+    toast.success(`Invoice ${result.invoice.invoiceNumber} generated`);
   };
 
   return (
-    <div className="h-full flex flex-col">
-      {contextHolder}
-      <div className="flex-none flex items-center gap-4 px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
-        <Select placeholder="Select a shipment..." value={selectedShipmentId} onChange={setSelectedShipmentId} style={{ width: 380 }} size="small" showSearch filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())} options={shipments.map((s) => ({ value: s.id, label: `${s.jobNumber} — ${s.shipper} → ${s.consignee}` }))} />
-        {selectedShipment && <Tag color="blue" className="!text-xs">{selectedShipment.jobNumber}</Tag>}
-      </div>
-      <div className="flex-1 min-h-0 overflow-auto">
-        {!selectedShipmentId ? <div className="flex items-center justify-center h-full text-gray-400 text-sm">Select a shipment to view invoicing</div>
-        : invoicingLoading ? <div className="flex items-center justify-center h-full text-gray-400 text-sm">Loading...</div>
-        : (
-          <div className="p-4 space-y-6 max-w-[1100px]">
-            <CostGrid costs={invoicingData?.costs ?? []} onSave={upsertCost} />
-            <section>
-              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Billing Settings</h3>
-              <div className="flex items-center gap-3">
-                <label className="text-[11px] text-gray-500">Currency:</label>
-                <select value={billingCurrency} onChange={(e) => setBillingCurrency(e.target.value)} className="bg-transparent border border-gray-200 dark:border-gray-700 rounded text-[11px] px-2 py-1 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-teal-500/50">{CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
-                <label className="text-[11px] text-gray-500">ROE:</label>
-                <input value={roe} onChange={(e) => setRoe(e.target.value)} className="bg-transparent border border-gray-200 dark:border-gray-700 rounded text-[11px] px-2 py-1 w-20 text-gray-700 dark:text-gray-300 focus:outline-none focus:ring-1 focus:ring-teal-500/50" />
-                <button onClick={saveBilling} className="text-[11px] px-3 py-1 rounded bg-teal-600 text-white hover:bg-teal-700 transition-colors">Save</button>
+    <div style={{ background: "#f8fafc", minHeight: "100%", padding: 24 }}>
+      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+        <PageHeader title="Invoicing" />
+
+        <AppCard style={{ marginBottom: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+            <Select
+              placeholder="Select a shipment..."
+              value={selectedShipmentId}
+              onChange={setSelectedShipmentId}
+              style={{ width: 400 }}
+              showSearch
+              filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+              options={shipments.map((s) => ({ value: s.id, label: `${s.jobNumber} \u2014 ${s.shipper} \u2192 ${s.consignee}` }))}
+            />
+            {selectedShipment && (
+              <Tag
+                bordered={false}
+                style={{
+                  backgroundColor: "#e0e7ff",
+                  color: "#6366f1",
+                  borderRadius: 12,
+                  fontWeight: 500,
+                  fontSize: 12,
+                  padding: "2px 10px",
+                }}
+              >
+                {selectedShipment.jobNumber}
+              </Tag>
+            )}
+          </div>
+        </AppCard>
+
+        {!selectedShipmentId ? (
+          <AppCard>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, color: "#94a3b8", fontSize: 14 }}>
+              Select a shipment to view invoicing
+            </div>
+          </AppCard>
+        ) : invoicingLoading ? (
+          <AppCard>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, color: "#94a3b8", fontSize: 14 }}>
+              Loading...
+            </div>
+          </AppCard>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 1100 }}>
+            <AppCard title="Costs">
+              <CostGrid costs={invoicingData?.costs ?? []} onSave={upsertCost} />
+            </AppCard>
+
+            <AppCard title="Billing Settings">
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <label style={{ fontSize: 12, color: "#64748b" }}>Currency:</label>
+                <select
+                  value={billingCurrency}
+                  onChange={(e) => setBillingCurrency(e.target.value)}
+                  style={{
+                    background: "#fff",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    padding: "4px 8px",
+                    color: "#334155",
+                    outline: "none",
+                  }}
+                >
+                  {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <label style={{ fontSize: 12, color: "#64748b" }}>ROE:</label>
+                <input
+                  value={roe}
+                  onChange={(e) => setRoe(e.target.value)}
+                  style={{
+                    background: "#fff",
+                    border: "1px solid #e2e8f0",
+                    borderRadius: 6,
+                    fontSize: 12,
+                    padding: "4px 8px",
+                    width: 80,
+                    color: "#334155",
+                    outline: "none",
+                  }}
+                />
+                <Button type="primary" size="small" onClick={saveBilling}>
+                  Save
+                </Button>
               </div>
-            </section>
-            <section>
-              <h3 className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-2">Generate Invoice</h3>
-              <div className="flex items-center gap-2">
-                <button onClick={() => handleGenerate("breakdown")} className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-teal-500 hover:text-teal-600 transition-colors"><PrinterOutlined style={{ fontSize: 12 }} /> Breakdown</button>
-                <button onClick={() => handleGenerate("total")} className="flex items-center gap-1.5 text-[11px] px-3 py-1.5 rounded border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:border-teal-500 hover:text-teal-600 transition-colors"><PrinterOutlined style={{ fontSize: 12 }} /> Total Only</button>
+            </AppCard>
+
+            <AppCard title="Generate Invoice">
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Button
+                  icon={<PrinterOutlined />}
+                  onClick={() => handleGenerate("breakdown")}
+                  style={{ borderColor: "#e2e8f0" }}
+                >
+                  Breakdown
+                </Button>
+                <Button
+                  icon={<PrinterOutlined />}
+                  onClick={() => handleGenerate("total")}
+                  style={{ borderColor: "#e2e8f0" }}
+                >
+                  Total Only
+                </Button>
               </div>
-            </section>
+            </AppCard>
           </div>
         )}
       </div>

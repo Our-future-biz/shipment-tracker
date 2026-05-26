@@ -26,6 +26,14 @@ const STATUS_STYLES: Record<string, StatusStyle> = {
   pending: { bg: "#fef3c7", text: "#d97706" },
   invoiced: { bg: "#dcfce7", text: "#16a34a" },
   paid: { bg: "#dbeafe", text: "#1d4ed8" },
+
+  // Warehouse statuses
+  "in progress": { bg: "#dbeafe", text: "#1d4ed8" },
+
+  // Priority levels
+  high: { bg: "#fee2e2", text: "#dc2626" },
+  medium: { bg: "#fef3c7", text: "#d97706" },
+  low: { bg: "#dbeafe", text: "#1d4ed8" },
 };
 
 const DEFAULT_STYLE: StatusStyle = { bg: "#f1f5f9", text: "#64748b" };
