@@ -48,25 +48,35 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   // Restore session on mount
   useEffect(() => {
     const savedToken = localStorage.getItem("auth_token");
-    if (savedToken) {
-      fetch(`${API_BASE}/auth/me`, {
-        headers: { Authorization: `Bearer ${savedToken}` },
-      })
-        .then((res) => {
-          if (!res.ok) throw new Error("Invalid session");
-          return res.json();
-        })
-        .then((data) => {
-          setUser(data.user);
-          setToken(savedToken);
-        })
-        .catch(() => {
-          localStorage.removeItem("auth_token");
-        })
-        .finally(() => setIsLoading(false));
-    } else {
+    if (!savedToken) {
       setIsLoading(false);
+      return;
     }
+
+    // Safety timeout — don't hang forever if API is down
+    const timeout = setTimeout(() => {
+      setIsLoading(false);
+      localStorage.removeItem("auth_token");
+    }, 5000);
+
+    fetch(`${API_BASE}/auth/me`, {
+      headers: { Authorization: `Bearer ${savedToken}` },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("Invalid session");
+        return res.json();
+      })
+      .then((data) => {
+        setUser(data.user);
+        setToken(savedToken);
+      })
+      .catch(() => {
+        localStorage.removeItem("auth_token");
+      })
+      .finally(() => {
+        clearTimeout(timeout);
+        setIsLoading(false);
+      });
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -99,6 +109,8 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setUser(null);
     setToken(null);
     localStorage.removeItem("auth_token");
+    // Navigate to login — use window.location for clean state reset
+    window.location.href = "/login";
   }, []);
 
   return (

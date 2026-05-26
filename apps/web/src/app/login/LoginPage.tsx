@@ -3,14 +3,18 @@
 import { Form, Input, Button, Alert } from "antd";
 import { LockOutlined, MailOutlined } from "@ant-design/icons";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useRouter } from "next/navigation";
 
 export const LoginPage = () => {
   const { login, loginError, isLoggingIn } = useAuth();
+  const router = useRouter();
   const [form] = Form.useForm();
 
   const handleSubmit = async (values: { email: string; password: string }) => {
     try {
       await login(values.email.trim(), values.password);
+      // Login succeeded → navigate to dashboard
+      router.replace("/dashboard");
     } catch {
       // error displayed via loginError
     }
