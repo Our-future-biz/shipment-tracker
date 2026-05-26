@@ -11,7 +11,7 @@ import { isActiveStatus } from "@/lib/enums";
 import { parseDateMMDDYY } from "@/lib/columnConfig";
 import type { ShipmentItem } from "@/hooks/useShipments";
 
-// ─── Status tab definitions ─────────────────────────────────────────
+// --- Status tab definitions ---
 
 type TabKey = "all" | "active" | "in-transit" | "customs" | "delivered";
 
@@ -41,7 +41,7 @@ const STATUS_TABS: { key: TabKey; label: string; filter: (s: ShipmentItem) => bo
   },
 ];
 
-// ─── Helpers ─────────────────────────────────────────────────────────
+// --- Helpers ---
 
 function isOverdue(dateStr: string | null | undefined): boolean {
   if (!dateStr) return false;
@@ -50,7 +50,7 @@ function isOverdue(dateStr: string | null | undefined): boolean {
   return d.getTime() < Date.now();
 }
 
-// ─── Props ───────────────────────────────────────────────────────────
+// --- Props ---
 
 interface ShipmentsTableProps {
   shipments: ShipmentItem[];
@@ -102,7 +102,7 @@ export const ShipmentsTable = ({
         title: "Job #",
         width: 140,
         render: (_: unknown, record: ShipmentItem) => (
-          <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#4f46e5", cursor: "pointer" }}>
+          <span className="font-mono font-semibold text-indigo-600 cursor-pointer">
             {record.jobNumber || "\u2014"}
           </span>
         ),
@@ -112,14 +112,14 @@ export const ShipmentsTable = ({
         title: "Status",
         width: 200,
         render: (_: unknown, record: ShipmentItem) =>
-          record.status ? <StatusBadge status={record.status} /> : <span style={{ color: "#cbd5e1" }}>{"\u2014"}</span>,
+          record.status ? <StatusBadge status={record.status} /> : <span className="text-slate-300">{"\u2014"}</span>,
       },
       {
         key: "customer",
         title: "Customer",
         width: 180,
         ellipsis: true,
-        render: (_: unknown, record: ShipmentItem) => record.customer || <span style={{ color: "#cbd5e1" }}>{"\u2014"}</span>,
+        render: (_: unknown, record: ShipmentItem) => record.customer || <span className="text-slate-300">{"\u2014"}</span>,
       },
       {
         key: "route",
@@ -128,10 +128,10 @@ export const ShipmentsTable = ({
         render: (_: unknown, record: ShipmentItem) => {
           const pol = record.pol;
           const pod = record.pod;
-          if (!pol && !pod) return <span style={{ color: "#cbd5e1" }}>{"\u2014"}</span>;
+          if (!pol && !pod) return <span className="text-slate-300">{"\u2014"}</span>;
           return (
             <span>
-              {pol || "?"} <span style={{ color: "#94a3b8" }}>{"\u2192"}</span> {pod || "?"}
+              {pol || "?"} <span className="text-slate-400">{"\u2192"}</span> {pod || "?"}
             </span>
           );
         },
@@ -141,7 +141,7 @@ export const ShipmentsTable = ({
         title: "Mode",
         width: 120,
         ellipsis: true,
-        render: (_: unknown, record: ShipmentItem) => record.freightMode || <span style={{ color: "#cbd5e1" }}>{"\u2014"}</span>,
+        render: (_: unknown, record: ShipmentItem) => record.freightMode || <span className="text-slate-300">{"\u2014"}</span>,
       },
       {
         key: "eta",
@@ -149,9 +149,9 @@ export const ShipmentsTable = ({
         width: 120,
         render: (_: unknown, record: ShipmentItem) => {
           const val = record.estimatedArrival;
-          if (!val) return <span style={{ color: "#cbd5e1" }}>{"\u2014"}</span>;
+          if (!val) return <span className="text-slate-300">{"\u2014"}</span>;
           const overdue = isOverdue(val);
-          return <span style={overdue ? { color: "#ef4444", fontWeight: 600 } : undefined}>{val}</span>;
+          return <span className={overdue ? "text-red-500 font-semibold" : ""}>{val}</span>;
         },
       },
       {
@@ -186,7 +186,7 @@ export const ShipmentsTable = ({
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div className="flex flex-col gap-4">
       {/* Header */}
       <PageHeader
         title="Shipments"
@@ -201,35 +201,25 @@ export const ShipmentsTable = ({
       />
 
       {/* Status tabs + search */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
-        <div style={{ display: "flex", gap: 4 }}>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex gap-1">
           {STATUS_TABS.map((tab) => {
             const isActive = activeTab === tab.key;
             return (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                style={{
-                  padding: "6px 14px",
-                  borderRadius: 6,
-                  border: "1px solid",
-                  borderColor: isActive ? "#4f46e5" : "#e2e8f0",
-                  background: isActive ? "#eef2ff" : "#fff",
-                  color: isActive ? "#4f46e5" : "#64748b",
-                  fontWeight: isActive ? 600 : 400,
-                  fontSize: 13,
-                  cursor: "pointer",
-                  transition: "all 0.15s",
-                }}
+                className={`px-3.5 py-1.5 rounded-md border text-[13px] cursor-pointer transition-all duration-150 ${
+                  isActive
+                    ? "border-indigo-600 bg-indigo-50 text-indigo-600 font-semibold"
+                    : "border-slate-200 bg-white text-slate-500 font-normal"
+                }`}
               >
                 {tab.label}
                 <span
-                  style={{
-                    marginLeft: 6,
-                    fontSize: 11,
-                    color: isActive ? "#4f46e5" : "#94a3b8",
-                    fontWeight: 500,
-                  }}
+                  className={`ml-1.5 text-[11px] font-medium ${
+                    isActive ? "text-indigo-600" : "text-slate-400"
+                  }`}
                 >
                   {tabCounts[tab.key]}
                 </span>
@@ -239,7 +229,7 @@ export const ShipmentsTable = ({
         </div>
         <Input
           placeholder="Search job #, customer, POL, POD..."
-          prefix={<SearchOutlined style={{ color: "#94a3b8" }} />}
+          prefix={<SearchOutlined className="text-slate-400" />}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           allowClear

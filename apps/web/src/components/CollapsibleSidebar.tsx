@@ -42,30 +42,23 @@ export function CollapsibleSidebar({
       <div
         key={item.key}
         onClick={() => onSelect(item.key)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: collapsed ? 0 : 8,
-          justifyContent: collapsed ? "center" : "flex-start",
-          padding: collapsed ? "8px 0" : "8px 12px",
-          borderRadius: 6,
-          fontSize: 13,
-          color: isActive ? "#6366f1" : "#64748b",
-          background: isActive ? "#f0f0ff" : "transparent",
-          cursor: "pointer",
-          marginBottom: 2,
-          transition: "all 0.15s",
-          position: "relative",
-        }}
+        className={`flex items-center rounded-md text-[13px] cursor-pointer mb-0.5 transition-all duration-150 relative ${
+          collapsed ? "justify-center py-2" : "justify-start px-3 py-2"
+        } ${
+          isActive
+            ? "text-indigo-500 bg-indigo-50"
+            : "text-slate-500 bg-transparent"
+        }`}
+        style={{ gap: collapsed ? 0 : 8 }}
       >
-        <span style={{ fontSize: 14, width: collapsed ? "auto" : 18, textAlign: "center", flexShrink: 0 }}>
+        <span className={`text-sm text-center shrink-0 ${collapsed ? "w-auto" : "w-[18px]"}`}>
           {item.icon}
         </span>
         {!collapsed && (
           <>
-            <span style={{ flex: 1 }}>{item.label}</span>
+            <span className="flex-1">{item.label}</span>
             {item.badge !== undefined && (
-              <span style={{ fontSize: 10, color: item.badgeColor ?? "#94a3b8" }}>
+              <span className="text-[10px]" style={{ color: item.badgeColor ?? "#94a3b8" }}>
                 {item.badge}
               </span>
             )}
@@ -73,21 +66,8 @@ export function CollapsibleSidebar({
         )}
         {collapsed && item.badge !== undefined && (
           <span
-            style={{
-              position: "absolute",
-              top: 4,
-              right: 2,
-              width: 14,
-              height: 14,
-              borderRadius: "50%",
-              background: item.badgeColor ?? "#94a3b8",
-              color: "white",
-              fontSize: 8,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 600,
-            }}
+            className="absolute top-1 right-0.5 w-3.5 h-3.5 rounded-full text-white text-[8px] flex items-center justify-center font-semibold"
+            style={{ background: item.badgeColor ?? "#94a3b8" }}
           >
             {typeof item.badge === "number" ? item.badge : ""}
           </span>
@@ -106,51 +86,27 @@ export function CollapsibleSidebar({
 
   return (
     <div
+      className="bg-white border-r border-slate-200 flex flex-col shrink-0 transition-[width] duration-200 ease-in-out overflow-hidden"
       style={{
         width,
-        background: "#fff",
-        borderRight: "1px solid #e2e8f0",
         padding: collapsed ? "12px 4px" : "12px 8px",
-        display: "flex",
-        flexDirection: "column",
-        flexShrink: 0,
-        transition: "width 0.2s ease",
-        overflow: "hidden",
       }}
     >
-      {header && !collapsed && <div style={{ marginBottom: 8 }}>{header}</div>}
+      {header && !collapsed && <div className="mb-2">{header}</div>}
 
       {!collapsed && (
-        <div
-          style={{
-            fontSize: 10,
-            color: "#94a3b8",
-            textTransform: "uppercase",
-            letterSpacing: 0.5,
-            padding: "4px 12px",
-            fontWeight: 500,
-          }}
-        >
+        <div className="text-[10px] text-slate-400 uppercase tracking-wide px-3 py-1 font-medium">
           Sections
         </div>
       )}
 
-      <div style={{ flex: 1 }}>
+      <div className="flex-1">
         {items.map(renderItem)}
         {bottomItems && bottomItems.length > 0 && (
           <>
-            <div style={{ borderTop: "1px solid #e2e8f0", margin: "6px 0" }} />
+            <div className="border-t border-slate-200 my-1.5" />
             {!collapsed && (
-              <div
-                style={{
-                  fontSize: 10,
-                  color: "#94a3b8",
-                  textTransform: "uppercase",
-                  letterSpacing: 0.5,
-                  padding: "4px 12px",
-                  fontWeight: 500,
-                }}
-              >
+              <div className="text-[10px] text-slate-400 uppercase tracking-wide px-3 py-1 font-medium">
                 Tools
               </div>
             )}
@@ -161,18 +117,9 @@ export function CollapsibleSidebar({
 
       <div
         onClick={onToggle}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "8px 0",
-          cursor: "pointer",
-          color: "#94a3b8",
-          borderTop: "1px solid #e2e8f0",
-          marginTop: 8,
-        }}
+        className="flex items-center justify-center py-2 cursor-pointer text-slate-400 border-t border-slate-200 mt-2"
       >
-        {collapsed ? <RightOutlined style={{ fontSize: 12 }} /> : <LeftOutlined style={{ fontSize: 12 }} />}
+        {collapsed ? <RightOutlined className="text-xs" /> : <LeftOutlined className="text-xs" />}
       </div>
     </div>
   );

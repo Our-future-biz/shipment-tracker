@@ -20,7 +20,7 @@ export function ShipmentDetailContent() {
 
   if (isLoading) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", padding: 80 }}>
+      <div className="flex justify-center p-20">
         <Spin size="large" />
       </div>
     );
@@ -28,9 +28,9 @@ export function ShipmentDetailContent() {
 
   if (!shipment) {
     return (
-      <div style={{ padding: 40, textAlign: "center", color: "#64748b" }}>
+      <div className="p-10 text-center text-slate-500">
         Shipment not found.{" "}
-        <Link href="/shipments" style={{ color: "#6366f1" }}>
+        <Link href="/shipments" className="text-indigo-500">
           Back to list
         </Link>
       </div>
@@ -40,21 +40,21 @@ export function ShipmentDetailContent() {
   const status = shipment.status ?? "";
 
   return (
-    <div style={{ display: "flex", minHeight: "calc(100vh - 52px)" }}>
+    <div className="flex min-h-[calc(100vh-52px)]">
       <DetailSidebar
         shipment={shipment}
         activeSection={activeSection}
         onSelectSection={setActiveSection}
       />
 
-      <div style={{ flex: 1, padding: 24, overflowY: "auto" }}>
-        <div style={{ display: "flex", gap: 20 }}>
-          <div style={{ flex: 1 }}>
+      <div className="flex-1 p-6 overflow-y-auto">
+        <div className="flex gap-5">
+          <div className="flex-1">
             <PageHeader
               title={shipment.jobNumber ?? shipment.id}
               breadcrumb={
                 <span>
-                  <Link href="/shipments" style={{ color: "#6366f1", textDecoration: "none" }}>
+                  <Link href="/shipments" className="text-indigo-500 no-underline">
                     Shipments
                   </Link>
                   {" \u2192 "}
@@ -71,10 +71,10 @@ export function ShipmentDetailContent() {
               status={shipment.customer ? "completed" : "not-started"}
               defaultOpen={activeSection === "customer"}
             >
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12, padding: "8px 0" }}>
-                <div><span style={{ color: "#64748b" }}>Customer:</span> <strong>{shipment.customer || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Customer PIC:</span> <strong>{shipment.customerPic || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Customer Reference:</span> <strong>{shipment.customerReference || "\u2014"}</strong></div>
+              <div className="grid grid-cols-2 gap-3 text-xs py-2">
+                <div><span className="text-slate-500">Customer:</span> <strong>{shipment.customer || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Customer PIC:</span> <strong>{shipment.customerPic || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Customer Reference:</span> <strong>{shipment.customerReference || "\u2014"}</strong></div>
               </div>
             </AccordionSection>
 
@@ -84,15 +84,15 @@ export function ShipmentDetailContent() {
               description="Type, mode, incoterms, trade direction, department"
               status={shipment.freightMode ? "completed" : "not-started"}
             >
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12, padding: "8px 0" }}>
-                <div><span style={{ color: "#64748b" }}>Trade Direction:</span> <strong>{shipment.tradeDirection || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Freight Mode:</span> <strong>{shipment.freightMode || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Department:</span> <strong>{shipment.department || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Person in Charge:</span> <strong>{shipment.personInCharge || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Incoterms:</span> <strong>{shipment.incotermOrigin || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Service Type:</span> <strong>{shipment.serviceType || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Agent:</span> <strong>{shipment.agent || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Insurance:</span> <strong>{shipment.insurance || "\u2014"}</strong></div>
+              <div className="grid grid-cols-2 gap-3 text-xs py-2">
+                <div><span className="text-slate-500">Trade Direction:</span> <strong>{shipment.tradeDirection || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Freight Mode:</span> <strong>{shipment.freightMode || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Department:</span> <strong>{shipment.department || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Person in Charge:</span> <strong>{shipment.personInCharge || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Incoterms:</span> <strong>{shipment.incotermOrigin || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Service Type:</span> <strong>{shipment.serviceType || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Agent:</span> <strong>{shipment.agent || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Insurance:</span> <strong>{shipment.insurance || "\u2014"}</strong></div>
               </div>
             </AccordionSection>
 
@@ -102,15 +102,15 @@ export function ShipmentDetailContent() {
               description="Origin, destination, ports, dates"
               status={shipment.pol ? "in-progress" : "not-started"}
             >
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12, padding: "8px 0" }}>
-                <div><span style={{ color: "#64748b" }}>POL:</span> <strong>{shipment.pol || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>POD:</span> <strong>{shipment.pod || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Shipper:</span> <strong>{shipment.shipper || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Consignee:</span> <strong>{shipment.consignee || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>ETD:</span> <strong>{shipment.estimatedDeparture || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>ETA:</span> <strong>{shipment.estimatedArrival || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Pickup Address:</span> <strong>{shipment.pickupAddress || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Delivery Address:</span> <strong>{shipment.deliveryAddress || "\u2014"}</strong></div>
+              <div className="grid grid-cols-2 gap-3 text-xs py-2">
+                <div><span className="text-slate-500">POL:</span> <strong>{shipment.pol || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">POD:</span> <strong>{shipment.pod || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Shipper:</span> <strong>{shipment.shipper || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Consignee:</span> <strong>{shipment.consignee || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">ETD:</span> <strong>{shipment.estimatedDeparture || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">ETA:</span> <strong>{shipment.estimatedArrival || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Pickup Address:</span> <strong>{shipment.pickupAddress || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Delivery Address:</span> <strong>{shipment.deliveryAddress || "\u2014"}</strong></div>
               </div>
             </AccordionSection>
 
@@ -120,11 +120,11 @@ export function ShipmentDetailContent() {
               description="Packages, containers, weight, volume, freight tons"
               status="not-started"
             >
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12, padding: "8px 0" }}>
-                <div><span style={{ color: "#64748b" }}>Cargo Description:</span> <strong>{shipment.cargoDescription || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>HS Code:</span> <strong>{shipment.hsCode || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Vessel:</span> <strong>{shipment.vessel || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Voyage:</span> <strong>{shipment.voyage || "\u2014"}</strong></div>
+              <div className="grid grid-cols-2 gap-3 text-xs py-2">
+                <div><span className="text-slate-500">Cargo Description:</span> <strong>{shipment.cargoDescription || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">HS Code:</span> <strong>{shipment.hsCode || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Vessel:</span> <strong>{shipment.vessel || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Voyage:</span> <strong>{shipment.voyage || "\u2014"}</strong></div>
               </div>
             </AccordionSection>
 
@@ -134,19 +134,19 @@ export function ShipmentDetailContent() {
               description="VGM, shipping instructions, AMS, ISF, BoL"
               status="not-started"
             >
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 12, padding: "8px 0" }}>
-                <div><span style={{ color: "#64748b" }}>House BoL:</span> <strong>{shipment.houseBolNumber || "\u2014"}</strong></div>
-                <div><span style={{ color: "#64748b" }}>Master BoL:</span> <strong>{shipment.masterBolNumber || "\u2014"}</strong></div>
+              <div className="grid grid-cols-2 gap-3 text-xs py-2">
+                <div><span className="text-slate-500">House BoL:</span> <strong>{shipment.houseBolNumber || "\u2014"}</strong></div>
+                <div><span className="text-slate-500">Master BoL:</span> <strong>{shipment.masterBolNumber || "\u2014"}</strong></div>
               </div>
             </AccordionSection>
 
             <AccordionSection
               id="costs"
               title="Costs & Billing"
-              description="Freight, locals, insurance, customs — supplier vs billing"
+              description="Freight, locals, insurance, customs -- supplier vs billing"
               status="not-started"
             >
-              <div style={{ fontSize: 12, color: "#94a3b8", padding: "8px 0" }}>
+              <div className="text-xs text-slate-400 py-2">
                 Cost grid will be connected in a future update.
               </div>
             </AccordionSection>

@@ -15,9 +15,9 @@ interface AccordionSectionProps {
 }
 
 const STATUS_CONFIG: Record<SectionStatus, { label: string; color: string; icon: string }> = {
-  completed: { label: "Completed", color: "#22c55e", icon: "✓" },
-  "in-progress": { label: "In progress", color: "#f59e0b", icon: "●" },
-  "not-started": { label: "Not started", color: "#94a3b8", icon: "○" },
+  completed: { label: "Completed", color: "#22c55e", icon: "\u2713" },
+  "in-progress": { label: "In progress", color: "#f59e0b", icon: "\u25CF" },
+  "not-started": { label: "Not started", color: "#94a3b8", icon: "\u25CB" },
 };
 
 export function AccordionSection({
@@ -38,13 +38,10 @@ export function AccordionSection({
     if (!contentRef.current) return;
     if (open) {
       setHeight(contentRef.current.scrollHeight);
-      // After transition, set to auto so content can resize
       const timer = setTimeout(() => setHeight(undefined), 250);
       return () => clearTimeout(timer);
     } else {
-      // First set explicit height so transition can work
       setHeight(contentRef.current.scrollHeight);
-      // Then trigger collapse on next frame
       requestAnimationFrame(() => {
         requestAnimationFrame(() => setHeight(0));
       });
@@ -58,19 +55,13 @@ export function AccordionSection({
   return (
     <div
       id={id}
+      className="bg-white rounded-lg border border-slate-200 mb-2 overflow-hidden transition-shadow duration-200"
       style={{
-        background: "#fff",
-        borderRadius: 10,
-        border: "1px solid #e2e8f0",
-        marginBottom: 8,
-        overflow: "hidden",
-        // Use a pseudo-element-like left accent via box-shadow to avoid layout shift
         boxShadow: open
           ? "inset 3px 0 0 0 #6366f1"
           : hovered
             ? "inset 3px 0 0 0 #c7d2fe"
             : "inset 3px 0 0 0 transparent",
-        transition: "box-shadow 0.2s ease",
       }}
     >
       {/* Header */}
@@ -78,42 +69,28 @@ export function AccordionSection({
         onClick={() => setOpen(!open)}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "14px 18px",
-          cursor: "pointer",
-          background: hovered ? "#fafaff" : "transparent",
-          transition: "background 0.15s ease",
-          userSelect: "none",
-        }}
+        className={`flex items-center justify-between px-[18px] py-3.5 cursor-pointer select-none transition-colors duration-150 ${
+          hovered ? "bg-[#fafaff]" : "bg-transparent"
+        }`}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div className="flex items-center gap-3">
           <DownOutlined
+            className="text-slate-400 transition-transform duration-[250ms]"
             style={{
               fontSize: 10,
-              color: "#94a3b8",
-              transition: "transform 0.25s ease",
               transform: open ? "rotate(0deg)" : "rotate(-90deg)",
             }}
           />
           <div>
-            <div style={{ fontWeight: 600, fontSize: 13, color: "#1e293b" }}>{title}</div>
-            <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{description}</div>
+            <div className="font-semibold text-[13px] text-slate-800">{title}</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">{description}</div>
           </div>
         </div>
         <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            fontSize: 11,
-            color: statusInfo.color,
-            fontWeight: 500,
-          }}
+          className="flex items-center gap-1.5 text-[11px] font-medium"
+          style={{ color: statusInfo.color }}
         >
-          <span style={{ fontSize: 10 }}>{statusInfo.icon}</span>
+          <span className="text-[10px]">{statusInfo.icon}</span>
           {statusInfo.label}
         </div>
       </div>
@@ -121,18 +98,12 @@ export function AccordionSection({
       {/* Animated content */}
       <div
         ref={contentRef}
+        className="overflow-hidden transition-[height] duration-[250ms] ease-in-out"
         style={{
           height: height === undefined ? "auto" : height,
-          overflow: "hidden",
-          transition: "height 0.25s ease",
         }}
       >
-        <div
-          style={{
-            padding: "12px 18px 16px",
-            borderTop: "1px solid #f1f5f9",
-          }}
-        >
+        <div className="px-[18px] pt-3 pb-4 border-t border-slate-100">
           {children}
         </div>
       </div>

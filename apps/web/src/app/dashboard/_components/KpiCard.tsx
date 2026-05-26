@@ -11,12 +11,12 @@ interface KpiCardProps {
 export function KpiCard({ label, value, valueColor, trend, trendType = "neutral" }: KpiCardProps) {
   const trendColors = { up: "#22c55e", down: "#ef4444", neutral: "#64748b" };
   return (
-    <div style={{ background: "#fff", borderRadius: 10, padding: 18, border: "1px solid #e2e8f0" }}>
-      <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.3, marginBottom: 6 }}>
+    <div className="bg-white rounded-lg p-[18px] border border-slate-200">
+      <div className="text-[11px] text-slate-500 uppercase tracking-wide mb-1.5">
         {label}
       </div>
-      <div style={{ fontSize: 28, fontWeight: 700, color: valueColor ?? "#1e293b" }}>{value}</div>
-      {trend && <div style={{ fontSize: 11, color: trendColors[trendType], marginTop: 6 }}>{trend}</div>}
+      <div className="text-[28px] font-bold" style={{ color: valueColor ?? "#1e293b" }}>{value}</div>
+      {trend && <div className="text-[11px] mt-1.5" style={{ color: trendColors[trendType] }}>{trend}</div>}
     </div>
   );
 }

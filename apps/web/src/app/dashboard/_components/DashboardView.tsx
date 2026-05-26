@@ -27,12 +27,12 @@ export function DashboardView() {
   }, [shipments]);
 
   if (isLoading) {
-    return <div style={{ display: "flex", justifyContent: "center", padding: 80 }}><span style={{ color: "#94a3b8" }}>Loading...</span></div>;
+    return <div className="flex justify-center p-20"><span className="text-slate-400">Loading...</span></div>;
   }
 
   return (
-    <div style={{ background: "#f8fafc", minHeight: "100%", padding: 24 }}>
-      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+    <div className="bg-slate-50 min-h-full p-6">
+      <div className="max-w-[1400px] mx-auto">
       <PageHeader
         title="Dashboard"
         extra={
@@ -41,13 +41,13 @@ export function DashboardView() {
           </Button>
         }
       />
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
+      <div className="grid grid-cols-4 gap-3.5 mb-5">
         <KpiCard label="Active Shipments" value={kpis.active} />
         <KpiCard label="Total Shipments" value={kpis.total} />
         <KpiCard label="Imports" value={kpis.imports} valueColor="#3b82f6" />
         <KpiCard label="Exports" value={kpis.exports} valueColor="#f59e0b" />
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+      <div className="grid grid-cols-2 gap-3.5 mb-5">
         <NeedsAttentionCard shipments={shipments} />
         <UpcomingCard shipments={shipments} />
       </div>

@@ -1,10 +1,10 @@
 "use client";
 
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Spin } from "antd";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { TopNav } from "@/components/TopNav";
-import { useEffect } from "react";
+import { LoginPage } from "./login/LoginPage";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -13,24 +13,17 @@ interface AppShellProps {
 export const AppShell = ({ children }: AppShellProps) => {
   const { user, isLoading } = useAuth();
   const pathname = usePathname();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!isLoading && !user && pathname !== "/login") {
-      router.replace("/login");
-    }
-  }, [isLoading, user, pathname, router]);
 
   if (isLoading) {
     return (
-      <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "100vh" }}>
+      <div className="flex items-center justify-center h-screen">
         <Spin size="large" />
       </div>
     );
   }
 
-  if (!user && pathname !== "/login") {
-    return null;
+  if (!user) {
+    return <LoginPage />;
   }
 
   if (pathname === "/login") {
@@ -38,9 +31,9 @@ export const AppShell = ({ children }: AppShellProps) => {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+    <div className="flex flex-col min-h-screen">
       <TopNav />
-      <main style={{ flex: 1, background: "#f8fafc" }}>{children}</main>
+      <main className="flex-1 bg-slate-50">{children}</main>
     </div>
   );
 };

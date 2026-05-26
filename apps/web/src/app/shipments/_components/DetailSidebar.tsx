@@ -43,16 +43,16 @@ export function DetailSidebar({ shipment, activeSection, onSelectSection }: Deta
       activeKey={activeSection}
       onSelect={onSelectSection}
       header={
-        <div style={{ padding: "0 4px" }}>
+        <div className="px-1">
           <div
-            style={{ fontSize: 12, color: "#6366f1", cursor: "pointer", marginBottom: 12 }}
+            className="text-xs text-indigo-500 cursor-pointer mb-3"
             onClick={() => router.push("/shipments")}
           >
-            ← Back to Shipments
+            &larr; Back to Shipments
           </div>
-          <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: 12 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#1e293b" }}>{jobNumber}</div>
-            {status && <div style={{ marginTop: 4 }}><StatusBadge status={status} /></div>}
+          <div className="border-b border-slate-200 pb-3">
+            <div className="text-[15px] font-bold text-slate-800">{jobNumber}</div>
+            {status && <div className="mt-1"><StatusBadge status={status} /></div>}
           </div>
         </div>
       }

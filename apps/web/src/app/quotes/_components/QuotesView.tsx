@@ -54,7 +54,7 @@ export const QuotesView = () => {
       key: "quoteNumber",
       width: 180,
       render: (text: string) => (
-        <span style={{ color: "#6366f1", fontWeight: 600, fontFamily: "monospace", cursor: "pointer" }}>{text}</span>
+        <span className="text-indigo-500 font-semibold font-mono cursor-pointer">{text}</span>
       ),
       onCell: (record) => ({
         onClick: () => setSelectedQuote(record),
@@ -73,7 +73,7 @@ export const QuotesView = () => {
       key: "terms",
       ellipsis: true,
       render: (val: string) => (
-        <span style={{ color: "#64748b" }}>{val || "No terms"}</span>
+        <span className="text-slate-500">{val || "No terms"}</span>
       ),
     },
     {
@@ -97,8 +97,8 @@ export const QuotesView = () => {
   ];
 
   return (
-    <div style={{ background: "#f8fafc", minHeight: "100%", padding: 24 }}>
-      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+    <div className="bg-slate-50 min-h-full p-6">
+      <div className="max-w-[1400px] mx-auto">
         <PageHeader
           title="Quotes"
           extra={
@@ -109,12 +109,12 @@ export const QuotesView = () => {
         />
 
         <AppCard>
-          <div style={{ marginBottom: 16 }}>
+          <div className="mb-4">
             <Input
               placeholder="Search quotes..."
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
-              style={{ maxWidth: 320, borderRadius: 8 }}
+              className="max-w-xs rounded-lg"
               allowClear
             />
           </div>
@@ -125,7 +125,7 @@ export const QuotesView = () => {
             loading={isLoading}
             size="middle"
             pagination={{ pageSize: 20, showSizeChanger: false }}
-            style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden" }}
+            className="border border-slate-200 rounded-lg overflow-hidden"
             onRow={(record) => ({
               style: { cursor: "pointer" },
               onClick: () => setSelectedQuote(record),
@@ -140,7 +140,7 @@ export const QuotesView = () => {
           title="New Quote"
           size="small"
           footer={
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <div className="flex justify-end gap-2">
               <Button onClick={() => setCreateModalOpen(false)}>Cancel</Button>
               <Button type="primary" onClick={() => form.submit()} loading={isCreating}>Create</Button>
             </div>
@@ -204,20 +204,14 @@ const QuoteDetail = ({ quote }: { quote: QuoteItem }) => {
                   Object.entries(quoteData).map(([key, val]) => (
                     <div
                       key={key}
-                      style={{
-                        display: "flex",
-                        gap: 8,
-                        fontSize: 12,
-                        padding: "6px 0",
-                        borderBottom: "1px solid #e2e8f0",
-                      }}
+                      className="flex gap-2 text-xs py-1.5 border-b border-slate-200"
                     >
-                      <span style={{ color: "#64748b", width: 160, flexShrink: 0, fontWeight: 500 }}>{key}</span>
-                      <span style={{ color: "#1e293b" }}>{String(val)}</span>
+                      <span className="text-slate-500 w-40 shrink-0 font-medium">{key}</span>
+                      <span className="text-slate-800">{String(val)}</span>
                     </div>
                   ))
                 ) : (
-                  <Text type="secondary" style={{ fontSize: 12 }}>No data fields yet</Text>
+                  <Text type="secondary" className="text-xs">No data fields yet</Text>
                 )}
               </div>
             ),
@@ -226,13 +220,13 @@ const QuoteDetail = ({ quote }: { quote: QuoteItem }) => {
             key: "terms",
             label: "Terms",
             children: (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div className="flex flex-col gap-3">
                 <TextArea
                   rows={12}
                   value={terms}
                   onChange={(e) => setTerms(e.target.value)}
                   placeholder="Enter quote terms..."
-                  style={{ fontSize: 12 }}
+                  className="text-xs"
                 />
                 <Button
                   size="small"

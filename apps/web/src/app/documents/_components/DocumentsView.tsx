@@ -6,26 +6,12 @@ import { PageHeader } from "@/components/PageHeader";
 
 export const DocumentsView = () => {
   return (
-    <div style={{ background: "#f8fafc", minHeight: "100%", padding: 24 }}>
-      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+    <div className="bg-slate-50 min-h-full p-6">
+      <div className="max-w-[1400px] mx-auto">
       <PageHeader title="Documents" />
 
-      <div
-        style={{
-          background: "#fff",
-          borderRadius: 12,
-          border: "1px solid #e2e8f0",
-          padding: 32,
-        }}
-      >
-        <p
-          style={{
-            fontSize: 13,
-            color: "#64748b",
-            marginBottom: 24,
-            margin: "0 0 24px 0",
-          }}
-        >
+      <div className="bg-white rounded-xl border border-slate-200 p-8">
+        <p className="text-sm text-slate-500 mb-6 mt-0">
           Upload shipping documents to extract structured data using AI.
         </p>
 
@@ -33,20 +19,16 @@ export const DocumentsView = () => {
           accept=".pdf"
           multiple={false}
           beforeUpload={() => false}
-          style={{
-            borderRadius: 10,
-            border: "2px dashed #e2e8f0",
-            background: "#f8fafc",
-            padding: "48px 0",
-          }}
+          className="!rounded-lg !border-2 !border-dashed !border-slate-200 !bg-slate-50"
+          style={{ padding: "48px 0" }}
         >
           <p className="ant-upload-drag-icon">
-            <UploadOutlined style={{ fontSize: 40, color: "#6366f1" }} />
+            <UploadOutlined className="!text-[40px] !text-indigo-500" />
           </p>
-          <p style={{ fontSize: 14, color: "#1e293b", fontWeight: 500 }}>
+          <p className="text-sm text-slate-800 font-medium">
             Click or drag PDF to upload
           </p>
-          <p style={{ fontSize: 12, color: "#94a3b8" }}>
+          <p className="text-xs text-slate-400">
             Bills of Lading, Manifests, Booking Confirmations, Invoices
           </p>
         </Upload.Dragger>

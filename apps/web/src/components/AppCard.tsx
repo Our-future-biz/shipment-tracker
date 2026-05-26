@@ -6,32 +6,21 @@ interface AppCardProps {
   title?: ReactNode;
   extra?: ReactNode;
   children: ReactNode;
+  className?: string;
   style?: CSSProperties;
   bodyStyle?: CSSProperties;
 }
 
-export function AppCard({ title, extra, children, style, bodyStyle }: AppCardProps) {
+export function AppCard({ title, extra, children, className, style, bodyStyle }: AppCardProps) {
   return (
     <div
-      style={{
-        background: "#fff",
-        borderRadius: 10,
-        border: "1px solid #e2e8f0",
-        padding: 18,
-        ...style,
-      }}
+      className={`bg-white rounded-lg border border-slate-200 p-[18px] ${className ?? ""}`}
+      style={style}
     >
       {(title || extra) && (
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 14,
-          }}
-        >
+        <div className="flex justify-between items-center mb-3.5">
           {typeof title === "string" ? (
-            <span style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>{title}</span>
+            <span className="text-sm font-semibold text-slate-800">{title}</span>
           ) : (
             title
           )}

@@ -32,30 +32,22 @@ export function ConfirmModal({
       closable={false}
       destroyOnHidden
     >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+      <div className="flex items-start gap-3">
         <div
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: "50%",
-            background: danger ? "#fee2e2" : "#e0e7ff",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 16,
-            flexShrink: 0,
-          }}
+          className={`w-9 h-9 rounded-full flex items-center justify-center text-base shrink-0 ${
+            danger ? "bg-red-100" : "bg-indigo-100"
+          }`}
         >
           {danger ? "\u26A0\uFE0F" : "\u2139\uFE0F"}
         </div>
         <div>
-          <div style={{ fontSize: 15, fontWeight: 600, color: "#1e293b", marginBottom: 4 }}>
+          <div className="text-[15px] font-semibold text-slate-800 mb-1">
             {title}
           </div>
-          <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.5 }}>{description}</div>
+          <div className="text-sm text-slate-500 leading-relaxed">{description}</div>
         </div>
       </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+      <div className="flex justify-end gap-2 mt-5">
         <Button onClick={onClose}>Cancel</Button>
         <Button
           type="primary"

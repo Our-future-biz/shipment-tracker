@@ -10,13 +10,13 @@ interface PageHeaderProps {
 
 export function PageHeader({ title, breadcrumb, extra }: PageHeaderProps) {
   return (
-    <div style={{ marginBottom: 20 }}>
+    <div className="mb-5">
       {breadcrumb && (
-        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>{breadcrumb}</div>
+        <div className="text-xs text-slate-500 mb-1.5">{breadcrumb}</div>
       )}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h1 style={{ fontSize: 20, fontWeight: 700, color: "#1e293b", margin: 0 }}>{title}</h1>
-        {extra && <div style={{ display: "flex", gap: 8 }}>{extra}</div>}
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold text-slate-800 m-0">{title}</h1>
+        {extra && <div className="flex gap-2">{extra}</div>}
       </div>
     </div>
   );

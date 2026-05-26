@@ -52,7 +52,7 @@ export const WarehouseView = () => {
       key: "taskId",
       width: 140,
       render: (text: string) => (
-        <span style={{ color: "#6366f1", fontWeight: 600, fontFamily: "monospace" }}>{text}</span>
+        <span className="text-indigo-500 font-semibold font-mono">{text}</span>
       ),
     },
     {
@@ -133,8 +133,8 @@ export const WarehouseView = () => {
   ];
 
   return (
-    <div style={{ background: "#f8fafc", minHeight: "100%", padding: 24 }}>
-      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+    <div className="bg-slate-50 min-h-full p-6">
+      <div className="max-w-[1400px] mx-auto">
         <PageHeader
           title="Warehouse"
           extra={
@@ -145,22 +145,12 @@ export const WarehouseView = () => {
         />
 
         <AppCard>
-          <div style={{ marginBottom: 16 }}>
+          <div className="mb-4">
             <input
               placeholder="Search tasks..."
               value={searchText}
               onChange={(e) => setSearchText(e.target.value)}
-              style={{
-                maxWidth: 320,
-                width: "100%",
-                padding: "6px 12px",
-                border: "1px solid #e2e8f0",
-                borderRadius: 8,
-                fontSize: 13,
-                color: "#334155",
-                outline: "none",
-                background: "#fff",
-              }}
+              className="max-w-xs w-full px-3 py-1.5 border border-slate-200 rounded-lg text-[13px] text-slate-700 outline-none bg-white"
             />
           </div>
           <Table
@@ -170,7 +160,7 @@ export const WarehouseView = () => {
             loading={isLoading}
             size="middle"
             pagination={{ pageSize: 20, showSizeChanger: false }}
-            style={{ border: "1px solid #e2e8f0", borderRadius: 10, overflow: "hidden" }}
+            className="border border-slate-200 rounded-lg overflow-hidden"
             locale={{ emptyText: "No warehouse tasks" }}
           />
         </AppCard>
@@ -199,16 +189,7 @@ const InlineInput = ({ value, onChange, placeholder }: { value: string; onChange
       onChange={(e) => setLocal(e.target.value)}
       onBlur={() => { if (local !== value) onChange(local); }}
       onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-      style={{
-        width: "100%",
-        background: "transparent",
-        border: "none",
-        fontSize: 12,
-        color: "#334155",
-        padding: "4px 4px",
-        borderRadius: 4,
-        outline: "none",
-      }}
+      className="w-full bg-transparent border-none text-xs text-slate-700 px-1 py-1 rounded outline-none"
     />
   );
 };
@@ -217,16 +198,7 @@ const InlineSelect = ({ value, options, onChange }: { value: string; options: st
   <select
     value={value}
     onChange={(e) => onChange(e.target.value)}
-    style={{
-      background: "transparent",
-      border: "none",
-      fontSize: 12,
-      color: "#334155",
-      padding: "4px 4px",
-      borderRadius: 4,
-      outline: "none",
-      cursor: "pointer",
-    }}
+    className="bg-transparent border-none text-xs text-slate-700 px-1 py-1 rounded outline-none cursor-pointer"
   >
     {options.map((o) => <option key={o} value={o}>{o}</option>)}
   </select>

@@ -23,7 +23,7 @@ export function RecentShipmentsTable({ shipments }: RecentShipmentsTableProps) {
       dataIndex: "jobNumber",
       key: "jobNumber",
       render: (val: string) => (
-        <span style={{ color: "#4f46e5", fontWeight: 600, cursor: "pointer" }}>{val}</span>
+        <span className="text-indigo-600 font-semibold cursor-pointer">{val}</span>
       ),
     },
     {
@@ -42,8 +42,8 @@ export function RecentShipmentsTable({ shipments }: RecentShipmentsTableProps) {
       title: "Route",
       key: "route",
       render: (_: unknown, record: ShipmentItem) => (
-        <span style={{ color: "#64748b", fontSize: 12 }}>
-          {record.pol || "—"} → {record.pod || "—"}
+        <span className="text-slate-500 text-xs">
+          {record.pol || "\u2014"} \u2192 {record.pod || "\u2014"}
         </span>
       ),
     },
@@ -56,7 +56,7 @@ export function RecentShipmentsTable({ shipments }: RecentShipmentsTableProps) {
       title: "ETA",
       dataIndex: "estimatedArrival",
       key: "estimatedArrival",
-      render: (val: string | null) => val || "—",
+      render: (val: string | null) => val || "\u2014",
     },
   ];
 
@@ -65,10 +65,10 @@ export function RecentShipmentsTable({ shipments }: RecentShipmentsTableProps) {
       title="Recent Shipments"
       extra={
         <span
-          style={{ fontSize: 12, color: "#4f46e5", cursor: "pointer", fontWeight: 500 }}
+          className="text-xs text-indigo-600 cursor-pointer font-medium"
           onClick={() => router.push("/shipments")}
         >
-          View all →
+          View all \u2192
         </span>
       }
     >

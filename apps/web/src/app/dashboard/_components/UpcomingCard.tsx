@@ -43,7 +43,7 @@ function getUpcomingItems(shipments: ShipmentItem[]): UpcomingItem[] {
       items.push({
         id: s.id,
         jobNumber: s.jobNumber,
-        description: `Arrives ${s.pod || "—"}`,
+        description: `Arrives ${s.pod || "\u2014"}`,
         relativeDate: formatRelative(eta),
       });
     }
@@ -60,30 +60,22 @@ export function UpcomingCard({ shipments }: UpcomingCardProps) {
   return (
     <AppCard title="Upcoming This Week">
       {items.length === 0 ? (
-        <div style={{ color: "#94a3b8", fontSize: 13, padding: "12px 0", textAlign: "center" }}>
+        <div className="text-slate-400 text-sm py-3 text-center">
           No upcoming arrivals this week.
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="flex flex-col gap-2">
           {items.map((item) => (
             <div
               key={item.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "8px 10px",
-                borderRadius: 6,
-                background: "#fafafa",
-                cursor: "pointer",
-              }}
+              className="flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-neutral-50 cursor-pointer"
               onClick={() => router.push(`/shipments/${item.id}`)}
             >
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#4f46e5", whiteSpace: "nowrap" }}>
+              <span className="text-sm font-semibold text-indigo-600 whitespace-nowrap">
                 {item.jobNumber}
               </span>
-              <span style={{ fontSize: 12, color: "#64748b", flex: 1 }}>{item.description}</span>
-              <span style={{ fontSize: 11, color: "#94a3b8", whiteSpace: "nowrap" }}>{item.relativeDate}</span>
+              <span className="text-xs text-slate-500 flex-1">{item.description}</span>
+              <span className="text-[11px] text-slate-400 whitespace-nowrap">{item.relativeDate}</span>
             </div>
           ))}
         </div>

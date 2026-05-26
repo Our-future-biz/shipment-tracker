@@ -38,9 +38,9 @@ export function AppModal({
       onCancel={onClose}
       title={
         <div>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>{title}</div>
+          <div className="text-base font-semibold">{title}</div>
           {subtitle && (
-            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 400, marginTop: 2 }}>
+            <div className="text-xs text-slate-500 font-normal mt-0.5">
               {subtitle}
             </div>
           )}

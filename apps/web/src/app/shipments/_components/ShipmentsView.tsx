@@ -25,8 +25,8 @@ export const ShipmentsView = () => {
   };
 
   return (
-    <div style={{ background: "#f8fafc", minHeight: "100%", padding: 24 }}>
-      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+    <div className="bg-slate-50 min-h-full p-6">
+      <div className="max-w-[1400px] mx-auto">
       <ShipmentsTable
         shipments={shipments}
         isLoading={isLoading}

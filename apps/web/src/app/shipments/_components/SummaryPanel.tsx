@@ -19,14 +19,14 @@ export function SummaryPanel({ shipment }: SummaryPanelProps) {
   ];
 
   return (
-    <div style={{ width: 260, flexShrink: 0 }}>
-      <div style={{ background: "#fff", borderRadius: 10, border: "1px solid #e2e8f0", padding: 18, position: "sticky", top: 76 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 14 }}>Summary</div>
+    <div className="w-[260px] shrink-0">
+      <div className="bg-white rounded-lg border border-slate-200 p-[18px] sticky top-[76px]">
+        <div className="font-semibold text-[13px] mb-3.5">Summary</div>
         {summaryRows.map((row) =>
           row.value ? (
-            <div key={row.label} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", fontSize: 12 }}>
-              <span style={{ color: "#64748b" }}>{row.label}</span>
-              <span style={{ color: "#1e293b", fontWeight: 500, textAlign: "right", maxWidth: "60%" }}>{row.value}</span>
+            <div key={row.label} className="flex justify-between py-1.5 text-xs">
+              <span className="text-slate-500">{row.label}</span>
+              <span className="text-slate-800 font-medium text-right max-w-[60%]">{row.value}</span>
             </div>
           ) : null
         )}

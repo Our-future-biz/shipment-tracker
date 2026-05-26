@@ -39,12 +39,12 @@ export const InvoicingView = () => {
   };
 
   return (
-    <div style={{ background: "#f8fafc", minHeight: "100%", padding: 24 }}>
-      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
+    <div className="bg-slate-50 min-h-full p-6">
+      <div className="max-w-[1400px] mx-auto">
         <PageHeader title="Invoicing" />
 
-        <AppCard style={{ marginBottom: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+        <AppCard className="mb-5">
+          <div className="flex items-center gap-4">
             <Select
               placeholder="Select a shipment..."
               value={selectedShipmentId}
@@ -57,14 +57,7 @@ export const InvoicingView = () => {
             {selectedShipment && (
               <Tag
                 bordered={false}
-                style={{
-                  backgroundColor: "#e0e7ff",
-                  color: "#6366f1",
-                  borderRadius: 12,
-                  fontWeight: 500,
-                  fontSize: 12,
-                  padding: "2px 10px",
-                }}
+                className="bg-indigo-100 text-indigo-500 rounded-xl font-medium text-xs px-2.5 py-0.5"
               >
                 {selectedShipment.jobNumber}
               </Tag>
@@ -74,54 +67,37 @@ export const InvoicingView = () => {
 
         {!selectedShipmentId ? (
           <AppCard>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, color: "#94a3b8", fontSize: 14 }}>
+            <div className="flex items-center justify-center h-[200px] text-slate-400 text-sm">
               Select a shipment to view invoicing
             </div>
           </AppCard>
         ) : invoicingLoading ? (
           <AppCard>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: 200, color: "#94a3b8", fontSize: 14 }}>
+            <div className="flex items-center justify-center h-[200px] text-slate-400 text-sm">
               Loading...
             </div>
           </AppCard>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 20, maxWidth: 1100 }}>
+          <div className="flex flex-col gap-5 max-w-[1100px]">
             <AppCard title="Costs">
               <CostGrid costs={invoicingData?.costs ?? []} onSave={upsertCost} />
             </AppCard>
 
             <AppCard title="Billing Settings">
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <label style={{ fontSize: 12, color: "#64748b" }}>Currency:</label>
+              <div className="flex items-center gap-3">
+                <label className="text-xs text-slate-500">Currency:</label>
                 <select
                   value={billingCurrency}
                   onChange={(e) => setBillingCurrency(e.target.value)}
-                  style={{
-                    background: "#fff",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 6,
-                    fontSize: 12,
-                    padding: "4px 8px",
-                    color: "#334155",
-                    outline: "none",
-                  }}
+                  className="bg-white border border-slate-200 rounded-md text-xs px-2 py-1 text-slate-700 outline-none"
                 >
                   {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
-                <label style={{ fontSize: 12, color: "#64748b" }}>ROE:</label>
+                <label className="text-xs text-slate-500">ROE:</label>
                 <input
                   value={roe}
                   onChange={(e) => setRoe(e.target.value)}
-                  style={{
-                    background: "#fff",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 6,
-                    fontSize: 12,
-                    padding: "4px 8px",
-                    width: 80,
-                    color: "#334155",
-                    outline: "none",
-                  }}
+                  className="bg-white border border-slate-200 rounded-md text-xs px-2 py-1 w-20 text-slate-700 outline-none"
                 />
                 <Button type="primary" size="small" onClick={saveBilling}>
                   Save
@@ -130,18 +106,18 @@ export const InvoicingView = () => {
             </AppCard>
 
             <AppCard title="Generate Invoice">
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <div className="flex items-center gap-2">
                 <Button
                   icon={<PrinterOutlined />}
                   onClick={() => handleGenerate("breakdown")}
-                  style={{ borderColor: "#e2e8f0" }}
+                  className="border-slate-200"
                 >
                   Breakdown
                 </Button>
                 <Button
                   icon={<PrinterOutlined />}
                   onClick={() => handleGenerate("total")}
-                  style={{ borderColor: "#e2e8f0" }}
+                  className="border-slate-200"
                 >
                   Total Only
                 </Button>

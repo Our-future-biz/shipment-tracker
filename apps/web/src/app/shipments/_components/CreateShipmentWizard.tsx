@@ -67,7 +67,7 @@ export const CreateShipmentWizard = ({
       status: tradeDirection === "Export" ? "Booking Confirmation Pending [EXP]" : "Booking Confirmation Pending [IMP]",
       customsStatus: "Waiting For Commercial Paperwork",
       personInCharge: user?.email || "",
-      createdBy: `${now} — ${user?.email || "System"}`,
+      createdBy: `${now} \u2014 ${user?.email || "System"}`,
     };
 
     try {
@@ -83,9 +83,6 @@ export const CreateShipmentWizard = ({
     }
   };
 
-  const fieldStyle: React.CSSProperties = { marginBottom: 16 };
-  const labelStyle: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 500, color: "#475569", marginBottom: 4 };
-
   return (
     <AppModal
       open={open}
@@ -94,7 +91,7 @@ export const CreateShipmentWizard = ({
       subtitle={`Job Number: ${nextJobNumber}`}
       size="small"
       footer={
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <div className="flex justify-end gap-2">
           <Button onClick={handleClose}>Cancel</Button>
           <Button type="primary" onClick={handleCreate} loading={isCreating}>
             Create & Open
@@ -102,8 +99,8 @@ export const CreateShipmentWizard = ({
         </div>
       }
     >
-      <div style={fieldStyle}>
-        <label style={labelStyle}>Customer</label>
+      <div className="mb-4">
+        <label className="block text-xs font-medium text-slate-600 mb-1">Customer</label>
         <Input
           placeholder="Customer name"
           value={customer}
@@ -111,12 +108,12 @@ export const CreateShipmentWizard = ({
         />
       </div>
 
-      <div style={fieldStyle}>
-        <label style={labelStyle}>Trade Direction</label>
+      <div className="mb-4">
+        <label className="block text-xs font-medium text-slate-600 mb-1">Trade Direction</label>
         <Select
           value={tradeDirection}
           onChange={setTradeDirection}
-          style={{ width: "100%" }}
+          className="w-full"
           options={[
             { value: "Import", label: "Import" },
             { value: "Export", label: "Export" },
@@ -124,12 +121,12 @@ export const CreateShipmentWizard = ({
         />
       </div>
 
-      <div style={fieldStyle}>
-        <label style={labelStyle}>Freight Mode</label>
+      <div className="mb-4">
+        <label className="block text-xs font-medium text-slate-600 mb-1">Freight Mode</label>
         <Select
           value={freightMode}
           onChange={setFreightMode}
-          style={{ width: "100%" }}
+          className="w-full"
           options={[
             { value: "Sea Freight", label: "Sea FCL" },
             { value: "Sea Freight", label: "Sea LCL" },
@@ -140,12 +137,12 @@ export const CreateShipmentWizard = ({
         />
       </div>
 
-      <div style={fieldStyle}>
-        <label style={labelStyle}>Department</label>
+      <div className="mb-4">
+        <label className="block text-xs font-medium text-slate-600 mb-1">Department</label>
         <Select
           value={department}
           onChange={setDepartment}
-          style={{ width: "100%" }}
+          className="w-full"
           options={[
             { value: "Operation Department", label: "OPS" },
             { value: "Custom Department", label: "CUSTOMS" },

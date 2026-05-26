@@ -17,49 +17,17 @@ export const LoginPage = () => {
   };
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        background: "#f8fafc",
-      }}
-    >
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 380,
-          background: "#fff",
-          borderRadius: 12,
-          border: "1px solid #e2e8f0",
-          padding: 32,
-          boxShadow: "0 4px 24px rgba(0,0,0,0.06)",
-        }}
-      >
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="w-full max-w-[380px] bg-white rounded-xl border border-slate-200 p-8 shadow-[0_4px_24px_rgba(0,0,0,0.06)]">
         {/* Logo + Title */}
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div
-            style={{
-              width: 44,
-              height: 44,
-              background: "#6366f1",
-              borderRadius: 10,
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "white",
-              fontWeight: 700,
-              fontSize: 16,
-              marginBottom: 14,
-            }}
-          >
+        <div className="text-center mb-7">
+          <div className="w-11 h-11 bg-indigo-500 rounded-lg inline-flex items-center justify-center text-white font-bold text-base mb-3.5">
             ST
           </div>
-          <div style={{ fontSize: 20, fontWeight: 700, color: "#1e293b", marginBottom: 4 }}>
+          <div className="text-xl font-bold text-slate-800 mb-1">
             Shipment Tracker
           </div>
-          <div style={{ fontSize: 13, color: "#64748b" }}>Sign in to your account</div>
+          <div className="text-sm text-slate-500">Sign in to your account</div>
         </div>
 
         {loginError && (
@@ -67,18 +35,18 @@ export const LoginPage = () => {
             message={loginError}
             type="error"
             showIcon
-            style={{ marginBottom: 20, borderRadius: 8 }}
+            className="mb-5 rounded-lg"
           />
         )}
 
         <Form form={form} layout="vertical" onFinish={handleSubmit} requiredMark={false}>
           <Form.Item
             name="email"
-            label={<span style={{ fontSize: 12, fontWeight: 500, color: "#64748b" }}>Email</span>}
+            label={<span className="text-xs font-medium text-slate-500">Email</span>}
             rules={[{ required: true, message: "Please enter your email" }, { type: "email", message: "Invalid email" }]}
           >
             <Input
-              prefix={<MailOutlined style={{ color: "#94a3b8" }} />}
+              prefix={<MailOutlined className="text-slate-400" />}
               placeholder="you@company.com"
               autoComplete="email"
               autoFocus
@@ -88,32 +56,32 @@ export const LoginPage = () => {
 
           <Form.Item
             name="password"
-            label={<span style={{ fontSize: 12, fontWeight: 500, color: "#64748b" }}>Password</span>}
+            label={<span className="text-xs font-medium text-slate-500">Password</span>}
             rules={[{ required: true, message: "Please enter your password" }]}
           >
             <Input.Password
-              prefix={<LockOutlined style={{ color: "#94a3b8" }} />}
+              prefix={<LockOutlined className="text-slate-400" />}
               placeholder="Enter password"
               autoComplete="current-password"
               size="large"
             />
           </Form.Item>
 
-          <Form.Item style={{ marginBottom: 0, marginTop: 8 }}>
+          <Form.Item className="!mb-0 !mt-2">
             <Button
               type="primary"
               htmlType="submit"
               loading={isLoggingIn}
               block
               size="large"
-              style={{ fontWeight: 500 }}
+              className="font-medium"
             >
               Sign In
             </Button>
           </Form.Item>
         </Form>
 
-        <div style={{ textAlign: "center", marginTop: 20, fontSize: 11, color: "#94a3b8" }}>
+        <div className="text-center mt-5 text-[11px] text-slate-400">
           OurFuture.biz Operations System
         </div>
       </div>

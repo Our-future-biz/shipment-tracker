@@ -23,7 +23,7 @@ export function TopNav() {
     {
       key: "user",
       label: (
-        <span style={{ color: "#64748b", fontSize: 12 }}>
+        <span className="text-slate-500 text-xs">
           {user?.email}
         </span>
       ),
@@ -39,45 +39,20 @@ export function TopNav() {
   ];
 
   return (
-    <nav
-      style={{
-        background: "#fff",
-        borderBottom: "1px solid #e2e8f0",
-        display: "flex",
-        alignItems: "center",
-        padding: "0 24px",
-        height: 52,
-        position: "sticky",
-        top: 0,
-        zIndex: 100,
-      }}
-    >
+    <nav className="bg-white border-b border-slate-200 flex items-center px-6 h-[52px] sticky top-0 z-[100]">
       {/* Logo */}
       <div
-        style={{ display: "flex", alignItems: "center", gap: 8, marginRight: 32, cursor: "pointer" }}
+        className="flex items-center gap-2 mr-8 cursor-pointer"
         onClick={() => router.push("/dashboard")}
       >
-        <div
-          style={{
-            width: 28,
-            height: 28,
-            background: "#6366f1",
-            borderRadius: 7,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "white",
-            fontWeight: 700,
-            fontSize: 12,
-          }}
-        >
+        <div className="w-7 h-7 bg-indigo-500 rounded-[7px] flex items-center justify-center text-white font-bold text-xs">
           ST
         </div>
-        <span style={{ fontWeight: 600, fontSize: 15, color: "#1e293b" }}>Shipment Tracker</span>
+        <span className="font-semibold text-[15px] text-slate-800">Shipment Tracker</span>
       </div>
 
       {/* Nav links */}
-      <div style={{ display: "flex", gap: 2, flex: 1 }}>
+      <div className="flex gap-0.5 flex-1">
         {NAV_ITEMS.map((item) => {
           const isActive =
             pathname === item.path || pathname.startsWith(item.path + "/");
@@ -85,15 +60,11 @@ export function TopNav() {
             <div
               key={item.path}
               onClick={() => router.push(item.path)}
-              style={{
-                padding: "14px 14px",
-                fontSize: 13,
-                fontWeight: isActive ? 500 : 450,
-                color: isActive ? "#6366f1" : "#64748b",
-                cursor: "pointer",
-                borderBottom: isActive ? "2px solid #6366f1" : "2px solid transparent",
-                transition: "all 0.15s",
-              }}
+              className={`px-3.5 py-3.5 text-sm cursor-pointer transition-all duration-150 ${
+                isActive
+                  ? "font-medium text-indigo-500 border-b-2 border-indigo-500"
+                  : "font-normal text-slate-500 border-b-2 border-transparent"
+              }`}
             >
               {item.label}
             </div>
@@ -103,30 +74,8 @@ export function TopNav() {
 
       {/* User menu */}
       <Dropdown menu={{ items: userMenuItems }} trigger={["click"]} placement="bottomRight">
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            cursor: "pointer",
-            padding: "6px 10px",
-            borderRadius: 6,
-          }}
-        >
-          <div
-            style={{
-              width: 28,
-              height: 28,
-              background: "#e0e7ff",
-              color: "#6366f1",
-              borderRadius: "50%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 11,
-              fontWeight: 600,
-            }}
-          >
+        <div className="flex items-center gap-2 cursor-pointer px-2.5 py-1.5 rounded-md">
+          <div className="w-7 h-7 bg-indigo-100 text-indigo-500 rounded-full flex items-center justify-center text-[11px] font-semibold">
             {user?.displayName
               ?.split(" ")
               .map((n) => n[0])
@@ -134,7 +83,7 @@ export function TopNav() {
               .toUpperCase()
               .slice(0, 2) ?? <UserOutlined />}
           </div>
-          <span style={{ fontSize: 12, color: "#64748b" }}>
+          <span className="text-xs text-slate-500">
             {user?.displayName ?? "User"}
           </span>
         </div>

@@ -13,14 +13,10 @@ export function StatusBadge({ status, label }: StatusBadgeProps) {
   return (
     <Tag
       bordered={false}
+      className="rounded-xl font-medium text-[11px] px-2.5 py-0.5 leading-[18px]"
       style={{
         backgroundColor: style.bg,
         color: style.text,
-        borderRadius: 12,
-        fontWeight: 500,
-        fontSize: 11,
-        padding: "2px 10px",
-        lineHeight: "18px",
       }}
     >
       {label ?? status}

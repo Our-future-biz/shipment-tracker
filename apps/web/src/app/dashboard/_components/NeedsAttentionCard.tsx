@@ -65,45 +65,26 @@ export function NeedsAttentionCard({ shipments }: NeedsAttentionCardProps) {
   return (
     <AppCard title="Needs Attention">
       {items.length === 0 ? (
-        <div style={{ color: "#94a3b8", fontSize: 13, padding: "12px 0", textAlign: "center" }}>
+        <div className="text-slate-400 text-sm py-3 text-center">
           Nothing needs attention right now.
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="flex flex-col gap-2">
           {items.map((item) => (
             <div
               key={item.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "8px 10px",
-                borderRadius: 6,
-                background: "#fafafa",
-                cursor: "pointer",
-              }}
+              className="flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-neutral-50 cursor-pointer"
               onClick={() => router.push(`/shipments/${item.id}`)}
             >
               <span
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  flexShrink: 0,
-                  background: item.severity === "red" ? "#ef4444" : "#f59e0b",
-                }}
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  item.severity === "red" ? "bg-red-500" : "bg-amber-500"
+                }`}
               />
-              <span
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: "#4f46e5",
-                  whiteSpace: "nowrap",
-                }}
-              >
+              <span className="text-sm font-semibold text-indigo-600 whitespace-nowrap">
                 {item.jobNumber}
               </span>
-              <span style={{ fontSize: 12, color: "#64748b", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span className="text-xs text-slate-500 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
                 {item.reason}
               </span>
               <StatusBadge status={item.status} />
