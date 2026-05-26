@@ -8,3 +8,4 @@ out/
 *.log
 .encore/
 encore.gen/
+.superpowers/
