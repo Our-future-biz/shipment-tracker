@@ -9,9 +9,10 @@ import { CURRENCIES } from "@/lib/enums";
 import { CostGrid } from "./CostGrid";
 import { PageHeader } from "@/components/PageHeader";
 import { AppCard } from "@/components/AppCard";
-import { toast } from "@/lib/toast";
+import { useToast } from "@/lib/toast";
 
 export const InvoicingView = () => {
+  const toast = useToast();
   const [selectedShipmentId, setSelectedShipmentId] = useState<string | null>(null);
   const { shipments } = useShipments();
   const { data: invoicingData, isLoading: invoicingLoading, upsertCost, upsertBilling, generateInvoice } = useInvoicing(selectedShipmentId);

@@ -6,7 +6,8 @@ import { PageHeader } from "@/components/PageHeader";
 
 export const DocumentsView = () => {
   return (
-    <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
+    <div style={{ background: "#f8fafc", minHeight: "100%", padding: 24 }}>
+      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
       <PageHeader title="Documents" />
 
       <div
@@ -49,6 +50,7 @@ export const DocumentsView = () => {
             Bills of Lading, Manifests, Booking Confirmations, Invoices
           </p>
         </Upload.Dragger>
+      </div>
       </div>
     </div>
   );

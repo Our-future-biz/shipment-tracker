@@ -8,7 +8,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { AppCard } from "@/components/AppCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { toast } from "@/lib/toast";
+import { useToast } from "@/lib/toast";
 import type { controllers, interfaces } from "@/lib/api/client";
 import type { ColumnsType } from "antd/es/table";
 
@@ -18,6 +18,7 @@ const TYPES = ["Import", "Export", "Customs"];
 
 export const WarehouseView = () => {
   const { tasks, isLoading, createTask, updateTask, deleteTask, isCreating } = useWarehouse();
+  const toast = useToast();
   const [deleteTarget, setDeleteTarget] = useState<WarehouseTaskItem | null>(null);
   const [searchText, setSearchText] = useState("");
 

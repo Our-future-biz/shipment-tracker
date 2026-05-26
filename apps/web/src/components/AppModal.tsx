@@ -19,7 +19,7 @@ interface AppModalProps {
   size?: ModalSize;
   footer?: ReactNode;
   children: ReactNode;
-  destroyOnClose?: boolean;
+  destroyOnHidden?: boolean;
 }
 
 export function AppModal({
@@ -30,7 +30,7 @@ export function AppModal({
   size = "medium",
   footer,
   children,
-  destroyOnClose = true,
+  destroyOnHidden = true,
 }: AppModalProps) {
   return (
     <Modal
@@ -48,7 +48,7 @@ export function AppModal({
       }
       width={SIZE_MAP[size]}
       footer={footer}
-      destroyOnClose={destroyOnClose}
+      destroyOnHidden={destroyOnHidden}
       styles={{
         body: { padding: "16px 24px" },
         footer: {

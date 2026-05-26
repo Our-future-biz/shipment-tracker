@@ -31,7 +31,8 @@ export function DashboardView() {
   }
 
   return (
-    <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
+    <div style={{ background: "#f8fafc", minHeight: "100%", padding: 24 }}>
+      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
       <PageHeader
         title="Dashboard"
         extra={
@@ -51,6 +52,7 @@ export function DashboardView() {
         <UpcomingCard shipments={shipments} />
       </div>
       <RecentShipmentsTable shipments={shipments} />
+      </div>
     </div>
   );
 }

@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
-import { toast } from "@/lib/toast";
+import { useToast } from "@/lib/toast";
 import { ShipmentsTable } from "./ShipmentsTable";
 import { CreateShipmentWizard } from "./CreateShipmentWizard";
 import { ConfirmModal } from "@/components/ConfirmModal";
 
 export const ShipmentsView = () => {
   const { shipments, isLoading, createShipment, deleteShipment, isCreating, isDeleting } = useShipments();
+  const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ShipmentItem | null>(null);
 
@@ -24,7 +25,8 @@ export const ShipmentsView = () => {
   };
 
   return (
-    <div style={{ padding: 24 }}>
+    <div style={{ background: "#f8fafc", minHeight: "100%", padding: 24 }}>
+      <div style={{ maxWidth: 1400, margin: "0 auto" }}>
       <ShipmentsTable
         shipments={shipments}
         isLoading={isLoading}
@@ -50,6 +52,7 @@ export const ShipmentsView = () => {
         danger
         loading={isDeleting}
       />
+      </div>
     </div>
   );
 };

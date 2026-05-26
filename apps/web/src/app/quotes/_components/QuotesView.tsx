@@ -10,7 +10,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { AppCard } from "@/components/AppCard";
 import { AppModal } from "@/components/AppModal";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { toast } from "@/lib/toast";
+import { useToast } from "@/lib/toast";
 import type { interfaces } from "@/lib/api/client";
 import type { ColumnsType } from "antd/es/table";
 
@@ -25,6 +25,7 @@ export const QuotesView = () => {
   const [searchText, setSearchText] = useState("");
   const [form] = Form.useForm();
   const { quotes, isLoading, createQuote, deleteQuote, isCreating } = useQuotes();
+  const toast = useToast();
 
   const handleCreate = async (values: { quoteNumber: string }) => {
     await createQuote({ quoteNumber: values.quoteNumber });
@@ -179,6 +180,7 @@ export const QuotesView = () => {
 const QuoteDetail = ({ quote }: { quote: QuoteItem }) => {
   const [terms, setTerms] = useState(quote.terms ?? "");
   const queryClient = useQueryClient();
+  const toast = useToast();
   const saveMutation = useMutation({
     mutationFn: () => api.quotes.quoteUpdate(quote.quoteNumber, { terms }),
     onSuccess: () => {

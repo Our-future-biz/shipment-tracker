@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { Input, Select, Button } from "antd";
 import { useRouter } from "next/navigation";
 import { AppModal } from "@/components/AppModal";
-import { toast } from "@/lib/toast";
+import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { controllers } from "@/lib/api/client";
@@ -26,6 +26,7 @@ export const CreateShipmentWizard = ({
 }: CreateShipmentWizardProps) => {
   const router = useRouter();
   const { user } = useAuth();
+  const toast = useToast();
   const [customer, setCustomer] = useState("");
   const [tradeDirection, setTradeDirection] = useState("Import");
   const [freightMode, setFreightMode] = useState("Sea Freight");

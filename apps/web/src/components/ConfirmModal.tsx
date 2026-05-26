@@ -30,7 +30,7 @@ export function ConfirmModal({
       footer={null}
       width={380}
       closable={false}
-      destroyOnClose
+      destroyOnHidden
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
         <div

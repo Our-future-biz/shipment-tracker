@@ -48,7 +48,7 @@ export function DetailSidebar({ shipment, activeSection, onSelectSection }: Deta
             style={{ fontSize: 12, color: "#6366f1", cursor: "pointer", marginBottom: 12 }}
             onClick={() => router.push("/shipments")}
           >
-            \u2190 Back to Shipments
+            ← Back to Shipments
           </div>
           <div style={{ borderBottom: "1px solid #e2e8f0", paddingBottom: 12 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: "#1e293b" }}>{jobNumber}</div>
