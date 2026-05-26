@@ -1,10 +1,11 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Spin } from "antd";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { TopNav } from "@/components/TopNav";
 import { LoginPage } from "./login/LoginPage";
+import { useEffect } from "react";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -13,6 +14,14 @@ interface AppShellProps {
 export const AppShell = ({ children }: AppShellProps) => {
   const { user, isLoading } = useAuth();
   const pathname = usePathname();
+  const router = useRouter();
+
+  // Redirect logged-in users away from /login
+  useEffect(() => {
+    if (!isLoading && user && pathname === "/login") {
+      router.replace("/dashboard");
+    }
+  }, [isLoading, user, pathname, router]);
 
   if (isLoading) {
     return (
@@ -22,14 +31,17 @@ export const AppShell = ({ children }: AppShellProps) => {
     );
   }
 
+  // Not logged in → show login page (no header)
   if (!user) {
     return <LoginPage />;
   }
 
+  // Logged in but still on /login path → show nothing while redirect happens
   if (pathname === "/login") {
-    return <>{children}</>;
+    return null;
   }
 
+  // Normal authenticated layout
   return (
     <div className="flex flex-col min-h-screen">
       <TopNav />
