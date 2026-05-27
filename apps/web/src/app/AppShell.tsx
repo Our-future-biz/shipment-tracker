@@ -4,6 +4,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { Spin } from "antd";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { TopNav } from "@/components/TopNav";
+import { AppSidebar } from "@/components/AppSidebar";
 import { useEffect, useState } from "react";
 
 const PUBLIC_PATHS = ["/login"];
@@ -78,9 +79,12 @@ export const AppShell = ({ children }: AppShellProps) => {
 
   // Authenticated → show app
   return (
-    <div className="flex flex-col min-h-screen">
-      <TopNav />
-      <main className="flex-1 bg-slate-50">{children}</main>
+    <div className="flex min-h-screen">
+      <AppSidebar />
+      <div className="flex flex-col flex-1 min-w-0">
+        <TopNav />
+        <main className="flex-1 bg-slate-50">{children}</main>
+      </div>
     </div>
   );
 };
