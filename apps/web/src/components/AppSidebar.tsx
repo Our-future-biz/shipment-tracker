@@ -49,9 +49,10 @@ export function AppSidebar() {
             ST
           </div>
           {!collapsed && (
-            <span className="text-sm font-semibold text-slate-800 whitespace-nowrap overflow-hidden">
-              Shipment Tracker
-            </span>
+            <div className="overflow-hidden">
+              <div className="text-[13px] font-semibold text-slate-800 whitespace-nowrap">Shipment Tracker</div>
+              <div className="text-[10px] text-slate-400 whitespace-nowrap">Operations Dashboard</div>
+            </div>
           )}
         </div>
         <button
