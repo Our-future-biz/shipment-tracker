@@ -1,54 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Table, Input, Dropdown, Button } from "antd";
-import { SearchOutlined, EllipsisOutlined, ExportOutlined, PlusOutlined } from "@ant-design/icons";
+import { Table, Input, Select } from "antd";
+import { SearchOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter } from "next/navigation";
-import { StatusBadge } from "@/components/StatusBadge";
-import { PageHeader } from "@/components/PageHeader";
-import { isActiveStatus } from "@/lib/enums";
-import { parseDateMMDDYY } from "@/lib/columnConfig";
 import type { ShipmentItem } from "@/hooks/useShipments";
-
-// --- Status tab definitions ---
-
-type TabKey = "all" | "active" | "in-transit" | "customs" | "delivered";
-
-const STATUS_TABS: { key: TabKey; label: string; filter: (s: ShipmentItem) => boolean }[] = [
-  { key: "all", label: "All", filter: () => true },
-  { key: "active", label: "Active", filter: (s) => isActiveStatus(s.status) },
-  {
-    key: "in-transit",
-    label: "In Transit",
-    filter: (s) =>
-      s.status.includes("Booked For Further Transport") ||
-      s.status.includes("All Done - Waiting To Be Shipped") ||
-      s.status.includes("Pre-Alert Sent") ||
-      s.status.includes("Loaded - Customs Clearance"),
-  },
-  {
-    key: "customs",
-    label: "Customs",
-    filter: (s) =>
-      s.status.includes("Customs Clearance Pending") ||
-      s.status.includes("Loaded - Customs Clearance"),
-  },
-  {
-    key: "delivered",
-    label: "Delivered",
-    filter: (s) => s.status.includes("Billed [") || s.status.includes("Billing ["),
-  },
-];
-
-// --- Helpers ---
-
-function isOverdue(dateStr: string | null | undefined): boolean {
-  if (!dateStr) return false;
-  const d = parseDateMMDDYY(dateStr);
-  if (!d) return false;
-  return d.getTime() < Date.now();
-}
 
 // --- Props ---
 
@@ -59,182 +16,182 @@ interface ShipmentsTableProps {
   onDelete: (shipment: ShipmentItem) => void;
 }
 
+const STATUS_OPTIONS = [
+  { value: "all", label: "All Statuses" },
+  { value: "active", label: "Active" },
+  { value: "in-transit", label: "In Transit" },
+  { value: "customs", label: "Customs" },
+  { value: "delivered", label: "Delivered" },
+];
+
+const PAGE_SIZE_OPTIONS = [
+  { value: 10, label: "10" },
+  { value: 25, label: "25" },
+  { value: 50, label: "50" },
+];
+
 export const ShipmentsTable = ({
   shipments,
   isLoading,
   onCreateClick,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onDelete,
 }: ShipmentsTableProps) => {
   const router = useRouter();
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<TabKey>("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [pageSize, setPageSize] = useState(25);
 
-  // Filter by tab + search
+  // Filter by status + search
   const filtered = useMemo(() => {
-    const tabFilter = STATUS_TABS.find((t) => t.key === activeTab)?.filter ?? (() => true);
     const q = search.toLowerCase().trim();
     return shipments.filter((s) => {
-      if (!tabFilter(s)) return false;
+      // Status filter
+      if (statusFilter !== "all") {
+        const status = (s.status || "").toLowerCase();
+        if (statusFilter === "active" && !status.includes("active") && !status.includes("pending") && !status.includes("new")) return false;
+        if (statusFilter === "in-transit" && !status.includes("transport") && !status.includes("shipped") && !status.includes("pre-alert") && !status.includes("loaded")) return false;
+        if (statusFilter === "customs" && !status.includes("customs")) return false;
+        if (statusFilter === "delivered" && !status.includes("billed") && !status.includes("billing") && !status.includes("delivered")) return false;
+      }
+      // Search filter
       if (q) {
-        const haystack = [s.jobNumber, s.customer, s.pol, s.pod].filter(Boolean).join(" ").toLowerCase();
+        const haystack = [s.jobNumber, s.customer, s.personInCharge]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
     });
-  }, [shipments, activeTab, search]);
-
-  // Tab counts
-  const tabCounts = useMemo(() => {
-    const counts: Record<TabKey, number> = { all: 0, active: 0, "in-transit": 0, customs: 0, delivered: 0 };
-    for (const s of shipments) {
-      for (const tab of STATUS_TABS) {
-        if (tab.filter(s)) counts[tab.key]++;
-      }
-    }
-    return counts;
-  }, [shipments]);
+  }, [shipments, statusFilter, search]);
 
   // Columns
   const columns: ColumnsType<ShipmentItem> = useMemo(
     () => [
       {
         key: "jobNumber",
-        title: "Job #",
-        width: 140,
+        title: "Internal Reference",
+        width: 160,
         render: (_: unknown, record: ShipmentItem) => (
-          <span className="font-mono font-semibold text-indigo-600 cursor-pointer">
+          <span className="font-mono font-bold text-indigo-500 hover:underline cursor-pointer">
             {record.jobNumber || "\u2014"}
           </span>
         ),
       },
       {
-        key: "status",
-        title: "Status",
-        width: 200,
+        key: "masterJobMczNumber",
+        title: "Master Job",
+        width: 140,
         render: (_: unknown, record: ShipmentItem) =>
-          record.status ? <StatusBadge status={record.status} /> : <span className="text-slate-300">{"\u2014"}</span>,
+          record.masterJobMczNumber ? (
+            <span className="text-slate-400">#{record.masterJobMczNumber}</span>
+          ) : (
+            <span className="text-slate-300">{"\u2014"}</span>
+          ),
+      },
+      {
+        key: "shipmentsDate",
+        title: "Shipments Date",
+        width: 130,
+        render: (_: unknown, record: ShipmentItem) =>
+          record.shipmentsDate || <span className="text-slate-300">{"\u2014"}</span>,
+      },
+      {
+        key: "department",
+        title: "Department",
+        width: 130,
+        render: (_: unknown, record: ShipmentItem) =>
+          record.department || <span className="text-slate-300">{"\u2014"}</span>,
+      },
+      {
+        key: "personInCharge",
+        title: "Person in Charge",
+        width: 150,
+        render: (_: unknown, record: ShipmentItem) =>
+          record.personInCharge || <span className="text-slate-300">{"\u2014"}</span>,
+      },
+      {
+        key: "holidayCover",
+        title: "Holiday Cover",
+        width: 140,
+        render: (_: unknown, record: ShipmentItem) =>
+          record.holidayCover ? (
+            <span className="text-slate-400">{record.holidayCover}</span>
+          ) : (
+            <span className="text-slate-300">{"\u2014"}</span>
+          ),
       },
       {
         key: "customer",
         title: "Customer",
         width: 180,
         ellipsis: true,
-        render: (_: unknown, record: ShipmentItem) => record.customer || <span className="text-slate-300">{"\u2014"}</span>,
+        render: (_: unknown, record: ShipmentItem) =>
+          record.customer || <span className="text-slate-300">{"\u2014"}</span>,
       },
       {
-        key: "route",
-        title: "Route",
-        width: 200,
-        render: (_: unknown, record: ShipmentItem) => {
-          const pol = record.pol;
-          const pod = record.pod;
-          if (!pol && !pod) return <span className="text-slate-300">{"\u2014"}</span>;
-          return (
-            <span>
-              {pol || "?"} <span className="text-slate-400">{"\u2192"}</span> {pod || "?"}
-            </span>
-          );
-        },
-      },
-      {
-        key: "freightMode",
-        title: "Mode",
-        width: 120,
-        ellipsis: true,
-        render: (_: unknown, record: ShipmentItem) => record.freightMode || <span className="text-slate-300">{"\u2014"}</span>,
-      },
-      {
-        key: "eta",
-        title: "ETA",
-        width: 120,
-        render: (_: unknown, record: ShipmentItem) => {
-          const val = record.estimatedArrival;
-          if (!val) return <span className="text-slate-300">{"\u2014"}</span>;
-          const overdue = isOverdue(val);
-          return <span className={overdue ? "text-red-500 font-semibold" : ""}>{val}</span>;
-        },
-      },
-      {
-        key: "_actions",
-        title: "",
-        width: 48,
-        render: (_: unknown, record: ShipmentItem) => (
-          <Dropdown
-            trigger={["click"]}
-            menu={{
-              items: [
-                {
-                  key: "view",
-                  label: "View",
-                  onClick: () => router.push(`/shipments/${record.id}`),
-                },
-                {
-                  key: "delete",
-                  label: "Delete",
-                  danger: true,
-                  onClick: () => onDelete(record),
-                },
-              ],
-            }}
-          >
-            <Button type="text" size="small" icon={<EllipsisOutlined />} onClick={(e) => e.stopPropagation()} />
-          </Dropdown>
-        ),
+        key: "customerPic",
+        title: "Customer's PIC",
+        width: 150,
+        render: (_: unknown, record: ShipmentItem) =>
+          record.customerPic || <span className="text-slate-300">{"\u2014"}</span>,
       },
     ],
-    [router, onDelete],
+    [],
   );
 
   return (
     <div className="flex flex-col gap-4">
       {/* Header */}
-      <PageHeader
-        title="Shipments"
-        extra={
-          <>
-            <Button icon={<ExportOutlined />}>Export</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={onCreateClick}>
-              New Shipment
-            </Button>
-          </>
-        }
-      />
-
-      {/* Status tabs + search */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="flex gap-1">
-          {STATUS_TABS.map((tab) => {
-            const isActive = activeTab === tab.key;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`px-3.5 py-1.5 rounded-md border text-[13px] cursor-pointer transition-all duration-150 ${
-                  isActive
-                    ? "border-indigo-600 bg-indigo-50 text-indigo-600 font-semibold"
-                    : "border-slate-200 bg-white text-slate-500 font-normal"
-                }`}
-              >
-                {tab.label}
-                <span
-                  className={`ml-1.5 text-[11px] font-medium ${
-                    isActive ? "text-indigo-600" : "text-slate-400"
-                  }`}
-                >
-                  {tabCounts[tab.key]}
-                </span>
-              </button>
-            );
-          })}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">Shipments</h1>
+          <p className="text-sm text-slate-500">Manage and track all shipments</p>
         </div>
-        <Input
-          placeholder="Search job #, customer, POL, POD..."
-          prefix={<SearchOutlined className="text-slate-400" />}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          allowClear
-          style={{ width: 280 }}
-        />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onCreateClick}
+            className="flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors"
+          >
+            <PlusOutlined />
+            New Shipment
+          </button>
+          <button className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+            Add to Master Job
+          </button>
+        </div>
+      </div>
+
+      {/* Filters Row */}
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Input
+            placeholder="Search shipments..."
+            prefix={<SearchOutlined className="text-slate-400" />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            allowClear
+            className="w-64"
+          />
+          <Select
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={STATUS_OPTIONS}
+            className="w-40"
+          />
+        </div>
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <span>Rows per page</span>
+          <Select
+            value={pageSize}
+            onChange={setPageSize}
+            options={PAGE_SIZE_OPTIONS}
+            className="w-16"
+            size="small"
+          />
+          <span>{filtered.length} / {shipments.length} entries</span>
+        </div>
       </div>
 
       {/* Table */}
@@ -244,11 +201,15 @@ export const ShipmentsTable = ({
         rowKey="id"
         loading={isLoading}
         size="small"
-        pagination={{ pageSize: 20, showSizeChanger: false, showTotal: (total) => `${total} shipments` }}
+        pagination={{
+          pageSize,
+          showSizeChanger: false,
+          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} entries`,
+        }}
         scroll={{ x: "max-content" }}
         onRow={(record) => ({
           onClick: () => router.push(`/shipments/${record.id}`),
-          style: { cursor: "pointer" },
+          className: "cursor-pointer",
         })}
         locale={{ emptyText: "No shipments found" }}
       />
