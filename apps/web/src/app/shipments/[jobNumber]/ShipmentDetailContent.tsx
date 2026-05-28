@@ -18,6 +18,7 @@ import { useShipments } from "@/hooks/useShipments";
 import Link from "next/link";
 import { CostsTab } from "./tabs/CostsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
+import { TrackingTab } from "./tabs/TrackingTab";
 
 /* ── Tabs ── */
 const TABS = [
@@ -435,11 +436,7 @@ export function ShipmentDetailContent() {
           </div>
         )}
 
-        {activeTab === "tracking" && (
-          <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
-            Tracking will be available in a future update.
-          </div>
-        )}
+        {activeTab === "tracking" && <TrackingTab shipment={shipment} />}
       </div>
     </div>
   );
