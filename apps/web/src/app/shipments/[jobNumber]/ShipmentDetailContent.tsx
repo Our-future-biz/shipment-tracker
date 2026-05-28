@@ -16,6 +16,7 @@ import {
 } from "@ant-design/icons";
 import { useShipments } from "@/hooks/useShipments";
 import Link from "next/link";
+import { CostsTab } from "./tabs/CostsTab";
 
 /* ── Tabs ── */
 const TABS = [
@@ -423,11 +424,7 @@ export function ShipmentDetailContent() {
           </>
         )}
 
-        {activeTab === "costs" && (
-          <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
-            Costs Breakdown will be available in a future update.
-          </div>
-        )}
+        {activeTab === "costs" && <CostsTab shipment={shipment} />}
 
         {activeTab === "documents" && (
           <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
