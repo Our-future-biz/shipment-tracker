@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Spin, Dropdown, message } from "antd";
 import {
   LeftOutlined,
@@ -206,8 +205,22 @@ function RouteLine({ segments }: { segments: string[] }) {
 export function ShipmentDetailContent() {
   const { jobNumber } = useParams<{ jobNumber: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { shipments, isLoading } = useShipments();
-  const [activeTab, setActiveTab] = useState("details");
+
+  const TAB_KEYS = TABS.map((t) => t.key);
+  const rawTab = searchParams.get("tab");
+  const activeTab = rawTab && TAB_KEYS.includes(rawTab) ? rawTab : "details";
+
+  const setActiveTab = (key: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (key === "details") {
+      params.delete("tab");
+    } else {
+      params.set("tab", key);
+    }
+    router.replace(`?${params.toString()}`, { scroll: false });
+  };
 
   const shipment = shipments.find((s) => s.id === jobNumber);
 
