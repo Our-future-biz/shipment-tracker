@@ -19,6 +19,7 @@ import Link from "next/link";
 import { CostsTab } from "./tabs/CostsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
+import { WarehouseTab } from "./tabs/WarehouseTab";
 
 /* ── Tabs ── */
 const TABS = [
@@ -430,11 +431,7 @@ export function ShipmentDetailContent() {
 
         {activeTab === "documents" && <DocumentsTab shipment={shipment} />}
 
-        {activeTab === "warehouse" && (
-          <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
-            Warehouse will be available in a future update.
-          </div>
-        )}
+        {activeTab === "warehouse" && <WarehouseTab shipment={shipment} />}
 
         {activeTab === "tracking" && <TrackingTab shipment={shipment} />}
       </div>
