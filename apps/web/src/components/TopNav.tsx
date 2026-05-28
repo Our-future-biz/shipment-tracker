@@ -39,29 +39,29 @@ export function TopNav() {
     .slice(0, 2);
 
   return (
-    <header className="bg-white border-b border-slate-200 flex items-center px-6 h-[52px] sticky top-0 z-[100]">
+    <header className="bg-white border-b border-slate-200 flex items-center px-8 h-[70px] sticky top-0 z-[100]">
       {/* Search */}
-      <div className="flex-1 max-w-md">
+      <div className="flex-1 max-w-lg">
         <Input
           prefix={<SearchOutlined className="text-slate-400" />}
           placeholder="Search shipments, jobs, customers..."
-          className="rounded-md"
-          size="middle"
+          className="rounded-xl"
+          size="large"
           allowClear
         />
       </div>
 
-      <div className="flex items-center gap-4 ml-auto">
+      <div className="flex items-center gap-3 ml-auto">
         {/* Date */}
-        <span className="text-xs text-slate-500">{today}</span>
+        <span className="text-[13px] text-slate-500">{today}</span>
 
         {/* User menu */}
         <Dropdown menu={{ items: userMenuItems }} trigger={["click"]} placement="bottomRight">
           <div className="flex items-center gap-2 cursor-pointer px-2.5 py-1.5 rounded-md hover:bg-slate-50">
-            <div className="w-7 h-7 bg-indigo-100 text-indigo-500 rounded-full flex items-center justify-center text-[11px] font-semibold">
+            <div className="w-8 h-8 bg-indigo-100 text-indigo-500 rounded-full flex items-center justify-center text-[12px] font-semibold">
               {initials ?? <UserOutlined />}
             </div>
-            <span className="text-xs text-slate-600 font-medium">
+            <span className="text-[13px] text-slate-600 font-medium">
               {user?.displayName ?? "User"}
             </span>
           </div>

@@ -25,7 +25,7 @@ export const ShipmentsView = () => {
   };
 
   return (
-    <div className="bg-slate-50 min-h-full p-6">
+    <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto">
       <ShipmentsTable
         shipments={shipments}

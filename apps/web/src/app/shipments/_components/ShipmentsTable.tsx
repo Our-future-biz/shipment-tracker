@@ -142,29 +142,29 @@ export const ShipmentsTable = ({
   );
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-slate-900">Shipments</h1>
-          <p className="text-sm text-slate-500">Manage and track all shipments</p>
+          <h1 className="text-2xl font-bold text-slate-900">Shipments</h1>
+          <p className="text-[14px] text-slate-500 mt-1">Manage and track all shipments</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <button
             onClick={onCreateClick}
-            className="flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 transition-colors"
+            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-[14px] font-semibold text-white hover:bg-indigo-700 transition-colors h-[44px]"
           >
             <PlusOutlined />
             New Shipment
           </button>
-          <button className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+          <button className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-[14px] font-medium text-slate-700 hover:bg-slate-50 transition-colors h-[44px]">
             Add to Master Job
           </button>
         </div>
       </div>
 
       {/* Filters Row */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
         <div className="flex items-center gap-3">
           <Input
             placeholder="Search shipments..."
@@ -172,16 +172,16 @@ export const ShipmentsTable = ({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             allowClear
-            className="w-64"
+            className="w-60"
           />
           <Select
             value={statusFilter}
             onChange={setStatusFilter}
             options={STATUS_OPTIONS}
-            className="w-40"
+            className="w-44"
           />
         </div>
-        <div className="flex items-center gap-2 text-sm text-slate-500">
+        <div className="flex items-center gap-2 text-[13px] text-slate-500">
           <span>Rows per page</span>
           <Select
             value={pageSize}
@@ -190,29 +190,31 @@ export const ShipmentsTable = ({
             className="w-16"
             size="small"
           />
-          <span>{filtered.length} / {shipments.length} entries</span>
+          <span>{filtered.length} / {shipments.length} rows</span>
         </div>
       </div>
 
       {/* Table */}
-      <Table<ShipmentItem>
-        dataSource={filtered}
-        columns={columns}
-        rowKey="id"
-        loading={isLoading}
-        size="small"
-        pagination={{
-          pageSize,
-          showSizeChanger: false,
-          showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} entries`,
-        }}
-        scroll={{ x: "max-content" }}
-        onRow={(record) => ({
-          onClick: () => router.push(`/shipments/${record.id}`),
-          className: "cursor-pointer",
-        })}
-        locale={{ emptyText: "No shipments found" }}
-      />
+      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        <Table<ShipmentItem>
+          dataSource={filtered}
+          columns={columns}
+          rowKey="id"
+          loading={isLoading}
+          size="small"
+          pagination={{
+            pageSize,
+            showSizeChanger: false,
+            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} entries`,
+          }}
+          scroll={{ x: "max-content" }}
+          onRow={(record) => ({
+            onClick: () => router.push(`/shipments/${record.id}`),
+            className: "cursor-pointer",
+          })}
+          locale={{ emptyText: "No shipments found" }}
+        />
+      </div>
     </div>
   );
 };
