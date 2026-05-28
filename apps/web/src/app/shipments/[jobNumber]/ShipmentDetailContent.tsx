@@ -17,6 +17,7 @@ import {
 import { useShipments } from "@/hooks/useShipments";
 import Link from "next/link";
 import { CostsTab } from "./tabs/CostsTab";
+import { DocumentsTab } from "./tabs/DocumentsTab";
 
 /* ── Tabs ── */
 const TABS = [
@@ -426,11 +427,7 @@ export function ShipmentDetailContent() {
 
         {activeTab === "costs" && <CostsTab shipment={shipment} />}
 
-        {activeTab === "documents" && (
-          <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
-            Documents will be available in a future update.
-          </div>
-        )}
+        {activeTab === "documents" && <DocumentsTab shipment={shipment} />}
 
         {activeTab === "warehouse" && (
           <div className="bg-white rounded-lg border border-slate-200 p-6 text-sm text-slate-500">
