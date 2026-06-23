@@ -1,24 +1,41 @@
 "use client";
 
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Spin, Dropdown, message } from "antd";
+import { Spin, Dropdown, message, Modal, Tag, Drawer, Tooltip } from "antd";
+import { api } from "@/lib/api";
 import {
   LeftOutlined,
   CopyOutlined,
-  EditOutlined,
   DownOutlined,
   EnvironmentOutlined,
   InfoCircleOutlined,
   CheckSquareOutlined,
   CalendarOutlined,
   ContainerOutlined,
+  SplitCellsOutlined,
+  PaperClipOutlined,
+  FileTextOutlined,
 } from "@ant-design/icons";
-import { useShipments } from "@/hooks/useShipments";
+import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
+import { useShipmentTasks } from "@/hooks/useShipmentTasks";
+import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
 import Link from "next/link";
 import { CostsTab } from "./tabs/CostsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
 import { WarehouseTab } from "./tabs/WarehouseTab";
+import { EditableCell } from "./_components/EditableCell";
+import { TasksPanel } from "./_components/TasksPanel";
+import { MasterJobDetailModal } from "../_components/MasterJobDetailModal";
+import { MasterJobDialog } from "../_components/MasterJobDialog";
+import { LinkedQuotePanel } from "../_components/LinkedQuotePanel";
+import { AttachmentsPanel } from "../_components/AttachmentsPanel";
+import { AllFieldsModal } from "../_components/AllFieldsModal";
+import { NotesDrawer } from "../_components/NotesDrawer";
+
+type CommitFn = (fieldKey: string, value: string) => void;
 
 /* ── Tabs ── */
 const TABS = [
@@ -39,39 +56,21 @@ const SHIPMENT_STAGES = [
   "Delivered",
 ];
 
-function getActiveStageIndex(status: string): number {
+function statusTagColor(status: string): string {
   const s = status.toLowerCase();
-  if (s.includes("deliver")) return 5;
-  if (s.includes("custom")) return 4;
-  if (s.includes("arriv")) return 3;
-  if (s.includes("transit")) return 2;
-  if (s.includes("cargo") || s.includes("ready")) return 1;
-  if (s.includes("book") || s.includes("confirm")) return 0;
-  return 0;
+  if (s.includes("deliver") || s.includes("billed")) return "green";
+  if (s.includes("custom")) return "gold";
+  if (s.includes("transit") || s.includes("shipped") || s.includes("transport")) return "blue";
+  if (s.includes("cargo") || s.includes("ready")) return "cyan";
+  if (s.includes("book") || s.includes("confirm") || s.includes("pending")) return "geekblue";
+  return "default";
 }
 
-/* ── Default tasks ── */
-const DEFAULT_TASKS = [
-  "Booking to agent",
-  "Booking confirmed",
-  "Cargo readiness confirmed",
-  "Cargo shipped",
-  "Pre-Alert received",
-  "Arrival notice sent",
-  "Paperwork received",
-  "Paperwork provide to customs",
-  "Cargo released for further transport",
-  "Booked for further transport",
-  "Cargo departed from port",
-  "Cargo arrived to HUB",
-  "Cargo customs cleared",
-  "Delivered",
-  "Billed",
-];
-
-/* ── Stepper component ── */
-function ShipmentStepper({ status }: { status: string }) {
-  const activeIndex = getActiveStageIndex(status);
+/* ── Stepper component (driven by completed tasks) ── */
+function ShipmentStepper({ shipment }: { shipment: ShipmentItem }) {
+  const { byKey } = useShipmentTasks(shipment.id);
+  const taskList = getTasksForDirection(shipment.tradeDirection);
+  const activeIndex = getActiveStageFromTasks(taskList, (key) => !!byKey.get(key)?.completed);
 
   return (
     <div className="bg-white border-b border-slate-200 px-6 py-5">
@@ -136,41 +135,88 @@ function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }
   );
 }
 
-function FieldRow({ label, value }: { label: string; value?: string | null }) {
+function FieldRow({
+  label,
+  value,
+  fieldKey,
+  onCommit,
+}: {
+  label: string;
+  value?: string | null;
+  fieldKey: string;
+  onCommit: CommitFn;
+}) {
   return (
     <div className="flex py-2 text-xs border-b border-slate-100 last:border-b-0">
       <span className="text-slate-400 w-[120px] shrink-0">{label}</span>
-      <span className="text-slate-700 font-medium">
-        {value || "—"}
-      </span>
+      <EditableCell
+        className="flex-1 min-w-0"
+        fieldKey={fieldKey}
+        value={value}
+        onCommit={onCommit}
+        placeholder="—"
+        displayClassName="text-slate-700 font-medium"
+      />
     </div>
   );
 }
 
-function FieldPair({ label, value }: { label: string; value?: string | null }) {
+function FieldPair({
+  label,
+  value,
+  fieldKey,
+  onCommit,
+}: {
+  label: string;
+  value?: string | null;
+  fieldKey?: string;
+  onCommit?: CommitFn;
+}) {
   return (
     <div className="py-2">
       <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
         {label}
       </div>
-      <div className="text-xs text-slate-700 font-medium">
-        {value || "—"}
-      </div>
+      {fieldKey && onCommit ? (
+        <EditableCell
+          fieldKey={fieldKey}
+          value={value}
+          onCommit={onCommit}
+          placeholder="—"
+          displayClassName="text-xs text-slate-700 font-medium"
+        />
+      ) : (
+        <div className="text-xs text-slate-700 font-medium">{value || "—"}</div>
+      )}
     </div>
   );
 }
 
-function AddressBlock({ label, value }: { label: string; value?: string | null }) {
+function AddressBlock({
+  label,
+  value,
+  fieldKey,
+  onCommit,
+}: {
+  label: string;
+  value?: string | null;
+  fieldKey: string;
+  onCommit: CommitFn;
+}) {
   return (
     <div className="bg-slate-50 rounded-lg p-3.5">
       <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
         {label}
       </div>
-      {value ? (
-        <div className="text-xs text-slate-700 leading-relaxed">{value}</div>
-      ) : (
-        <div className="text-xs text-slate-300 italic">Not specified</div>
-      )}
+      <EditableCell
+        multiline
+        fieldKey={fieldKey}
+        value={value}
+        onCommit={onCommit}
+        placeholder="Not specified"
+        displayClassName="text-xs text-slate-700 leading-relaxed"
+        emptyClassName="text-xs text-slate-300 italic"
+      />
     </div>
   );
 }
@@ -206,7 +252,22 @@ export function ShipmentDetailContent() {
   const { jobNumber } = useParams<{ jobNumber: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { shipments, isLoading } = useShipments();
+  const { shipments, isLoading, updateField, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipments();
+  const [masterJobOpen, setMasterJobOpen] = useState(false);
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [quotePanelOpen, setQuotePanelOpen] = useState(false);
+  const [attachmentsOpen, setAttachmentsOpen] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [allFieldsOpen, setAllFieldsOpen] = useState(false);
+
+  const shipment = shipments.find((s) => s.id === jobNumber);
+
+  const { data: invoicingData } = useQuery({
+    queryKey: ["invoicing", shipment?.id],
+    queryFn: () => api.invoicing.invoicingGet(shipment!.id),
+    enabled: !!shipment,
+  });
+  const linkedQuote = invoicingData?.billingSettings?.quoteRef ?? "";
 
   const TAB_KEYS = TABS.map((t) => t.key);
   const rawTab = searchParams.get("tab");
@@ -221,8 +282,6 @@ export function ShipmentDetailContent() {
     }
     router.replace(`?${params.toString()}`, { scroll: false });
   };
-
-  const shipment = shipments.find((s) => s.id === jobNumber);
 
   if (isLoading) {
     return (
@@ -243,6 +302,8 @@ export function ShipmentDetailContent() {
     );
   }
 
+  const handleCommit: CommitFn = (fieldKey, value) => updateField(shipment.id, fieldKey, value);
+
   const status = shipment.status ?? "";
   const hasEra = !!(shipment.estimatedDeparture && shipment.estimatedArrival);
   const routeSegments = [shipment.pol, shipment.pod, shipment.destination].filter(Boolean);
@@ -252,14 +313,62 @@ export function ShipmentDetailContent() {
     message.success("Copied to clipboard");
   };
 
+  const handleAssignMasterJob = async (ids: string[], mczNumber: string) => {
+    try {
+      await Promise.all(ids.map((id) => linkMasterJob({ shipmentId: id, mczNumber })));
+      message.success(`Linked to ${mczNumber}`);
+      setAssignOpen(false);
+    } catch {
+      message.error("Failed to link to master job");
+    }
+  };
+
+  const handleUnlinkMasterJob = async () => {
+    try {
+      await unlinkMasterJob(shipment.id);
+      message.success("Removed from master job");
+    } catch {
+      message.error("Failed to remove from master job");
+    }
+  };
+
+  const handleDelete = () => {
+    Modal.confirm({
+      title: "Delete shipment",
+      content: `Delete ${shipment.jobNumber ?? shipment.id}? This cannot be undone.`,
+      okText: "Delete",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        try {
+          await deleteShipment(shipment.id);
+          message.success("Shipment deleted");
+          router.push("/shipments");
+        } catch {
+          message.error("Failed to delete shipment");
+        }
+      },
+    });
+  };
+
   const actionsMenu = {
     items: [
+      {
+        key: "allFields",
+        label: "View all fields",
+      },
+      {
+        type: "divider" as const,
+      },
       {
         key: "delete",
         label: "Delete shipment",
         danger: true,
       },
     ],
+    onClick: ({ key }: { key: string }) => {
+      if (key === "delete") handleDelete();
+      if (key === "allFields") setAllFieldsOpen(true);
+    },
   };
 
   return (
@@ -290,6 +399,9 @@ export function ShipmentDetailContent() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Status badge */}
+            {status && <Tag color={statusTagColor(status)} className="m-0 text-[11px] font-semibold">{status}</Tag>}
+
             {/* ERA badge */}
             <span className="text-[11px] font-semibold bg-slate-100 border border-slate-200 rounded px-2.5 py-1">
               {hasEra ? "ERA KNOWN" : "ERA UNKNOWN"}
@@ -300,11 +412,36 @@ export function ShipmentDetailContent() {
               ETD {shipment.estimatedDeparture || "--"} / ETA {shipment.estimatedArrival || "--"}
             </span>
 
-            {/* Edit button */}
-            <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 cursor-pointer text-slate-600">
-              <EditOutlined />
-              Edit
-            </button>
+            {/* Linked Quote */}
+            {linkedQuote && (
+              <button
+                onClick={() => setQuotePanelOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 cursor-pointer text-slate-600"
+              >
+                <SplitCellsOutlined />
+                Linked Quote
+              </button>
+            )}
+
+            {/* Notes */}
+            <Tooltip title="Notes">
+              <button
+                onClick={() => setNotesOpen(true)}
+                className="flex items-center justify-center w-8 h-8 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 cursor-pointer text-slate-600"
+              >
+                <FileTextOutlined />
+              </button>
+            </Tooltip>
+
+            {/* Attachments */}
+            <Tooltip title="Attachments">
+              <button
+                onClick={() => setAttachmentsOpen(true)}
+                className="flex items-center justify-center w-8 h-8 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 cursor-pointer text-slate-600"
+              >
+                <PaperClipOutlined />
+              </button>
+            </Tooltip>
 
             {/* Actions dropdown */}
             <Dropdown menu={actionsMenu} trigger={["click"]}>
@@ -312,11 +449,6 @@ export function ShipmentDetailContent() {
                 Actions <DownOutlined className="text-[10px]" />
               </button>
             </Dropdown>
-
-            {/* Save button */}
-            <button className="px-4 py-1.5 text-xs font-medium text-white bg-indigo-500 hover:bg-indigo-600 rounded border-none cursor-pointer">
-              Save Changes
-            </button>
           </div>
         </div>
 
@@ -342,7 +474,7 @@ export function ShipmentDetailContent() {
       </div>
 
       {/* ── Stepper (details tab only) ── */}
-      {activeTab === "details" && <ShipmentStepper status={status} />}
+      {activeTab === "details" && <ShipmentStepper shipment={shipment} />}
 
       {/* ── Tab content ── */}
       <div className="p-6">
@@ -355,23 +487,23 @@ export function ShipmentDetailContent() {
                 {/* SHIPMENT OVERVIEW */}
                 <div className="bg-white border border-slate-200 rounded-lg p-5">
                   <SectionHeader icon={<ContainerOutlined />} title="Shipment Overview" />
-                  <FieldRow label="Customer" value={shipment.customer} />
-                  <FieldRow label="Shipper" value={shipment.shipper} />
-                  <FieldRow label="Consignee" value={shipment.consignee} />
-                  <FieldRow label="Incoterm" value={shipment.incotermOrigin} />
-                  <FieldRow label="Container" value={shipment.containerNumber} />
-                  <FieldRow label="Carrier" value={shipment.shippingLine} />
-                  <FieldRow label="MBL" value={shipment.masterBolNumber} />
+                  <FieldRow label="Customer" fieldKey="customer" value={shipment.customer} onCommit={handleCommit} />
+                  <FieldRow label="Shipper" fieldKey="shipper" value={shipment.shipper} onCommit={handleCommit} />
+                  <FieldRow label="Consignee" fieldKey="consignee" value={shipment.consignee} onCommit={handleCommit} />
+                  <FieldRow label="Incoterm" fieldKey="incotermOrigin" value={shipment.incotermOrigin} onCommit={handleCommit} />
+                  <FieldRow label="Container" fieldKey="containerNumber" value={shipment.containerNumber} onCommit={handleCommit} />
+                  <FieldRow label="Carrier" fieldKey="shippingLine" value={shipment.shippingLine} onCommit={handleCommit} />
+                  <FieldRow label="MBL" fieldKey="masterBolNumber" value={shipment.masterBolNumber} onCommit={handleCommit} />
                 </div>
 
                 {/* ADDRESSES */}
                 <div className="bg-white border border-slate-200 rounded-lg p-5">
                   <SectionHeader icon={<EnvironmentOutlined />} title="Addresses" />
                   <div className="grid grid-cols-2 gap-3">
-                    <AddressBlock label="Shipper" value={shipment.shipper} />
-                    <AddressBlock label="Consignee" value={shipment.consignee} />
-                    <AddressBlock label="Pick Up Address" value={shipment.pickupAddress} />
-                    <AddressBlock label="Delivery Address" value={shipment.deliveryAddress} />
+                    <AddressBlock label="Shipper" fieldKey="shipper" value={shipment.shipper} onCommit={handleCommit} />
+                    <AddressBlock label="Consignee" fieldKey="consignee" value={shipment.consignee} onCommit={handleCommit} />
+                    <AddressBlock label="Pick Up Address" fieldKey="pickupAddress" value={shipment.pickupAddress} onCommit={handleCommit} />
+                    <AddressBlock label="Delivery Address" fieldKey="deliveryAddress" value={shipment.deliveryAddress} onCommit={handleCommit} />
                   </div>
                 </div>
               </div>
@@ -382,26 +514,9 @@ export function ShipmentDetailContent() {
                 <div className="bg-white border border-slate-200 rounded-lg p-5">
                   <SectionHeader icon={<CheckSquareOutlined />} title="Tasks" />
                   <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-3">
-                    Support Workflow
+                    {shipment.tradeDirection === "Export" ? "Export Workflow" : "Import Workflow"}
                   </div>
-                  <div className="space-y-2.5">
-                    {DEFAULT_TASKS.map((task, i) => (
-                      <label
-                        key={i}
-                        className="flex items-center gap-2.5 text-xs text-slate-600 cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          className="w-[18px] h-[18px] rounded border-slate-300 accent-indigo-500"
-                          readOnly
-                        />
-                        {task}
-                      </label>
-                    ))}
-                  </div>
-                  <button className="mt-4 text-xs text-indigo-500 hover:underline bg-transparent border-none cursor-pointer p-0">
-                    + Add Task
-                  </button>
+                  <TasksPanel shipment={shipment} />
                 </div>
               </div>
             </div>
@@ -414,10 +529,36 @@ export function ShipmentDetailContent() {
                 <div className="grid grid-cols-2 gap-x-6">
                   <FieldPair label="Internal Reference" value={shipment.jobNumber} />
                   <FieldPair label="Person in Charge" value={shipment.personInCharge} />
-                  <FieldPair
-                    label="Master Job"
-                    value={shipment.masterJobMczNumber ? `#${shipment.masterJobMczNumber}` : null}
-                  />
+                  <div className="py-2">
+                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                      Master Job
+                    </div>
+                    <div className="text-xs font-medium flex items-center gap-2">
+                      {shipment.masterJobMczNumber ? (
+                        <>
+                          <button
+                            onClick={() => setMasterJobOpen(true)}
+                            className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium"
+                          >
+                            #{shipment.masterJobMczNumber}
+                          </button>
+                          <button
+                            onClick={handleUnlinkMasterJob}
+                            className="text-[10px] text-slate-400 hover:text-red-500 cursor-pointer bg-transparent border-none p-0"
+                          >
+                            unassign
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setAssignOpen(true)}
+                          className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium"
+                        >
+                          + Assign to master job
+                        </button>
+                      )}
+                    </div>
+                  </div>
                   <FieldPair label="Holiday Cover" value={shipment.holidayCover} />
                   <FieldPair label="Department" value={shipment.department} />
                   <FieldPair label="Customer" value={shipment.customer} />
@@ -428,12 +569,14 @@ export function ShipmentDetailContent() {
               <div className="bg-white border border-slate-200 rounded-lg p-5">
                 <SectionHeader icon={<CalendarOutlined />} title="Key Dates" />
                 <div className="grid grid-cols-2 gap-x-6">
-                  <FieldPair label="ETD Estimated" value={shipment.estimatedDeparture} />
-                  <FieldPair label="ETA Estimated" value={shipment.estimatedArrival} />
-                  <FieldPair label="ATD Actual" value={null} />
-                  <FieldPair label="ATA Actual" value={null} />
-                  <FieldPair label="Arrived at POD" value={null} />
-                  <FieldPair label="Delivered" value={null} />
+                  <FieldPair label="ETD Estimated" fieldKey="estimatedDeparture" value={shipment.estimatedDeparture} onCommit={handleCommit} />
+                  <FieldPair label="ATD Actual" fieldKey="actualDeparture" value={shipment.actualDeparture} onCommit={handleCommit} />
+                  <FieldPair label="ETA Estimated" fieldKey="estimatedArrival" value={shipment.estimatedArrival} onCommit={handleCommit} />
+                  <FieldPair label="ATA Actual" fieldKey="actualArrival" value={shipment.actualArrival} onCommit={handleCommit} />
+                  <FieldPair label="Cargo Readiness" fieldKey="cargoReadinessDate" value={shipment.cargoReadinessDate} onCommit={handleCommit} />
+                  <FieldPair label="Closing Date" fieldKey="closingDate" value={shipment.closingDate} onCommit={handleCommit} />
+                  <FieldPair label="ETA Warehouse/HUB" fieldKey="etaWarehouse" value={shipment.etaWarehouse} onCommit={handleCommit} />
+                  <FieldPair label="Planned Delivery" fieldKey="plannedDeliveryDate" value={shipment.plannedDeliveryDate} onCommit={handleCommit} />
                 </div>
               </div>
             </div>
@@ -448,6 +591,54 @@ export function ShipmentDetailContent() {
 
         {activeTab === "tracking" && <TrackingTab shipment={shipment} />}
       </div>
+
+      {shipment.masterJobMczNumber && (
+        <MasterJobDetailModal
+          mcz={String(shipment.masterJobMczNumber)}
+          open={masterJobOpen}
+          onClose={() => setMasterJobOpen(false)}
+        />
+      )}
+
+      <MasterJobDialog
+        open={assignOpen}
+        onClose={() => setAssignOpen(false)}
+        shipments={shipments}
+        onLink={handleAssignMasterJob}
+        initialSelectedIds={[shipment.id]}
+      />
+
+      {linkedQuote && (
+        <LinkedQuotePanel
+          quoteNumber={linkedQuote}
+          open={quotePanelOpen}
+          onClose={() => setQuotePanelOpen(false)}
+        />
+      )}
+
+      <Drawer
+        open={attachmentsOpen}
+        onClose={() => setAttachmentsOpen(false)}
+        width={301}
+        closable={false}
+        styles={{ body: { padding: 0 } }}
+      >
+        <AttachmentsPanel
+          shipmentId={shipment.id}
+          jobNumber={shipment.jobNumber ?? shipment.id}
+          context={[shipment.shipper, shipment.consignee].filter(Boolean).join(" → ") || undefined}
+          onClose={() => setAttachmentsOpen(false)}
+        />
+      </Drawer>
+
+      <NotesDrawer
+        shipment={shipment}
+        open={notesOpen}
+        onClose={() => setNotesOpen(false)}
+        onSave={(value) => updateField(shipment.id, "freeComments", value)}
+      />
+
+      <AllFieldsModal shipment={shipment} open={allFieldsOpen} onClose={() => setAllFieldsOpen(false)} />
     </div>
   );
 }

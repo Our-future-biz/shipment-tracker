@@ -77,7 +77,7 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
 
 export const DATE_COLUMNS = new Set([
   "cargoReadinessDate", "pickupDate", "pickupTime", "closingDate",
-  "estimatedDeparture", "estimatedArrival",
+  "estimatedDeparture", "estimatedArrival", "actualDeparture", "actualArrival",
   "etaWarehouse", "plannedDeliveryDate", "plannedDeliveryTime",
   "quoteValidity",
 ]);
@@ -147,6 +147,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "closingDate", title: "Closing Date", width: 110, type: "date", apiField: "closingDate" },
   { key: "estimatedDeparture", title: "Estimated Departure", width: 130, type: "date", apiField: "estimatedDeparture" },
   { key: "estimatedArrival", title: "Estimated Arrival", width: 130, type: "date", apiField: "estimatedArrival" },
+  { key: "actualDeparture", title: "Actual Departure", width: 130, type: "date", apiField: "actualDeparture" },
+  { key: "actualArrival", title: "Actual Arrival", width: 130, type: "date", apiField: "actualArrival" },
   { key: "etaWarehouse", title: "ETA Warehouse/HUB", width: 140, type: "date", apiField: "etaWarehouse" },
   { key: "plannedDeliveryDate", title: "Planned Delivery Date", width: 140, type: "date", apiField: "plannedDeliveryDate" },
   { key: "plannedDeliveryTime", title: "Planned Delivery Time", width: 140, type: "date", apiField: "plannedDeliveryTime" },
@@ -242,6 +244,10 @@ export interface CellStyle {
 
 export function parseDateMMDDYY(dateStr: string): Date | null {
   if (!dateStr) return null;
+  // ISO "YYYY-MM-DD" (current storage format)
+  const iso = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(parseInt(iso[1]!, 10), parseInt(iso[2]!, 10) - 1, parseInt(iso[3]!, 10));
+  // Legacy "MM/DD/YY"
   const parts = dateStr.split("/");
   if (parts.length !== 3) return null;
   const month = parseInt(parts[0]!, 10);

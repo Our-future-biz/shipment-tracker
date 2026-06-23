@@ -5,7 +5,11 @@ import { Table, Input, Select } from "antd";
 import { SearchOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter } from "next/navigation";
-import type { ShipmentItem } from "@/hooks/useShipments";
+import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
+import { COLUMNS } from "@/lib/columnConfig";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { useColumnPrefs } from "@/hooks/useColumnPrefs";
+import { ColumnPicker } from "./ColumnPicker";
 
 // --- Props ---
 
@@ -14,6 +18,7 @@ interface ShipmentsTableProps {
   isLoading: boolean;
   onCreateClick: () => void;
   onDelete: (shipment: ShipmentItem) => void;
+  onAddMasterJob: () => void;
 }
 
 const STATUS_OPTIONS = [
@@ -36,8 +41,11 @@ export const ShipmentsTable = ({
   onCreateClick,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onDelete,
+  onAddMasterJob,
 }: ShipmentsTableProps) => {
   const router = useRouter();
+  const { user } = useAuth();
+  const { visible, save, reset } = useColumnPrefs(user?.id);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [pageSize, setPageSize] = useState(25);
@@ -66,80 +74,29 @@ export const ShipmentsTable = ({
     });
   }, [shipments, statusFilter, search]);
 
-  // Columns
-  const columns: ColumnsType<ShipmentItem> = useMemo(
-    () => [
-      {
-        key: "jobNumber",
-        title: "Internal Reference",
-        width: 160,
-        render: (_: unknown, record: ShipmentItem) => (
-          <span className="font-mono font-bold text-indigo-500 hover:underline cursor-pointer">
-            {record.jobNumber || "\u2014"}
-          </span>
-        ),
+  // Columns \u2014 driven by the user's per-user visible selection, in canonical order
+  const columns: ColumnsType<ShipmentItem> = useMemo(() => {
+    const visibleSet = new Set(visible);
+    return COLUMNS.filter((c) => c.type !== "popup" && visibleSet.has(c.key)).map((col) => ({
+      key: col.key,
+      title: col.title,
+      width: col.width,
+      ellipsis: true,
+      render: (_: unknown, record: ShipmentItem) => {
+        if (col.key === "jobNumber") {
+          return (
+            <span className="font-mono font-bold text-indigo-500 hover:underline cursor-pointer">
+              {record.jobNumber || "\u2014"}
+            </span>
+          );
+        }
+        const val = getFieldValue(record, col.key);
+        if (!val) return <span className="text-slate-300">{"\u2014"}</span>;
+        if (col.key === "masterJob") return <span className="text-slate-400">#{val}</span>;
+        return <span className="text-slate-600">{val}</span>;
       },
-      {
-        key: "masterJobMczNumber",
-        title: "Master Job",
-        width: 140,
-        render: (_: unknown, record: ShipmentItem) =>
-          record.masterJobMczNumber ? (
-            <span className="text-slate-400">#{record.masterJobMczNumber}</span>
-          ) : (
-            <span className="text-slate-300">{"\u2014"}</span>
-          ),
-      },
-      {
-        key: "shipmentsDate",
-        title: "Shipments Date",
-        width: 130,
-        render: (_: unknown, record: ShipmentItem) =>
-          record.shipmentsDate || <span className="text-slate-300">{"\u2014"}</span>,
-      },
-      {
-        key: "department",
-        title: "Department",
-        width: 130,
-        render: (_: unknown, record: ShipmentItem) =>
-          record.department || <span className="text-slate-300">{"\u2014"}</span>,
-      },
-      {
-        key: "personInCharge",
-        title: "Person in Charge",
-        width: 150,
-        render: (_: unknown, record: ShipmentItem) =>
-          record.personInCharge || <span className="text-slate-300">{"\u2014"}</span>,
-      },
-      {
-        key: "holidayCover",
-        title: "Holiday Cover",
-        width: 140,
-        render: (_: unknown, record: ShipmentItem) =>
-          record.holidayCover ? (
-            <span className="text-slate-400">{record.holidayCover}</span>
-          ) : (
-            <span className="text-slate-300">{"\u2014"}</span>
-          ),
-      },
-      {
-        key: "customer",
-        title: "Customer",
-        width: 180,
-        ellipsis: true,
-        render: (_: unknown, record: ShipmentItem) =>
-          record.customer || <span className="text-slate-300">{"\u2014"}</span>,
-      },
-      {
-        key: "customerPic",
-        title: "Customer's PIC",
-        width: 150,
-        render: (_: unknown, record: ShipmentItem) =>
-          record.customerPic || <span className="text-slate-300">{"\u2014"}</span>,
-      },
-    ],
-    [],
-  );
+    }));
+  }, [visible]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -157,7 +114,10 @@ export const ShipmentsTable = ({
             <PlusOutlined />
             New Shipment
           </button>
-          <button className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-[14px] font-medium text-slate-700 hover:bg-slate-50 transition-colors h-[44px]">
+          <button
+            onClick={onAddMasterJob}
+            className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-[14px] font-medium text-slate-700 hover:bg-slate-50 transition-colors h-[44px]"
+          >
             Add to Master Job
           </button>
         </div>
@@ -181,7 +141,8 @@ export const ShipmentsTable = ({
             className="w-44"
           />
         </div>
-        <div className="flex items-center gap-2 text-[13px] text-slate-500">
+        <div className="flex items-center gap-3 text-[13px] text-slate-500">
+          <ColumnPicker visible={visible} onChange={save} onReset={reset} />
           <span>Rows per page</span>
           <Select
             value={pageSize}

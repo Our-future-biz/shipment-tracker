@@ -14,7 +14,15 @@ const CURRENCIES = ["CZK", "USD", "EUR", "GBP", "CNY"];
 
 interface RowsSectionData { rows?: string }
 interface PickupSectionData { pin?: string; rows?: string }
-interface JobSectionData { vgm_sent?: string; survey_sent?: string; remeasurement_sent?: string; [key: string]: string | undefined }
+interface JobSectionData { vgm_sent?: string; survey_sent?: string; remeasurement_sent?: string; notes?: string; inform_operations_sent?: string; [key: string]: string | undefined }
+
+// W/M (weight or measure) = the greater of weight in tons vs volume in CBM
+function computeWM(weightTons?: string | null, volumeCbm?: string | null): string {
+  const w = parseFloat(String(weightTons ?? "")) || 0;
+  const v = parseFloat(String(volumeCbm ?? "")) || 0;
+  if (w === 0 && v === 0) return "—";
+  return Math.max(w, v).toFixed(3);
+}
 
 function asRowsSection(data: unknown): RowsSectionData {
   if (data && typeof data === "object") return data as RowsSectionData;
@@ -56,8 +64,10 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
                   { key: "loadType", label: "Load Type", children: shipment.loadType || "—" },
                   { key: "weight", label: "Weight (tons)", children: shipment.totalWeightTons || "—" },
                   { key: "volume", label: "Volume (CBM)", children: shipment.totalVolumeCbm || "—" },
+                  { key: "wm", label: "W/M", children: computeWM(shipment.totalWeightTons, shipment.totalVolumeCbm) },
                   { key: "customs", label: "Customs Procedure", children: rowData["customsProcedure"] || "—" },
                 ]} />
+                <JobNotes shipment={shipment} messageApi={messageApi} />
                 <DimensionsEditor shipment={shipment} messageApi={messageApi} />
                 <ActionPushButtons shipment={shipment} messageApi={messageApi} />
               </div>
@@ -118,6 +128,43 @@ function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
   );
 }
 
+// ─── Job Notes ──────────────────────────────────────────────────
+
+function JobNotes({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageApi }) {
+  const { data: sectionData, save, isSaving } = useWarehouseSection(shipment.id, "job");
+  const section = asJobSection(sectionData);
+  const savedNotes = section.notes ?? "";
+  const [notes, setNotes] = useState(savedNotes);
+
+  useEffect(() => { setNotes(section.notes ?? ""); }, [section.notes]);
+
+  const dirty = notes !== savedNotes;
+
+  const handleSave = async () => {
+    try {
+      await save({ ...section, notes });
+      messageApi.success("Saved");
+    } catch {
+      messageApi.error("Failed to save");
+    }
+  };
+
+  return (
+    <div className="mb-4">
+      <div className="flex items-center justify-between mb-2">
+        <strong className="text-xs">Notes</strong>
+        {dirty && <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>Save</Button>}
+      </div>
+      <Input.TextArea
+        rows={2}
+        value={notes}
+        placeholder="Warehouse notes…"
+        onChange={(e) => setNotes(e.target.value)}
+      />
+    </div>
+  );
+}
+
 // ─── Dimensions Editor ──────────────────────────────────────────
 
 interface DimensionRow {
@@ -133,6 +180,10 @@ const EMPTY_DIM: DimensionRow = { colli: "", length: "", width: "", height: "", 
 
 function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageApi }) {
   const queryClient = useQueryClient();
+  const { data: jobSectionData, save: saveJobSection, isSaving: isInforming } = useWarehouseSection(shipment.id, "job");
+  const jobSection = asJobSection(jobSectionData);
+  const informedAt = jobSection.inform_operations_sent;
+
   const initial: DimensionRow[] = (() => {
     const dims = shipment.dimensions;
     if (!dims) return [{ ...EMPTY_DIM }];
@@ -201,6 +252,22 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
 
   const mismatchCls = (a: number, b: number) =>
     a !== b && a > 0 && b > 0 ? "bg-amber-500/15 px-1.5 py-0.5 rounded" : "";
+
+  const differs = (a: number, b: number) => a > 0 && b > 0 && Math.abs(a - b) > 0.001;
+  const hasMismatch =
+    differs(shipmentDims.colli, totalColli) ||
+    differs(shipmentDims.weightKg, totalWeightKg) ||
+    differs(shipmentDims.volumeCbm, totalVolumeCbm);
+  const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
+
+  const informOperations = async () => {
+    try {
+      await saveJobSection({ ...jobSection, inform_operations_sent: new Date().toISOString() });
+      messageApi.success("Operations informed");
+    } catch {
+      messageApi.error("Failed to inform Operations");
+    }
+  };
 
   return (
     <div>
@@ -287,6 +354,28 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
           </div>
         </Card>
       </div>
+
+      {/* Mismatch / Inform Operations */}
+      {hasData && hasMismatch && (
+        <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3.5 py-2.5">
+          <span className="text-xs text-red-600">
+            Remeasured values differ from the shipment values.
+            {informedAt && (
+              <span className="block text-[11px] text-red-400">
+                Operations informed on {new Date(informedAt).toLocaleString()}
+              </span>
+            )}
+          </span>
+          <Button danger size="small" onClick={informOperations} loading={isInforming}>
+            {informedAt ? "Inform Again" : "Inform Operations"}
+          </Button>
+        </div>
+      )}
+      {hasData && !hasMismatch && (
+        <div className="mt-4 rounded-md border border-green-200 bg-green-50 px-3.5 py-2.5 text-xs text-green-700">
+          ✓ All values match
+        </div>
+      )}
     </div>
   );
 }

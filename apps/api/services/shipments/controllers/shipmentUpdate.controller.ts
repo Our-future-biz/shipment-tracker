@@ -61,6 +61,10 @@ interface ShipmentUpdateRequest {
   insurance?: string;
 
   // Dates
+  estimatedDeparture?: string;
+  estimatedArrival?: string;
+  actualDeparture?: string;
+  actualArrival?: string;
   cargoReadinessDate?: string;
   pickupDate?: string;
   pickupTime?: string;

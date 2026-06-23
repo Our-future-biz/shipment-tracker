@@ -91,6 +91,17 @@ export const useShipments = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
   });
 
+  const linkMasterJobMutation = useMutation({
+    mutationFn: ({ shipmentId, mczNumber }: { shipmentId: string; mczNumber: string }) =>
+      api.shipments.shipmentLinkMasterJob(shipmentId, { mczNumber }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+  });
+
+  const unlinkMasterJobMutation = useMutation({
+    mutationFn: (shipmentId: string) => api.shipments.shipmentUnlinkMasterJob(shipmentId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+  });
+
   const shipments: ShipmentItem[] = query.data?.data ?? [];
 
   // Fields that trigger automation when changed
@@ -133,8 +144,11 @@ export const useShipments = () => {
     updateShipment: updateMutation.mutateAsync,
     updateField,
     deleteShipment: deleteMutation.mutateAsync,
+    linkMasterJob: linkMasterJobMutation.mutateAsync,
+    unlinkMasterJob: unlinkMasterJobMutation.mutateAsync,
     isCreating: createMutation.isPending,
     isDeleting: deleteMutation.isPending,
+    isLinkingMasterJob: linkMasterJobMutation.isPending,
   };
 };
 

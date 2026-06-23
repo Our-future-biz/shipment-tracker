@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Modal, Button, Input, Checkbox, Tag, Radio, Space } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { type ShipmentItem } from "@/hooks/useShipments";
@@ -10,11 +10,16 @@ interface MasterJobDialogProps {
   onClose: () => void;
   shipments: ShipmentItem[];
   onLink: (shipmentIds: string[], mczNumber: string) => void | Promise<void>;
+  initialSelectedIds?: string[];
 }
 
-export const MasterJobDialog = ({ open, onClose, shipments, onLink }: MasterJobDialogProps) => {
+export const MasterJobDialog = ({ open, onClose, shipments, onLink, initialSelectedIds }: MasterJobDialogProps) => {
   const [mode, setMode] = useState<"new" | "existing">("new");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set(initialSelectedIds ?? []));
+
+  useEffect(() => {
+    if (open) setSelected(new Set(initialSelectedIds ?? []));
+  }, [open, initialSelectedIds]);
   const [search, setSearch] = useState("");
   const [selectedExistingMCZ, setSelectedExistingMCZ] = useState("");
   const [isLinking, setIsLinking] = useState(false);

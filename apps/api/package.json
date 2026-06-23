@@ -22,7 +22,7 @@
     "@anthropic-ai/sdk": "^0.80.0",
     "@node-rs/argon2": "^2.0.0",
     "drizzle-orm": "^0.44.5",
-    "encore.dev": "^1.57.5",
+    "encore.dev": "^1.57.8",
     "jose": "^6.0.0",
     "pdf-parse": "^2.4.5",
     "pg": "^8.13.0",

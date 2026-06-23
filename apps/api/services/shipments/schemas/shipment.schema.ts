@@ -30,8 +30,10 @@ export const shipmentTable = pgTable(
     cargoOrigin: text("cargo_origin").notNull().default(""),
     countryCode: text("country_code").notNull().default(""),
     origin: text("origin").notNull().default(""),
-    estimatedDeparture: date("estimated_departure"),
-    estimatedArrival: date("estimated_arrival"),
+    estimatedDeparture: date("estimated_departure", { mode: "string" }),
+    estimatedArrival: date("estimated_arrival", { mode: "string" }),
+    actualDeparture: date("actual_departure", { mode: "string" }),
+    actualArrival: date("actual_arrival", { mode: "string" }),
     tradeDirection: text("trade_direction").notNull().default(""),
     agent: text("agent").notNull().default(""),
     incotermOrigin: text("incoterm_origin").notNull().default(""),
@@ -67,13 +69,13 @@ export const shipmentTable = pgTable(
     // — Insurance —
     insurance: text("insurance").notNull().default(""),
 
-    // — Dates —
-    cargoReadinessDate: text("cargo_readiness_date").notNull().default(""),
-    pickupDate: text("pickup_date").notNull().default(""),
+    // — Dates (ISO YYYY-MM-DD) —
+    cargoReadinessDate: date("cargo_readiness_date", { mode: "string" }),
+    pickupDate: date("pickup_date", { mode: "string" }),
     pickupTime: text("pickup_time").notNull().default(""),
-    closingDate: text("closing_date").notNull().default(""),
-    etaWarehouse: text("eta_warehouse").notNull().default(""),
-    plannedDeliveryDate: text("planned_delivery_date").notNull().default(""),
+    closingDate: date("closing_date", { mode: "string" }),
+    etaWarehouse: date("eta_warehouse", { mode: "string" }),
+    plannedDeliveryDate: date("planned_delivery_date", { mode: "string" }),
     plannedDeliveryTime: text("planned_delivery_time").notNull().default(""),
 
     // — Commercial —

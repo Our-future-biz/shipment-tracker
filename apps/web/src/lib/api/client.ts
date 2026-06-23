@@ -818,6 +818,14 @@ export namespace controllers {
         /**
          * Dates
          */
+        estimatedDeparture?: string
+
+        estimatedArrival?: string
+
+        actualDeparture?: string
+
+        actualArrival?: string
+
         cargoReadinessDate?: string
 
         pickupDate?: string
@@ -988,6 +996,14 @@ export namespace controllers {
         /**
          * Dates
          */
+        estimatedDeparture?: string
+
+        estimatedArrival?: string
+
+        actualDeparture?: string
+
+        actualArrival?: string
+
         cargoReadinessDate?: string
 
         pickupDate?: string
@@ -1327,6 +1343,8 @@ export namespace interfaces {
         origin: string
         estimatedDeparture: string | null
         estimatedArrival: string | null
+        actualDeparture: string | null
+        actualArrival: string | null
         tradeDirection: string
         agent: string
         incotermOrigin: string

@@ -33,6 +33,20 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] }),
   });
 
+  const uploadAttachment = useMutation({
+    mutationFn: (file: File) =>
+      api.shipments.attachmentCreate(shipment.id, {
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type || "application/octet-stream",
+      }),
+    onSuccess: (_data, file) => {
+      queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
+      message.success(`${file.name} uploaded`);
+    },
+    onError: () => message.error("Upload failed"),
+  });
+
   const attachments: AttachmentFile[] = (attachmentsQuery.data?.attachments ?? []) as AttachmentFile[];
 
   return (
@@ -40,12 +54,9 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
       <Upload.Dragger
         name="file"
         multiple
-        action={`/api/shipments/${shipment.id}/attachments`}
-        onChange={(info) => {
-          if (info.file.status === "done") {
-            queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
-            message.success(`${info.file.name} uploaded`);
-          }
+        beforeUpload={(file) => {
+          uploadAttachment.mutate(file);
+          return false; // handle upload ourselves via the typed API client
         }}
         showUploadList={false}
         className="mb-4"

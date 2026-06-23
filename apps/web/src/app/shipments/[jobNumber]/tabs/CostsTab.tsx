@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Input, Select, Button, Space } from "antd";
+import { Input, Select, Button } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -47,7 +47,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   });
 
   const upsertBilling = useMutation({
-    mutationFn: (params: { billingCurrency?: string; roe?: string }) =>
+    mutationFn: (params: { billingCurrency?: string; roe?: string; quoteRef?: string }) =>
       api.invoicing.invoicingUpsertBillingSettings(shipment.id, params),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] }),
   });
@@ -99,8 +99,27 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
           imported++;
         }
       }
+      // Carry over the quote's billing settings (currency + ROE) and the quote ref
+      const qBilling = quoteData.billingSettings;
+      await upsertBilling.mutateAsync({
+        quoteRef: qn,
+        ...(qBilling?.billingCurrency ? { billingCurrency: qBilling.billingCurrency } : {}),
+        ...(qBilling?.roe ? { roe: qBilling.roe } : {}),
+      });
+
+      // Carry over the quote's per-row billing overrides
+      let importedOverrides = 0;
+      for (const ov of quoteData.billingOverrides ?? []) {
+        if (ov.billingAmount) {
+          await upsertOverride.mutateAsync({ rowKey: ov.rowKey, billingAmount: ov.billingAmount });
+          importedOverrides++;
+        }
+      }
+
       queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
-      setQuoteStatus(`Imported ${imported} cost(s) from ${qn}`);
+      setQuoteStatus(
+        `Imported ${imported} cost(s)${importedOverrides > 0 ? ` + ${importedOverrides} billing override(s)` : ""} from ${qn}`,
+      );
     } catch {
       setQuoteStatus("Quote not found or error");
     }

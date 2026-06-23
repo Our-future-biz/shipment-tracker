@@ -27,6 +27,8 @@ export interface ShipmentItem {
   origin: string;
   estimatedDeparture: string | null;
   estimatedArrival: string | null;
+  actualDeparture: string | null;
+  actualArrival: string | null;
   tradeDirection: string;
   agent: string;
   incotermOrigin: string;
