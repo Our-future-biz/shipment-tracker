@@ -117,6 +117,7 @@ export const COLUMNS: ColumnDef[] = [
   // Delivery + POD
   { key: "deliveryAddress", title: "Delivery Address", width: 200, type: "text", apiField: "deliveryAddress" },
   { key: "pod", title: "POD", width: 100, type: "text", apiField: "pod" },
+  { key: "destination", title: "Destination", width: 130, type: "text", apiField: "destination" },
 
   // Status block
   { key: "customsStatus", title: "Customs Status", width: 210, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Status"], apiField: "customsStatus" },
@@ -153,12 +154,15 @@ export const COLUMNS: ColumnDef[] = [
   { key: "plannedDeliveryDate", title: "Planned Delivery Date", width: 140, type: "date", apiField: "plannedDeliveryDate" },
   { key: "plannedDeliveryTime", title: "Planned Delivery Time", width: 140, type: "date", apiField: "plannedDeliveryTime" },
   { key: "cargoOrigin", title: "Cargo Origin", width: 130, type: "text", apiField: "cargoOrigin" },
+  { key: "origin", title: "Origin", width: 130, type: "text", apiField: "origin" },
+  { key: "countryCode", title: "Country Code", width: 110, type: "text", apiField: "countryCode" },
 
   // Commercial
   { key: "commercialInvoice", title: "Commercial Invoice", width: 150, type: "text", apiField: "commercialInvoice" },
   { key: "commercialInvoiceValue", title: "Commercial Invoice Value", width: 160, type: "text", apiField: "commercialInvoiceValue" },
   { key: "hsCode", title: "HS Code", width: 110, type: "text", apiField: "hsCode" },
   { key: "cargoDescription", title: "Cargo Description", width: 220, type: "text", apiField: "cargoDescription" },
+  { key: "pcs", title: "Pieces (PCS)", width: 100, type: "text", apiField: "pcs" },
   { key: "creditCheck", title: "Credit Check", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Credit Check"], apiField: "creditCheck" },
   { key: "approvedBy", title: "Approved By", width: 150, type: "text", apiField: "approvedBy" },
   { key: "bookingConfirmation", title: "Booking Confirmation", width: 180, type: "text", apiField: "bookingConfirmation" },

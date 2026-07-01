@@ -931,6 +931,8 @@ export namespace controllers {
         pol?: string
         pod?: string
         destination?: string
+        countryCode?: string
+        origin?: string
         tradeDirection?: string
         loadType?: string
         status?: string

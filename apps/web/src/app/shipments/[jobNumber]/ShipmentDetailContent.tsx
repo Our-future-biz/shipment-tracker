@@ -18,7 +18,8 @@ import {
   PaperClipOutlined,
   FileTextOutlined,
 } from "@ant-design/icons";
-import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
+import { useShipments, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
+import { COLUMN_MAP } from "@/lib/columnConfig";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
 import Link from "next/link";
@@ -217,6 +218,109 @@ function AddressBlock({
         displayClassName="text-xs text-slate-700 leading-relaxed"
         emptyClassName="text-xs text-slate-300 italic"
       />
+    </div>
+  );
+}
+
+/* ── All remaining DB fields, grouped for the details tab ── */
+const DETAIL_SECTIONS: { title: string; icon: React.ReactNode; keys: string[] }[] = [
+  {
+    title: "References & Routing",
+    icon: <EnvironmentOutlined />,
+    keys: ["personalReference", "bookingNumber", "pol", "pod", "origin", "destination", "cargoOrigin", "countryCode"],
+  },
+  {
+    title: "Cargo & Commercial",
+    icon: <ContainerOutlined />,
+    keys: [
+      "loadType", "tradeDirection", "freightMode", "serviceType", "pcs", "hsCode",
+      "cargoDescription", "commercialInvoice", "commercialInvoiceValue", "insurance", "creditCheck", "approvedBy",
+    ],
+  },
+  {
+    title: "Status & Meta",
+    icon: <InfoCircleOutlined />,
+    keys: ["status", "customsStatus", "shipmentsDate", "freeComments"],
+  },
+  {
+    title: "Parties & Agents",
+    icon: <InfoCircleOutlined />,
+    keys: ["customerPic", "customerReference", "agent", "agentPic", "supplierPic", "equipmentDelivery", "bookingConfirmation", "customsProcedure"],
+  },
+  {
+    title: "Carrier & Bill of Lading",
+    icon: <SplitCellsOutlined />,
+    keys: ["vessel", "voyage", "incotermDestination", "houseBolNumber", "houseBolType", "masterBolType"],
+  },
+  {
+    title: "Compliance",
+    icon: <CheckSquareOutlined />,
+    keys: ["vgm", "shippingInstructions", "ams", "isf", "bolDraft"],
+  },
+  {
+    title: "Switch BoL",
+    icon: <SplitCellsOutlined />,
+    keys: ["switchBol", "switchBolApprovedBy", "switchBolNumber"],
+  },
+  {
+    title: "Containers",
+    icon: <ContainerOutlined />,
+    keys: [
+      "containerCount1", "containerLength1", "containerType1",
+      "containerCount2", "containerLength2", "containerType2",
+      "containerCount3", "containerLength3", "containerType3",
+      "containerCount4", "containerLength4", "containerType4",
+    ],
+  },
+  {
+    title: "Additional Dates",
+    icon: <CalendarOutlined />,
+    keys: ["pickupDate", "pickupTime", "plannedDeliveryTime"],
+  },
+  {
+    title: "Quote",
+    icon: <FileTextOutlined />,
+    keys: ["salesNumber", "selling", "quoteValidity", "validityStatus"],
+  },
+  {
+    title: "Other",
+    icon: <FileTextOutlined />,
+    keys: ["claim", "createdBy"],
+  },
+];
+
+function FieldGridSection({
+  icon,
+  title,
+  fieldKeys,
+  shipment,
+  onCommit,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  fieldKeys: string[];
+  shipment: ShipmentItem;
+  onCommit: CommitFn;
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-5">
+      <SectionHeader icon={icon} title={title} />
+      <div className="grid grid-cols-2 gap-x-6">
+        {fieldKeys.map((key) => {
+          const col = COLUMN_MAP.get(key);
+          if (!col) return null;
+          const editable = !col.readonly;
+          return (
+            <FieldPair
+              key={key}
+              label={col.title}
+              value={getFieldValue(shipment, key)}
+              fieldKey={editable ? key : undefined}
+              onCommit={editable ? onCommit : undefined}
+            />
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -579,6 +683,21 @@ export function ShipmentDetailContent() {
                   <FieldPair label="Planned Delivery" fieldKey="plannedDeliveryDate" value={shipment.plannedDeliveryDate} onCommit={handleCommit} />
                 </div>
               </div>
+            </div>
+
+            {/* All remaining fields (every DB column, inline-editable) */}
+            <div className="columns-1 lg:columns-2 gap-6 mt-6">
+              {DETAIL_SECTIONS.map((section) => (
+                <div key={section.title} className="break-inside-avoid mb-6">
+                  <FieldGridSection
+                    icon={section.icon}
+                    title={section.title}
+                    fieldKeys={section.keys}
+                    shipment={shipment}
+                    onCommit={handleCommit}
+                  />
+                </div>
+              ))}
             </div>
           </>
         )}
