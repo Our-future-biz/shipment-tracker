@@ -7,7 +7,7 @@ interface AttachmentCreateRequest {
   fileName: string;
   fileSize: number;
   fileType: string;
-  storageKey?: string;
+  contentBase64?: string;
 }
 
 interface AttachmentCreateResponse {
@@ -15,12 +15,13 @@ interface AttachmentCreateResponse {
 }
 
 export const attachmentCreate = api(
-  { expose: true, auth: false, method: "POST", path: "/shipments/:shipmentId/attachments" },
+  // 50 MiB — base64 inflates bytes ~33%, so this allows raw files up to ~37 MiB.
+  { expose: true, auth: false, method: "POST", path: "/shipments/:shipmentId/attachments", bodyLimit: 50 * 1024 * 1024 },
   async (req: AttachmentCreateRequest): Promise<AttachmentCreateResponse> => {
     if (!req.fileName) {
       throw APIError.invalidArgument("fileName is required");
     }
-    const attachment = await attachmentService.create(req.shipmentId, req.fileName, req.fileSize ?? 0, req.fileType ?? "", req.storageKey ?? "");
+    const attachment = await attachmentService.create(req.shipmentId, req.fileName, req.fileSize ?? 0, req.fileType ?? "", req.contentBase64 ?? "");
     return { attachment: attachment as unknown as AttachmentItem };
   },
 );

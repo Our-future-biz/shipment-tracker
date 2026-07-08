@@ -2,9 +2,10 @@
 
 import { useState, useRef } from "react";
 import { Button } from "antd";
-import { CloseOutlined, DeleteOutlined, FileOutlined, FilePdfOutlined, FileExcelOutlined, FileWordOutlined, InboxOutlined } from "@ant-design/icons";
+import { CloseOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined, FileOutlined, FilePdfOutlined, FileExcelOutlined, FileWordOutlined, InboxOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { fileToBase64, attachmentContentUrl } from "@/lib/files";
 
 interface AttachmentsPanelProps {
   shipmentId: string;
@@ -31,10 +32,12 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
   const uploadAttachments = useMutation({
     mutationFn: async (fileList: FileList) => {
       for (const file of Array.from(fileList)) {
+        const contentBase64 = await fileToBase64(file);
         await api.shipments.attachmentCreate(shipmentId, {
           fileName: file.name,
           fileSize: file.size,
           fileType: file.type || "application/octet-stream",
+          contentBase64,
         });
       }
     },
@@ -113,6 +116,12 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
               <div style={{ fontSize: 11, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.fileName}</div>
               <div style={{ fontSize: 10, color: "#94a3b8" }}>{formatSize(file.fileSize)}</div>
             </div>
+            <a href={attachmentContentUrl(shipmentId, file.id)} target="_blank" rel="noreferrer" title="View">
+              <Button type="text" size="small" icon={<EyeOutlined style={{ fontSize: 10 }} />} />
+            </a>
+            <a href={attachmentContentUrl(shipmentId, file.id, true)} title="Download">
+              <Button type="text" size="small" icon={<DownloadOutlined style={{ fontSize: 10 }} />} />
+            </a>
             <Button type="text" size="small" danger icon={<DeleteOutlined style={{ fontSize: 10 }} />} onClick={() => deleteAttachment.mutate(file.id)} />
           </div>
         ))}

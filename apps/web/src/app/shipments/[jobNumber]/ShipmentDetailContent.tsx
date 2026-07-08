@@ -585,9 +585,9 @@ export function ShipmentDetailContent() {
         {activeTab === "details" && (
           <>
             {/* Top section: two-column grid */}
-            <div className="grid grid-cols-[1fr_380px] gap-6 mb-6">
+            <div className="grid grid-cols-[1fr_380px] gap-4 mb-4">
               {/* Left column */}
-              <div className="space-y-6">
+              <div className="space-y-4">
                 {/* SHIPMENT OVERVIEW */}
                 <div className="bg-white border border-slate-200 rounded-lg p-5">
                   <SectionHeader icon={<ContainerOutlined />} title="Shipment Overview" />
@@ -626,7 +626,7 @@ export function ShipmentDetailContent() {
             </div>
 
             {/* Bottom section: two-column equal grid */}
-            <div className="grid grid-cols-2 gap-6">
+            <div className="grid grid-cols-2 gap-4">
               {/* BASIC INFORMATION */}
               <div className="bg-white border border-slate-200 rounded-lg p-5">
                 <SectionHeader icon={<InfoCircleOutlined />} title="Basic Information" />
@@ -686,9 +686,9 @@ export function ShipmentDetailContent() {
             </div>
 
             {/* All remaining fields (every DB column, inline-editable) */}
-            <div className="columns-1 lg:columns-2 gap-6 mt-6">
+            <div className="columns-1 lg:columns-2 gap-4 mt-4">
               {DETAIL_SECTIONS.map((section) => (
-                <div key={section.title} className="break-inside-avoid mb-6">
+                <div key={section.title} className="break-inside-avoid mb-4">
                   <FieldGridSection
                     icon={section.icon}
                     title={section.title}

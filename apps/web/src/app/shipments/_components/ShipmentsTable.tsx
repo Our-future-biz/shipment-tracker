@@ -5,11 +5,48 @@ import { Table, Input, Select } from "antd";
 import { SearchOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter } from "next/navigation";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  useSortable,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
-import { COLUMNS } from "@/lib/columnConfig";
+import { COLUMN_MAP } from "@/lib/columnConfig";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { useColumnPrefs } from "@/hooks/useColumnPrefs";
+import { useColumnView } from "@/hooks/useColumnView";
 import { ColumnPicker } from "./ColumnPicker";
+
+// Draggable table header cell — id comes from each column's onHeaderCell().
+type HeaderCellProps = React.ThHTMLAttributes<HTMLTableCellElement> & { id?: string };
+
+const DraggableHeaderCell = ({ id, style, ...rest }: HeaderCellProps) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: id ?? "",
+  });
+
+  if (!id) return <th style={style} {...rest} />;
+
+  const thStyle: React.CSSProperties = {
+    ...style,
+    transform: CSS.Translate.toString(transform),
+    transition,
+    cursor: "grab",
+    userSelect: "none",
+    ...(isDragging ? { position: "relative", zIndex: 2, background: "#eef2ff" } : {}),
+  };
+
+  return <th ref={setNodeRef} style={thStyle} {...rest} {...attributes} {...listeners} />;
+};
 
 // --- Props ---
 
@@ -44,11 +81,23 @@ export const ShipmentsTable = ({
   onAddMasterJob,
 }: ShipmentsTableProps) => {
   const router = useRouter();
-  const { user } = useAuth();
-  const { visible, save, reset } = useColumnPrefs(user?.id);
+  const { user, token } = useAuth();
+  const { visible, setVisible, reset, templates, activeTemplateId, applyTemplate, deactivate, saveAsTemplate, deleteTemplate } =
+    useColumnView(user?.id, token);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [pageSize, setPageSize] = useState(25);
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const oldIndex = visible.indexOf(String(active.id));
+    const newIndex = visible.indexOf(String(over.id));
+    if (oldIndex !== -1 && newIndex !== -1) {
+      setVisible(arrayMove(visible, oldIndex, newIndex));
+    }
+  };
 
   // Filter by status + search
   const filtered = useMemo(() => {
@@ -74,14 +123,17 @@ export const ShipmentsTable = ({
     });
   }, [shipments, statusFilter, search]);
 
-  // Columns \u2014 driven by the user's per-user visible selection, in canonical order
+  // Columns \u2014 driven by the user's selection, in the saved (draggable) order.
   const columns: ColumnsType<ShipmentItem> = useMemo(() => {
-    const visibleSet = new Set(visible);
-    return COLUMNS.filter((c) => c.type !== "popup" && visibleSet.has(c.key)).map((col) => ({
+    return visible
+      .map((key) => COLUMN_MAP.get(key))
+      .filter((col): col is NonNullable<typeof col> => !!col && col.type !== "popup")
+      .map((col) => ({
       key: col.key,
       title: col.title,
       width: col.width,
       ellipsis: true,
+      onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
       render: (_: unknown, record: ShipmentItem) => {
         if (col.key === "jobNumber") {
           return (
@@ -142,7 +194,17 @@ export const ShipmentsTable = ({
           />
         </div>
         <div className="flex items-center gap-3 text-[13px] text-slate-500">
-          <ColumnPicker visible={visible} onChange={save} onReset={reset} />
+          <ColumnPicker
+            visible={visible}
+            onChange={setVisible}
+            onReset={reset}
+            templates={templates}
+            activeTemplateId={activeTemplateId}
+            onApplyTemplate={applyTemplate}
+            onDeactivate={deactivate}
+            onSaveTemplate={saveAsTemplate}
+            onDeleteTemplate={deleteTemplate}
+          />
           <span>Rows per page</span>
           <Select
             value={pageSize}
@@ -157,24 +219,29 @@ export const ShipmentsTable = ({
 
       {/* Table */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-        <Table<ShipmentItem>
-          dataSource={filtered}
-          columns={columns}
-          rowKey="id"
-          loading={isLoading}
-          size="small"
-          pagination={{
-            pageSize,
-            showSizeChanger: false,
-            showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} entries`,
-          }}
-          scroll={{ x: "max-content" }}
-          onRow={(record) => ({
-            onClick: () => router.push(`/shipments/${record.id}`),
-            className: "cursor-pointer",
-          })}
-          locale={{ emptyText: "No shipments found" }}
-        />
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <SortableContext items={visible} strategy={horizontalListSortingStrategy}>
+            <Table<ShipmentItem>
+              dataSource={filtered}
+              columns={columns}
+              rowKey="id"
+              loading={isLoading}
+              size="small"
+              components={{ header: { cell: DraggableHeaderCell } }}
+              pagination={{
+                pageSize,
+                showSizeChanger: false,
+                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} entries`,
+              }}
+              scroll={{ x: "max-content" }}
+              onRow={(record) => ({
+                onClick: () => router.push(`/shipments/${record.id}`),
+                className: "cursor-pointer",
+              })}
+              locale={{ emptyText: "No shipments found" }}
+            />
+          </SortableContext>
+        </DndContext>
       </div>
     </div>
   );

@@ -11,6 +11,15 @@ class ShipmentAttachmentRepository {
       .orderBy(asc(shipmentAttachmentTable.createdAt));
   }
 
+  async getById(id: string) {
+    const [row] = await db
+      .select()
+      .from(shipmentAttachmentTable)
+      .where(and(eq(shipmentAttachmentTable.id, id), isNull(shipmentAttachmentTable.deletedAt)))
+      .limit(1);
+    return row ?? null;
+  }
+
   async create(data: { shipmentId: string; fileName: string; fileSize: number; fileType: string; storageKey: string }) {
     const [row] = await db.insert(shipmentAttachmentTable).values(data).returning();
     return row!;

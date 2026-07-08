@@ -1,9 +1,10 @@
 "use client";
 
-import { Upload, Button, message } from "antd";
-import { InboxOutlined, FileOutlined, DeleteOutlined } from "@ant-design/icons";
+import { Upload, Button, Tooltip, message } from "antd";
+import { InboxOutlined, FileOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { fileToBase64, attachmentContentUrl } from "@/lib/files";
 import type { ShipmentItem } from "@/hooks/useShipments";
 
 interface AttachmentFile {
@@ -34,12 +35,15 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   });
 
   const uploadAttachment = useMutation({
-    mutationFn: (file: File) =>
-      api.shipments.attachmentCreate(shipment.id, {
+    mutationFn: async (file: File) => {
+      const contentBase64 = await fileToBase64(file);
+      return api.shipments.attachmentCreate(shipment.id, {
         fileName: file.name,
         fileSize: file.size,
         fileType: file.type || "application/octet-stream",
-      }),
+        contentBase64,
+      });
+    },
     onSuccess: (_data, file) => {
       queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
       message.success(`${file.name} uploaded`);
@@ -49,17 +53,21 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
 
   const attachments: AttachmentFile[] = (attachmentsQuery.data?.attachments ?? []) as AttachmentFile[];
 
+  const contentUrl = (id: string, download = false) => attachmentContentUrl(shipment.id, id, download);
+
   return (
     <div className="bg-white rounded-lg border border-slate-200 p-5">
       <Upload.Dragger
         name="file"
         multiple
-        beforeUpload={(file) => {
-          uploadAttachment.mutate(file);
-          return false; // handle upload ourselves via the typed API client
-        }}
         showUploadList={false}
         className="mb-4"
+        customRequest={({ file, onSuccess, onError }) => {
+          uploadAttachment.mutate(file as File, {
+            onSuccess: () => onSuccess?.("ok"),
+            onError: (err) => onError?.(err as Error),
+          });
+        }}
       >
         <p><InboxOutlined className="text-[28px] text-indigo-500" /></p>
         <p className="text-sm mt-2">Drag files here or click to browse</p>
@@ -77,6 +85,16 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                 <div className="text-[11px] text-slate-400">{formatFileSize(file.fileSize)} · {file.fileType}</div>
               </div>
               <span className="text-[11px] text-slate-400">{new Date(file.createdAt).toLocaleDateString()}</span>
+              <Tooltip title="View">
+                <a href={contentUrl(file.id)} target="_blank" rel="noreferrer">
+                  <Button type="text" size="small" icon={<EyeOutlined />} />
+                </a>
+              </Tooltip>
+              <Tooltip title="Download">
+                <a href={contentUrl(file.id, true)}>
+                  <Button type="text" size="small" icon={<DownloadOutlined />} />
+                </a>
+              </Tooltip>
               <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => deleteAttachment.mutate(file.id)} />
             </div>
           ))}
