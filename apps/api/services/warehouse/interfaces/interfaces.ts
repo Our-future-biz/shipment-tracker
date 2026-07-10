@@ -12,6 +12,7 @@ export interface WarehouseTaskItem {
   notes: string;
   data: unknown;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface WarehouseSectionItem {

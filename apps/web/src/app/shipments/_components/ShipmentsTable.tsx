@@ -20,8 +20,8 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
-import { COLUMN_MAP } from "@/lib/columnConfig";
+import { getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
+import { COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle, type CellStyle } from "@/lib/columnConfig";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
 import { ColumnPicker } from "./ColumnPicker";
@@ -123,6 +123,16 @@ export const ShipmentsTable = ({
     });
   }, [shipments, statusFilter, search]);
 
+  // Precompute per-row data + whole-row conditional tint once (used by every cell).
+  const rowInfo = useMemo(() => {
+    const m = new Map<string, { rowData: Record<string, string>; rowStyle: CellStyle | null }>();
+    for (const s of filtered) {
+      const rowData = buildRowData(s);
+      m.set(s.id, { rowData, rowStyle: getRowConditionalStyle(rowData) });
+    }
+    return m;
+  }, [filtered]);
+
   // Columns \u2014 driven by the user's selection, in the saved (draggable) order.
   const columns: ColumnsType<ShipmentItem> = useMemo(() => {
     return visible
@@ -134,21 +144,37 @@ export const ShipmentsTable = ({
       width: col.width,
       ellipsis: true,
       onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
+      // Cell background = the cell's own conditional tint, else the whole-row tint.
+      onCell: (record: ShipmentItem) => {
+        const info = rowInfo.get(record.id);
+        const cellStyle = getCellConditionalStyle(col.key, getFieldValue(record, col.key), info?.rowData ?? {});
+        const bg = cellStyle?.backgroundColor ?? info?.rowStyle?.backgroundColor;
+        return bg ? { style: { background: bg } } : {};
+      },
       render: (_: unknown, record: ShipmentItem) => {
+        const info = rowInfo.get(record.id);
+        const cellStyle = getCellConditionalStyle(col.key, getFieldValue(record, col.key), info?.rowData ?? {});
+        const textStyle: React.CSSProperties | undefined = cellStyle
+          ? { color: cellStyle.color, fontWeight: cellStyle.fontWeight }
+          : undefined;
+
         if (col.key === "jobNumber") {
           return (
-            <span className="font-mono font-bold text-indigo-500 hover:underline cursor-pointer">
+            <span
+              className="font-mono font-bold hover:underline cursor-pointer"
+              style={{ color: cellStyle?.color ?? "#6366f1", fontWeight: cellStyle?.fontWeight ?? 700 }}
+            >
               {record.jobNumber || "\u2014"}
             </span>
           );
         }
         const val = getFieldValue(record, col.key);
         if (!val) return <span className="text-slate-300">{"\u2014"}</span>;
-        if (col.key === "masterJob") return <span className="text-slate-400">#{val}</span>;
-        return <span className="text-slate-600">{val}</span>;
+        if (col.key === "masterJob") return <span className="text-slate-400" style={textStyle}>#{val}</span>;
+        return <span className="text-slate-600" style={textStyle}>{val}</span>;
       },
     }));
-  }, [visible]);
+  }, [visible, rowInfo]);
 
   return (
     <div className="flex flex-col gap-5">

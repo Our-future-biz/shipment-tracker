@@ -11,21 +11,30 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
 import type { controllers, interfaces } from "@/lib/api/client";
 import type { ColumnsType } from "antd/es/table";
+import { WarehouseTaskDetail, WAREHOUSE_TYPES } from "./WarehouseTaskDetail";
 
 type WarehouseTaskItem = interfaces.WarehouseTaskItem;
-
-const TYPES = ["Import", "Export", "Customs"];
 
 export const WarehouseView = () => {
   const { tasks, isLoading, createTask, updateTask, deleteTask, isCreating } = useWarehouse();
   const toast = useToast();
   const [deleteTarget, setDeleteTarget] = useState<WarehouseTaskItem | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
   const [searchText, setSearchText] = useState("");
 
   const handleCreate = async () => {
-    const num = tasks.length + 1;
-    await createTask({ taskId: `WHCZ2026${String(num).padStart(3, "0")}` });
+    // Next WHCZ2026### from the highest existing number (survives deletes).
+    let max = 0;
+    for (const t of tasks) {
+      const m = /WHCZ2026(\d+)/.exec(t.taskId);
+      if (m) {
+        const n = parseInt(m[1]!, 10);
+        if (!isNaN(n) && n > max) max = n;
+      }
+    }
+    const res = await createTask({ taskId: `WHCZ2026${String(max + 1).padStart(3, "0")}` });
     toast.success("Task created");
+    setSelected(res.task.id);
   };
 
   const handleUpdate = async (taskId: string, field: string, value: string) => {
@@ -51,8 +60,8 @@ export const WarehouseView = () => {
       dataIndex: "taskId",
       key: "taskId",
       width: 140,
-      render: (text: string) => (
-        <span className="text-indigo-500 font-semibold font-mono">{text}</span>
+      render: (text: string, record: WarehouseTaskItem) => (
+        <span className="text-indigo-500 font-semibold font-mono cursor-pointer" onClick={() => setSelected(record.id)}>{text}</span>
       ),
     },
     {
@@ -61,7 +70,7 @@ export const WarehouseView = () => {
       key: "type",
       width: 110,
       render: (val: string, record: WarehouseTaskItem) => (
-        <InlineSelect value={val} options={TYPES} onChange={(v) => handleUpdate(record.id, "type", v)} />
+        <InlineSelect value={val} options={WAREHOUSE_TYPES} onChange={(v) => handleUpdate(record.id, "type", v)} />
       ),
     },
     {
@@ -139,7 +148,7 @@ export const WarehouseView = () => {
           title="Warehouse"
           extra={
             <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} loading={isCreating}>
-              + New Task
+              New Task
             </Button>
           }
         />
@@ -174,6 +183,8 @@ export const WarehouseView = () => {
           confirmLabel="Delete"
           danger
         />
+
+        <WarehouseTaskDetail taskId={selected} onClose={() => setSelected(null)} />
       </div>
     </div>
   );

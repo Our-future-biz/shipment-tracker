@@ -22,8 +22,9 @@ interface WarehouseUpdateResponse {
 export const warehouseUpdate = api(
   { expose: true, auth: false, method: "PATCH", path: "/warehouse/:taskId" },
   async (req: WarehouseUpdateRequest): Promise<WarehouseUpdateResponse> => {
-    const { id, ...data } = req;
-    const task = await warehouseService.update(id, data);
+    // The client sends the task's UUID as the :taskId path param; update by it.
+    const { taskId, ...data } = req;
+    const task = await warehouseService.update(taskId, data);
     if (!task) {
       throw APIError.notFound("Warehouse task not found");
     }

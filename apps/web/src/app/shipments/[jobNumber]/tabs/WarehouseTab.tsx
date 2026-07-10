@@ -1,20 +1,24 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { Tabs, Descriptions, Tag, Input, Select, Button, Space, Card, Upload, Modal, message } from "antd";
-import { DeleteOutlined, InboxOutlined } from "@ant-design/icons";
+import { useState, useMemo } from "react";
+import { Tabs, Descriptions, Tag, Input, Button, Space, Card, message } from "antd";
+import { DeleteOutlined } from "@ant-design/icons";
+import type { MessageInstance } from "antd/es/message/interface";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { SpreadsheetSection, CUSTOMS_COLUMNS, INVOICING_COLUMNS } from "@/app/warehouse/_components/sections/SpreadsheetSection";
+import { PickupSection } from "@/app/warehouse/_components/sections/PickupSection";
+import { JobNotes, ActionPushButtons } from "@/app/warehouse/_components/sections/JobExtras";
 
-type MessageApi = ReturnType<typeof message.useMessage>[0];
-
-const CURRENCIES = ["CZK", "USD", "EUR", "GBP", "CNY"];
-
-interface RowsSectionData { rows?: string }
-interface PickupSectionData { pin?: string; rows?: string }
-interface JobSectionData { vgm_sent?: string; survey_sent?: string; remeasurement_sent?: string; notes?: string; inform_operations_sent?: string; [key: string]: string | undefined }
+interface JobSectionData {
+  inform_operations_sent?: string;
+  [key: string]: string | undefined;
+}
+function asJobSection(data: unknown): JobSectionData {
+  return data && typeof data === "object" ? (data as JobSectionData) : {};
+}
 
 // W/M (weight or measure) = the greater of weight in tons vs volume in CBM
 function computeWM(weightTons?: string | null, volumeCbm?: string | null): string {
@@ -23,21 +27,6 @@ function computeWM(weightTons?: string | null, volumeCbm?: string | null): strin
   if (w === 0 && v === 0) return "—";
   return Math.max(w, v).toFixed(3);
 }
-
-function asRowsSection(data: unknown): RowsSectionData {
-  if (data && typeof data === "object") return data as RowsSectionData;
-  return {};
-}
-function asPickupSection(data: unknown): PickupSectionData {
-  if (data && typeof data === "object") return data as PickupSectionData;
-  return {};
-}
-function asJobSection(data: unknown): JobSectionData {
-  if (data && typeof data === "object") return data as JobSectionData;
-  return {};
-}
-
-// ─── Main WarehouseTab ──────────────────────────────────────────
 
 export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
   const [subTab, setSubTab] = useState<string>("details");
@@ -67,9 +56,9 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
                   { key: "wm", label: "W/M", children: computeWM(shipment.totalWeightTons, shipment.totalVolumeCbm) },
                   { key: "customs", label: "Customs Procedure", children: rowData["customsProcedure"] || "—" },
                 ]} />
-                <JobNotes shipment={shipment} messageApi={messageApi} />
+                <JobNotes ownerId={shipment.id} messageApi={messageApi} />
                 <DimensionsEditor shipment={shipment} messageApi={messageApi} />
-                <ActionPushButtons shipment={shipment} messageApi={messageApi} />
+                <ActionPushButtons ownerId={shipment.id} messageApi={messageApi} />
               </div>
             ),
           },
@@ -83,19 +72,19 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
                   <p><strong>Invoice Value:</strong> {shipment.commercialInvoiceValue || "—"} | <strong>HS Code:</strong> {shipment.hsCode || "—"}</p>
                   <p><strong>Description:</strong> {shipment.cargoDescription || "—"}</p>
                 </div>
-                <CustomsSpreadsheet shipment={shipment} messageApi={messageApi} />
+                <SpreadsheetSection ownerId={shipment.id} section="customs" title="Customs Details" columns={CUSTOMS_COLUMNS} messageApi={messageApi} />
               </div>
             ),
           },
           {
             key: "pickup",
             label: "Pick-up",
-            children: <PickupSubTab shipment={shipment} messageApi={messageApi} />,
+            children: <PickupSection ownerId={shipment.id} messageApi={messageApi} />,
           },
           {
             key: "invoicing",
             label: "Invoicing",
-            children: <InvoicingSpreadsheet shipment={shipment} messageApi={messageApi} />,
+            children: <div className="py-3"><SpreadsheetSection ownerId={shipment.id} section="invoicing" title="Invoice Records" columns={INVOICING_COLUMNS} messageApi={messageApi} /></div>,
           },
         ]}
       />
@@ -108,17 +97,15 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
 function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
   const raw = shipment.dimensions ? String(shipment.dimensions) : undefined;
   let stackability: "stackable" | "not_stackable" | "unknown" = "unknown";
-
   if (raw) {
     try {
-      const rows = JSON.parse(raw as string) as Array<Record<string, unknown>>;
+      const rows = JSON.parse(raw) as Array<Record<string, unknown>>;
       const hasStackable = rows.some((r) => r.stackable === true || r.stackable === "true");
       const hasNotStackable = rows.some((r) => r.stackable === false || r.stackable === "false");
       if (hasNotStackable) stackability = "not_stackable";
       else if (hasStackable) stackability = "stackable";
     } catch { /* ignore */ }
   }
-
   return (
     <div className="mb-3">
       {stackability === "stackable" && <Tag color="green">Stackable</Tag>}
@@ -128,44 +115,7 @@ function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
   );
 }
 
-// ─── Job Notes ──────────────────────────────────────────────────
-
-function JobNotes({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageApi }) {
-  const { data: sectionData, save, isSaving } = useWarehouseSection(shipment.id, "job");
-  const section = asJobSection(sectionData);
-  const savedNotes = section.notes ?? "";
-  const [notes, setNotes] = useState(savedNotes);
-
-  useEffect(() => { setNotes(section.notes ?? ""); }, [section.notes]);
-
-  const dirty = notes !== savedNotes;
-
-  const handleSave = async () => {
-    try {
-      await save({ ...section, notes });
-      messageApi.success("Saved");
-    } catch {
-      messageApi.error("Failed to save");
-    }
-  };
-
-  return (
-    <div className="mb-4">
-      <div className="flex items-center justify-between mb-2">
-        <strong className="text-xs">Notes</strong>
-        {dirty && <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>Save</Button>}
-      </div>
-      <Input.TextArea
-        rows={2}
-        value={notes}
-        placeholder="Warehouse notes…"
-        onChange={(e) => setNotes(e.target.value)}
-      />
-    </div>
-  );
-}
-
-// ─── Dimensions Editor ──────────────────────────────────────────
+// ─── Dimensions / Remeasurement Editor (shipment-specific) ──────
 
 interface DimensionRow {
   colli: string;
@@ -178,7 +128,7 @@ interface DimensionRow {
 
 const EMPTY_DIM: DimensionRow = { colli: "", length: "", width: "", height: "", weightPerPiece: "" };
 
-function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageApi }) {
+function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageInstance }) {
   const queryClient = useQueryClient();
   const { data: jobSectionData, save: saveJobSection, isSaving: isInforming } = useWarehouseSection(shipment.id, "job");
   const jobSection = asJobSection(jobSectionData);
@@ -195,10 +145,9 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const [dirty, setDirty] = useState(false);
 
   const updateRow = (idx: number, field: keyof DimensionRow, value: string | boolean) => {
-    setRows((prev) => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r));
+    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
     setDirty(true);
   };
-
   const addRow = () => { setRows((prev) => [...prev, { ...EMPTY_DIM }]); setDirty(true); };
   const deleteRow = (idx: number) => { setRows((prev) => prev.filter((_, i) => i !== idx)); setDirty(true); };
 
@@ -223,7 +172,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     const W = parseFloat(r.width) || 0;
     const H = parseFloat(r.height) || 0;
     const w = parseFloat(r.weightPerPiece) || 0;
-    const cbm = c * (L * W * H) / 1_000_000;
+    const cbm = (c * (L * W * H)) / 1_000_000;
     rowCbms.push(cbm);
     totalColli += c;
     totalWeightKg += c * w;
@@ -244,20 +193,15 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
         const w = parseFloat(r.weightPerPiece) || 0;
         sColli += c;
         sWeight += c * w;
-        sVolume += c * (L * W * H) / 1_000_000;
+        sVolume += (c * (L * W * H)) / 1_000_000;
       }
       return { colli: sColli, weightKg: sWeight, volumeCbm: sVolume };
     } catch { return { colli: 0, weightKg: 0, volumeCbm: 0 }; }
   }, [shipment.dimensions]);
 
-  const mismatchCls = (a: number, b: number) =>
-    a !== b && a > 0 && b > 0 ? "bg-amber-500/15 px-1.5 py-0.5 rounded" : "";
-
+  const mismatchCls = (a: number, b: number) => (a !== b && a > 0 && b > 0 ? "bg-amber-500/15 px-1.5 py-0.5 rounded" : "");
   const differs = (a: number, b: number) => a > 0 && b > 0 && Math.abs(a - b) > 0.001;
-  const hasMismatch =
-    differs(shipmentDims.colli, totalColli) ||
-    differs(shipmentDims.weightKg, totalWeightKg) ||
-    differs(shipmentDims.volumeCbm, totalVolumeCbm);
+  const hasMismatch = differs(shipmentDims.colli, totalColli) || differs(shipmentDims.weightKg, totalWeightKg) || differs(shipmentDims.volumeCbm, totalVolumeCbm);
   const hasData = totalColli > 0 || totalWeightKg > 0 || totalVolumeCbm > 0;
 
   const informOperations = async () => {
@@ -303,410 +247,48 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
                 {(rowCbms[idx] ?? 0) > 0 ? rowCbms[idx]!.toFixed(4) : "—"}
               </td>
               <td className="p-0.5 px-1">
-                {rows.length > 1 && (
-                  <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />} onClick={() => deleteRow(idx)} />
-                )}
+                {rows.length > 1 && <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />} onClick={() => deleteRow(idx)} />}
               </td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {/* Totals */}
       <div className="flex gap-6 mt-3 py-2 border-t border-slate-200">
         <div><span className="text-[10px] uppercase text-slate-500">Total Colli</span><div className="text-sm font-semibold">{totalColli || "—"}</div></div>
         <div><span className="text-[10px] uppercase text-slate-500">Total Weight</span><div className="text-sm font-semibold">{totalWeightKg > 0 ? `${totalWeightKg.toFixed(1)} kg` : "—"}</div></div>
         <div><span className="text-[10px] uppercase text-slate-500">Total Volume</span><div className="text-sm font-semibold">{totalVolumeCbm > 0 ? `${totalVolumeCbm.toFixed(3)} CBM` : "—"}</div></div>
       </div>
 
-      {/* Comparison Cards */}
       <div className="flex gap-4 mt-4">
         <Card size="small" title="Shipment Values" className="flex-1">
           <div className="flex gap-4 text-xs">
-            <div>
-              <div className="text-[10px] uppercase text-slate-500">Colli</div>
-              <div className={`font-semibold ${mismatchCls(shipmentDims.colli, totalColli)}`}>{shipmentDims.colli || "—"}</div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase text-slate-500">Weight (kg)</div>
-              <div className={`font-semibold ${mismatchCls(shipmentDims.weightKg, totalWeightKg)}`}>{shipmentDims.weightKg > 0 ? shipmentDims.weightKg.toFixed(1) : "—"}</div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase text-slate-500">Volume (CBM)</div>
-              <div className={`font-semibold ${mismatchCls(shipmentDims.volumeCbm, totalVolumeCbm)}`}>{shipmentDims.volumeCbm > 0 ? shipmentDims.volumeCbm.toFixed(3) : "—"}</div>
-            </div>
+            <div><div className="text-[10px] uppercase text-slate-500">Colli</div><div className={`font-semibold ${mismatchCls(shipmentDims.colli, totalColli)}`}>{shipmentDims.colli || "—"}</div></div>
+            <div><div className="text-[10px] uppercase text-slate-500">Weight (kg)</div><div className={`font-semibold ${mismatchCls(shipmentDims.weightKg, totalWeightKg)}`}>{shipmentDims.weightKg > 0 ? shipmentDims.weightKg.toFixed(1) : "—"}</div></div>
+            <div><div className="text-[10px] uppercase text-slate-500">Volume (CBM)</div><div className={`font-semibold ${mismatchCls(shipmentDims.volumeCbm, totalVolumeCbm)}`}>{shipmentDims.volumeCbm > 0 ? shipmentDims.volumeCbm.toFixed(3) : "—"}</div></div>
           </div>
         </Card>
         <Card size="small" title="Remeasured Values" className="flex-1">
           <div className="flex gap-4 text-xs">
-            <div>
-              <div className="text-[10px] uppercase text-slate-500">Colli</div>
-              <div className={`font-semibold ${mismatchCls(totalColli, shipmentDims.colli)}`}>{totalColli || "—"}</div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase text-slate-500">Weight (kg)</div>
-              <div className={`font-semibold ${mismatchCls(totalWeightKg, shipmentDims.weightKg)}`}>{totalWeightKg > 0 ? totalWeightKg.toFixed(1) : "—"}</div>
-            </div>
-            <div>
-              <div className="text-[10px] uppercase text-slate-500">Volume (CBM)</div>
-              <div className={`font-semibold ${mismatchCls(totalVolumeCbm, shipmentDims.volumeCbm)}`}>{totalVolumeCbm > 0 ? totalVolumeCbm.toFixed(3) : "—"}</div>
-            </div>
+            <div><div className="text-[10px] uppercase text-slate-500">Colli</div><div className={`font-semibold ${mismatchCls(totalColli, shipmentDims.colli)}`}>{totalColli || "—"}</div></div>
+            <div><div className="text-[10px] uppercase text-slate-500">Weight (kg)</div><div className={`font-semibold ${mismatchCls(totalWeightKg, shipmentDims.weightKg)}`}>{totalWeightKg > 0 ? totalWeightKg.toFixed(1) : "—"}</div></div>
+            <div><div className="text-[10px] uppercase text-slate-500">Volume (CBM)</div><div className={`font-semibold ${mismatchCls(totalVolumeCbm, shipmentDims.volumeCbm)}`}>{totalVolumeCbm > 0 ? totalVolumeCbm.toFixed(3) : "—"}</div></div>
           </div>
         </Card>
       </div>
 
-      {/* Mismatch / Inform Operations */}
       {hasData && hasMismatch && (
         <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3.5 py-2.5">
           <span className="text-xs text-red-600">
             Remeasured values differ from the shipment values.
-            {informedAt && (
-              <span className="block text-[11px] text-red-400">
-                Operations informed on {new Date(informedAt).toLocaleString()}
-              </span>
-            )}
+            {informedAt && <span className="block text-[11px] text-red-400">Operations informed on {new Date(informedAt).toLocaleString()}</span>}
           </span>
-          <Button danger size="small" onClick={informOperations} loading={isInforming}>
-            {informedAt ? "Inform Again" : "Inform Operations"}
-          </Button>
+          <Button danger size="small" onClick={informOperations} loading={isInforming}>{informedAt ? "Inform Again" : "Inform Operations"}</Button>
         </div>
       )}
       {hasData && !hasMismatch && (
-        <div className="mt-4 rounded-md border border-green-200 bg-green-50 px-3.5 py-2.5 text-xs text-green-700">
-          ✓ All values match
-        </div>
+        <div className="mt-4 rounded-md border border-green-200 bg-green-50 px-3.5 py-2.5 text-xs text-green-700">✓ All values match</div>
       )}
-    </div>
-  );
-}
-
-// ─── Action Push Buttons (VGM, Survey, Remeasurement) ───────────
-
-interface ActionModalState {
-  actionKey: string;
-  label: string;
-  note: string;
-  fileList: unknown[];
-}
-
-function ActionPushButtons({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageApi }) {
-  const { data: sectionData, save, isSaving } = useWarehouseSection(shipment.id, "job");
-  const section = asJobSection(sectionData);
-  const [modalState, setModalState] = useState<ActionModalState | null>(null);
-
-  const vgmSent = section.vgm_sent;
-  const surveySent = section.survey_sent;
-  const remeasSent = section.remeasurement_sent;
-
-  const actions = [
-    { key: "vgm_sent", label: "VGM", sent: vgmSent },
-    { key: "survey_sent", label: "Survey", sent: surveySent },
-    { key: "remeasurement_sent", label: "Remeasurement", sent: remeasSent },
-  ];
-
-  const openModal = (actionKey: string, label: string) => {
-    setModalState({ actionKey, label, note: "", fileList: [] });
-  };
-
-  const handleSend = async () => {
-    if (!modalState) return;
-    const now = new Date().toISOString();
-    try {
-      await save({
-        ...section,
-        [modalState.actionKey]: JSON.stringify({ timestamp: now, note: modalState.note }),
-      });
-      setModalState(null);
-      messageApi.success("Saved");
-    } catch {
-      messageApi.error("Failed to save");
-    }
-  };
-
-  const parseActionData = (val: string | undefined): { timestamp: string; note?: string } | null => {
-    if (!val) return null;
-    try { return JSON.parse(val); } catch { return { timestamp: val }; }
-  };
-
-  return (
-    <div className="mt-4">
-      <strong className="text-xs block mb-2">Push to Suppliers</strong>
-      <Space>
-        {actions.map((action) => {
-          const data = parseActionData(action.sent);
-          return (
-            <div key={action.key} className="flex flex-col items-center gap-1">
-              {data ? (
-                <Tag color="green" className="text-[11px]">
-                  {action.label} — {new Date(data.timestamp).toLocaleDateString()}
-                  {data.note && <span className="block text-[10px] text-slate-500">{data.note}</span>}
-                </Tag>
-              ) : (
-                <Button size="small" onClick={() => openModal(action.key, action.label)}>
-                  Send {action.label}
-                </Button>
-              )}
-            </div>
-          );
-        })}
-      </Space>
-
-      <Modal
-        open={!!modalState}
-        title={`Send ${modalState?.label || ""}`}
-        onCancel={() => setModalState(null)}
-        footer={[
-          <Button key="cancel" onClick={() => setModalState(null)}>Cancel</Button>,
-          <Button key="send" type="primary" onClick={handleSend} loading={isSaving}>Send</Button>,
-        ]}
-        destroyOnClose
-      >
-        <div className="mb-4">
-          <Upload.Dragger
-            name="file"
-            multiple
-            beforeUpload={() => false}
-            onChange={(info) => {
-              if (modalState) setModalState({ ...modalState, fileList: info.fileList });
-            }}
-          >
-            <p><InboxOutlined className="text-[28px] text-indigo-500" /></p>
-            <p className="text-sm mt-2">Attach files (optional)</p>
-          </Upload.Dragger>
-        </div>
-        <Input.TextArea
-          placeholder="Add a note..."
-          rows={3}
-          value={modalState?.note || ""}
-          onChange={(e) => {
-            if (modalState) setModalState({ ...modalState, note: e.target.value });
-          }}
-        />
-      </Modal>
-    </div>
-  );
-}
-
-// ─── Customs Spreadsheet ────────────────────────────────────────
-
-function CustomsSpreadsheet({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageApi }) {
-  const { data: sectionData, save, isSaving } = useWarehouseSection(shipment.id, "customs");
-  const rawRows = asRowsSection(sectionData).rows;
-  const initial = (() => { try { const r: Record<string, string>[] = JSON.parse(rawRows || "[]"); return r; } catch { return []; } })();
-  const [rows, setRows] = useState<Record<string, string>[]>(initial.length > 0 ? initial : [{ colli: "", packing: "", weight: "", value: "", currency: "CZK", commodity: "", hsCode: "" }]);
-  const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    const parsed = (() => { try { const r: Record<string, string>[] = JSON.parse(rawRows || "[]"); return r; } catch { return []; } })();
-    if (parsed.length > 0) { setRows(parsed); setDirty(false); }
-  }, [rawRows]);
-
-  const update = (idx: number, field: string, value: string) => { setRows((prev) => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r)); setDirty(true); };
-  const addRow = () => { setRows((prev) => [...prev, { colli: "", packing: "", weight: "", value: "", currency: "CZK", commodity: "", hsCode: "" }]); setDirty(true); };
-  const deleteRow = (idx: number) => { setRows((prev) => prev.filter((_, i) => i !== idx)); setDirty(true); };
-  const handleSave = async () => {
-    try {
-      await save({ rows: JSON.stringify(rows) });
-      setDirty(false);
-      messageApi.success("Saved");
-    } catch {
-      messageApi.error("Failed to save");
-    }
-  };
-
-  return (
-    <div>
-      <div className="flex justify-between mb-2">
-        <strong className="text-xs">Customs Details</strong>
-        <Space size="small">
-          <Button size="small" onClick={addRow}>+ Row</Button>
-          {dirty && <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>Save</Button>}
-        </Space>
-      </div>
-      <table className="w-full border-collapse text-xs">
-        <thead><tr className="bg-slate-50 border-b border-slate-200">
-          {["Colli", "Packing", "Weight (kg)", "Value", "Currency", "Commodity", "HS Code", ""].map((h) => (
-            <th key={h} className="text-left p-1.5 font-semibold text-slate-500">{h}</th>
-          ))}
-        </tr></thead>
-        <tbody>
-          {rows.map((row, idx) => (
-            <tr key={idx} className="border-b border-slate-100">
-              {["colli", "packing", "weight", "value", "currency", "commodity", "hsCode"].map((f) => (
-                <td key={f} className="p-0.5">
-                  {f === "currency" ? (
-                    <Select size="small" value={row[f] || "CZK"} onChange={(v) => update(idx, f, v)} className="w-full"
-                      options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
-                  ) : (
-                    <Input size="small" value={row[f] || ""} onChange={(e) => update(idx, f, e.target.value)} />
-                  )}
-                </td>
-              ))}
-              <td className="p-0.5">
-                {rows.length > 1 && <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />} onClick={() => deleteRow(idx)} />}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ─── Pickup Sub-Tab ─────────────────────────────────────────────
-
-function PickupSubTab({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageApi }) {
-  const { data: sectionData, save, isSaving } = useWarehouseSection(shipment.id, "pickup");
-  const section = asPickupSection(sectionData);
-  const existingPin = section.pin || "";
-  const rawRows = section.rows || "";
-  const [pin, setPin] = useState<string | null>(existingPin || null);
-
-  const initial: Record<string, string>[] = (() => { try { return JSON.parse(rawRows || "[]"); } catch { return []; } })();
-  const [rows, setRows] = useState<Record<string, string>[]>(initial.length > 0 ? initial : [{ haulier: "", licensePlate: "", driver: "" }]);
-  const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    const sec = asPickupSection(sectionData);
-    if (sec.pin) setPin(sec.pin);
-    const parsed: Record<string, string>[] = (() => { try { return JSON.parse(sec.rows || "[]"); } catch { return []; } })();
-    if (parsed.length > 0) { setRows(parsed); setDirty(false); }
-  }, [sectionData]);
-
-  const generatePin = async () => {
-    const newPin = String(Math.floor(1000 + Math.random() * 9000));
-    setPin(newPin);
-    try {
-      await save({ pin: newPin, rows: rawRows || "[]" });
-      messageApi.success("Saved");
-    } catch {
-      messageApi.error("Failed to save");
-    }
-  };
-
-  const update = (idx: number, field: string, value: string) => { setRows((prev) => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r)); setDirty(true); };
-  const addRow = () => { setRows((prev) => [...prev, { haulier: "", licensePlate: "", driver: "" }]); setDirty(true); };
-  const deleteRow = (idx: number) => { setRows((prev) => prev.filter((_, i) => i !== idx)); setDirty(true); };
-  const handleSave = async () => {
-    try {
-      await save({ pin: pin || "", rows: JSON.stringify(rows) });
-      setDirty(false);
-      messageApi.success("Saved");
-    } catch {
-      messageApi.error("Failed to save");
-    }
-  };
-
-  return (
-    <div>
-      {/* PIN */}
-      <div className="mb-5">
-        <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">PIN</div>
-        <Space align="center">
-          <span className="font-mono text-[32px] tracking-[0.3em] text-slate-800">
-            {pin ? pin.split("").join(" ") : "– – – –"}
-          </span>
-          {!pin && <Button type="primary" size="small" onClick={generatePin} loading={isSaving}>Generate PIN</Button>}
-          {pin && <Tag color="green">Locked</Tag>}
-        </Space>
-      </div>
-
-      {/* Pickup table */}
-      <div className="flex justify-between mb-2">
-        <strong className="text-xs">Pickup Details</strong>
-        <Space size="small">
-          <Button size="small" onClick={addRow}>+ Row</Button>
-          {dirty && <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>Save</Button>}
-        </Space>
-      </div>
-      <table className="w-full border-collapse text-xs">
-        <thead><tr className="bg-slate-50 border-b border-slate-200">
-          {["PIN", "Haulier", "License Plate", "Driver", ""].map((h) => (
-            <th key={h} className="text-left p-1.5 font-semibold text-slate-500">{h}</th>
-          ))}
-        </tr></thead>
-        <tbody>
-          {rows.map((row, idx) => (
-            <tr key={idx} className="border-b border-slate-100">
-              <td className="p-0.5 px-1.5 font-mono text-indigo-500">{idx === 0 && pin ? pin : ""}</td>
-              {["haulier", "licensePlate", "driver"].map((f) => (
-                <td key={f} className="p-0.5">
-                  <Input size="small" value={row[f] || ""} onChange={(e) => update(idx, f, e.target.value)} />
-                </td>
-              ))}
-              <td className="p-0.5">
-                {rows.length > 1 && <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />} onClick={() => deleteRow(idx)} />}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-// ─── Invoicing Spreadsheet ──────────────────────────────────────
-
-function InvoicingSpreadsheet({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageApi }) {
-  const { data: sectionData, save, isSaving } = useWarehouseSection(shipment.id, "invoicing");
-  const rawRows = asRowsSection(sectionData).rows;
-  const initial = (() => { try { const r: Record<string, string>[] = JSON.parse(rawRows || "[]"); return r; } catch { return []; } })();
-  const [rows, setRows] = useState<Record<string, string>[]>(initial.length > 0 ? initial : [{ invoiceNo: "", date: "", amount: "", currency: "CZK", status: "", notes: "" }]);
-  const [dirty, setDirty] = useState(false);
-
-  useEffect(() => {
-    const parsed = (() => { try { const r: Record<string, string>[] = JSON.parse(rawRows || "[]"); return r; } catch { return []; } })();
-    if (parsed.length > 0) { setRows(parsed); setDirty(false); }
-  }, [rawRows]);
-
-  const update = (idx: number, field: string, value: string) => { setRows((prev) => prev.map((r, i) => i === idx ? { ...r, [field]: value } : r)); setDirty(true); };
-  const addRow = () => { setRows((prev) => [...prev, { invoiceNo: "", date: "", amount: "", currency: "CZK", status: "", notes: "" }]); setDirty(true); };
-  const deleteRow = (idx: number) => { setRows((prev) => prev.filter((_, i) => i !== idx)); setDirty(true); };
-  const handleSave = async () => {
-    try {
-      await save({ rows: JSON.stringify(rows) });
-      setDirty(false);
-      messageApi.success("Saved");
-    } catch {
-      messageApi.error("Failed to save");
-    }
-  };
-
-  return (
-    <div className="py-3">
-      <div className="flex justify-between mb-2">
-        <strong className="text-xs">Invoice Records</strong>
-        <Space size="small">
-          <Button size="small" onClick={addRow}>+ Row</Button>
-          {dirty && <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>Save</Button>}
-        </Space>
-      </div>
-      <table className="w-full border-collapse text-xs">
-        <thead><tr className="bg-slate-50 border-b border-slate-200">
-          {["Invoice #", "Date", "Amount", "Currency", "Status", "Notes", ""].map((h) => (
-            <th key={h} className="text-left p-1.5 font-semibold text-slate-500">{h}</th>
-          ))}
-        </tr></thead>
-        <tbody>
-          {rows.map((row, idx) => (
-            <tr key={idx} className="border-b border-slate-100">
-              {["invoiceNo", "date", "amount", "currency", "status", "notes"].map((f) => (
-                <td key={f} className="p-0.5">
-                  {f === "currency" ? (
-                    <Select size="small" value={row[f] || "CZK"} onChange={(v) => update(idx, f, v)} className="w-full"
-                      options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
-                  ) : (
-                    <Input size="small" value={row[f] || ""} onChange={(e) => update(idx, f, e.target.value)} />
-                  )}
-                </td>
-              ))}
-              <td className="p-0.5">
-                {rows.length > 1 && <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />} onClick={() => deleteRow(idx)} />}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }
