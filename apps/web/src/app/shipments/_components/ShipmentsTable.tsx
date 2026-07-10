@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Table, Input, Select } from "antd";
-import { SearchOutlined, PlusOutlined } from "@ant-design/icons";
+import { Table, Input, Select, Drawer, Tooltip } from "antd";
+import { SearchOutlined, PlusOutlined, FileTextOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter } from "next/navigation";
 import {
@@ -25,6 +25,8 @@ import { COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle, type CellS
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
 import { ColumnPicker } from "./ColumnPicker";
+import { MasterJobDetailModal } from "./MasterJobDetailModal";
+import { DocumentsTab } from "@/app/shipments/[jobNumber]/tabs/DocumentsTab";
 
 // Draggable table header cell — id comes from each column's onHeaderCell().
 type HeaderCellProps = React.ThHTMLAttributes<HTMLTableCellElement> & { id?: string };
@@ -87,6 +89,8 @@ export const ShipmentsTable = ({
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [pageSize, setPageSize] = useState(25);
+  const [mczModal, setMczModal] = useState<string | null>(null);
+  const [docsShipment, setDocsShipment] = useState<ShipmentItem | null>(null);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -135,7 +139,7 @@ export const ShipmentsTable = ({
 
   // Columns \u2014 driven by the user's selection, in the saved (draggable) order.
   const columns: ColumnsType<ShipmentItem> = useMemo(() => {
-    return visible
+    const cols: ColumnsType<ShipmentItem> = visible
       .map((key) => COLUMN_MAP.get(key))
       .filter((col): col is NonNullable<typeof col> => !!col && col.type !== "popup")
       .map((col) => ({
@@ -170,10 +174,40 @@ export const ShipmentsTable = ({
         }
         const val = getFieldValue(record, col.key);
         if (!val) return <span className="text-slate-300">{"\u2014"}</span>;
-        if (col.key === "masterJob") return <span className="text-slate-400" style={textStyle}>#{val}</span>;
+        if (col.key === "masterJob") {
+          return (
+            <button
+              onClick={(e) => { e.stopPropagation(); setMczModal(val); }}
+              className="text-indigo-500 hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
+              style={textStyle}
+            >
+              #{val}
+            </button>
+          );
+        }
         return <span className="text-slate-600" style={textStyle}>{val}</span>;
       },
     }));
+
+    // Always-visible Documents column (independent of the column picker).
+    cols.push({
+      key: "__docs",
+      title: "",
+      width: 46,
+      fixed: "right",
+      render: (_: unknown, record: ShipmentItem) => (
+        <Tooltip title="Documents">
+          <button
+            onClick={(e) => { e.stopPropagation(); setDocsShipment(record); }}
+            className="text-slate-400 hover:text-indigo-500 bg-transparent border-none cursor-pointer p-1"
+          >
+            <FileTextOutlined />
+          </button>
+        </Tooltip>
+      ),
+    });
+
+    return cols;
   }, [visible, rowInfo]);
 
   return (
@@ -269,6 +303,20 @@ export const ShipmentsTable = ({
           </SortableContext>
         </DndContext>
       </div>
+
+      {mczModal && (
+        <MasterJobDetailModal mcz={mczModal} open={!!mczModal} onClose={() => setMczModal(null)} />
+      )}
+
+      <Drawer
+        open={!!docsShipment}
+        onClose={() => setDocsShipment(null)}
+        width={560}
+        destroyOnClose
+        title={docsShipment ? `Documents — ${docsShipment.jobNumber ?? docsShipment.id}` : "Documents"}
+      >
+        {docsShipment && <DocumentsTab shipment={docsShipment} />}
+      </Drawer>
     </div>
   );
 };

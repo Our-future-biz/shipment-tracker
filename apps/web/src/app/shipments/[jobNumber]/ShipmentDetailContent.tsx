@@ -129,7 +129,7 @@ function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }
   return (
     <div className="flex items-center gap-2.5 mb-4">
       <span className="text-indigo-500 text-base">{icon}</span>
-      <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider m-0">
+      <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider m-0">
         {title}
       </h3>
     </div>
@@ -149,14 +149,14 @@ function FieldRow({
 }) {
   return (
     <div className="flex py-2 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="text-slate-400 w-[120px] shrink-0">{label}</span>
+      <span className="text-slate-600 font-semibold w-[120px] shrink-0">{label}</span>
       <EditableCell
         className="flex-1 min-w-0"
         fieldKey={fieldKey}
         value={value}
         onCommit={onCommit}
         placeholder="—"
-        displayClassName="text-slate-700 font-medium"
+        displayClassName="text-slate-900 font-medium"
       />
     </div>
   );
@@ -175,7 +175,7 @@ function FieldPair({
 }) {
   return (
     <div className="py-2">
-      <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
         {label}
       </div>
       {fieldKey && onCommit ? (
@@ -184,10 +184,10 @@ function FieldPair({
           value={value}
           onCommit={onCommit}
           placeholder="—"
-          displayClassName="text-xs text-slate-700 font-medium"
+          displayClassName="text-xs text-slate-900 font-medium"
         />
       ) : (
-        <div className="text-xs text-slate-700 font-medium">{value || "—"}</div>
+        <div className="text-xs text-slate-900 font-medium">{value || "—"}</div>
       )}
     </div>
   );
@@ -206,7 +206,7 @@ function AddressBlock({
 }) {
   return (
     <div className="bg-slate-50 rounded-lg p-3.5">
-      <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2">
         {label}
       </div>
       <EditableCell
@@ -215,7 +215,7 @@ function AddressBlock({
         value={value}
         onCommit={onCommit}
         placeholder="Not specified"
-        displayClassName="text-xs text-slate-700 leading-relaxed"
+        displayClassName="text-xs text-slate-900 leading-relaxed"
         emptyClassName="text-xs text-slate-300 italic"
       />
     </div>
@@ -634,7 +634,7 @@ export function ShipmentDetailContent() {
                   <FieldPair label="Internal Reference" value={shipment.jobNumber} />
                   <FieldPair label="Person in Charge" value={shipment.personInCharge} />
                   <div className="py-2">
-                    <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                    <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
                       Master Job
                     </div>
                     <div className="text-xs font-medium flex items-center gap-2">
