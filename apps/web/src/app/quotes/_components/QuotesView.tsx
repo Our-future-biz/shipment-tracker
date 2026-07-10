@@ -1,37 +1,35 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Form, Input, Drawer, Table, Tabs, Typography, Dropdown } from "antd";
+import { Button, Input, Table, Dropdown, Tag } from "antd";
 import { PlusOutlined, MoreOutlined, DeleteOutlined, EyeOutlined } from "@ant-design/icons";
+import type { ColumnsType } from "antd/es/table";
 import { useQuotes } from "@/hooks/useQuotes";
-import { api } from "@/lib/api";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { PageHeader } from "@/components/PageHeader";
 import { AppCard } from "@/components/AppCard";
-import { AppModal } from "@/components/AppModal";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
 import type { interfaces } from "@/lib/api/client";
-import type { ColumnsType } from "antd/es/table";
+import { QUOTE_COLUMNS, quoteColWidth, quoteField } from "../_lib/quoteColumns";
+import { QuoteEditableCell } from "./QuoteEditableCell";
+import { QuoteDetailModal } from "./QuoteDetailModal";
+import { NewQuoteModal } from "./NewQuoteModal";
 
 type QuoteItem = interfaces.QuoteItem;
-const { TextArea } = Input;
-const { Text } = Typography;
 
 export const QuotesView = () => {
-  const [createModalOpen, setCreateModalOpen] = useState(false);
-  const [selectedQuote, setSelectedQuote] = useState<QuoteItem | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<QuoteItem | null>(null);
-  const [searchText, setSearchText] = useState("");
-  const [form] = Form.useForm();
-  const { quotes, isLoading, createQuote, deleteQuote, isCreating } = useQuotes();
+  const { quotes, isLoading, updateQuote, deleteQuote } = useQuotes();
   const toast = useToast();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [newQuoteOpen, setNewQuoteOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<QuoteItem | null>(null);
+  const [search, setSearch] = useState("");
 
-  const handleCreate = async (values: { quoteNumber: string }) => {
-    await createQuote({ quoteNumber: values.quoteNumber });
-    setCreateModalOpen(false);
-    form.resetFields();
-    toast.success("Quote created");
+  const commitField = (quote: QuoteItem, label: string, value: string) => {
+    const data = quote.data && typeof quote.data === "object" ? (quote.data as Record<string, unknown>) : {};
+    updateQuote({ quoteNumber: quote.quoteNumber, params: { data: { ...data, [label]: value } } }).catch(() =>
+      toast.error("Failed to save"),
+    );
   };
 
   const handleDelete = async () => {
@@ -41,51 +39,51 @@ export const QuotesView = () => {
     toast.success("Quote deleted");
   };
 
-  const filteredQuotes = quotes.filter((q) => {
-    if (!searchText) return true;
-    const s = searchText.toLowerCase();
-    return q.quoteNumber.toLowerCase().includes(s) || (q.terms || "").toLowerCase().includes(s);
+  const filtered = quotes.filter((q) => {
+    if (!search) return true;
+    const s = search.toLowerCase();
+    if (q.quoteNumber.toLowerCase().includes(s)) return true;
+    const data = q.data && typeof q.data === "object" ? (q.data as Record<string, unknown>) : {};
+    return Object.values(data).some((v) => typeof v === "string" && v.toLowerCase().includes(s));
   });
 
   const columns: ColumnsType<QuoteItem> = [
     {
       title: "Quote #",
       dataIndex: "quoteNumber",
-      key: "quoteNumber",
-      width: 180,
+      fixed: "left",
+      width: 150,
       render: (text: string) => (
-        <span className="text-indigo-500 font-semibold font-mono cursor-pointer">{text}</span>
+        <span className="text-indigo-500 font-semibold font-mono cursor-pointer" onClick={() => setSelected(text)}>
+          {text}
+        </span>
       ),
-      onCell: (record) => ({
-        onClick: () => setSelectedQuote(record),
-      }),
     },
+    ...QUOTE_COLUMNS.map((label) => ({
+      title: label,
+      key: label,
+      width: quoteColWidth(label),
+      render: (_: unknown, record: QuoteItem) => (
+        <QuoteEditableCell column={label} value={quoteField(record.data, label)} onCommit={(v) => commitField(record, label, v)} />
+      ),
+    })),
     {
       title: "Created",
       dataIndex: "createdAt",
-      key: "createdAt",
-      width: 130,
-      render: (val: string) => val ? new Date(val).toLocaleDateString() : "\u2014",
-    },
-    {
-      title: "Terms Preview",
-      dataIndex: "terms",
-      key: "terms",
-      ellipsis: true,
-      render: (val: string) => (
-        <span className="text-slate-500">{val || "No terms"}</span>
-      ),
+      width: 110,
+      render: (v: string) => (v ? new Date(v).toLocaleDateString("en-GB") : "—"),
     },
     {
       title: "",
       key: "actions",
+      fixed: "right",
       width: 50,
       render: (_: unknown, record: QuoteItem) => (
         <Dropdown
           trigger={["click"]}
           menu={{
             items: [
-              { key: "view", icon: <EyeOutlined />, label: "View", onClick: () => setSelectedQuote(record) },
+              { key: "view", icon: <EyeOutlined />, label: "Open", onClick: () => setSelected(record.quoteNumber) },
               { key: "delete", icon: <DeleteOutlined />, label: "Delete", danger: true, onClick: () => setDeleteTarget(record) },
             ],
           }}
@@ -98,149 +96,61 @@ export const QuotesView = () => {
 
   return (
     <div className="bg-slate-50 min-h-full p-6">
-      <div className="max-w-[1400px] mx-auto">
+      <div className="max-w-[1600px] mx-auto">
         <PageHeader
           title="Quotes"
           extra={
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModalOpen(true)}>
-              + New Quote
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setNewQuoteOpen(true)}>
+              New Quote
             </Button>
           }
         />
 
         <AppCard>
-          <div className="mb-4">
+          <div className="mb-4 flex items-center gap-3">
             <Input
               placeholder="Search quotes..."
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               className="max-w-xs rounded-lg"
               allowClear
             />
+            <Tag bordered={false} className="text-slate-400">
+              {filtered.length} quote{filtered.length !== 1 ? "s" : ""}
+            </Tag>
+            <span className="ml-auto text-xs text-slate-400">Double-click a cell to edit</span>
           </div>
           <Table
-            dataSource={filteredQuotes}
+            dataSource={filtered}
             columns={columns}
             rowKey="id"
             loading={isLoading}
-            size="middle"
-            pagination={{ pageSize: 20, showSizeChanger: false }}
+            size="small"
+            scroll={{ x: "max-content" }}
+            pagination={{ pageSize: 25, showSizeChanger: false }}
             className="border border-slate-200 rounded-lg overflow-hidden"
-            onRow={(record) => ({
-              style: { cursor: "pointer" },
-              onClick: () => setSelectedQuote(record),
-            })}
             locale={{ emptyText: "No quotes yet" }}
           />
         </AppCard>
-
-        <AppModal
-          open={createModalOpen}
-          onClose={() => setCreateModalOpen(false)}
-          title="New Quote"
-          size="small"
-          footer={
-            <div className="flex justify-end gap-2">
-              <Button onClick={() => setCreateModalOpen(false)}>Cancel</Button>
-              <Button type="primary" onClick={() => form.submit()} loading={isCreating}>Create</Button>
-            </div>
-          }
-        >
-          <Form form={form} layout="vertical" onFinish={handleCreate}>
-            <Form.Item name="quoteNumber" label="Quote Number" rules={[{ required: true }]}>
-              <Input placeholder="CZQ00000001" />
-            </Form.Item>
-          </Form>
-        </AppModal>
 
         <ConfirmModal
           open={!!deleteTarget}
           onClose={() => setDeleteTarget(null)}
           onConfirm={handleDelete}
           title="Delete Quote"
-          description={`Are you sure you want to delete quote "${deleteTarget?.quoteNumber}"? This action cannot be undone.`}
+          description={`Delete quote "${deleteTarget?.quoteNumber}"? This cannot be undone.`}
           confirmLabel="Delete"
           danger
         />
 
-        <Drawer
-          title={selectedQuote?.quoteNumber ?? ""}
-          open={!!selectedQuote}
-          onClose={() => setSelectedQuote(null)}
-          width={560}
-          destroyOnClose
-        >
-          {selectedQuote && <QuoteDetail quote={selectedQuote} />}
-        </Drawer>
+        <NewQuoteModal
+          open={newQuoteOpen}
+          onClose={() => setNewQuoteOpen(false)}
+          onCreated={(qn) => { setNewQuoteOpen(false); setSelected(qn); }}
+        />
+
+        <QuoteDetailModal quoteNumber={selected} onClose={() => setSelected(null)} />
       </div>
-    </div>
-  );
-};
-
-const QuoteDetail = ({ quote }: { quote: QuoteItem }) => {
-  const [terms, setTerms] = useState(quote.terms ?? "");
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const saveMutation = useMutation({
-    mutationFn: () => api.quotes.quoteUpdate(quote.quoteNumber, { terms }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["quotes"] });
-      toast.success("Terms saved");
-    },
-  });
-  const quoteData = (typeof quote.data === "object" && quote.data) ? quote.data as Record<string, string> : {};
-
-  return (
-    <div>
-      <Tabs
-        size="small"
-        items={[
-          {
-            key: "details",
-            label: "Details",
-            children: (
-              <div>
-                {Object.entries(quoteData).length > 0 ? (
-                  Object.entries(quoteData).map(([key, val]) => (
-                    <div
-                      key={key}
-                      className="flex gap-2 text-xs py-1.5 border-b border-slate-200"
-                    >
-                      <span className="text-slate-500 w-40 shrink-0 font-medium">{key}</span>
-                      <span className="text-slate-800">{String(val)}</span>
-                    </div>
-                  ))
-                ) : (
-                  <Text type="secondary" className="text-xs">No data fields yet</Text>
-                )}
-              </div>
-            ),
-          },
-          {
-            key: "terms",
-            label: "Terms",
-            children: (
-              <div className="flex flex-col gap-3">
-                <TextArea
-                  rows={12}
-                  value={terms}
-                  onChange={(e) => setTerms(e.target.value)}
-                  placeholder="Enter quote terms..."
-                  className="text-xs"
-                />
-                <Button
-                  size="small"
-                  type="primary"
-                  onClick={() => saveMutation.mutate()}
-                  loading={saveMutation.isPending}
-                >
-                  Save Terms
-                </Button>
-              </div>
-            ),
-          },
-        ]}
-      />
     </div>
   );
 };

@@ -6,3 +6,13 @@ export interface QuoteItem {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface QuoteAttachmentItem {
+  id: string;
+  quoteNumber: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  storageKey: string;
+  createdAt: string;
+}

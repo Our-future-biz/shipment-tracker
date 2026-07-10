@@ -7,7 +7,7 @@ class BillingOverrideRepository {
     return db.select().from(billingOverrideTable).where(eq(billingOverrideTable.shipmentId, shipmentId));
   }
 
-  async upsert(shipmentId: string, rowKey: string, billingAmount: string) {
+  async upsert(shipmentId: string, rowKey: string, billingAmount: string | null) {
     const [existing] = await db
       .select()
       .from(billingOverrideTable)

@@ -46,8 +46,9 @@ interface UpdateChargeResponse {
 export const invoicingUpdateCharge = api(
   { expose: true, auth: false, method: "PATCH", path: "/invoicing/:shipmentId/additional/:chargeId" },
   async (req: UpdateChargeRequest): Promise<UpdateChargeResponse> => {
-    const { shipmentId, id, ...data } = req;
-    const charge = await invoicingService.updateAdditionalCharge(id, data);
+    const { shipmentId, chargeId, ...data } = req;
+    void shipmentId;
+    const charge = await invoicingService.updateAdditionalCharge(chargeId, data);
     if (!charge) throw APIError.notFound("Charge not found");
     return { charge: charge as unknown as AdditionalChargeItem };
   },

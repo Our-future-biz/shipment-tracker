@@ -322,6 +322,10 @@ export namespace quotes {
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
             this.quoteAllocateRef = this.quoteAllocateRef.bind(this)
+            this.quoteAttachmentContent = this.quoteAttachmentContent.bind(this)
+            this.quoteAttachmentCreate = this.quoteAttachmentCreate.bind(this)
+            this.quoteAttachmentDelete = this.quoteAttachmentDelete.bind(this)
+            this.quoteAttachmentList = this.quoteAttachmentList.bind(this)
             this.quoteCreate = this.quoteCreate.bind(this)
             this.quoteDelete = this.quoteDelete.bind(this)
             this.quoteGet = this.quoteGet.bind(this)
@@ -333,6 +337,28 @@ export namespace quotes {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/quotes/${encodeURIComponent(quoteNumber)}/allocate-ref`)
             return await resp.json() as controllers.QuoteAllocateRefResponse
+        }
+
+        public async quoteAttachmentContent(method: "GET", quoteNumber: string, id: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
+            return this.baseClient.callAPI(method, `/quotes/${encodeURIComponent(quoteNumber)}/attachments/${encodeURIComponent(id)}/content`, body, options)
+        }
+
+        public async quoteAttachmentCreate(quoteNumber: string, params: controllers.QuoteAttachmentCreateRequest): Promise<controllers.QuoteAttachmentCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/quotes/${encodeURIComponent(quoteNumber)}/attachments`, JSON.stringify(params))
+            return await resp.json() as controllers.QuoteAttachmentCreateResponse
+        }
+
+        public async quoteAttachmentDelete(quoteNumber: string, attachmentId: string): Promise<controllers.QuoteAttachmentDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/quotes/${encodeURIComponent(quoteNumber)}/attachments/${encodeURIComponent(attachmentId)}`)
+            return await resp.json() as controllers.QuoteAttachmentDeleteResponse
+        }
+
+        public async quoteAttachmentList(quoteNumber: string): Promise<controllers.QuoteAttachmentListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/quotes/${encodeURIComponent(quoteNumber)}/attachments`)
+            return await resp.json() as controllers.QuoteAttachmentListResponse
         }
 
         public async quoteCreate(params: controllers.QuoteCreateRequest): Promise<controllers.QuoteCreateResponse> {
@@ -401,8 +427,9 @@ export namespace shipments {
         }
 
         /**
-         * Streams the raw file bytes. Inline by default (viewable in-browser), or as a
-         * download when `?download=1` is set. Path: /shipments/:shipmentId/attachments/:id/content
+         * Streams the raw file bytes. Inline (viewable) only for allow-listed safe types;
+         * otherwise served as an attachment download.
+         * Path: /shipments/:shipmentId/attachments/:id/content
          */
         public async attachmentContent(method: "GET", shipmentId: string, id: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
             return this.baseClient.callAPI(method, `/shipments/${encodeURIComponent(shipmentId)}/attachments/${encodeURIComponent(id)}/content`, body, options)
@@ -779,6 +806,25 @@ export namespace controllers {
 
     export interface QuoteAllocateRefResponse {
         ref: string
+    }
+
+    export interface QuoteAttachmentCreateRequest {
+        fileName: string
+        fileSize: number
+        fileType: string
+        contentBase64?: string
+    }
+
+    export interface QuoteAttachmentCreateResponse {
+        attachment: interfaces.QuoteAttachmentItem
+    }
+
+    export interface QuoteAttachmentDeleteResponse {
+        ok: boolean
+    }
+
+    export interface QuoteAttachmentListResponse {
+        attachments: interfaces.QuoteAttachmentItem[]
     }
 
     export interface QuoteCreateRequest {
@@ -1380,6 +1426,16 @@ export namespace interfaces {
             type: string
         }[]
         fileName: string
+    }
+
+    export interface QuoteAttachmentItem {
+        id: string
+        quoteNumber: string
+        fileName: string
+        fileSize: number
+        fileType: string
+        storageKey: string
+        createdAt: string
     }
 
     export interface QuoteItem {

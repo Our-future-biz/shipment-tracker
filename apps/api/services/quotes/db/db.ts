@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as quoteSchema from "../schemas/quote.schema";
 import * as quoteRefSequenceSchema from "../schemas/quoteRefSequence.schema";
+import * as quoteAttachmentSchema from "../schemas/quoteAttachment.schema";
 
 const { Pool } = pg;
 
@@ -18,5 +19,6 @@ export const db = drizzle(pool, {
   schema: {
     ...quoteSchema,
     ...quoteRefSequenceSchema,
+    ...quoteAttachmentSchema,
   },
 });

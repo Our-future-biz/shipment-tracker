@@ -14,3 +14,7 @@ export function fileToBase64(file: File): Promise<string> {
 export function attachmentContentUrl(shipmentId: string, attachmentId: string, download = false): string {
   return `${API_BASE}/shipments/${shipmentId}/attachments/${attachmentId}/content${download ? "?download=1" : ""}`;
 }
+
+export function quoteAttachmentContentUrl(quoteNumber: string, attachmentId: string, download = false): string {
+  return `${API_BASE}/quotes/${encodeURIComponent(quoteNumber)}/attachments/${attachmentId}/content${download ? "?download=1" : ""}`;
+}

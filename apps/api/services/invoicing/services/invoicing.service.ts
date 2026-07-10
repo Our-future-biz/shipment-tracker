@@ -4,6 +4,16 @@ import { billingSettingsRepository } from "../repositories/billingSettings.repos
 import { billingOverrideRepository } from "../repositories/billingOverride.repository";
 import { generatedInvoiceRepository } from "../repositories/generatedInvoice.repository";
 
+// Numeric columns (est/real amounts) reject "" in Postgres — coerce blanks to null
+// so amounts can be cleared instead of erroring or sticking to a stale value.
+function sanitizeAmounts<T extends Record<string, unknown>>(data: T): T {
+  const out = { ...data } as Record<string, unknown>;
+  for (const key of ["estAmount", "realAmount"]) {
+    if (out[key] === "") out[key] = null;
+  }
+  return out as T;
+}
+
 class InvoicingService {
   async getInvoicingData(shipmentId: string) {
     const [costs, additionalCharges, billingSettings, billingOverrides, generatedInvoices] = await Promise.all([
@@ -17,15 +27,15 @@ class InvoicingService {
   }
 
   async upsertCost(shipmentId: string, category: string, data: Record<string, string>) {
-    return invoiceCostRepository.upsert(shipmentId, category, data);
+    return invoiceCostRepository.upsert(shipmentId, category, sanitizeAmounts(data));
   }
 
   async addAdditionalCharge(shipmentId: string, data: Record<string, unknown>) {
-    return additionalChargeRepository.create({ shipmentId, ...data } as never);
+    return additionalChargeRepository.create({ shipmentId, ...sanitizeAmounts(data) } as never);
   }
 
   async updateAdditionalCharge(id: string, data: Record<string, unknown>) {
-    return additionalChargeRepository.update(id, data);
+    return additionalChargeRepository.update(id, sanitizeAmounts(data));
   }
 
   async deleteAdditionalCharge(id: string) {
@@ -37,7 +47,7 @@ class InvoicingService {
   }
 
   async upsertBillingOverride(shipmentId: string, rowKey: string, billingAmount: string) {
-    return billingOverrideRepository.upsert(shipmentId, rowKey, billingAmount);
+    return billingOverrideRepository.upsert(shipmentId, rowKey, billingAmount === "" ? null : billingAmount);
   }
 
   async generateInvoice(shipmentId: string, jobNumber: string, invoiceType: string, billingCurrency: string, totalAmount: string) {

@@ -1,17 +1,49 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { secret } from "encore.dev/config";
 import { extractTextFromPdf, isImageType, isPdfType, detectMediaType } from "../lib/pdf";
 import { filterExtracted, parseJsonFromResponse, SHIPMENT_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS } from "../lib/fields";
 import { SHIPMENT_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT } from "../lib/prompts";
 import type { ExtractionResult } from "../interfaces/interfaces";
 
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5-20241022";
+const anthropicApiKey = secret("ANTHROPIC_API_KEY");
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
 
 function getClient(): Anthropic {
-  return new Anthropic();
+  // Prefer the Encore secret; fall back to the OS env var for local runs where
+  // the cloud secret store isn't reachable.
+  const apiKey = anthropicApiKey() || process.env.ANTHROPIC_API_KEY;
+  return new Anthropic({ apiKey });
+}
+
+// The model only returns useful keys when told the exact field names to use;
+// filterExtracted() then keeps only exact matches, so the list must be injected.
+function withFieldList(systemPrompt: string, validFields: string[]): string {
+  return `${systemPrompt}\n\nFields to extract (use these EXACT key names as JSON keys):\n${validFields
+    .map((f) => `- "${f}"`)
+    .join("\n")}`;
+}
+
+// Build the media content block for a file: PDFs must use a "document" block,
+// images use an "image" block (Anthropic rejects application/pdf as an image).
+function mediaBlock(fileBase64: string, mediaType: string): Anthropic.ContentBlockParam {
+  if (mediaType === "application/pdf") {
+    return {
+      type: "document",
+      source: { type: "base64", media_type: "application/pdf", data: fileBase64 },
+    };
+  }
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+      data: fileBase64,
+    },
+  };
 }
 
 async function extractViaVision(
-  imageBase64: string,
+  fileBase64: string,
   mediaType: string,
   systemPrompt: string,
   validFields: string[],
@@ -21,20 +53,10 @@ async function extractViaVision(
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: 2048,
-    system: systemPrompt,
+    system: withFieldList(systemPrompt, validFields),
     messages: [{
       role: "user",
-      content: [
-        {
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-            data: imageBase64,
-          },
-        },
-        { type: "text", text: userPrompt },
-      ],
+      content: [mediaBlock(fileBase64, mediaType), { type: "text", text: userPrompt }],
     }],
   });
 
@@ -59,7 +81,7 @@ async function extractViaText(
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: maxTokens,
-    system: systemPrompt,
+    system: withFieldList(systemPrompt, validFields),
     messages: [{
       role: "user",
       content: `${userPrompt}\n\n---\n${documentText.substring(0, 15000)}\n---\n\nReturn ONLY a JSON object with the extracted fields.`,
@@ -215,7 +237,7 @@ export async function extractFromImages(
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: maxTokens,
-    system: systemPrompt,
+    system: withFieldList(systemPrompt, validFields),
     messages: [{
       role: "user",
       content: [
