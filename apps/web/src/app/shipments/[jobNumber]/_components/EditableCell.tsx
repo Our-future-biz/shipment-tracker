@@ -34,6 +34,8 @@ interface EditableCellProps {
   emptyClassName?: string;
   /** Class for the outer wrapper. */
   className?: string;
+  /** Inline style for the value text in display mode (e.g. conditional-format colors). */
+  displayStyle?: React.CSSProperties;
 }
 
 export function EditableCell({
@@ -45,6 +47,7 @@ export function EditableCell({
   displayClassName = "text-slate-700 font-medium",
   emptyClassName,
   className,
+  displayStyle,
 }: EditableCellProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -81,7 +84,7 @@ export function EditableCell({
         title="Double-click to edit"
         onDoubleClick={startEditing}
       >
-        <span className={hasValue ? displayClassName : (emptyClassName ?? displayClassName)}>
+        <span className={hasValue ? displayClassName : (emptyClassName ?? displayClassName)} style={hasValue ? displayStyle : undefined}>
           {hasValue ? original : placeholder}
         </span>
       </span>

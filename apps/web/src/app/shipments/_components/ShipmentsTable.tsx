@@ -20,13 +20,14 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
+import { getFieldValue, buildRowData, useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
 import { ColumnPicker } from "./ColumnPicker";
 import { MasterJobDetailModal } from "./MasterJobDetailModal";
 import { DocumentsTab } from "@/app/shipments/[jobNumber]/tabs/DocumentsTab";
+import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 
 // Draggable table header cell — id comes from each column's onHeaderCell().
 type HeaderCellProps = React.ThHTMLAttributes<HTMLTableCellElement> & { id?: string };
@@ -84,6 +85,7 @@ export const ShipmentsTable = ({
 }: ShipmentsTableProps) => {
   const router = useRouter();
   const { user, token } = useAuth();
+  const { updateField } = useShipments();
   const { visible, setVisible, reset, templates, activeTemplateId, applyTemplate, deactivate, saveAsTemplate, deleteTemplate } =
     useColumnView(user?.id, token);
   const [search, setSearch] = useState("");
@@ -150,23 +152,29 @@ export const ShipmentsTable = ({
       // Internal Reference + Master job stay frozen on the left while the rest scrolls.
       fixed: isFixedColumn(col.key) ? ("left" as const) : undefined,
       onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
-      // Cell background = the cell's own conditional tint, else the whole-row tint.
+      // Whole-row conditions (OBL / Credit Check = Red) are painted by the `.cf-row`
+      // CSS rule below — it uses `!important` so it also covers the frozen columns,
+      // whose opaque antd background would otherwise hide an inline cell tint.
       onCell: (record: ShipmentItem) => {
         const info = rowInfo.get(record.id);
-        const cellStyle = getCellConditionalStyle(col.key, getFieldValue(record, col.key), info?.rowData ?? {});
-        const bg = cellStyle?.backgroundColor ?? info?.rowStyle?.backgroundColor;
-        return bg ? { style: { background: bg } } : {};
+        if (info?.rowStyle) return {};
+        const cellBg = getCellConditionalStyle(col.key, getFieldValue(record, col.key), info?.rowData ?? {})?.backgroundColor;
+        return cellBg ? { style: { backgroundImage: `linear-gradient(${cellBg}, ${cellBg})` } } : {};
       },
       render: (_: unknown, record: ShipmentItem) => {
         const info = rowInfo.get(record.id);
-        const cellStyle = getCellConditionalStyle(col.key, getFieldValue(record, col.key), info?.rowData ?? {});
+        const val = getFieldValue(record, col.key);
+        // A whole-row condition overrides cell-level styling entirely (uniform row).
+        const cellStyle = info?.rowStyle ? null : getCellConditionalStyle(col.key, val, info?.rowData ?? {});
         const textStyle: React.CSSProperties | undefined = cellStyle
           ? { color: cellStyle.color, fontWeight: cellStyle.fontWeight }
           : undefined;
 
+        // Internal Reference \u2192 opens the detail.
         if (col.key === "jobNumber") {
           return (
             <span
+              onClick={() => router.push(`/shipments/${record.id}`)}
               className="font-mono font-bold hover:underline cursor-pointer"
               style={{ color: cellStyle?.color ?? "#6366f1", fontWeight: cellStyle?.fontWeight ?? 700 }}
             >
@@ -174,10 +182,9 @@ export const ShipmentsTable = ({
             </span>
           );
         }
-        const val = getFieldValue(record, col.key);
-        if (!val) return <span className="text-slate-300">{"\u2014"}</span>;
+        // Master job \u2192 opens the master-job modal.
         if (col.key === "masterJob") {
-          return (
+          return val ? (
             <button
               onClick={(e) => { e.stopPropagation(); setMczModal(val); }}
               className="text-indigo-500 hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
@@ -185,9 +192,26 @@ export const ShipmentsTable = ({
             >
               #{val}
             </button>
+          ) : (
+            <span className="text-slate-300">{"\u2014"}</span>
           );
         }
-        return <span className="text-slate-600" style={textStyle}>{val}</span>;
+        // Read-only columns (computed, createdBy\u2026) \u2014 plain text.
+        if (col.readonly) {
+          return val ? <span className="text-slate-600" style={textStyle}>{val}</span> : <span className="text-slate-300">{"\u2014"}</span>;
+        }
+        // Everything else \u2014 inline editable (double-click). Text/dropdown/date per column config.
+        return (
+          <EditableCell
+            fieldKey={col.key}
+            value={val}
+            onCommit={(fieldKey, value) => updateField(record.id, fieldKey, value)}
+            placeholder={"\u2014"}
+            displayClassName="text-slate-600"
+            emptyClassName="text-slate-300"
+            displayStyle={textStyle}
+          />
+        );
       },
     }));
 
@@ -210,7 +234,7 @@ export const ShipmentsTable = ({
     });
 
     return cols;
-  }, [visible, rowInfo]);
+  }, [visible, rowInfo, router, updateField]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -296,10 +320,18 @@ export const ShipmentsTable = ({
                 showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} entries`,
               }}
               scroll={{ x: "max-content" }}
-              onRow={(record) => ({
-                onClick: () => router.push(`/shipments/${record.id}`),
-                className: "cursor-pointer",
-              })}
+              rowClassName={(record) => {
+                const rs = rowInfo.get(record.id)?.rowStyle;
+                if (!rs) return "";
+                return rs.color ? "cf-row cf-row-fg" : "cf-row";
+              }}
+              onRow={(record) => {
+                const rs = rowInfo.get(record.id)?.rowStyle;
+                if (!rs?.backgroundColor) return {};
+                const style: Record<string, string> = { "--cf-row-bg": rs.backgroundColor };
+                if (rs.color) style["--cf-row-fg"] = rs.color;
+                return { style: style as React.CSSProperties };
+              }}
               locale={{ emptyText: "No shipments found" }}
             />
           </SortableContext>

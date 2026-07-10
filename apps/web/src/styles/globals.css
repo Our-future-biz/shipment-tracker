@@ -12,6 +12,21 @@
   background: #f0fdfa !important;
 }
 
+/* Whole-row conditional formatting (OBL / Credit Check = Red). Higher specificity +
+   !important so the color also wins over the fixed-column white rule above — the
+   entire row, including the frozen Internal Reference / Master job columns, is one
+   uniform color (kept on hover too). Color comes from --cf-row-bg set on the <tr>. */
+.ant-table-tbody > tr.cf-row > td.ant-table-cell,
+.ant-table-tbody > tr.cf-row:hover > td.ant-table-cell {
+  background: var(--cf-row-bg) !important;
+}
+
+/* Red-font rows (OBL): force the text color across every cell and inner element. */
+.ant-table-tbody > tr.cf-row-fg > td.ant-table-cell,
+.ant-table-tbody > tr.cf-row-fg > td.ant-table-cell * {
+  color: var(--cf-row-fg) !important;
+}
+
 /* Remove extra borders from Ant table inside card */
 .ant-table-wrapper {
   border-radius: 0;
