@@ -286,13 +286,10 @@ export function getRowConditionalStyle(rowData: Record<string, string>): CellSty
   const mblType = rowData["masterBolType"] || "";
   const creditCheck = rowData["creditCheck"] || "";
 
-  // Solid (opaque) colors: the whole row — including frozen columns, which need an
-  // opaque background so scrolling content can't bleed through — is painted this color.
+  // OBL only recolors the whole row's TEXT red — it does NOT override cell backgrounds,
+  // so the per-column conditional coloring keeps working underneath.
   if (hblType === "OBL" || mblType === "OBL") {
-    return { backgroundColor: "#fecaca", color: "#b91c1c" }; // red row, red text
-  }
-  if (creditCheck === "Red") {
-    return { backgroundColor: "#fbcfe8" }; // pink across the whole row
+    return { color: "#b91c1c" };
   }
   return null;
 }

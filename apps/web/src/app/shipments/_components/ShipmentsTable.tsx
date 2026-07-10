@@ -152,20 +152,16 @@ export const ShipmentsTable = ({
       // Internal Reference + Master job stay frozen on the left while the rest scrolls.
       fixed: isFixedColumn(col.key) ? ("left" as const) : undefined,
       onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
-      // Whole-row conditions (OBL / Credit Check = Red) are painted by the `.cf-row`
-      // CSS rule below — it uses `!important` so it also covers the frozen columns,
-      // whose opaque antd background would otherwise hide an inline cell tint.
+      // Per-column conditional background tint (applies on every row).
       onCell: (record: ShipmentItem) => {
         const info = rowInfo.get(record.id);
-        if (info?.rowStyle) return {};
         const cellBg = getCellConditionalStyle(col.key, getFieldValue(record, col.key), info?.rowData ?? {})?.backgroundColor;
         return cellBg ? { style: { backgroundImage: `linear-gradient(${cellBg}, ${cellBg})` } } : {};
       },
       render: (_: unknown, record: ShipmentItem) => {
         const info = rowInfo.get(record.id);
         const val = getFieldValue(record, col.key);
-        // A whole-row condition overrides cell-level styling entirely (uniform row).
-        const cellStyle = info?.rowStyle ? null : getCellConditionalStyle(col.key, val, info?.rowData ?? {});
+        const cellStyle = getCellConditionalStyle(col.key, val, info?.rowData ?? {});
         const textStyle: React.CSSProperties | undefined = cellStyle
           ? { color: cellStyle.color, fontWeight: cellStyle.fontWeight }
           : undefined;
@@ -320,17 +316,10 @@ export const ShipmentsTable = ({
                 showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} entries`,
               }}
               scroll={{ x: "max-content" }}
-              rowClassName={(record) => {
-                const rs = rowInfo.get(record.id)?.rowStyle;
-                if (!rs) return "";
-                return rs.color ? "cf-row cf-row-fg" : "cf-row";
-              }}
+              rowClassName={(record) => (rowInfo.get(record.id)?.rowStyle?.color ? "cf-row-fg" : "")}
               onRow={(record) => {
-                const rs = rowInfo.get(record.id)?.rowStyle;
-                if (!rs?.backgroundColor) return {};
-                const style: Record<string, string> = { "--cf-row-bg": rs.backgroundColor };
-                if (rs.color) style["--cf-row-fg"] = rs.color;
-                return { style: style as React.CSSProperties };
+                const fg = rowInfo.get(record.id)?.rowStyle?.color;
+                return fg ? { style: { "--cf-row-fg": fg } as React.CSSProperties } : {};
               }}
               locale={{ emptyText: "No shipments found" }}
             />
