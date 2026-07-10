@@ -284,7 +284,6 @@ function isDateInPast(dateStr: string): boolean {
 export function getRowConditionalStyle(rowData: Record<string, string>): CellStyle | null {
   const hblType = rowData["houseBolType"] || "";
   const mblType = rowData["masterBolType"] || "";
-  const creditCheck = rowData["creditCheck"] || "";
 
   // OBL only recolors the whole row's TEXT red — it does NOT override cell backgrounds,
   // so the per-column conditional coloring keeps working underneath.
