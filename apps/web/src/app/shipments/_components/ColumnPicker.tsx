@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Popover, Input, Button, Checkbox, Tooltip } from "antd";
 import { SettingOutlined, DeleteOutlined, CheckOutlined } from "@ant-design/icons";
-import { COLUMNS } from "@/lib/columnConfig";
+import { COLUMNS, FIXED_COLUMN_KEYS, isFixedColumn } from "@/lib/columnConfig";
 import type { ColumnTemplate } from "@/hooks/useColumnTemplates";
 
 // All pickable columns (exclude the dimensions popup, which has no flat value).
@@ -44,6 +44,7 @@ export function ColumnPicker({
   const activeTemplate = templates.find((t) => t.id === activeTemplateId) ?? null;
 
   const toggle = (key: string, checked: boolean) => {
+    if (isFixedColumn(key)) return; // Internal Reference / Master job are always shown.
     if (checked) onChange([...visible, key]);
     else onChange(visible.filter((k) => k !== key));
   };
@@ -140,7 +141,7 @@ export function ColumnPicker({
           Select all
         </button>
         <button
-          onClick={() => onChange([])}
+          onClick={() => onChange([...FIXED_COLUMN_KEYS])}
           className="text-[11px] text-slate-400 hover:underline bg-transparent border-none p-0 cursor-pointer"
         >
           Clear
@@ -149,12 +150,23 @@ export function ColumnPicker({
 
       <div className="max-h-[320px] overflow-y-auto pr-1 flex flex-col gap-1">
         {filtered.length === 0 && <div className="text-xs text-slate-400 py-2">No columns found.</div>}
-        {filtered.map((col) => (
-          <label key={col.key} className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer py-0.5">
-            <Checkbox checked={visibleSet.has(col.key)} onChange={(e) => toggle(col.key, e.target.checked)} />
-            {col.title}
-          </label>
-        ))}
+        {filtered.map((col) => {
+          const fixed = isFixedColumn(col.key);
+          return (
+            <label
+              key={col.key}
+              className={`flex items-center gap-2 text-xs py-0.5 ${fixed ? "text-slate-500 cursor-default" : "text-slate-700 cursor-pointer"}`}
+            >
+              <Checkbox
+                checked={fixed || visibleSet.has(col.key)}
+                disabled={fixed}
+                onChange={(e) => toggle(col.key, e.target.checked)}
+              />
+              {col.title}
+              {fixed && <span className="text-[10px] text-slate-400">· always shown</span>}
+            </label>
+          );
+        })}
       </div>
 
       <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">

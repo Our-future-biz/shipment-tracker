@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { withFixedColumns } from "@/lib/columnConfig";
 import { useColumnPrefs } from "./useColumnPrefs";
 import { useColumnTemplates } from "./useColumnTemplates";
 
@@ -51,12 +52,16 @@ export function useColumnView(userId: string | undefined, token: string | null) 
     }
   }, [activeTemplateId, templatesLoaded, templates, persistActive]);
 
-  const visible = activeTemplate ? activeTemplate.columns : prefs.visible;
+  const visible = useMemo(
+    () => withFixedColumns(activeTemplate ? activeTemplate.columns : prefs.visible),
+    [activeTemplate, prefs.visible],
+  );
 
   const setVisible = useCallback(
     (keys: string[]) => {
-      if (activeTemplate) saveTemplate(activeTemplate.name, keys);
-      else prefs.save(keys);
+      const normalized = withFixedColumns(keys);
+      if (activeTemplate) saveTemplate(activeTemplate.name, normalized);
+      else prefs.save(normalized);
     },
     [activeTemplate, saveTemplate, prefs],
   );

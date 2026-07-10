@@ -222,6 +222,20 @@ export const COLUMNS: ColumnDef[] = [
 // Column key lookup for quick access
 export const COLUMN_MAP = new Map(COLUMNS.map((col) => [col.key, col]));
 
+// Columns that can never be hidden or removed (Internal Reference, Master job).
+// Kept first, in config order, regardless of the user's selection/templates.
+export const FIXED_COLUMN_KEYS = COLUMNS.filter((c) => c.fixed).map((c) => c.key);
+const FIXED_KEY_SET = new Set(FIXED_COLUMN_KEYS);
+
+export function isFixedColumn(key: string): boolean {
+  return FIXED_KEY_SET.has(key);
+}
+
+// Force the fixed columns to always be present and first, preserving the rest.
+export function withFixedColumns(keys: string[]): string[] {
+  return [...FIXED_COLUMN_KEYS, ...keys.filter((k) => !FIXED_KEY_SET.has(k))];
+}
+
 // ─── Field Value Helpers ──────────────────────────────────────────────
 
 // API fields that map directly to ShipmentItem properties

@@ -21,7 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
-import { COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle, type CellStyle } from "@/lib/columnConfig";
+import { COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
 import { ColumnPicker } from "./ColumnPicker";
@@ -147,6 +147,8 @@ export const ShipmentsTable = ({
       title: col.title,
       width: col.width,
       ellipsis: true,
+      // Internal Reference + Master job stay frozen on the left while the rest scrolls.
+      fixed: isFixedColumn(col.key) ? ("left" as const) : undefined,
       onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
       // Cell background = the cell's own conditional tint, else the whole-row tint.
       onCell: (record: ShipmentItem) => {
