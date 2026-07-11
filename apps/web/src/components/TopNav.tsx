@@ -2,10 +2,19 @@
 
 import { Dropdown, Input, type MenuProps } from "antd";
 import { LogoutOutlined, SearchOutlined, UserOutlined } from "@ant-design/icons";
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 export function TopNav() {
   const { user, logout } = useAuth();
+  const router = useRouter();
+  const [q, setQ] = useState("");
+
+  const submitSearch = (value: string) => {
+    const trimmed = value.trim();
+    router.push(trimmed ? `/shipments?q=${encodeURIComponent(trimmed)}` : "/shipments");
+  };
 
   const today = new Date().toLocaleDateString("en-US", {
     weekday: "short",
@@ -48,6 +57,12 @@ export function TopNav() {
           className="rounded-xl"
           size="large"
           allowClear
+          value={q}
+          onChange={(e) => {
+            setQ(e.target.value);
+            if (!e.target.value) submitSearch("");
+          }}
+          onPressEnter={() => submitSearch(q)}
         />
       </div>
 

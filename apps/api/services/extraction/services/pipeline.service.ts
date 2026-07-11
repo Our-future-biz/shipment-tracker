@@ -1,4 +1,5 @@
-import { classifyPages, extractFromImages } from "./extraction.service";
+import { classifyPages, extractFromPages } from "./extraction.service";
+import { splitPdfToPages, detectMediaType } from "../lib/pdf";
 import { SHIPMENT_FIELDS } from "../lib/fields";
 import { MASTER_JOB_PROMPT } from "../lib/prompts";
 import type { PrepareResult, ExtractMblResult, ExtractHblResult } from "../interfaces/interfaces";
@@ -7,6 +8,7 @@ interface PipelinePage {
   pageNum: number;
   type: string;
   base64: string;
+  mediaType: string;
 }
 
 interface PipelineSession {
@@ -20,6 +22,8 @@ interface PipelineSession {
 const sessions = new Map<string, PipelineSession>();
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const BATCH_SIZE = 3;
+// Classify at most this many pages per vision call to keep requests bounded.
+const CLASSIFY_CHUNK = 8;
 
 function cleanup() {
   const now = Date.now();
@@ -42,14 +46,40 @@ function getPagesByType(session: PipelineSession, type: string): PipelinePage[] 
 }
 
 export async function prepare(fileBase64: string, fileName: string): Promise<PrepareResult> {
-  const pages = [{ pageNum: 1, base64: fileBase64 }];
+  const mediaType = detectMediaType(fileName);
 
-  const classified = await classifyPages(pages);
+  // Split a multi-page PDF into one standalone PDF per page. Images stay as a
+  // single page. This is what lets the pipeline traverse the WHOLE document.
+  let rawPages: { base64: string; mediaType: string }[];
+  if (mediaType === "application/pdf") {
+    const pageB64s = await splitPdfToPages(fileBase64);
+    rawPages =
+      pageB64s.length > 0
+        ? pageB64s.map((b) => ({ base64: b, mediaType: "application/pdf" }))
+        : [{ base64: fileBase64, mediaType }];
+  } else {
+    rawPages = [{ base64: fileBase64, mediaType }];
+  }
 
-  const sessionPages = pages.map((p, i) => ({
-    pageNum: p.pageNum,
-    type: classified[i]?.type || "HBL",
+  // Classify pages in chunks so we never send an unbounded request.
+  const types: string[] = [];
+  for (let i = 0; i < rawPages.length; i += CLASSIFY_CHUNK) {
+    const chunk = rawPages
+      .slice(i, i + CLASSIFY_CHUNK)
+      .map((p, j) => ({ pageNum: i + j + 1, base64: p.base64, mediaType: p.mediaType }));
+    try {
+      const classified = await classifyPages(chunk);
+      for (let j = 0; j < chunk.length; j++) types.push((classified[j]?.type || "HBL").toUpperCase());
+    } catch {
+      for (let j = 0; j < chunk.length; j++) types.push("HBL");
+    }
+  }
+
+  const sessionPages: PipelinePage[] = rawPages.map((p, i) => ({
+    pageNum: i + 1,
+    type: types[i] || "HBL",
     base64: p.base64,
+    mediaType: p.mediaType,
   }));
 
   cleanup();
@@ -84,9 +114,9 @@ export async function extractMbl(sessionId: string): Promise<ExtractMblResult> {
     return { mblInfo: null, message: "No MBL pages found" };
   }
 
-  const images = mblPages.slice(0, 3).map((p) => ({ base64: p.base64 }));
-  const results = await extractFromImages(
-    images,
+  const pages = mblPages.slice(0, 3).map((p) => ({ base64: p.base64, mediaType: p.mediaType }));
+  const results = await extractFromPages(
+    pages,
     "",
     `This is a Master Bill of Lading (MBL). Extract ONLY the shared shipping info:\n- Vessel / Voyage\n- POL, POD\n- ETD date, ETA date\n- Shipping line / Coloader\n- Booking number\n- FCL/LCL\n- CNTR no. (all container numbers)\n- CNTR count, length, type\nDo NOT extract cargo items. Return a single JSON object.`,
     SHIPMENT_FIELDS,
@@ -120,10 +150,10 @@ export async function extractHblBatch(sessionId: string, batchIndex: number): Pr
   }
 
   const batch = hblPages.slice(batchIndex * BATCH_SIZE, (batchIndex + 1) * BATCH_SIZE);
-  const images = batch.map((p) => ({ base64: p.base64 }));
+  const pages = batch.map((p) => ({ base64: p.base64, mediaType: p.mediaType }));
 
-  const shipments = await extractFromImages(
-    images,
+  const shipments = await extractFromPages(
+    pages,
     MASTER_JOB_PROMPT,
     `These are ${batch.length} House Bill of Lading pages. Each page = 1 shipment. For EACH page, extract a separate shipment object with fields: ${SHIPMENT_FIELDS.join(", ")}, and 'Personal Reference' (the House B/L number). Return a JSON array with exactly ${batch.length} objects.`,
     SHIPMENT_FIELDS,

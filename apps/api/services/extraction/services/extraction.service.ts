@@ -177,19 +177,12 @@ export async function extractFromTextByDestination(text: string, destination: st
   return { extracted, fieldCount: Object.keys(extracted).length, method: "text", fileName: "(text input)" };
 }
 
-// For pipeline: classify pages using vision
+// For pipeline: classify pages (each page is its own PDF/image document block)
 export async function classifyPages(
-  pages: Array<{ pageNum: number; base64: string }>,
+  pages: Array<{ pageNum: number; base64: string; mediaType: string }>,
 ): Promise<Array<{ page: number; type: string }>> {
   const client = getClient();
-  const imageBlocks: Anthropic.ImageBlockParam[] = pages.map((p) => ({
-    type: "image" as const,
-    source: {
-      type: "base64" as const,
-      media_type: "image/png" as const,
-      data: p.base64,
-    },
-  }));
+  const pageBlocks: Anthropic.ContentBlockParam[] = pages.map((p) => mediaBlock(p.base64, p.mediaType));
 
   const response = await client.messages.create({
     model: MODEL,
@@ -197,10 +190,10 @@ export async function classifyPages(
     messages: [{
       role: "user",
       content: [
-        ...imageBlocks,
+        ...pageBlocks,
         {
           type: "text",
-          text: `These are ${pages.length} pages from a shipping document PDF. Classify each page.\n\nTypes:\n- MANIFEST: Cargo manifest with multiple shipments\n- HBL: House Bill of Lading (one shipment per page)\n- MBL: Master Bill of Lading (consolidated)\n- SKIP: Terms, blank pages, signatures\n\nReturn a JSON array: [{"page": 1, "type": "HBL"}, ...]\nNo markdown.`,
+          text: `These are ${pages.length} pages from a shipping document, in order. Classify EACH page.\n\nTypes:\n- MANIFEST: Cargo manifest/list showing multiple shipments in blocks\n- HBL: House Bill of Lading (full-page B/L for one shipment)\n- MBL: Master Bill of Lading (single consolidated B/L with many cargo items)\n- SKIP: Terms & conditions, blank pages, signatures, cover pages, anything without shipment data\n\nReturn ONLY a JSON array with one object per page, in order: [{"page": 1, "type": "HBL"}, ...]\nNo markdown.`,
         },
       ],
     }],
@@ -216,23 +209,16 @@ export async function classifyPages(
   return parsed as Array<{ page: number; type: string }>;
 }
 
-// For pipeline: extract from multiple images (HBL batch, MBL)
-export async function extractFromImages(
-  images: Array<{ base64: string }>,
+// For pipeline: extract from multiple pages (HBL batch, MBL) sent as document blocks
+export async function extractFromPages(
+  pages: Array<{ base64: string; mediaType: string }>,
   systemPrompt: string,
   userPrompt: string,
   validFields: string[],
   maxTokens = 8192,
 ): Promise<Record<string, string>[]> {
   const client = getClient();
-  const imageBlocks: Anthropic.ImageBlockParam[] = images.map((img) => ({
-    type: "image" as const,
-    source: {
-      type: "base64" as const,
-      media_type: "image/png" as const,
-      data: img.base64,
-    },
-  }));
+  const pageBlocks: Anthropic.ContentBlockParam[] = pages.map((p) => mediaBlock(p.base64, p.mediaType));
 
   const response = await client.messages.create({
     model: MODEL,
@@ -241,7 +227,7 @@ export async function extractFromImages(
     messages: [{
       role: "user",
       content: [
-        ...imageBlocks,
+        ...pageBlocks,
         { type: "text", text: userPrompt },
       ],
     }],

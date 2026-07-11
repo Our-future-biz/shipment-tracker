@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -47,6 +47,10 @@ import {
 } from "../_lib/extraction";
 
 type PipelineStep = "idle" | "classified" | "extracting" | "ready";
+
+// Keep roughly one batch of shipments buffered ahead of the reviewer, so the
+// next three load in the background while they work on the current three.
+const HBL_PREFETCH_AHEAD = 3;
 
 const DESTINATION_OPTIONS = [
   { value: "shipment", label: "Full Sheet" },
@@ -122,6 +126,7 @@ export function DocumentReadingWorkflow() {
   const [hblBatchIndex, setHblBatchIndex] = useState(0);
   const [hblTotalBatches, setHblTotalBatches] = useState(0);
   const [hblLoading, setHblLoading] = useState(false);
+  const [waitingForBatch, setWaitingForBatch] = useState(false);
 
   // Derived
   const shipmentOptions = useMemo(
@@ -337,14 +342,41 @@ export function DocumentReadingWorkflow() {
 
   const advanceMaster = () => {
     const nextIdx = masterIdx + 1;
-    if (nextIdx >= masterShipments.length) {
-      if (hblBatchIndex >= hblTotalBatches) setStep("committed");
-      // else: stay on review; the user can load the next batch
-    } else {
+    if (nextIdx < masterShipments.length) {
       setMasterIdx(nextIdx);
       loadMasterFields(masterShipments[nextIdx]);
+    } else if (hblBatchIndex >= hblTotalBatches) {
+      // Reviewed the last shipment and every batch is loaded → done.
+      setStep("committed");
+    } else {
+      // Outran the loader: park at the boundary and wait for the next batch.
+      setMasterIdx(nextIdx);
+      setMasterFields([]);
+      setWaitingForBatch(true);
     }
   };
+
+  // Auto-prefetch the next batch in the background, keeping ~one batch buffered
+  // ahead of the reviewer so the next three load while they work on the current.
+  useEffect(() => {
+    if (pipelineStep !== "ready" || hblLoading || hblBatchIndex >= hblTotalBatches) return;
+    if (masterShipments.length - masterIdx <= HBL_PREFETCH_AHEAD) {
+      loadNextBatch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pipelineStep, hblLoading, hblBatchIndex, hblTotalBatches, masterShipments.length, masterIdx]);
+
+  // Resolve a "waiting for next batch" pause once more shipments arrive (or finish).
+  useEffect(() => {
+    if (!waitingForBatch) return;
+    if (masterIdx < masterShipments.length) {
+      setWaitingForBatch(false);
+      loadMasterFields(masterShipments[masterIdx]);
+    } else if (hblBatchIndex >= hblTotalBatches && !hblLoading) {
+      setWaitingForBatch(false);
+      setStep("committed");
+    }
+  }, [waitingForBatch, masterShipments, masterIdx, hblBatchIndex, hblTotalBatches, hblLoading]);
 
   const validateAndCreate = async () => {
     if (!activeMcz) return toast.warning("No MCZ number available.");
@@ -397,12 +429,13 @@ export function DocumentReadingWorkflow() {
     setHblBatchIndex(0);
     setHblTotalBatches(0);
     setHblLoading(false);
+    setWaitingForBatch(false);
   };
 
   const stepIndex = { upload: 0, extracting: 1, review: 2, committed: 3 }[step];
 
   return (
-    <div className="max-w-3xl mx-auto">
+    <div className="max-w-5xl mx-auto">
       <div className="mb-4">
         <Steps
           size="small"
@@ -654,14 +687,30 @@ export function DocumentReadingWorkflow() {
         <Card>
           {pipelineStep === "classified" && (
             <div>
-              <div className="text-sm font-semibold mb-3">Document analysis complete</div>
-              <Space wrap className="mb-4">
-                {Object.entries(classification).map(([type, count]) => (
-                  <Tag key={type} color={type === "SKIP" ? "default" : "gold"}>
-                    {type}: {count}
-                  </Tag>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-lg">📊</span>
+                <h3 className="text-sm font-semibold m-0">Document Analysis Complete</h3>
+              </div>
+              <p className="text-xs text-slate-400 mb-3">
+                {(classification.MANIFEST || 0) + (classification.HBL || 0) + (classification.MBL || 0) + (classification.SKIP || 0)}{" "}
+                pages scanned:
+              </p>
+              <div className="grid grid-cols-2 gap-2 mb-4">
+                {[
+                  { label: "Manifest pages", val: classification.MANIFEST || 0 },
+                  { label: "House BL pages", val: classification.HBL || 0 },
+                  { label: "Master BL pages", val: classification.MBL || 0 },
+                  { label: "Skipped", val: classification.SKIP || 0, muted: true },
+                ].map((c) => (
+                  <div
+                    key={c.label}
+                    className="flex items-center justify-between px-3 py-2 rounded-md bg-slate-50 border border-slate-200"
+                  >
+                    <span className="text-xs text-slate-500">{c.label}</span>
+                    <span className={`text-sm font-semibold ${c.muted ? "text-slate-400" : "text-amber-600"}`}>{c.val}</span>
+                  </div>
                 ))}
-              </Space>
+              </div>
               {error && <Alert className="mb-3" type="error" showIcon message={error} />}
               <div className="flex gap-2">
                 <Button onClick={() => setStep("upload")}>Back</Button>
@@ -684,7 +733,8 @@ export function DocumentReadingWorkflow() {
               <div className="flex items-center justify-between mb-3">
                 <Space size="small" wrap>
                   <span className="text-sm font-semibold">
-                    Shipment {masterIdx + 1} of {masterShipments.length}
+                    Shipment {Math.min(masterIdx + 1, masterShipments.length)} of {masterShipments.length}
+                    {hblBatchIndex < hblTotalBatches ? "+" : ""}
                   </span>
                   <Tag color="gold" className="font-mono">{activeMcz}</Tag>
                   <span className="text-xs text-slate-400">{masterCreatedJobs.length} created</span>
@@ -704,37 +754,47 @@ export function DocumentReadingWorkflow() {
 
               {error && <Alert className="mb-3" type="error" showIcon message={error} />}
 
-              <FieldReviewTable
-                fields={masterFields}
-                onToggle={toggleMasterField}
-                editable
-                onEdit={editMasterField}
-                showExisting={false}
-                accent="amber"
-              />
+              {waitingForBatch ? (
+                <div className="text-center py-10">
+                  <Spin />
+                  <p className="mt-3 mb-0 text-sm text-slate-500">Loading the next shipments…</p>
+                </div>
+              ) : (
+                <>
+                  <FieldReviewTable
+                    fields={masterFields}
+                    onToggle={toggleMasterField}
+                    editable
+                    onEdit={editMasterField}
+                    showExisting={false}
+                    accent="amber"
+                  />
 
-              <div className="flex gap-2 mt-4">
-                <Button onClick={() => setStep("upload")}>Back</Button>
-                <Button onClick={advanceMaster}>Skip</Button>
-                <Button
-                  type="primary"
-                  disabled={masterFields.filter((f) => f.approved).length === 0}
-                  onClick={validateAndCreate}
-                >
-                  Validate &amp; Create{masterIdx < masterShipments.length - 1 ? " → Next" : ""}
-                </Button>
-              </div>
+                  <div className="flex gap-2 mt-4">
+                    <Button onClick={() => setStep("upload")}>Back</Button>
+                    <Button onClick={advanceMaster}>Skip</Button>
+                    <Button
+                      type="primary"
+                      disabled={masterFields.filter((f) => f.approved).length === 0}
+                      onClick={validateAndCreate}
+                    >
+                      Validate &amp; Create
+                      {masterIdx < masterShipments.length - 1 || hblBatchIndex < hblTotalBatches ? " → Next" : ""}
+                    </Button>
+                  </div>
+                </>
+              )}
 
               {hblTotalBatches > 1 && (
                 <div className="flex items-center justify-between mt-3 px-3 py-2 rounded-md bg-slate-50 text-xs">
                   <span className="text-slate-500">
                     Batch {Math.min(hblBatchIndex, hblTotalBatches)} of {hblTotalBatches} · {masterShipments.length}{" "}
-                    shipments extracted
+                    shipments loaded
                   </span>
                   {hblBatchIndex < hblTotalBatches && (
-                    <Button size="small" loading={hblLoading} onClick={loadNextBatch}>
-                      Load Next Batch
-                    </Button>
+                    <span className="flex items-center gap-1.5 text-slate-400">
+                      <Spin size="small" /> loading next batch…
+                    </span>
                   )}
                 </div>
               )}

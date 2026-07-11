@@ -20,6 +20,7 @@ async function seed() {
   console.log("Seeding users...");
 
   const users = [
+    { email: "austromar@austromar.com", password: "test", displayName: "Austromar", role: "admin" },
     { email: "lukas@ourfuture.biz", password: "Wjj7AkeRr-ICruJ%zaBuKx", displayName: "Lukáš", role: "admin" },
     { email: "ad@ourfuture.biz", password: "Zt8&hQw3LcY6bF", displayName: "AD", role: "admin" },
     { email: "martin@ourfuture.biz", password: "Rw3&mZp8KxJ5Vn", displayName: "Martin", role: "user" },

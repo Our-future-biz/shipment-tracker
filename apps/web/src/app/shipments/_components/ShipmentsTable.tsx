@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Table, Input, Select, Drawer, Tooltip } from "antd";
-import { SearchOutlined, PlusOutlined, FileTextOutlined } from "@ant-design/icons";
+import { useEffect, useMemo, useState } from "react";
+import { Table, Input, Select, Drawer, Tooltip, Popover } from "antd";
+import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
   DndContext,
   PointerSensor,
@@ -21,7 +21,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { getFieldValue, buildRowData, useShipments, type ShipmentItem } from "@/hooks/useShipments";
-import { COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
+import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
 import { ColumnPicker } from "./ColumnPicker";
@@ -61,6 +61,8 @@ interface ShipmentsTableProps {
   onAddMasterJob: () => void;
 }
 
+type ColFilter = { key: string; value: string };
+
 const STATUS_OPTIONS = [
   { value: "all", label: "All Statuses" },
   { value: "active", label: "Active" },
@@ -84,15 +86,66 @@ export const ShipmentsTable = ({
   onAddMasterJob,
 }: ShipmentsTableProps) => {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user, token } = useAuth();
   const { updateField } = useShipments();
   const { visible, setVisible, reset, templates, activeTemplateId, applyTemplate, deactivate, saveAsTemplate, deleteTemplate } =
     useColumnView(user?.id, token);
-  const [search, setSearch] = useState("");
+  // Search text, kept in sync with the URL ?q= param (also driven by the global top-nav search)
+  const urlQuery = searchParams.get("q") ?? "";
+  const [search, setSearch] = useState(urlQuery);
+  useEffect(() => {
+    setSearch(urlQuery);
+  }, [urlQuery]);
+
+  const onSearchChange = (value: string) => {
+    setSearch(value);
+    const params = new URLSearchParams(searchParams.toString());
+    if (value) params.set("q", value);
+    else params.delete("q");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
   const [statusFilter, setStatusFilter] = useState("all");
   const [pageSize, setPageSize] = useState(25);
   const [mczModal, setMczModal] = useState<string | null>(null);
   const [docsShipment, setDocsShipment] = useState<ShipmentItem | null>(null);
+
+  // Per-column filters, persisted in the URL as ?f.<colKey>=<value>
+  const [filters, setFilters] = useState<ColFilter[]>(() => {
+    const out: ColFilter[] = [];
+    searchParams.forEach((value, key) => {
+      if (key.startsWith("f.")) out.push({ key: key.slice(2), value });
+    });
+    return out;
+  });
+
+  const applyFilters = (next: ColFilter[]) => {
+    setFilters(next);
+    const params = new URLSearchParams(searchParams.toString());
+    Array.from(params.keys()).forEach((k) => {
+      if (k.startsWith("f.")) params.delete(k);
+    });
+    next.forEach((f) => {
+      if (f.key) params.set(`f.${f.key}`, f.value);
+    });
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  const addFilter = () => applyFilters([...filters, { key: "", value: "" }]);
+  const updateFilter = (i: number, patch: Partial<ColFilter>) =>
+    applyFilters(filters.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
+  const removeFilter = (i: number) => applyFilters(filters.filter((_, idx) => idx !== i));
+
+  const activeFilters = useMemo(() => filters.filter((f) => f.key && f.value.trim()), [filters]);
+
+  const filterColumnOptions = useMemo(
+    () => COLUMNS.filter((c) => c.type !== "popup").map((c) => ({ value: c.key, label: c.title })),
+    [],
+  );
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -117,17 +170,18 @@ export const ShipmentsTable = ({
         if (statusFilter === "customs" && !status.includes("customs")) return false;
         if (statusFilter === "delivered" && !status.includes("billed") && !status.includes("billing") && !status.includes("delivered")) return false;
       }
-      // Search filter
+      // Per-column filters (AND, case-insensitive contains)
+      for (const f of activeFilters) {
+        if (!getFieldValue(s, f.key).toLowerCase().includes(f.value.toLowerCase().trim())) return false;
+      }
+      // Global search across every column value
       if (q) {
-        const haystack = [s.jobNumber, s.customer, s.personInCharge]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
+        const haystack = Object.values(buildRowData(s)).join(" ").toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
     });
-  }, [shipments, statusFilter, search]);
+  }, [shipments, statusFilter, search, activeFilters]);
 
   // Precompute per-row data + whole-row conditional tint once (used by every cell).
   const rowInfo = useMemo(() => {
@@ -186,7 +240,7 @@ export const ShipmentsTable = ({
               className="text-indigo-500 hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
               style={textStyle}
             >
-              #{val}
+              {val}
             </button>
           ) : (
             <span className="text-slate-300">{"\u2014"}</span>
@@ -238,22 +292,6 @@ export const ShipmentsTable = ({
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Shipments</h1>
-          <p className="text-[14px] text-slate-500 mt-1">Manage and track all shipments</p>
-        </div>
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={onCreateClick}
-            className="flex items-center gap-2 rounded-xl bg-indigo-600 px-5 py-2.5 text-[14px] font-semibold text-white hover:bg-indigo-700 transition-colors h-[44px]"
-          >
-            <PlusOutlined />
-            New Shipment
-          </button>
-          <button
-            onClick={onAddMasterJob}
-            className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-[14px] font-medium text-slate-700 hover:bg-slate-50 transition-colors h-[44px]"
-          >
-            Add to Master Job
-          </button>
         </div>
       </div>
 
@@ -264,7 +302,7 @@ export const ShipmentsTable = ({
             placeholder="Search shipments..."
             prefix={<SearchOutlined className="text-slate-400" />}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => onSearchChange(e.target.value)}
             allowClear
             className="w-60"
           />
@@ -274,6 +312,97 @@ export const ShipmentsTable = ({
             options={STATUS_OPTIONS}
             className="w-44"
           />
+          <Popover
+            trigger="click"
+            placement="bottomLeft"
+            content={
+              <div className="w-[430px] -m-1">
+                <div className="flex items-center justify-between px-1 pb-2.5 mb-2.5 border-b border-slate-100">
+                  <span className="text-[13px] font-semibold text-slate-800">Filter by column</span>
+                  {filters.length > 0 && (
+                    <button
+                      onClick={() => applyFilters([])}
+                      className="text-xs font-medium text-slate-400 hover:text-red-500 bg-transparent border-none cursor-pointer p-0"
+                    >
+                      Clear all
+                    </button>
+                  )}
+                </div>
+                {filters.length === 0 ? (
+                  <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-lg">
+                    No filters yet — add one to narrow the list.
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {filters.map((f, i) => {
+                      const col = COLUMN_MAP.get(f.key);
+                      const isDropdown = col?.type === "dropdown" && !!col.options;
+                      return (
+                        <div key={i} className="flex items-center gap-1.5">
+                          <Select
+                            showSearch
+                            placeholder="Column"
+                            value={f.key || undefined}
+                            onChange={(val) => updateFilter(i, { key: val, value: "" })}
+                            options={filterColumnOptions}
+                            optionFilterProp="label"
+                            size="small"
+                            className="w-[150px] shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            {isDropdown ? (
+                              <Select
+                                showSearch
+                                allowClear
+                                placeholder="Select value"
+                                value={f.value || undefined}
+                                onChange={(val) => updateFilter(i, { value: val ?? "" })}
+                                options={col!.options!.map((o) => ({ value: o, label: o }))}
+                                optionFilterProp="label"
+                                size="small"
+                                className="w-full"
+                              />
+                            ) : (
+                              <Input
+                                placeholder="Enter value"
+                                value={f.value}
+                                onChange={(e) => updateFilter(i, { value: e.target.value })}
+                                size="small"
+                                allowClear
+                              />
+                            )}
+                          </div>
+                          <button
+                            onClick={() => removeFilter(i)}
+                            aria-label="Remove filter"
+                            className="shrink-0 flex items-center justify-center w-6 h-6 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 bg-transparent border-none cursor-pointer transition-colors"
+                          >
+                            <CloseOutlined className="text-[11px]" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <button
+                  onClick={addFilter}
+                  className="mt-2.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-dashed border-slate-300 text-xs font-medium text-slate-500 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/40 bg-transparent cursor-pointer transition-colors"
+                >
+                  <PlusOutlined className="text-[10px]" /> Add filter
+                </button>
+              </div>
+            }
+          >
+            <button className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 h-8 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors">
+              <FilterOutlined />
+              Filters
+              {activeFilters.length > 0 && (
+                <span className="ml-0.5 rounded-full bg-indigo-100 text-indigo-600 text-[11px] font-semibold px-1.5 leading-5">
+                  {activeFilters.length}
+                </span>
+              )}
+            </button>
+          </Popover>
         </div>
         <div className="flex items-center gap-3 text-[13px] text-slate-500">
           <ColumnPicker
@@ -296,11 +425,25 @@ export const ShipmentsTable = ({
             size="small"
           />
           <span>{filtered.length} / {shipments.length} rows</span>
+          <div className="w-px h-6 bg-slate-200" />
+          <button
+            onClick={onCreateClick}
+            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
+          >
+            <PlusOutlined />
+            New Shipment
+          </button>
+          <button
+            onClick={onAddMasterJob}
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 h-8 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+          >
+            Add to Master Job
+          </button>
         </div>
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+      <div className="shipments-table bg-white border border-slate-200 rounded-2xl overflow-hidden">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={visible} strategy={horizontalListSortingStrategy}>
             <Table<ShipmentItem>

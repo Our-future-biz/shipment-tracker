@@ -86,7 +86,7 @@ export const LoginPage = () => {
         </Form>
 
         <div className="text-center mt-5 text-[11px] text-slate-400">
-          OurFuture.biz Operations System
+          Shipment Operations System
         </div>
       </div>
     </div>

@@ -6,7 +6,6 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Spin, Dropdown, message, Modal, Tag, Drawer, Tooltip } from "antd";
 import { api } from "@/lib/api";
 import {
-  LeftOutlined,
   CopyOutlined,
   DownOutlined,
   EnvironmentOutlined,
@@ -41,6 +40,7 @@ type CommitFn = (fieldKey: string, value: string) => void;
 /* ── Tabs ── */
 const TABS = [
   { key: "details", label: "Shipment Details" },
+  { key: "cargo", label: "Cargo Details" },
   { key: "costs", label: "Costs Breakdown" },
   { key: "documents", label: "Documents" },
   { key: "warehouse", label: "Warehouse" },
@@ -127,7 +127,7 @@ function ShipmentStepper({ shipment }: { shipment: ShipmentItem }) {
 
 function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
   return (
-    <div className="flex items-center gap-2.5 mb-4">
+    <div className="flex items-center gap-2.5 mb-3">
       <span className="text-indigo-500 text-base">{icon}</span>
       <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider m-0">
         {title}
@@ -148,7 +148,7 @@ function FieldRow({
   onCommit: CommitFn;
 }) {
   return (
-    <div className="flex py-2 text-xs border-b border-slate-100 last:border-b-0">
+    <div className="flex py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className="text-slate-600 font-semibold w-[120px] shrink-0">{label}</span>
       <EditableCell
         className="flex-1 min-w-0"
@@ -174,7 +174,7 @@ function FieldPair({
   onCommit?: CommitFn;
 }) {
   return (
-    <div className="py-2">
+    <div className="py-1.5">
       <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
         {label}
       </div>
@@ -289,6 +289,9 @@ const DETAIL_SECTIONS: { title: string; icon: React.ReactNode; keys: string[] }[
   },
 ];
 
+/* ── Cargo-specific sections shown in the Cargo Details tab ── */
+const CARGO_SECTION_TITLES = ["Cargo & Commercial", "Containers"];
+
 function FieldGridSection({
   icon,
   title,
@@ -303,7 +306,7 @@ function FieldGridSection({
   onCommit: CommitFn;
 }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-5">
+    <div className="bg-white border border-slate-200 rounded-lg p-4">
       <SectionHeader icon={icon} title={title} />
       <div className="grid grid-cols-2 gap-x-6">
         {fieldKeys.map((key) => {
@@ -479,15 +482,6 @@ export function ShipmentDetailContent() {
     <div className="bg-slate-50 min-h-full">
       {/* ── Header ── */}
       <div className="bg-white border-b border-slate-200 px-6 pt-4 pb-0">
-        {/* Back link */}
-        <Link
-          href="/shipments"
-          className="flex items-center gap-1.5 text-sm text-indigo-500 hover:underline cursor-pointer mb-3 w-fit no-underline"
-        >
-          <LeftOutlined className="text-[10px]" />
-          <span>Back to Shipments</span>
-        </Link>
-
         {/* Title row */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
@@ -504,12 +498,14 @@ export function ShipmentDetailContent() {
 
           <div className="flex items-center gap-3">
             {/* Status badge */}
-            {status && <Tag color={statusTagColor(status)} className="m-0 text-[11px] font-semibold">{status}</Tag>}
+            {status && <Tag color={statusTagColor(status)} className="m-0 !text-[12px] !font-semibold">{status}</Tag>}
 
             {/* ERA badge */}
-            <span className="text-[11px] font-semibold bg-slate-100 border border-slate-200 rounded px-2.5 py-1">
-              {hasEra ? "ERA KNOWN" : "ERA UNKNOWN"}
-            </span>
+            {hasEra && (
+              <span className="text-[11px] font-semibold bg-slate-100 border border-slate-200 rounded px-2.5 py-1">
+                ERA KNOWN
+              </span>
+            )}
 
             {/* ETD / ETA */}
             <span className="text-xs text-slate-500">
@@ -589,7 +585,7 @@ export function ShipmentDetailContent() {
               {/* Left column */}
               <div className="space-y-4">
                 {/* SHIPMENT OVERVIEW */}
-                <div className="bg-white border border-slate-200 rounded-lg p-5">
+                <div className="bg-white border border-slate-200 rounded-lg p-4">
                   <SectionHeader icon={<ContainerOutlined />} title="Shipment Overview" />
                   <FieldRow label="Customer" fieldKey="customer" value={shipment.customer} onCommit={handleCommit} />
                   <FieldRow label="Shipper" fieldKey="shipper" value={shipment.shipper} onCommit={handleCommit} />
@@ -601,7 +597,7 @@ export function ShipmentDetailContent() {
                 </div>
 
                 {/* ADDRESSES */}
-                <div className="bg-white border border-slate-200 rounded-lg p-5">
+                <div className="bg-white border border-slate-200 rounded-lg p-4">
                   <SectionHeader icon={<EnvironmentOutlined />} title="Addresses" />
                   <div className="grid grid-cols-2 gap-3">
                     <AddressBlock label="Shipper" fieldKey="shipper" value={shipment.shipper} onCommit={handleCommit} />
@@ -615,7 +611,7 @@ export function ShipmentDetailContent() {
               {/* Right column */}
               <div className="self-start">
                 {/* TASKS */}
-                <div className="bg-white border border-slate-200 rounded-lg p-5">
+                <div className="bg-white border border-slate-200 rounded-lg p-4">
                   <SectionHeader icon={<CheckSquareOutlined />} title="Tasks" />
                   <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-3">
                     {shipment.tradeDirection === "Export" ? "Export Workflow" : "Import Workflow"}
@@ -628,7 +624,7 @@ export function ShipmentDetailContent() {
             {/* Bottom section: two-column equal grid */}
             <div className="grid grid-cols-2 gap-4">
               {/* BASIC INFORMATION */}
-              <div className="bg-white border border-slate-200 rounded-lg p-5">
+              <div className="bg-white border border-slate-200 rounded-lg p-4">
                 <SectionHeader icon={<InfoCircleOutlined />} title="Basic Information" />
                 <div className="grid grid-cols-2 gap-x-6">
                   <FieldPair label="Internal Reference" value={shipment.jobNumber} />
@@ -670,7 +666,7 @@ export function ShipmentDetailContent() {
               </div>
 
               {/* KEY DATES */}
-              <div className="bg-white border border-slate-200 rounded-lg p-5">
+              <div className="bg-white border border-slate-200 rounded-lg p-4">
                 <SectionHeader icon={<CalendarOutlined />} title="Key Dates" />
                 <div className="grid grid-cols-2 gap-x-6">
                   <FieldPair label="ETD Estimated" fieldKey="estimatedDeparture" value={shipment.estimatedDeparture} onCommit={handleCommit} />
@@ -687,7 +683,7 @@ export function ShipmentDetailContent() {
 
             {/* All remaining fields (every DB column, inline-editable) */}
             <div className="columns-1 lg:columns-2 gap-4 mt-4">
-              {DETAIL_SECTIONS.map((section) => (
+              {DETAIL_SECTIONS.filter((s) => !CARGO_SECTION_TITLES.includes(s.title)).map((section) => (
                 <div key={section.title} className="break-inside-avoid mb-4">
                   <FieldGridSection
                     icon={section.icon}
@@ -700,6 +696,22 @@ export function ShipmentDetailContent() {
               ))}
             </div>
           </>
+        )}
+
+        {activeTab === "cargo" && (
+          <div className="columns-1 lg:columns-2 gap-4">
+            {DETAIL_SECTIONS.filter((s) => CARGO_SECTION_TITLES.includes(s.title)).map((section) => (
+              <div key={section.title} className="break-inside-avoid mb-4">
+                <FieldGridSection
+                  icon={section.icon}
+                  title={section.title}
+                  fieldKeys={section.keys}
+                  shipment={shipment}
+                  onCommit={handleCommit}
+                />
+              </div>
+            ))}
+          </div>
         )}
 
         {activeTab === "costs" && <CostsTab shipment={shipment} />}
