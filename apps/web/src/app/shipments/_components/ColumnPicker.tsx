@@ -16,8 +16,10 @@ export function ColumnPicker({
   onReset,
   templates,
   activeTemplateId,
+  isDirty,
   onApplyTemplate,
   onDeactivate,
+  onSaveActive,
   onSaveTemplate,
   onDeleteTemplate,
 }: {
@@ -26,8 +28,10 @@ export function ColumnPicker({
   onReset: () => void;
   templates: ColumnTemplate[];
   activeTemplateId: string | null;
+  isDirty: boolean;
   onApplyTemplate: (id: string) => void;
   onDeactivate: () => void;
+  onSaveActive: () => void;
   onSaveTemplate: (name: string) => void;
   onDeleteTemplate: (id: string) => void;
 }) {
@@ -103,25 +107,31 @@ export function ColumnPicker({
         </div>
       )}
 
-      {/* Save current selection as a new template */}
+      {activeTemplate && (
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-[11px] text-slate-400 truncate">
+            Editing <span className="text-indigo-500 font-medium">{activeTemplate.name}</span>
+            {isDirty && <span className="text-amber-500"> · unsaved changes</span>}
+          </span>
+          <Button size="small" type="primary" onClick={onSaveActive} disabled={!isDirty}>
+            Save
+          </Button>
+        </div>
+      )}
+
+      {/* Save current selection as a NEW template (does not touch the active one) */}
       <div className="flex items-center gap-1 mb-2">
         <Input
           size="small"
-          placeholder="Save current as…"
+          placeholder="Save as new template…"
           value={templateName}
           onChange={(e) => setTemplateName(e.target.value)}
           onPressEnter={handleSaveTemplate}
         />
         <Button size="small" onClick={handleSaveTemplate} disabled={!templateName.trim()}>
-          Save
+          Save as new
         </Button>
       </div>
-
-      {activeTemplate && (
-        <div className="mb-2 text-[11px] text-slate-400">
-          Editing <span className="text-indigo-500 font-medium">{activeTemplate.name}</span> — changes save to this template.
-        </div>
-      )}
 
       <Input
         size="small"

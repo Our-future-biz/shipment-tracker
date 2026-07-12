@@ -86,7 +86,7 @@ export const ShipmentsTable = ({
   const searchParams = useSearchParams();
   const { user, token } = useAuth();
   const { updateField } = useShipments();
-  const { visible, setVisible, reset, templates, activeTemplateId, applyTemplate, deactivate, saveAsTemplate, deleteTemplate } =
+  const { visible, setVisible, reset, templates, activeTemplateId, isDirty, applyTemplate, deactivate, saveActiveTemplate, saveAsTemplate, deleteTemplate } =
     useColumnView(user?.id, token);
   // Search text, kept in sync with the URL ?q= param (also driven by the global top-nav search)
   const urlQuery = searchParams.get("q") ?? "";
@@ -422,8 +422,10 @@ export const ShipmentsTable = ({
             onReset={reset}
             templates={templates}
             activeTemplateId={activeTemplateId}
+            isDirty={isDirty}
             onApplyTemplate={applyTemplate}
             onDeactivate={deactivate}
+            onSaveActive={saveActiveTemplate}
             onSaveTemplate={saveAsTemplate}
             onDeleteTemplate={deleteTemplate}
           />

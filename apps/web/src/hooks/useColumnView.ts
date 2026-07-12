@@ -11,6 +11,10 @@ export function useColumnView(userId: string | undefined, token: string | null) 
   const prefs = useColumnPrefs(userId);
   const { templates, templatesLoaded, saveTemplate, createTemplate, deleteTemplate } = useColumnTemplates(userId, token);
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
+  // Unsaved column edits made while a template is active. null = show the
+  // template as-is. Buffering here means "Save as new" won't also mutate the
+  // currently active template.
+  const [workingColumns, setWorkingColumns] = useState<string[] | null>(null);
 
   const activeKey = userId ? `shipmentActiveTemplate:${userId}` : null;
 
@@ -48,41 +52,81 @@ export function useColumnView(userId: string | undefined, token: string | null) 
   // Drop a stale active id if its template no longer exists (deleted elsewhere).
   useEffect(() => {
     if (activeTemplateId && templatesLoaded && !templates.some((t) => t.id === activeTemplateId)) {
+      setWorkingColumns(null);
       persistActive(null);
     }
   }, [activeTemplateId, templatesLoaded, templates, persistActive]);
 
   const visible = useMemo(
-    () => withFixedColumns(activeTemplate ? activeTemplate.columns : prefs.visible),
-    [activeTemplate, prefs.visible],
+    () => withFixedColumns(workingColumns ?? (activeTemplate ? activeTemplate.columns : prefs.visible)),
+    [workingColumns, activeTemplate, prefs.visible],
   );
 
   const setVisible = useCallback(
     (keys: string[]) => {
       const normalized = withFixedColumns(keys);
-      if (activeTemplate) saveTemplate(activeTemplate.name, normalized);
+      // With a template active, edits stay in the working buffer until the user
+      // explicitly saves them (to this template or as a new one). The default
+      // view has no branching concern, so it auto-saves to prefs.
+      if (activeTemplate) setWorkingColumns(normalized);
       else prefs.save(normalized);
     },
-    [activeTemplate, saveTemplate, prefs],
+    [activeTemplate, prefs],
   );
+
+  // Whether the working buffer differs from the active template's saved columns.
+  const isDirty = useMemo(() => {
+    if (!activeTemplate || workingColumns == null) return false;
+    const a = withFixedColumns(workingColumns);
+    const b = withFixedColumns(activeTemplate.columns);
+    return a.length !== b.length || a.some((k, i) => k !== b[i]);
+  }, [activeTemplate, workingColumns]);
+
+  // Persist the working buffer to the currently active template.
+  const saveActiveTemplate = useCallback(() => {
+    if (activeTemplate && workingColumns) {
+      saveTemplate(activeTemplate.name, withFixedColumns(workingColumns));
+      setWorkingColumns(null);
+    }
+  }, [activeTemplate, workingColumns, saveTemplate]);
 
   const saveAsTemplate = useCallback(
     async (name: string) => {
       const created = await createTemplate(name, visible);
-      if (created) persistActive(created.id);
+      if (created) {
+        setWorkingColumns(null);
+        persistActive(created.id);
+      }
     },
     [createTemplate, visible, persistActive],
   );
 
+  const applyTemplate = useCallback(
+    (id: string) => {
+      setWorkingColumns(null);
+      persistActive(id);
+    },
+    [persistActive],
+  );
+
+  const deactivate = useCallback(() => {
+    setWorkingColumns(null);
+    persistActive(null);
+  }, [persistActive]);
+
   const removeTemplate = useCallback(
     (id: string) => {
       deleteTemplate(id);
-      if (id === activeTemplateId) persistActive(null);
+      if (id === activeTemplateId) {
+        setWorkingColumns(null);
+        persistActive(null);
+      }
     },
     [deleteTemplate, activeTemplateId, persistActive],
   );
 
   const reset = useCallback(() => {
+    setWorkingColumns(null);
     persistActive(null);
     prefs.reset();
   }, [persistActive, prefs]);
@@ -93,8 +137,10 @@ export function useColumnView(userId: string | undefined, token: string | null) 
     reset,
     templates,
     activeTemplateId,
-    applyTemplate: (id: string) => persistActive(id),
-    deactivate: () => persistActive(null),
+    isDirty,
+    applyTemplate,
+    deactivate,
+    saveActiveTemplate,
     saveAsTemplate,
     deleteTemplate: removeTemplate,
   };
