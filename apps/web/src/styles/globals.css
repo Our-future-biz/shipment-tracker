@@ -24,8 +24,9 @@
   border-radius: 0;
 }
 
-/* Slightly more compact shipments table */
-.shipments-table .ant-table-cell {
+/* Slightly more compact data tables (shipments, quotes, warehouse) */
+.shipments-table .ant-table-cell,
+.data-table .ant-table-cell {
   padding-top: 6px !important;
   padding-bottom: 6px !important;
 }

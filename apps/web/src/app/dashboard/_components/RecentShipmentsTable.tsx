@@ -43,7 +43,7 @@ export function RecentShipmentsTable({ shipments }: RecentShipmentsTableProps) {
       key: "route",
       render: (_: unknown, record: ShipmentItem) => (
         <span className="text-slate-500 text-xs">
-          {record.pol || "\u2014"} \u2192 {record.pod || "\u2014"}
+          {record.pol || "\u2014"} → {record.pod || "\u2014"}
         </span>
       ),
     },
@@ -68,7 +68,7 @@ export function RecentShipmentsTable({ shipments }: RecentShipmentsTableProps) {
           className="text-xs text-indigo-600 cursor-pointer font-medium"
           onClick={() => router.push("/shipments")}
         >
-          View all \u2192
+          View all →
         </span>
       }
     >

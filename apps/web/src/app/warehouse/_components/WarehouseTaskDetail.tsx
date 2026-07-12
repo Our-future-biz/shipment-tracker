@@ -1,15 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Modal, Tabs, Input, Select, Button, Space, message } from "antd";
+import { Input, Select, Button, Space } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { useWarehouse } from "@/hooks/useWarehouse";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { SpreadsheetSection, CUSTOMS_COLUMNS, INVOICING_COLUMNS } from "./sections/SpreadsheetSection";
-import { PickupSection } from "./sections/PickupSection";
-import { JobNotes, ActionPushButtons } from "./sections/JobExtras";
 
 export const WAREHOUSE_TYPES = ["Import", "Export", "Customs"];
 export const WAREHOUSE_PRIORITIES = ["Low", "Medium", "High"];
@@ -19,7 +16,7 @@ export const WAREHOUSE_STATUSES = ["Pending", "In Progress", "Completed"];
 interface DimRow { colli: string; length: string; width: string; height: string; weightPerPiece: string }
 const EMPTY: DimRow = { colli: "", length: "", width: "", height: "", weightPerPiece: "" };
 
-function StandaloneDimensions({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
+export function StandaloneDimensions({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
   const { data, save, isSaving } = useWarehouseSection(ownerId, "job");
   const section = (data && typeof data === "object" ? data : {}) as Record<string, string | undefined>;
   const [rows, setRows] = useState<DimRow[]>([{ ...EMPTY }]);
@@ -30,7 +27,6 @@ function StandaloneDimensions({ ownerId, messageApi }: { ownerId: string; messag
       const parsed: DimRow[] = JSON.parse(section.remeasure_rows || "[]");
       if (parsed.length > 0) { setRows(parsed); setDirty(false); }
     } catch { /* ignore */ }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section.remeasure_rows]);
 
   const updateRow = (idx: number, field: keyof DimRow, value: string) => {
@@ -112,13 +108,13 @@ function MetaField({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
-function TaskMeta({ task }: { task: interfaces.WarehouseTaskItem }) {
+export function TaskMeta({ task }: { task: interfaces.WarehouseTaskItem }) {
   const { updateTask } = useWarehouse();
   const set = (field: string, value: string) =>
     updateTask({ id: task.id, data: { [field]: value } as controllers.WarehouseUpdateRequest });
 
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-3 mb-4 p-4 bg-slate-50 rounded-lg">
+    <div className="grid grid-cols-2 gap-x-6 gap-y-3">
       <MetaField label="Type">
         <Select size="small" defaultValue={task.type} className="w-full" options={WAREHOUSE_TYPES.map((o) => ({ value: o, label: o }))} onChange={(v) => set("type", v)} />
       </MetaField>
@@ -144,51 +140,3 @@ function TaskMeta({ task }: { task: interfaces.WarehouseTaskItem }) {
   );
 }
 
-interface WarehouseTaskDetailProps {
-  taskId: string | null;
-  onClose: () => void;
-}
-
-export function WarehouseTaskDetail({ taskId, onClose }: WarehouseTaskDetailProps) {
-  const { tasks } = useWarehouse();
-  const [messageApi, contextHolder] = message.useMessage();
-  const task = tasks.find((t) => t.id === taskId);
-
-  return (
-    <Modal
-      open={!!taskId}
-      onCancel={onClose}
-      footer={null}
-      width={1000}
-      styles={{ body: { maxHeight: "78vh", overflowY: "auto" } }}
-      title={task && <span className="font-mono text-indigo-600">{task.taskId}</span>}
-    >
-      {contextHolder}
-      {task && (
-        <>
-          <TaskMeta task={task} />
-          <Tabs
-            size="small"
-            destroyInactiveTabPane
-            items={[
-              {
-                key: "details",
-                label: "Details",
-                children: (
-                  <div>
-                    <JobNotes ownerId={task.id} messageApi={messageApi} />
-                    <StandaloneDimensions ownerId={task.id} messageApi={messageApi} />
-                    <ActionPushButtons ownerId={task.id} messageApi={messageApi} />
-                  </div>
-                ),
-              },
-              { key: "customs", label: "Customs", children: <SpreadsheetSection ownerId={task.id} section="customs" title="Customs Details" columns={CUSTOMS_COLUMNS} messageApi={messageApi} /> },
-              { key: "pickup", label: "Pick-up", children: <PickupSection ownerId={task.id} messageApi={messageApi} /> },
-              { key: "invoicing", label: "Invoicing", children: <SpreadsheetSection ownerId={task.id} section="invoicing" title="Invoice Records" columns={INVOICING_COLUMNS} messageApi={messageApi} /> },
-            ]}
-          />
-        </>
-      )}
-    </Modal>
-  );
-}

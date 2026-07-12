@@ -1,12 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Input, Table, Dropdown, Tag } from "antd";
-import { PlusOutlined, MoreOutlined, DeleteOutlined, EyeOutlined } from "@ant-design/icons";
+import { Button, Input, Dropdown } from "antd";
+import { PlusOutlined, MoreOutlined, DeleteOutlined, EyeOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useQuotes } from "@/hooks/useQuotes";
 import { PageHeader } from "@/components/PageHeader";
-import { AppCard } from "@/components/AppCard";
+import { DataTable } from "@/components/DataTable";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
 import type { interfaces } from "@/lib/api/client";
@@ -76,7 +76,6 @@ export const QuotesView = () => {
     {
       title: "",
       key: "actions",
-      fixed: "right",
       width: 50,
       render: (_: unknown, record: QuoteItem) => (
         <Dropdown
@@ -106,32 +105,28 @@ export const QuotesView = () => {
           }
         />
 
-        <AppCard>
-          <div className="mb-4 flex items-center gap-3">
-            <Input
-              placeholder="Search quotes..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="max-w-xs rounded-lg"
-              allowClear
-            />
-            <Tag bordered={false} className="text-slate-400">
-              {filtered.length} quote{filtered.length !== 1 ? "s" : ""}
-            </Tag>
-            <span className="ml-auto text-xs text-slate-400">Double-click a cell to edit</span>
-          </div>
-          <Table
-            dataSource={filtered}
-            columns={columns}
-            rowKey="id"
-            loading={isLoading}
-            size="small"
-            scroll={{ x: "max-content" }}
-            pagination={{ pageSize: 25, showSizeChanger: false }}
-            className="border border-slate-200 rounded-lg overflow-hidden"
-            locale={{ emptyText: "No quotes yet" }}
+        {/* Filter bar */}
+        <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4">
+          <Input
+            placeholder="Search quotes..."
+            prefix={<SearchOutlined className="text-slate-400" />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            allowClear
+            className="w-60"
           />
-        </AppCard>
+          <span className="text-xs text-slate-400">Double-click a cell to edit</span>
+        </div>
+
+        <DataTable<QuoteItem>
+          dataSource={filtered}
+          columns={columns}
+          rowKey="id"
+          loading={isLoading}
+          scroll={{ x: "max-content" }}
+          locale={{ emptyText: "No quotes yet" }}
+          resetKey={search}
+        />
 
         <ConfirmModal
           open={!!deleteTarget}

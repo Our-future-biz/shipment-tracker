@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Table, Input, Select, Drawer, Tooltip, Popover } from "antd";
+import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination } from "antd";
 import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
@@ -71,11 +71,7 @@ const STATUS_OPTIONS = [
   { value: "delivered", label: "Delivered" },
 ];
 
-const PAGE_SIZE_OPTIONS = [
-  { value: 10, label: "10" },
-  { value: 25, label: "25" },
-  { value: 50, label: "50" },
-];
+const PAGE_SIZE_OPTIONS = [50, 100, 150, 200];
 
 export const ShipmentsTable = ({
   shipments,
@@ -109,7 +105,8 @@ export const ShipmentsTable = ({
   };
 
   const [statusFilter, setStatusFilter] = useState("all");
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(50);
+  const [currentPage, setCurrentPage] = useState(1);
   const [mczModal, setMczModal] = useState<string | null>(null);
   const [docsShipment, setDocsShipment] = useState<ShipmentItem | null>(null);
 
@@ -286,6 +283,20 @@ export const ShipmentsTable = ({
     return cols;
   }, [visible, rowInfo, router, updateField]);
 
+  // Client-side pagination (custom bottom bar so the size selector sits on the left).
+  const totalRows = filtered.length;
+  const pageCount = Math.max(1, Math.ceil(totalRows / pageSize));
+  const safePage = Math.min(currentPage, pageCount);
+  const paged = useMemo(
+    () => filtered.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [filtered, safePage, pageSize],
+  );
+
+  // Reset to the first page whenever the result set or page size changes.
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, statusFilter, activeFilters, pageSize]);
+
   return (
     <div className="flex flex-col gap-5">
       {/* Header */}
@@ -416,15 +427,6 @@ export const ShipmentsTable = ({
             onSaveTemplate={saveAsTemplate}
             onDeleteTemplate={deleteTemplate}
           />
-          <span>Rows per page</span>
-          <Select
-            value={pageSize}
-            onChange={setPageSize}
-            options={PAGE_SIZE_OPTIONS}
-            className="w-16"
-            size="small"
-          />
-          <span>{filtered.length} / {shipments.length} rows</span>
           <div className="w-px h-6 bg-slate-200" />
           <button
             onClick={onCreateClick}
@@ -447,17 +449,13 @@ export const ShipmentsTable = ({
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={visible} strategy={horizontalListSortingStrategy}>
             <Table<ShipmentItem>
-              dataSource={filtered}
+              dataSource={paged}
               columns={columns}
               rowKey="id"
               loading={isLoading}
               size="small"
               components={{ header: { cell: DraggableHeaderCell } }}
-              pagination={{
-                pageSize,
-                showSizeChanger: false,
-                showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} entries`,
-              }}
+              pagination={false}
               scroll={{ x: "max-content" }}
               rowClassName={(record) => (rowInfo.get(record.id)?.rowStyle?.color ? "cf-row-fg" : "")}
               onRow={(record) => {
@@ -468,6 +466,29 @@ export const ShipmentsTable = ({
             />
           </SortableContext>
         </DndContext>
+
+        {/* Bottom bar: rows-per-page on the left, pagination on the right */}
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100">
+          <div className="flex items-center gap-2 text-[13px] text-slate-500">
+            <span>Rows per page</span>
+            <Select
+              value={pageSize}
+              onChange={setPageSize}
+              options={PAGE_SIZE_OPTIONS.map((n) => ({ value: n, label: String(n) }))}
+              className="w-20"
+              size="small"
+            />
+          </div>
+          <Pagination
+            size="small"
+            current={safePage}
+            pageSize={pageSize}
+            total={totalRows}
+            showSizeChanger={false}
+            onChange={setCurrentPage}
+            showTotal={(total, range) => `${range[0]}-${range[1]} of ${total} entries`}
+          />
+        </div>
       </div>
 
       {mczModal && (

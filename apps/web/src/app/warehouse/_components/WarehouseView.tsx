@@ -1,25 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Table, Dropdown } from "antd";
-import { PlusOutlined, DeleteOutlined, MoreOutlined } from "@ant-design/icons";
+import { useRouter } from "next/navigation";
+import { Button, Input, Dropdown } from "antd";
+import { PlusOutlined, DeleteOutlined, MoreOutlined, SearchOutlined } from "@ant-design/icons";
 import { useWarehouse } from "@/hooks/useWarehouse";
 import { PageHeader } from "@/components/PageHeader";
-import { AppCard } from "@/components/AppCard";
+import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
 import type { controllers, interfaces } from "@/lib/api/client";
 import type { ColumnsType } from "antd/es/table";
-import { WarehouseTaskDetail, WAREHOUSE_TYPES } from "./WarehouseTaskDetail";
+import { WAREHOUSE_TYPES } from "./WarehouseTaskDetail";
 
 type WarehouseTaskItem = interfaces.WarehouseTaskItem;
 
 export const WarehouseView = () => {
   const { tasks, isLoading, createTask, updateTask, deleteTask, isCreating } = useWarehouse();
   const toast = useToast();
+  const router = useRouter();
   const [deleteTarget, setDeleteTarget] = useState<WarehouseTaskItem | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
   const [searchText, setSearchText] = useState("");
 
   const handleCreate = async () => {
@@ -34,7 +35,7 @@ export const WarehouseView = () => {
     }
     const res = await createTask({ taskId: `WHCZ2026${String(max + 1).padStart(3, "0")}` });
     toast.success("Task created");
-    setSelected(res.task.id);
+    router.push(`/warehouse/${res.task.id}`);
   };
 
   const handleUpdate = async (taskId: string, field: string, value: string) => {
@@ -61,7 +62,7 @@ export const WarehouseView = () => {
       key: "taskId",
       width: 140,
       render: (text: string, record: WarehouseTaskItem) => (
-        <span className="text-indigo-500 font-semibold font-mono cursor-pointer" onClick={() => setSelected(record.id)}>{text}</span>
+        <span className="text-indigo-500 font-semibold font-mono cursor-pointer" onClick={() => router.push(`/warehouse/${record.id}`)}>{text}</span>
       ),
     },
     {
@@ -153,26 +154,27 @@ export const WarehouseView = () => {
           }
         />
 
-        <AppCard>
-          <div className="mb-4">
-            <input
-              placeholder="Search tasks..."
-              value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
-              className="max-w-xs w-full px-3 py-1.5 border border-slate-200 rounded-lg text-[13px] text-slate-700 outline-none bg-white"
-            />
-          </div>
-          <Table
-            dataSource={filteredTasks}
-            columns={columns}
-            rowKey="id"
-            loading={isLoading}
-            size="middle"
-            pagination={{ pageSize: 20, showSizeChanger: false }}
-            className="border border-slate-200 rounded-lg overflow-hidden"
-            locale={{ emptyText: "No warehouse tasks" }}
+        {/* Filter bar */}
+        <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4">
+          <Input
+            placeholder="Search tasks..."
+            prefix={<SearchOutlined className="text-slate-400" />}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            allowClear
+            className="w-60"
           />
-        </AppCard>
+        </div>
+
+        <DataTable<WarehouseTaskItem>
+          dataSource={filteredTasks}
+          columns={columns}
+          rowKey="id"
+          loading={isLoading}
+          scroll={{ x: "max-content" }}
+          locale={{ emptyText: "No warehouse tasks" }}
+          resetKey={searchText}
+        />
 
         <ConfirmModal
           open={!!deleteTarget}
@@ -183,8 +185,6 @@ export const WarehouseView = () => {
           confirmLabel="Delete"
           danger
         />
-
-        <WarehouseTaskDetail taskId={selected} onClose={() => setSelected(null)} />
       </div>
     </div>
   );

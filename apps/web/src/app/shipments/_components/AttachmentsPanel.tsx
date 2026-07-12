@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
-import { Button } from "antd";
+import { Button, Upload } from "antd";
 import { CloseOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined, FileOutlined, FilePdfOutlined, FileExcelOutlined, FileWordOutlined, InboxOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -16,8 +15,6 @@ interface AttachmentsPanelProps {
 
 export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: AttachmentsPanelProps) => {
   const queryClient = useQueryClient();
-  const [dragOver, setDragOver] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data } = useQuery({
     queryKey: ["attachments", shipmentId],
@@ -29,24 +26,18 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["attachments", shipmentId] }),
   });
 
-  const uploadAttachments = useMutation({
-    mutationFn: async (fileList: FileList) => {
-      for (const file of Array.from(fileList)) {
-        const contentBase64 = await fileToBase64(file);
-        await api.shipments.attachmentCreate(shipmentId, {
-          fileName: file.name,
-          fileSize: file.size,
-          fileType: file.type || "application/octet-stream",
-          contentBase64,
-        });
-      }
+  const uploadAttachment = useMutation({
+    mutationFn: async (file: File) => {
+      const contentBase64 = await fileToBase64(file);
+      await api.shipments.attachmentCreate(shipmentId, {
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type || "application/octet-stream",
+        contentBase64,
+      });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["attachments", shipmentId] }),
   });
-
-  const handleFiles = (fileList: FileList | null) => {
-    if (fileList && fileList.length > 0) uploadAttachments.mutate(fileList);
-  };
 
   const files = (data?.attachments ?? []) as Array<{ id: string; fileName: string; fileSize: number; fileType: string; createdAt: string }>;
 
@@ -86,22 +77,25 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
       )}
 
       {/* Drop zone */}
-      <div
-        style={{
-          margin: "12px 14px", padding: 16, borderRadius: 6, textAlign: "center", cursor: "pointer",
-          border: dragOver ? "2px dashed #0d9488" : "2px dashed #e2e8f0",
-          background: dragOver ? "rgba(13, 148, 136, 0.04)" : "#fafafa",
-        }}
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
-        onClick={() => fileInputRef.current?.click()}
-      >
-        <input ref={fileInputRef} type="file" multiple style={{ display: "none" }} onChange={(e) => { handleFiles(e.target.files); e.target.value = ""; }} />
-        <InboxOutlined style={{ fontSize: 20, color: "#0d9488" }} />
-        <p style={{ fontSize: 11, color: "#6b7280", marginTop: 4, marginBottom: 0 }}>
-          {uploadAttachments.isPending ? "Uploading…" : "Drop files or click"}
-        </p>
+      <div style={{ margin: "12px 14px" }}>
+        <Upload.Dragger
+          name="file"
+          multiple
+          showUploadList={false}
+          customRequest={({ file, onSuccess, onError }) => {
+            uploadAttachment.mutate(file as File, {
+              onSuccess: () => onSuccess?.("ok"),
+              onError: (err) => onError?.(err as Error),
+            });
+          }}
+        >
+          <p style={{ margin: 0 }}>
+            <InboxOutlined style={{ fontSize: 20, color: "#0d9488" }} />
+          </p>
+          <p style={{ fontSize: 11, color: "#6b7280", marginTop: 4, marginBottom: 0 }}>
+            {uploadAttachment.isPending ? "Uploading…" : "Drop files or click"}
+          </p>
+        </Upload.Dragger>
       </div>
 
       {/* File list */}
