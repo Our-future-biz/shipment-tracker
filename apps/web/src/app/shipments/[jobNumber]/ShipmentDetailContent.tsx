@@ -280,7 +280,7 @@ const DETAIL_SECTIONS: { title: string; icon: React.ReactNode; keys: string[] }[
   {
     title: "Quote",
     icon: <FileTextOutlined />,
-    keys: ["salesNumber", "selling", "quoteValidity", "validityStatus"],
+    keys: ["salesNumber", "selling", "buying", "profit", "quoteValidity", "validityStatus"],
   },
   {
     title: "Other",
@@ -677,9 +677,13 @@ export function ShipmentDetailContent() {
                 <SectionHeader icon={<CalendarOutlined />} title="Key Dates" />
                 <div className="grid grid-cols-2 gap-x-6">
                   <FieldPair label="ETD Estimated" fieldKey="estimatedDeparture" value={shipment.estimatedDeparture} onCommit={handleCommit} />
+                  <FieldPair label="Estimated Departure Week" value={getFieldValue(shipment, "estimatedDepartureWeek")} />
                   <FieldPair label="ATD Actual" fieldKey="actualDeparture" value={shipment.actualDeparture} onCommit={handleCommit} />
+                  <FieldPair label="Actual Departure Week" value={getFieldValue(shipment, "actualDepartureWeek")} />
                   <FieldPair label="ETA Estimated" fieldKey="estimatedArrival" value={shipment.estimatedArrival} onCommit={handleCommit} />
+                  <FieldPair label="Estimated Arrival Week" value={getFieldValue(shipment, "estimatedArrivalWeek")} />
                   <FieldPair label="ATA Actual" fieldKey="actualArrival" value={shipment.actualArrival} onCommit={handleCommit} />
+                  <FieldPair label="Actual Arrival Week" value={getFieldValue(shipment, "actualArrivalWeek")} />
                   <FieldPair label="Cargo Readiness" fieldKey="cargoReadinessDate" value={shipment.cargoReadinessDate} onCommit={handleCommit} />
                   <FieldPair label="Closing Date" fieldKey="closingDate" value={shipment.closingDate} onCommit={handleCommit} />
                   <FieldPair label="ETA Warehouse/HUB" fieldKey="etaWarehouse" value={shipment.etaWarehouse} onCommit={handleCommit} />

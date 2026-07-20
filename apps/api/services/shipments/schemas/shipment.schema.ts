@@ -119,6 +119,7 @@ export const shipmentTable = pgTable(
     // — Quote —
     salesNumber: text("sales_number").notNull().default(""),
     selling: text("selling").notNull().default(""),
+    buying: text("buying").notNull().default(""),
     quoteValidity: text("quote_validity").notNull().default(""),
     validityStatus: text("validity_status").notNull().default(""),
 

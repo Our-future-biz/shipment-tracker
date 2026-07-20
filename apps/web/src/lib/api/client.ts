@@ -1003,6 +1003,7 @@ export namespace controllers {
         salesNumber?: string
 
         selling?: string
+        buying?: string
         quoteValidity?: string
         validityStatus?: string
         /**
@@ -1179,6 +1180,7 @@ export namespace controllers {
         salesNumber?: string
 
         selling?: string
+        buying?: string
         quoteValidity?: string
         validityStatus?: string
         /**
@@ -1590,6 +1592,7 @@ export namespace interfaces {
         salesNumber: string
 
         selling: string
+        buying: string
         quoteValidity: string
         validityStatus: string
         /**

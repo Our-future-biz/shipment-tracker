@@ -85,7 +85,8 @@ export const DATE_COLUMNS = new Set([
 // ─── Computed / Read-only Columns ───────────────────────────────��─────
 
 export const COMPUTED_COLUMNS = new Set([
-  "teu", "totalWeightTons", "totalVolumeCbm", "freightTon", "surface",
+  "teu", "totalWeightTons", "totalVolumeCbm", "freightTon", "surface", "profit",
+  "estimatedDepartureWeek", "estimatedArrivalWeek", "actualDepartureWeek", "actualArrivalWeek",
 ]);
 
 // ─── Column Definitions (Full Sheet) ──────────────────────────────────
@@ -147,9 +148,13 @@ export const COLUMNS: ColumnDef[] = [
   { key: "pickupTime", title: "Pickup Time", width: 110, type: "date", apiField: "pickupTime" },
   { key: "closingDate", title: "Closing Date", width: 110, type: "date", apiField: "closingDate" },
   { key: "estimatedDeparture", title: "Estimated Departure", width: 130, type: "date", apiField: "estimatedDeparture" },
+  { key: "estimatedDepartureWeek", title: "Estimated Departure Week", width: 120, type: "computed", readonly: true },
   { key: "estimatedArrival", title: "Estimated Arrival", width: 130, type: "date", apiField: "estimatedArrival" },
+  { key: "estimatedArrivalWeek", title: "Estimated Arrival Week", width: 120, type: "computed", readonly: true },
   { key: "actualDeparture", title: "Actual Departure", width: 130, type: "date", apiField: "actualDeparture" },
+  { key: "actualDepartureWeek", title: "Actual Departure Week", width: 120, type: "computed", readonly: true },
   { key: "actualArrival", title: "Actual Arrival", width: 130, type: "date", apiField: "actualArrival" },
+  { key: "actualArrivalWeek", title: "Actual Arrival Week", width: 120, type: "computed", readonly: true },
   { key: "etaWarehouse", title: "ETA Warehouse/HUB", width: 140, type: "date", apiField: "etaWarehouse" },
   { key: "plannedDeliveryDate", title: "Planned Delivery Date", width: 140, type: "date", apiField: "plannedDeliveryDate" },
   { key: "plannedDeliveryTime", title: "Planned Delivery Time", width: 140, type: "date", apiField: "plannedDeliveryTime" },
@@ -210,7 +215,9 @@ export const COLUMNS: ColumnDef[] = [
 
   // Quote
   { key: "salesNumber", title: "Sales Number", width: 140, type: "text", apiField: "salesNumber" },
-  { key: "selling", title: "Selling", width: 120, type: "text", apiField: "selling" },
+  { key: "selling", title: "Total Selling Costs", width: 140, type: "text", apiField: "selling" },
+  { key: "buying", title: "Total Buying Costs", width: 140, type: "text", apiField: "buying" },
+  { key: "profit", title: "Profit", width: 120, type: "computed", readonly: true },
   { key: "quoteValidity", title: "Quote Validity", width: 120, type: "date", apiField: "quoteValidity" },
   { key: "validityStatus", title: "Validity Status", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Validity Status"], apiField: "validityStatus" },
 
@@ -426,6 +433,21 @@ export function computeDimensionTotals(dimensions: unknown): {
   }
 }
 
+// ISO-8601 week number (weeks start Monday; week 1 contains the year's first Thursday).
+export function getISOWeek(date: Date): number {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7; // Mon=1 … Sun=7
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum); // shift to the Thursday of this week
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d.getTime() - yearStart.getTime()) / 86_400_000 + 1) / 7);
+}
+
+function weekFromDate(dateStr: string): string {
+  const d = parseDateMMDDYY(dateStr);
+  if (!d) return "";
+  return String(getISOWeek(d));
+}
+
 export function computeTEU(rowData: Record<string, string>): number {
   let teu = 0;
   for (let i = 1; i <= 4; i++) {
@@ -463,6 +485,22 @@ export function getComputedValue(key: string, rowData: Record<string, string>): 
     case "surface": {
       return dims.surface > 0 ? dims.surface.toFixed(2) : "";
     }
+    case "profit": {
+      const selling = rowData["selling"] || "";
+      const buying = rowData["buying"] || "";
+      if (!selling && !buying) return "";
+      const sell = parseFloat(selling) || 0;
+      const buy = parseFloat(buying) || 0;
+      return (sell - buy).toFixed(2);
+    }
+    case "estimatedDepartureWeek":
+      return weekFromDate(rowData["estimatedDeparture"] || "");
+    case "estimatedArrivalWeek":
+      return weekFromDate(rowData["estimatedArrival"] || "");
+    case "actualDepartureWeek":
+      return weekFromDate(rowData["actualDeparture"] || "");
+    case "actualArrivalWeek":
+      return weekFromDate(rowData["actualArrival"] || "");
     default:
       return "";
   }

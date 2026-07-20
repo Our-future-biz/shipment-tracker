@@ -110,6 +110,7 @@ interface ShipmentCreateRequest {
   // Quote
   salesNumber?: string;
   selling?: string;
+  buying?: string;
   quoteValidity?: string;
   validityStatus?: string;
 
