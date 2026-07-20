@@ -149,7 +149,7 @@ function FieldRow({
 }) {
   return (
     <div className="flex py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="text-slate-600 font-semibold w-[120px] shrink-0">{label}</span>
+      <span className="text-slate-600 font-semibold w-[180px] shrink-0">{label}</span>
       <EditableCell
         className="flex-1 min-w-0"
         fieldKey={fieldKey}
@@ -590,10 +590,17 @@ export function ShipmentDetailContent() {
                   <FieldRow label="Customer" fieldKey="customer" value={shipment.customer} onCommit={handleCommit} />
                   <FieldRow label="Shipper" fieldKey="shipper" value={shipment.shipper} onCommit={handleCommit} />
                   <FieldRow label="Consignee" fieldKey="consignee" value={shipment.consignee} onCommit={handleCommit} />
-                  <FieldRow label="Incoterm" fieldKey="incotermOrigin" value={shipment.incotermOrigin} onCommit={handleCommit} />
-                  <FieldRow label="Container" fieldKey="containerNumber" value={shipment.containerNumber} onCommit={handleCommit} />
-                  <FieldRow label="Carrier" fieldKey="shippingLine" value={shipment.shippingLine} onCommit={handleCommit} />
-                  <FieldRow label="MBL" fieldKey="masterBolNumber" value={shipment.masterBolNumber} onCommit={handleCommit} />
+                  <div className="flex py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+                    <span className="text-slate-600 font-semibold w-[180px] shrink-0">Incoterm Origin/Destination</span>
+                    <span className="flex-1 min-w-0 text-slate-900 font-medium">
+                      {shipment.incotermOrigin || shipment.incotermDestination
+                        ? `${shipment.incotermOrigin || "—"}/${shipment.incotermDestination || "—"}`
+                        : "—"}
+                    </span>
+                  </div>
+                  <FieldRow label="Container Number" fieldKey="containerNumber" value={shipment.containerNumber} onCommit={handleCommit} />
+                  <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={shipment.shippingLine} onCommit={handleCommit} />
+                  <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={shipment.masterBolNumber} onCommit={handleCommit} />
                 </div>
 
                 {/* ADDRESSES */}
