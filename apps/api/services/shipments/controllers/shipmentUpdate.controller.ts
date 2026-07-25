@@ -43,6 +43,7 @@ interface ShipmentUpdateRequest {
   holidayCover?: string;
 
   // Customer
+  customerId?: string;
   customer?: string;
   customerPic?: string;
   customerReference?: string;

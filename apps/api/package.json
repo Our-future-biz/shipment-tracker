@@ -15,6 +15,8 @@
     "db:generate:invoicing": "drizzle-kit generate --config=services/invoicing/db/drizzle.config.ts",
     "db:generate:automation": "drizzle-kit generate --config=services/automation/db/drizzle.config.ts",
     "db:generate:warehouse": "drizzle-kit generate --config=services/warehouse/db/drizzle.config.ts",
+    "db:generate:customers": "drizzle-kit generate --config=services/customers/db/drizzle.config.ts",
+    "db:generate:sales": "drizzle-kit generate --config=services/sales/db/drizzle.config.ts",
     "db:seed": "tsx scripts/seed.ts",
     "gen:client": "encore gen client --lang=typescript --output=../web/src/lib/api/client.ts"
   },
@@ -22,7 +24,7 @@
     "@anthropic-ai/sdk": "^0.80.0",
     "@node-rs/argon2": "^2.0.0",
     "drizzle-orm": "^0.44.5",
-    "encore.dev": "^1.57.11",
+    "encore.dev": "^1.57.12",
     "jose": "^6.0.0",
     "pdf-lib": "^1.17.1",
     "pdf-parse": "^2.4.5",

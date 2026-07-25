@@ -9,6 +9,8 @@ import {
   DollarOutlined,
   FileSearchOutlined,
   InboxOutlined,
+  TeamOutlined,
+  LineChartOutlined,
   LeftOutlined,
   RightOutlined,
 } from "@ant-design/icons";
@@ -18,6 +20,8 @@ import type { ReactNode } from "react";
 const NAV_ITEMS: { path: string; label: string; icon: ReactNode }[] = [
   { path: "/dashboard", label: "Dashboard", icon: <DashboardOutlined /> },
   { path: "/shipments", label: "Shipments", icon: <ContainerOutlined /> },
+  { path: "/customers", label: "Customer Database", icon: <TeamOutlined /> },
+  { path: "/sales", label: "Sales", icon: <LineChartOutlined /> },
   { path: "/documents", label: "Document / Text Reading", icon: <FileTextOutlined /> },
   { path: "/invoicing", label: "Invoicing", icon: <DollarOutlined /> },
   { path: "/quotes", label: "Quote", icon: <FileSearchOutlined /> },

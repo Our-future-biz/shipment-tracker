@@ -6,6 +6,7 @@ interface ShipmentListRequest {
   limit?: number;
   offset?: number;
   sortDirection?: "asc" | "desc";
+  customerId?: string;
 }
 
 interface ShipmentListResponse {
@@ -20,6 +21,6 @@ interface ShipmentListResponse {
 export const shipmentList = api(
   { expose: true, auth: false, method: "GET", path: "/shipments" },
   async (req: ShipmentListRequest): Promise<ShipmentListResponse> => {
-    return shipmentService.list(req) as unknown as Promise<ShipmentListResponse>;
+    return shipmentService.list(req, { customerId: req.customerId }) as unknown as Promise<ShipmentListResponse>;
   },
 );

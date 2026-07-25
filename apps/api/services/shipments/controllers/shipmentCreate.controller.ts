@@ -41,6 +41,7 @@ interface ShipmentCreateRequest {
   holidayCover?: string;
 
   // Customer
+  customerId?: string;
   customer?: string;
   customerPic?: string;
   customerReference?: string;
@@ -61,6 +62,8 @@ interface ShipmentCreateRequest {
   insurance?: string;
 
   // Dates
+  estimatedDeparture?: string;
+  estimatedArrival?: string;
   cargoReadinessDate?: string;
   pickupDate?: string;
   pickupTime?: string;

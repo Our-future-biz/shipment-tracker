@@ -50,6 +50,9 @@ export const shipmentTable = pgTable(
     holidayCover: text("holiday_cover").notNull().default(""),
 
     // — Customer —
+    // Links a shipment to a CRM customer (crm/customers service). Cross-database,
+    // so this is a plain uuid (no FK reference).
+    customerId: uuid("customer_id"),
     customer: text("customer").notNull().default(""),
     customerPic: text("customer_pic").notNull().default(""),
     customerReference: text("customer_reference").notNull().default(""),
@@ -130,6 +133,7 @@ export const shipmentTable = pgTable(
   (table) => [
     ...defaultTableIndexes("shipment", table),
     index("shipment_job_number_idx").on(table.jobNumber),
+    index("shipment_customer_id_idx").on(table.customerId),
   ],
 );
 

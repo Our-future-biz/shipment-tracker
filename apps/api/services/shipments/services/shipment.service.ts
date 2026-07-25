@@ -1,13 +1,19 @@
+import { eq } from "drizzle-orm";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
+import { shipmentTable } from "../schemas/shipment.schema";
 import type { PaginationRequest } from "../../../lib/db/interface";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
 
 class ShipmentService {
-  async list(request: PaginationRequest) {
+  async list(request: PaginationRequest, filters?: { customerId?: string }) {
+    const whereClauses = filters?.customerId
+      ? [eq(shipmentTable.customerId, filters.customerId)]
+      : [];
     const result = await shipmentRepository.getPaginated({
       request,
+      whereClauses,
       defaultOrderBy: shipmentRepository["table"].createdAt,
       defaultMaxLimit: 200,
       defaultLimit: 100,

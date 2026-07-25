@@ -1,0 +1,25 @@
+import { pgTable, text, uuid, boolean, index } from "drizzle-orm/pg-core";
+import { defaultTableColumns, defaultTableIndexes } from "../../../lib/db/defaults";
+import { customerTable } from "./customer.schema";
+
+export const contactTable = pgTable(
+  "contact",
+  {
+    ...defaultTableColumns,
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customerTable.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    email: text("email").notNull().default(""),
+    phone: text("phone").notNull().default(""),
+    role: text("role").notNull().default("Operations"), // Sales / Operations / Finance
+    isMain: boolean("is_main").notNull().default(false),
+  },
+  (table) => [
+    ...defaultTableIndexes("contact", table),
+    index("contact_customer_id_idx").on(table.customerId),
+  ],
+);
+
+export type ContactRecord = typeof contactTable.$inferSelect;
+export type NewContactRecord = typeof contactTable.$inferInsert;

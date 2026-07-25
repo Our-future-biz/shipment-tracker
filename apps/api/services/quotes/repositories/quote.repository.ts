@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and, like, isNull } from "drizzle-orm";
 import { BaseRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { quoteTable } from "../schemas/quote.schema";
@@ -10,6 +10,14 @@ class QuoteRepository extends BaseRepository<typeof quoteTable> {
 
   async findByQuoteNumber(quoteNumber: string) {
     return this.getByColumn(quoteTable.quoteNumber, quoteNumber);
+  }
+
+  async findNumbersByPrefix(prefix: string): Promise<string[]> {
+    const rows = await this.db
+      .select({ quoteNumber: quoteTable.quoteNumber })
+      .from(quoteTable)
+      .where(and(like(quoteTable.quoteNumber, `${prefix}%`), isNull(quoteTable.deletedAt)));
+    return rows.map((r) => r.quoteNumber);
   }
 
   async updateData(quoteNumber: string, data: unknown) {

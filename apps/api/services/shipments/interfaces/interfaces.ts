@@ -46,6 +46,7 @@ export interface ShipmentItem {
   holidayCover: string;
 
   // Customer
+  customerId: string | null;
   customer: string;
   customerPic: string;
   customerReference: string;

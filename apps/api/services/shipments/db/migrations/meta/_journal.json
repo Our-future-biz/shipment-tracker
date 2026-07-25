@@ -43,6 +43,13 @@
       "when": 1784574617247,
       "tag": "0005_bouncy_lilandra",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784998731642,
+      "tag": "0006_mature_abomination",
+      "breakpoints": true
     }
   ]
 }
