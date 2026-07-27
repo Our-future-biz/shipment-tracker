@@ -20,7 +20,7 @@ importers:
         specifier: ^0.44.5
         version: 0.44.7(@libsql/client@0.15.15)(@types/pg@8.20.0)(pg@8.20.0)
       encore.dev:
-        specifier: ^1.57.12
+        specifier: ^1.57.13
         version: 1.57.13
       jose:
         specifier: ^6.0.0
