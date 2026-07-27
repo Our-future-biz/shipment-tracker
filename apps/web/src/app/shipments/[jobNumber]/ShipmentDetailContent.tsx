@@ -412,7 +412,6 @@ export function ShipmentDetailContent() {
   const handleCommit: CommitFn = (fieldKey, value) => updateField(shipment.id, fieldKey, value);
 
   const status = shipment.status ?? "";
-  const hasEra = !!(shipment.estimatedDeparture && shipment.estimatedArrival);
   const routeSegments = [shipment.pol, shipment.pod, shipment.destination].filter(Boolean);
 
   const handleCopy = () => {
@@ -499,13 +498,6 @@ export function ShipmentDetailContent() {
           <div className="flex items-center gap-3">
             {/* Status badge */}
             {status && <Tag color={statusTagColor(status)} className="m-0 !text-[12px] !font-semibold">{status}</Tag>}
-
-            {/* ERA badge */}
-            {hasEra && (
-              <span className="text-[11px] font-semibold bg-slate-100 border border-slate-200 rounded px-2.5 py-1">
-                ERA KNOWN
-              </span>
-            )}
 
             {/* ETD / ETA */}
             <span className="text-xs text-slate-500">
