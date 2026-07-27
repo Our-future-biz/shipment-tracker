@@ -8,6 +8,7 @@ export interface PackageLine {
   width: number;
   height: number;
   weight: number;
+  stackable?: boolean;
 }
 
 export interface CostLine {
@@ -16,6 +17,7 @@ export interface CostLine {
   supplier?: string;
   currency: string;
   amount: number;
+  value?: number;
 }
 
 export interface TimelineEntry {
@@ -64,6 +66,7 @@ export interface SalesQuoteData {
   shippingTerms?: string; // name of a terms_condition template
   shippingIncludes?: string;
   shippingExcludes?: string;
+  shippingTermsNotes?: string;
   // Lifecycle
   quoteStatus?: string; // draft / ready_to_send / quoted / feedback / revised / won / lost / expired
   substatus?: string;
@@ -91,7 +94,7 @@ export const QUOTE_STATUSES: QuoteStatusDef[] = [
   { key: "revised", label: "Revised", winProbability: 50, color: { bg: "#ede9fe", text: "#7c3aed" }, next: ["quoted", "won", "lost"] },
   { key: "won", label: "Won", winProbability: 100, color: { bg: "#dcfce7", text: "#16a34a" }, next: [] },
   { key: "lost", label: "Lost", winProbability: 0, color: { bg: "#fee2e2", text: "#dc2626" }, next: ["draft"] },
-  { key: "expired", label: "Expired", winProbability: 0, color: { bg: "#fee2e2", text: "#dc2626" }, next: ["draft", "revised"] },
+  { key: "expired", label: "Expired", winProbability: 0, color: { bg: "#f1f5f9", text: "#64748b" }, next: ["draft", "revised"] },
 ];
 
 export const QUOTE_STATUS_MAP: Record<string, QuoteStatusDef> = Object.fromEntries(
@@ -106,13 +109,14 @@ export const FEEDBACK_SUBSTATUSES = [
 ] as const;
 
 export const LOST_REASONS: Record<string, string[]> = {
-  Pricing: ["Price too high", "Competitor cheaper", "Budget constraints"],
+  Pricing: ["Price too high", "Competitor cheaper", "Margin too low"],
   Operational: ["Transit time too long", "No suitable schedule", "Capacity unavailable"],
-  Customer: ["No response", "Cancelled shipment", "Changed provider"],
-  Internal: ["Missed deadline", "Incorrect quote", "Service not offered"],
-  Commercial: ["Payment terms", "Credit risk", "Strategic decision"],
+  Customer: ["Shipment canceled", "Customer postponed shipment", "Customer inactive", "No response"],
+  Internal: ["Quote sent too late", "Missing follow-up", "Incorrect quotation"],
+  Commercial: ["Existing supplier retained", "Lost tender", "Customer chose direct carrier"],
 };
 
+export const PACKING_TYPES = ["Pallets", "Colli", "Cartons", "Boxes", "Wooden boxes", "Crates", "Drums"] as const;
 export const INCOTERMS = ["EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP", "FAS", "FOB", "CFR", "CIF"] as const;
 export const SERVICE_TYPES = ["Air", "Sea FCL", "Sea LCL", "Rail", "Road"] as const;
 export const DIRECTIONS = ["Export", "Import"] as const;

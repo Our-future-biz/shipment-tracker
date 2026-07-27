@@ -64,7 +64,7 @@ export function FinanceTab({ customerId }: { customerId: string }) {
       title: "Amount",
       dataIndex: "amount",
       align: "right",
-      render: (_: unknown, record: InvoiceItem) => fmtMoney(record.amount),
+      render: (_: unknown, record: InvoiceItem) => fmtMoney(record.amount, customer?.currency),
     },
     {
       title: "Issued",
@@ -104,19 +104,19 @@ export function FinanceTab({ customerId }: { customerId: string }) {
       <div className="grid grid-cols-4 gap-3 mb-4">
         <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5">
           <div className="text-[11px] text-slate-400 uppercase tracking-wide">Open Invoices</div>
-          <div className="text-lg font-bold text-slate-800 mt-0.5">{fmtMoney(openTotal)}</div>
+          <div className="text-lg font-bold text-slate-800 mt-0.5">{fmtMoney(openTotal, customer?.currency)}</div>
         </div>
         <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5">
           <div className="text-[11px] text-slate-400 uppercase tracking-wide">Overdue</div>
-          <div className="text-lg font-bold text-slate-800 mt-0.5">{fmtMoney(overdueTotal)}</div>
+          <div className="text-lg font-bold text-slate-800 mt-0.5">{fmtMoney(overdueTotal, customer?.currency)}</div>
         </div>
         <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5">
           <div className="text-[11px] text-slate-400 uppercase tracking-wide">Credit Limit</div>
-          <div className="text-lg font-bold text-slate-800 mt-0.5">{fmtMoney(customer?.creditLimit ?? 0)}</div>
+          <div className="text-lg font-bold text-slate-800 mt-0.5">{fmtMoney(customer?.creditLimit ?? 0, customer?.currency)}</div>
         </div>
         <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5">
           <div className="text-[11px] text-slate-400 uppercase tracking-wide">Total Turnover</div>
-          <div className="text-lg font-bold text-slate-800 mt-0.5">{fmtMoney(customer?.totalRevenue ?? 0)}</div>
+          <div className="text-lg font-bold text-slate-800 mt-0.5">{fmtMoney(customer?.totalRevenue ?? 0, customer?.currency)}</div>
         </div>
       </div>
 

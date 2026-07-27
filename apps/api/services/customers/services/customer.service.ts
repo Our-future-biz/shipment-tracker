@@ -1,4 +1,10 @@
 import { APIError } from "encore.dev/api";
+import { and, eq, isNull } from "drizzle-orm";
+import { db } from "../db/db";
+import { contactTable } from "../schemas/contact.schema";
+import { customerNoteTable } from "../schemas/customerNote.schema";
+import { customerDocumentTable } from "../schemas/customerDocument.schema";
+import { customerInvoiceTable } from "../schemas/customerInvoice.schema";
 import { customerRepository } from "../repositories/customer.repository";
 import { aresService } from "./ares.service";
 import { logoService } from "./logo.service";
@@ -8,6 +14,7 @@ interface CustomerPatch {
   dic?: string;
   status?: string;
   salesOwner?: string;
+  currency?: string;
   label?: string;
   creditLimit?: number;
   paymentTerms?: string;
@@ -69,6 +76,14 @@ class CustomerService {
   }
 
   async softDelete(id: string) {
+    // Cascade: soft-delete all child records so nothing is left orphaned.
+    const now = new Date();
+    for (const table of [contactTable, customerNoteTable, customerDocumentTable, customerInvoiceTable]) {
+      await db
+        .update(table)
+        .set({ deletedAt: now, updatedAt: now } as never)
+        .where(and(eq(table.customerId, id), isNull(table.deletedAt)));
+    }
     return customerRepository.softDelete(id);
   }
 
@@ -87,6 +102,15 @@ class CustomerService {
   }
 
   async uploadLogo(id: string, dataUrl: string) {
+    const match = /^data:(image\/(png|jpeg|jpg|webp|svg\+xml));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+    if (!match) {
+      throw APIError.invalidArgument("Logo must be a base64 PNG, JPG, WebP, or SVG data URL");
+    }
+    const base64 = match[3] ?? "";
+    const bytes = Math.floor((base64.length * 3) / 4);
+    if (bytes > 2 * 1024 * 1024) {
+      throw APIError.invalidArgument("Logo must be under 2 MB");
+    }
     return customerRepository.update(id, {
       logoData: dataUrl,
       logoSource: "upload",

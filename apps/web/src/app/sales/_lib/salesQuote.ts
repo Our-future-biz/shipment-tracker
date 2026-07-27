@@ -24,6 +24,24 @@ function sumLines(lines: CostLine[] | undefined): number {
   return (lines ?? []).reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
 }
 
+// Freight cargo metrics from the package lines. Volumetric weight uses the
+// standard air divisor of 6000 (cm³ → kg); chargeable weight is max(gross, volumetric).
+export function computeCargo(data: SalesQuoteData) {
+  const pkgs = data.packages ?? [];
+  const n = (v: unknown) => Number(v) || 0;
+  const totalPackages = pkgs.reduce((s, p) => s + n(p.qty), 0);
+  const grossWeight = pkgs.reduce((s, p) => s + n(p.qty) * n(p.weight), 0);
+  const cbm = pkgs.reduce((s, p) => s + (n(p.qty) * n(p.length) * n(p.width) * n(p.height)) / 1_000_000, 0);
+  const volumetricWeight = pkgs.reduce((s, p) => s + (n(p.qty) * n(p.length) * n(p.width) * n(p.height)) / 6000, 0);
+  return {
+    totalPackages,
+    grossWeight: Math.round(grossWeight * 100) / 100,
+    cbm: Math.round(cbm * 1000) / 1000,
+    volumetricWeight: Math.round(volumetricWeight * 100) / 100,
+    chargeableWeight: Math.round(Math.max(grossWeight, volumetricWeight) * 100) / 100,
+  };
+}
+
 export function computeTotals(data: SalesQuoteData) {
   const selling = sumLines(data.sellingLines);
   const buying = sumLines(data.buyingLines);

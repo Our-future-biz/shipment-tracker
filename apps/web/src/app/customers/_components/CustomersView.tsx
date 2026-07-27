@@ -130,7 +130,7 @@ export function CustomersView() {
       dataIndex: "totalRevenue",
       width: 130,
       align: "right",
-      render: (v: number) => <span className="text-slate-600">{fmtMoney(v)}</span>,
+      render: (v: number, record) => <span className="text-slate-600">{fmtMoney(v, record.currency)}</span>,
     },
   ];
 

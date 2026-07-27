@@ -80,7 +80,7 @@ export function QuotesTab({ customerId }: { customerId: string }) {
       },
     },
     { title: "Valid until", key: "valid", width: 120, render: (_: unknown, r) => str(r.data.validUntil) || <span className="text-slate-300">—</span> },
-    { title: "Revenue", key: "rev", width: 130, align: "right", render: (_: unknown, r) => fmtMoney(numOf(r.data.revenue)) },
+    { title: "Revenue", key: "rev", width: 130, align: "right", render: (_: unknown, r) => fmtMoney(numOf(r.data.revenue), customer?.currency) },
     { title: "Description", key: "desc", render: (_: unknown, r) => str(r.data.description) || <span className="text-slate-300">—</span> },
     {
       title: "",

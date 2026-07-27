@@ -15,7 +15,7 @@ import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { useToast } from "@/lib/toast";
 import { needsFollowUp } from "../_lib/salesQuote";
 
-export function DashboardTab({ onNavigate }: { onNavigate: (key: string) => void }) {
+export function DashboardTab() {
   const router = useRouter();
   const { salesQuotes, createQuote, isCreating } = useSalesQuotes();
   const toast = useToast();
@@ -35,12 +35,12 @@ export function DashboardTab({ onNavigate }: { onNavigate: (key: string) => void
 
   const tiles: { title: string; desc: string; icon: ReactNode; onClick: () => void; primary?: boolean; badge?: number }[] = [
     { title: "Create new quote", desc: "Start a fresh freight quotation", icon: <FileAddOutlined />, onClick: createQuoteAndOpen, primary: true },
-    { title: "Quote History", desc: `${salesQuotes.length} quotes`, icon: <HistoryOutlined />, onClick: () => onNavigate("quotes") },
-    { title: "Follow-up", desc: "Quotes awaiting a nudge", icon: <BellOutlined />, onClick: () => onNavigate("followup"), badge: followUps },
-    { title: "Pipeline", desc: "Deals by stage", icon: <FunnelPlotOutlined />, onClick: () => onNavigate("pipeline") },
-    { title: "Sales Report", desc: "KPIs and conversion", icon: <BarChartOutlined />, onClick: () => onNavigate("report") },
-    { title: "Shipment Reports", desc: "Revenue by shipment", icon: <ContainerOutlined />, onClick: () => onNavigate("shipments") },
-    { title: "Terms & Conditions", desc: "Rate offer templates", icon: <FileProtectOutlined />, onClick: () => onNavigate("terms") },
+    { title: "Quote History", desc: `${salesQuotes.length} quotes`, icon: <HistoryOutlined />, onClick: () => router.push("/sales/quotes") },
+    { title: "Follow-up", desc: "Quotes awaiting a nudge", icon: <BellOutlined />, onClick: () => router.push("/sales/followup"), badge: followUps },
+    { title: "Pipeline", desc: "Deals by stage", icon: <FunnelPlotOutlined />, onClick: () => router.push("/sales/pipeline") },
+    { title: "Sales Report", desc: "KPIs and conversion", icon: <BarChartOutlined />, onClick: () => router.push("/sales/report") },
+    { title: "Shipment Reports", desc: "Revenue by shipment", icon: <ContainerOutlined />, onClick: () => router.push("/sales/shipments") },
+    { title: "Terms & Conditions", desc: "Rate offer templates", icon: <FileProtectOutlined />, onClick: () => router.push("/sales/terms") },
   ];
 
   return (

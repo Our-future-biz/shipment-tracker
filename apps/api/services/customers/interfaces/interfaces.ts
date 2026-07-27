@@ -19,6 +19,7 @@ export interface CustomerItem {
   salesOwner: string;
   label: string;
   creditLimit: number;
+  currency: string;
   paymentTerms: string;
   freightPaymentTerms: string;
   dutyPaymentTerms: string;

@@ -1,10 +1,5 @@
-import { Suspense } from "react";
-import { SalesView } from "./_components/SalesView";
+import { redirect } from "next/navigation";
 
 export default function SalesPage() {
-  return (
-    <Suspense fallback={null}>
-      <SalesView />
-    </Suspense>
-  );
+  redirect("/sales/dashboard");
 }

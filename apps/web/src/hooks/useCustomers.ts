@@ -79,10 +79,16 @@ export const useCustomer = (id: string | null) => {
     onSuccess: invalidate,
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: () => api.customers.customerDelete(id as string),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
+  });
+
   return {
     customer: query.data?.customer ?? null,
     isLoading: query.isLoading,
     updateCustomer: updateMutation.mutateAsync,
+    deleteCustomer: deleteMutation.mutateAsync,
     fetchLogo: fetchLogoMutation.mutateAsync,
     isFetchingLogo: fetchLogoMutation.isPending,
     uploadLogo: uploadLogoMutation.mutateAsync,

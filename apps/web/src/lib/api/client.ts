@@ -1014,6 +1014,7 @@ export namespace controllers {
         salesOwner?: string
         label?: string
         creditLimit?: number
+        currency?: string
         paymentTerms?: string
         freightPaymentTerms?: string
         dutyPaymentTerms?: string
@@ -1910,6 +1911,7 @@ export namespace interfaces {
         salesOwner: string
         label: string
         creditLimit: number
+        currency: string
         paymentTerms: string
         freightPaymentTerms: string
         dutyPaymentTerms: string

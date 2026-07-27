@@ -98,7 +98,7 @@ export function ShipmentsTab({ customerId }: { customerId: string }) {
     { title: "Status", dataIndex: "status", width: 120 },
     { title: "ETD", dataIndex: "estimatedDeparture", width: 110, render: (v: string | null) => v || <span className="text-slate-300">—</span> },
     { title: "ETA", dataIndex: "estimatedArrival", width: 110, render: (v: string | null) => v || <span className="text-slate-300">—</span> },
-    { title: "Revenue", key: "rev", width: 120, align: "right", render: (_: unknown, r) => fmtMoney(num(r.selling)) },
+    { title: "Revenue", key: "rev", width: 120, align: "right", render: (_: unknown, r) => fmtMoney(num(r.selling), customer?.currency) },
     {
       title: "Profit",
       key: "profit",
@@ -106,7 +106,7 @@ export function ShipmentsTab({ customerId }: { customerId: string }) {
       align: "right",
       render: (_: unknown, r) => {
         const p = num(r.selling) - num(r.buying);
-        return <span className={p >= 0 ? "text-green-600" : "text-red-600"}>{fmtMoney(p)}</span>;
+        return <span className={p >= 0 ? "text-green-600" : "text-red-600"}>{fmtMoney(p, customer?.currency)}</span>;
       },
     },
     {

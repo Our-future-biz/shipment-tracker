@@ -63,7 +63,9 @@ export function statusDotColor(status: string): string {
   return STATUS_DOT[status] ?? "#94a3b8";
 }
 
-export function fmtMoney(n: number | null | undefined, currency = "CZK"): string {
+export const CURRENCIES = ["EUR", "USD", "CZK", "GBP", "CHF"] as const;
+
+export function fmtMoney(n: number | null | undefined, currency = "EUR"): string {
   const v = typeof n === "number" ? n : 0;
   return `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${currency}`;
 }

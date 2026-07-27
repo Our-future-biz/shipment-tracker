@@ -32,6 +32,37 @@ export interface NaceHit extends NaceEntry {
   code: string;
 }
 
+const LEGAL_FORM_MAP: Record<string, string> = {
+  "121": "Akciová společnost (a.s.)",
+  "122": "Akciová společnost (a.s.)",
+  "112": "Společnost s r.o. (s.r.o.)",
+  "111": "Veřejná obchodní společnost (v.o.s.)",
+  "113": "Komanditní společnost (k.s.)",
+  "211": "Státní podnik",
+  "421": "Odštěpný závod zahraniční osoby",
+  "101": "Fyzická osoba podnikatel",
+};
+
+export function legalFormText(code: string): string {
+  if (!code) return "—";
+  return LEGAL_FORM_MAP[code] ?? code;
+}
+
+export function calcStability(years: number): string {
+  if (years >= 10) return "Established";
+  if (years >= 5) return "Stable";
+  if (years >= 2) return "Growing";
+  return "New";
+}
+
+// ARES data older than 90 days is considered stale.
+export function isDataStale(lastRegistryUpdate: string): boolean {
+  if (!lastRegistryUpdate) return true;
+  const t = new Date(lastRegistryUpdate).getTime();
+  if (Number.isNaN(t)) return true;
+  return Date.now() - t > 90 * 86400000;
+}
+
 export function parseNaceCodes(nace: string): string[] {
   if (!nace) return [];
   return nace.split(",").map((s) => s.trim()).filter(Boolean);

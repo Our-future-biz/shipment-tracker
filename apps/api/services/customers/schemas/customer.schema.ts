@@ -25,6 +25,7 @@ export const customerTable = pgTable(
     salesOwner: text("sales_owner").notNull().default(""),
     label: text("label").notNull().default("STANDARD"), // KEY ACCOUNT / STANDARD / RISK / TARGET CUSTOMER / PROSPECT
     creditLimit: real("credit_limit").notNull().default(0),
+    currency: text("currency").notNull().default("EUR"),
     paymentTerms: text("payment_terms").notNull().default(""),
     freightPaymentTerms: text("freight_payment_terms").notNull().default(""),
     dutyPaymentTerms: text("duty_payment_terms").notNull().default(""),

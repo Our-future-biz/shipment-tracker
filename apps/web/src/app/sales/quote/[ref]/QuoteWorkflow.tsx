@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Button, Input, Select, Checkbox, InputNumber, Collapse, Spin, Tag } from "antd";
+import { Button, Input, Select, Checkbox, InputNumber, Collapse, Spin, Tag, Dropdown, Alert } from "antd";
 import {
   ArrowLeftOutlined,
   PlusOutlined,
@@ -10,19 +10,29 @@ import {
   CopyOutlined,
   FilePdfOutlined,
   SaveOutlined,
+  DownOutlined,
+  ThunderboltOutlined,
+  MailOutlined,
+  EyeOutlined,
+  ImportOutlined,
 } from "@ant-design/icons";
-import { useSalesQuote, useSalesQuotes } from "@/hooks/useSalesQuotes";
+import { useSalesQuote } from "@/hooks/useSalesQuotes";
 import { useCustomers } from "@/hooks/useCustomers";
 import { useTermsConditions } from "@/hooks/useTermsConditions";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import type { SalesQuoteData, PackageLine, CostLine } from "../../_lib/types";
-import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, CURRENCIES, COST_LINE_TYPES } from "../../_lib/types";
-import { computeTotals, fmt } from "../../_lib/salesQuote";
+import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, CURRENCIES, COST_LINE_TYPES, PACKING_TYPES, VALIDITY_OPTIONS } from "../../_lib/types";
+import { computeTotals, computeCargo, fmt } from "../../_lib/salesQuote";
 import { printQuote } from "../../_lib/printQuote";
 import { LifecycleBar } from "./_components/LifecycleBar";
+import { ImportInquiryModal } from "./_components/ImportInquiryModal";
+import { CopyFromModal } from "./_components/CopyFromModal";
+import { DuplicateWizardModal } from "./_components/DuplicateWizardModal";
+import { PdfPreviewModal } from "./_components/PdfPreviewModal";
+import { EmailQuoteModal } from "./_components/EmailQuoteModal";
 
-const emptyPackage: PackageLine = { qty: 1, type: "Pallet", length: 120, width: 80, height: 100, weight: 100 };
+const emptyPackage: PackageLine = { qty: 1, type: "Pallets", length: 120, width: 80, height: 100, weight: 100, stackable: true };
 const emptyLine = (): CostLine => ({ type: "Ocean freight", description: "", supplier: "", currency: "EUR", amount: 0 });
 
 export function QuoteWorkflow() {
@@ -30,13 +40,14 @@ export function QuoteWorkflow() {
   const router = useRouter();
   const toast = useToast();
   const { data: loaded, isLoading, saveData } = useSalesQuote(ref);
-  const { duplicateQuote } = useSalesQuotes();
   const { customers } = useCustomers();
-  const { terms } = useTermsConditions();
+  const { terms, updateTerms } = useTermsConditions();
 
   const [draft, setDraft] = useState<SalesQuoteData>({});
   const hydrated = useRef(false);
+  const draftRef = useRef<SalesQuoteData>({});
   const [savedAt, setSavedAt] = useState<string>("");
+  const [modal, setModal] = useState<null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email">(null);
 
   useEffect(() => {
     if (loaded && !hydrated.current) {
@@ -45,8 +56,9 @@ export function QuoteWorkflow() {
     }
   }, [loaded]);
 
-  // Debounced autosave
+  // Debounced autosave (+ flush latest on unmount / navigation so nothing is lost)
   useEffect(() => {
+    draftRef.current = draft;
     if (!hydrated.current) return;
     const t = setTimeout(() => {
       saveData(draft)
@@ -57,16 +69,19 @@ export function QuoteWorkflow() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
 
+  useEffect(() => {
+    return () => {
+      if (hydrated.current) saveData(draftRef.current).catch(() => {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const set = (patch: Partial<SalesQuoteData>) => setDraft((d) => ({ ...d, ...patch }));
 
   // Packages
   const packages = draft.packages ?? [];
-  const recalcCargo = (pkgs: PackageLine[]) => {
-    const weight = pkgs.reduce((s, p) => s + p.qty * p.weight, 0);
-    const cbm = pkgs.reduce((s, p) => s + (p.qty * p.length * p.width * p.height) / 1_000_000, 0);
-    return { weight, cbm: Math.round(cbm * 1000) / 1000 };
-  };
-  const updatePackages = (pkgs: PackageLine[]) => set({ packages: pkgs, ...recalcCargo(pkgs) });
+  const cargo = useMemo(() => computeCargo(draft), [draft]);
+  const updatePackages = (pkgs: PackageLine[]) => set({ packages: pkgs, weight: computeCargo({ packages: pkgs }).grossWeight, cbm: computeCargo({ packages: pkgs }).cbm });
 
   // Pricing
   const totals = useMemo(() => computeTotals(draft), [draft]);
@@ -79,16 +94,6 @@ export function QuoteWorkflow() {
     cargo: !!(draft.commodity || packages.length),
     pricing: !!(draft.sellingLines?.length),
     terms: !!draft.shippingTerms,
-  };
-
-  const duplicate = async () => {
-    try {
-      const newRef = await duplicateQuote({ baseRef: ref, data: { ...draft } });
-      toast.success(`Duplicated as ${newRef}`);
-      router.push(`/sales/quote/${newRef}`);
-    } catch {
-      toast.error("Failed to duplicate");
-    }
   };
 
   if (isLoading) {
@@ -131,8 +136,20 @@ export function QuoteWorkflow() {
                   /* ignore — contact fields stay editable */
                 }
               }}
-              options={customers.map((c) => ({ value: c.id, label: c.companyName }))}
+              options={customers.map((c) => ({
+                value: c.id,
+                label: `${c.companyName}${c.ico ? " · IČO " + c.ico : ""}${c.city ? " · " + c.city : ""}`,
+              }))}
             />
+            {draft.customerId && (
+              <div className="mt-1.5 flex items-center gap-2 text-xs">
+                <Tag color="green">Loaded from CRM</Tag>
+                {draft.customerLabel && <Tag color="blue">{draft.customerLabel}</Tag>}
+                <button type="button" className="text-slate-400 hover:text-red-500" onClick={() => set({ customerId: undefined, customerLabel: undefined })}>
+                  clear
+                </button>
+              </div>
+            )}
           </Field>
           <Field label="Contact person">
             <Input value={draft.customerContact ?? ""} onChange={(e) => set({ customerContact: e.target.value })} />
@@ -211,29 +228,47 @@ export function QuoteWorkflow() {
             </div>
           </div>
 
+          {draft.dangerous && (
+            <Alert
+              type="warning"
+              showIcon
+              message="Dangerous goods declared"
+              description="Provide UN number, class, packing group and an SDS before booking. DG surcharges may apply."
+            />
+          )}
+
           <div className="border border-slate-200 rounded-xl overflow-hidden">
-            <div className="grid grid-cols-[60px_1fr_1fr_1fr_1fr_90px_40px] gap-2 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500">
-              <span>Qty</span><span>Type</span><span>L (cm)</span><span>W (cm)</span><span>H (cm)</span><span>Kg/ea</span><span />
+            <div className="grid grid-cols-[60px_1.3fr_70px_70px_70px_80px_70px_40px] gap-2 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500">
+              <span>Qty</span><span>Packing</span><span>L (cm)</span><span>W (cm)</span><span>H (cm)</span><span>Kg/ea</span><span>Stack</span><span />
             </div>
             {packages.map((p, i) => (
-              <div key={i} className="grid grid-cols-[60px_1fr_1fr_1fr_1fr_90px_40px] gap-2 px-3 py-2 items-center border-t border-slate-100">
+              <div key={i} className="grid grid-cols-[60px_1.3fr_70px_70px_70px_80px_70px_40px] gap-2 px-3 py-2 items-center border-t border-slate-100">
                 <InputNumber size="small" min={1} value={p.qty} onChange={(v) => updatePackages(packages.map((x, j) => (j === i ? { ...x, qty: v ?? 1 } : x)))} />
-                <Input size="small" value={p.type} onChange={(e) => updatePackages(packages.map((x, j) => (j === i ? { ...x, type: e.target.value } : x)))} />
+                <Select size="small" value={p.type} onChange={(v) => updatePackages(packages.map((x, j) => (j === i ? { ...x, type: v } : x)))} options={PACKING_TYPES.map((t) => ({ value: t, label: t }))} />
                 <InputNumber size="small" min={0} value={p.length} onChange={(v) => updatePackages(packages.map((x, j) => (j === i ? { ...x, length: v ?? 0 } : x)))} />
                 <InputNumber size="small" min={0} value={p.width} onChange={(v) => updatePackages(packages.map((x, j) => (j === i ? { ...x, width: v ?? 0 } : x)))} />
                 <InputNumber size="small" min={0} value={p.height} onChange={(v) => updatePackages(packages.map((x, j) => (j === i ? { ...x, height: v ?? 0 } : x)))} />
                 <InputNumber size="small" min={0} value={p.weight} onChange={(v) => updatePackages(packages.map((x, j) => (j === i ? { ...x, weight: v ?? 0 } : x)))} />
+                <div className="flex justify-center">
+                  <Checkbox checked={p.stackable !== false} onChange={(e) => updatePackages(packages.map((x, j) => (j === i ? { ...x, stackable: e.target.checked } : x)))} />
+                </div>
                 <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => updatePackages(packages.filter((_, j) => j !== i))} />
               </div>
             ))}
-            <div className="px-3 py-2 border-t border-slate-100 flex items-center justify-between">
+            <div className="px-3 py-2 border-t border-slate-100">
               <Button size="small" icon={<PlusOutlined />} onClick={() => updatePackages([...packages, { ...emptyPackage }])}>
                 Add package
               </Button>
-              <span className="text-xs text-slate-500">
-                Total: <b>{draft.weight ?? 0} kg</b> · <b>{draft.cbm ?? 0} cbm</b>
-              </span>
             </div>
+          </div>
+
+          {/* Freight metrics */}
+          <div className="grid grid-cols-5 gap-2">
+            <Metric label="Packages" value={String(cargo.totalPackages)} />
+            <Metric label="Gross weight" value={`${cargo.grossWeight} kg`} />
+            <Metric label="Volume" value={`${cargo.cbm} cbm`} />
+            <Metric label="Volumetric wt" value={`${cargo.volumetricWeight} kg`} />
+            <Metric label="Chargeable wt" value={`${cargo.chargeableWeight} kg`} highlight />
           </div>
         </div>
       ),
@@ -246,12 +281,21 @@ export function QuoteWorkflow() {
           <Field label="Currency">
             <Select className="w-40" value={draft.currency ?? "EUR"} onChange={(v) => set({ currency: v })} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
           </Field>
-          <CostLinesEditor title="Buying (cost)" lines={draft.buyingLines ?? []} onChange={(l) => updateLines("buyingLines", l)} />
+          <CostLinesEditor title="Buying (cost)" lines={draft.buyingLines ?? []} onChange={(l) => updateLines("buyingLines", l)} showSupplier />
+          <div className="flex justify-end">
+            <Button size="small" icon={<CopyOutlined />} onClick={() => set({ sellingLines: (draft.buyingLines ?? []).map((l) => ({ ...l, supplier: undefined })) })}>
+              Copy buying → selling
+            </Button>
+          </div>
           <CostLinesEditor title="Selling (rate)" lines={draft.sellingLines ?? []} onChange={(l) => updateLines("sellingLines", l)} />
-          <div className="flex justify-end gap-6 text-sm">
-            <span className="text-slate-500">Selling: <b className="text-slate-800">{fmt(totals.selling, draft.currency)}</b></span>
-            <span className="text-slate-500">Buying: <b className="text-slate-800">{fmt(totals.buying, draft.currency)}</b></span>
-            <span className="text-slate-500">Profit: <b className={totals.profit >= 0 ? "text-green-600" : "text-red-600"}>{fmt(totals.profit, draft.currency)} ({totals.margin}%)</b></span>
+          <div className="grid grid-cols-3 gap-3">
+            <SummaryBox label="Buying" value={fmt(totals.buying, draft.currency)} />
+            <SummaryBox label="Selling" value={fmt(totals.selling, draft.currency)} />
+            <SummaryBox
+              label={`Profit · ${totals.margin}%`}
+              value={fmt(totals.profit, draft.currency)}
+              tone={totals.margin >= 15 ? "green" : totals.margin >= 5 ? "amber" : "red"}
+            />
           </div>
         </div>
       ),
@@ -279,6 +323,32 @@ export function QuoteWorkflow() {
           <Field label="Rate offer excludes">
             <Input.TextArea rows={4} value={draft.shippingExcludes ?? ""} onChange={(e) => set({ shippingExcludes: e.target.value })} />
           </Field>
+          <Field label="Additional conditions / notes">
+            <Input.TextArea rows={2} value={draft.shippingTermsNotes ?? ""} onChange={(e) => set({ shippingTermsNotes: e.target.value })} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3 items-end">
+            <Field label="Quote validity (days)">
+              <Select
+                className="w-full"
+                value={draft.validityDays ?? 14}
+                onChange={(v) => set({ validityDays: v })}
+                options={VALIDITY_OPTIONS.map((d) => ({ value: d, label: `${d} days` }))}
+              />
+            </Field>
+            {draft.shippingTerms && (
+              <Button
+                onClick={() => {
+                  const t = terms.find((x) => x.name === draft.shippingTerms);
+                  if (!t) return;
+                  updateTerms({ id: t.id, params: { includes: draft.shippingIncludes ?? "", excludes: draft.shippingExcludes ?? "" } })
+                    .then(() => toast.success(`Saved back to "${t.name}" template`))
+                    .catch(() => toast.error("Failed to update template"));
+                }}
+              >
+                Save changes to “{draft.shippingTerms}” template
+              </Button>
+            )}
+          </div>
         </div>
       ),
     },
@@ -287,7 +357,7 @@ export function QuoteWorkflow() {
   return (
     <div className="bg-slate-50 min-h-full p-6">
       <div className="max-w-[1100px] mx-auto">
-        <button onClick={() => router.push("/sales?tab=quotes")} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-4">
+        <button onClick={() => router.push("/sales/quotes")} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-4">
           <ArrowLeftOutlined className="text-xs" /> Quote History
         </button>
 
@@ -297,11 +367,30 @@ export function QuoteWorkflow() {
             <div className="text-xs text-slate-400 mt-0.5">{savedAt ? `Saved ${savedAt}` : "Autosaves as you type"}</div>
           </div>
           <div className="flex gap-2">
+            <Dropdown
+              menu={{
+                items: [
+                  { key: "import", icon: <ImportOutlined />, label: "Import inquiry data", onClick: () => setModal("import") },
+                  { key: "copyQuote", icon: <CopyOutlined />, label: "Copy from quote", onClick: () => setModal("copyQuote") },
+                  { key: "copyShipment", icon: <CopyOutlined />, label: "Copy from shipment", onClick: () => setModal("copyShipment") },
+                ],
+              }}
+            >
+              <Button icon={<ThunderboltOutlined />}>
+                Quick actions <DownOutlined />
+              </Button>
+            </Dropdown>
             <Button icon={<SaveOutlined />} onClick={() => saveData(draft).then(() => toast.success("Saved"))}>
               Save
             </Button>
-            <Button icon={<CopyOutlined />} onClick={duplicate}>
+            <Button icon={<CopyOutlined />} onClick={() => setModal("duplicate")}>
               Duplicate
+            </Button>
+            <Button icon={<EyeOutlined />} onClick={() => setModal("preview")}>
+              Preview
+            </Button>
+            <Button icon={<MailOutlined />} onClick={() => setModal("email")}>
+              Email
             </Button>
             <Button type="primary" icon={<FilePdfOutlined />} onClick={() => printQuote(ref, draft)}>
               Export PDF
@@ -313,8 +402,29 @@ export function QuoteWorkflow() {
           <LifecycleBar data={draft} onChange={(patch) => set(patch)} />
         </div>
 
-        <Collapse items={collapseItems} defaultActiveKey={["customer"]} className="bg-white" />
+        <div className="flex gap-4 items-start">
+          <div className="flex-1 min-w-0">
+            <Collapse items={collapseItems} defaultActiveKey={["customer"]} className="bg-white" />
+          </div>
+          <PreviewSidebar draft={draft} cargo={cargo} totals={totals} />
+        </div>
       </div>
+
+      <ImportInquiryModal open={modal === "import"} onClose={() => setModal(null)} onApply={(p) => set(p)} />
+      <CopyFromModal open={modal === "copyQuote"} mode="quote" currentRef={ref} onClose={() => setModal(null)} onApply={(p) => set(p)} />
+      <CopyFromModal open={modal === "copyShipment"} mode="shipment" currentRef={ref} onClose={() => setModal(null)} onApply={(p) => set(p)} />
+      <DuplicateWizardModal
+        open={modal === "duplicate"}
+        baseRef={ref}
+        data={draft}
+        onClose={() => setModal(null)}
+        onDone={(r) => {
+          setModal(null);
+          router.push(`/sales/quote/${r}`);
+        }}
+      />
+      <PdfPreviewModal open={modal === "preview"} quoteNumber={ref} data={draft} onClose={() => setModal(null)} />
+      <EmailQuoteModal open={modal === "email"} quoteNumber={ref} data={draft} onClose={() => setModal(null)} />
     </div>
   );
 }
@@ -328,33 +438,95 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function CostLinesEditor({ title, lines, onChange }: { title: string; lines: CostLine[]; onChange: (l: CostLine[]) => void }) {
+function CostLinesEditor({ title, lines, onChange, showSupplier }: { title: string; lines: CostLine[]; onChange: (l: CostLine[]) => void; showSupplier?: boolean }) {
+  const cols = showSupplier ? "grid-cols-[1.1fr_1.1fr_1fr_80px_100px_100px_36px]" : "grid-cols-[1.3fr_1.3fr_80px_100px_100px_36px]";
+  const patch = (i: number, p: Partial<CostLine>) => onChange(lines.map((x, j) => (j === i ? { ...x, ...p } : x)));
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden">
       <div className="bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500">{title}</div>
+      <div className={`grid ${cols} gap-2 px-3 py-1.5 text-[10px] font-semibold uppercase text-slate-400`}>
+        <span>Type</span>
+        <span>Description</span>
+        {showSupplier && <span>Supplier</span>}
+        <span>Ccy</span>
+        <span>Amount</span>
+        <span>Value</span>
+        <span />
+      </div>
       {lines.map((l, i) => (
-        <div key={i} className="grid grid-cols-[1fr_1fr_90px_110px_40px] gap-2 px-3 py-2 items-center border-t border-slate-100">
-          <Select
-            size="small"
-            value={l.type}
-            onChange={(v) => onChange(lines.map((x, j) => (j === i ? { ...x, type: v } : x)))}
-            options={COST_LINE_TYPES.map((t) => ({ value: t, label: t }))}
-          />
-          <Input size="small" placeholder="Description" value={l.description} onChange={(e) => onChange(lines.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))} />
-          <Select
-            size="small"
-            value={l.currency}
-            onChange={(v) => onChange(lines.map((x, j) => (j === i ? { ...x, currency: v } : x)))}
-            options={CURRENCIES.map((c) => ({ value: c, label: c }))}
-          />
-          <InputNumber size="small" className="w-full" min={0} value={l.amount} onChange={(v) => onChange(lines.map((x, j) => (j === i ? { ...x, amount: v ?? 0 } : x)))} />
+        <div key={i} className={`grid ${cols} gap-2 px-3 py-2 items-center border-t border-slate-100`}>
+          <Select size="small" value={l.type} onChange={(v) => patch(i, { type: v })} options={COST_LINE_TYPES.map((t) => ({ value: t, label: t }))} />
+          <Input size="small" placeholder="Description" value={l.description} onChange={(e) => patch(i, { description: e.target.value })} />
+          {showSupplier && <Input size="small" placeholder="Supplier" value={l.supplier ?? ""} onChange={(e) => patch(i, { supplier: e.target.value })} />}
+          <Select size="small" value={l.currency} onChange={(v) => patch(i, { currency: v })} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
+          <InputNumber size="small" className="w-full" min={0} value={l.amount} onChange={(v) => patch(i, { amount: v ?? 0 })} />
+          <InputNumber size="small" className="w-full" min={0} placeholder="=amt" value={l.value} onChange={(v) => patch(i, { value: v ?? undefined })} />
           <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => onChange(lines.filter((_, j) => j !== i))} />
         </div>
       ))}
       <div className="px-3 py-2 border-t border-slate-100">
         <Button size="small" icon={<PlusOutlined />} onClick={() => onChange([...lines, emptyLine()])}>
-          Add line
+          Add {showSupplier ? "buying" : "selling"} cost
         </Button>
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  return (
+    <div className={`rounded-xl px-3 py-2 border ${highlight ? "bg-indigo-50 border-indigo-200" : "bg-slate-50 border-slate-100"}`}>
+      <div className="text-[10px] text-slate-400 uppercase tracking-wide">{label}</div>
+      <div className={`text-sm font-bold mt-0.5 ${highlight ? "text-indigo-700" : "text-slate-800"}`}>{value}</div>
+    </div>
+  );
+}
+
+function SummaryBox({ label, value, tone }: { label: string; value: string; tone?: "green" | "amber" | "red" }) {
+  const toneClass = tone === "green" ? "text-green-600" : tone === "amber" ? "text-amber-600" : tone === "red" ? "text-red-600" : "text-slate-800";
+  return (
+    <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5">
+      <div className="text-[11px] text-slate-400 uppercase tracking-wide">{label}</div>
+      <div className={`text-base font-bold mt-0.5 ${toneClass}`}>{value}</div>
+    </div>
+  );
+}
+
+function PreviewSidebar({
+  draft,
+  cargo,
+  totals,
+}: {
+  draft: SalesQuoteData;
+  cargo: { totalPackages: number; grossWeight: number; cbm: number; chargeableWeight: number };
+  totals: { selling: number; buying: number; profit: number; margin: number };
+}) {
+  const line = (label: string, value: React.ReactNode) => (
+    <div className="flex justify-between gap-2">
+      <span className="text-slate-400">{label}</span>
+      <span className="text-slate-700 text-right">{value || "—"}</span>
+    </div>
+  );
+  return (
+    <div className="w-72 shrink-0 sticky top-4 bg-white border border-slate-200 rounded-2xl p-4 space-y-3 text-[12px]">
+      <div className="text-sm font-semibold text-slate-800">Live preview</div>
+      <div className="space-y-1">
+        {line("Customer", draft.customerName)}
+        {line("Service", draft.serviceType)}
+        {line("Incoterm", draft.incoterm)}
+      </div>
+      <div className="border-t border-slate-100 pt-2 space-y-1">
+        {line("Route", draft.origin || draft.destination ? `${draft.origin || "—"} → ${draft.destination || "—"}` : "")}
+        {line("Ready", draft.readyDate)}
+      </div>
+      <div className="border-t border-slate-100 pt-2 space-y-1">
+        {line("Packages", cargo.totalPackages || "")}
+        {line("Chargeable wt", cargo.chargeableWeight ? `${cargo.chargeableWeight} kg` : "")}
+        {line("CBM", cargo.cbm || "")}
+      </div>
+      <div className="border-t border-slate-100 pt-2 space-y-1">
+        {line("Selling", fmt(totals.selling, draft.currency))}
+        {line("Profit", <span className={totals.profit >= 0 ? "text-green-600" : "text-red-600"}>{fmt(totals.profit, draft.currency)} ({totals.margin}%)</span>)}
       </div>
     </div>
   );

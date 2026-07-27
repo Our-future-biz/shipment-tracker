@@ -14,12 +14,14 @@ import {
   CloseOutlined,
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
+import { EyeOutlined, FilePdfOutlined } from "@ant-design/icons";
 import { DataTable } from "@/components/DataTable";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { useSalesPref } from "@/hooks/useSalesPrefs";
 import { useToast } from "@/lib/toast";
 import {
   computeTotals,
+  computeCargo,
   fmt,
   daysOpen,
   validityInfo,
@@ -27,7 +29,10 @@ import {
   exportQuotesCsv,
   type SalesQuote,
 } from "../_lib/salesQuote";
+import type { SalesQuoteData } from "../_lib/types";
 import { QUOTE_STATUS_MAP, QUOTE_STATUSES, SERVICE_TYPES, DIRECTIONS } from "../_lib/types";
+import { printQuote } from "../_lib/printQuote";
+import { PdfPreviewModal } from "../quote/[ref]/_components/PdfPreviewModal";
 
 interface Filters {
   statuses: string[];
@@ -63,6 +68,12 @@ const COLUMN_DEFS: ColDef[] = [
   { key: "destination", title: "Destination", render: (q) => q.data.destination || <span className="text-slate-300">—</span> },
   { key: "incoterm", title: "Incoterm", width: 90, render: (q) => q.data.incoterm || <span className="text-slate-300">—</span> },
   { key: "cargoReady", title: "Cargo ready", width: 120, render: (q) => q.data.readyDate || <span className="text-slate-300">—</span> },
+  { key: "commodity", title: "Commodity", width: 130, render: (q) => q.data.commodity || <span className="text-slate-300">—</span> },
+  { key: "packages", title: "Pkgs", width: 70, render: (q) => (q.data.packages?.length ? computeCargo(q.data).totalPackages : <span className="text-slate-300">—</span>) },
+  { key: "weight", title: "Gross wt", width: 100, render: (q) => (q.data.packages?.length ? `${computeCargo(q.data).grossWeight} kg` : <span className="text-slate-300">—</span>) },
+  { key: "cbm", title: "CBM", width: 90, render: (q) => (q.data.packages?.length ? `${computeCargo(q.data).cbm} m³` : <span className="text-slate-300">—</span>) },
+  { key: "method", title: "Method", width: 90, render: (q) => q.data.method || <span className="text-slate-300">—</span> },
+  { key: "shippingTerms", title: "Shipping terms", width: 130, render: (q) => q.data.shippingTerms || <span className="text-slate-300">—</span> },
   { key: "selling", title: "Selling", width: 120, render: (q) => fmt(computeTotals(q.data).selling, q.data.currency) },
   { key: "created", title: "Created", width: 110, render: (q) => (q.createdAt ? q.createdAt.slice(0, 10) : "—") },
   {
@@ -124,6 +135,12 @@ const colText: Record<string, (q: SalesQuote) => string> = {
   destination: (q) => q.data.destination ?? "",
   incoterm: (q) => q.data.incoterm ?? "",
   cargoReady: (q) => q.data.readyDate ?? "",
+  commodity: (q) => q.data.commodity ?? "",
+  packages: (q) => String(q.data.packages?.length ?? ""),
+  weight: (q) => String(q.data.packages?.length ? computeCargo(q.data).grossWeight : ""),
+  cbm: (q) => String(q.data.packages?.length ? computeCargo(q.data).cbm : ""),
+  method: (q) => q.data.method ?? "",
+  shippingTerms: (q) => q.data.shippingTerms ?? "",
   selling: (q) => String(computeTotals(q.data).selling),
   created: (q) => q.createdAt ?? "",
   status: (q) => QUOTE_STATUS_MAP[q.data.quoteStatus ?? ""]?.label ?? "",
@@ -143,12 +160,14 @@ const BUILTIN_VIEWS: { id: string; label: string; apply: () => Filters }[] = [
 
 export function QuoteHistoryTab() {
   const router = useRouter();
-  const { salesQuotes, isLoading, createQuote, deleteQuote } = useSalesQuotes();
+  const { salesQuotes, isLoading, createQuote, deleteQuote, updateQuoteData } = useSalesQuotes();
   const { value: visibleKeys, setValue: setVisibleKeys } = useSalesPref<string[]>("qh_cols", DEFAULT_VISIBLE);
   const { value: savedViews, setValue: setSavedViews } = useSalesPref<SavedView[]>("saved_views", []);
   const toast = useToast();
 
   const [search, setSearch] = useState("");
+  const [preview, setPreview] = useState<SalesQuote | null>(null);
+  const [newQuoteRef, setNewQuoteRef] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [colFilters, setColFilters] = useState<Record<string, string>>({});
   const [showColFilters, setShowColFilters] = useState(false);
@@ -206,15 +225,39 @@ export function QuoteHistoryTab() {
     cols.push({
       title: "",
       key: "action",
-      width: 70,
+      width: 130,
+      fixed: "right",
       render: (_: unknown, record: SalesQuote) => (
-        <Button size="small" type="link" onClick={() => router.push(`/sales/quote/${record.quoteNumber}`)}>
-          Open
-        </Button>
+        <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
+          <Button size="small" type="text" icon={<EyeOutlined />} title="Preview PDF" onClick={() => setPreview(record)} />
+          <Button size="small" type="text" icon={<FilePdfOutlined />} title="Download PDF" onClick={() => printQuote(record.quoteNumber, record.data)} />
+          <Button size="small" type="link" onClick={() => router.push(`/sales/quote/${record.quoteNumber}`)}>
+            Open
+          </Button>
+        </div>
       ),
     });
     return cols;
   }, [visibleKeys, router, showColFilters, colFilters]);
+
+  // Bulk lifecycle helpers operating on the selected quotes.
+  const patchSelected = async (mutate: (d: SalesQuoteData) => SalesQuoteData, label: string) => {
+    const set = new Set(selectedKeys.map(String));
+    const targets = salesQuotes.filter((q) => set.has(q.quoteNumber));
+    await Promise.all(targets.map((q) => updateQuoteData({ quoteNumber: q.quoteNumber, data: mutate({ ...q.data }) })));
+    toast.success(`${label} ${targets.length} quote(s)`);
+    setSelectedKeys([]);
+  };
+  const bulkAssignOwner = async () => {
+    const owner = typeof window !== "undefined" ? window.prompt("Assign sales owner to selected quotes:") : "";
+    if (!owner) return;
+    await patchSelected((d) => ({ ...d, salesOwner: owner }), "Assigned owner on");
+  };
+  const bulkStatus = (status: string) =>
+    patchSelected(
+      (d) => ({ ...d, quoteStatus: status, winProbability: QUOTE_STATUS_MAP[status]?.winProbability ?? d.winProbability }),
+      `Set ${QUOTE_STATUS_MAP[status]?.label ?? status} on`,
+    );
 
   const bulkDelete = async () => {
     await Promise.all(selectedKeys.map((k) => deleteQuote(String(k))));
@@ -268,7 +311,7 @@ export function QuoteHistoryTab() {
   const createAndOpen = async () => {
     try {
       const ref = await createQuote({});
-      router.push(`/sales/quote/${ref}`);
+      setNewQuoteRef(ref);
     } catch {
       toast.error("Failed to create quote");
     }
@@ -435,8 +478,19 @@ export function QuoteHistoryTab() {
 
       {/* Bulk action bar */}
       {selectedKeys.length > 0 && (
-        <div className="flex items-center gap-3 bg-indigo-50 border border-indigo-200 rounded-2xl px-4 py-2.5 mb-3">
+        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-2xl px-4 py-2.5 mb-3">
           <span className="text-sm text-indigo-700 font-medium">{selectedKeys.length} selected</span>
+          <Dropdown
+            menu={{
+              items: [
+                { key: "owner", label: "Assign owner…", onClick: bulkAssignOwner },
+                { type: "divider" as const },
+                ...QUOTE_STATUSES.map((s) => ({ key: `st:${s.key}`, label: `Set status: ${s.label}`, onClick: () => bulkStatus(s.key) })),
+              ],
+            }}
+          >
+            <Button size="small">Actions</Button>
+          </Dropdown>
           <Button size="small" icon={<DownloadOutlined />} onClick={bulkExport}>
             Export CSV
           </Button>
@@ -475,6 +529,26 @@ export function QuoteHistoryTab() {
         <div className="pt-2">
           <div className="text-xs text-slate-500 mb-1">View name</div>
           <Input value={newViewName} onChange={(e) => setNewViewName(e.target.value)} onPressEnter={saveCurrentView} placeholder="e.g. Hot leads" />
+        </div>
+      </Modal>
+
+      {preview && <PdfPreviewModal open quoteNumber={preview.quoteNumber} data={preview.data} onClose={() => setPreview(null)} />}
+
+      {/* New quote reference-preview modal */}
+      <Modal
+        open={!!newQuoteRef}
+        onCancel={() => setNewQuoteRef(null)}
+        onOk={() => {
+          if (newQuoteRef) router.push(`/sales/quote/${newQuoteRef}`);
+        }}
+        okText="Open quote"
+        title="New quote created"
+        destroyOnHidden
+      >
+        <div className="pt-2 space-y-2">
+          <div className="text-sm text-slate-600">A unique quote reference has been generated:</div>
+          <div className="font-mono text-lg text-indigo-600">{newQuoteRef}</div>
+          <div className="text-xs text-slate-400">This reference is permanent and cannot be reused.</div>
         </div>
       </Modal>
     </div>

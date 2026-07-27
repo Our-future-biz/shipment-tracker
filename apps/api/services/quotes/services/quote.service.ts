@@ -1,3 +1,4 @@
+import { APIError } from "encore.dev/api";
 import { quoteRepository } from "../repositories/quote.repository";
 import { quoteRefSequenceRepository } from "../repositories/quoteRefSequence.repository";
 import type { PaginationRequest } from "../../../lib/db/interface";
@@ -17,6 +18,11 @@ class QuoteService {
   }
 
   async create(quoteNumber: string, data: unknown, terms?: string) {
+    // A quote reference is permanent and can never be reused.
+    const existing = await quoteRepository.findByQuoteNumber(quoteNumber);
+    if (existing) {
+      throw APIError.alreadyExists(`Quote reference ${quoteNumber} already exists and cannot be reused`);
+    }
     return quoteRepository.create({ quoteNumber, data, terms: terms ?? "" } as never);
   }
 

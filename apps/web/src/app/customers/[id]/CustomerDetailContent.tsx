@@ -1,16 +1,19 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Button, Select, Dropdown, Spin } from "antd";
-import { ArrowLeftOutlined, PictureOutlined, MoreOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, PictureOutlined, MoreOutlined, StarFilled, DeleteOutlined } from "@ant-design/icons";
 import { useCustomer } from "@/hooks/useCustomers";
 import type { controllers } from "@/lib/api/client";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
+import { legalFormText } from "../_lib/companyAnalysis";
 import {
   CUSTOMER_DETAIL_TABS,
   CUSTOMER_STATUSES,
   CUSTOMER_LABELS,
+  CURRENCIES,
   PAYMENT_TERMS,
   labelStyle,
   statusDotColor,
@@ -33,7 +36,8 @@ export function CustomerDetailContent() {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const { customer, isLoading, updateCustomer, fetchLogo, isFetchingLogo, uploadLogo, deleteLogo } = useCustomer(id);
+  const { customer, isLoading, updateCustomer, deleteCustomer, fetchLogo, isFetchingLogo, uploadLogo, deleteLogo } = useCustomer(id);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const rawTab = searchParams.get("tab");
   const activeTab = CUSTOMER_DETAIL_TABS.some((t) => t.key === rawTab) ? (rawTab as string) : "overview";
@@ -114,21 +118,39 @@ export function CustomerDetailContent() {
               <div className="flex items-center gap-2.5 flex-wrap">
                 <h1 className="text-xl font-bold text-slate-800 m-0">{customer.companyName}</h1>
                 <span
-                  className="rounded-xl text-[11px] font-medium px-2.5 py-0.5"
+                  className="inline-flex items-center gap-1 rounded-xl text-[11px] font-medium px-2.5 py-0.5"
                   style={{ backgroundColor: labelStyle(customer.label).bg, color: labelStyle(customer.label).text }}
                 >
+                  {customer.label === "KEY ACCOUNT" && <StarFilled className="text-[10px]" />}
                   {customer.label}
                 </span>
                 <span className="inline-flex items-center gap-1.5 text-[13px] text-slate-600">
                   <span className="w-2 h-2 rounded-full" style={{ backgroundColor: statusDotColor(customer.status) }} />
                   {customer.status}
                 </span>
+                {/* Registry ACTIVE/INACTIVE badge */}
+                <span
+                  className={`rounded-xl text-[10px] font-semibold px-2 py-0.5 uppercase ${
+                    customer.companyStatus.toLowerCase().includes("active")
+                      ? "bg-green-100 text-green-700"
+                      : "bg-red-100 text-red-700"
+                  }`}
+                >
+                  {customer.companyStatus.toLowerCase().includes("active") ? "Registry: Active" : "Registry: Inactive"}
+                </span>
               </div>
-              <div className="text-[13px] text-slate-500 mt-1">
-                IČO {customer.ico}
-                {customer.dic ? ` · DIČ ${customer.dic}` : ""}
-                {customer.legalForm ? ` · ${customer.legalForm}` : ""}
-                {customer.city ? ` · ${customer.city}, ${customer.country}` : ""}
+              <div className="text-[13px] text-slate-500 mt-1 flex items-center gap-1 flex-wrap">
+                <span>IČO {customer.ico}</span>
+                {customer.dic && <span>· DIČ {customer.dic}</span>}
+                {customer.legalForm && <span>· {legalFormText(customer.legalForm)}</span>}
+                {customer.city && <span>· {customer.city}, {customer.country}</span>}
+                <span>·</span>
+                <span className="text-slate-400">Owner:</span>
+                <EditableText value={customer.salesOwner} onCommit={(v) => save("salesOwner", v)} placeholder="assign…" />
+                <span>·</span>
+                <button onClick={() => router.push(`/customers/${id}/profile`)} className="text-indigo-500 hover:text-indigo-600">
+                  Full profile →
+                </button>
               </div>
             </div>
 
@@ -154,13 +176,16 @@ export function CustomerDetailContent() {
             >
               <Button icon={<MoreOutlined />} />
             </Dropdown>
+            <Button danger icon={<DeleteOutlined />} onClick={() => setDeleteOpen(true)}>
+              Delete
+            </Button>
             <input ref={fileRef} type="file" accept="image/*" hidden onChange={onLogoFile} />
           </div>
 
           {/* KPI strip */}
           <div className="grid grid-cols-4 gap-3 mt-5">
-            <Kpi label="Total Revenue" value={fmtMoney(customer.totalRevenue)} />
-            <Kpi label="Total Profit" value={fmtMoney(customer.totalProfit)} />
+            <Kpi label="Total Revenue" value={fmtMoney(customer.totalRevenue, customer.currency)} />
+            <Kpi label="Total Profit" value={fmtMoney(customer.totalProfit, customer.currency)} />
             <Kpi label="Margin" value={`${margin}%`} />
             <Kpi label="Shipments" value={String(customer.totalShipments)} />
           </div>
@@ -229,6 +254,16 @@ export function CustomerDetailContent() {
                     onCommit={(v) => save("creditLimit", Number(v) || 0)}
                   />
                 </Field>
+                <Field label="Currency">
+                  <Select
+                    size="small"
+                    variant="borderless"
+                    value={customer.currency}
+                    onChange={(v) => save("currency", v)}
+                    options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+                    className="min-w-[90px]"
+                  />
+                </Field>
                 <Field label="Payment terms">
                   <Select
                     size="small"
@@ -273,7 +308,7 @@ export function CustomerDetailContent() {
               <div className="space-y-2 text-[13px]">
                 <ReadField label="IČO" value={customer.ico} />
                 <ReadField label="DIČ" value={customer.dic} />
-                <ReadField label="Legal form" value={customer.legalForm} />
+                <ReadField label="Legal form" value={legalFormText(customer.legalForm)} />
                 <ReadField label="Address" value={customer.registeredAddress} />
                 <ReadField label="NACE" value={customer.nace} />
                 <ReadField label="Registered" value={customer.registrationDate} />
@@ -283,6 +318,21 @@ export function CustomerDetailContent() {
           </div>
         </div>
       </div>
+
+      <ConfirmModal
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={async () => {
+          await deleteCustomer();
+          setDeleteOpen(false);
+          toast.success("Customer deleted");
+          router.push("/customers");
+        }}
+        title="Delete customer"
+        description={`Delete ${customer.companyName} and all its contacts, shipments, quotes, invoices, documents and notes? This cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+      />
     </div>
   );
 }

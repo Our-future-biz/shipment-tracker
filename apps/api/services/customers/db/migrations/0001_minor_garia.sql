@@ -1,0 +1,1 @@
+ALTER TABLE "customer" ADD COLUMN "currency" text DEFAULT 'EUR' NOT NULL;
