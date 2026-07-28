@@ -1,0 +1,1 @@
+ALTER TABLE "shipment" ADD COLUMN "sales_person" text DEFAULT '' NOT NULL;

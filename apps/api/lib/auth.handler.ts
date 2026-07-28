@@ -1,5 +1,5 @@
 import { authHandler } from "encore.dev/auth";
-import { Header } from "encore.dev/api";
+import { Header, Gateway } from "encore.dev/api";
 import { authService } from "../services/auth/services/auth.service";
 
 interface AuthParams {
@@ -20,3 +20,6 @@ export const auth = authHandler(async (params: AuthParams): Promise<AuthData> =>
   const { userId, role } = await authService.verifyToken(token);
   return { userID: userId, role };
 });
+
+// Activate the auth handler so endpoints marked `auth: true` are authenticated.
+export const gateway = new Gateway({ authHandler: auth });

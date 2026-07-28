@@ -6,7 +6,7 @@ export interface SalesNavItem {
 
 // Sales submenu — each item is a real route, shown as a sidebar sub-menu.
 export const SALES_NAV: SalesNavItem[] = [
-  { key: "dashboard", label: "Dashboard", path: "/sales/dashboard" },
+  { key: "create", label: "Create new quote", path: "/sales/new-quote" },
   { key: "quotes", label: "Quote History", path: "/sales/quotes" },
   { key: "followup", label: "Follow-up", path: "/sales/followup" },
   { key: "pipeline", label: "Pipeline", path: "/sales/pipeline" },

@@ -42,13 +42,21 @@ interface ShipmentCreateRequest {
 
   // Customer
   customerId?: string;
+  shipperId?: string;
+  consigneeId?: string;
   customer?: string;
   customerPic?: string;
   customerReference?: string;
 
-  // Addresses
+  // Commercial parties
   pickupAddress?: string;
   deliveryAddress?: string;
+  shipperContact?: string;
+  consigneeContact?: string;
+  shipperOpeningFrom?: string;
+  shipperOpeningTo?: string;
+  consigneeOpeningFrom?: string;
+  consigneeOpeningTo?: string;
 
   // Status / mode
   freeComments?: string;
@@ -116,6 +124,7 @@ interface ShipmentCreateRequest {
   buying?: string;
   quoteValidity?: string;
   validityStatus?: string;
+  salesPerson?: string;
 
   // Other
   claim?: string;

@@ -47,13 +47,21 @@ export interface ShipmentItem {
 
   // Customer
   customerId: string | null;
+  shipperId: string | null;
+  consigneeId: string | null;
   customer: string;
   customerPic: string;
   customerReference: string;
 
-  // Addresses
+  // Commercial parties
   pickupAddress: string;
   deliveryAddress: string;
+  shipperContact: string;
+  consigneeContact: string;
+  shipperOpeningFrom: string;
+  shipperOpeningTo: string;
+  consigneeOpeningFrom: string;
+  consigneeOpeningTo: string;
 
   // Status / mode
   freeComments: string;
@@ -119,6 +127,7 @@ export interface ShipmentItem {
   buying: string;
   quoteValidity: string;
   validityStatus: string;
+  salesPerson: string;
 
   // Other
   claim: string;

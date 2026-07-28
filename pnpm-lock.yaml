@@ -92,6 +92,9 @@ importers:
       clsx:
         specifier: ^2.1.0
         version: 2.1.1
+      dayjs:
+        specifier: ^1.11.21
+        version: 1.11.21
       jspdf:
         specifier: ^4.2.1
         version: 4.2.1
@@ -2167,8 +2170,8 @@ packages:
     resolution: {integrity: sha512-BS8PfmtDGnrgYdOonGZQdLZslWIeCGFP9tpan0hi1Co2Zr2NKADsvGYA8XxuG/4UWgJ6Cjtv+YJnB6MM69QGlQ==}
     engines: {node: '>= 0.4'}
 
-  dayjs@1.11.20:
-    resolution: {integrity: sha512-YbwwqR/uYpeoP4pu043q+LTDLFBLApUP6VxRihdfNTqu4ubqMlGDLd6ErXhEgsyvY0K6nCs7nggYumAN+9uEuQ==}
+  dayjs@1.11.21:
+    resolution: {integrity: sha512-98IT+HOahAisibz/yjKbzuOBwYcjJ7BCLPzARyHiyEBmRz4fatF+KPJszEHXsGYjUG234aH/cOjW1wwTbKUZlA==}
 
   debug@3.2.7:
     resolution: {integrity: sha512-CFjzYYAi4ThfiQvizrFQevTTXHtnCqWfe7x1AhgEscTz6ZbLbfoLRLPugTQyBth6f8ZERVUSyWHFD/7Wu4t1XQ==}
@@ -5333,7 +5336,7 @@ snapshots:
       '@rc-component/trigger': 2.3.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       classnames: 2.5.1
       copy-to-clipboard: 3.3.3
-      dayjs: 1.11.20
+      dayjs: 1.11.21
       rc-cascader: 3.34.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       rc-checkbox: 3.5.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       rc-collapse: 3.9.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -5349,7 +5352,7 @@ snapshots:
       rc-motion: 2.9.5(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       rc-notification: 5.6.4(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       rc-pagination: 5.1.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      rc-picker: 4.11.3(dayjs@1.11.20)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      rc-picker: 4.11.3(dayjs@1.11.21)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       rc-progress: 4.0.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       rc-rate: 2.13.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       rc-resize-observer: 1.4.3(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -5629,7 +5632,7 @@ snapshots:
       es-errors: 1.3.0
       is-data-view: 1.0.2
 
-  dayjs@1.11.20: {}
+  dayjs@1.11.21: {}
 
   debug@3.2.7:
     dependencies:
@@ -6982,7 +6985,7 @@ snapshots:
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
 
-  rc-picker@4.11.3(dayjs@1.11.20)(react-dom@19.2.6(react@19.2.6))(react@19.2.6):
+  rc-picker@4.11.3(dayjs@1.11.21)(react-dom@19.2.6(react@19.2.6))(react@19.2.6):
     dependencies:
       '@babel/runtime': 7.29.2
       '@rc-component/trigger': 2.3.1(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -6993,7 +6996,7 @@ snapshots:
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
     optionalDependencies:
-      dayjs: 1.11.20
+      dayjs: 1.11.21
 
   rc-progress@4.0.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6):
     dependencies:

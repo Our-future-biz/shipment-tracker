@@ -47,6 +47,16 @@ class AuthService {
     return { id: found.id, email: found.email, displayName: found.displayName, role: found.role };
   }
 
+  async listUsers(): Promise<AuthUserInfo[]> {
+    const rows = await userRepository.getAll(500);
+    return rows.map((u) => ({
+      id: u.id,
+      email: u.email,
+      displayName: u.displayName,
+      role: u.role,
+    }));
+  }
+
   async verifyToken(token: string): Promise<{ userId: string; role: string }> {
     try {
       const { payload } = await jwtVerify(token, JWT_SECRET);

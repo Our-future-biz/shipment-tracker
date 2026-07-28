@@ -50,16 +50,24 @@ export const shipmentTable = pgTable(
     holidayCover: text("holiday_cover").notNull().default(""),
 
     // — Customer —
-    // Links a shipment to a CRM customer (crm/customers service). Cross-database,
-    // so this is a plain uuid (no FK reference).
+    // Links the party fields to CRM customers (crm/customers service). Cross-database,
+    // so these are plain uuids (no FK reference).
     customerId: uuid("customer_id"),
+    shipperId: uuid("shipper_id"),
+    consigneeId: uuid("consignee_id"),
     customer: text("customer").notNull().default(""),
     customerPic: text("customer_pic").notNull().default(""),
     customerReference: text("customer_reference").notNull().default(""),
 
-    // — Addresses —
+    // — Commercial Parties —
     pickupAddress: text("pickup_address").notNull().default(""),
     deliveryAddress: text("delivery_address").notNull().default(""),
+    shipperContact: text("shipper_contact").notNull().default(""),
+    consigneeContact: text("consignee_contact").notNull().default(""),
+    shipperOpeningFrom: text("shipper_opening_from").notNull().default(""),
+    shipperOpeningTo: text("shipper_opening_to").notNull().default(""),
+    consigneeOpeningFrom: text("consignee_opening_from").notNull().default(""),
+    consigneeOpeningTo: text("consignee_opening_to").notNull().default(""),
 
     // — Status / mode —
     freeComments: text("free_comments").notNull().default(""),
@@ -125,6 +133,7 @@ export const shipmentTable = pgTable(
     buying: text("buying").notNull().default(""),
     quoteValidity: text("quote_validity").notNull().default(""),
     validityStatus: text("validity_status").notNull().default(""),
+    salesPerson: text("sales_person").notNull().default(""),
 
     // — Other —
     claim: text("claim").notNull().default(""),

@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Spin, Dropdown, message, Modal, Tag, Drawer, Tooltip } from "antd";
+import { Spin, Dropdown, message, Modal, Tag, Drawer, Tooltip, Select, DatePicker } from "antd";
+import dayjs from "dayjs";
 import { api } from "@/lib/api";
 import {
   CopyOutlined,
@@ -17,9 +18,10 @@ import {
   PaperClipOutlined,
   FileTextOutlined,
 } from "@ant-design/icons";
-import { useShipments, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
-import { COLUMN_MAP } from "@/lib/columnConfig";
+import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
+import { COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
+import { useUsers } from "@/hooks/useUsers";
 import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
 import Link from "next/link";
 import { CostsTab } from "./tabs/CostsTab";
@@ -27,12 +29,13 @@ import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { EditableCell } from "./_components/EditableCell";
+import { CustomerLinkField } from "./_components/CustomerLinkField";
+import type { controllers } from "@/lib/api/client";
 import { TasksPanel } from "./_components/TasksPanel";
 import { MasterJobDetailModal } from "../_components/MasterJobDetailModal";
 import { MasterJobDialog } from "../_components/MasterJobDialog";
 import { LinkedQuotePanel } from "../_components/LinkedQuotePanel";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
-import { AllFieldsModal } from "../_components/AllFieldsModal";
 import { NotesDrawer } from "../_components/NotesDrawer";
 
 type CommitFn = (fieldKey: string, value: string) => void;
@@ -40,11 +43,14 @@ type CommitFn = (fieldKey: string, value: string) => void;
 /* ── Tabs ── */
 const TABS = [
   { key: "details", label: "Shipment Details" },
+  { key: "container", label: "Container Details" },
   { key: "cargo", label: "Cargo Details" },
   { key: "costs", label: "Costs Breakdown" },
+  { key: "customs", label: "Customs" },
   { key: "documents", label: "Documents" },
   { key: "warehouse", label: "Warehouse" },
   { key: "tracking", label: "Tracking" },
+  { key: "claim", label: "Claim" },
 ];
 
 /* ── Stepper stages ── */
@@ -141,11 +147,13 @@ function FieldRow({
   value,
   fieldKey,
   onCommit,
+  styleFor,
 }: {
   label: string;
   value?: string | null;
   fieldKey: string;
   onCommit: CommitFn;
+  styleFor?: StyleFor;
 }) {
   return (
     <div className="flex py-1.5 text-xs border-b border-slate-100 last:border-b-0">
@@ -157,7 +165,31 @@ function FieldRow({
         onCommit={onCommit}
         placeholder="—"
         displayClassName="text-slate-900 font-medium"
+        displayStyle={styleFor?.(fieldKey, value)}
       />
+    </div>
+  );
+}
+
+// Conditional-format style for a field, replicating the shipment list colors
+// (per-cell background/color rules + whole-row OBL text color).
+type StyleFor = (fieldKey: string, value?: string | null) => React.CSSProperties | undefined;
+
+function makeStyleFor(shipment: ShipmentItem): StyleFor {
+  const rowData = buildRowData(shipment);
+  const rowStyle = getRowConditionalStyle(rowData);
+  return (fieldKey, value) => {
+    const cell = getCellConditionalStyle(fieldKey, (value ?? "").toString(), rowData);
+    const merged: React.CSSProperties = { ...(rowStyle ?? {}), ...(cell ?? {}) };
+    return Object.keys(merged).length ? merged : undefined;
+  };
+}
+
+function EmptyTab({ title }: { title: string }) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-lg p-12 text-center">
+      <div className="text-sm font-semibold text-slate-700">{title}</div>
+      <div className="text-xs text-slate-400 mt-1">Coming soon.</div>
     </div>
   );
 }
@@ -167,12 +199,15 @@ function FieldPair({
   value,
   fieldKey,
   onCommit,
+  styleFor,
 }: {
   label: string;
   value?: string | null;
   fieldKey?: string;
   onCommit?: CommitFn;
+  styleFor?: StyleFor;
 }) {
+  const condStyle = fieldKey ? styleFor?.(fieldKey, value) : undefined;
   return (
     <div className="py-1.5">
       <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
@@ -185,10 +220,72 @@ function FieldPair({
           onCommit={onCommit}
           placeholder="—"
           displayClassName="text-xs text-slate-900 font-medium"
+          displayStyle={condStyle}
         />
       ) : (
-        <div className="text-xs text-slate-900 font-medium">{value || "—"}</div>
+        <div className="text-xs text-slate-900 font-medium" style={condStyle}>{value || "—"}</div>
       )}
+    </div>
+  );
+}
+
+function SalesPersonField({
+  value,
+  onChange,
+}: {
+  value?: string | null;
+  onChange: (value: string) => void;
+}) {
+  const { users } = useUsers();
+  return (
+    <div className="py-1.5">
+      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
+        Sales Person
+      </div>
+      <Select
+        showSearch
+        allowClear
+        variant="borderless"
+        size="small"
+        placeholder="—"
+        className="w-full -ml-2 text-xs"
+        value={value || undefined}
+        optionFilterProp="label"
+        onChange={(v) => onChange(v ?? "")}
+        options={users.map((u) => ({ label: u.displayName, value: u.displayName }))}
+      />
+    </div>
+  );
+}
+
+function OpeningHoursField({
+  from,
+  to,
+  onChange,
+}: {
+  from?: string | null;
+  to?: string | null;
+  onChange: (from: string, to: string) => void;
+}) {
+  const value: [dayjs.Dayjs | null, dayjs.Dayjs | null] = [
+    from ? dayjs(from) : null,
+    to ? dayjs(to) : null,
+  ];
+  return (
+    <div className="py-1">
+      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
+        Opening Hours (From–To)
+      </div>
+      <DatePicker.RangePicker
+        size="small"
+        className="w-full"
+        showTime={{ format: "HH:mm" }}
+        format="DD.MM.YYYY HH:mm"
+        value={value}
+        onChange={(dates) =>
+          onChange(dates?.[0]?.toISOString() ?? "", dates?.[1]?.toISOString() ?? "")
+        }
+      />
     </div>
   );
 }
@@ -198,11 +295,13 @@ function AddressBlock({
   value,
   fieldKey,
   onCommit,
+  styleFor,
 }: {
   label: string;
   value?: string | null;
   fieldKey: string;
   onCommit: CommitFn;
+  styleFor?: StyleFor;
 }) {
   return (
     <div className="bg-slate-50 rounded-lg p-3.5">
@@ -217,6 +316,7 @@ function AddressBlock({
         placeholder="Not specified"
         displayClassName="text-xs text-slate-900 leading-relaxed"
         emptyClassName="text-xs text-slate-300 italic"
+        displayStyle={styleFor?.(fieldKey, value)}
       />
     </div>
   );
@@ -298,12 +398,16 @@ function FieldGridSection({
   fieldKeys,
   shipment,
   onCommit,
+  styleFor,
+  extra,
 }: {
   icon: React.ReactNode;
   title: string;
   fieldKeys: string[];
   shipment: ShipmentItem;
   onCommit: CommitFn;
+  styleFor?: StyleFor;
+  extra?: React.ReactNode;
 }) {
   return (
     <div className="bg-white border border-slate-200 rounded-lg p-4">
@@ -320,9 +424,11 @@ function FieldGridSection({
               value={getFieldValue(shipment, key)}
               fieldKey={editable ? key : undefined}
               onCommit={editable ? onCommit : undefined}
+              styleFor={styleFor}
             />
           );
         })}
+        {extra}
       </div>
     </div>
   );
@@ -359,13 +465,14 @@ export function ShipmentDetailContent() {
   const { jobNumber } = useParams<{ jobNumber: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { shipments, isLoading, updateField, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipments();
+  const { shipments, isLoading, updateField, updateShipment, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipments();
   const [masterJobOpen, setMasterJobOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [quotePanelOpen, setQuotePanelOpen] = useState(false);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
-  const [allFieldsOpen, setAllFieldsOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const shipment = shipments.find((s) => s.id === jobNumber);
 
@@ -411,6 +518,16 @@ export function ShipmentDetailContent() {
 
   const handleCommit: CommitFn = (fieldKey, value) => updateField(shipment.id, fieldKey, value);
 
+  // Update a party's name + its CRM customer link together.
+  const linkParty = (nameKey: string, idKey: string, name: string, customerId: string | null) => {
+    updateShipment({ id: shipment.id, data: { [nameKey]: name, [idKey]: customerId } as controllers.ShipmentUpdateRequest });
+  };
+
+  // Persist a field that isn't part of the shipments table's column config.
+  const commitDirect: CommitFn = (fieldKey, value) =>
+    updateShipment({ id: shipment.id, data: { [fieldKey]: value } as controllers.ShipmentUpdateRequest });
+
+  const styleFor = makeStyleFor(shipment);
   const status = shipment.status ?? "";
   const routeSegments = [shipment.pol, shipment.pod, shipment.destination].filter(Boolean);
 
@@ -438,33 +555,22 @@ export function ShipmentDetailContent() {
     }
   };
 
-  const handleDelete = () => {
-    Modal.confirm({
-      title: "Delete shipment",
-      content: `Delete ${shipment.jobNumber ?? shipment.id}? This cannot be undone.`,
-      okText: "Delete",
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        try {
-          await deleteShipment(shipment.id);
-          message.success("Shipment deleted");
-          router.push("/shipments");
-        } catch {
-          message.error("Failed to delete shipment");
-        }
-      },
-    });
+  const confirmDelete = async () => {
+    setDeleting(true);
+    try {
+      await deleteShipment(shipment.id);
+      message.success("Order deleted");
+      setDeleteOpen(false);
+      router.push("/shipments");
+    } catch {
+      message.error("Failed to delete order");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const actionsMenu = {
     items: [
-      {
-        key: "allFields",
-        label: "View all fields",
-      },
-      {
-        type: "divider" as const,
-      },
       {
         key: "delete",
         label: "Delete shipment",
@@ -472,8 +578,7 @@ export function ShipmentDetailContent() {
       },
     ],
     onClick: ({ key }: { key: string }) => {
-      if (key === "delete") handleDelete();
-      if (key === "allFields") setAllFieldsOpen(true);
+      if (key === "delete") setDeleteOpen(true);
     },
   };
 
@@ -579,9 +684,9 @@ export function ShipmentDetailContent() {
                 {/* SHIPMENT OVERVIEW */}
                 <div className="bg-white border border-slate-200 rounded-lg p-4">
                   <SectionHeader icon={<ContainerOutlined />} title="Shipment Overview" />
-                  <FieldRow label="Customer" fieldKey="customer" value={shipment.customer} onCommit={handleCommit} />
-                  <FieldRow label="Shipper" fieldKey="shipper" value={shipment.shipper} onCommit={handleCommit} />
-                  <FieldRow label="Consignee" fieldKey="consignee" value={shipment.consignee} onCommit={handleCommit} />
+                  <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", "customerId", n, id)} />
+                  <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
+                  <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
                   <div className="flex py-1.5 text-xs border-b border-slate-100 last:border-b-0">
                     <span className="text-slate-600 font-semibold w-[180px] shrink-0">Incoterm Origin/Destination</span>
                     <span className="flex-1 min-w-0 text-slate-900 font-medium">
@@ -590,19 +695,49 @@ export function ShipmentDetailContent() {
                         : "—"}
                     </span>
                   </div>
-                  <FieldRow label="Container Number" fieldKey="containerNumber" value={shipment.containerNumber} onCommit={handleCommit} />
-                  <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={shipment.shippingLine} onCommit={handleCommit} />
-                  <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={shipment.masterBolNumber} onCommit={handleCommit} />
+                  <FieldRow label="Container Number" fieldKey="containerNumber" value={shipment.containerNumber} onCommit={handleCommit} styleFor={styleFor} />
+                  <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={shipment.shippingLine} onCommit={handleCommit} styleFor={styleFor} />
+                  <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={shipment.masterBolNumber} onCommit={handleCommit} styleFor={styleFor} />
                 </div>
 
-                {/* ADDRESSES */}
+                {/* COMMERCIAL PARTIES */}
                 <div className="bg-white border border-slate-200 rounded-lg p-4">
-                  <SectionHeader icon={<EnvironmentOutlined />} title="Addresses" />
-                  <div className="grid grid-cols-2 gap-3">
-                    <AddressBlock label="Shipper" fieldKey="shipper" value={shipment.shipper} onCommit={handleCommit} />
-                    <AddressBlock label="Consignee" fieldKey="consignee" value={shipment.consignee} onCommit={handleCommit} />
-                    <AddressBlock label="Pick Up Address" fieldKey="pickupAddress" value={shipment.pickupAddress} onCommit={handleCommit} />
-                    <AddressBlock label="Delivery Address" fieldKey="deliveryAddress" value={shipment.deliveryAddress} onCommit={handleCommit} />
+                  <SectionHeader icon={<EnvironmentOutlined />} title="Commercial Parties" />
+                  <div className="grid grid-cols-2 gap-x-6">
+                    {/* Shipper — loading */}
+                    <div>
+                      <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wide mb-1">
+                        Shipper · Loading
+                      </div>
+                      <CustomerLinkField label="Name" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
+                      <OpeningHoursField
+                        from={shipment.shipperOpeningFrom}
+                        to={shipment.shipperOpeningTo}
+                        onChange={(f, t) => updateShipment({ id: shipment.id, data: { shipperOpeningFrom: f, shipperOpeningTo: t } })}
+                      />
+                      <div className="py-1">
+                        <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Contact</div>
+                        <EditableCell fieldKey="shipperContact" value={shipment.shipperContact} onCommit={commitDirect} placeholder="—" displayClassName="text-xs text-slate-900 font-medium" />
+                      </div>
+                      <AddressBlock label="Pick Up Address" fieldKey="pickupAddress" value={shipment.pickupAddress} onCommit={handleCommit} styleFor={styleFor} />
+                    </div>
+                    {/* Consignee — unloading */}
+                    <div>
+                      <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wide mb-1">
+                        Consignee · Unloading
+                      </div>
+                      <CustomerLinkField label="Name" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
+                      <OpeningHoursField
+                        from={shipment.consigneeOpeningFrom}
+                        to={shipment.consigneeOpeningTo}
+                        onChange={(f, t) => updateShipment({ id: shipment.id, data: { consigneeOpeningFrom: f, consigneeOpeningTo: t } })}
+                      />
+                      <div className="py-1">
+                        <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Contact</div>
+                        <EditableCell fieldKey="consigneeContact" value={shipment.consigneeContact} onCommit={commitDirect} placeholder="—" displayClassName="text-xs text-slate-900 font-medium" />
+                      </div>
+                      <AddressBlock label="Delivery Address" fieldKey="deliveryAddress" value={shipment.deliveryAddress} onCommit={handleCommit} styleFor={styleFor} />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -668,18 +803,18 @@ export function ShipmentDetailContent() {
               <div className="bg-white border border-slate-200 rounded-lg p-4">
                 <SectionHeader icon={<CalendarOutlined />} title="Key Dates" />
                 <div className="grid grid-cols-2 gap-x-6">
-                  <FieldPair label="ETD Estimated" fieldKey="estimatedDeparture" value={shipment.estimatedDeparture} onCommit={handleCommit} />
+                  <FieldPair label="ETD Estimated" fieldKey="estimatedDeparture" value={shipment.estimatedDeparture} onCommit={handleCommit} styleFor={styleFor} />
                   <FieldPair label="Estimated Departure Week" value={getFieldValue(shipment, "estimatedDepartureWeek")} />
-                  <FieldPair label="ATD Actual" fieldKey="actualDeparture" value={shipment.actualDeparture} onCommit={handleCommit} />
+                  <FieldPair label="ATD Actual" fieldKey="actualDeparture" value={shipment.actualDeparture} onCommit={handleCommit} styleFor={styleFor} />
                   <FieldPair label="Actual Departure Week" value={getFieldValue(shipment, "actualDepartureWeek")} />
-                  <FieldPair label="ETA Estimated" fieldKey="estimatedArrival" value={shipment.estimatedArrival} onCommit={handleCommit} />
+                  <FieldPair label="ETA Estimated" fieldKey="estimatedArrival" value={shipment.estimatedArrival} onCommit={handleCommit} styleFor={styleFor} />
                   <FieldPair label="Estimated Arrival Week" value={getFieldValue(shipment, "estimatedArrivalWeek")} />
-                  <FieldPair label="ATA Actual" fieldKey="actualArrival" value={shipment.actualArrival} onCommit={handleCommit} />
+                  <FieldPair label="ATA Actual" fieldKey="actualArrival" value={shipment.actualArrival} onCommit={handleCommit} styleFor={styleFor} />
                   <FieldPair label="Actual Arrival Week" value={getFieldValue(shipment, "actualArrivalWeek")} />
-                  <FieldPair label="Cargo Readiness" fieldKey="cargoReadinessDate" value={shipment.cargoReadinessDate} onCommit={handleCommit} />
-                  <FieldPair label="Closing Date" fieldKey="closingDate" value={shipment.closingDate} onCommit={handleCommit} />
-                  <FieldPair label="ETA Warehouse/HUB" fieldKey="etaWarehouse" value={shipment.etaWarehouse} onCommit={handleCommit} />
-                  <FieldPair label="Planned Delivery" fieldKey="plannedDeliveryDate" value={shipment.plannedDeliveryDate} onCommit={handleCommit} />
+                  <FieldPair label="Cargo Readiness" fieldKey="cargoReadinessDate" value={shipment.cargoReadinessDate} onCommit={handleCommit} styleFor={styleFor} />
+                  <FieldPair label="Closing Date" fieldKey="closingDate" value={shipment.closingDate} onCommit={handleCommit} styleFor={styleFor} />
+                  <FieldPair label="ETA Warehouse/HUB" fieldKey="etaWarehouse" value={shipment.etaWarehouse} onCommit={handleCommit} styleFor={styleFor} />
+                  <FieldPair label="Planned Delivery" fieldKey="plannedDeliveryDate" value={shipment.plannedDeliveryDate} onCommit={handleCommit} styleFor={styleFor} />
                 </div>
               </div>
             </div>
@@ -694,6 +829,15 @@ export function ShipmentDetailContent() {
                     fieldKeys={section.keys}
                     shipment={shipment}
                     onCommit={handleCommit}
+                    styleFor={styleFor}
+                    extra={
+                      section.title === "Quote" ? (
+                        <SalesPersonField
+                          value={shipment.salesPerson}
+                          onChange={(v) => updateShipment({ id: shipment.id, data: { salesPerson: v } })}
+                        />
+                      ) : undefined
+                    }
                   />
                 </div>
               ))}
@@ -711,6 +855,7 @@ export function ShipmentDetailContent() {
                   fieldKeys={section.keys}
                   shipment={shipment}
                   onCommit={handleCommit}
+                  styleFor={styleFor}
                 />
               </div>
             ))}
@@ -724,6 +869,12 @@ export function ShipmentDetailContent() {
         {activeTab === "warehouse" && <WarehouseTab shipment={shipment} />}
 
         {activeTab === "tracking" && <TrackingTab shipment={shipment} />}
+
+        {activeTab === "container" && <EmptyTab title="Container Details" />}
+
+        {activeTab === "customs" && <EmptyTab title="Customs" />}
+
+        {activeTab === "claim" && <EmptyTab title="Claim" />}
       </div>
 
       {shipment.masterJobMczNumber && (
@@ -772,7 +923,25 @@ export function ShipmentDetailContent() {
         onSave={(value) => updateField(shipment.id, "freeComments", value)}
       />
 
-      <AllFieldsModal shipment={shipment} open={allFieldsOpen} onClose={() => setAllFieldsOpen(false)} />
+
+      <Modal
+        open={deleteOpen}
+        title="Delete order"
+        okText="Yes, delete the order"
+        okButtonProps={{ danger: true, loading: deleting }}
+        cancelText="Cancel"
+        onOk={confirmDelete}
+        onCancel={() => setDeleteOpen(false)}
+        destroyOnHidden
+      >
+        <p className="text-sm text-slate-700">
+          Do you really want to delete order <b className="font-mono">{shipment.jobNumber ?? shipment.id}</b>?
+        </p>
+        <p className="text-sm text-slate-500 mt-2">
+          The order is <b>not erased</b> — it is archived with all its details, and its reference can never be reused.
+          This action is recorded against your account.
+        </p>
+      </Modal>
     </div>
   );
 }

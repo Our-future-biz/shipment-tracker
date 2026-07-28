@@ -8,10 +8,12 @@ import {
   ContainerOutlined,
   FileTextOutlined,
   DollarOutlined,
-  FileSearchOutlined,
   InboxOutlined,
   TeamOutlined,
   LineChartOutlined,
+  SafetyCertificateOutlined,
+  ClusterOutlined,
+  ControlOutlined,
   LeftOutlined,
   RightOutlined,
   DownOutlined,
@@ -38,8 +40,10 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/sales", label: "Sales", icon: <LineChartOutlined />, children: SALES_NAV.map(({ path, label }) => ({ path, label })) },
   { path: "/documents", label: "Document / Text Reading", icon: <FileTextOutlined /> },
   { path: "/invoicing", label: "Invoicing", icon: <DollarOutlined /> },
-  { path: "/quotes", label: "Quote", icon: <FileSearchOutlined /> },
+  { path: "/customs", label: "Customs", icon: <SafetyCertificateOutlined /> },
   { path: "/warehouse", label: "Warehouse", icon: <InboxOutlined /> },
+  { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
+  { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
 ];
 
 const EXPANDED_WIDTH = 260;

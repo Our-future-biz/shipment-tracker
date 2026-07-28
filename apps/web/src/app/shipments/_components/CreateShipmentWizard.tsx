@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Select, Button, Checkbox } from "antd";
 import { useRouter } from "next/navigation";
 import { AppModal } from "@/components/AppModal";
@@ -56,17 +56,24 @@ export const CreateShipmentWizard = ({
   const [copyEstimatedCosts, setCopyEstimatedCosts] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const nextJobNumber = useMemo(() => {
-    let maxNum = 0;
-    for (const s of existingShipments) {
-      const jn = s.jobNumber;
-      if (jn?.startsWith("CZ") && !jn.startsWith("CZQ")) {
-        const num = parseInt(jn.substring(2), 10);
-        if (!isNaN(num) && num > maxNum) maxNum = num;
-      }
-    }
-    return `CZ${String(maxNum + 1).padStart(8, "0")}`;
-  }, [existingShipments]);
+  // The next job number is generated on the server so it accounts for archived
+  // (soft-deleted) shipments and never reuses a reference.
+  const [nextJobNumber, setNextJobNumber] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    api.shipments
+      .shipmentNextJobNumber()
+      .then((r) => {
+        if (active) setNextJobNumber(r.jobNumber);
+      })
+      .catch(() => {
+        if (active) setNextJobNumber("");
+      });
+    return () => {
+      active = false;
+    };
+  }, [open]);
 
   const jobOptions = useMemo(
     () =>
@@ -108,6 +115,10 @@ export const CreateShipmentWizard = ({
   };
 
   const handleCreateBlank = async () => {
+    if (!nextJobNumber) {
+      toast.error("Generating job number, please wait…");
+      return;
+    }
     setSubmitting(true);
     try {
       const result = await createShipment(baseRequest());
@@ -121,7 +132,7 @@ export const CreateShipmentWizard = ({
   };
 
   const handleCreateWithCopy = async () => {
-    if (!source) return;
+    if (!source || !nextJobNumber) return;
     setSubmitting(true);
 
     const request = baseRequest();

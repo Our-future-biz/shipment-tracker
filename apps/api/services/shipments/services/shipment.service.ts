@@ -4,7 +4,7 @@ import { shipmentAuditRepository } from "../repositories/shipmentAudit.repositor
 import { masterJobRepository } from "../repositories/masterJob.repository";
 import { shipmentTable } from "../schemas/shipment.schema";
 import type { PaginationRequest } from "../../../lib/db/interface";
-import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
+import type { NewShipmentRecord } from "../schemas/shipment.schema";
 
 class ShipmentService {
   async list(request: PaginationRequest, filters?: { customerId?: string }) {
@@ -58,6 +58,12 @@ class ShipmentService {
     return shipmentRepository.create(data);
   }
 
+  // Next CZ job number, computed over ALL shipments (incl. archived) so it never repeats.
+  async nextJobNumber(): Promise<string> {
+    const max = await shipmentRepository.maxCzJobNumber();
+    return `CZ${String(max + 1).padStart(8, "0")}`;
+  }
+
   async update(id: string, data: Partial<NewShipmentRecord>, userId: string) {
     const existing = await shipmentRepository.getById(id);
     if (!existing) return null;
@@ -84,7 +90,22 @@ class ShipmentService {
     return shipmentRepository.getAll(limit);
   }
 
-  async softDelete(id: string) {
+  // Soft-delete: the row and all its details are kept (only deletedAt is set) so the
+  // job reference can never be reused. Recorded in the audit log as a change.
+  async softDelete(id: string, userId?: string) {
+    const existing = await shipmentRepository.getById(id);
+    if (!existing) return null;
+
+    if (userId) {
+      await shipmentAuditRepository.create({
+        shipmentId: id,
+        userId,
+        field: "deletedAt",
+        oldValue: null,
+        newValue: new Date().toISOString(),
+      });
+    }
+
     return shipmentRepository.softDelete(id);
   }
 

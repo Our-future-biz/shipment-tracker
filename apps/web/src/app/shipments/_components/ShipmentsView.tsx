@@ -19,10 +19,10 @@ export const ShipmentsView = () => {
     if (!deleteTarget) return;
     try {
       await deleteShipment(deleteTarget.id);
-      toast.success("Shipment deleted");
+      toast.success("Order deleted");
       setDeleteTarget(null);
     } catch {
-      toast.error("Failed to delete shipment");
+      toast.error("Failed to archive order");
     }
   };
 
@@ -66,8 +66,8 @@ export const ShipmentsView = () => {
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
-        title="Delete Shipment"
-        description={`Are you sure you want to delete shipment ${deleteTarget?.jobNumber || ""}? This action cannot be undone.`}
+        title="Delete order"
+        description={`Delete order ${deleteTarget?.jobNumber || ""}? It will be archived with all its details (not erased), its reference can never be reused, and the action is recorded against your account.`}
         confirmLabel="Delete"
         danger
         loading={isDeleting}

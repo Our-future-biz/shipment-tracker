@@ -2,92 +2,42 @@
 
 import { useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { Tag } from "antd";
 import { AppCard } from "@/components/AppCard";
 import { StatusBadge } from "@/components/StatusBadge";
-import { isActiveStatus } from "@/lib/enums";
-import { parseDateMMDDYY } from "@/lib/columnConfig";
 import type { ShipmentItem } from "@/hooks/useShipments";
+import { shipmentsInWindow, daysLabel } from "../_lib/eta";
 
 interface NeedsAttentionCardProps {
   shipments: ShipmentItem[];
 }
 
-interface AttentionItem {
-  id: string;
-  jobNumber: string;
-  reason: string;
-  severity: "red" | "amber";
-  status: string;
-}
-
-function getAttentionItems(shipments: ShipmentItem[]): AttentionItem[] {
-  const now = new Date();
-  const items: AttentionItem[] = [];
-
-  for (const s of shipments) {
-    if (!isActiveStatus(s.status)) continue;
-    if (!s.estimatedArrival) continue;
-
-    const eta = parseDateMMDDYY(s.estimatedArrival);
-    if (!eta) continue;
-
-    const diffMs = eta.getTime() - now.getTime();
-    const diffDays = diffMs / (1000 * 60 * 60 * 24);
-
-    if (diffDays < 0) {
-      items.push({
-        id: s.id,
-        jobNumber: s.jobNumber,
-        reason: `ETA overdue by ${Math.abs(Math.round(diffDays))} day(s)`,
-        severity: "red",
-        status: s.status,
-      });
-    } else if (diffDays <= 2) {
-      items.push({
-        id: s.id,
-        jobNumber: s.jobNumber,
-        reason: "ETA is within 2 days",
-        severity: "amber",
-        status: s.status,
-      });
-    }
-  }
-
-  // Red items first, then amber
-  items.sort((a, b) => (a.severity === "red" ? 0 : 1) - (b.severity === "red" ? 0 : 1));
-  return items.slice(0, 8);
-}
-
+// 18–8 days until departure (export) / arrival (import).
 export function NeedsAttentionCard({ shipments }: NeedsAttentionCardProps) {
   const router = useRouter();
-  const items = useMemo(() => getAttentionItems(shipments), [shipments]);
+  const items = useMemo(() => shipmentsInWindow(shipments, 8, 18), [shipments]);
 
   return (
     <AppCard title="Needs Attention">
       {items.length === 0 ? (
-        <div className="text-slate-400 text-sm py-3 text-center">
-          Nothing needs attention right now.
-        </div>
+        <div className="text-slate-400 text-sm py-3 text-center">Nothing needs attention right now.</div>
       ) : (
         <div className="flex flex-col gap-2">
-          {items.map((item) => (
+          {items.map(({ s, eta }) => (
             <div
-              key={item.id}
-              className="flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-neutral-50 cursor-pointer"
-              onClick={() => router.push(`/shipments/${item.id}`)}
+              key={s.id}
+              className="flex items-center gap-2.5 px-2.5 py-2 rounded-md bg-neutral-50 cursor-pointer hover:bg-neutral-100"
+              onClick={() => router.push(`/shipments/${s.id}`)}
             >
-              <span
-                className={`w-2 h-2 rounded-full shrink-0 ${
-                  item.severity === "red" ? "bg-red-500" : "bg-amber-500"
-                }`}
-              />
-              <span className="text-sm font-semibold text-indigo-600 whitespace-nowrap">
-                {item.jobNumber}
-              </span>
+              <span className="w-2 h-2 rounded-full shrink-0 bg-amber-500" />
+              <span className="text-sm font-semibold text-indigo-600 whitespace-nowrap">{s.jobNumber}</span>
+              <Tag color={eta.direction === "Export" ? "blue" : "green"} className="m-0">
+                {eta.direction === "Export" ? "EXP" : "IMP"}
+              </Tag>
               <span className="text-xs text-slate-500 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                {item.reason}
+                {eta.direction === "Export" ? "Departs" : "Arrives"} {eta.date} · {daysLabel(eta.days)}
               </span>
-              <StatusBadge status={item.status} />
+              <StatusBadge status={s.status} />
             </div>
           ))}
         </div>

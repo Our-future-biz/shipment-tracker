@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Input, Select, Checkbox, Popover, Dropdown, Modal, DatePicker, Tag } from "antd";
 import {
-  PlusOutlined,
   SearchOutlined,
   DownloadOutlined,
   SettingOutlined,
@@ -33,6 +32,7 @@ import type { SalesQuoteData } from "../_lib/types";
 import { QUOTE_STATUS_MAP, QUOTE_STATUSES, SERVICE_TYPES, DIRECTIONS } from "../_lib/types";
 import { printQuote } from "../_lib/printQuote";
 import { PdfPreviewModal } from "../quote/[ref]/_components/PdfPreviewModal";
+import { NewQuoteButton } from "./NewQuoteButton";
 
 interface Filters {
   statuses: string[];
@@ -160,14 +160,13 @@ const BUILTIN_VIEWS: { id: string; label: string; apply: () => Filters }[] = [
 
 export function QuoteHistoryTab() {
   const router = useRouter();
-  const { salesQuotes, isLoading, createQuote, deleteQuote, updateQuoteData } = useSalesQuotes();
+  const { salesQuotes, isLoading, deleteQuote, updateQuoteData } = useSalesQuotes();
   const { value: visibleKeys, setValue: setVisibleKeys } = useSalesPref<string[]>("qh_cols", DEFAULT_VISIBLE);
   const { value: savedViews, setValue: setSavedViews } = useSalesPref<SavedView[]>("saved_views", []);
   const toast = useToast();
 
   const [search, setSearch] = useState("");
   const [preview, setPreview] = useState<SalesQuote | null>(null);
-  const [newQuoteRef, setNewQuoteRef] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [colFilters, setColFilters] = useState<Record<string, string>>({});
   const [showColFilters, setShowColFilters] = useState(false);
@@ -308,15 +307,6 @@ export function QuoteHistoryTab() {
   };
   const deleteSaved = (id: string) => setSavedViews(savedViews.filter((s) => s.id !== id));
 
-  const createAndOpen = async () => {
-    try {
-      const ref = await createQuote({});
-      setNewQuoteRef(ref);
-    } catch {
-      toast.error("Failed to create quote");
-    }
-  };
-
   // Active filter chips
   const chips: { label: string; clear: () => void }[] = [];
   filters.statuses.forEach((s) =>
@@ -447,9 +437,7 @@ export function QuoteHistoryTab() {
         </Button>
         <div className="ml-auto flex gap-2">
           <Button onClick={() => setSaveViewOpen(true)}>Save view</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={createAndOpen}>
-            New Quote
-          </Button>
+          <NewQuoteButton />
         </div>
       </div>
 
@@ -533,24 +521,6 @@ export function QuoteHistoryTab() {
       </Modal>
 
       {preview && <PdfPreviewModal open quoteNumber={preview.quoteNumber} data={preview.data} onClose={() => setPreview(null)} />}
-
-      {/* New quote reference-preview modal */}
-      <Modal
-        open={!!newQuoteRef}
-        onCancel={() => setNewQuoteRef(null)}
-        onOk={() => {
-          if (newQuoteRef) router.push(`/sales/quote/${newQuoteRef}`);
-        }}
-        okText="Open quote"
-        title="New quote created"
-        destroyOnHidden
-      >
-        <div className="pt-2 space-y-2">
-          <div className="text-sm text-slate-600">A unique quote reference has been generated:</div>
-          <div className="font-mono text-lg text-indigo-600">{newQuoteRef}</div>
-          <div className="text-xs text-slate-400">This reference is permanent and cannot be reused.</div>
-        </div>
-      </Modal>
     </div>
   );
 }
