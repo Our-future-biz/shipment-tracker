@@ -132,10 +132,11 @@ function ShipmentStepper({ shipment }: { shipment: ShipmentItem }) {
 /* ── Shared UI pieces ── */
 
 function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
+  // Full-width colored top bar across the card (card padding is p-4, so break out with -mx-4/-mt-4).
   return (
-    <div className="flex items-center gap-2.5 mb-3">
-      <span className="text-indigo-500 text-base">{icon}</span>
-      <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider m-0">
+    <div className="-mx-4 -mt-4 mb-4 px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
+      <span className="text-indigo-500 text-base leading-none">{icon}</span>
+      <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">
         {title}
       </h3>
     </div>
@@ -148,16 +149,18 @@ function FieldRow({
   fieldKey,
   onCommit,
   styleFor,
+  labelW = "w-[140px]",
 }: {
   label: string;
   value?: string | null;
   fieldKey: string;
   onCommit: CommitFn;
   styleFor?: StyleFor;
+  labelW?: string;
 }) {
   return (
-    <div className="flex py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="text-slate-600 font-semibold w-[180px] shrink-0">{label}</span>
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
       <EditableCell
         className="flex-1 min-w-0"
         fieldKey={fieldKey}
@@ -167,6 +170,67 @@ function FieldRow({
         displayClassName="text-slate-900 font-medium"
         displayStyle={styleFor?.(fieldKey, value)}
       />
+    </div>
+  );
+}
+
+// Read-only horizontal row (label | value), matching FieldRow's look.
+function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: string | null; labelW?: string }) {
+  return (
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
+      <span className="flex-1 min-w-0 text-slate-900 font-medium">{value ? value : <span className="text-slate-300">—</span>}</span>
+    </div>
+  );
+}
+
+type FieldDef = { key: string; label: string; ro?: boolean };
+
+// A card of horizontal rows, optionally split into two columns.
+function DetailCard({
+  icon,
+  title,
+  columns,
+  shipment,
+  onCommit,
+  styleFor,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  columns: FieldDef[][];
+  shipment: ShipmentItem;
+  onCommit: CommitFn;
+  styleFor?: StyleFor;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+      <SectionHeader icon={icon} title={title} />
+      <div className={columns.length > 1 ? "grid grid-cols-1 md:grid-cols-2 gap-x-6" : ""}>
+        {columns.map((col, i) => (
+          <div key={i}>
+            {col.map((f) =>
+              f.ro ? (
+                <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
+              ) : (
+                <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={onCommit} styleFor={styleFor} />
+              ),
+            )}
+          </div>
+        ))}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// Small in-card column sub-heading bar (used where two sections share one card).
+function SubHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
+  return (
+    <div className="flex items-center gap-1.5 bg-indigo-50/60 border border-indigo-100 rounded-md px-2.5 py-1.5 mb-2">
+      <span className="text-indigo-500 text-sm leading-none">{icon}</span>
+      <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wide">{title}</span>
     </div>
   );
 }
@@ -392,6 +456,78 @@ const DETAIL_SECTIONS: { title: string; icon: React.ReactNode; keys: string[] }[
 /* ── Cargo-specific sections shown in the Cargo Details tab ── */
 const CARGO_SECTION_TITLES = ["Cargo & Commercial", "Containers"];
 
+/* ── Field arrangement for the redesigned details tab ── */
+const CARRIER_BOL: FieldDef[] = [
+  { key: "vessel", label: "Vessel" },
+  { key: "voyage", label: "Voyage" },
+  { key: "containerNumber", label: "Container Number" },
+  { key: "houseBolNumber", label: "House BoL Number" },
+  { key: "houseBolType", label: "House BoL Type" },
+  { key: "masterBolNumber", label: "Master BoL Number" },
+  { key: "masterBolType", label: "Master BoL Type" },
+];
+const KEY_DATES_L: FieldDef[] = [
+  { key: "estimatedDeparture", label: "ETD Estimated" },
+  { key: "actualDeparture", label: "ATD Actual" },
+  { key: "estimatedArrival", label: "ETA Estimated" },
+  { key: "actualArrival", label: "ATA Actual" },
+  { key: "cargoReadinessDate", label: "Cargo Readiness" },
+  { key: "etaWarehouse", label: "ETA Warehouse/HUB" },
+  { key: "pickupDate", label: "Pickup Date" },
+  { key: "pickupTime", label: "Pickup Time" },
+];
+const KEY_DATES_R: FieldDef[] = [
+  { key: "estimatedDepartureWeek", label: "Est. Departure Week", ro: true },
+  { key: "actualDepartureWeek", label: "Actual Departure Week", ro: true },
+  { key: "estimatedArrivalWeek", label: "Est. Arrival Week", ro: true },
+  { key: "actualArrivalWeek", label: "Actual Arrival Week", ro: true },
+  { key: "closingDate", label: "Closing Date" },
+  { key: "plannedDeliveryDate", label: "Planned Delivery" },
+  { key: "plannedDeliveryTime", label: "Planned Delivery Time" },
+];
+const REFS_ROUTING: FieldDef[] = [
+  { key: "personalReference", label: "Personal Reference" },
+  { key: "bookingNumber", label: "Booking Number" },
+  { key: "pol", label: "POL" },
+  { key: "pod", label: "POD" },
+  { key: "origin", label: "Origin" },
+  { key: "destination", label: "Destination" },
+  { key: "cargoOrigin", label: "Cargo Origin" },
+  { key: "countryCode", label: "Country Code" },
+];
+const PARTIES_AGENTS: FieldDef[] = [
+  { key: "customerPic", label: "Customer's PIC" },
+  { key: "customerReference", label: "Customer Reference" },
+  { key: "agent", label: "Agent" },
+  { key: "agentPic", label: "Agent's PIC" },
+  { key: "supplierPic", label: "Supplier's PIC" },
+  { key: "equipmentDelivery", label: "Equipment Delivery/Pickup" },
+  { key: "bookingConfirmation", label: "Booking Confirmation" },
+  { key: "customsProcedure", label: "Customs Procedure" },
+];
+const QUOTE_L: FieldDef[] = [
+  { key: "salesNumber", label: "Sales Number" },
+  { key: "selling", label: "Total Selling Costs" },
+  { key: "buying", label: "Total Buying Costs" },
+  { key: "profit", label: "Profit", ro: true },
+];
+const QUOTE_R: FieldDef[] = [
+  { key: "quoteValidity", label: "Quote Validity" },
+  { key: "validityStatus", label: "Validity Status" },
+];
+const COMPLIANCE_FIELDS: FieldDef[] = [
+  { key: "vgm", label: "VGM" },
+  { key: "shippingInstructions", label: "Shipping Instructions" },
+  { key: "ams", label: "AMS (if any)" },
+  { key: "isf", label: "ISF (if any)" },
+  { key: "bolDraft", label: "BoL Draft" },
+];
+const SWITCH_BOL_FIELDS: FieldDef[] = [
+  { key: "switchBol", label: "Switch BOL" },
+  { key: "switchBolApprovedBy", label: "Switch BOL Approved By" },
+  { key: "switchBolNumber", label: "Switch BOL Number" },
+];
+
 function FieldGridSection({
   icon,
   title,
@@ -410,7 +546,7 @@ function FieldGridSection({
   extra?: React.ReactNode;
 }) {
   return (
-    <div className="bg-white border border-slate-200 rounded-lg p-4">
+    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
       <SectionHeader icon={icon} title={title} />
       <div className="grid grid-cols-2 gap-x-6">
         {fieldKeys.map((key) => {
@@ -676,173 +812,184 @@ export function ShipmentDetailContent() {
       {/* ── Tab content ── */}
       <div className="p-6">
         {activeTab === "details" && (
-          <>
-            {/* Top section: two-column grid */}
-            <div className="grid grid-cols-[1fr_380px] gap-4 mb-4">
-              {/* Left column */}
-              <div className="space-y-4">
-                {/* SHIPMENT OVERVIEW */}
-                <div className="bg-white border border-slate-200 rounded-lg p-4">
-                  <SectionHeader icon={<ContainerOutlined />} title="Shipment Overview" />
-                  <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", "customerId", n, id)} />
-                  <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
-                  <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
-                  <div className="flex py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-                    <span className="text-slate-600 font-semibold w-[180px] shrink-0">Incoterm Origin/Destination</span>
-                    <span className="flex-1 min-w-0 text-slate-900 font-medium">
-                      {shipment.incotermOrigin || shipment.incotermDestination
-                        ? `${shipment.incotermOrigin || "—"}/${shipment.incotermDestination || "—"}`
-                        : "—"}
-                    </span>
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-5 items-start">
+            {/* ── MAIN COLUMN ── */}
+            <div className="space-y-5 min-w-0">
+              {/* SHIPMENT OVERVIEW */}
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <SectionHeader icon={<ContainerOutlined />} title="Shipment Overview" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                  <div>
+                    <RoRow label="Internal Reference" value={shipment.jobNumber} />
+                    <FieldRow label="Handled By" fieldKey="personInCharge" value={shipment.personInCharge} onCommit={handleCommit} styleFor={styleFor} />
+                    <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", "customerId", n, id)} />
+                    <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
+                    <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
+                    <FieldRow label="Customer Reference" fieldKey="customerReference" value={shipment.customerReference} onCommit={handleCommit} styleFor={styleFor} />
+                    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
+                      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Incoterm Origin/Destination</span>
+                      <span className="flex-1 min-w-0 text-slate-900 font-medium">
+                        {shipment.incotermOrigin || shipment.incotermDestination
+                          ? `${shipment.incotermOrigin || "—"}/${shipment.incotermDestination || "—"}`
+                          : <span className="text-slate-300">—</span>}
+                      </span>
+                    </div>
+                    <FieldRow label="Container Number" fieldKey="containerNumber" value={shipment.containerNumber} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={shipment.shippingLine} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={shipment.masterBolNumber} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="House BoL Number" fieldKey="houseBolNumber" value={shipment.houseBolNumber} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Free Comments" fieldKey="freeComments" value={shipment.freeComments} onCommit={handleCommit} styleFor={styleFor} />
                   </div>
-                  <FieldRow label="Container Number" fieldKey="containerNumber" value={shipment.containerNumber} onCommit={handleCommit} styleFor={styleFor} />
-                  <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={shipment.shippingLine} onCommit={handleCommit} styleFor={styleFor} />
-                  <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={shipment.masterBolNumber} onCommit={handleCommit} styleFor={styleFor} />
-                </div>
-
-                {/* COMMERCIAL PARTIES */}
-                <div className="bg-white border border-slate-200 rounded-lg p-4">
-                  <SectionHeader icon={<EnvironmentOutlined />} title="Commercial Parties" />
-                  <div className="grid grid-cols-2 gap-x-6">
-                    {/* Shipper — loading */}
-                    <div>
-                      <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wide mb-1">
-                        Shipper · Loading
-                      </div>
-                      <CustomerLinkField label="Name" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
-                      <OpeningHoursField
-                        from={shipment.shipperOpeningFrom}
-                        to={shipment.shipperOpeningTo}
-                        onChange={(f, t) => updateShipment({ id: shipment.id, data: { shipperOpeningFrom: f, shipperOpeningTo: t } })}
-                      />
-                      <div className="py-1">
-                        <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Contact</div>
-                        <EditableCell fieldKey="shipperContact" value={shipment.shipperContact} onCommit={commitDirect} placeholder="—" displayClassName="text-xs text-slate-900 font-medium" />
-                      </div>
-                      <AddressBlock label="Pick Up Address" fieldKey="pickupAddress" value={shipment.pickupAddress} onCommit={handleCommit} styleFor={styleFor} />
-                    </div>
-                    {/* Consignee — unloading */}
-                    <div>
-                      <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wide mb-1">
-                        Consignee · Unloading
-                      </div>
-                      <CustomerLinkField label="Name" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
-                      <OpeningHoursField
-                        from={shipment.consigneeOpeningFrom}
-                        to={shipment.consigneeOpeningTo}
-                        onChange={(f, t) => updateShipment({ id: shipment.id, data: { consigneeOpeningFrom: f, consigneeOpeningTo: t } })}
-                      />
-                      <div className="py-1">
-                        <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Contact</div>
-                        <EditableCell fieldKey="consigneeContact" value={shipment.consigneeContact} onCommit={commitDirect} placeholder="—" displayClassName="text-xs text-slate-900 font-medium" />
-                      </div>
-                      <AddressBlock label="Delivery Address" fieldKey="deliveryAddress" value={shipment.deliveryAddress} onCommit={handleCommit} styleFor={styleFor} />
-                    </div>
+                  <div>
+                    <RoRow label="Sales Person" value={shipment.salesPerson} />
+                    <FieldRow label="Sales Number" fieldKey="salesNumber" value={shipment.salesNumber} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="POL" fieldKey="pol" value={shipment.pol} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="ETD Estimated" fieldKey="estimatedDeparture" value={shipment.estimatedDeparture} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="POD" fieldKey="pod" value={shipment.pod} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="ETA Estimated" fieldKey="estimatedArrival" value={shipment.estimatedArrival} onCommit={handleCommit} styleFor={styleFor} />
+                    <RoRow label="Est. Departure Week" value={getFieldValue(shipment, "estimatedDepartureWeek")} />
+                    <RoRow label="Est. Arrival Week" value={getFieldValue(shipment, "estimatedArrivalWeek")} />
+                    <FieldRow label="Shipments Date" fieldKey="shipmentsDate" value={shipment.shipmentsDate} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Shipment Status" fieldKey="status" value={shipment.status} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Customs Status" fieldKey="customsStatus" value={shipment.customsStatus} onCommit={handleCommit} styleFor={styleFor} />
                   </div>
                 </div>
               </div>
 
-              {/* Right column */}
-              <div className="self-start">
-                {/* TASKS */}
-                <div className="bg-white border border-slate-200 rounded-lg p-4">
-                  <SectionHeader icon={<CheckSquareOutlined />} title="Tasks" />
-                  <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-3">
-                    {shipment.tradeDirection === "Export" ? "Export Workflow" : "Import Workflow"}
+              {/* COMMERCIAL PARTIES */}
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <SectionHeader icon={<EnvironmentOutlined />} title="Commercial Parties" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                  <div>
+                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wide mb-1">Shipper · Loading</div>
+                    <CustomerLinkField label="Name" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
+                    <div className="py-1">
+                      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Contact</div>
+                      <EditableCell fieldKey="shipperContact" value={shipment.shipperContact} onCommit={commitDirect} placeholder="—" displayClassName="text-xs text-slate-900 font-medium" />
+                    </div>
+                    <AddressBlock label="Pick Up Address" fieldKey="pickupAddress" value={shipment.pickupAddress} onCommit={handleCommit} styleFor={styleFor} />
+                    <OpeningHoursField
+                      from={shipment.shipperOpeningFrom}
+                      to={shipment.shipperOpeningTo}
+                      onChange={(f, t) => updateShipment({ id: shipment.id, data: { shipperOpeningFrom: f, shipperOpeningTo: t } })}
+                    />
                   </div>
-                  <TasksPanel shipment={shipment} />
+                  <div>
+                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wide mb-1">Consignee · Unloading</div>
+                    <CustomerLinkField label="Name" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
+                    <div className="py-1">
+                      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Contact</div>
+                      <EditableCell fieldKey="consigneeContact" value={shipment.consigneeContact} onCommit={commitDirect} placeholder="—" displayClassName="text-xs text-slate-900 font-medium" />
+                    </div>
+                    <AddressBlock label="Delivery Address" fieldKey="deliveryAddress" value={shipment.deliveryAddress} onCommit={handleCommit} styleFor={styleFor} />
+                    <OpeningHoursField
+                      from={shipment.consigneeOpeningFrom}
+                      to={shipment.consigneeOpeningTo}
+                      onChange={(f, t) => updateShipment({ id: shipment.id, data: { consigneeOpeningFrom: f, consigneeOpeningTo: t } })}
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Bottom section: two-column equal grid */}
-            <div className="grid grid-cols-2 gap-4">
-              {/* BASIC INFORMATION */}
-              <div className="bg-white border border-slate-200 rounded-lg p-4">
-                <SectionHeader icon={<InfoCircleOutlined />} title="Basic Information" />
-                <div className="grid grid-cols-2 gap-x-6">
-                  <FieldPair label="Internal Reference" value={shipment.jobNumber} />
-                  <FieldPair label="Person in Charge" value={shipment.personInCharge} />
-                  <div className="py-2">
-                    <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
-                      Master Job
-                    </div>
-                    <div className="text-xs font-medium flex items-center gap-2">
-                      {shipment.masterJobMczNumber ? (
-                        <>
-                          <button
-                            onClick={() => setMasterJobOpen(true)}
-                            className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium"
-                          >
-                            #{shipment.masterJobMczNumber}
-                          </button>
-                          <button
-                            onClick={handleUnlinkMasterJob}
-                            className="text-[10px] text-slate-400 hover:text-red-500 cursor-pointer bg-transparent border-none p-0"
-                          >
-                            unassign
-                          </button>
-                        </>
+              {/* CARRIER & BILL OF LADING  |  KEY DATES */}
+              <div className="grid grid-cols-1 2xl:grid-cols-2 gap-5 items-start">
+                <DetailCard icon={<SplitCellsOutlined />} title="Carrier & Bill of Lading" columns={[CARRIER_BOL]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+                <DetailCard icon={<CalendarOutlined />} title="Key Dates" columns={[KEY_DATES_L, KEY_DATES_R]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+              </div>
+
+              {/* REFERENCES & ROUTING  |  PARTIES & AGENTS */}
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+                  <div>
+                    <SubHeader icon={<EnvironmentOutlined />} title="References & Routing" />
+                    {REFS_ROUTING.map((f) => (
+                      <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                    ))}
+                  </div>
+                  <div>
+                    <SubHeader icon={<InfoCircleOutlined />} title="Parties & Agents" />
+                    {PARTIES_AGENTS.map((f) => (
+                      <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* QUOTE */}
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <SectionHeader icon={<FileTextOutlined />} title="Quote" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                  <div>
+                    {QUOTE_L.map((f) =>
+                      f.ro ? (
+                        <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
                       ) : (
-                        <button
-                          onClick={() => setAssignOpen(true)}
-                          className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium"
-                        >
-                          + Assign to master job
-                        </button>
-                      )}
-                    </div>
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                      ),
+                    )}
                   </div>
-                  <FieldPair label="Holiday Cover" value={shipment.holidayCover} />
-                  <FieldPair label="Department" value={shipment.department} />
-                  <FieldPair label="Customer" value={shipment.customer} />
+                  <div>
+                    {QUOTE_R.map((f) => (
+                      <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                    ))}
+                    <SalesPersonField value={shipment.salesPerson} onChange={(v) => updateShipment({ id: shipment.id, data: { salesPerson: v } })} />
+                  </div>
                 </div>
               </div>
 
-              {/* KEY DATES */}
-              <div className="bg-white border border-slate-200 rounded-lg p-4">
-                <SectionHeader icon={<CalendarOutlined />} title="Key Dates" />
-                <div className="grid grid-cols-2 gap-x-6">
-                  <FieldPair label="ETD Estimated" fieldKey="estimatedDeparture" value={shipment.estimatedDeparture} onCommit={handleCommit} styleFor={styleFor} />
-                  <FieldPair label="Estimated Departure Week" value={getFieldValue(shipment, "estimatedDepartureWeek")} />
-                  <FieldPair label="ATD Actual" fieldKey="actualDeparture" value={shipment.actualDeparture} onCommit={handleCommit} styleFor={styleFor} />
-                  <FieldPair label="Actual Departure Week" value={getFieldValue(shipment, "actualDepartureWeek")} />
-                  <FieldPair label="ETA Estimated" fieldKey="estimatedArrival" value={shipment.estimatedArrival} onCommit={handleCommit} styleFor={styleFor} />
-                  <FieldPair label="Estimated Arrival Week" value={getFieldValue(shipment, "estimatedArrivalWeek")} />
-                  <FieldPair label="ATA Actual" fieldKey="actualArrival" value={shipment.actualArrival} onCommit={handleCommit} styleFor={styleFor} />
-                  <FieldPair label="Actual Arrival Week" value={getFieldValue(shipment, "actualArrivalWeek")} />
-                  <FieldPair label="Cargo Readiness" fieldKey="cargoReadinessDate" value={shipment.cargoReadinessDate} onCommit={handleCommit} styleFor={styleFor} />
-                  <FieldPair label="Closing Date" fieldKey="closingDate" value={shipment.closingDate} onCommit={handleCommit} styleFor={styleFor} />
-                  <FieldPair label="ETA Warehouse/HUB" fieldKey="etaWarehouse" value={shipment.etaWarehouse} onCommit={handleCommit} styleFor={styleFor} />
-                  <FieldPair label="Planned Delivery" fieldKey="plannedDeliveryDate" value={shipment.plannedDeliveryDate} onCommit={handleCommit} styleFor={styleFor} />
+              {/* BASIC INFORMATION */}
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <SectionHeader icon={<InfoCircleOutlined />} title="Basic Information" />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                  <div>
+                    <RoRow label="Internal Reference" value={shipment.jobNumber} />
+                    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
+                      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Master Job</span>
+                      <div className="flex-1 min-w-0 flex items-center gap-2">
+                        {shipment.masterJobMczNumber ? (
+                          <>
+                            <button onClick={() => setMasterJobOpen(true)} className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
+                              #{shipment.masterJobMczNumber}
+                            </button>
+                            <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-400 hover:text-red-500 cursor-pointer bg-transparent border-none p-0">
+                              unassign
+                            </button>
+                          </>
+                        ) : (
+                          <button onClick={() => setAssignOpen(true)} className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
+                            + Assign to master job
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <FieldRow label="Department" fieldKey="department" value={shipment.department} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Claim" fieldKey="claim" value={shipment.claim} onCommit={handleCommit} styleFor={styleFor} />
+                  </div>
+                  <div>
+                    <FieldRow label="Person In Charge" fieldKey="personInCharge" value={shipment.personInCharge} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Holiday Cover" fieldKey="holidayCover" value={shipment.holidayCover} onCommit={handleCommit} styleFor={styleFor} />
+                    <RoRow label="Customer" value={shipment.customer} />
+                    <RoRow label="Created By" value={shipment.createdBy} />
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* All remaining fields (every DB column, inline-editable) */}
-            <div className="columns-1 lg:columns-2 gap-4 mt-4">
-              {DETAIL_SECTIONS.filter((s) => !CARGO_SECTION_TITLES.includes(s.title)).map((section) => (
-                <div key={section.title} className="break-inside-avoid mb-4">
-                  <FieldGridSection
-                    icon={section.icon}
-                    title={section.title}
-                    fieldKeys={section.keys}
-                    shipment={shipment}
-                    onCommit={handleCommit}
-                    styleFor={styleFor}
-                    extra={
-                      section.title === "Quote" ? (
-                        <SalesPersonField
-                          value={shipment.salesPerson}
-                          onChange={(v) => updateShipment({ id: shipment.id, data: { salesPerson: v } })}
-                        />
-                      ) : undefined
-                    }
-                  />
+            {/* ── SIDEBAR ── */}
+            <div className="space-y-5">
+              {/* TASKS */}
+              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <SectionHeader icon={<CheckSquareOutlined />} title="Tasks" />
+                <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-3">
+                  {shipment.tradeDirection === "Export" ? "Export Workflow" : "Import Workflow"}
                 </div>
-              ))}
+                <TasksPanel shipment={shipment} />
+              </div>
+
+              <DetailCard icon={<CheckSquareOutlined />} title="Compliance" columns={[COMPLIANCE_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+              <DetailCard icon={<SplitCellsOutlined />} title="Switch BOL" columns={[SWITCH_BOL_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
             </div>
-          </>
+          </div>
         )}
 
         {activeTab === "cargo" && (

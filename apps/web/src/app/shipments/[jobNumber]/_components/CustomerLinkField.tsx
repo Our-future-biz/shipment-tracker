@@ -47,8 +47,8 @@ export function CustomerLinkField({ label, name, customerId, onChange }: Custome
   };
 
   return (
-    <div className="flex py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="text-slate-600 font-semibold w-[180px] shrink-0">{label}</span>
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</span>
       <div className="flex-1 min-w-0">
         {editing ? (
           <AutoComplete
