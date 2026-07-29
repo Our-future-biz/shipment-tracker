@@ -80,7 +80,6 @@ export function PdfPreviewModal({
               label="Origin → Dest."
               value={`${data.origin || "—"} → ${data.destination || "—"}`}
             />
-            <Field label="Transit" value={data.transit} />
             <Field label="Pickup" value={data.pickup} />
             <Field label="Delivery" value={data.delivery} />
             <Field label="Cargo ready" value={data.readyDate} />

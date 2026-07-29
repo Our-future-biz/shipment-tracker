@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button, Input, Select, Checkbox, Popover, Dropdown, Modal, DatePicker, Tag } from "antd";
+import { Button, Input, Select, Checkbox, Popover, Dropdown, Modal, DatePicker, Tag, Tooltip } from "antd";
 import {
   SearchOutlined,
   DownloadOutlined,
@@ -14,6 +14,16 @@ import {
 } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { EyeOutlined, FilePdfOutlined } from "@ant-design/icons";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { DataTable } from "@/components/DataTable";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { useSalesPref } from "@/hooks/useSalesPrefs";
@@ -33,6 +43,26 @@ import { QUOTE_STATUS_MAP, QUOTE_STATUSES, SERVICE_TYPES, DIRECTIONS } from "../
 import { printQuote } from "../_lib/printQuote";
 import { PdfPreviewModal } from "../quote/[ref]/_components/PdfPreviewModal";
 import { NewQuoteButton } from "./NewQuoteButton";
+
+// Draggable table header cell — id comes from each column's onHeaderCell().
+type HeaderCellProps = React.ThHTMLAttributes<HTMLTableCellElement> & { id?: string };
+
+const DraggableHeaderCell = ({ id, style, ...rest }: HeaderCellProps) => {
+  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: id ?? "" });
+
+  if (!id) return <th style={style} {...rest} />;
+
+  const thStyle: React.CSSProperties = {
+    ...style,
+    transform: CSS.Translate.toString(transform),
+    transition,
+    cursor: "grab",
+    userSelect: "none",
+    ...(isDragging ? { position: "relative", zIndex: 2, background: "#eef2ff" } : {}),
+  };
+
+  return <th ref={setNodeRef} style={thStyle} {...rest} {...attributes} {...listeners} />;
+};
 
 interface Filters {
   statuses: string[];
@@ -219,8 +249,34 @@ export function QuoteHistoryTab() {
       ),
       key: c.key,
       width: c.width,
+      onHeaderCell: () => ({ id: c.key }) as React.HTMLAttributes<HTMLTableCellElement>,
       render: (_: unknown, record: SalesQuote) => c.render(record),
     }));
+    // Leading validity indicator: red = offer expired, green = still valid, grey = no validity date.
+    cols.unshift({
+      title: (
+        <Tooltip title="Validity status">
+          <span className="text-slate-300">●</span>
+        </Tooltip>
+      ),
+      key: "validity",
+      width: 40,
+      align: "center",
+      render: (_: unknown, record: SalesQuote) => {
+        const v = validityInfo(record.data);
+        const color = v.date === null ? "#d1d5db" : v.expired ? "#ef4444" : "#22c55e";
+        const ring = v.date === null ? undefined : v.expired ? "#fee2e2" : "#dcfce7";
+        const title = v.date === null ? "No validity date set" : v.expired ? `Expired: ${v.date}` : `Valid until: ${v.date}`;
+        return (
+          <Tooltip title={title}>
+            <span
+              className="inline-block w-2.5 h-2.5 rounded-full align-middle"
+              style={{ backgroundColor: color, boxShadow: ring ? `0 0 0 2px ${ring}` : undefined }}
+            />
+          </Tooltip>
+        );
+      },
+    });
     cols.push({
       title: "",
       key: "action",
@@ -238,6 +294,15 @@ export function QuoteHistoryTab() {
     });
     return cols;
   }, [visibleKeys, router, showColFilters, colFilters]);
+
+  // Drag-to-reorder columns (same interaction as the shipments table).
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const oldIndex = visibleKeys.indexOf(String(active.id));
+    const newIndex = visibleKeys.indexOf(String(over.id));
+    if (oldIndex !== -1 && newIndex !== -1) setVisibleKeys(arrayMove(visibleKeys, oldIndex, newIndex));
+  };
 
   // Bulk lifecycle helpers operating on the selected quotes.
   const patchSelected = async (mutate: (d: SalesQuoteData) => SalesQuoteData, label: string) => {
@@ -491,20 +556,25 @@ export function QuoteHistoryTab() {
         </div>
       )}
 
-      <DataTable<SalesQuote>
-        dataSource={filtered}
-        columns={columns}
-        rowKey="quoteNumber"
-        loading={isLoading}
-        scroll={{ x: "max-content" }}
-        resetKey={`${search}${JSON.stringify(filters)}${JSON.stringify(colFilters)}`}
-        locale={{ emptyText: "No quotes match" }}
-        rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
-        onRow={(record) => ({
-          onClick: () => router.push(`/sales/quote/${record.quoteNumber}`),
-          className: "cursor-pointer",
-        })}
-      />
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+        <SortableContext items={visibleKeys} strategy={horizontalListSortingStrategy}>
+          <DataTable<SalesQuote>
+            dataSource={filtered}
+            columns={columns}
+            rowKey="quoteNumber"
+            loading={isLoading}
+            scroll={{ x: "max-content" }}
+            components={{ header: { cell: DraggableHeaderCell } }}
+            resetKey={`${search}${JSON.stringify(filters)}${JSON.stringify(colFilters)}`}
+            locale={{ emptyText: "No quotes match" }}
+            rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
+            onRow={(record) => ({
+              onClick: () => router.push(`/sales/quote/${record.quoteNumber}`),
+              className: "cursor-pointer",
+            })}
+          />
+        </SortableContext>
+      </DndContext>
 
       <Modal
         open={saveViewOpen}

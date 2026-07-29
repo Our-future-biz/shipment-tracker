@@ -51,6 +51,11 @@ export function computeTotals(data: SalesQuoteData) {
 }
 
 export function validityInfo(data: SalesQuoteData): { date: string | null; expired: boolean } {
+  // Prefer an explicitly picked expiry date; fall back to sentAt + validityDays for older quotes.
+  if (data.validUntil) {
+    const due = new Date(`${data.validUntil}T23:59:59`);
+    return { date: data.validUntil, expired: due.getTime() < Date.now() };
+  }
   if (!data.sentAt || !data.validityDays) return { date: null, expired: false };
   const sent = new Date(data.sentAt);
   const due = new Date(sent.getTime() + data.validityDays * 86400000);

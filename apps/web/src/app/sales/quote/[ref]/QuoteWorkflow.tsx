@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Button, Input, Select, Checkbox, InputNumber, Collapse, Spin, Tag, Dropdown, Alert } from "antd";
+import { Button, Input, Select, Checkbox, InputNumber, Spin, Tag, Alert, DatePicker } from "antd";
+import dayjs from "dayjs";
 import {
   ArrowLeftOutlined,
   PlusOutlined,
@@ -11,7 +12,11 @@ import {
   FilePdfOutlined,
   SaveOutlined,
   DownOutlined,
-  ThunderboltOutlined,
+  UpOutlined,
+  RightOutlined,
+  CheckOutlined,
+  EditOutlined,
+  SnippetsOutlined,
   MailOutlined,
   EyeOutlined,
   ImportOutlined,
@@ -22,8 +27,8 @@ import { useTermsConditions } from "@/hooks/useTermsConditions";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import type { SalesQuoteData, PackageLine, CostLine } from "../../_lib/types";
-import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, CURRENCIES, COST_LINE_TYPES, PACKING_TYPES, VALIDITY_OPTIONS } from "../../_lib/types";
-import { computeTotals, computeCargo, fmt } from "../../_lib/salesQuote";
+import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, CURRENCIES, COST_LINE_TYPES, PACKING_TYPES } from "../../_lib/types";
+import { computeTotals, computeCargo, fmt, validityInfo } from "../../_lib/salesQuote";
 import { printQuote } from "../../_lib/printQuote";
 import { LifecycleBar } from "./_components/LifecycleBar";
 import { ImportInquiryModal } from "./_components/ImportInquiryModal";
@@ -41,13 +46,14 @@ export function QuoteWorkflow() {
   const toast = useToast();
   const { data: loaded, isLoading, saveData } = useSalesQuote(ref);
   const { customers } = useCustomers();
-  const { terms, updateTerms } = useTermsConditions();
+  const { terms } = useTermsConditions();
 
   const [draft, setDraft] = useState<SalesQuoteData>({});
   const hydrated = useRef(false);
   const draftRef = useRef<SalesQuoteData>({});
   const [savedAt, setSavedAt] = useState<string>("");
   const [modal, setModal] = useState<null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email">(null);
+  const [openKey, setOpenKey] = useState<string>("customer");
 
   useEffect(() => {
     if (loaded && !hydrated.current) {
@@ -104,17 +110,24 @@ export function QuoteWorkflow() {
     );
   }
 
-  const badge = (ok: boolean) => (
-    <Tag color={ok ? "green" : "default"} className="ml-2 rounded-xl text-[11px]">
-      {ok ? "Completed" : "Incomplete"}
-    </Tag>
-  );
+  const partial: Record<string, boolean> = {
+    customer: !!(draft.customerName || draft.customerContact || draft.customerEmail || draft.customerPhone || draft.salesOwner),
+    shipment: !!(draft.direction || draft.serviceType || draft.incoterm || draft.readyDate),
+    routing: !!(draft.origin || draft.destination || draft.pickup || draft.delivery),
+    cargo: !!(draft.commodity || packages.length || draft.stackable || draft.dangerous),
+    pricing: !!(draft.buyingLines?.length || draft.sellingLines?.length),
+    terms: !!(draft.shippingTerms || draft.shippingIncludes || draft.shippingExcludes),
+  };
+  const sectionStatus = (key: keyof typeof done): SectionStatus =>
+    done[key] ? "completed" : partial[key] ? "in-progress" : "empty";
 
-  const collapseItems = [
+  const sections = [
     {
       key: "customer",
-      label: <span className="font-medium">Customer{badge(done.customer)}</span>,
-      children: (
+      num: 1,
+      title: "Customer details",
+      subtitle: "Customer and contact person",
+      content: (
         <div className="grid grid-cols-2 gap-3">
           <Field label="Customer">
             <Select
@@ -168,8 +181,10 @@ export function QuoteWorkflow() {
     },
     {
       key: "shipment",
-      label: <span className="font-medium">Shipment details{badge(done.shipment)}</span>,
-      children: (
+      num: 2,
+      title: "Shipment details",
+      subtitle: "Direction, service type and incoterm",
+      content: (
         <div className="grid grid-cols-2 gap-3">
           <Field label="Direction">
             <Select className="w-full" value={draft.direction} onChange={(v) => set({ direction: v })} options={DIRECTIONS.map((d) => ({ value: d, label: d }))} />
@@ -181,15 +196,23 @@ export function QuoteWorkflow() {
             <Select className="w-full" value={draft.incoterm} onChange={(v) => set({ incoterm: v })} options={INCOTERMS.map((d) => ({ value: d, label: d }))} />
           </Field>
           <Field label="Cargo ready date">
-            <Input placeholder="YYYY-MM-DD" value={draft.readyDate ?? ""} onChange={(e) => set({ readyDate: e.target.value })} />
+            <DatePicker
+              className="w-full"
+              format="YYYY-MM-DD"
+              placeholder="YYYY-MM-DD"
+              value={draft.readyDate ? dayjs(draft.readyDate) : null}
+              onChange={(_, dateStr) => set({ readyDate: (dateStr as string) || "" })}
+            />
           </Field>
         </div>
       ),
     },
     {
       key: "routing",
-      label: <span className="font-medium">Routing{badge(done.routing)}</span>,
-      children: (
+      num: 3,
+      title: "Routing",
+      subtitle: "Origin, destination and addresses",
+      content: (
         <div className="grid grid-cols-2 gap-3">
           <Field label="Origin">
             <Input value={draft.origin ?? ""} onChange={(e) => set({ origin: e.target.value })} />
@@ -203,16 +226,15 @@ export function QuoteWorkflow() {
           <Field label="Delivery">
             <Input value={draft.delivery ?? ""} onChange={(e) => set({ delivery: e.target.value })} />
           </Field>
-          <Field label="Transit time">
-            <Input value={draft.transit ?? ""} onChange={(e) => set({ transit: e.target.value })} />
-          </Field>
         </div>
       ),
     },
     {
       key: "cargo",
-      label: <span className="font-medium">Cargo details{badge(done.cargo)}</span>,
-      children: (
+      num: 4,
+      title: "Cargo details",
+      subtitle: "Commodity, packages and dimensions",
+      content: (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <Field label="Commodity">
@@ -275,8 +297,10 @@ export function QuoteWorkflow() {
     },
     {
       key: "pricing",
-      label: <span className="font-medium">Pricing{badge(done.pricing)}</span>,
-      children: (
+      num: 5,
+      title: "Pricing",
+      subtitle: "Buying & selling breakdown with margin",
+      content: (
         <div className="space-y-4">
           <Field label="Currency">
             <Select className="w-40" value={draft.currency ?? "EUR"} onChange={(v) => set({ currency: v })} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
@@ -302,8 +326,10 @@ export function QuoteWorkflow() {
     },
     {
       key: "terms",
-      label: <span className="font-medium">Shipping terms{badge(done.terms)}</span>,
-      children: (
+      num: 6,
+      title: "Shipping terms",
+      subtitle: "Rate inclusions, exclusions and validity",
+      content: (
         <div className="space-y-3">
           <Field label="Template">
             <Select
@@ -326,28 +352,16 @@ export function QuoteWorkflow() {
           <Field label="Additional conditions / notes">
             <Input.TextArea rows={2} value={draft.shippingTermsNotes ?? ""} onChange={(e) => set({ shippingTermsNotes: e.target.value })} />
           </Field>
-          <div className="grid grid-cols-2 gap-3 items-end">
-            <Field label="Quote validity (days)">
-              <Select
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Valid until">
+              <DatePicker
                 className="w-full"
-                value={draft.validityDays ?? 14}
-                onChange={(v) => set({ validityDays: v })}
-                options={VALIDITY_OPTIONS.map((d) => ({ value: d, label: `${d} days` }))}
+                format="YYYY-MM-DD"
+                placeholder="Select expiry date"
+                value={draft.validUntil ? dayjs(draft.validUntil) : null}
+                onChange={(_, dateStr) => set({ validUntil: (dateStr as string) || "" })}
               />
             </Field>
-            {draft.shippingTerms && (
-              <Button
-                onClick={() => {
-                  const t = terms.find((x) => x.name === draft.shippingTerms);
-                  if (!t) return;
-                  updateTerms({ id: t.id, params: { includes: draft.shippingIncludes ?? "", excludes: draft.shippingExcludes ?? "" } })
-                    .then(() => toast.success(`Saved back to "${t.name}" template`))
-                    .catch(() => toast.error("Failed to update template"));
-                }}
-              >
-                Save changes to “{draft.shippingTerms}” template
-              </Button>
-            )}
           </div>
         </div>
       ),
@@ -356,30 +370,17 @@ export function QuoteWorkflow() {
 
   return (
     <div className="bg-slate-50 min-h-full p-6">
-      <div className="max-w-[1100px] mx-auto">
+      <div className="max-w-[1320px] mx-auto">
         <button onClick={() => router.push("/sales/quotes")} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 mb-4">
           <ArrowLeftOutlined className="text-xs" /> Quote History
         </button>
 
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-5">
           <div>
-            <h1 className="text-xl font-bold text-slate-800 m-0 font-mono">{ref}</h1>
-            <div className="text-xs text-slate-400 mt-0.5">{savedAt ? `Saved ${savedAt}` : "Autosaves as you type"}</div>
+            <h1 className="text-2xl font-bold text-slate-800 m-0 font-mono">{ref}</h1>
+            <div className="text-xs text-slate-400 mt-1">{savedAt ? `Saved ${savedAt}` : "Autosaves as you type"}</div>
           </div>
           <div className="flex gap-2">
-            <Dropdown
-              menu={{
-                items: [
-                  { key: "import", icon: <ImportOutlined />, label: "Import inquiry data", onClick: () => setModal("import") },
-                  { key: "copyQuote", icon: <CopyOutlined />, label: "Copy from quote", onClick: () => setModal("copyQuote") },
-                  { key: "copyShipment", icon: <CopyOutlined />, label: "Copy from shipment", onClick: () => setModal("copyShipment") },
-                ],
-              }}
-            >
-              <Button icon={<ThunderboltOutlined />}>
-                Quick actions <DownOutlined />
-              </Button>
-            </Dropdown>
             <Button icon={<SaveOutlined />} onClick={() => saveData(draft).then(() => toast.success("Saved"))}>
               Save
             </Button>
@@ -398,13 +399,40 @@ export function QuoteWorkflow() {
           </div>
         </div>
 
-        <div className="mb-4">
+        <div className="mb-5">
           <LifecycleBar data={draft} onChange={(patch) => set(patch)} />
         </div>
 
-        <div className="flex gap-4 items-start">
+        {/* Quick action cards */}
+        <div className="flex gap-3 mb-5">
+          <QuickCard icon={<ImportOutlined />} title="Import inquiry data" onClick={() => setModal("import")} />
+          <QuickCard icon={<CopyOutlined />} title="Copy from quote" onClick={() => setModal("copyQuote")} />
+          <QuickCard icon={<SnippetsOutlined />} title="Copy from shipment" onClick={() => setModal("copyShipment")} />
+          <QuickCard icon={<EditOutlined />} title="Manual entry" onClick={() => setOpenKey("customer")} />
+        </div>
+
+        <div className="flex gap-6 items-start">
           <div className="flex-1 min-w-0">
-            <Collapse items={collapseItems} defaultActiveKey={["customer"]} className="bg-white" />
+            {sections.map((s, i) => (
+              <AccordionSection
+                key={s.key}
+                num={s.num}
+                title={s.title}
+                subtitle={s.subtitle}
+                status={sectionStatus(s.key as keyof typeof done)}
+                open={openKey === s.key}
+                onToggle={() => setOpenKey(openKey === s.key ? "" : s.key)}
+              >
+                {s.content}
+                {sections[i + 1] && (
+                  <div className="flex justify-end pt-4">
+                    <Button type="primary" ghost onClick={() => setOpenKey(sections[i + 1]!.key)}>
+                      Save &amp; continue <RightOutlined />
+                    </Button>
+                  </div>
+                )}
+              </AccordionSection>
+            ))}
           </div>
           <PreviewSidebar draft={draft} cargo={cargo} totals={totals} />
         </div>
@@ -435,6 +463,80 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div className="text-xs text-slate-500 mb-1">{label}</div>
       {children}
     </div>
+  );
+}
+
+type SectionStatus = "empty" | "in-progress" | "completed";
+
+function AccordionSection({
+  num,
+  title,
+  subtitle,
+  status,
+  open,
+  onToggle,
+  children,
+}: {
+  num: number;
+  title: string;
+  subtitle: string;
+  status: SectionStatus;
+  open: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  const circle =
+    status === "completed" ? "bg-green-600 text-white" : status === "in-progress" ? "bg-indigo-600 text-white" : "bg-slate-200 text-slate-500";
+  const pill =
+    status === "completed"
+      ? "bg-green-50 text-green-700 border-green-200"
+      : status === "in-progress"
+        ? "bg-indigo-50 text-indigo-700 border-indigo-200"
+        : "bg-slate-50 text-slate-400 border-slate-200";
+  const pillLabel = status === "completed" ? "Completed" : status === "in-progress" ? "In progress" : "Not completed";
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl shadow-sm mb-2.5 overflow-hidden">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center px-5 py-4 hover:bg-slate-50 transition-colors text-left"
+      >
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mr-3.5 ${circle}`}>
+          {status === "completed" ? <CheckOutlined className="text-[13px]" /> : <span className="text-[13px] font-bold">{num}</span>}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[15px] font-bold text-slate-900">{title}</div>
+          <div className="text-xs text-slate-500 mt-0.5">{subtitle}</div>
+        </div>
+        <div className="flex items-center gap-2.5 shrink-0">
+          <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full border ${pill}`}>{pillLabel}</span>
+          {open ? <UpOutlined className="text-[12px] text-slate-400" /> : <DownOutlined className="text-[12px] text-slate-400" />}
+        </div>
+      </button>
+      <div className={`grid transition-[grid-template-rows] duration-300 ease-out ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+        <div className="overflow-hidden">
+          <div className="px-5 pb-5">
+            <div className="h-px bg-slate-100 mb-4" />
+            {children}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuickCard({ icon, title, onClick }: { icon: React.ReactNode; title: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex-1 min-w-0 flex items-center gap-2.5 bg-white border border-slate-200 rounded-xl px-3.5 py-3 text-left shadow-sm hover:shadow-md hover:border-indigo-400 transition"
+    >
+      <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600 shrink-0">{icon}</div>
+      <div className="text-xs font-bold text-slate-800 flex-1 min-w-0">{title}</div>
+      <RightOutlined className="text-[11px] text-slate-300 shrink-0" />
+    </button>
   );
 }
 
@@ -501,33 +603,57 @@ function PreviewSidebar({
   cargo: { totalPackages: number; grossWeight: number; cbm: number; chargeableWeight: number };
   totals: { selling: number; buying: number; profit: number; margin: number };
 }) {
-  const line = (label: string, value: React.ReactNode) => (
-    <div className="flex justify-between gap-2">
+  const row = (label: string, value: React.ReactNode) => (
+    <div className="flex justify-between gap-2 py-1 border-b border-slate-50 last:border-b-0">
       <span className="text-slate-400">{label}</span>
-      <span className="text-slate-700 text-right">{value || "—"}</span>
+      <span className="text-slate-700 text-right font-medium">{value || "—"}</span>
     </div>
   );
+  const heading = (text: string) => (
+    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-3 mb-1">{text}</div>
+  );
+  const validity = validityInfo(draft);
   return (
-    <div className="w-72 shrink-0 sticky top-4 bg-white border border-slate-200 rounded-2xl p-4 space-y-3 text-[12px]">
+    <div className="w-80 shrink-0 sticky top-4 bg-white border border-slate-200 rounded-2xl p-4 text-[12px] max-h-[calc(100vh-2rem)] overflow-y-auto">
       <div className="text-sm font-semibold text-slate-800">Live preview</div>
-      <div className="space-y-1">
-        {line("Customer", draft.customerName)}
-        {line("Service", draft.serviceType)}
-        {line("Incoterm", draft.incoterm)}
-      </div>
-      <div className="border-t border-slate-100 pt-2 space-y-1">
-        {line("Route", draft.origin || draft.destination ? `${draft.origin || "—"} → ${draft.destination || "—"}` : "")}
-        {line("Ready", draft.readyDate)}
-      </div>
-      <div className="border-t border-slate-100 pt-2 space-y-1">
-        {line("Packages", cargo.totalPackages || "")}
-        {line("Chargeable wt", cargo.chargeableWeight ? `${cargo.chargeableWeight} kg` : "")}
-        {line("CBM", cargo.cbm || "")}
-      </div>
-      <div className="border-t border-slate-100 pt-2 space-y-1">
-        {line("Selling", fmt(totals.selling, draft.currency))}
-        {line("Profit", <span className={totals.profit >= 0 ? "text-green-600" : "text-red-600"}>{fmt(totals.profit, draft.currency)} ({totals.margin}%)</span>)}
-      </div>
+
+      {heading("Customer")}
+      {row("Company", draft.customerName)}
+      {row("Contact", draft.customerContact)}
+      {row("Email", draft.customerEmail)}
+      {row("Phone", draft.customerPhone)}
+
+      {heading("Routing")}
+      {row("Service", draft.serviceType)}
+      {row("Origin", draft.origin)}
+      {row("Destination", draft.destination)}
+      {row("Incoterm", draft.incoterm)}
+      {row("Cargo ready", draft.readyDate)}
+
+      {heading("Cargo")}
+      {row("Commodity", draft.commodity)}
+      {row("Packages", cargo.totalPackages || "")}
+      {row("Gross weight", cargo.grossWeight ? `${cargo.grossWeight} kg` : "")}
+      {row("CBM", cargo.cbm || "")}
+      {row("Chargeable wt", cargo.chargeableWeight ? `${cargo.chargeableWeight} kg` : "")}
+
+      {heading("Pricing summary")}
+      {row("Buying", fmt(totals.buying, draft.currency))}
+      {row("Selling", fmt(totals.selling, draft.currency))}
+      {row(
+        "Profit",
+        <span className={totals.profit >= 0 ? "text-green-600 font-semibold" : "text-red-600 font-semibold"}>
+          {fmt(totals.profit, draft.currency)} ({totals.margin}%)
+        </span>,
+      )}
+
+      {(draft.shippingTerms || validity.date) && (
+        <>
+          {heading("Shipping terms")}
+          {draft.shippingTerms ? row("Type", draft.shippingTerms) : null}
+          {validity.date ? row("Valid until", validity.date) : null}
+        </>
+      )}
     </div>
   );
 }

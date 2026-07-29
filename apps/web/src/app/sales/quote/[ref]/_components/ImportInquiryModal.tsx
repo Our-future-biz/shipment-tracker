@@ -26,7 +26,6 @@ const FIELD_LABELS: Partial<Record<keyof SalesQuoteData, string>> = {
   serviceType: "Service type",
   incoterm: "Incoterm",
   readyDate: "Ready date",
-  transit: "Transit",
   origin: "Origin",
   destination: "Destination",
   pickup: "Pickup",

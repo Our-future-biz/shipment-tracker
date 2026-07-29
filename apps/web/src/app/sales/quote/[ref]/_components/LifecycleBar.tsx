@@ -129,18 +129,18 @@ export function LifecycleBar({ data, onChange }: Props) {
             const isCurrent = k === current;
             const c = QUOTE_STATUS_MAP[k];
             return (
-              <div key={k} className="flex items-center">
-                <div className="flex flex-col items-center">
+              <div key={k} className={`flex items-center ${i < FLOW.length - 1 ? "flex-1" : ""}`}>
+                <div className="flex flex-col items-center shrink-0">
                   <span
-                    className={`w-3.5 h-3.5 rounded-full border-2 ${isCurrent ? "ring-2 ring-offset-1" : ""}`}
+                    className={`w-4 h-4 rounded-full border-2 ${isCurrent ? "ring-2 ring-offset-1" : ""}`}
                     style={{
                       backgroundColor: reached ? c?.color.text : "#fff",
                       borderColor: reached ? c?.color.text : "#cbd5e1",
                     }}
                   />
-                  <span className={`text-[10px] mt-1 ${isCurrent ? "font-semibold text-slate-700" : "text-slate-400"}`}>{c?.label}</span>
+                  <span className={`text-[11px] mt-1.5 whitespace-nowrap ${isCurrent ? "font-semibold text-slate-700" : "text-slate-400"}`}>{c?.label}</span>
                 </div>
-                {i < FLOW.length - 1 && <span className={`w-8 h-0.5 mx-1 mb-4 ${i < idx ? "bg-indigo-300" : "bg-slate-200"}`} />}
+                {i < FLOW.length - 1 && <span className={`flex-1 h-0.5 mx-2 mb-5 ${i < idx ? "bg-indigo-300" : "bg-slate-200"}`} />}
               </div>
             );
           })

@@ -141,7 +141,6 @@ export function printQuote(quoteNumber: string, data: SalesQuoteData): void {
       <div><span>Direction</span>${esc(data.direction) || "—"}</div>
       <div><span>Incoterm</span>${esc(data.incoterm) || "—"}</div>
       <div><span>Cargo ready</span>${esc(data.readyDate) || "—"}</div>
-      <div><span>Transit</span>${esc(data.transit) || "—"}</div>
       <div><span>Pickup</span>${esc(data.pickup) || "—"}</div>
       <div><span>Delivery</span>${esc(data.delivery) || "—"}</div>
     </div>

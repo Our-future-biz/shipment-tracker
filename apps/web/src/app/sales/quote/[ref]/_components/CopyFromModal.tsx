@@ -39,7 +39,7 @@ const SECTION_FIELDS: Record<SectionKey, (keyof SalesQuoteData)[]> = {
     "customerLabel",
     "salesOwner",
   ],
-  shipment: ["direction", "serviceType", "incoterm", "readyDate", "transit"],
+  shipment: ["direction", "serviceType", "incoterm", "readyDate"],
   routing: ["origin", "destination", "pickup", "delivery"],
   cargo: ["commodity", "stackable", "dangerous", "packages", "weight", "cbm"],
   pricing: ["buyingLines", "sellingLines", "currency"],

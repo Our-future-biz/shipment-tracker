@@ -45,7 +45,6 @@ export interface SalesQuoteData {
   serviceType?: string; // Air / Sea (FCL/LCL) / Rail / Road
   incoterm?: string;
   readyDate?: string;
-  transit?: string;
   // Routing
   origin?: string;
   destination?: string;
@@ -73,6 +72,7 @@ export interface SalesQuoteData {
   lostReason?: string;
   lostComment?: string;
   validityDays?: number;
+  validUntil?: string; // explicit expiry date (YYYY-MM-DD) picked from the calendar
   winProbability?: number;
   sentAt?: string;
   timeline?: TimelineEntry[];
