@@ -1,3 +1,14 @@
+export interface ContainerLine {
+  containerNumber: string;
+  sealNumber: string;
+  type: string;
+  teu: string;
+  packages: string;
+  packageType: string;
+  grossWeight: string;
+  volume: string;
+}
+
 export interface ShipmentItem {
   id: string;
   jobNumber: string;
@@ -120,6 +131,9 @@ export interface ShipmentItem {
 
   // Dimensions (JSONB)
   dimensions: unknown;
+
+  // Containers (JSONB array of ContainerLine)
+  containers: ContainerLine[] | null;
 
   // Quote
   salesNumber: string;

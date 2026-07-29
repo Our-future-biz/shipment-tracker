@@ -1,9 +1,6 @@
 "use client";
 
-import { Button } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
 import { useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { KpiCard } from "./KpiCard";
 import { NeedsAttentionCard } from "./NeedsAttentionCard";
@@ -13,7 +10,6 @@ import { useShipments } from "@/hooks/useShipments";
 import { isActiveStatus } from "@/lib/enums";
 
 export function DashboardView() {
-  const router = useRouter();
   const { shipments, isLoading } = useShipments();
 
   const kpis = useMemo(() => {
@@ -33,14 +29,7 @@ export function DashboardView() {
   return (
     <div className="bg-slate-50 min-h-full p-6">
       <div className="max-w-[1400px] mx-auto">
-      <PageHeader
-        title="Dashboard"
-        extra={
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => router.push("/shipments")}>
-            New Shipment
-          </Button>
-        }
-      />
+      <PageHeader title="Dashboard" />
       <div className="grid grid-cols-4 gap-3.5 mb-5">
         <KpiCard label="Active Shipments" value={kpis.active} />
         <KpiCard label="Total Shipments" value={kpis.total} />

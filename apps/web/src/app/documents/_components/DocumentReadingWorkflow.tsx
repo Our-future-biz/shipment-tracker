@@ -243,6 +243,8 @@ export function DocumentReadingWorkflow() {
   // ─── Field toggles ───────────────────────────────────────────────
   const toggleField = (i: number) =>
     setFields((prev) => prev.map((f, idx) => (idx === i ? { ...f, approved: !f.approved } : f)));
+  const editField = (i: number, value: string) =>
+    setFields((prev) => prev.map((f, idx) => (idx === i ? { ...f, extractedValue: value } : f)));
   const setAll = (approved: boolean) => setFields((prev) => prev.map((f) => ({ ...f, approved })));
 
   // ─── Commit: shipment ────────────────────────────────────────────
@@ -621,7 +623,7 @@ export function DocumentReadingWorkflow() {
             </Space>
           </div>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
-          <FieldReviewTable fields={fields} onToggle={toggleField} />
+          <FieldReviewTable fields={fields} onToggle={toggleField} editable onEdit={editField} />
           <div className="flex gap-2 mt-4">
             <Button onClick={() => setStep("upload")}>Back</Button>
             <Button

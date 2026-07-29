@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Spin, Dropdown, message, Modal, Tag, Drawer, Tooltip, Select, DatePicker } from "antd";
+import { Spin, Dropdown, message, Modal, Tag, Drawer, Tooltip, Select, TimePicker } from "antd";
 import dayjs from "dayjs";
 import { api } from "@/lib/api";
 import {
@@ -25,6 +25,7 @@ import { useUsers } from "@/hooks/useUsers";
 import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
 import Link from "next/link";
 import { CostsTab } from "./tabs/CostsTab";
+import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
 import { WarehouseTab } from "./tabs/WarehouseTab";
@@ -322,7 +323,8 @@ function SalesPersonField({
   );
 }
 
-function OpeningHoursField({
+// Opening hours as a plain time range (from–to), no date, rendered as a card row.
+function OpeningHoursRow({
   from,
   to,
   onChange,
@@ -331,57 +333,24 @@ function OpeningHoursField({
   to?: string | null;
   onChange: (from: string, to: string) => void;
 }) {
-  const value: [dayjs.Dayjs | null, dayjs.Dayjs | null] = [
-    from ? dayjs(from) : null,
-    to ? dayjs(to) : null,
-  ];
+  const parse = (v?: string | null) => {
+    if (!v) return null;
+    const d = dayjs(`1970-01-01T${v}`);
+    return d.isValid() ? d : null;
+  };
   return (
-    <div className="py-1">
-      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
-        Opening Hours (From–To)
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Opening Hours</span>
+      <div className="flex-1 min-w-0">
+        <TimePicker.RangePicker
+          size="small"
+          className="w-full"
+          format="HH:mm"
+          minuteStep={15}
+          value={[parse(from), parse(to)]}
+          onChange={(_, strs) => onChange(strs[0] || "", strs[1] || "")}
+        />
       </div>
-      <DatePicker.RangePicker
-        size="small"
-        className="w-full"
-        showTime={{ format: "HH:mm" }}
-        format="DD.MM.YYYY HH:mm"
-        value={value}
-        onChange={(dates) =>
-          onChange(dates?.[0]?.toISOString() ?? "", dates?.[1]?.toISOString() ?? "")
-        }
-      />
-    </div>
-  );
-}
-
-function AddressBlock({
-  label,
-  value,
-  fieldKey,
-  onCommit,
-  styleFor,
-}: {
-  label: string;
-  value?: string | null;
-  fieldKey: string;
-  onCommit: CommitFn;
-  styleFor?: StyleFor;
-}) {
-  return (
-    <div className="bg-slate-50 rounded-lg p-3.5">
-      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-2">
-        {label}
-      </div>
-      <EditableCell
-        multiline
-        fieldKey={fieldKey}
-        value={value}
-        onCommit={onCommit}
-        placeholder="Not specified"
-        displayClassName="text-xs text-slate-900 leading-relaxed"
-        emptyClassName="text-xs text-slate-300 italic"
-        displayStyle={styleFor?.(fieldKey, value)}
-      />
     </div>
   );
 }
@@ -454,7 +423,7 @@ const DETAIL_SECTIONS: { title: string; icon: React.ReactNode; keys: string[] }[
 ];
 
 /* ── Cargo-specific sections shown in the Cargo Details tab ── */
-const CARGO_SECTION_TITLES = ["Cargo & Commercial", "Containers"];
+const CARGO_SECTION_TITLES = ["Cargo & Commercial"];
 
 /* ── Field arrangement for the redesigned details tab ── */
 const CARRIER_BOL: FieldDef[] = [
@@ -859,30 +828,22 @@ export function ShipmentDetailContent() {
               {/* COMMERCIAL PARTIES */}
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                 <SectionHeader icon={<EnvironmentOutlined />} title="Commercial Parties" />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
                   <div>
-                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wide mb-1">Shipper · Loading</div>
-                    <CustomerLinkField label="Name" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
-                    <div className="py-1">
-                      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Contact</div>
-                      <EditableCell fieldKey="shipperContact" value={shipment.shipperContact} onCommit={commitDirect} placeholder="—" displayClassName="text-xs text-slate-900 font-medium" />
-                    </div>
-                    <AddressBlock label="Pick Up Address" fieldKey="pickupAddress" value={shipment.pickupAddress} onCommit={handleCommit} styleFor={styleFor} />
-                    <OpeningHoursField
+                    <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
+                    <FieldRow label="Contact" fieldKey="shipperContact" value={shipment.shipperContact} onCommit={commitDirect} styleFor={styleFor} />
+                    <FieldRow label="Pick-up Address" fieldKey="pickupAddress" value={shipment.pickupAddress} onCommit={handleCommit} styleFor={styleFor} />
+                    <OpeningHoursRow
                       from={shipment.shipperOpeningFrom}
                       to={shipment.shipperOpeningTo}
                       onChange={(f, t) => updateShipment({ id: shipment.id, data: { shipperOpeningFrom: f, shipperOpeningTo: t } })}
                     />
                   </div>
                   <div>
-                    <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wide mb-1">Consignee · Unloading</div>
-                    <CustomerLinkField label="Name" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
-                    <div className="py-1">
-                      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">Contact</div>
-                      <EditableCell fieldKey="consigneeContact" value={shipment.consigneeContact} onCommit={commitDirect} placeholder="—" displayClassName="text-xs text-slate-900 font-medium" />
-                    </div>
-                    <AddressBlock label="Delivery Address" fieldKey="deliveryAddress" value={shipment.deliveryAddress} onCommit={handleCommit} styleFor={styleFor} />
-                    <OpeningHoursField
+                    <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
+                    <FieldRow label="Contact" fieldKey="consigneeContact" value={shipment.consigneeContact} onCommit={commitDirect} styleFor={styleFor} />
+                    <FieldRow label="Delivery Address" fieldKey="deliveryAddress" value={shipment.deliveryAddress} onCommit={handleCommit} styleFor={styleFor} />
+                    <OpeningHoursRow
                       from={shipment.consigneeOpeningFrom}
                       to={shipment.consigneeOpeningTo}
                       onChange={(f, t) => updateShipment({ id: shipment.id, data: { consigneeOpeningFrom: f, consigneeOpeningTo: t } })}
@@ -1017,7 +978,12 @@ export function ShipmentDetailContent() {
 
         {activeTab === "tracking" && <TrackingTab shipment={shipment} />}
 
-        {activeTab === "container" && <EmptyTab title="Container Details" />}
+        {activeTab === "container" && (
+          <ContainerDetailsTab
+            shipment={shipment}
+            onChange={(containers) => updateShipment({ id: shipment.id, data: { containers } })}
+          />
+        )}
 
         {activeTab === "customs" && <EmptyTab title="Customs" />}
 

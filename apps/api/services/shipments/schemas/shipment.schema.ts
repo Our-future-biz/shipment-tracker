@@ -127,6 +127,9 @@ export const shipmentTable = pgTable(
     // — Dimensions (variable-length array, stays JSONB) —
     dimensions: jsonb("dimensions"),
 
+    // — Containers (per-container table rows, variable length) —
+    containers: jsonb("containers"),
+
     // — Quote —
     salesNumber: text("sales_number").notNull().default(""),
     selling: text("selling").notNull().default(""),

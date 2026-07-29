@@ -66,11 +66,11 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Container's Type (3)": ["GP", "HC", "RF", "HR", "OT", "HOT", "FR"],
   "Container's Type (4)": ["GP", "HC", "RF", "HR", "OT", "HOT", "FR"],
   "Customs Procedure": ["SCP", "JSD", "T1", "C-Goods"],
-  "Shipping Instructions": ["Pending (Red)", "Confirmed (Green)", "Not Applicable"],
+  "Shipping Instructions": ["Not Queried", "Not Received", "Confirmed"],
   "VGM": ["Pending (Red)", "Confirmed (Green)", "Not Applicable"],
   "AMS (if any)": ["Pending (Red)", "Confirmed (Green)", "Not Applicable"],
   "ISF (if any)": ["Pending (Red)", "Confirmed (Green)", "Not Applicable"],
-  "BoL draft": ["Pending (Red)", "Confirmed (Green)", "Not Applicable"],
+  "BoL draft": ["Not Processed", "Waiting for approval", "Approved"],
 };
 
 // ─── Date Columns ─────────────────────────────────────────────────────
@@ -362,8 +362,24 @@ export function getCellConditionalStyle(
     return { backgroundColor: "rgba(34, 197, 94, 0.12)" };
   }
 
-  // Triple-state compliance fields (SI/VGM/AMS/ISF/BoL draft)
-  const tripleStateFields = ["shippingInstructions", "vgm", "ams", "isf", "bolDraft"];
+  // Shipping Instructions — 3-state: Not Queried (red), Not Received (orange), Confirmed (green)
+  if (key === "shippingInstructions") {
+    if (value === "Confirmed" || value === "Confirmed (Green)") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
+    if (value === "Not Received" || value === "Pending (Red)" || value === "Pending") return { backgroundColor: "rgba(249, 115, 22, 0.15)" };
+    if (value === "Not Queried") return { backgroundColor: "rgba(244, 63, 94, 0.12)" };
+    return null;
+  }
+
+  // BoL draft — 3-state: Not Processed (red), Waiting for approval (orange), Approved (green)
+  if (key === "bolDraft") {
+    if (value === "Approved" || value === "Confirmed (Green)") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
+    if (value === "Waiting for approval" || value === "Pending (Red)" || value === "Pending") return { backgroundColor: "rgba(249, 115, 22, 0.15)" };
+    if (value === "Not Processed") return { backgroundColor: "rgba(244, 63, 94, 0.12)" };
+    return null;
+  }
+
+  // Triple-state compliance fields (VGM/AMS/ISF)
+  const tripleStateFields = ["vgm", "ams", "isf"];
   if (tripleStateFields.includes(key)) {
     if (value === "Confirmed (Green)") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
     if (value === "Not Applicable") return { backgroundColor: "rgba(156, 163, 175, 0.15)", color: "#9ca3af" };

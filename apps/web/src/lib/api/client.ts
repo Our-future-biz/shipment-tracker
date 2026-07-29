@@ -1504,6 +1504,7 @@ export namespace controllers {
          */
         dimensions?: any
 
+        containers?: interfaces.ContainerLine[]
         /**
          * Quote
          */
@@ -1692,6 +1693,7 @@ export namespace controllers {
          */
         dimensions?: any
 
+        containers?: interfaces.ContainerLine[]
         /**
          * Quote
          */
@@ -1953,6 +1955,17 @@ export namespace interfaces {
         isMain: boolean
         createdAt: string
         updatedAt: string
+    }
+
+    export interface ContainerLine {
+        containerNumber: string
+        sealNumber: string
+        type: string
+        teu: string
+        packages: string
+        packageType: string
+        grossWeight: string
+        volume: string
     }
 
     export interface CustomerItem {
@@ -2240,6 +2253,11 @@ export namespace interfaces {
          * Dimensions (JSONB)
          */
         dimensions: any
+
+        /**
+         * Containers (JSONB array of ContainerLine)
+         */
+        containers: ContainerLine[] | null
 
         /**
          * Quote
