@@ -190,7 +190,7 @@ const BUILTIN_VIEWS: { id: string; label: string; apply: () => Filters }[] = [
 
 export function QuoteHistoryTab() {
   const router = useRouter();
-  const { salesQuotes, isLoading, deleteQuote, updateQuoteData } = useSalesQuotes();
+  const { salesQuotes, isLoading, updateQuoteData } = useSalesQuotes();
   const { value: visibleKeys, setValue: setVisibleKeys } = useSalesPref<string[]>("qh_cols", DEFAULT_VISIBLE);
   const { value: savedViews, setValue: setSavedViews } = useSalesPref<SavedView[]>("saved_views", []);
   const toast = useToast();
@@ -323,11 +323,6 @@ export function QuoteHistoryTab() {
       `Set ${QUOTE_STATUS_MAP[status]?.label ?? status} on`,
     );
 
-  const bulkDelete = async () => {
-    await Promise.all(selectedKeys.map((k) => deleteQuote(String(k))));
-    toast.success(`Deleted ${selectedKeys.length} quote(s)`);
-    setSelectedKeys([]);
-  };
   const bulkExport = () => {
     const set = new Set(selectedKeys.map(String));
     exportQuotesCsv(filtered.filter((q) => set.has(q.quoteNumber)));
@@ -546,9 +541,6 @@ export function QuoteHistoryTab() {
           </Dropdown>
           <Button size="small" icon={<DownloadOutlined />} onClick={bulkExport}>
             Export CSV
-          </Button>
-          <Button size="small" danger icon={<CloseOutlined />} onClick={bulkDelete}>
-            Delete
           </Button>
           <Button size="small" type="text" onClick={() => setSelectedKeys([])}>
             Clear
