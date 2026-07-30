@@ -78,6 +78,13 @@
       "when": 1785348870233,
       "tag": "0010_acoustic_mephistopheles",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1785398442512,
+      "tag": "0011_modern_omega_sentinel",
+      "breakpoints": true
     }
   ]
 }

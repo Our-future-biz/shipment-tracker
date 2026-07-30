@@ -9,6 +9,16 @@ export interface ContainerLine {
   volume: string;
 }
 
+export interface CargoItemLine {
+  cargoDescription: string;
+  hsCode: string;
+  pieces: string;
+  packageType: string;
+  grossWeight: string;
+  volume: string;
+  commercialInvoiceValue: string;
+}
+
 export interface ShipmentItem {
   id: string;
   jobNumber: string;
@@ -134,6 +144,9 @@ export interface ShipmentItem {
 
   // Containers (JSONB array of ContainerLine)
   containers: ContainerLine[] | null;
+
+  // Cargo items (JSONB array of CargoItemLine)
+  cargoItems: CargoItemLine[] | null;
 
   // Quote
   salesNumber: string;

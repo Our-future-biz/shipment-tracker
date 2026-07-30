@@ -1,6 +1,6 @@
 import { api, APIError } from "encore.dev/api";
 import { shipmentService } from "../services/shipment.service";
-import type { ShipmentItem, ContainerLine } from "../interfaces/interfaces";
+import type { ShipmentItem, ContainerLine, CargoItemLine } from "../interfaces/interfaces";
 
 interface ShipmentCreateRequest {
   jobNumber: string;
@@ -118,6 +118,7 @@ interface ShipmentCreateRequest {
   // Dimensions (JSONB)
   dimensions?: unknown;
   containers?: ContainerLine[];
+  cargoItems?: CargoItemLine[];
 
   // Quote
   salesNumber?: string;

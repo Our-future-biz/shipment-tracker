@@ -19,13 +19,14 @@ import {
   FileTextOutlined,
 } from "@ant-design/icons";
 import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
-import { COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
+import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { useUsers } from "@/hooks/useUsers";
 import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
 import Link from "next/link";
 import { CostsTab } from "./tabs/CostsTab";
 import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
+import { CargoItemsTab } from "./tabs/CargoItemsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
 import { WarehouseTab } from "./tabs/WarehouseTab";
@@ -259,41 +260,6 @@ function EmptyTab({ title }: { title: string }) {
   );
 }
 
-function FieldPair({
-  label,
-  value,
-  fieldKey,
-  onCommit,
-  styleFor,
-}: {
-  label: string;
-  value?: string | null;
-  fieldKey?: string;
-  onCommit?: CommitFn;
-  styleFor?: StyleFor;
-}) {
-  const condStyle = fieldKey ? styleFor?.(fieldKey, value) : undefined;
-  return (
-    <div className="py-1.5">
-      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
-        {label}
-      </div>
-      {fieldKey && onCommit ? (
-        <EditableCell
-          fieldKey={fieldKey}
-          value={value}
-          onCommit={onCommit}
-          placeholder="—"
-          displayClassName="text-xs text-slate-900 font-medium"
-          displayStyle={condStyle}
-        />
-      ) : (
-        <div className="text-xs text-slate-900 font-medium" style={condStyle}>{value || "—"}</div>
-      )}
-    </div>
-  );
-}
-
 function SalesPersonField({
   value,
   onChange,
@@ -354,76 +320,6 @@ function OpeningHoursRow({
     </div>
   );
 }
-
-/* ── All remaining DB fields, grouped for the details tab ── */
-const DETAIL_SECTIONS: { title: string; icon: React.ReactNode; keys: string[] }[] = [
-  {
-    title: "References & Routing",
-    icon: <EnvironmentOutlined />,
-    keys: ["personalReference", "bookingNumber", "pol", "pod", "origin", "destination", "cargoOrigin", "countryCode"],
-  },
-  {
-    title: "Cargo & Commercial",
-    icon: <ContainerOutlined />,
-    keys: [
-      "loadType", "tradeDirection", "freightMode", "serviceType", "pcs", "hsCode",
-      "cargoDescription", "commercialInvoice", "commercialInvoiceValue", "insurance", "creditCheck", "approvedBy",
-    ],
-  },
-  {
-    title: "Status & Meta",
-    icon: <InfoCircleOutlined />,
-    keys: ["status", "customsStatus", "shipmentsDate", "freeComments"],
-  },
-  {
-    title: "Parties & Agents",
-    icon: <InfoCircleOutlined />,
-    keys: ["customerPic", "customerReference", "agent", "agentPic", "supplierPic", "equipmentDelivery", "bookingConfirmation", "customsProcedure"],
-  },
-  {
-    title: "Carrier & Bill of Lading",
-    icon: <SplitCellsOutlined />,
-    keys: ["vessel", "voyage", "incotermDestination", "houseBolNumber", "houseBolType", "masterBolType"],
-  },
-  {
-    title: "Compliance",
-    icon: <CheckSquareOutlined />,
-    keys: ["vgm", "shippingInstructions", "ams", "isf", "bolDraft"],
-  },
-  {
-    title: "Switch BoL",
-    icon: <SplitCellsOutlined />,
-    keys: ["switchBol", "switchBolApprovedBy", "switchBolNumber"],
-  },
-  {
-    title: "Containers",
-    icon: <ContainerOutlined />,
-    keys: [
-      "containerCount1", "containerLength1", "containerType1",
-      "containerCount2", "containerLength2", "containerType2",
-      "containerCount3", "containerLength3", "containerType3",
-      "containerCount4", "containerLength4", "containerType4",
-    ],
-  },
-  {
-    title: "Additional Dates",
-    icon: <CalendarOutlined />,
-    keys: ["pickupDate", "pickupTime", "plannedDeliveryTime"],
-  },
-  {
-    title: "Quote",
-    icon: <FileTextOutlined />,
-    keys: ["salesNumber", "selling", "buying", "profit", "quoteValidity", "validityStatus"],
-  },
-  {
-    title: "Other",
-    icon: <FileTextOutlined />,
-    keys: ["claim", "createdBy"],
-  },
-];
-
-/* ── Cargo-specific sections shown in the Cargo Details tab ── */
-const CARGO_SECTION_TITLES = ["Cargo & Commercial"];
 
 /* ── Field arrangement for the redesigned details tab ── */
 const CARRIER_BOL: FieldDef[] = [
@@ -497,43 +393,82 @@ const SWITCH_BOL_FIELDS: FieldDef[] = [
   { key: "switchBolNumber", label: "Switch BOL Number" },
 ];
 
-function FieldGridSection({
-  icon,
-  title,
-  fieldKeys,
+/* ── Cargo & Commercial card (mirrors the standalone cargo-details design) ── */
+type CargoField = { key: string; label: string; highlight?: boolean };
+
+const CARGO_COMMERCIAL_L: CargoField[] = [
+  { key: "loadType", label: "Load type" },
+  { key: "freightMode", label: "Freight mode" },
+  { key: "tradeDirection", label: "Trade direction" },
+  { key: "serviceType", label: "Service type" },
+  { key: "pcs", label: "Pieces (PCS)" },
+  { key: "hsCode", label: "HS code", highlight: true },
+  { key: "cargoDescription", label: "Cargo description", highlight: true },
+];
+const CARGO_COMMERCIAL_R: CargoField[] = [
+  { key: "commercialInvoice", label: "Commercial invoice" },
+  { key: "commercialInvoiceValue", label: "Commercial invoice value" },
+  { key: "insurance", label: "Insurance" },
+  { key: "creditCheck", label: "Credit check" },
+  { key: "approvedBy", label: "Approved by" },
+];
+
+function CargoRow({
+  field,
   shipment,
   onCommit,
   styleFor,
-  extra,
 }: {
-  icon: React.ReactNode;
-  title: string;
-  fieldKeys: string[];
+  field: CargoField;
   shipment: ShipmentItem;
   onCommit: CommitFn;
   styleFor?: StyleFor;
-  extra?: React.ReactNode;
+}) {
+  const value = getFieldValue(shipment, field.key);
+  return (
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className="w-[180px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">{field.label}</span>
+      <EditableCell
+        className="flex-1 min-w-0"
+        fieldKey={field.key}
+        value={value}
+        onCommit={onCommit}
+        placeholder="—"
+        displayClassName={
+          field.highlight
+            ? "text-slate-900 font-medium bg-[#eaf6ee] px-1.5 py-px rounded"
+            : "text-slate-900 font-medium"
+        }
+        emptyClassName="text-slate-300"
+        displayStyle={styleFor?.(field.key, value)}
+      />
+    </div>
+  );
+}
+
+function CargoCommercialCard({
+  shipment,
+  onCommit,
+  styleFor,
+}: {
+  shipment: ShipmentItem;
+  onCommit: CommitFn;
+  styleFor?: StyleFor;
 }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-      <SectionHeader icon={icon} title={title} />
-      <div className="grid grid-cols-2 gap-x-6">
-        {fieldKeys.map((key) => {
-          const col = COLUMN_MAP.get(key);
-          if (!col) return null;
-          const editable = !col.readonly;
-          return (
-            <FieldPair
-              key={key}
-              label={col.title}
-              value={getFieldValue(shipment, key)}
-              fieldKey={editable ? key : undefined}
-              onCommit={editable ? onCommit : undefined}
-              styleFor={styleFor}
-            />
-          );
-        })}
-        {extra}
+      <SectionHeader icon={<FileTextOutlined />} title="Cargo & Commercial" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-7">
+        <div>
+          {CARGO_COMMERCIAL_L.map((f) => (
+            <CargoRow key={f.key} field={f} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />
+          ))}
+        </div>
+        <div>
+          {CARGO_COMMERCIAL_R.map((f) => (
+            <CargoRow key={f.key} field={f} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -898,6 +833,9 @@ export function ShipmentDetailContent() {
                 </div>
               </div>
 
+              {/* CARGO & COMMERCIAL */}
+              <CargoCommercialCard shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+
               {/* BASIC INFORMATION */}
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                 <SectionHeader icon={<InfoCircleOutlined />} title="Basic Information" />
@@ -954,20 +892,10 @@ export function ShipmentDetailContent() {
         )}
 
         {activeTab === "cargo" && (
-          <div className="columns-1 lg:columns-2 gap-4">
-            {DETAIL_SECTIONS.filter((s) => CARGO_SECTION_TITLES.includes(s.title)).map((section) => (
-              <div key={section.title} className="break-inside-avoid mb-4">
-                <FieldGridSection
-                  icon={section.icon}
-                  title={section.title}
-                  fieldKeys={section.keys}
-                  shipment={shipment}
-                  onCommit={handleCommit}
-                  styleFor={styleFor}
-                />
-              </div>
-            ))}
-          </div>
+          <CargoItemsTab
+            shipment={shipment}
+            onChange={(cargoItems) => updateShipment({ id: shipment.id, data: { cargoItems } })}
+          />
         )}
 
         {activeTab === "costs" && <CostsTab shipment={shipment} />}
