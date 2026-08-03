@@ -1380,7 +1380,9 @@ export namespace controllers {
         voyage?: string
         shippingLine?: string
         bookingNumber?: string
-        containerNumber?: string
+        typeOfPackages?: string
+        serviceName?: string
+        invoicingStatus?: string
         personalReference?: string
         agent?: string
         hsCode?: string
@@ -1568,7 +1570,9 @@ export namespace controllers {
         voyage?: string
         shippingLine?: string
         bookingNumber?: string
-        containerNumber?: string
+        typeOfPackages?: string
+        serviceName?: string
+        invoicingStatus?: string
         personalReference?: string
         agent?: string
         hsCode?: string
@@ -2127,6 +2131,10 @@ export namespace interfaces {
         consignee: string
         personalReference: string
         containerNumber: string
+        sealNumber: string
+        typeOfPackages: string
+        serviceName: string
+        invoicingStatus: string
         bookingNumber: string
         loadType: string
         shippingLine: string

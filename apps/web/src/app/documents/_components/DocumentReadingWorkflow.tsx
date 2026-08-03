@@ -28,6 +28,7 @@ import { FieldReviewTable } from "./FieldReviewTable";
 import {
   baseCreatePayload,
   buildFields,
+  containerRowsFromNumbers,
   COST_CATEGORY_OPTIONS,
   createdByStamp,
   type Destination,
@@ -40,6 +41,7 @@ import {
   nextMczNumber,
   normalizeCurrency,
   normalizeExtracted,
+  parseContainerNumbers,
   SHIPMENT_FIELD_MAP,
   type Step,
   type TargetMode,
@@ -251,14 +253,21 @@ export function DocumentReadingWorkflow() {
   const commitShipment = async () => {
     const approved = fieldsToLabelValues(fields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
+    const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
     try {
       if (shipmentMode === "existing") {
-        await updateShipment({ id: targetShipmentId, data: toShipmentUpdate(approved) });
-        setCommittedJobNumber(shipments.find((s) => s.id === targetShipmentId)?.jobNumber || "");
+        const target = shipments.find((s) => s.id === targetShipmentId);
+        const data = toShipmentUpdate(approved);
+        // Append extracted containers to the shipment's existing rows (never replace).
+        if (newContainers.length > 0) data.containers = [...(target?.containers ?? []), ...newContainers];
+        await updateShipment({ id: targetShipmentId, data });
+        setCommittedJobNumber(target?.jobNumber || "");
       } else {
         const jobNumber = nextCzNumber(shipments);
         const created = await createShipment(baseCreatePayload(jobNumber, createdByStamp(user?.email)));
-        await updateShipment({ id: created.shipment.id, data: toShipmentUpdate(approved) });
+        const data = toShipmentUpdate(approved);
+        if (newContainers.length > 0) data.containers = newContainers;
+        await updateShipment({ id: created.shipment.id, data });
         setCommittedJobNumber(jobNumber);
       }
       setStep("committed");
@@ -387,7 +396,10 @@ export function DocumentReadingWorkflow() {
     try {
       const jobNumber = nextCzNumber(shipments, masterCreatedJobs);
       const created = await createShipment(baseCreatePayload(jobNumber, createdByStamp(user?.email, "System (Master Job)")));
-      await updateShipment({ id: created.shipment.id, data: toShipmentUpdate(approved) });
+      const data = toShipmentUpdate(approved);
+      const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
+      if (newContainers.length > 0) data.containers = newContainers;
+      await updateShipment({ id: created.shipment.id, data });
       await linkMasterJob({ shipmentId: created.shipment.id, mczNumber: activeMcz });
       setMasterCreatedJobs((prev) => [...prev, jobNumber]);
       advanceMaster();

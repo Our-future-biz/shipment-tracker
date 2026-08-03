@@ -325,7 +325,7 @@ function OpeningHoursRow({
 const CARRIER_BOL: FieldDef[] = [
   { key: "vessel", label: "Vessel" },
   { key: "voyage", label: "Voyage" },
-  { key: "containerNumber", label: "Container Number" },
+  { key: "containerNumber", label: "Container Number", ro: true },
   { key: "houseBolNumber", label: "House BoL Number" },
   { key: "houseBolType", label: "House BoL Type" },
   { key: "masterBolNumber", label: "Master BoL Number" },
@@ -402,12 +402,14 @@ const CARGO_COMMERCIAL_L: CargoField[] = [
   { key: "tradeDirection", label: "Trade direction" },
   { key: "serviceType", label: "Service type" },
   { key: "pcs", label: "Pieces (PCS)" },
+  { key: "typeOfPackages", label: "Type of packages" },
   { key: "hsCode", label: "HS code", highlight: true },
   { key: "cargoDescription", label: "Cargo description", highlight: true },
 ];
 const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "commercialInvoice", label: "Commercial invoice" },
   { key: "commercialInvoiceValue", label: "Commercial invoice value" },
+  { key: "invoicingStatus", label: "Invoicing status" },
   { key: "insurance", label: "Insurance" },
   { key: "creditCheck", label: "Credit check" },
   { key: "approvedBy", label: "Approved by" },
@@ -725,6 +727,7 @@ export function ShipmentDetailContent() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
                   <div>
                     <RoRow label="Internal Reference" value={shipment.jobNumber} />
+                    <FieldRow label="Service Name" fieldKey="serviceName" value={shipment.serviceName} onCommit={handleCommit} styleFor={styleFor} />
                     <FieldRow label="Handled By" fieldKey="personInCharge" value={shipment.personInCharge} onCommit={handleCommit} styleFor={styleFor} />
                     <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", "customerId", n, id)} />
                     <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
@@ -738,7 +741,8 @@ export function ShipmentDetailContent() {
                           : <span className="text-slate-300">—</span>}
                       </span>
                     </div>
-                    <FieldRow label="Container Number" fieldKey="containerNumber" value={shipment.containerNumber} onCommit={handleCommit} styleFor={styleFor} />
+                    <RoRow label="Container Number" value={shipment.containerNumber} />
+                    <RoRow label="Seal Number" value={shipment.sealNumber} />
                     <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={shipment.shippingLine} onCommit={handleCommit} styleFor={styleFor} />
                     <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={shipment.masterBolNumber} onCommit={handleCommit} styleFor={styleFor} />
                     <FieldRow label="House BoL Number" fieldKey="houseBolNumber" value={shipment.houseBolNumber} onCommit={handleCommit} styleFor={styleFor} />

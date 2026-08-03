@@ -26,6 +26,10 @@ export interface ShipmentItem {
   consignee: string;
   personalReference: string;
   containerNumber: string;
+  sealNumber: string;
+  typeOfPackages: string;
+  serviceName: string;
+  invoicingStatus: string;
   bookingNumber: string;
   loadType: string;
   shippingLine: string;

@@ -71,6 +71,7 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "AMS (if any)": ["Pending (Red)", "Confirmed (Green)", "Not Applicable"],
   "ISF (if any)": ["Pending (Red)", "Confirmed (Green)", "Not Applicable"],
   "BoL draft": ["Not Processed", "Waiting for approval", "Approved"],
+  "Invoicing Status": ["Invoiced", "Not Invoiced"],
 };
 
 // ─── Date Columns ─────────────────────────────────────────────────────
@@ -127,7 +128,11 @@ export const COLUMNS: ColumnDef[] = [
   { key: "freightMode", title: "Freight Mode", width: 130, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Mode"], apiField: "freightMode" },
 
   // References
-  { key: "containerNumber", title: "Container Number", width: 150, type: "text", apiField: "containerNumber" },
+  { key: "containerNumber", title: "Container Number", width: 150, type: "text", readonly: true, apiField: "containerNumber" },
+  { key: "sealNumber", title: "Seal Number", width: 140, type: "text", readonly: true, apiField: "sealNumber" },
+  { key: "typeOfPackages", title: "Type Of Packages", width: 150, type: "text", apiField: "typeOfPackages" },
+  { key: "serviceName", title: "Service Name", width: 150, type: "text", apiField: "serviceName" },
+  { key: "invoicingStatus", title: "Invoicing Status", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Invoicing Status"], apiField: "invoicingStatus" },
   { key: "personalReference", title: "Personal Reference", width: 150, type: "text", apiField: "personalReference" },
   { key: "bookingNumber", title: "Booking Number", width: 140, type: "text", apiField: "bookingNumber" },
   { key: "loadType", title: "Load Type", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Load Type"], apiField: "loadType" },
@@ -346,6 +351,12 @@ export function getCellConditionalStyle(
     if (value === "Green") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
     if (value === "Yellow") return { backgroundColor: "rgba(234, 179, 8, 0.15)" };
     if (value === "Red") return { backgroundColor: "rgba(244, 63, 94, 0.15)" };
+  }
+
+  // Invoicing Status — Invoiced (green), Not Invoiced (red)
+  if (key === "invoicingStatus") {
+    if (value === "Invoiced") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
+    if (value === "Not Invoiced") return { backgroundColor: "rgba(244, 63, 94, 0.15)" };
   }
 
   // Customs Status

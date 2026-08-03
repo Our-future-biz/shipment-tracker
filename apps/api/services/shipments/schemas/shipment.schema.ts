@@ -9,7 +9,9 @@ export const shipmentTable = pgTable(
     shipper: text("shipper").notNull().default(""),
     consignee: text("consignee").notNull().default(""),
     personalReference: text("personal_reference").notNull().default(""),
-    containerNumber: text("container_number").notNull().default(""),
+    typeOfPackages: text("type_of_packages").notNull().default(""),
+    serviceName: text("service_name").notNull().default(""),
+    invoicingStatus: text("invoicing_status").notNull().default(""),
     bookingNumber: text("booking_number").notNull().default(""),
     loadType: text("load_type").notNull().default(""),
     shippingLine: text("shipping_line").notNull().default(""),
@@ -126,9 +128,6 @@ export const shipmentTable = pgTable(
 
     // — Dimensions (variable-length array, stays JSONB) —
     dimensions: jsonb("dimensions"),
-
-    // — Containers (per-container table rows, variable length) —
-    containers: jsonb("containers"),
 
     // — Cargo items (per-item table rows, variable length) —
     cargoItems: jsonb("cargo_items"),

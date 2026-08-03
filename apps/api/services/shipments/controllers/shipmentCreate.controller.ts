@@ -17,7 +17,9 @@ interface ShipmentCreateRequest {
   voyage?: string;
   shippingLine?: string;
   bookingNumber?: string;
-  containerNumber?: string;
+  typeOfPackages?: string;
+  serviceName?: string;
+  invoicingStatus?: string;
   personalReference?: string;
   agent?: string;
   hsCode?: string;

@@ -1,4 +1,4 @@
-import type { controllers } from "@/lib/api/client";
+import type { controllers, interfaces } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { CURRENCIES } from "@/lib/enums";
 
@@ -32,7 +32,9 @@ export const SHIPMENT_FIELD_MAP: Record<string, string> = {
   Shipper: "shipper",
   Consignee: "consignee",
   "Personal Reference": "personalReference",
-  "Container Number": "containerNumber",
+  // "Container Number" is intentionally NOT mapped to a shipment field: container
+  // numbers live in the `container` table, so extraction turns them into container
+  // rows (see parseContainerNumbers / containerRowsFromNumbers) instead.
   "Booking Number": "bookingNumber",
   "Load Type": "loadType",
   "Shipping line / Coloader": "shippingLine",
@@ -153,6 +155,32 @@ export function existingMczNumbers(shipments: ShipmentItem[]): string[] {
     if (mn && mn.startsWith("MCZ")) set.add(mn);
   }
   return Array.from(set).sort();
+}
+
+// A document's "Container Number" field can hold several numbers; split them into
+// individual container identifiers. Kept conservative (comma/semicolon/newline/slash)
+// so a single number with an inner space like "MSKU 123456-7" stays intact.
+export function parseContainerNumbers(raw?: string): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[,;\n/]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+// Build container rows from parsed numbers (only the number is known from extraction;
+// seal/type/weight/etc. are filled in later in the Container Details tab).
+export function containerRowsFromNumbers(numbers: string[]): interfaces.ContainerLine[] {
+  return numbers.map((containerNumber) => ({
+    containerNumber,
+    sealNumber: "",
+    type: "",
+    teu: "",
+    packages: "",
+    packageType: "",
+    grossWeight: "",
+    volume: "",
+  }));
 }
 
 // Map approved {label: value} pairs to a ShipmentUpdateRequest, dropping unknown
