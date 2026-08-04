@@ -5,6 +5,7 @@ import { Input, Button } from "antd";
 import { PlusOutlined, DeleteOutlined, ContainerOutlined } from "@ant-design/icons";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
+import { normalizeContainerNumber } from "@/lib/container";
 
 type ContainerLine = interfaces.ContainerLine;
 
@@ -18,6 +19,12 @@ const emptyContainer = (): ContainerLine => ({
   grossWeight: "",
   volume: "",
 });
+
+// Show one empty row from the start so a new shipment has a ready-to-fill form
+// (no "Add container" click needed for the first). It stays local until edited,
+// so an untouched row is never persisted.
+const withFirstRow = (list: ContainerLine[] | null | undefined): ContainerLine[] =>
+  list && list.length > 0 ? list : [emptyContainer()];
 
 const num = (s: string) => {
   const n = parseFloat((s || "").replace(/\s/g, "").replace(",", "."));
@@ -35,18 +42,26 @@ export function ContainerDetailsTab({
   shipment: ShipmentItem;
   onChange: (containers: ContainerLine[]) => void;
 }) {
-  const [rows, setRows] = useState<ContainerLine[]>(shipment.containers ?? []);
+  const [rows, setRows] = useState<ContainerLine[]>(() => withFirstRow(shipment.containers));
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
 
   // Reset local edit state when navigating to a different shipment.
   useEffect(() => {
-    setRows(shipment.containers ?? []);
+    setRows(withFirstRow(shipment.containers));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shipment.id]);
 
   const persist = () => onChange(rowsRef.current);
   const patch = (i: number, p: Partial<ContainerLine>) => setRows((r) => r.map((c, j) => (j === i ? { ...c, ...p } : c)));
+  // On blur, collapse the container number to its canonical form (no spaces/hyphens, uppercase).
+  const normalizeContainerAt = (i: number) => {
+    const next = rowsRef.current.map((r, j) =>
+      j === i ? { ...r, containerNumber: normalizeContainerNumber(r.containerNumber) } : r,
+    );
+    setRows(next);
+    onChange(next);
+  };
   const add = () => {
     const next = [...rowsRef.current, emptyContainer()];
     setRows(next);
@@ -93,7 +108,7 @@ export function ContainerDetailsTab({
 
               {rows.map((c, i) => (
                 <div key={i} className={`${COLS} px-2 py-1.5 border-b border-slate-100`}>
-                  <Input size="small" value={c.containerNumber} placeholder="MSKU 123456-7" onChange={(e) => patch(i, { containerNumber: e.target.value })} onBlur={persist} />
+                  <Input size="small" value={c.containerNumber} placeholder="MSKU1234567" onChange={(e) => patch(i, { containerNumber: e.target.value })} onBlur={() => normalizeContainerAt(i)} />
                   <Input size="small" value={c.sealNumber} onChange={(e) => patch(i, { sealNumber: e.target.value })} onBlur={persist} />
                   <Input size="small" value={c.type} placeholder="40' HC" onChange={(e) => patch(i, { type: e.target.value })} onBlur={persist} />
                   <Input size="small" className="text-right" value={c.teu} onChange={(e) => patch(i, { teu: e.target.value })} onBlur={persist} />

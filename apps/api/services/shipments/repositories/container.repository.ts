@@ -3,6 +3,13 @@ import { db } from "../db/db";
 import { containerTable } from "../schemas/container.schema";
 import type { ContainerLine } from "../interfaces/interfaces";
 
+// A container number is 4 letters + 7 digits (ISO 6346). It is stored in one
+// canonical form — uppercase, with no spaces/hyphens/other separators — no matter
+// how it was entered or read (e.g. "MSMU 272727-7" → "MSMU2727277").
+export function normalizeContainerNumber(raw: string): string {
+  return (raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 class ContainerRepository {
   async listByShipmentId(shipmentId: string) {
     return db
@@ -27,7 +34,9 @@ class ContainerRepository {
   async replaceForShipment(shipmentId: string, rows: ContainerLine[]) {
     await db.delete(containerTable).where(eq(containerTable.shipmentId, shipmentId));
     if (rows.length > 0) {
-      await db.insert(containerTable).values(rows.map((r, i) => ({ ...r, shipmentId, position: i })));
+      await db.insert(containerTable).values(
+        rows.map((r, i) => ({ ...r, containerNumber: normalizeContainerNumber(r.containerNumber), shipmentId, position: i })),
+      );
     }
   }
 }

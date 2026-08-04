@@ -3,6 +3,7 @@
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { getTasksForDirection } from "../_components/taskDefinitions";
+import { formatDateTime } from "@/lib/date";
 
 export function TrackingTab({ shipment }: { shipment: ShipmentItem }) {
   const taskList = getTasksForDirection(shipment.tradeDirection);
@@ -44,7 +45,7 @@ export function TrackingTab({ shipment }: { shipment: ShipmentItem }) {
                   <p className="text-xs text-slate-500">{def.description}</p>
                 )}
                 <p className="text-[11px] text-slate-400">
-                  {new Date(task.completedAt!).toLocaleString()}
+                  {formatDateTime(task.completedAt!)}
                 </p>
               </div>
             </div>

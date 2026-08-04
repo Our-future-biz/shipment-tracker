@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
-import { containerRepository } from "../repositories/container.repository";
+import { containerRepository, normalizeContainerNumber } from "../repositories/container.repository";
 import { shipmentTable } from "../schemas/shipment.schema";
 import type { PaginationRequest } from "../../../lib/db/interface";
 import type { NewShipmentRecord } from "../schemas/shipment.schema";
@@ -13,7 +13,7 @@ import type { ContainerLine } from "../interfaces/interfaces";
 // id/shipmentId/timestamps).
 function toContainerLine(row: ContainerRecord): ContainerLine {
   return {
-    containerNumber: row.containerNumber,
+    containerNumber: normalizeContainerNumber(row.containerNumber),
     sealNumber: row.sealNumber,
     type: row.type,
     teu: row.teu,

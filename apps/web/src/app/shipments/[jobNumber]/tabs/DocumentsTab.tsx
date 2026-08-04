@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { fileToBase64, attachmentContentUrl } from "@/lib/files";
 import type { ShipmentItem } from "@/hooks/useShipments";
+import { formatDate } from "@/lib/date";
 
 interface AttachmentFile {
   id: string;
@@ -84,7 +85,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                 <div className="text-xs font-medium">{file.fileName}</div>
                 <div className="text-[11px] text-slate-400">{formatFileSize(file.fileSize)} · {file.fileType}</div>
               </div>
-              <span className="text-[11px] text-slate-400">{new Date(file.createdAt).toLocaleDateString()}</span>
+              <span className="text-[11px] text-slate-400">{formatDate(file.createdAt)}</span>
               <Tooltip title="View">
                 <a href={contentUrl(file.id)} target="_blank" rel="noreferrer">
                   <Button type="text" size="small" icon={<EyeOutlined />} />

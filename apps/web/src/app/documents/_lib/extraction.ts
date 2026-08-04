@@ -1,6 +1,7 @@
 import type { controllers, interfaces } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { CURRENCIES } from "@/lib/enums";
+import { extractContainerNumbers } from "@/lib/container";
 
 export type Destination = "shipment" | "invoicing" | "quote" | "masterjob";
 export type InputMode = "file" | "text";
@@ -157,15 +158,11 @@ export function existingMczNumbers(shipments: ShipmentItem[]): string[] {
   return Array.from(set).sort();
 }
 
-// A document's "Container Number" field can hold several numbers; split them into
-// individual container identifiers. Kept conservative (comma/semicolon/newline/slash)
-// so a single number with an inner space like "MSKU 123456-7" stays intact.
+// A document's "Container Number" field can hold several numbers and use spaces or
+// hyphens ("MSMU 272727-7"). Strip separators and pull out each canonical
+// 4-letter+7-digit number so they're stored uniformly (e.g. → "MSMU2727277").
 export function parseContainerNumbers(raw?: string): string[] {
-  if (!raw) return [];
-  return raw
-    .split(/[,;\n/]+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
+  return extractContainerNumbers(raw);
 }
 
 // Build container rows from parsed numbers (only the number is known from extraction;

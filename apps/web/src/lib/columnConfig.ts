@@ -88,6 +88,7 @@ export const DATE_COLUMNS = new Set([
 export const COMPUTED_COLUMNS = new Set([
   "teu", "totalWeightTons", "totalVolumeCbm", "freightTon", "surface", "profit",
   "estimatedDepartureWeek", "estimatedArrivalWeek", "actualDepartureWeek", "actualArrivalWeek",
+  "shipmentsDate",
 ]);
 
 // ─── Column Definitions (Full Sheet) ──────────────────────────────────
@@ -98,7 +99,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "masterJob", title: "Master job", width: 140, type: "text", fixed: true, readonly: true, apiField: "masterJobMczNumber" },
 
   // Meta
-  { key: "shipmentsDate", title: "Shipments Date", width: 120, type: "dropdown", options: DROPDOWN_OPTIONS["Shipments Date"], apiField: "shipmentsDate" },
+  { key: "shipmentsDate", title: "Shipments Date", width: 120, type: "computed", readonly: true },
   { key: "department", title: "Department", width: 170, type: "dropdown", options: DROPDOWN_OPTIONS["Department"], apiField: "department" },
   { key: "personInCharge", title: "Person In Charge", width: 180, type: "text", apiField: "personInCharge" },
   { key: "holidayCover", title: "Holiday Cover", width: 140, type: "text", apiField: "holidayCover" },
@@ -168,7 +169,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "countryCode", title: "Country Code", width: 110, type: "text", apiField: "countryCode" },
 
   // Commercial
-  { key: "commercialInvoice", title: "Commercial Invoice", width: 150, type: "text", apiField: "commercialInvoice" },
+  { key: "commercialInvoice", title: "Commercial Invoice number(s)", width: 170, type: "text", apiField: "commercialInvoice" },
   { key: "commercialInvoiceValue", title: "Commercial Invoice Value", width: 160, type: "text", apiField: "commercialInvoiceValue" },
   { key: "hsCode", title: "HS Code", width: 110, type: "text", apiField: "hsCode" },
   { key: "cargoDescription", title: "Cargo Description", width: 220, type: "text", apiField: "cargoDescription" },
@@ -519,6 +520,18 @@ export function getComputedValue(key: string, rowData: Record<string, string>): 
       const sell = parseFloat(selling) || 0;
       const buy = parseFloat(buying) || 0;
       return (sell - buy).toFixed(2);
+    }
+    case "shipmentsDate": {
+      // Derived month: Export → ETD Estimated, Import → ETA Estimated.
+      const dir = (rowData["tradeDirection"] || "").trim().toLowerCase();
+      const src = dir === "export"
+        ? rowData["estimatedDeparture"]
+        : dir === "import"
+          ? rowData["estimatedArrival"]
+          : "";
+      const d = parseDateMMDDYY(src || "");
+      if (!d) return "";
+      return DROPDOWN_OPTIONS["Shipments Date"]?.[d.getMonth()] ?? "";
     }
     case "estimatedDepartureWeek":
       return weekFromDate(rowData["estimatedDeparture"] || "");

@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination } from "antd";
-import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined } from "@ant-design/icons";
+import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Button } from "antd";
+import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined, DownloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
@@ -73,6 +73,29 @@ const STATUS_OPTIONS = [
 
 const PAGE_SIZE_OPTIONS = [50, 100, 150, 200];
 
+// Export the given shipments to a CSV of the currently visible columns (respects
+// the column view + order). Mirrors the sales quote-history export.
+function exportShipmentsCsv(rows: ShipmentItem[], visibleKeys: string[]): void {
+  const cols = visibleKeys
+    .map((k) => COLUMN_MAP.get(k))
+    .filter((c): c is NonNullable<typeof c> => !!c && c.type !== "popup");
+  const headers = cols.map((c) => c.title);
+  const body = rows.map((s) => cols.map((c) => getFieldValue(s, c.key)));
+  const csv = [headers, ...body]
+    .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    .join("\n");
+  // Prepend a BOM so Excel reads the UTF-8 diacritics correctly.
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `shipments-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export const ShipmentsTable = ({
   shipments,
   isLoading,
@@ -109,6 +132,7 @@ export const ShipmentsTable = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [mczModal, setMczModal] = useState<string | null>(null);
   const [docsShipment, setDocsShipment] = useState<ShipmentItem | null>(null);
+  const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
 
   // Per-column filters, persisted in the URL as ?f.<colKey>=<value>
   const [filters, setFilters] = useState<ColFilter[]>(() => {
@@ -429,6 +453,14 @@ export const ShipmentsTable = ({
             onSaveTemplate={saveAsTemplate}
             onDeleteTemplate={deleteTemplate}
           />
+          <button
+            onClick={() => exportShipmentsCsv(filtered, visible)}
+            title="Export the filtered shipments (visible columns) to CSV"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 h-8 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+          >
+            <DownloadOutlined />
+            Export
+          </button>
           <div className="w-px h-6 bg-slate-200" />
           <button
             onClick={onCreateClick}
@@ -446,6 +478,26 @@ export const ShipmentsTable = ({
         </div>
       </div>
 
+      {/* Bulk action bar (shown when rows are selected) */}
+      {selectedKeys.length > 0 && (
+        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-2xl px-4 py-2.5">
+          <span className="text-sm text-indigo-700 font-medium">{selectedKeys.length} selected</span>
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            onClick={() => {
+              const set = new Set(selectedKeys.map(String));
+              exportShipmentsCsv(shipments.filter((s) => set.has(s.id)), visible);
+            }}
+          >
+            Export CSV
+          </Button>
+          <Button size="small" type="text" onClick={() => setSelectedKeys([])}>
+            Clear
+          </Button>
+        </div>
+      )}
+
       {/* Table */}
       <div className="shipments-table bg-white border border-slate-200 rounded-2xl overflow-hidden">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -458,6 +510,13 @@ export const ShipmentsTable = ({
               size="small"
               components={{ header: { cell: DraggableHeaderCell } }}
               pagination={false}
+              rowSelection={{
+                selectedRowKeys: selectedKeys,
+                onChange: setSelectedKeys,
+                preserveSelectedRowKeys: true,
+                fixed: true,
+                columnWidth: 44,
+              }}
               scroll={{ x: "max-content" }}
               rowClassName={(record) => (rowInfo.get(record.id)?.rowStyle?.color ? "cf-row-fg" : "")}
               onRow={(record) => {

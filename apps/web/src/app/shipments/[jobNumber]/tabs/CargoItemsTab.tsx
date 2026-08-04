@@ -18,6 +18,12 @@ const emptyCargoItem = (): CargoItemLine => ({
   commercialInvoiceValue: "",
 });
 
+// Show one empty row from the start so a new shipment has a ready-to-fill form
+// (no "Add cargo item" click needed for the first). It stays local until edited,
+// so an untouched row is never persisted.
+const withFirstRow = (list: CargoItemLine[] | null | undefined): CargoItemLine[] =>
+  list && list.length > 0 ? list : [emptyCargoItem()];
+
 const num = (s: string) => {
   const n = parseFloat((s || "").replace(/\s/g, "").replace(",", "."));
   return Number.isFinite(n) ? n : 0;
@@ -34,13 +40,13 @@ export function CargoItemsTab({
   shipment: ShipmentItem;
   onChange: (cargoItems: CargoItemLine[]) => void;
 }) {
-  const [rows, setRows] = useState<CargoItemLine[]>(shipment.cargoItems ?? []);
+  const [rows, setRows] = useState<CargoItemLine[]>(() => withFirstRow(shipment.cargoItems));
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
 
   // Reset local edit state when navigating to a different shipment.
   useEffect(() => {
-    setRows(shipment.cargoItems ?? []);
+    setRows(withFirstRow(shipment.cargoItems));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shipment.id]);
 

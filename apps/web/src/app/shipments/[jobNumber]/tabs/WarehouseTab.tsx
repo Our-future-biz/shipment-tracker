@@ -7,6 +7,7 @@ import type { MessageInstance } from "antd/es/message/interface";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { buildRowData, type ShipmentItem } from "@/hooks/useShipments";
+import { formatDateTime } from "@/lib/date";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { SpreadsheetSection, CUSTOMS_COLUMNS, INVOICING_COLUMNS } from "@/app/warehouse/_components/sections/SpreadsheetSection";
 import { PickupSection } from "@/app/warehouse/_components/sections/PickupSection";
@@ -281,7 +282,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
         <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-3.5 py-2.5">
           <span className="text-xs text-red-600">
             Remeasured values differ from the shipment values.
-            {informedAt && <span className="block text-[11px] text-red-400">Operations informed on {new Date(informedAt).toLocaleString()}</span>}
+            {informedAt && <span className="block text-[11px] text-red-400">Operations informed on {formatDateTime(informedAt)}</span>}
           </span>
           <Button danger size="small" onClick={informOperations} loading={isInforming}>{informedAt ? "Inform Again" : "Inform Operations"}</Button>
         </div>

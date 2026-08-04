@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { Input, Select } from "antd";
+import { Input, Select, DatePicker } from "antd";
 import type { InputRef } from "antd";
+import dayjs from "dayjs";
 import { COLUMN_MAP } from "@/lib/columnConfig";
+import { formatDate } from "@/lib/date";
 
 // Dates are stored as ISO "YYYY-MM-DD" (matches the native date input).
 // Still tolerate legacy "MM/DD/YY" values for display prefill.
@@ -78,6 +80,8 @@ export function EditableCell({
 
   if (!editing) {
     const hasValue = original.length > 0;
+    // Dates are stored as ISO but shown in the unified DD.MM.YYYY display format.
+    const shown = hasValue ? (isDate ? formatDate(original) : original) : placeholder;
     return (
       <span
         className={`${className ?? ""} cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors block`}
@@ -85,25 +89,28 @@ export function EditableCell({
         onDoubleClick={startEditing}
       >
         <span className={hasValue ? displayClassName : (emptyClassName ?? displayClassName)} style={hasValue ? displayStyle : undefined}>
-          {hasValue ? original : placeholder}
+          {shown}
         </span>
       </span>
     );
   }
 
   if (isDate) {
+    const iso = toInputISO(original);
+    const initial = iso ? dayjs(iso) : null;
     return (
       <div className={className}>
-        <input
-          type="date"
+        <DatePicker
+          size="small"
           autoFocus
-          className="w-full text-xs border border-slate-300 rounded px-2 py-1 outline-none focus:border-indigo-400"
-          defaultValue={toInputISO(original)}
-          onChange={(e) => commit(e.target.value)}
-          onBlur={() => setEditing(false)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") cancel();
-          }}
+          defaultOpen
+          format="YYYY-MM-DD"
+          className="w-full min-w-[150px]"
+          defaultValue={initial && initial.isValid() ? initial : undefined}
+          // Commit only when a day is picked — browsing months/years keeps the panel open.
+          onChange={(d) => commit(d ? d.format("YYYY-MM-DD") : "")}
+          // Close (without committing) when the panel is dismissed via click-away or Escape.
+          onOpenChange={(open) => { if (!open) setEditing(false); }}
         />
       </div>
     );

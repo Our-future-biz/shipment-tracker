@@ -20,6 +20,7 @@ import {
 } from "@ant-design/icons";
 import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
+import { formatDate } from "@/lib/date";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { useUsers } from "@/hooks/useUsers";
 import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
@@ -407,7 +408,7 @@ const CARGO_COMMERCIAL_L: CargoField[] = [
   { key: "cargoDescription", label: "Cargo description", highlight: true },
 ];
 const CARGO_COMMERCIAL_R: CargoField[] = [
-  { key: "commercialInvoice", label: "Commercial invoice" },
+  { key: "commercialInvoice", label: "Commercial invoice number(s)" },
   { key: "commercialInvoiceValue", label: "Commercial invoice value" },
   { key: "invoicingStatus", label: "Invoicing status" },
   { key: "insurance", label: "Insurance" },
@@ -648,7 +649,7 @@ export function ShipmentDetailContent() {
 
             {/* ETD / ETA */}
             <span className="text-xs text-slate-500">
-              ETD {shipment.estimatedDeparture || "--"} / ETA {shipment.estimatedArrival || "--"}
+              ETD {formatDate(shipment.estimatedDeparture) || "--"} / ETA {formatDate(shipment.estimatedArrival) || "--"}
             </span>
 
             {/* Linked Quote */}
@@ -757,7 +758,7 @@ export function ShipmentDetailContent() {
                     <FieldRow label="ETA Estimated" fieldKey="estimatedArrival" value={shipment.estimatedArrival} onCommit={handleCommit} styleFor={styleFor} />
                     <RoRow label="Est. Departure Week" value={getFieldValue(shipment, "estimatedDepartureWeek")} />
                     <RoRow label="Est. Arrival Week" value={getFieldValue(shipment, "estimatedArrivalWeek")} />
-                    <FieldRow label="Shipments Date" fieldKey="shipmentsDate" value={shipment.shipmentsDate} onCommit={handleCommit} styleFor={styleFor} />
+                    <RoRow label="Shipments Date" value={getFieldValue(shipment, "shipmentsDate")} />
                     <FieldRow label="Shipment Status" fieldKey="status" value={shipment.status} onCommit={handleCommit} styleFor={styleFor} />
                     <FieldRow label="Customs Status" fieldKey="customsStatus" value={shipment.customsStatus} onCommit={handleCommit} styleFor={styleFor} />
                   </div>
