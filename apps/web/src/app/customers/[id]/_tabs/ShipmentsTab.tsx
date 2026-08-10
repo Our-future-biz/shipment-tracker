@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Table, Button, Modal, Form, Input, InputNumber, Select, Tag } from "antd";
 import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -19,33 +19,11 @@ const num = (v: string | null | undefined) => {
 
 export function ShipmentsTab({ customerId }: { customerId: string }) {
   const { shipments, isLoading, createShipment, deleteShipment } = useCustomerShipments(customerId);
-  const { customer, updateCustomer } = useCustomer(customerId);
+  const { customer } = useCustomer(customerId);
   const toast = useToast();
   const [addOpen, setAddOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ShipmentItem | null>(null);
   const [form] = Form.useForm();
-
-  // Keep the customer's stored rollups (used by the list view) in sync with its shipments.
-  useEffect(() => {
-    if (!customer) return;
-    const totalRevenue = shipments.reduce((sum, s) => sum + num(s.selling), 0);
-    const totalProfit = shipments.reduce((sum, s) => sum + (num(s.selling) - num(s.buying)), 0);
-    const totalShipments = shipments.length;
-    const lastActivityDate = shipments
-      .map((s) => s.estimatedArrival || s.createdAt?.slice(0, 10) || "")
-      .filter(Boolean)
-      .sort()
-      .pop() ?? "";
-    if (
-      customer.totalRevenue !== totalRevenue ||
-      customer.totalProfit !== totalProfit ||
-      customer.totalShipments !== totalShipments ||
-      customer.lastActivityDate !== lastActivityDate
-    ) {
-      updateCustomer({ totalRevenue, totalProfit, totalShipments, lastActivityDate }).catch(() => {});
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shipments, customer?.id]);
 
   const submit = async () => {
     const v = await form.validateFields();

@@ -8,7 +8,7 @@ interface ExtractTextRequest {
 }
 
 export const extractText = api(
-  { expose: true, auth: false, method: "POST", path: "/extraction/text" },
+  { expose: true, auth: true, method: "POST", path: "/extraction/text" },
   async (req: ExtractTextRequest): Promise<ExtractionResult> => {
     if (!req.text || req.text.length < 10) {
       throw APIError.invalidArgument("text must be at least 10 characters");

@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Modal, Checkbox, Button } from "antd";
+import { Modal, Checkbox, Button, Radio, Select } from "antd";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
+import { asData } from "@/app/sales/_lib/salesQuote";
 import { useToast } from "@/lib/toast";
 
 type SectionKey =
@@ -76,16 +77,22 @@ export function DuplicateWizardModal({
   onClose: () => void;
   onDone: (newRef: string) => void;
 }) {
-  const { duplicateQuote } = useSalesQuotes();
+  const { salesQuotes, duplicateQuote } = useSalesQuotes();
   const toast = useToast();
 
   const [checked, setChecked] = useState<SectionKey[]>(
     SECTIONS.map((s) => s.key),
   );
+  const [source, setSource] = useState<"current" | "old">("current");
+  const [sourceRef, setSourceRef] = useState<string | undefined>(undefined);
   const [creating, setCreating] = useState(false);
+
+  const otherQuotes = salesQuotes.filter((q) => q.quoteNumber !== baseRef);
 
   const reset = () => {
     setChecked(SECTIONS.map((s) => s.key));
+    setSource("current");
+    setSourceRef(undefined);
     setCreating(false);
   };
 
@@ -95,10 +102,16 @@ export function DuplicateWizardModal({
   };
 
   const handleCreate = async () => {
+    // The new variant always branches off the current quote's reference family;
+    // "old quote" only changes where the copied content comes from.
+    const sourceData: SalesQuoteData =
+      source === "old"
+        ? asData(otherQuotes.find((q) => q.quoteNumber === sourceRef)?.data)
+        : data;
     setCreating(true);
     try {
       const copiedData: SalesQuoteData = {
-        ...pickSections(data, checked),
+        ...pickSections(sourceData, checked),
         // Always reset lifecycle fields on the duplicate.
         quoteStatus: "draft",
         winProbability: 10,
@@ -129,14 +142,45 @@ export function DuplicateWizardModal({
           <Button onClick={handleClose} disabled={creating}>
             Cancel
           </Button>
-          <Button type="primary" loading={creating} onClick={handleCreate}>
+          <Button
+            type="primary"
+            loading={creating}
+            disabled={source === "old" && !sourceRef}
+            onClick={handleCreate}
+          >
             Create duplicate
           </Button>
         </div>
       }
     >
       <div className="flex flex-col gap-2 py-2">
-        <span className="text-sm font-medium text-slate-700">
+        <span className="text-sm font-medium text-slate-700">Copy from</span>
+        <Radio.Group
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+          className="flex flex-col gap-1"
+        >
+          <Radio value="current">This quote ({baseRef})</Radio>
+          <Radio value="old">An older quote from history</Radio>
+        </Radio.Group>
+        {source === "old" && (
+          <Select
+            showSearch
+            className="w-full"
+            placeholder="Search quotes by reference or customer…"
+            value={sourceRef}
+            onChange={setSourceRef}
+            optionFilterProp="label"
+            options={otherQuotes.map((q) => ({
+              value: q.quoteNumber,
+              label: `${q.quoteNumber}${q.data.customerName ? " — " + q.data.customerName : ""}${
+                q.data.origin || q.data.destination ? ` · ${q.data.origin ?? "?"} → ${q.data.destination ?? "?"}` : ""
+              }`,
+            }))}
+          />
+        )}
+
+        <span className="text-sm font-medium text-slate-700 mt-3">
           Sections to copy into the duplicate
         </span>
         <Checkbox.Group

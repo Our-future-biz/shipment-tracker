@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { termsService } from "../services/terms.service";
 import type { TermsConditionItem } from "../interfaces/interfaces";
 
@@ -7,9 +8,9 @@ interface TermsListResponse {
 }
 
 export const termsList = api(
-  { expose: true, auth: false, method: "GET", path: "/terms-conditions" },
+  { expose: true, auth: true, method: "GET", path: "/terms-conditions" },
   async (): Promise<TermsListResponse> => {
-    const data = await termsService.list();
+    const data = await termsService.list(getAuthData()!.companyID);
     return { data: data as unknown as TermsConditionItem[] };
   },
 );

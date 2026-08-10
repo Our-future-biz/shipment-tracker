@@ -17,6 +17,9 @@ const INLINE_SAFE_TYPES = new Set([
 // otherwise served as an attachment download.
 // Path: /shipments/:shipmentId/attachments/:id/content
 export const attachmentContent = api.raw(
+  // Public by necessity: the browser fetches this via a bare <a href> (no Authorization
+  // header). Guarded by a parent-id check + octet-stream/nosniff/CSP headers. TODO: replace
+  // with short-lived signed URLs so this can require auth.
   { expose: true, auth: false, method: "GET", path: "/shipments/:shipmentId/attachments/:id/content" },
   async (req, resp) => {
     const url = new URL(req.url ?? "", "http://localhost");

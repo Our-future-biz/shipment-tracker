@@ -9,13 +9,13 @@ interface ContactInput {
 }
 
 class ContactService {
-  async listByCustomer(customerId: string) {
-    return contactRepository.findByCustomer(customerId);
+  async listByCustomer(customerId: string, companyId: string) {
+    return contactRepository.findByCustomer(customerId, companyId);
   }
 
-  async create(customerId: string, input: ContactInput) {
-    if (input.isMain) await contactRepository.clearMainFlag(customerId);
-    return contactRepository.create({
+  async create(companyId: string, customerId: string, input: ContactInput) {
+    if (input.isMain) await contactRepository.clearMainFlag(customerId, companyId);
+    return contactRepository.createForCompany(companyId, {
       customerId,
       name: input.name,
       email: input.email ?? "",
@@ -25,17 +25,17 @@ class ContactService {
     } as never);
   }
 
-  async update(id: string, customerId: string, input: Partial<ContactInput>) {
-    if (input.isMain) await contactRepository.clearMainFlag(customerId);
+  async update(id: string, companyId: string, customerId: string, input: Partial<ContactInput>) {
+    if (input.isMain) await contactRepository.clearMainFlag(customerId, companyId);
     const patch: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(input)) {
       if (value !== undefined) patch[key] = value;
     }
-    return contactRepository.update(id, patch as never);
+    return contactRepository.updateForCompany(id, companyId, patch as never);
   }
 
-  async softDelete(id: string) {
-    return contactRepository.softDelete(id);
+  async softDelete(id: string, companyId: string) {
+    return contactRepository.softDeleteForCompany(id, companyId);
   }
 }
 

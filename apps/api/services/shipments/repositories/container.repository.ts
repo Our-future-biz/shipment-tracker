@@ -30,12 +30,12 @@ class ContainerRepository {
 
   // Replace-all: containers are edited as a single list, so drop the shipment's
   // existing rows and insert the provided set. `position` preserves list order,
-  // since a batch insert shares one created_at.
-  async replaceForShipment(shipmentId: string, rows: ContainerLine[]) {
+  // since a batch insert shares one created_at. companyId is stamped on every row.
+  async replaceForShipment(shipmentId: string, companyId: string, rows: ContainerLine[]) {
     await db.delete(containerTable).where(eq(containerTable.shipmentId, shipmentId));
     if (rows.length > 0) {
       await db.insert(containerTable).values(
-        rows.map((r, i) => ({ ...r, containerNumber: normalizeContainerNumber(r.containerNumber), shipmentId, position: i })),
+        rows.map((r, i) => ({ ...r, companyId, containerNumber: normalizeContainerNumber(r.containerNumber), shipmentId, position: i })),
       );
     }
   }

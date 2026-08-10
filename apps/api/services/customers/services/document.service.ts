@@ -10,12 +10,12 @@ interface DocumentInput {
 }
 
 class DocumentService {
-  async listByCustomer(customerId: string) {
-    return customerDocumentRepository.findByCustomer(customerId);
+  async listByCustomer(customerId: string, companyId: string) {
+    return customerDocumentRepository.findByCustomer(customerId, companyId);
   }
 
-  async create(customerId: string, input: DocumentInput) {
-    return customerDocumentRepository.create({
+  async create(companyId: string, customerId: string, input: DocumentInput) {
+    return customerDocumentRepository.createForCompany(companyId, {
       customerId,
       name: input.name,
       type: input.type ?? "Other",
@@ -26,12 +26,12 @@ class DocumentService {
     } as never);
   }
 
-  async getFileData(id: string) {
-    return customerDocumentRepository.getFileData(id);
+  async getFileData(id: string, companyId: string) {
+    return customerDocumentRepository.getFileData(id, companyId);
   }
 
-  async softDelete(id: string) {
-    return customerDocumentRepository.softDelete(id);
+  async softDelete(id: string, companyId: string) {
+    return customerDocumentRepository.softDeleteForCompany(id, companyId);
   }
 }
 

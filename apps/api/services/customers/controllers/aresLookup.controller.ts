@@ -7,7 +7,7 @@ interface AresLookupRequest {
 }
 
 export const aresLookup = api(
-  { expose: true, auth: false, method: "GET", path: "/ares/:ico" },
+  { expose: true, auth: true, method: "GET", path: "/ares/:ico" },
   async (req: AresLookupRequest): Promise<AresResult> => {
     return aresService.lookup(req.ico);
   },

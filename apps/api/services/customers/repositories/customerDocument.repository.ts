@@ -1,14 +1,15 @@
 import { and, eq, desc, isNull } from "drizzle-orm";
-import { BaseRepository } from "../../../lib/db/repository";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { customerDocumentTable } from "../schemas/customerDocument.schema";
 
-class CustomerDocumentRepository extends BaseRepository<typeof customerDocumentTable> {
+class CustomerDocumentRepository extends TenantRepository<typeof customerDocumentTable> {
   constructor() {
     super(db as never, customerDocumentTable, "customer_document");
   }
 
-  async findByCustomer(customerId: string) {
+  // Note: fileData is deliberately excluded from list projections.
+  async findByCustomer(customerId: string, companyId: string) {
     return this.db
       .select({
         id: customerDocumentTable.id,
@@ -22,11 +23,16 @@ class CustomerDocumentRepository extends BaseRepository<typeof customerDocumentT
         updatedAt: customerDocumentTable.updatedAt,
       })
       .from(customerDocumentTable)
-      .where(and(eq(customerDocumentTable.customerId, customerId), isNull(customerDocumentTable.deletedAt)))
+      .where(and(
+        eq(customerDocumentTable.companyId, companyId),
+        eq(customerDocumentTable.customerId, customerId),
+        isNull(customerDocumentTable.deletedAt),
+      ))
       .orderBy(desc(customerDocumentTable.createdAt));
   }
 
-  async getFileData(id: string) {
+  // Scoped by company so a raw document id from another company can't be read.
+  async getFileData(id: string, companyId: string) {
     const [row] = await this.db
       .select({
         fileName: customerDocumentTable.fileName,
@@ -34,7 +40,11 @@ class CustomerDocumentRepository extends BaseRepository<typeof customerDocumentT
         fileData: customerDocumentTable.fileData,
       })
       .from(customerDocumentTable)
-      .where(and(eq(customerDocumentTable.id, id), isNull(customerDocumentTable.deletedAt)))
+      .where(and(
+        eq(customerDocumentTable.id, id),
+        eq(customerDocumentTable.companyId, companyId),
+        isNull(customerDocumentTable.deletedAt),
+      ))
       .limit(1);
     return row ?? null;
   }

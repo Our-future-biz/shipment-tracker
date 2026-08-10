@@ -26,10 +26,8 @@ export const ChatPanel = ({ shipmentId, jobNumber, onClose }: ChatPanelProps) =>
   });
 
   const createComment = useMutation({
-    mutationFn: (msg: string) => api.shipments.commentCreate(shipmentId, {
-      authorId: user?.id || "",
-      message: msg,
-    }),
+    // authorId is derived server-side from the authenticated user.
+    mutationFn: (msg: string) => api.shipments.commentCreate(shipmentId, { message: msg }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["comments", shipmentId] });
       setMessage("");

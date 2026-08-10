@@ -1,10 +1,11 @@
 import { pgTable, text, uuid, integer, index } from "drizzle-orm/pg-core";
-import { defaultTableColumns, defaultTableIndexes } from "../../../lib/db/defaults";
+import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const containerTable = pgTable(
   "container",
   {
     ...defaultTableColumns,
+    ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
     position: integer("position").notNull().default(0),
     containerNumber: text("container_number").notNull().default(""),
@@ -18,6 +19,7 @@ export const containerTable = pgTable(
   },
   (table) => [
     ...defaultTableIndexes("container", table),
+    tenantIndex("container", table),
     index("container_shipment_id_idx").on(table.shipmentId),
   ],
 );

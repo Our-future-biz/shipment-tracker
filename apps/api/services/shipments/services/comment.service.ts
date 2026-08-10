@@ -1,16 +1,16 @@
 import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
 
 class CommentService {
-  async list(shipmentId: string) {
-    return shipmentCommentRepository.listByShipmentId(shipmentId);
+  async list(shipmentId: string, companyId: string) {
+    return shipmentCommentRepository.listByShipmentId(shipmentId, companyId);
   }
 
-  async create(shipmentId: string, authorId: string, message: string) {
-    return shipmentCommentRepository.create({ shipmentId, authorId, message });
+  async create(shipmentId: string, companyId: string, authorId: string, message: string) {
+    return shipmentCommentRepository.create({ companyId, shipmentId, authorId, message });
   }
 
-  async delete(id: string) {
-    return shipmentCommentRepository.delete(id);
+  async delete(id: string, companyId: string) {
+    return shipmentCommentRepository.delete(id, companyId);
   }
 }
 

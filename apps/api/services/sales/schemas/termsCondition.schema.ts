@@ -1,17 +1,24 @@
-import { pgTable, text, index } from "drizzle-orm/pg-core";
-import { defaultTableColumns, defaultTableIndexes } from "../../../lib/db/defaults";
+import { sql } from "drizzle-orm";
+import { pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const termsConditionTable = pgTable(
   "terms_condition",
   {
     ...defaultTableColumns,
-    name: text("name").notNull().unique(),
+    ...tenantColumns,
+    name: text("name").notNull(),
     includes: text("includes").notNull().default(""),
     excludes: text("excludes").notNull().default(""),
   },
   (table) => [
     ...defaultTableIndexes("terms_condition", table),
-    index("terms_condition_name_idx").on(table.name),
+    tenantIndex("terms_condition", table),
+    // Case-insensitive unique name per company among live rows. Also serves the
+    // lower(name) lookup used by findByNameInsensitive.
+    uniqueIndex("terms_condition_company_name_unique")
+      .on(table.companyId, sql`lower(${table.name})`)
+      .where(sql`deleted_at IS NULL`),
   ],
 );
 

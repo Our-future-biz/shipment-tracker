@@ -2,6 +2,10 @@ import { api, APIError, Header } from "encore.dev/api";
 import { authService } from "../services/auth.service";
 import type { AuthUserInfo } from "../services/auth.service";
 
+// NOTE: kept auth:false with manual JWT verification (not gateway auth:true) so the
+// generated web client's request shape stays unchanged. Security is equivalent — the
+// token is cryptographically verified here. Migrate to auth:true + getAuthData() when
+// the Encore client is regenerated.
 interface AuthMeRequest {
   authorization: Header<"Authorization">;
 }

@@ -1,15 +1,21 @@
-import { pgTable, text, index } from "drizzle-orm/pg-core";
-import { defaultTableColumns, defaultTableIndexes } from "../../../lib/db/defaults";
+import { sql } from "drizzle-orm";
+import { pgTable, text, uniqueIndex } from "drizzle-orm/pg-core";
+import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const masterJobTable = pgTable(
   "master_job",
   {
     ...defaultTableColumns,
-    mczNumber: text("mcz_number").notNull().unique(),
+    ...tenantColumns,
+    mczNumber: text("mcz_number").notNull(),
   },
   (table) => [
     ...defaultTableIndexes("master_job", table),
-    index("master_job_mcz_number_idx").on(table.mczNumber),
+    tenantIndex("master_job", table),
+    // MCZ numbers are unique per company among live rows.
+    uniqueIndex("master_job_company_mcz_unique")
+      .on(table.companyId, table.mczNumber)
+      .where(sql`deleted_at IS NULL`),
   ],
 );
 

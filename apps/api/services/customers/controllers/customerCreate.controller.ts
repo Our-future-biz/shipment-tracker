@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { customerService } from "../services/customer.service";
 import type { CustomerItem } from "../interfaces/interfaces";
 
@@ -11,12 +12,12 @@ interface CustomerCreateResponse {
 }
 
 export const customerCreate = api(
-  { expose: true, auth: false, method: "POST", path: "/customers" },
+  { expose: true, auth: true, method: "POST", path: "/customers" },
   async (req: CustomerCreateRequest): Promise<CustomerCreateResponse> => {
     if (!req.ico) {
       throw APIError.invalidArgument("ico is required");
     }
-    const customer = await customerService.createFromAres(req.ico);
+    const customer = await customerService.createFromAres(getAuthData()!.companyID, req.ico);
     return { customer: customer as unknown as CustomerItem };
   },
 );

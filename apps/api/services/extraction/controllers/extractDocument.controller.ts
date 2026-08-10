@@ -8,7 +8,7 @@ interface ExtractDocumentRequest {
 }
 
 export const extractDocument = api(
-  { expose: true, auth: false, method: "POST", path: "/extraction/document" },
+  { expose: true, auth: true, method: "POST", path: "/extraction/document" },
   async (req: ExtractDocumentRequest): Promise<ExtractionResult> => {
     if (!req.fileBase64 || !req.fileName) {
       throw APIError.invalidArgument("fileBase64 and fileName are required");

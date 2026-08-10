@@ -28,14 +28,23 @@ const STATUS_COLOR: Record<string, string> = { overdue: "red", upcoming: "gold",
 
 export function FollowUpTab() {
   const router = useRouter();
-  const { salesQuotes, isLoading } = useSalesQuotes();
+  // Polls so newly quoted quotes show up without a manual refresh.
+  const { salesQuotes, isLoading } = useSalesQuotes({ refetchInterval: 15000 });
   const { value: tasks, setValue: setTasks } = useSalesPref<FollowUpTask[]>("followup_tasks", []);
   const toast = useToast();
   const [addOpen, setAddOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<FollowUpTask | null>(null);
   const [form] = Form.useForm();
 
-  const pending = useMemo(() => salesQuotes.filter((q) => needsFollowUp(q.data)), [salesQuotes]);
+  // Every quote sitting with the customer is listed; the ones open 3+ days get
+  // the red "Follow up" treatment (needsFollowUp).
+  const pending = useMemo(
+    () =>
+      salesQuotes
+        .filter((q) => q.data.quoteStatus === "quoted" || q.data.quoteStatus === "feedback")
+        .sort((a, b) => (daysOpen(b.data) ?? -1) - (daysOpen(a.data) ?? -1)),
+    [salesQuotes],
+  );
 
   const addTask = async () => {
     const v = await form.validateFields();
@@ -83,10 +92,13 @@ export function FollowUpTab() {
       width: 110,
       render: (_: unknown, r) => {
         const d = daysOpen(r.data);
+        const overdue = needsFollowUp(r.data);
         return (
           <span className="inline-flex items-center gap-1.5">
-            {d ?? "—"}
-            <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5">Follow up</span>
+            <span className={overdue ? "text-red-600 font-bold" : undefined}>{d ?? "—"}</span>
+            {overdue && (
+              <span className="text-[10px] font-semibold bg-red-100 text-red-700 rounded-full px-1.5 py-0.5">Follow up</span>
+            )}
           </span>
         );
       },
@@ -128,7 +140,7 @@ export function FollowUpTab() {
       <div className="bg-white border border-slate-200 rounded-2xl p-4">
         <div className="flex items-center justify-between mb-3">
           <span className="text-sm font-semibold text-slate-800">Quotes awaiting follow-up</span>
-          <span className="text-xs text-slate-400">Quoted or in feedback for 3+ days</span>
+          <span className="text-xs text-slate-400">Quoted or in feedback — 3+ days open is flagged</span>
         </div>
         <Table<SalesQuote>
           size="small"

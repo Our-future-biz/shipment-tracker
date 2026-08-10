@@ -1,11 +1,13 @@
-import { pgTable, text, numeric, date, uuid, jsonb, index } from "drizzle-orm/pg-core";
-import { defaultTableColumns, defaultTableIndexes } from "../../../lib/db/defaults";
+import { sql } from "drizzle-orm";
+import { pgTable, text, numeric, date, uuid, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const shipmentTable = pgTable(
   "shipment",
   {
     ...defaultTableColumns,
-    jobNumber: text("job_number").notNull().unique(),
+    ...tenantColumns,
+    jobNumber: text("job_number").notNull(),
     shipper: text("shipper").notNull().default(""),
     consignee: text("consignee").notNull().default(""),
     personalReference: text("personal_reference").notNull().default(""),
@@ -146,8 +148,13 @@ export const shipmentTable = pgTable(
   },
   (table) => [
     ...defaultTableIndexes("shipment", table),
-    index("shipment_job_number_idx").on(table.jobNumber),
+    tenantIndex("shipment", table),
+    // Job numbers are a per-company sequence, unique within a company among live rows.
+    uniqueIndex("shipment_company_job_number_unique")
+      .on(table.companyId, table.jobNumber)
+      .where(sql`deleted_at IS NULL`),
     index("shipment_customer_id_idx").on(table.customerId),
+    index("shipment_status_idx").on(table.status),
   ],
 );
 

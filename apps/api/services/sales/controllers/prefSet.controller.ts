@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { preferenceService } from "../services/preference.service";
 
 interface PrefSetRequest {
@@ -11,9 +12,9 @@ interface PrefSetResponse {
 }
 
 export const prefSet = api(
-  { expose: true, auth: false, method: "PUT", path: "/sales-prefs/:prefKey" },
+  { expose: true, auth: true, method: "PUT", path: "/sales-prefs/:prefKey" },
   async (req: PrefSetRequest): Promise<PrefSetResponse> => {
-    await preferenceService.set(req.prefKey, req.value ?? {});
+    await preferenceService.set(req.prefKey, getAuthData()!.companyID, req.value ?? {});
     return { ok: true };
   },
 );

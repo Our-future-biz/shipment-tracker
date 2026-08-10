@@ -32,24 +32,24 @@ interface CustomerPatch {
 }
 
 class CustomerService {
-  async list() {
-    return customerRepository.listAll();
+  async list(companyId: string) {
+    return customerRepository.listAll(companyId);
   }
 
-  async getById(id: string) {
-    return customerRepository.getById(id);
+  async getById(id: string, companyId: string) {
+    return customerRepository.getByIdForCompany(id, companyId);
   }
 
-  async createFromAres(ico: string) {
+  async createFromAres(companyId: string, ico: string) {
     if (!/^\d{8}$/.test(ico)) {
       throw APIError.invalidArgument("ICO must be exactly 8 digits");
     }
-    const existing = await customerRepository.findByIco(ico);
+    const existing = await customerRepository.findByIco(ico, companyId);
     if (existing) {
       throw APIError.alreadyExists("A customer with this IČO already exists");
     }
     const ares = await aresService.lookup(ico);
-    return customerRepository.create({
+    return customerRepository.createForCompany(companyId, {
       ico: ares.ico,
       dic: ares.dic,
       companyName: ares.companyName,
@@ -67,41 +67,44 @@ class CustomerService {
     } as never);
   }
 
-  async update(id: string, patch: CustomerPatch) {
+  async update(id: string, companyId: string, patch: CustomerPatch) {
     const clean: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(patch)) {
       if (value !== undefined) clean[key] = value;
     }
-    return customerRepository.update(id, clean as never);
+    return customerRepository.updateForCompany(id, companyId, clean as never);
   }
 
-  async softDelete(id: string) {
+  async softDelete(id: string, companyId: string) {
+    // Ensure the customer belongs to the caller's company before cascading.
+    const customer = await customerRepository.getByIdForCompany(id, companyId);
+    if (!customer) return null;
     // Cascade: soft-delete all child records so nothing is left orphaned.
     const now = new Date();
     for (const table of [contactTable, customerNoteTable, customerDocumentTable, customerInvoiceTable]) {
       await db
         .update(table)
         .set({ deletedAt: now, updatedAt: now } as never)
-        .where(and(eq(table.customerId, id), isNull(table.deletedAt)));
+        .where(and(eq(table.companyId, companyId), eq(table.customerId, id), isNull(table.deletedAt)));
     }
-    return customerRepository.softDelete(id);
+    return customerRepository.softDeleteForCompany(id, companyId);
   }
 
-  async fetchLogo(id: string) {
-    const customer = await customerRepository.getById(id);
+  async fetchLogo(id: string, companyId: string) {
+    const customer = await customerRepository.getByIdForCompany(id, companyId);
     if (!customer) throw APIError.notFound("Customer not found");
     const website = (customer as { companyWebsite?: string }).companyWebsite ?? "";
     if (!website) throw APIError.invalidArgument("Customer has no website to fetch a logo from");
     const result = await logoService.fetchLogo(website);
     if (!result) throw APIError.notFound("No logo could be fetched for this website");
-    return customerRepository.update(id, {
+    return customerRepository.updateForCompany(id, companyId, {
       logoData: result.dataUrl,
       logoSource: result.sourceUrl,
       logoUpdatedAt: result.updatedAt,
     } as never);
   }
 
-  async uploadLogo(id: string, dataUrl: string) {
+  async uploadLogo(id: string, companyId: string, dataUrl: string) {
     const match = /^data:(image\/(png|jpeg|jpg|webp|svg\+xml));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
     if (!match) {
       throw APIError.invalidArgument("Logo must be a base64 PNG, JPG, WebP, or SVG data URL");
@@ -111,15 +114,15 @@ class CustomerService {
     if (bytes > 2 * 1024 * 1024) {
       throw APIError.invalidArgument("Logo must be under 2 MB");
     }
-    return customerRepository.update(id, {
+    return customerRepository.updateForCompany(id, companyId, {
       logoData: dataUrl,
       logoSource: "upload",
       logoUpdatedAt: new Date().toISOString().split("T")[0],
     } as never);
   }
 
-  async deleteLogo(id: string) {
-    return customerRepository.update(id, {
+  async deleteLogo(id: string, companyId: string) {
+    return customerRepository.updateForCompany(id, companyId, {
       logoData: "",
       logoSource: "",
       logoUpdatedAt: "",

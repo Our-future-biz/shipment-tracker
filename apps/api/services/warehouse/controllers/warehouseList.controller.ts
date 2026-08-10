@@ -11,7 +11,7 @@ interface WarehouseListResponse {
 }
 
 export const warehouseList = api(
-  { expose: true, auth: false, method: "GET", path: "/warehouse" },
+  { expose: true, auth: true, method: "GET", path: "/warehouse" },
   async (req: WarehouseListRequest): Promise<WarehouseListResponse> => {
     const tasks = req.shipmentId
       ? await warehouseService.listByShipmentId(req.shipmentId)

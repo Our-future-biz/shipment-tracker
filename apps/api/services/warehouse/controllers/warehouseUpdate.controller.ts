@@ -20,7 +20,7 @@ interface WarehouseUpdateResponse {
 }
 
 export const warehouseUpdate = api(
-  { expose: true, auth: false, method: "PATCH", path: "/warehouse/:taskId" },
+  { expose: true, auth: true, method: "PATCH", path: "/warehouse/:taskId" },
   async (req: WarehouseUpdateRequest): Promise<WarehouseUpdateResponse> => {
     // The client sends the task's UUID as the :taskId path param; update by it.
     const { taskId, ...data } = req;

@@ -7,7 +7,7 @@ interface PipelineExtractMblRequest {
 }
 
 export const pipelineExtractMbl = api(
-  { expose: true, auth: false, method: "POST", path: "/extraction/pipeline/extract-mbl" },
+  { expose: true, auth: true, method: "POST", path: "/extraction/pipeline/extract-mbl" },
   async (req: PipelineExtractMblRequest): Promise<ExtractMblResult> => {
     if (!req.sessionId) {
       throw APIError.invalidArgument("sessionId is required");

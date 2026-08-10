@@ -1,25 +1,39 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Modal, Button } from "antd";
 import type { SalesQuoteData, PackageLine, CostLine } from "@/app/sales/_lib/types";
-import { computeTotals, fmt } from "@/app/sales/_lib/salesQuote";
+import { computeTotals, fmt, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { printQuote } from "@/app/sales/_lib/printQuote";
 
 export function PdfPreviewModal({
   open,
   quoteNumber,
   data,
+  family,
   onClose,
 }: {
   open: boolean;
   quoteNumber: string;
   data: SalesQuoteData;
+  // Sibling variants (-2/-3 refs); when given, the preview shows tabs to flip
+  // between them without leaving the modal.
+  family?: SalesQuote[];
   onClose: () => void;
 }) {
-  const currency = data.currency ?? "EUR";
-  const totals = computeTotals(data);
-  const packages: PackageLine[] = data.packages ?? [];
-  const sellingLines: CostLine[] = data.sellingLines ?? [];
+  const [activeRef, setActiveRef] = useState(quoteNumber);
+  useEffect(() => {
+    if (open) setActiveRef(quoteNumber);
+  }, [open, quoteNumber]);
+
+  const activeQuote = family?.find((q) => q.quoteNumber === activeRef);
+  const shown: SalesQuoteData = activeRef === quoteNumber ? data : (activeQuote?.data ?? data);
+  const shownRef = activeQuote ? activeQuote.quoteNumber : quoteNumber;
+
+  const currency = shown.currency ?? "EUR";
+  const totals = computeTotals(shown);
+  const packages: PackageLine[] = shown.packages ?? [];
+  const sellingLines: CostLine[] = shown.sellingLines ?? [];
   const totalPackages = packages.reduce((sum, p) => sum + (Number(p.qty) || 0), 0);
 
   const Field = ({ label, value }: { label: string; value?: string }) => (
@@ -43,21 +57,42 @@ export function PdfPreviewModal({
         <Button key="cancel" onClick={onClose}>
           Cancel
         </Button>,
-        <Button key="print" type="primary" onClick={() => printQuote(quoteNumber, data)}>
+        <Button key="print" type="primary" onClick={() => printQuote(shownRef, shown)}>
           Download / Print
         </Button>,
       ]}
     >
+      {family && family.length > 1 && (
+        <div className="flex gap-1.5 mb-3 overflow-x-auto">
+          {family.map((q) => {
+            const active = q.quoteNumber === activeRef;
+            return (
+              <button
+                key={q.quoteNumber}
+                type="button"
+                onClick={() => setActiveRef(q.quoteNumber)}
+                className={`shrink-0 font-mono text-xs px-2.5 py-1 rounded-lg border transition ${
+                  active
+                    ? "bg-indigo-50 border-indigo-400 text-indigo-700 font-bold"
+                    : "bg-white border-slate-200 text-slate-500 hover:border-indigo-300"
+                }`}
+              >
+                {q.quoteNumber}
+              </button>
+            );
+          })}
+        </div>
+      )}
       <div className="bg-white">
         {/* Header bar */}
         <div className="bg-slate-800 text-white rounded-t-lg px-6 py-4 flex items-start justify-between">
           <div>
             <div className="text-lg font-semibold">Freight Quotation</div>
-            <div className="font-mono text-xs text-slate-300">{quoteNumber}</div>
+            <div className="font-mono text-xs text-slate-300">{shownRef}</div>
           </div>
           <div className="text-right">
-            <div className="text-sm">{data.serviceType || "—"}</div>
-            <div className="font-mono text-xs text-slate-300">{data.incoterm || "—"}</div>
+            <div className="text-sm">{shown.serviceType || "—"}</div>
+            <div className="font-mono text-xs text-slate-300">{shown.incoterm || "—"}</div>
           </div>
         </div>
 
@@ -65,24 +100,24 @@ export function PdfPreviewModal({
           {/* Prepared for */}
           <SectionTitle>Prepared for</SectionTitle>
           <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-            <Field label="Customer" value={data.customerName} />
-            <Field label="Contact" value={data.customerContact} />
-            <Field label="Email" value={data.customerEmail} />
-            <Field label="Phone" value={data.customerPhone} />
+            <Field label="Customer" value={shown.customerName} />
+            <Field label="Contact" value={shown.customerContact} />
+            <Field label="Email" value={shown.customerEmail} />
+            <Field label="Phone" value={shown.customerPhone} />
           </div>
 
           {/* Routing */}
           <SectionTitle>Routing</SectionTitle>
           <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-            <Field label="Direction" value={data.direction} />
-            <Field label="Incoterm" value={data.incoterm} />
+            <Field label="Direction" value={shown.direction} />
+            <Field label="Incoterm" value={shown.incoterm} />
             <Field
               label="Origin → Dest."
-              value={`${data.origin || "—"} → ${data.destination || "—"}`}
+              value={`${shown.origin || "—"} → ${shown.destination || "—"}`}
             />
-            <Field label="Pickup" value={data.pickup} />
-            <Field label="Delivery" value={data.delivery} />
-            <Field label="Cargo ready" value={data.readyDate} />
+            <Field label="Pickup" value={shown.pickup} />
+            <Field label="Delivery" value={shown.delivery} />
+            <Field label="Cargo ready" value={shown.readyDate} />
           </div>
 
           {/* Cargo */}
@@ -101,7 +136,7 @@ export function PdfPreviewModal({
               {packages.length > 0 ? (
                 packages.map((p: PackageLine, i) => (
                   <tr key={i}>
-                    <td className="border border-slate-200 px-2.5 py-1.5">{data.commodity || "—"}</td>
+                    <td className="border border-slate-200 px-2.5 py-1.5">{shown.commodity || "—"}</td>
                     <td className="border border-slate-200 px-2.5 py-1.5">{p.type || "—"}</td>
                     <td className="border border-slate-200 px-2.5 py-1.5">{p.qty}</td>
                     <td className="border border-slate-200 px-2.5 py-1.5">
@@ -113,15 +148,15 @@ export function PdfPreviewModal({
               ) : (
                 <tr>
                   <td className="border border-slate-200 px-2.5 py-1.5" colSpan={5}>
-                    {data.commodity || "—"}
+                    {shown.commodity || "—"}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
           <div className="mt-2 text-[12px] text-slate-500">
-            Total packages: {totalPackages || packages.length} · Total weight: {data.weight ?? 0} kg · CBM:{" "}
-            {data.cbm ?? 0}
+            Total packages: {totalPackages || packages.length} · Total weight: {shown.weight ?? 0} kg · CBM:{" "}
+            {shown.cbm ?? 0}
           </div>
 
           {/* Charges */}
@@ -171,7 +206,7 @@ export function PdfPreviewModal({
                 Includes
               </div>
               <div className="whitespace-pre-wrap text-[13px] text-slate-700">
-                {data.shippingIncludes || "—"}
+                {shown.shippingIncludes || "—"}
               </div>
             </div>
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
@@ -179,14 +214,14 @@ export function PdfPreviewModal({
                 Excludes
               </div>
               <div className="whitespace-pre-wrap text-[13px] text-slate-700">
-                {data.shippingExcludes || "—"}
+                {shown.shippingExcludes || "—"}
               </div>
             </div>
           </div>
 
           {/* Footer note */}
           <div className="mt-7 text-[12px] text-slate-400">
-            Validity: {data.validityDays ?? 14} days. Indicative quotation, subject to space and equipment
+            Validity: {shown.validityDays ?? 14} days. Indicative quotation, subject to space and equipment
             availability.
           </div>
         </div>

@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { customerService } from "../services/customer.service";
 
 interface CustomerDeleteRequest {
@@ -10,13 +11,13 @@ interface CustomerDeleteResponse {
 }
 
 export const customerDelete = api(
-  { expose: true, auth: false, method: "DELETE", path: "/customers/:id" },
+  { expose: true, auth: true, method: "DELETE", path: "/customers/:id" },
   async (req: CustomerDeleteRequest): Promise<CustomerDeleteResponse> => {
-    const customer = await customerService.getById(req.id);
-    if (!customer) {
+    const companyId = getAuthData()!.companyID;
+    const deleted = await customerService.softDelete(req.id, companyId);
+    if (!deleted) {
       throw APIError.notFound("Customer not found");
     }
-    await customerService.softDelete(req.id);
     return { ok: true };
   },
 );

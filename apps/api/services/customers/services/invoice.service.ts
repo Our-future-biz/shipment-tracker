@@ -9,12 +9,12 @@ interface InvoiceInput {
 }
 
 class InvoiceService {
-  async listByCustomer(customerId: string) {
-    return customerInvoiceRepository.findByCustomer(customerId);
+  async listByCustomer(customerId: string, companyId: string) {
+    return customerInvoiceRepository.findByCustomer(customerId, companyId);
   }
 
-  async create(customerId: string, input: InvoiceInput) {
-    return customerInvoiceRepository.create({
+  async create(companyId: string, customerId: string, input: InvoiceInput) {
+    return customerInvoiceRepository.createForCompany(companyId, {
       customerId,
       invoiceNumber: input.invoiceNumber,
       amount: input.amount ?? 0,
@@ -24,16 +24,16 @@ class InvoiceService {
     } as never);
   }
 
-  async update(id: string, input: Partial<InvoiceInput>) {
+  async update(id: string, companyId: string, input: Partial<InvoiceInput>) {
     const patch: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(input)) {
       if (value !== undefined) patch[key] = value;
     }
-    return customerInvoiceRepository.update(id, patch as never);
+    return customerInvoiceRepository.updateForCompany(id, companyId, patch as never);
   }
 
-  async softDelete(id: string) {
-    return customerInvoiceRepository.softDelete(id);
+  async softDelete(id: string, companyId: string) {
+    return customerInvoiceRepository.softDeleteForCompany(id, companyId);
   }
 }
 

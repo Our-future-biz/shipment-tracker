@@ -17,7 +17,13 @@ export const useCustomerShipments = (customerId: string) => {
     enabled: !!customerId,
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: key });
+  // Shipment writes also recompute the customer's stored rollups server-side,
+  // so the customer queries must refresh together with the shipment list.
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: key });
+    queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
+    queryClient.invalidateQueries({ queryKey: ["customers"] });
+  };
 
   const createMutation = useMutation({
     mutationFn: (params: controllers.ShipmentCreateRequest) => api.shipments.shipmentCreate(params),

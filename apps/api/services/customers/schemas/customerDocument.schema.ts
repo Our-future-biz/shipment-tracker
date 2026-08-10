@@ -1,11 +1,12 @@
 import { pgTable, text, uuid, bigint, index } from "drizzle-orm/pg-core";
-import { defaultTableColumns, defaultTableIndexes } from "../../../lib/db/defaults";
+import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { customerTable } from "./customer.schema";
 
 export const customerDocumentTable = pgTable(
   "customer_document",
   {
     ...defaultTableColumns,
+    ...tenantColumns,
     customerId: uuid("customer_id")
       .notNull()
       .references(() => customerTable.id, { onDelete: "cascade" }),
@@ -19,6 +20,7 @@ export const customerDocumentTable = pgTable(
   },
   (table) => [
     ...defaultTableIndexes("customer_document", table),
+    tenantIndex("customer_document", table),
     index("customer_document_customer_id_idx").on(table.customerId),
   ],
 );

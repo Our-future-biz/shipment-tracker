@@ -102,7 +102,72 @@ export abstract class BaseRepository<TTable extends TableWithDefaults> {
   async softDelete(id: string): Promise<InferSelectModel<TTable> | null> {
     const [row] = await this.db.update(this.table)
       .set({ deletedAt: new Date(), updatedAt: new Date() } as never)
-      .where(eq(this.table.id, id))
+      .where(and(eq(this.table.id, id), isNull(this.table.deletedAt)))
+      .returning();
+    return (row as InferSelectModel<TTable>) ?? null;
+  }
+}
+
+type TenantTable = TableWithDefaults & { companyId: PgColumn };
+
+/**
+ * Base repository for tenant-scoped tables. Every read and write is constrained to a
+ * single companyId, so a caller physically cannot reach another company's rows. The
+ * companyId always comes from the authenticated request (getAuthData), never from the
+ * client. Prefer these methods over the inherited unscoped ones on tenant tables.
+ */
+export abstract class TenantRepository<TTable extends TenantTable> extends BaseRepository<TTable> {
+  async listForCompany(companyId: string, limit = 1000): Promise<InferSelectModel<TTable>[]> {
+    const rows = await this.db.select().from(this.table as PgTable)
+      .where(and(eq(this.table.companyId, companyId), isNull(this.table.deletedAt)))
+      .orderBy(desc(this.table.createdAt))
+      .limit(limit);
+    return rows as InferSelectModel<TTable>[];
+  }
+
+  async getByIdForCompany(id: string, companyId: string): Promise<InferSelectModel<TTable> | null> {
+    const [row] = await this.db.select().from(this.table as PgTable)
+      .where(and(eq(this.table.id, id), eq(this.table.companyId, companyId), isNull(this.table.deletedAt)))
+      .limit(1);
+    return (row as InferSelectModel<TTable>) ?? null;
+  }
+
+  async getByColumnForCompany<TCol extends PgColumn>(
+    column: TCol,
+    value: unknown,
+    companyId: string,
+    opts: { includeDeleted?: boolean } = {},
+  ): Promise<InferSelectModel<TTable> | null> {
+    const conditions = [eq(column, value), eq(this.table.companyId, companyId)];
+    if (!opts.includeDeleted) conditions.push(isNull(this.table.deletedAt));
+    const [row] = await this.db.select().from(this.table as PgTable).where(and(...conditions)).limit(1);
+    return (row as InferSelectModel<TTable>) ?? null;
+  }
+
+  // Injects companyId so it can never be forgotten or overridden by the caller's payload.
+  async createForCompany(
+    companyId: string,
+    data: Omit<InferInsertModel<TTable>, "companyId">,
+  ): Promise<InferSelectModel<TTable>> {
+    return this.create({ ...data, companyId } as InferInsertModel<TTable>);
+  }
+
+  async updateForCompany(
+    id: string,
+    companyId: string,
+    data: Partial<InferInsertModel<TTable>>,
+  ): Promise<InferSelectModel<TTable> | null> {
+    const [row] = await this.db.update(this.table)
+      .set({ ...data, updatedAt: new Date() } as never)
+      .where(and(eq(this.table.id, id), eq(this.table.companyId, companyId), isNull(this.table.deletedAt)))
+      .returning();
+    return (row as InferSelectModel<TTable>) ?? null;
+  }
+
+  async softDeleteForCompany(id: string, companyId: string): Promise<InferSelectModel<TTable> | null> {
+    const [row] = await this.db.update(this.table)
+      .set({ deletedAt: new Date(), updatedAt: new Date() } as never)
+      .where(and(eq(this.table.id, id), eq(this.table.companyId, companyId), isNull(this.table.deletedAt)))
       .returning();
     return (row as InferSelectModel<TTable>) ?? null;
   }

@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
 import type { ShipmentItem, ContainerLine, CargoItemLine } from "../interfaces/interfaces";
 
@@ -144,12 +145,11 @@ interface ShipmentUpdateResponse {
 }
 
 export const shipmentUpdate = api(
-  { expose: true, auth: false, method: "PATCH", path: "/shipments/:shipmentId" },
+  { expose: true, auth: true, method: "PATCH", path: "/shipments/:shipmentId" },
   async (req: ShipmentUpdateRequest): Promise<ShipmentUpdateResponse> => {
     const { shipmentId, ...data } = req;
-    // TODO: get userId from auth context once auth is enforced
-    const userId = "00000000-0000-0000-0000-000000000000";
-    const shipment = await shipmentService.update(shipmentId, data, userId);
+    const auth = getAuthData()!;
+    const shipment = await shipmentService.update(shipmentId, auth.companyID, data, auth.userID);
     if (!shipment) {
       throw APIError.notFound("Shipment not found");
     }

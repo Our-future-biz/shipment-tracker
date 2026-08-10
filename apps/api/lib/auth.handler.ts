@@ -1,5 +1,5 @@
 import { authHandler } from "encore.dev/auth";
-import { Header, Gateway } from "encore.dev/api";
+import { Header, Gateway, APIError } from "encore.dev/api";
 import { authService } from "../services/auth/services/auth.service";
 
 interface AuthParams {
@@ -8,17 +8,18 @@ interface AuthParams {
 
 export interface AuthData {
   userID: string;
+  companyID: string;
   role: string;
 }
 
 export const auth = authHandler(async (params: AuthParams): Promise<AuthData> => {
   const header = params.authorization;
   if (!header) {
-    throw new Error("No authorization header");
+    throw APIError.unauthenticated("Missing authorization header");
   }
   const token = header.startsWith("Bearer ") ? header.slice(7) : header;
-  const { userId, role } = await authService.verifyToken(token);
-  return { userID: userId, role };
+  const { userId, companyId, role } = await authService.verifyToken(token);
+  return { userID: userId, companyID: companyId, role };
 });
 
 // Activate the auth handler so endpoints marked `auth: true` are authenticated.

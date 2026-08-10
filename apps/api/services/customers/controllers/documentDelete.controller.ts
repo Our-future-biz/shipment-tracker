@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { documentService } from "../services/document.service";
 
 interface DocumentDeleteRequest {
@@ -10,9 +11,9 @@ interface DocumentDeleteResponse {
 }
 
 export const documentDelete = api(
-  { expose: true, auth: false, method: "DELETE", path: "/customer-documents/:id" },
+  { expose: true, auth: true, method: "DELETE", path: "/customer-documents/:id" },
   async (req: DocumentDeleteRequest): Promise<DocumentDeleteResponse> => {
-    await documentService.softDelete(req.id);
+    await documentService.softDelete(req.id, getAuthData()!.companyID);
     return { ok: true };
   },
 );

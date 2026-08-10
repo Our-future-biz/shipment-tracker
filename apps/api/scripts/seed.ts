@@ -1,14 +1,54 @@
 import { hash } from "@node-rs/argon2";
 import { drizzle } from "drizzle-orm/node-postgres";
+import { eq } from "drizzle-orm";
 import pg from "pg";
+import { companyTable } from "../services/auth/schemas/company.schema";
 import { userTable } from "../services/auth/schemas/user.schema";
 import { shipmentTable } from "../services/shipments/schemas/shipment.schema";
 
 const { Pool } = pg;
 
-// Encore local DB connection strings (from `encore db conn-uri <db>`)
-const AUTH_URL = process.env.AUTH_DB_URL ?? "postgresql://wvs8e:local@127.0.0.1:9500/auth?sslmode=disable";
-const SHIPMENTS_URL = process.env.SHIPMENTS_DB_URL ?? "postgresql://wvs8e:local@127.0.0.1:9500/shipments?sslmode=disable";
+// Local DB connection strings must be supplied via env (from `encore db conn-uri <db>`).
+// No credentials are hardcoded here — this file is committed to git.
+const AUTH_URL = requireEnv("AUTH_DB_URL");
+const SHIPMENTS_URL = requireEnv("SHIPMENTS_DB_URL");
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    console.error(`Missing required env var ${name} (get it from \`encore db conn-uri <db>\`)`);
+    process.exit(1);
+  }
+  return value;
+}
+
+// Seed users are read from SEED_USERS as JSON:
+//   [{ "email": "...", "password": "...", "displayName": "...", "role": "admin" }]
+// so no real credential is ever committed. Falls back to a single throwaway dev admin.
+interface SeedUser {
+  email: string;
+  password: string;
+  displayName: string;
+  role: string;
+}
+
+function seedUsers(): SeedUser[] {
+  const raw = process.env.SEED_USERS;
+  if (raw) {
+    return JSON.parse(raw) as SeedUser[];
+  }
+  console.warn("SEED_USERS not set — creating a single dev admin (dev@example.com / changeme).");
+  return [{ email: "dev@example.com", password: "changeme", displayName: "Dev Admin", role: "admin" }];
+}
+
+// The three platform operators. Superadmins live in the internal "platform" company and
+// manage all other companies. Passwords come from SEED_SUPERADMIN_PASSWORD so nothing is
+// committed; change them from the UI after first login.
+const SUPERADMINS = [
+  { email: "martin@ourfuture.biz", displayName: "Martin" },
+  { email: "lukas@ourfuture.biz", displayName: "Lukáš" },
+  { email: "marek@ourfuture.biz", displayName: "Marek" },
+];
 
 async function seed() {
   const authPool = new Pool({ connectionString: AUTH_URL });
@@ -17,22 +57,46 @@ async function seed() {
   const shipmentsPool = new Pool({ connectionString: SHIPMENTS_URL });
   const shipmentsDb = drizzle(shipmentsPool);
 
-  console.log("Seeding users...");
+  // — Platform company + superadmins —
+  console.log("Seeding platform company + superadmins...");
+  const existingPlatform = await authDb.select().from(companyTable).where(eq(companyTable.slug, "platform")).limit(1);
+  const platformId =
+    existingPlatform[0]?.id ??
+    (await authDb.insert(companyTable).values({ name: "Platform", slug: "platform" }).returning())[0]!.id;
 
-  const users = [
-    { email: "austromar@austromar.com", password: "test", displayName: "Austromar", role: "admin" },
-    { email: "lukas@ourfuture.biz", password: "Wjj7AkeRr-ICruJ%zaBuKx", displayName: "Lukáš", role: "admin" },
-    { email: "ad@ourfuture.biz", password: "Zt8&hQw3LcY6bF", displayName: "AD", role: "admin" },
-    { email: "martin@ourfuture.biz", password: "Rw3&mZp8KxJ5Vn", displayName: "Martin", role: "user" },
-    { email: "marek@ourfuture.biz", password: "Vx7#nKq4RwL9Tp", displayName: "Marek", role: "user" },
-    { email: "eva@ourfuture.biz", password: "Kx9#vNp4RmW7eJ", displayName: "Eva", role: "user" },
-    { email: "monca@ourfuture.biz", password: "Pj7$wNx3KrL8mQ", displayName: "Monca", role: "user" },
-  ];
+  const superadminPassword = process.env.SEED_SUPERADMIN_PASSWORD;
+  if (!superadminPassword) {
+    console.warn("  ! SEED_SUPERADMIN_PASSWORD not set — skipping superadmins. Set it and re-run to create them.");
+  } else {
+    const superHash = await hash(superadminPassword);
+    for (const s of SUPERADMINS) {
+      await authDb.insert(userTable).values({
+        companyId: platformId,
+        email: s.email.toLowerCase().trim(),
+        passwordHash: superHash,
+        displayName: s.displayName,
+        role: "superadmin",
+      }).onConflictDoNothing();
+      console.log(`  ✓ ${s.email} (superadmin)`);
+    }
+  }
 
-  for (const u of users) {
+  console.log("\nSeeding default company...");
+  const companyName = process.env.SEED_COMPANY_NAME ?? "Demo Company";
+  const companySlug = process.env.SEED_COMPANY_SLUG ?? "demo";
+  const existingCompany = await authDb.select().from(companyTable).where(eq(companyTable.slug, companySlug)).limit(1);
+  const companyId =
+    existingCompany[0]?.id ??
+    (await authDb.insert(companyTable).values({ name: companyName, slug: companySlug }).returning())[0]!.id;
+  console.log(`  ✓ ${companyName} (${companySlug}) — ${companyId}`);
+
+  console.log("\nSeeding users...");
+
+  for (const u of seedUsers()) {
     const passwordHash = await hash(u.password);
     await authDb.insert(userTable).values({
-      email: u.email,
+      companyId,
+      email: u.email.toLowerCase().trim(),
       passwordHash,
       displayName: u.displayName,
       role: u.role,
@@ -112,7 +176,7 @@ async function seed() {
   ];
 
   for (const s of shipments) {
-    await shipmentsDb.insert(shipmentTable).values(s).onConflictDoNothing();
+    await shipmentsDb.insert(shipmentTable).values({ ...s, companyId }).onConflictDoNothing();
     console.log(`  ✓ ${s.jobNumber} — ${s.shipper} → ${s.consignee}`);
   }
 

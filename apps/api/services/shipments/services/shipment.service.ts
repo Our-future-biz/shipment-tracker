@@ -1,10 +1,9 @@
-import { eq } from "drizzle-orm";
+import { customers } from "~encore/clients";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
 import { containerRepository, normalizeContainerNumber } from "../repositories/container.repository";
-import { shipmentTable } from "../schemas/shipment.schema";
-import type { PaginationRequest } from "../../../lib/db/interface";
+import type { ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord } from "../schemas/shipment.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
 import type { ContainerLine } from "../interfaces/interfaces";
@@ -33,18 +32,43 @@ function aggregate(containers: ContainerLine[], field: "containerNumber" | "seal
     .join(", ");
 }
 
+const money = (v: string | null | undefined): number => {
+  const n = parseFloat(v ?? "");
+  return Number.isNaN(n) ? 0 : n;
+};
+
 class ShipmentService {
-  async list(request: PaginationRequest, filters?: { customerId?: string }) {
-    const whereClauses = filters?.customerId
-      ? [eq(shipmentTable.customerId, filters.customerId)]
-      : [];
-    const result = await shipmentRepository.getPaginated({
-      request,
-      whereClauses,
-      defaultOrderBy: shipmentRepository["table"].createdAt,
-      defaultMaxLimit: 200,
-      defaultLimit: 100,
-    });
+  // The customer's stored rollups (totalRevenue/totalProfit/totalShipments/
+  // lastActivityDate) live in the customers service, which cannot query this
+  // database — so every shipment mutation that touches a linked customer
+  // recomputes them here and pushes them over. Failures are swallowed: a stale
+  // rollup must not fail the shipment write itself.
+  private async recalcCustomerRollups(customerId: string | null | undefined, companyId: string) {
+    if (!customerId) return;
+    try {
+      const rows = await shipmentRepository.findByCustomerId(customerId, companyId);
+      const totalRevenue = rows.reduce((sum, r) => sum + money(r.selling), 0);
+      const totalProfit = rows.reduce((sum, r) => sum + (money(r.selling) - money(r.buying)), 0);
+      const lastActivityDate =
+        rows
+          .map((r) => r.estimatedArrival || r.createdAt.toISOString().slice(0, 10))
+          .filter(Boolean)
+          .sort()
+          .pop() ?? "";
+      await customers.customerUpdate({
+        id: customerId,
+        totalRevenue,
+        totalProfit,
+        totalShipments: rows.length,
+        lastActivityDate,
+      });
+    } catch {
+      // Customer may have been deleted since; nothing to sync.
+    }
+  }
+
+  async list(companyId: string, filters: ShipmentListFilters) {
+    const result = await shipmentRepository.listFiltered(companyId, filters);
 
     // Enrich with master job MCZ numbers
     const masterJobIds = result.data
@@ -55,7 +79,7 @@ class ShipmentService {
     if (masterJobIds.length > 0) {
       const uniqueIds = [...new Set(masterJobIds)];
       const masterJobs = await Promise.all(
-        uniqueIds.map((id) => masterJobRepository.getById(id))
+        uniqueIds.map((id) => masterJobRepository.getByIdForCompany(id, companyId))
       );
       for (const mj of masterJobs) {
         if (mj) mczMap.set(mj.id, mj.mczNumber);
@@ -82,15 +106,18 @@ class ShipmentService {
       };
     });
 
-    return { ...result, data: enriched };
+    return {
+      pagination: { total: result.total, offset: filters.offset, limit: filters.limit },
+      data: enriched,
+    };
   }
 
-  async getById(id: string) {
-    const shipment = await shipmentRepository.getById(id);
+  async getById(id: string, companyId: string) {
+    const shipment = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!shipment) return null;
     let masterJobMczNumber: string | null = null;
     if (shipment.masterJobId) {
-      const mj = await masterJobRepository.getById(shipment.masterJobId);
+      const mj = await masterJobRepository.getByIdForCompany(shipment.masterJobId, companyId);
       if (mj) masterJobMczNumber = mj.mczNumber;
     }
     const containers = (await containerRepository.listByShipmentId(id)).map(toContainerLine);
@@ -103,23 +130,25 @@ class ShipmentService {
     };
   }
 
-  async create(data: NewShipmentRecord & { containers?: ContainerLine[] }) {
+  async create(companyId: string, data: Omit<NewShipmentRecord, "companyId"> & { containers?: ContainerLine[] }) {
     const { containers, ...shipmentData } = data;
-    const shipment = await shipmentRepository.create(shipmentData);
+    const shipment = await shipmentRepository.createForCompany(companyId, shipmentData as never);
     if (containers && containers.length > 0) {
-      await containerRepository.replaceForShipment(shipment.id, containers);
+      await containerRepository.replaceForShipment(shipment.id, companyId, containers);
     }
-    return this.getById(shipment.id);
+    await this.recalcCustomerRollups(shipment.customerId, companyId);
+    return this.getById(shipment.id, companyId);
   }
 
-  // Next CZ job number, computed over ALL shipments (incl. archived) so it never repeats.
-  async nextJobNumber(): Promise<string> {
-    const max = await shipmentRepository.maxCzJobNumber();
+  // Next CZ job number for this company (a per-company sequence over all rows incl.
+  // archived, so a reference is never reused within the company).
+  async nextJobNumber(companyId: string): Promise<string> {
+    const max = await shipmentRepository.maxCzJobNumber(companyId);
     return `CZ${String(max + 1).padStart(8, "0")}`;
   }
 
-  async update(id: string, data: Partial<NewShipmentRecord> & { containers?: ContainerLine[] }, userId: string) {
-    const existing = await shipmentRepository.getById(id);
+  async update(id: string, companyId: string, data: Partial<NewShipmentRecord> & { containers?: ContainerLine[] }, userId: string) {
+    const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) return null;
 
     const { containers, ...shipmentData } = data;
@@ -130,6 +159,7 @@ class ShipmentService {
       const oldValue = existingRecord[key];
       if (oldValue !== newValue) {
         await shipmentAuditRepository.create({
+          companyId,
           shipmentId: id,
           userId,
           field: key,
@@ -140,28 +170,36 @@ class ShipmentService {
     }
 
     if (containers !== undefined) {
-      await containerRepository.replaceForShipment(id, containers);
+      await containerRepository.replaceForShipment(id, companyId, containers);
     }
 
     if (Object.keys(shipmentData).length > 0) {
-      await shipmentRepository.update(id, shipmentData);
+      await shipmentRepository.updateForCompany(id, companyId, shipmentData as never);
     }
 
-    return this.getById(id);
+    // Recalc for the new customer, and for the old one when the link moved.
+    const newCustomerId = "customerId" in shipmentData ? shipmentData.customerId : existing.customerId;
+    await this.recalcCustomerRollups(newCustomerId, companyId);
+    if (existing.customerId && existing.customerId !== newCustomerId) {
+      await this.recalcCustomerRollups(existing.customerId, companyId);
+    }
+
+    return this.getById(id, companyId);
   }
 
-  async getAll(limit = 5000) {
-    return shipmentRepository.getAll(limit);
+  async getAllForCompany(companyId: string, limit = 5000) {
+    return shipmentRepository.listAllForCompany(companyId, limit);
   }
 
   // Soft-delete: the row and all its details are kept (only deletedAt is set) so the
   // job reference can never be reused. Recorded in the audit log as a change.
-  async softDelete(id: string, userId?: string) {
-    const existing = await shipmentRepository.getById(id);
+  async softDelete(id: string, companyId: string, userId?: string) {
+    const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) return null;
 
     if (userId) {
       await shipmentAuditRepository.create({
+        companyId,
         shipmentId: id,
         userId,
         field: "deletedAt",
@@ -170,19 +208,21 @@ class ShipmentService {
       });
     }
 
-    return shipmentRepository.softDelete(id);
+    const deleted = await shipmentRepository.softDeleteForCompany(id, companyId);
+    await this.recalcCustomerRollups(existing.customerId, companyId);
+    return deleted;
   }
 
-  async linkMasterJob(shipmentId: string, mczNumber: string) {
-    let masterJob = await masterJobRepository.findByMczNumber(mczNumber);
+  async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string) {
+    let masterJob = await masterJobRepository.findByMczNumber(mczNumber, companyId);
     if (!masterJob) {
-      masterJob = await masterJobRepository.create({ mczNumber });
+      masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber } as never);
     }
-    return shipmentRepository.update(shipmentId, { masterJobId: masterJob.id });
+    return shipmentRepository.updateForCompany(shipmentId, companyId, { masterJobId: masterJob.id } as never);
   }
 
-  async unlinkMasterJob(shipmentId: string) {
-    return shipmentRepository.update(shipmentId, { masterJobId: null });
+  async unlinkMasterJob(shipmentId: string, companyId: string) {
+    return shipmentRepository.updateForCompany(shipmentId, companyId, { masterJobId: null } as never);
   }
 }
 

@@ -8,7 +8,7 @@ interface PipelineExtractHblRequest {
 }
 
 export const pipelineExtractHbl = api(
-  { expose: true, auth: false, method: "POST", path: "/extraction/pipeline/extract-hbl-batch" },
+  { expose: true, auth: true, method: "POST", path: "/extraction/pipeline/extract-hbl-batch" },
   async (req: PipelineExtractHblRequest): Promise<ExtractHblResult> => {
     if (!req.sessionId) {
       throw APIError.invalidArgument("sessionId is required");

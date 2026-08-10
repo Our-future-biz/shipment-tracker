@@ -12,7 +12,7 @@ interface WarehouseSectionGetResponse {
 }
 
 export const warehouseSectionGet = api(
-  { expose: true, auth: false, method: "GET", path: "/warehouse/sections/:shipmentId/:section" },
+  { expose: true, auth: true, method: "GET", path: "/warehouse/sections/:shipmentId/:section" },
   async (req: WarehouseSectionGetRequest): Promise<WarehouseSectionGetResponse> => {
     const row = await warehouseService.getSection(req.shipmentId, req.section);
     if (!row) return { section: null };

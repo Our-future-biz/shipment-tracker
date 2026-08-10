@@ -11,7 +11,7 @@ interface AutomationLogsResponse {
 }
 
 export const automationLogs = api(
-  { expose: true, auth: false, method: "GET", path: "/automation/:shipmentId/logs" },
+  { expose: true, auth: true, method: "GET", path: "/automation/:shipmentId/logs" },
   async (req: AutomationLogsRequest): Promise<AutomationLogsResponse> => {
     const logs = await automationService.getLogsByShipmentId(req.shipmentId);
     return { logs: logs as unknown as AutomationLogItem[] };

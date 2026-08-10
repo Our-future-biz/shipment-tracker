@@ -3,18 +3,22 @@ import { db } from "../db/db";
 import { shipmentTaskTable } from "../schemas/shipmentTask.schema";
 
 class ShipmentTaskRepository {
-  async listByShipmentId(shipmentId: string) {
+  async listByShipmentId(shipmentId: string, companyId: string) {
     return db
       .select()
       .from(shipmentTaskTable)
-      .where(eq(shipmentTaskTable.shipmentId, shipmentId));
+      .where(and(eq(shipmentTaskTable.companyId, companyId), eq(shipmentTaskTable.shipmentId, shipmentId)));
   }
 
-  async upsert(shipmentId: string, taskKey: string, completed: boolean, completedById?: string) {
+  async upsert(shipmentId: string, companyId: string, taskKey: string, completed: boolean, completedById?: string) {
     const [existing] = await db
       .select()
       .from(shipmentTaskTable)
-      .where(and(eq(shipmentTaskTable.shipmentId, shipmentId), eq(shipmentTaskTable.taskKey, taskKey)))
+      .where(and(
+        eq(shipmentTaskTable.companyId, companyId),
+        eq(shipmentTaskTable.shipmentId, shipmentId),
+        eq(shipmentTaskTable.taskKey, taskKey),
+      ))
       .limit(1);
 
     if (existing) {
@@ -33,6 +37,7 @@ class ShipmentTaskRepository {
     }
 
     const [row] = await db.insert(shipmentTaskTable).values({
+      companyId,
       shipmentId,
       taskKey,
       completed,

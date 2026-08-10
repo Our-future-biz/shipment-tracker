@@ -18,7 +18,7 @@ interface UpsertCostResponse {
 }
 
 export const invoicingUpsertCost = api(
-  { expose: true, auth: false, method: "POST", path: "/invoicing/:shipmentId/costs" },
+  { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/costs" },
   async (req: UpsertCostRequest): Promise<UpsertCostResponse> => {
     if (!req.category) {
       throw APIError.invalidArgument("category is required");

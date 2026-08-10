@@ -15,6 +15,27 @@
       "when": 1783539964457,
       "tag": "0001_sharp_ultimates",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786381946510,
+      "tag": "0002_dapper_hellion",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1786382850189,
+      "tag": "0003_zippy_adam_warlock",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786383181477,
+      "tag": "0004_uneven_maginty",
+      "breakpoints": true
     }
   ]
 }

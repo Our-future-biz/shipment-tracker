@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
 import type { ShipmentRecord } from "../schemas/shipment.schema";
 
@@ -78,9 +79,9 @@ function categorizeDate(dateStr: string, now: Date): string | null {
 }
 
 export const shipmentDashboard = api(
-  { expose: true, auth: false, method: "GET", path: "/shipments/dashboard" },
+  { expose: true, auth: true, method: "GET", path: "/shipments/dashboard" },
   async (): Promise<DashboardResponse> => {
-    const allShipments = await shipmentService.getAll(5000);
+    const allShipments = await shipmentService.getAllForCompany(getAuthData()!.companyID, 5000);
     const now = new Date();
 
     const kpis: DashboardResponse["kpis"] = {

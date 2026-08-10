@@ -12,7 +12,7 @@ interface WarehouseCreateResponse {
 }
 
 export const warehouseCreate = api(
-  { expose: true, auth: false, method: "POST", path: "/warehouse" },
+  { expose: true, auth: true, method: "POST", path: "/warehouse" },
   async (req: WarehouseCreateRequest): Promise<WarehouseCreateResponse> => {
     if (!req.taskId) {
       throw APIError.invalidArgument("taskId is required");

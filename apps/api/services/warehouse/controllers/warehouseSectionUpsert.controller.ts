@@ -15,7 +15,7 @@ interface WarehouseSectionUpsertResponse {
 const VALID_SECTIONS = new Set(["job", "customs", "pickup", "invoicing"]);
 
 export const warehouseSectionUpsert = api(
-  { expose: true, auth: false, method: "PUT", path: "/warehouse/sections/:shipmentId/:section" },
+  { expose: true, auth: true, method: "PUT", path: "/warehouse/sections/:shipmentId/:section" },
   async (req: WarehouseSectionUpsertRequest): Promise<WarehouseSectionUpsertResponse> => {
     if (!VALID_SECTIONS.has(req.section)) {
       throw APIError.invalidArgument(`Invalid section: ${req.section}. Must be one of: ${[...VALID_SECTIONS].join(", ")}`);

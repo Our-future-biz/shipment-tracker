@@ -7,12 +7,12 @@ interface NoteInput {
 }
 
 class NoteService {
-  async listByCustomer(customerId: string) {
-    return customerNoteRepository.findByCustomer(customerId);
+  async listByCustomer(customerId: string, companyId: string) {
+    return customerNoteRepository.findByCustomer(customerId, companyId);
   }
 
-  async create(customerId: string, input: NoteInput) {
-    return customerNoteRepository.create({
+  async create(companyId: string, customerId: string, input: NoteInput) {
+    return customerNoteRepository.createForCompany(companyId, {
       customerId,
       type: input.type ?? "Note",
       content: input.content,
@@ -20,8 +20,8 @@ class NoteService {
     } as never);
   }
 
-  async softDelete(id: string) {
-    return customerNoteRepository.softDelete(id);
+  async softDelete(id: string, companyId: string) {
+    return customerNoteRepository.softDeleteForCompany(id, companyId);
   }
 }
 

@@ -8,7 +8,7 @@ interface ExtractQuoteRequest {
 }
 
 export const extractQuote = api(
-  { expose: true, auth: false, method: "POST", path: "/extraction/quote" },
+  { expose: true, auth: true, method: "POST", path: "/extraction/quote" },
   async (req: ExtractQuoteRequest): Promise<ExtractionResult> => {
     if (!req.fileBase64 || !req.fileName) {
       throw APIError.invalidArgument("fileBase64 and fileName are required");

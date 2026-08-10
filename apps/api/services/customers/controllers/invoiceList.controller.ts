@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { invoiceService } from "../services/invoice.service";
 import type { InvoiceItem } from "../interfaces/interfaces";
 
@@ -11,9 +12,9 @@ interface InvoiceListResponse {
 }
 
 export const invoiceList = api(
-  { expose: true, auth: false, method: "GET", path: "/customers/:customerId/invoices" },
+  { expose: true, auth: true, method: "GET", path: "/customers/:customerId/invoices" },
   async (req: InvoiceListRequest): Promise<InvoiceListResponse> => {
-    const data = await invoiceService.listByCustomer(req.customerId);
+    const data = await invoiceService.listByCustomer(req.customerId, getAuthData()!.companyID);
     return { data: data as unknown as InvoiceItem[] };
   },
 );

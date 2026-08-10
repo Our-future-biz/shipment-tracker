@@ -329,7 +329,7 @@ export function CustomerDetailContent() {
           router.push("/customers");
         }}
         title="Delete customer"
-        description={`Delete ${customer.companyName} and all its contacts, shipments, quotes, invoices, documents and notes? This cannot be undone.`}
+        description={`Delete ${customer.companyName} and all its contacts, invoices, documents and notes? Shipments and quotes are kept but lose their customer link. This cannot be undone.`}
         confirmLabel="Delete"
         danger
       />

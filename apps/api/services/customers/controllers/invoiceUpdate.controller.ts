@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { invoiceService } from "../services/invoice.service";
 import type { InvoiceItem } from "../interfaces/interfaces";
 
@@ -16,10 +17,10 @@ interface InvoiceUpdateResponse {
 }
 
 export const invoiceUpdate = api(
-  { expose: true, auth: false, method: "PATCH", path: "/customer-invoices/:id" },
+  { expose: true, auth: true, method: "PATCH", path: "/customer-invoices/:id" },
   async (req: InvoiceUpdateRequest): Promise<InvoiceUpdateResponse> => {
     const { id, ...input } = req;
-    const invoice = await invoiceService.update(id, input);
+    const invoice = await invoiceService.update(id, getAuthData()!.companyID, input);
     if (!invoice) {
       throw APIError.notFound("Invoice not found");
     }

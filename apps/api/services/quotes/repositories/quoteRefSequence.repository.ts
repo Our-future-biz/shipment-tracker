@@ -1,13 +1,13 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db/db";
 import { quoteRefSequenceTable } from "../schemas/quoteRefSequence.schema";
 
 class QuoteRefSequenceRepository {
-  async getNextSubLine(quoteNumber: string): Promise<number> {
+  async getNextSubLine(quoteNumber: string, companyId: string): Promise<number> {
     const [existing] = await db
       .select()
       .from(quoteRefSequenceTable)
-      .where(eq(quoteRefSequenceTable.quoteNumber, quoteNumber))
+      .where(and(eq(quoteRefSequenceTable.companyId, companyId), eq(quoteRefSequenceTable.quoteNumber, quoteNumber)))
       .limit(1);
 
     if (existing) {
@@ -19,7 +19,7 @@ class QuoteRefSequenceRepository {
       return next;
     }
 
-    await db.insert(quoteRefSequenceTable).values({ quoteNumber, nextSubLine: 2 });
+    await db.insert(quoteRefSequenceTable).values({ companyId, quoteNumber, nextSubLine: 2 });
     return 1;
   }
 }

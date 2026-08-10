@@ -1,109 +1,115 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Table, Button, Modal, Form, Input, InputNumber, Select, Tag } from "antd";
+import { useRouter } from "next/navigation";
+import { Table, Button } from "antd";
 import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
-import { api } from "@/lib/api";
-import { useQuotes } from "@/hooks/useQuotes";
+import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { useCustomer } from "@/hooks/useCustomers";
 import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { fmtMoney } from "../../_lib/constants";
+import { computeTotals, validityInfo, fmt, type SalesQuote } from "@/app/sales/_lib/salesQuote";
+import { QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
 
-type QuoteRow = { quoteNumber: string; data: Record<string, unknown> };
-
-const asData = (d: unknown): Record<string, unknown> =>
-  d && typeof d === "object" ? (d as Record<string, unknown>) : {};
-const str = (v: unknown) => (typeof v === "string" ? v : v == null ? "" : String(v));
-const numOf = (v: unknown) => (typeof v === "number" ? v : parseFloat(str(v)) || 0);
-
-const STATUS_TAG: Record<string, string> = { Pending: "gold", Won: "green", Lost: "red" };
-
+// Customers only carry sales quotes (the QCZ… lifecycle quotes from the Sales
+// module); creating one here opens the full quote workflow prefilled with this
+// customer.
 export function QuotesTab({ customerId }: { customerId: string }) {
-  const { quotes, isLoading, createQuote, updateQuote, deleteQuote } = useQuotes();
+  const router = useRouter();
+  const { salesQuotes, isLoading, createQuote, isCreating, deleteQuote } = useSalesQuotes();
   const { customer } = useCustomer(customerId);
   const toast = useToast();
-  const [addOpen, setAddOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [form] = Form.useForm();
 
-  const rows = useMemo<QuoteRow[]>(
-    () =>
-      quotes
-        .map((q) => ({ quoteNumber: q.quoteNumber, data: asData(q.data) }))
-        .filter((q) => q.data.customerId === customerId),
-    [quotes, customerId],
+  const rows = useMemo(
+    () => salesQuotes.filter((q) => q.data.customerId === customerId),
+    [salesQuotes, customerId],
   );
 
-  const setStatus = async (quoteNumber: string, data: Record<string, unknown>, status: string) => {
-    await updateQuote({ quoteNumber, params: { data: { ...data, status } } });
-    toast.success(`Quote marked ${status}`);
-  };
-
-  const submit = async () => {
-    const v = await form.validateFields();
-    setSaving(true);
+  const newQuote = async () => {
+    if (!customer) return;
     try {
-      const { ref } = await api.quotes.quoteNextRef();
-      await createQuote({
-        quoteNumber: ref,
-        data: {
-          customerId,
-          customerName: customer?.companyName ?? "",
-          status: v.status || "Pending",
-          validUntil: v.validUntil ?? "",
-          revenue: v.revenue ?? 0,
-          description: v.description ?? "",
-        },
+      const ref = await createQuote({
+        customerId,
+        customerName: customer.companyName,
+        customerLabel: customer.label,
       });
       toast.success(`Quote ${ref} created`);
-      form.resetFields();
-      setAddOpen(false);
+      router.push(`/sales/quote/${ref}`);
     } catch {
       toast.error("Failed to create quote");
-    } finally {
-      setSaving(false);
     }
   };
 
-  const columns: ColumnsType<QuoteRow> = [
+  const columns: ColumnsType<SalesQuote> = [
     { title: "Reference", dataIndex: "quoteNumber", width: 170, render: (v: string) => <span className="font-mono text-xs text-indigo-500">{v}</span> },
     {
       title: "Status",
       key: "status",
-      width: 100,
+      width: 120,
       render: (_: unknown, r) => {
-        const s = str(r.data.status) || "Pending";
-        return <Tag color={STATUS_TAG[s] ?? "default"}>{s}</Tag>;
+        const s = QUOTE_STATUS_MAP[r.data.quoteStatus ?? ""];
+        return s ? (
+          <span className="rounded-xl text-[11px] font-medium px-2.5 py-0.5" style={{ backgroundColor: s.color.bg, color: s.color.text }}>
+            {s.label}
+          </span>
+        ) : (
+          <span className="text-slate-300">—</span>
+        );
       },
     },
-    { title: "Valid until", key: "valid", width: 120, render: (_: unknown, r) => str(r.data.validUntil) || <span className="text-slate-300">—</span> },
-    { title: "Revenue", key: "rev", width: 130, align: "right", render: (_: unknown, r) => fmtMoney(numOf(r.data.revenue), customer?.currency) },
-    { title: "Description", key: "desc", render: (_: unknown, r) => str(r.data.description) || <span className="text-slate-300">—</span> },
+    { title: "Service", key: "svc", width: 110, render: (_: unknown, r) => r.data.serviceType || <span className="text-slate-300">—</span> },
+    {
+      title: "Route",
+      key: "route",
+      width: 180,
+      render: (_: unknown, r) =>
+        r.data.origin || r.data.destination ? (
+          <span className="text-slate-600">
+            {r.data.origin || "—"} <span className="text-slate-300">→</span> {r.data.destination || "—"}
+          </span>
+        ) : (
+          <span className="text-slate-300">—</span>
+        ),
+    },
+    {
+      title: "Valid until",
+      key: "valid",
+      width: 130,
+      render: (_: unknown, r) => {
+        const v = validityInfo(r.data);
+        if (!v.date) return <span className="text-slate-300">—</span>;
+        return <span className={v.expired ? "text-red-600" : "text-slate-600"}>{v.date}{v.expired ? " (expired)" : ""}</span>;
+      },
+    },
+    {
+      title: "Selling",
+      key: "selling",
+      width: 130,
+      align: "right",
+      render: (_: unknown, r) => {
+        const t = computeTotals(r.data);
+        return t.selling ? fmt(t.selling, r.data.currency) : <span className="text-slate-300">—</span>;
+      },
+    },
+    { title: "Created", dataIndex: "createdAt", width: 110, render: (v: string) => v?.slice(0, 10) ?? "—" },
     {
       title: "",
       key: "actions",
-      width: 160,
-      render: (_: unknown, r) => {
-        const s = str(r.data.status) || "Pending";
-        return (
-          <div className="flex items-center gap-1 justify-end">
-            {s === "Pending" && (
-              <>
-                <Button size="small" type="text" className="text-green-600" onClick={() => setStatus(r.quoteNumber, r.data, "Won")}>
-                  Won
-                </Button>
-                <Button size="small" type="text" danger onClick={() => setStatus(r.quoteNumber, r.data, "Lost")}>
-                  Lost
-                </Button>
-              </>
-            )}
-            <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => setDeleteTarget(r.quoteNumber)} />
-          </div>
-        );
-      },
+      width: 50,
+      render: (_: unknown, r) => (
+        <Button
+          type="text"
+          size="small"
+          danger
+          icon={<DeleteOutlined />}
+          onClick={(e) => {
+            e.stopPropagation();
+            setDeleteTarget(r.quoteNumber);
+          }}
+        />
+      ),
     },
   ];
 
@@ -111,12 +117,12 @@ export function QuotesTab({ customerId }: { customerId: string }) {
     <div className="bg-white border border-slate-200 rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
         <span className="text-sm font-semibold text-slate-800">Quotes</span>
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
+        <Button type="primary" size="small" icon={<PlusOutlined />} loading={isCreating} onClick={newQuote}>
           New Quote
         </Button>
       </div>
 
-      <Table<QuoteRow>
+      <Table<SalesQuote>
         size="small"
         rowKey="quoteNumber"
         loading={isLoading}
@@ -125,24 +131,8 @@ export function QuotesTab({ customerId }: { customerId: string }) {
         pagination={false}
         scroll={{ x: "max-content" }}
         locale={{ emptyText: "No quotes for this customer yet" }}
+        onRow={(record) => ({ onClick: () => router.push(`/sales/quote/${record.quoteNumber}`), className: "cursor-pointer" })}
       />
-
-      <Modal open={addOpen} onCancel={() => setAddOpen(false)} onOk={submit} confirmLoading={saving} title="New Quote" okText="Create" destroyOnHidden>
-        <Form form={form} layout="vertical" initialValues={{ status: "Pending", revenue: 0 }} className="pt-2">
-          <Form.Item name="status" label="Status">
-            <Select options={["Pending", "Won", "Lost"].map((s) => ({ value: s, label: s }))} />
-          </Form.Item>
-          <Form.Item name="validUntil" label="Valid until">
-            <Input placeholder="YYYY-MM-DD" />
-          </Form.Item>
-          <Form.Item name="revenue" label="Revenue">
-            <InputNumber className="w-full" min={0} />
-          </Form.Item>
-          <Form.Item name="description" label="Description">
-            <Input.TextArea rows={3} />
-          </Form.Item>
-        </Form>
-      </Modal>
 
       <ConfirmModal
         open={!!deleteTarget}

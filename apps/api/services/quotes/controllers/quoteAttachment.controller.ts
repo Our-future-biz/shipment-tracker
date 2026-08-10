@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { quoteAttachmentService } from "../services/quoteAttachment.service";
 import type { QuoteAttachmentItem } from "../interfaces/interfaces";
 
@@ -11,9 +12,9 @@ interface QuoteAttachmentListResponse {
 }
 
 export const quoteAttachmentList = api(
-  { expose: true, auth: false, method: "GET", path: "/quotes/:quoteNumber/attachments" },
+  { expose: true, auth: true, method: "GET", path: "/quotes/:quoteNumber/attachments" },
   async (req: QuoteAttachmentListRequest): Promise<QuoteAttachmentListResponse> => {
-    const attachments = await quoteAttachmentService.list(req.quoteNumber);
+    const attachments = await quoteAttachmentService.list(req.quoteNumber, getAuthData()!.companyID);
     return { attachments: attachments as unknown as QuoteAttachmentItem[] };
   },
 );
@@ -32,13 +33,14 @@ interface QuoteAttachmentCreateResponse {
 
 export const quoteAttachmentCreate = api(
   // 50 MiB — base64 inflates bytes ~33%, so this allows raw files up to ~37 MiB.
-  { expose: true, auth: false, method: "POST", path: "/quotes/:quoteNumber/attachments", bodyLimit: 50 * 1024 * 1024 },
+  { expose: true, auth: true, method: "POST", path: "/quotes/:quoteNumber/attachments", bodyLimit: 50 * 1024 * 1024 },
   async (req: QuoteAttachmentCreateRequest): Promise<QuoteAttachmentCreateResponse> => {
     if (!req.fileName) {
       throw APIError.invalidArgument("fileName is required");
     }
     const attachment = await quoteAttachmentService.create(
       req.quoteNumber,
+      getAuthData()!.companyID,
       req.fileName,
       req.fileSize ?? 0,
       req.fileType ?? "",
@@ -58,9 +60,9 @@ interface QuoteAttachmentDeleteResponse {
 }
 
 export const quoteAttachmentDelete = api(
-  { expose: true, auth: false, method: "DELETE", path: "/quotes/:quoteNumber/attachments/:attachmentId" },
+  { expose: true, auth: true, method: "DELETE", path: "/quotes/:quoteNumber/attachments/:attachmentId" },
   async (req: QuoteAttachmentDeleteRequest): Promise<QuoteAttachmentDeleteResponse> => {
-    await quoteAttachmentService.delete(req.attachmentId);
+    await quoteAttachmentService.delete(req.attachmentId, getAuthData()!.companyID);
     return { ok: true };
   },
 );
@@ -77,6 +79,8 @@ const INLINE_SAFE_TYPES = new Set([
 ]);
 
 export const quoteAttachmentContent = api.raw(
+  // Public by necessity: fetched via a bare <a href> (no Authorization header). Guarded by a
+  // parent-id check + octet-stream/nosniff/CSP headers. TODO: short-lived signed URLs.
   { expose: true, auth: false, method: "GET", path: "/quotes/:quoteNumber/attachments/:id/content" },
   async (req, resp) => {
     const url = new URL(req.url ?? "", "http://localhost");

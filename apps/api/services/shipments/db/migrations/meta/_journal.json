@@ -106,6 +106,13 @@
       "when": 1785784239053,
       "tag": "0014_elite_smiling_tiger",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1786384843250,
+      "tag": "0015_nifty_polaris",
+      "breakpoints": true
     }
   ]
 }

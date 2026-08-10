@@ -3,11 +3,11 @@ import { quoteAttachmentRepository } from "../repositories/quoteAttachment.repos
 import { quoteAttachmentBucket } from "../storage/quoteAttachmentBucket";
 
 class QuoteAttachmentService {
-  async list(quoteNumber: string) {
-    return quoteAttachmentRepository.listByQuoteNumber(quoteNumber);
+  async list(quoteNumber: string, companyId: string) {
+    return quoteAttachmentRepository.listByQuoteNumber(quoteNumber, companyId);
   }
 
-  async create(quoteNumber: string, fileName: string, fileSize: number, fileType: string, contentBase64: string) {
+  async create(quoteNumber: string, companyId: string, fileName: string, fileSize: number, fileType: string, contentBase64: string) {
     let storageKey = "";
     if (contentBase64) {
       const buffer = Buffer.from(contentBase64, "base64");
@@ -16,9 +16,10 @@ class QuoteAttachmentService {
         contentType: fileType || "application/octet-stream",
       });
     }
-    return quoteAttachmentRepository.create({ quoteNumber, fileName, fileSize, fileType, storageKey });
+    return quoteAttachmentRepository.create({ companyId, quoteNumber, fileName, fileSize, fileType, storageKey });
   }
 
+  // Public path (no token): relies on the caller checking quoteNumber matches the URL.
   async getContent(
     id: string,
   ): Promise<{ quoteNumber: string; fileName: string; fileType: string; buffer: Buffer } | null> {
@@ -32,8 +33,8 @@ class QuoteAttachmentService {
     }
   }
 
-  async delete(id: string) {
-    const row = await quoteAttachmentRepository.getById(id);
+  async delete(id: string, companyId: string) {
+    const row = await quoteAttachmentRepository.getByIdForCompany(id, companyId);
     if (row?.storageKey) {
       try {
         await quoteAttachmentBucket.remove(row.storageKey);
@@ -41,7 +42,7 @@ class QuoteAttachmentService {
         /* bucket object already gone — proceed with metadata delete */
       }
     }
-    return quoteAttachmentRepository.delete(id);
+    return quoteAttachmentRepository.delete(id, companyId);
   }
 }
 

@@ -119,6 +119,15 @@ export namespace auth {
             this.columnTemplatesDelete = this.columnTemplatesDelete.bind(this)
             this.columnTemplatesList = this.columnTemplatesList.bind(this)
             this.columnTemplatesUpsert = this.columnTemplatesUpsert.bind(this)
+            this.companyList = this.companyList.bind(this)
+            this.companyProvision = this.companyProvision.bind(this)
+            this.companyUserCreate = this.companyUserCreate.bind(this)
+            this.companyUserDelete = this.companyUserDelete.bind(this)
+            this.companyUserUpdate = this.companyUserUpdate.bind(this)
+            this.companyUsersList = this.companyUsersList.bind(this)
+            this.userCreate = this.userCreate.bind(this)
+            this.userDelete = this.userDelete.bind(this)
+            this.userUpdate = this.userUpdate.bind(this)
             this.usersList = this.usersList.bind(this)
         }
 
@@ -176,6 +185,73 @@ export namespace auth {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/column-templates`, JSON.stringify(body), {headers})
             return await resp.json() as controllers.UpsertColumnTemplateResponse
+        }
+
+        /**
+         * Platform-only: lists every company. Company admins never see other companies.
+         */
+        public async companyList(): Promise<controllers.CompanyListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/companies`)
+            return await resp.json() as controllers.CompanyListResponse
+        }
+
+        /**
+         * Platform-only: create a new company and seat its first admin in one step.
+         */
+        public async companyProvision(params: controllers.CompanyProvisionRequest): Promise<controllers.CompanyProvisionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/companies`, JSON.stringify(params))
+            return await resp.json() as controllers.CompanyProvisionResponse
+        }
+
+        public async companyUserCreate(companyId: string, params: controllers.CompanyUserCreateRequest): Promise<controllers.CompanyUserCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/companies/${encodeURIComponent(companyId)}/users`, JSON.stringify(params))
+            return await resp.json() as controllers.CompanyUserCreateResponse
+        }
+
+        public async companyUserDelete(companyId: string, id: string): Promise<controllers.CompanyUserDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/companies/${encodeURIComponent(companyId)}/users/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.CompanyUserDeleteResponse
+        }
+
+        public async companyUserUpdate(companyId: string, id: string, params: controllers.CompanyUserUpdateRequest): Promise<controllers.CompanyUserUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/companies/${encodeURIComponent(companyId)}/users/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.CompanyUserUpdateResponse
+        }
+
+        public async companyUsersList(companyId: string): Promise<controllers.CompanyUsersListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/companies/${encodeURIComponent(companyId)}/users`)
+            return await resp.json() as controllers.CompanyUsersListResponse
+        }
+
+        /**
+         * Admins and managers add users to their OWN company; companyId comes from the token.
+         */
+        public async userCreate(params: controllers.UserCreateRequest): Promise<controllers.UserCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/auth/users`, JSON.stringify(params))
+            return await resp.json() as controllers.UserCreateResponse
+        }
+
+        /**
+         * Deactivates (soft-deletes) a user within the caller's company. You can't deactivate
+         * yourself, so a company can't accidentally lock out its last admin from this call.
+         */
+        public async userDelete(id: string): Promise<controllers.UserDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/auth/users/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.UserDeleteResponse
+        }
+
+        public async userUpdate(id: string, params: controllers.UserUpdateRequest): Promise<controllers.UserUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/auth/users/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.UserUpdateResponse
         }
 
         public async usersList(): Promise<controllers.UsersListResponse> {
@@ -790,7 +866,9 @@ export namespace shipments {
                 customerId:    params.customerId,
                 limit:         params.limit === undefined ? undefined : String(params.limit),
                 offset:        params.offset === undefined ? undefined : String(params.offset),
+                search:        params.search,
                 sortDirection: params.sortDirection === undefined ? undefined : String(params.sortDirection),
+                status:        params.status,
             })
 
             // Now make the actual call to the API
@@ -937,6 +1015,12 @@ export namespace controllers {
         user: services.AuthUserInfo
     }
 
+    /**
+     * NOTE: kept auth:false with manual JWT verification (not gateway auth:true) so the
+     * generated web client's request shape stays unchanged. Security is equivalent — the
+     * token is cryptographically verified here. Migrate to auth:true + getAuthData() when
+     * the Encore client is regenerated.
+     */
     export interface AuthMeRequest {
         authorization: string
     }
@@ -974,7 +1058,6 @@ export namespace controllers {
     }
 
     export interface CommentCreateRequest {
-        authorId: string
         message: string
     }
 
@@ -988,6 +1071,52 @@ export namespace controllers {
 
     export interface CommentListResponse {
         comments: interfaces.CommentItem[]
+    }
+
+    export interface CompanyListResponse {
+        companies: services.CompanyInfo[]
+    }
+
+    export interface CompanyProvisionRequest {
+        companyName: string
+        companySlug: string
+        adminEmail: string
+        adminPassword: string
+        adminName?: string
+    }
+
+    export interface CompanyProvisionResponse {
+        companyId: string
+        admin: services.AuthUserInfo
+    }
+
+    export interface CompanyUserCreateRequest {
+        email: string
+        password: string
+        displayName?: string
+        role?: string
+    }
+
+    export interface CompanyUserCreateResponse {
+        user: services.AuthUserInfo
+    }
+
+    export interface CompanyUserDeleteResponse {
+        ok: boolean
+    }
+
+    export interface CompanyUserUpdateRequest {
+        displayName?: string
+        role?: string
+        password?: string
+    }
+
+    export interface CompanyUserUpdateResponse {
+        user: services.AuthUserInfo
+    }
+
+    export interface CompanyUsersListResponse {
+        users: services.AuthUserInfo[]
     }
 
     export interface ContactCreateRequest {
@@ -1543,6 +1672,12 @@ export namespace controllers {
         offset?: number
         sortDirection?: "asc" | "desc"
         customerId?: string
+        /**
+         * Server-side filtering.
+         */
+        status?: string
+
+        search?: string
     }
 
     export interface ShipmentListResponse {
@@ -1729,7 +1864,6 @@ export namespace controllers {
     export interface TaskUpsertRequest {
         taskKey: string
         completed: boolean
-        completedById?: string
     }
 
     export interface TaskUpsertResponse {
@@ -1825,6 +1959,31 @@ export namespace controllers {
 
     export interface UpsertCostResponse {
         cost: interfaces.InvoiceCostItem
+    }
+
+    export interface UserCreateRequest {
+        email: string
+        password: string
+        displayName?: string
+        role?: string
+    }
+
+    export interface UserCreateResponse {
+        user: services.AuthUserInfo
+    }
+
+    export interface UserDeleteResponse {
+        ok: boolean
+    }
+
+    export interface UserUpdateRequest {
+        displayName?: string
+        role?: string
+        password?: string
+    }
+
+    export interface UserUpdateResponse {
+        user: services.AuthUserInfo
     }
 
     export interface UsersListResponse {
@@ -2352,9 +2511,17 @@ export namespace interfaces {
 export namespace services {
     export interface AuthUserInfo {
         id: string
+        companyId: string
         email: string
         displayName: string
         role: string
+    }
+
+    export interface CompanyInfo {
+        id: string
+        name: string
+        slug: string
+        createdAt: string
     }
 }
 

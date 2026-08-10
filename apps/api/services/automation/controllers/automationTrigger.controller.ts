@@ -17,7 +17,7 @@ interface AutomationTriggerResponse {
 }
 
 export const automationTrigger = api(
-  { expose: true, auth: false, method: "POST", path: "/automation/trigger" },
+  { expose: true, auth: true, method: "POST", path: "/automation/trigger" },
   async (req: AutomationTriggerRequest): Promise<AutomationTriggerResponse> => {
     if (!req.shipmentId || !req.column) {
       throw APIError.invalidArgument("shipmentId and column are required");

@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { quoteService } from "../services/quote.service";
 import type { QuoteItem } from "../interfaces/interfaces";
 
@@ -18,8 +19,8 @@ interface QuoteListResponse {
 }
 
 export const quoteList = api(
-  { expose: true, auth: false, method: "GET", path: "/quotes" },
+  { expose: true, auth: true, method: "GET", path: "/quotes" },
   async (req: QuoteListRequest): Promise<QuoteListResponse> => {
-    return quoteService.list(req) as unknown as Promise<QuoteListResponse>;
+    return quoteService.list(getAuthData()!.companyID, req) as unknown as Promise<QuoteListResponse>;
   },
 );

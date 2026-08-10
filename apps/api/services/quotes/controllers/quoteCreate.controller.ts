@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { quoteService } from "../services/quote.service";
 import type { QuoteItem } from "../interfaces/interfaces";
 
@@ -13,12 +14,12 @@ interface QuoteCreateResponse {
 }
 
 export const quoteCreate = api(
-  { expose: true, auth: false, method: "POST", path: "/quotes" },
+  { expose: true, auth: true, method: "POST", path: "/quotes" },
   async (req: QuoteCreateRequest): Promise<QuoteCreateResponse> => {
     if (!req.quoteNumber) {
       throw APIError.invalidArgument("quoteNumber is required");
     }
-    const quote = await quoteService.create(req.quoteNumber, req.data ?? {}, req.terms);
+    const quote = await quoteService.create(getAuthData()!.companyID, req.quoteNumber, req.data ?? {}, req.terms);
     return { quote: quote as unknown as QuoteItem };
   },
 );

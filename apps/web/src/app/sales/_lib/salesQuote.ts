@@ -20,6 +20,21 @@ export function isSalesQuote(q: interfaces.QuoteItem): boolean {
   return !!asData(q.data).quoteStatus;
 }
 
+// Duplicates branch off their base reference as QCZ…-2, -3, …; together they
+// form a "family" of variants (e.g. an AIR and a SEA option for one enquiry).
+export function baseRef(ref: string): string {
+  return ref.replace(/-\d+$/, "");
+}
+
+export function quoteFamily(quotes: SalesQuote[], ref: string): SalesQuote[] {
+  const base = baseRef(ref);
+  const suffix = (q: SalesQuote) =>
+    q.quoteNumber === base ? 1 : parseInt(q.quoteNumber.slice(base.length + 1), 10) || 1;
+  return quotes
+    .filter((q) => baseRef(q.quoteNumber) === base)
+    .sort((a, b) => suffix(a) - suffix(b));
+}
+
 function sumLines(lines: CostLine[] | undefined): number {
   return (lines ?? []).reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
 }
@@ -78,24 +93,29 @@ export function fmt(n: number, currency = "EUR"): string {
   return `${n.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${currency}`;
 }
 
-export function exportQuotesCsv(quotes: SalesQuote[]): void {
-  const headers = ["Reference", "Customer", "Service", "Origin", "Destination", "Incoterm", "Status", "Selling", "Profit", "Margin%", "Created"];
-  const rows = quotes.map((q) => {
-    const t = computeTotals(q.data);
-    return [
-      q.quoteNumber,
-      q.data.customerName ?? "",
-      q.data.serviceType ?? "",
-      q.data.origin ?? "",
-      q.data.destination ?? "",
-      q.data.incoterm ?? "",
-      q.data.quoteStatus ?? "",
-      String(t.selling),
-      String(t.profit),
-      String(t.margin),
-      q.createdAt?.slice(0, 10) ?? "",
-    ];
-  });
+export interface CsvColumn {
+  title: string;
+  accessor: (q: SalesQuote) => string;
+}
+
+// Without an explicit column set, exports the default summary columns;
+// Quote History passes its active (visible + ordered) columns instead.
+export function exportQuotesCsv(quotes: SalesQuote[], columns?: CsvColumn[]): void {
+  const cols: CsvColumn[] = columns ?? [
+    { title: "Reference", accessor: (q) => q.quoteNumber },
+    { title: "Customer", accessor: (q) => q.data.customerName ?? "" },
+    { title: "Service", accessor: (q) => q.data.serviceType ?? "" },
+    { title: "Origin", accessor: (q) => q.data.origin ?? "" },
+    { title: "Destination", accessor: (q) => q.data.destination ?? "" },
+    { title: "Incoterm", accessor: (q) => q.data.incoterm ?? "" },
+    { title: "Status", accessor: (q) => q.data.quoteStatus ?? "" },
+    { title: "Selling", accessor: (q) => String(computeTotals(q.data).selling) },
+    { title: "Profit", accessor: (q) => String(computeTotals(q.data).profit) },
+    { title: "Margin%", accessor: (q) => String(computeTotals(q.data).margin) },
+    { title: "Created", accessor: (q) => q.createdAt?.slice(0, 10) ?? "" },
+  ];
+  const headers = cols.map((c) => c.title);
+  const rows = quotes.map((q) => cols.map((c) => c.accessor(q)));
   const csv = [headers, ...rows]
     .map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
     .join("\n");

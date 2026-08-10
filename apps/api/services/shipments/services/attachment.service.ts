@@ -3,11 +3,11 @@ import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment
 import { attachmentBucket } from "../storage/attachmentBucket";
 
 class AttachmentService {
-  async list(shipmentId: string) {
-    return shipmentAttachmentRepository.listByShipmentId(shipmentId);
+  async list(shipmentId: string, companyId: string) {
+    return shipmentAttachmentRepository.listByShipmentId(shipmentId, companyId);
   }
 
-  async create(shipmentId: string, fileName: string, fileSize: number, fileType: string, contentBase64: string) {
+  async create(shipmentId: string, companyId: string, fileName: string, fileSize: number, fileType: string, contentBase64: string) {
     let storageKey = "";
     if (contentBase64) {
       const buffer = Buffer.from(contentBase64, "base64");
@@ -16,9 +16,10 @@ class AttachmentService {
         contentType: fileType || "application/octet-stream",
       });
     }
-    return shipmentAttachmentRepository.create({ shipmentId, fileName, fileSize, fileType, storageKey });
+    return shipmentAttachmentRepository.create({ companyId, shipmentId, fileName, fileSize, fileType, storageKey });
   }
 
+  // Public path (no token): relies on the caller checking shipmentId matches the URL.
   async getContent(
     id: string,
   ): Promise<{ shipmentId: string; fileName: string; fileType: string; buffer: Buffer } | null> {
@@ -32,8 +33,8 @@ class AttachmentService {
     }
   }
 
-  async delete(id: string) {
-    const row = await shipmentAttachmentRepository.getById(id);
+  async delete(id: string, companyId: string) {
+    const row = await shipmentAttachmentRepository.getByIdForCompany(id, companyId);
     if (row?.storageKey) {
       try {
         await attachmentBucket.remove(row.storageKey);
@@ -41,7 +42,7 @@ class AttachmentService {
         /* bucket object already gone — proceed with metadata delete */
       }
     }
-    return shipmentAttachmentRepository.delete(id);
+    return shipmentAttachmentRepository.delete(id, companyId);
   }
 }
 

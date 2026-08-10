@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { quoteService } from "../services/quote.service";
 import type { QuoteItem } from "../interfaces/interfaces";
 
@@ -11,9 +12,9 @@ interface QuoteGetResponse {
 }
 
 export const quoteGet = api(
-  { expose: true, auth: false, method: "GET", path: "/quotes/:quoteNumber" },
+  { expose: true, auth: true, method: "GET", path: "/quotes/:quoteNumber" },
   async (req: QuoteGetRequest): Promise<QuoteGetResponse> => {
-    const quote = await quoteService.getByQuoteNumber(req.quoteNumber);
+    const quote = await quoteService.getByQuoteNumber(req.quoteNumber, getAuthData()!.companyID);
     if (!quote) {
       throw APIError.notFound("Quote not found");
     }

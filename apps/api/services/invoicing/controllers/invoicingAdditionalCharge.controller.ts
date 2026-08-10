@@ -19,7 +19,7 @@ interface AddChargeResponse {
 }
 
 export const invoicingAddCharge = api(
-  { expose: true, auth: false, method: "POST", path: "/invoicing/:shipmentId/additional" },
+  { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/additional" },
   async (req: AddChargeRequest): Promise<AddChargeResponse> => {
     const { shipmentId, ...data } = req;
     const charge = await invoicingService.addAdditionalCharge(shipmentId, data);
@@ -44,7 +44,7 @@ interface UpdateChargeResponse {
 }
 
 export const invoicingUpdateCharge = api(
-  { expose: true, auth: false, method: "PATCH", path: "/invoicing/:shipmentId/additional/:chargeId" },
+  { expose: true, auth: true, method: "PATCH", path: "/invoicing/:shipmentId/additional/:chargeId" },
   async (req: UpdateChargeRequest): Promise<UpdateChargeResponse> => {
     const { shipmentId, chargeId, ...data } = req;
     void shipmentId;
@@ -64,7 +64,7 @@ interface DeleteChargeResponse {
 }
 
 export const invoicingDeleteCharge = api(
-  { expose: true, auth: false, method: "DELETE", path: "/invoicing/:shipmentId/additional/:chargeId" },
+  { expose: true, auth: true, method: "DELETE", path: "/invoicing/:shipmentId/additional/:chargeId" },
   async (req: DeleteChargeRequest): Promise<DeleteChargeResponse> => {
     await invoicingService.deleteAdditionalCharge(req.chargeId);
     return { ok: true };

@@ -17,8 +17,11 @@ import {
   LeftOutlined,
   RightOutlined,
   DownOutlined,
+  UsergroupAddOutlined,
+  ApartmentOutlined,
 } from "@ant-design/icons";
 import { useSidebarState } from "@/hooks/useSidebarState";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { SALES_NAV } from "@/app/sales/_lib/tabs";
 import type { ReactNode } from "react";
 
@@ -31,6 +34,8 @@ interface NavItem {
   label: string;
   icon: ReactNode;
   children?: NavChild[];
+  // If set, the item only shows for these roles.
+  roles?: string[];
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -44,6 +49,9 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/warehouse", label: "Warehouse", icon: <InboxOutlined /> },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
+  // Company admins/managers manage their own users; superadmins manage all companies.
+  { path: "/settings/users", label: "Users", icon: <UsergroupAddOutlined />, roles: ["admin", "manager"] },
+  { path: "/platform/companies", label: "Platform", icon: <ApartmentOutlined />, roles: ["superadmin"] },
 ];
 
 const EXPANDED_WIDTH = 260;
@@ -53,7 +61,11 @@ export function AppSidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { collapsed, toggle } = useSidebarState();
+  const { user } = useAuth();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  // Hide role-restricted items the current user can't access.
+  const navItems = NAV_ITEMS.filter((item) => !item.roles || (user != null && item.roles.includes(user.role)));
 
   // Auto-expand the group that owns the current route.
   useEffect(() => {
@@ -202,7 +214,7 @@ export function AppSidebar() {
 
       {/* Nav items */}
       <nav className="flex-1 py-4 px-3 overflow-y-auto">
-        {NAV_ITEMS.map((item) => (item.children ? renderGroup(item) : renderLeaf(item)))}
+        {navItems.map((item) => (item.children ? renderGroup(item) : renderLeaf(item)))}
       </nav>
     </aside>
   );

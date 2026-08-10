@@ -1,12 +1,12 @@
 import { shipmentTaskRepository } from "../repositories/shipmentTask.repository";
 
 class TaskService {
-  async list(shipmentId: string) {
-    return shipmentTaskRepository.listByShipmentId(shipmentId);
+  async list(shipmentId: string, companyId: string) {
+    return shipmentTaskRepository.listByShipmentId(shipmentId, companyId);
   }
 
-  async upsert(shipmentId: string, taskKey: string, completed: boolean, completedById?: string) {
-    return shipmentTaskRepository.upsert(shipmentId, taskKey, completed, completedById);
+  async upsert(shipmentId: string, companyId: string, taskKey: string, completed: boolean, completedById?: string) {
+    return shipmentTaskRepository.upsert(shipmentId, companyId, taskKey, completed, completedById);
   }
 }
 

@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { termsService } from "../services/terms.service";
 import type { TermsConditionItem } from "../interfaces/interfaces";
 
@@ -14,10 +15,10 @@ interface TermsUpdateResponse {
 }
 
 export const termsUpdate = api(
-  { expose: true, auth: false, method: "PATCH", path: "/terms-conditions/:id" },
+  { expose: true, auth: true, method: "PATCH", path: "/terms-conditions/:id" },
   async (req: TermsUpdateRequest): Promise<TermsUpdateResponse> => {
     const { id, ...patch } = req;
-    const terms = await termsService.update(id, patch);
+    const terms = await termsService.update(id, getAuthData()!.companyID, patch);
     if (!terms) {
       throw APIError.notFound("Terms & conditions not found");
     }

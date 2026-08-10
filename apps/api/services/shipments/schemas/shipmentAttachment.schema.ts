@@ -1,10 +1,11 @@
 import { pgTable, text, uuid, bigint, index } from "drizzle-orm/pg-core";
-import { defaultTableColumns, defaultTableIndexes } from "../../../lib/db/defaults";
+import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const shipmentAttachmentTable = pgTable(
   "shipment_attachment",
   {
     ...defaultTableColumns,
+    ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
     fileName: text("file_name").notNull(),
     fileSize: bigint("file_size", { mode: "number" }).notNull().default(0),
@@ -13,6 +14,7 @@ export const shipmentAttachmentTable = pgTable(
   },
   (table) => [
     ...defaultTableIndexes("shipment_attachment", table),
+    tenantIndex("shipment_attachment", table),
     index("shipment_attachment_shipment_id_idx").on(table.shipmentId),
   ],
 );

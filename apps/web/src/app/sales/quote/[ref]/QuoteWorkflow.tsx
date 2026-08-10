@@ -21,14 +21,14 @@ import {
   EyeOutlined,
   ImportOutlined,
 } from "@ant-design/icons";
-import { useSalesQuote } from "@/hooks/useSalesQuotes";
+import { useSalesQuote, useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { useCustomers } from "@/hooks/useCustomers";
 import { useTermsConditions } from "@/hooks/useTermsConditions";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import type { SalesQuoteData, PackageLine, CostLine } from "../../_lib/types";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, CURRENCIES, COST_LINE_TYPES, PACKING_TYPES } from "../../_lib/types";
-import { computeTotals, computeCargo, fmt, validityInfo } from "../../_lib/salesQuote";
+import { computeTotals, computeCargo, fmt, validityInfo, quoteFamily } from "../../_lib/salesQuote";
 import { printQuote } from "../../_lib/printQuote";
 import { LifecycleBar } from "./_components/LifecycleBar";
 import { ImportInquiryModal } from "./_components/ImportInquiryModal";
@@ -45,6 +45,7 @@ export function QuoteWorkflow() {
   const router = useRouter();
   const toast = useToast();
   const { data: loaded, isLoading, saveData } = useSalesQuote(ref);
+  const { salesQuotes } = useSalesQuotes();
   const { customers } = useCustomers();
   const { terms } = useTermsConditions();
 
@@ -88,6 +89,16 @@ export function QuoteWorkflow() {
   const packages = draft.packages ?? [];
   const cargo = useMemo(() => computeCargo(draft), [draft]);
   const updatePackages = (pkgs: PackageLine[]) => set({ packages: pkgs, weight: computeCargo({ packages: pkgs }).grossWeight, cbm: computeCargo({ packages: pkgs }).cbm });
+
+  // Sibling variants of the same enquiry (base ref + its -2/-3 duplicates).
+  // The active quote uses the live draft so the preview always shows fresh data.
+  const family = useMemo(
+    () =>
+      quoteFamily(salesQuotes, ref).map((q) =>
+        q.quoteNumber === ref ? { ...q, data: draft } : q,
+      ),
+    [salesQuotes, ref, draft],
+  );
 
   // Pricing
   const totals = useMemo(() => computeTotals(draft), [draft]);
@@ -399,6 +410,36 @@ export function QuoteWorkflow() {
           </div>
         </div>
 
+        {family.length > 1 && (
+          <div className="flex gap-2 mb-4 overflow-x-auto">
+            {family.map((q) => {
+              const active = q.quoteNumber === ref;
+              const eyebrow = [q.data.serviceType, q.data.direction].filter(Boolean).join(" ").toUpperCase() || "QUOTE";
+              return (
+                <button
+                  key={q.quoteNumber}
+                  type="button"
+                  onClick={() => {
+                    if (!active) router.push(`/sales/quote/${q.quoteNumber}`);
+                  }}
+                  className={`shrink-0 text-left rounded-xl border px-3.5 py-2 transition ${
+                    active
+                      ? "bg-indigo-50 border-indigo-400 shadow-sm"
+                      : "bg-white border-slate-200 hover:border-indigo-300"
+                  }`}
+                >
+                  <div className={`text-[10px] font-semibold tracking-wider ${active ? "text-indigo-500" : "text-slate-400"}`}>
+                    {eyebrow}
+                  </div>
+                  <div className={`font-mono text-[13px] font-bold ${active ? "text-indigo-700" : "text-slate-700"}`}>
+                    {q.quoteNumber}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <div className="mb-5">
           <LifecycleBar data={draft} onChange={(patch) => set(patch)} />
         </div>
@@ -451,7 +492,7 @@ export function QuoteWorkflow() {
           router.push(`/sales/quote/${r}`);
         }}
       />
-      <PdfPreviewModal open={modal === "preview"} quoteNumber={ref} data={draft} onClose={() => setModal(null)} />
+      <PdfPreviewModal open={modal === "preview"} quoteNumber={ref} data={draft} family={family} onClose={() => setModal(null)} />
       <EmailQuoteModal open={modal === "email"} quoteNumber={ref} data={draft} onClose={() => setModal(null)} />
     </div>
   );

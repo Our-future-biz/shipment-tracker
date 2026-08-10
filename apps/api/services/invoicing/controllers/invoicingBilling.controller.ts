@@ -14,7 +14,7 @@ interface UpsertBillingSettingsResponse {
 }
 
 export const invoicingUpsertBillingSettings = api(
-  { expose: true, auth: false, method: "POST", path: "/invoicing/:shipmentId/billing" },
+  { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/billing" },
   async (req: UpsertBillingSettingsRequest): Promise<UpsertBillingSettingsResponse> => {
     const { shipmentId, ...data } = req;
     const billingSettings = await invoicingService.upsertBillingSettings(shipmentId, data);
@@ -33,7 +33,7 @@ interface UpsertBillingOverrideResponse {
 }
 
 export const invoicingUpsertBillingOverride = api(
-  { expose: true, auth: false, method: "POST", path: "/invoicing/:shipmentId/billing/overrides" },
+  { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/billing/overrides" },
   async (req: UpsertBillingOverrideRequest): Promise<UpsertBillingOverrideResponse> => {
     const override = await invoicingService.upsertBillingOverride(req.shipmentId, req.rowKey, req.billingAmount);
     return { override: override as unknown as BillingOverrideItem };

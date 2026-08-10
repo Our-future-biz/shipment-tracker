@@ -1,22 +1,22 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "../db/db";
 import { salesPreferenceTable } from "../schemas/salesPreference.schema";
 
 class SalesPreferenceRepository {
-  async get(prefKey: string): Promise<unknown | null> {
+  async get(prefKey: string, companyId: string): Promise<unknown | null> {
     const [row] = await db
       .select()
       .from(salesPreferenceTable)
-      .where(eq(salesPreferenceTable.prefKey, prefKey))
+      .where(and(eq(salesPreferenceTable.companyId, companyId), eq(salesPreferenceTable.prefKey, prefKey)))
       .limit(1);
     return row ? row.value : null;
   }
 
-  async set(prefKey: string, value: unknown): Promise<void> {
+  async set(prefKey: string, companyId: string, value: unknown): Promise<void> {
     const [existing] = await db
       .select()
       .from(salesPreferenceTable)
-      .where(eq(salesPreferenceTable.prefKey, prefKey))
+      .where(and(eq(salesPreferenceTable.companyId, companyId), eq(salesPreferenceTable.prefKey, prefKey)))
       .limit(1);
 
     if (existing) {
@@ -26,7 +26,7 @@ class SalesPreferenceRepository {
         .where(eq(salesPreferenceTable.id, existing.id));
       return;
     }
-    await db.insert(salesPreferenceTable).values({ prefKey, value } as never);
+    await db.insert(salesPreferenceTable).values({ companyId, prefKey, value } as never);
   }
 }
 

@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { customerService } from "../services/customer.service";
 import type { CustomerItem } from "../interfaces/interfaces";
 
@@ -11,9 +12,9 @@ interface LogoFetchResponse {
 }
 
 export const logoFetch = api(
-  { expose: true, auth: false, method: "POST", path: "/customers/:id/logo/fetch" },
+  { expose: true, auth: true, method: "POST", path: "/customers/:id/logo/fetch" },
   async (req: LogoFetchRequest): Promise<LogoFetchResponse> => {
-    const customer = await customerService.fetchLogo(req.id);
+    const customer = await customerService.fetchLogo(req.id, getAuthData()!.companyID);
     return { customer: customer as unknown as CustomerItem };
   },
 );

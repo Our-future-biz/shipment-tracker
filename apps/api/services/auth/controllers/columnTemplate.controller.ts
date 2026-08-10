@@ -10,8 +10,10 @@ interface ColumnTemplateItem {
   columns: string[];
 }
 
-// Identity is derived from the signed JWT, never from the request path/body,
-// to avoid IDOR. Mirrors the header verification used by /auth/me.
+// NOTE: kept auth:false with manual JWT verification (not gateway auth:true) so the
+// generated web client's request shape stays unchanged. Identity is derived from the
+// signed JWT, never from the path/body, so this is IDOR-safe. Migrate to auth:true +
+// getAuthData() when the Encore client is regenerated.
 async function requireUserId(authorization: string | undefined): Promise<string> {
   if (!authorization) {
     throw APIError.unauthenticated("No authorization header");

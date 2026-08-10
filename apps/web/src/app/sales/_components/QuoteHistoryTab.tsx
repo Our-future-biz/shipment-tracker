@@ -36,6 +36,7 @@ import {
   validityInfo,
   needsFollowUp,
   exportQuotesCsv,
+  quoteFamily,
   type SalesQuote,
 } from "../_lib/salesQuote";
 import type { SalesQuoteData } from "../_lib/types";
@@ -180,6 +181,15 @@ const colText: Record<string, (q: SalesQuote) => string> = {
 
 const DEFAULT_VISIBLE = ["reference", "customer", "service", "origin", "destination", "incoterm", "cargoReady", "created", "status"];
 
+const SEARCH_TIPS = (
+  <div className="space-y-1.5 text-xs max-w-64">
+    <div className="font-semibold">Search tips</div>
+    <div>• Partial words work — “shang” finds Shanghai.</div>
+    <div>• Combine keywords — “air export fca” matches quotes containing all of them.</div>
+    <div className="text-slate-400">Searches reference, customer, status, service, origin, destination, commodity and incoterm.</div>
+  </div>
+);
+
 const BUILTIN_VIEWS: { id: string; label: string; apply: () => Filters }[] = [
   { id: "my_open", label: "My open quotes", apply: () => ({ statuses: ["draft", "ready_to_send"] }) },
   { id: "followup_today", label: "Follow-up today", apply: () => ({ statuses: [], followUpOnly: true }) },
@@ -190,7 +200,8 @@ const BUILTIN_VIEWS: { id: string; label: string; apply: () => Filters }[] = [
 
 export function QuoteHistoryTab() {
   const router = useRouter();
-  const { salesQuotes, isLoading, updateQuoteData } = useSalesQuotes();
+  // Polls so lifecycle changes made elsewhere (workflow, bulk actions) appear live.
+  const { salesQuotes, isLoading, updateQuoteData } = useSalesQuotes({ refetchInterval: 5000 });
   const { value: visibleKeys, setValue: setVisibleKeys } = useSalesPref<string[]>("qh_cols", DEFAULT_VISIBLE);
   const { value: savedViews, setValue: setSavedViews } = useSalesPref<SavedView[]>("saved_views", []);
   const toast = useToast();
@@ -198,8 +209,6 @@ export function QuoteHistoryTab() {
   const [search, setSearch] = useState("");
   const [preview, setPreview] = useState<SalesQuote | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [colFilters, setColFilters] = useState<Record<string, string>>({});
-  const [showColFilters, setShowColFilters] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [newViewName, setNewViewName] = useState("");
@@ -212,41 +221,25 @@ export function QuoteHistoryTab() {
     if (filters.dateFrom) rows = rows.filter((q) => (q.createdAt ?? "") >= filters.dateFrom!);
     if (filters.dateTo) rows = rows.filter((q) => (q.createdAt ?? "").slice(0, 10) <= filters.dateTo!);
     if (filters.followUpOnly) rows = rows.filter((q) => needsFollowUp(q.data));
-    for (const [k, val] of Object.entries(colFilters)) {
-      if (!val) continue;
-      const acc = colText[k];
-      if (acc) rows = rows.filter((q) => acc(q).toLowerCase().includes(val.toLowerCase()));
-    }
     if (search) {
-      const s = search.toLowerCase();
+      // Every whitespace-separated keyword must match at least one field.
+      const tokens = search.toLowerCase().split(/\s+/).filter(Boolean);
       rows = rows.filter((q) => {
         const d = q.data;
-        return [q.quoteNumber, d.customerName, d.quoteStatus, d.serviceType, d.origin, d.destination, d.commodity, d.incoterm]
-          .some((v) => (v ?? "").toString().toLowerCase().includes(s));
+        const fields = [q.quoteNumber, d.customerName, d.quoteStatus, d.serviceType, d.origin, d.destination, d.commodity, d.incoterm]
+          .map((v) => (v ?? "").toString().toLowerCase());
+        return tokens.every((t) => fields.some((f) => f.includes(t)));
       });
     }
     return rows;
-  }, [salesQuotes, filters, search, colFilters]);
+  }, [salesQuotes, filters, search]);
 
   const columns: ColumnsType<SalesQuote> = useMemo(() => {
     const ordered = visibleKeys
       .map((k) => COLUMN_DEFS.find((c) => c.key === k))
       .filter((c): c is ColDef => !!c);
     const cols: ColumnsType<SalesQuote> = ordered.map((c) => ({
-      title: showColFilters ? (
-        <div className="space-y-1" onClick={(e) => e.stopPropagation()}>
-          <div>{c.title}</div>
-          <Input
-            size="small"
-            allowClear
-            placeholder="Filter…"
-            value={colFilters[c.key] ?? ""}
-            onChange={(e) => setColFilters((f) => ({ ...f, [c.key]: e.target.value }))}
-          />
-        </div>
-      ) : (
-        c.title
-      ),
+      title: c.title,
       key: c.key,
       width: c.width,
       onHeaderCell: () => ({ id: c.key }) as React.HTMLAttributes<HTMLTableCellElement>,
@@ -293,7 +286,14 @@ export function QuoteHistoryTab() {
       ),
     });
     return cols;
-  }, [visibleKeys, router, showColFilters, colFilters]);
+  }, [visibleKeys, router]);
+
+  // CSV respects the visible columns and their order.
+  const csvColumns = () =>
+    visibleKeys
+      .map((k) => COLUMN_DEFS.find((c) => c.key === k))
+      .filter((c): c is ColDef => !!c)
+      .map((c) => ({ title: c.title, accessor: colText[c.key] ?? (() => "") }));
 
   // Drag-to-reorder columns (same interaction as the shipments table).
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -325,7 +325,7 @@ export function QuoteHistoryTab() {
 
   const bulkExport = () => {
     const set = new Set(selectedKeys.map(String));
-    exportQuotesCsv(filtered.filter((q) => set.has(q.quoteNumber)));
+    exportQuotesCsv(filtered.filter((q) => set.has(q.quoteNumber)), csvColumns());
   };
 
   const toggleColumn = (key: string) => {
@@ -468,14 +468,16 @@ export function QuoteHistoryTab() {
     <div>
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-2 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-3">
-        <Input
-          placeholder="Search quotes…"
-          prefix={<SearchOutlined className="text-slate-400" />}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          allowClear
-          className="w-56"
-        />
+        <Tooltip title={SEARCH_TIPS} trigger="focus" placement="bottomLeft" color="white" styles={{ body: { color: "#334155" } }}>
+          <Input
+            placeholder="Search quotes…"
+            prefix={<SearchOutlined className="text-slate-400" />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            allowClear
+            className="w-56"
+          />
+        </Tooltip>
         <Dropdown menu={{ items: viewsMenuItems, onClick: ({ key }) => (key.startsWith("b:") ? applyBuiltin(key.slice(2)) : applySaved(key.slice(2))) }}>
           <Button>Saved views</Button>
         </Dropdown>
@@ -485,14 +487,7 @@ export function QuoteHistoryTab() {
         <Popover content={columnPicker} trigger="click" placement="bottomLeft">
           <Button icon={<SettingOutlined />}>Columns</Button>
         </Popover>
-        <Button
-          icon={<FilterOutlined />}
-          type={showColFilters ? "primary" : "default"}
-          onClick={() => setShowColFilters((v) => !v)}
-        >
-          Column filters
-        </Button>
-        <Button icon={<DownloadOutlined />} onClick={() => exportQuotesCsv(filtered)}>
+        <Button icon={<DownloadOutlined />} onClick={() => exportQuotesCsv(filtered, csvColumns())}>
           CSV
         </Button>
         <div className="ml-auto flex gap-2">
@@ -557,7 +552,7 @@ export function QuoteHistoryTab() {
             loading={isLoading}
             scroll={{ x: "max-content" }}
             components={{ header: { cell: DraggableHeaderCell } }}
-            resetKey={`${search}${JSON.stringify(filters)}${JSON.stringify(colFilters)}`}
+            resetKey={`${search}${JSON.stringify(filters)}`}
             locale={{ emptyText: "No quotes match" }}
             rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys }}
             onRow={(record) => ({
@@ -582,7 +577,15 @@ export function QuoteHistoryTab() {
         </div>
       </Modal>
 
-      {preview && <PdfPreviewModal open quoteNumber={preview.quoteNumber} data={preview.data} onClose={() => setPreview(null)} />}
+      {preview && (
+        <PdfPreviewModal
+          open
+          quoteNumber={preview.quoteNumber}
+          data={preview.data}
+          family={quoteFamily(salesQuotes, preview.quoteNumber)}
+          onClose={() => setPreview(null)}
+        />
+      )}
     </div>
   );
 }

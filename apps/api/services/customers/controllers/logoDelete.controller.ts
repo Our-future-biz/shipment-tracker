@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { customerService } from "../services/customer.service";
 import type { CustomerItem } from "../interfaces/interfaces";
 
@@ -11,9 +12,9 @@ interface LogoDeleteResponse {
 }
 
 export const logoDelete = api(
-  { expose: true, auth: false, method: "DELETE", path: "/customers/:id/logo" },
+  { expose: true, auth: true, method: "DELETE", path: "/customers/:id/logo" },
   async (req: LogoDeleteRequest): Promise<LogoDeleteResponse> => {
-    const customer = await customerService.deleteLogo(req.id);
+    const customer = await customerService.deleteLogo(req.id, getAuthData()!.companyID);
     return { customer: customer as unknown as CustomerItem };
   },
 );

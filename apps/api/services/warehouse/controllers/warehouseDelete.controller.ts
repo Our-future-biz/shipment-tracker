@@ -10,7 +10,7 @@ interface WarehouseDeleteResponse {
 }
 
 export const warehouseDelete = api(
-  { expose: true, auth: false, method: "DELETE", path: "/warehouse/:taskId" },
+  { expose: true, auth: true, method: "DELETE", path: "/warehouse/:taskId" },
   async (req: WarehouseDeleteRequest): Promise<WarehouseDeleteResponse> => {
     await warehouseService.softDelete(req.taskId);
     return { ok: true };

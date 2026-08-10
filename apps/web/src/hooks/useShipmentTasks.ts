@@ -18,8 +18,10 @@ export function useShipmentTasks(shipmentId: string) {
   });
 
   const upsert = useMutation({
-    mutationFn: ({ taskKey, completed, completedById }: { taskKey: string; completed: boolean; completedById?: string }) =>
-      api.shipments.taskUpsert(shipmentId, { taskKey, completed, completedById }),
+    // completedById is derived server-side from the authenticated user; kept in the
+    // mutation vars only for optimistic rendering.
+    mutationFn: ({ taskKey, completed }: { taskKey: string; completed: boolean; completedById?: string }) =>
+      api.shipments.taskUpsert(shipmentId, { taskKey, completed }),
     onMutate: async ({ taskKey, completed, completedById }) => {
       await queryClient.cancelQueries({ queryKey });
       const prev = queryClient.getQueryData(queryKey);

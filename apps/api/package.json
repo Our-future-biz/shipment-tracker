@@ -18,6 +18,8 @@
     "db:generate:customers": "drizzle-kit generate --config=services/customers/db/drizzle.config.ts",
     "db:generate:sales": "drizzle-kit generate --config=services/sales/db/drizzle.config.ts",
     "db:seed": "tsx scripts/seed.ts",
+    "provision:company": "tsx scripts/provision-company.ts",
+    "provision:superadmin": "tsx scripts/provision-superadmin.ts",
     "gen:client": "encore gen client --lang=typescript --output=../web/src/lib/api/client.ts"
   },
   "dependencies": {

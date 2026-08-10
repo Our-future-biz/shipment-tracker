@@ -15,7 +15,7 @@ interface InvoicingGetResponse {
 }
 
 export const invoicingGet = api(
-  { expose: true, auth: false, method: "GET", path: "/invoicing/:shipmentId" },
+  { expose: true, auth: true, method: "GET", path: "/invoicing/:shipmentId" },
   async (req: InvoicingGetRequest): Promise<InvoicingGetResponse> => {
     return invoicingService.getInvoicingData(req.shipmentId) as unknown as Promise<InvoicingGetResponse>;
   },

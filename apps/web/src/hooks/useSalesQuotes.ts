@@ -6,12 +6,13 @@ import { api } from "@/lib/api";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import { toSalesQuote, isSalesQuote, asData, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 
-export const useSalesQuotes = () => {
+export const useSalesQuotes = (opts?: { refetchInterval?: number }) => {
   const queryClient = useQueryClient();
 
   const query = useQuery({
     queryKey: ["quotes"],
     queryFn: () => api.quotes.quoteList({ limit: 500 }),
+    refetchInterval: opts?.refetchInterval,
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["quotes"] });

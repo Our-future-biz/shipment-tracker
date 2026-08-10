@@ -1,10 +1,11 @@
 import { pgTable, text, uuid, boolean, timestamp, index } from "drizzle-orm/pg-core";
-import { defaultTableColumns, defaultTableIndexes } from "../../../lib/db/defaults";
+import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const shipmentTaskTable = pgTable(
   "shipment_task",
   {
     ...defaultTableColumns,
+    ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
     taskKey: text("task_key").notNull(),
     completed: boolean("completed").notNull().default(false),
@@ -13,6 +14,7 @@ export const shipmentTaskTable = pgTable(
   },
   (table) => [
     ...defaultTableIndexes("shipment_task", table),
+    tenantIndex("shipment_task", table),
     index("shipment_task_shipment_id_idx").on(table.shipmentId),
   ],
 );

@@ -9,3 +9,7 @@ out/
 .encore/
 encore.gen/
 .superpowers/
+encore.gen.go
+encore.gen.cue
+/.encore
+/encore.gen

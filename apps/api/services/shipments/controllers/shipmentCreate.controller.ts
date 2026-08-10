@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
 import type { ShipmentItem, ContainerLine, CargoItemLine } from "../interfaces/interfaces";
 
@@ -140,12 +141,12 @@ interface ShipmentCreateResponse {
 }
 
 export const shipmentCreate = api(
-  { expose: true, auth: false, method: "POST", path: "/shipments" },
+  { expose: true, auth: true, method: "POST", path: "/shipments" },
   async (req: ShipmentCreateRequest): Promise<ShipmentCreateResponse> => {
     if (!req.jobNumber) {
       throw APIError.invalidArgument("jobNumber is required");
     }
-    const shipment = await shipmentService.create(req);
+    const shipment = await shipmentService.create(getAuthData()!.companyID, req);
     return { shipment: shipment as unknown as ShipmentItem };
   },
 );

@@ -1,6 +1,7 @@
 import { SQLDatabase } from "encore.dev/storage/sqldb";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
+import * as companySchema from "../schemas/company.schema";
 import * as userSchema from "../schemas/user.schema";
 import * as columnTemplateSchema from "../schemas/columnTemplate.schema";
 
@@ -14,4 +15,4 @@ const pool = new Pool({
   connectionString: DB.connectionString,
 });
 
-export const db = drizzle(pool, { schema: { ...userSchema, ...columnTemplateSchema } });
+export const db = drizzle(pool, { schema: { ...companySchema, ...userSchema, ...columnTemplateSchema } });

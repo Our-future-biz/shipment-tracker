@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { contactService } from "../services/contact.service";
 import type { ContactItem } from "../interfaces/interfaces";
 
@@ -11,9 +12,9 @@ interface ContactListResponse {
 }
 
 export const contactList = api(
-  { expose: true, auth: false, method: "GET", path: "/customers/:customerId/contacts" },
+  { expose: true, auth: true, method: "GET", path: "/customers/:customerId/contacts" },
   async (req: ContactListRequest): Promise<ContactListResponse> => {
-    const data = await contactService.listByCustomer(req.customerId);
+    const data = await contactService.listByCustomer(req.customerId, getAuthData()!.companyID);
     return { data: data as unknown as ContactItem[] };
   },
 );

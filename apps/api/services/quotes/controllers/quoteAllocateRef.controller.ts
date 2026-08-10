@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { quoteService } from "../services/quote.service";
 
 interface QuoteAllocateRefRequest {
@@ -10,12 +11,12 @@ interface QuoteAllocateRefResponse {
 }
 
 export const quoteAllocateRef = api(
-  { expose: true, auth: false, method: "POST", path: "/quotes/:quoteNumber/allocate-ref" },
+  { expose: true, auth: true, method: "POST", path: "/quotes/:quoteNumber/allocate-ref" },
   async (req: QuoteAllocateRefRequest): Promise<QuoteAllocateRefResponse> => {
     if (!req.quoteNumber) {
       throw APIError.invalidArgument("quoteNumber is required");
     }
-    const ref = await quoteService.allocateSubLineRef(req.quoteNumber);
+    const ref = await quoteService.allocateSubLineRef(req.quoteNumber, getAuthData()!.companyID);
     return { ref };
   },
 );

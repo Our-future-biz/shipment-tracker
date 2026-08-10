@@ -16,8 +16,8 @@ interface ShipmentDeleteResponse {
 export const shipmentDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/shipments/:shipmentId" },
   async (req: ShipmentDeleteRequest): Promise<ShipmentDeleteResponse> => {
-    const userId = getAuthData()?.userID;
-    await shipmentService.softDelete(req.shipmentId, userId);
+    const auth = getAuthData()!;
+    await shipmentService.softDelete(req.shipmentId, auth.companyID, auth.userID);
     return { ok: true };
   },
 );

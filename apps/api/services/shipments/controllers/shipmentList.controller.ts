@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
 import type { ShipmentItem } from "../interfaces/interfaces";
 
@@ -7,6 +8,9 @@ interface ShipmentListRequest {
   offset?: number;
   sortDirection?: "asc" | "desc";
   customerId?: string;
+  // Server-side filtering.
+  status?: string;
+  search?: string;
 }
 
 interface ShipmentListResponse {
@@ -19,8 +23,16 @@ interface ShipmentListResponse {
 }
 
 export const shipmentList = api(
-  { expose: true, auth: false, method: "GET", path: "/shipments" },
+  { expose: true, auth: true, method: "GET", path: "/shipments" },
   async (req: ShipmentListRequest): Promise<ShipmentListResponse> => {
-    return shipmentService.list(req, { customerId: req.customerId }) as unknown as Promise<ShipmentListResponse>;
+    const result = await shipmentService.list(getAuthData()!.companyID, {
+      customerId: req.customerId,
+      status: req.status,
+      search: req.search,
+      limit: Math.min(req.limit ?? 100, 200),
+      offset: req.offset ?? 0,
+      sortDirection: req.sortDirection ?? "desc",
+    });
+    return result as unknown as ShipmentListResponse;
   },
 );

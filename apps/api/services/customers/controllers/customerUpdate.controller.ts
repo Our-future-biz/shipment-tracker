@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { customerService } from "../services/customer.service";
 import type { CustomerItem } from "../interfaces/interfaces";
 
@@ -30,10 +31,10 @@ interface CustomerUpdateResponse {
 }
 
 export const customerUpdate = api(
-  { expose: true, auth: false, method: "PATCH", path: "/customers/:id" },
+  { expose: true, auth: true, method: "PATCH", path: "/customers/:id" },
   async (req: CustomerUpdateRequest): Promise<CustomerUpdateResponse> => {
     const { id, ...patch } = req;
-    const customer = await customerService.update(id, patch);
+    const customer = await customerService.update(id, getAuthData()!.companyID, patch);
     if (!customer) {
       throw APIError.notFound("Customer not found");
     }

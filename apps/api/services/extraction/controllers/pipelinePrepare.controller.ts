@@ -8,7 +8,7 @@ interface PipelinePrepareRequest {
 }
 
 export const pipelinePrepare = api(
-  { expose: true, auth: false, method: "POST", path: "/extraction/pipeline/prepare" },
+  { expose: true, auth: true, method: "POST", path: "/extraction/pipeline/prepare" },
   async (req: PipelinePrepareRequest): Promise<PrepareResult> => {
     if (!req.fileBase64 || !req.fileName) {
       throw APIError.invalidArgument("fileBase64 and fileName are required");
