@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { invoicingService } from "../services/invoicing.service";
 import type { GeneratedInvoiceItem } from "../interfaces/interfaces";
 
@@ -20,7 +21,7 @@ export const invoicingGenerate = api(
     if (!req.jobNumber || !req.invoiceType || !req.billingCurrency || !req.totalAmount) {
       throw APIError.invalidArgument("jobNumber, invoiceType, billingCurrency, and totalAmount are required");
     }
-    const invoice = await invoicingService.generateInvoice(req.shipmentId, req.jobNumber, req.invoiceType, req.billingCurrency, req.totalAmount);
+    const invoice = await invoicingService.generateInvoice(req.shipmentId, getAuthData()!.companyID, req.jobNumber, req.invoiceType, req.billingCurrency, req.totalAmount);
     return { invoice: invoice as unknown as GeneratedInvoiceItem };
   },
 );

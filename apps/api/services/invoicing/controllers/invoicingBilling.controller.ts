@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { invoicingService } from "../services/invoicing.service";
 import type { BillingSettingsItem, BillingOverrideItem } from "../interfaces/interfaces";
 
@@ -17,7 +18,7 @@ export const invoicingUpsertBillingSettings = api(
   { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/billing" },
   async (req: UpsertBillingSettingsRequest): Promise<UpsertBillingSettingsResponse> => {
     const { shipmentId, ...data } = req;
-    const billingSettings = await invoicingService.upsertBillingSettings(shipmentId, data);
+    const billingSettings = await invoicingService.upsertBillingSettings(shipmentId, getAuthData()!.companyID, data);
     return { billingSettings: billingSettings as unknown as BillingSettingsItem };
   },
 );
@@ -35,7 +36,7 @@ interface UpsertBillingOverrideResponse {
 export const invoicingUpsertBillingOverride = api(
   { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/billing/overrides" },
   async (req: UpsertBillingOverrideRequest): Promise<UpsertBillingOverrideResponse> => {
-    const override = await invoicingService.upsertBillingOverride(req.shipmentId, req.rowKey, req.billingAmount);
+    const override = await invoicingService.upsertBillingOverride(req.shipmentId, getAuthData()!.companyID, req.rowKey, req.billingAmount);
     return { override: override as unknown as BillingOverrideItem };
   },
 );

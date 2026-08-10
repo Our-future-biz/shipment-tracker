@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button, Input, Select } from "antd";
 import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
@@ -13,10 +13,23 @@ import { AddCustomerModal } from "./AddCustomerModal";
 
 type SortKey = "createdAt" | "revenue" | "margin" | "lastActivity";
 
+// Debounce the search box so typing doesn't fire a request per keystroke.
+function useDebounced<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
+// The list tabs are shorthand for a status or an account label.
+const TAB_STATUS: Record<string, string> = { active: "Active", prospects: "Prospect" };
+const TAB_LABEL: Record<string, string> = { key: "KEY ACCOUNT", risk: "RISK" };
+
 export function CustomersView() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { customers, isLoading } = useCustomers();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [countryFilter, setCountryFilter] = useState<string>("");
@@ -25,6 +38,15 @@ export function CustomersView() {
 
   const rawTab = searchParams.get("tab");
   const activeTab = CUSTOMER_LIST_TABS.some((t) => t.key === rawTab) ? (rawTab as string) : "all";
+
+  // Search, status and account label are resolved server-side across the whole company
+  // database; country and sorting stay client-side over the returned rows.
+  const debouncedSearch = useDebounced(search, 300);
+  const { customers, isLoading } = useCustomers({
+    search: debouncedSearch,
+    status: statusFilter || TAB_STATUS[activeTab],
+    label: TAB_LABEL[activeTab],
+  });
 
   const setActiveTab = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -41,24 +63,14 @@ export function CustomersView() {
   const filtered = useMemo(() => {
     let rows = [...customers];
 
-    // Tab filter (from the POC's Customer-database sidebar)
-    if (activeTab === "active") rows = rows.filter((c) => c.status === "Active");
-    else if (activeTab === "prospects") rows = rows.filter((c) => c.status === "Prospect");
-    else if (activeTab === "key") rows = rows.filter((c) => c.label === "KEY ACCOUNT");
-    else if (activeTab === "risk") rows = rows.filter((c) => c.label === "RISK");
+    // Tab (status/label) and search already applied server-side. The tab is re-checked
+    // here so a tab + conflicting status selection still yields an empty result.
+    const tabStatus = TAB_STATUS[activeTab];
+    const tabLabel = TAB_LABEL[activeTab];
+    if (tabStatus) rows = rows.filter((c) => c.status === tabStatus);
+    if (tabLabel) rows = rows.filter((c) => c.label === tabLabel);
 
-    if (statusFilter) rows = rows.filter((c) => c.status === statusFilter);
     if (countryFilter) rows = rows.filter((c) => c.country === countryFilter);
-
-    if (search) {
-      const s = search.toLowerCase();
-      rows = rows.filter(
-        (c) =>
-          c.companyName.toLowerCase().includes(s) ||
-          c.ico.toLowerCase().includes(s) ||
-          c.dic.toLowerCase().includes(s),
-      );
-    }
 
     rows.sort((a, b) => {
       switch (sortBy) {
@@ -74,7 +86,7 @@ export function CustomersView() {
     });
 
     return rows;
-  }, [customers, activeTab, statusFilter, countryFilter, search, sortBy]);
+  }, [customers, activeTab, countryFilter, sortBy]);
 
   const columns: ColumnsType<CustomerItem> = [
     {

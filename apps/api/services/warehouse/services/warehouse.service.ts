@@ -2,33 +2,33 @@ import { warehouseTaskRepository } from "../repositories/warehouseTask.repositor
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
 
 class WarehouseService {
-  async listAll() {
-    return warehouseTaskRepository.listAll();
+  async listAll(companyId: string) {
+    return warehouseTaskRepository.listAll(companyId);
   }
 
-  async listByShipmentId(shipmentId: string) {
-    return warehouseTaskRepository.listByShipmentId(shipmentId);
+  async listByShipmentId(shipmentId: string, companyId: string) {
+    return warehouseTaskRepository.listByShipmentId(shipmentId, companyId);
   }
 
-  async create(taskId: string, shipmentId?: string) {
-    return warehouseTaskRepository.create({ taskId, shipmentId });
+  async create(companyId: string, taskId: string, shipmentId?: string) {
+    return warehouseTaskRepository.create({ companyId, taskId, shipmentId });
   }
 
-  async update(id: string, data: Record<string, unknown>) {
-    return warehouseTaskRepository.update(id, data);
+  async update(id: string, companyId: string, data: Record<string, unknown>) {
+    return warehouseTaskRepository.update(id, companyId, data);
   }
 
-  async softDelete(id: string) {
-    return warehouseTaskRepository.softDelete(id);
+  async softDelete(id: string, companyId: string) {
+    return warehouseTaskRepository.softDelete(id, companyId);
   }
 
   // Warehouse sections
-  async getSection(shipmentId: string, section: string) {
-    return warehouseSectionRepository.findByShipmentAndSection(shipmentId, section);
+  async getSection(shipmentId: string, section: string, companyId: string) {
+    return warehouseSectionRepository.findByShipmentAndSection(shipmentId, section, companyId);
   }
 
-  async upsertSection(shipmentId: string, section: string, data: unknown) {
-    return warehouseSectionRepository.upsert(shipmentId, section, data);
+  async upsertSection(shipmentId: string, section: string, companyId: string, data: unknown) {
+    return warehouseSectionRepository.upsert(shipmentId, section, companyId, data);
   }
 }
 

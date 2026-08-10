@@ -1,11 +1,13 @@
-import { pgTable, text, numeric, uuid, jsonb, index } from "drizzle-orm/pg-core";
-import { defaultTableColumns, defaultTableIndexes } from "../../../lib/db/defaults";
+import { sql } from "drizzle-orm";
+import { pgTable, text, numeric, uuid, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const warehouseTaskTable = pgTable(
   "warehouse_task",
   {
     ...defaultTableColumns,
-    taskId: text("task_id").notNull().unique(),
+    ...tenantColumns,
+    taskId: text("task_id").notNull(),
     shipmentId: uuid("shipment_id"),
     type: text("type").notNull().default("Import"),
     priority: text("priority").notNull().default("Medium"),
@@ -19,7 +21,11 @@ export const warehouseTaskTable = pgTable(
   },
   (table) => [
     ...defaultTableIndexes("warehouse_task", table),
-    index("warehouse_task_task_id_idx").on(table.taskId),
+    tenantIndex("warehouse_task", table),
+    // Task references are a per-company sequence (WHCZ…), unique within a company among live rows.
+    uniqueIndex("warehouse_task_company_task_id_unique")
+      .on(table.companyId, table.taskId)
+      .where(sql`deleted_at IS NULL`),
     index("warehouse_task_shipment_id_idx").on(table.shipmentId),
   ],
 );

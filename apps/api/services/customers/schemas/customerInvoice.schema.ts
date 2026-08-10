@@ -1,4 +1,5 @@
-import { pgTable, text, uuid, numeric, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, uuid, numeric, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { customerTable } from "./customer.schema";
 
@@ -21,6 +22,8 @@ export const customerInvoiceTable = pgTable(
     ...defaultTableIndexes("customer_invoice", table),
     tenantIndex("customer_invoice", table),
     index("customer_invoice_customer_id_idx").on(table.customerId),
+    index("customer_invoice_status_idx").on(table.status),
+    check("customer_invoice_status_check", sql`${table.status} IN ('Open', 'Overdue', 'Paid')`),
   ],
 );
 

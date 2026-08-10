@@ -15,6 +15,13 @@
       "when": 1779739267800,
       "tag": "0001_overrated_carlie_cooper",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786386535045,
+      "tag": "0002_brief_agent_brand",
+      "breakpoints": true
     }
   ]
 }

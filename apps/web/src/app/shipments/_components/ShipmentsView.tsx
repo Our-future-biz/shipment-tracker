@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useToast } from "@/lib/toast";
 import { ShipmentsTable } from "./ShipmentsTable";
@@ -8,8 +9,25 @@ import { CreateShipmentWizard } from "./CreateShipmentWizard";
 import { MasterJobDialog } from "./MasterJobDialog";
 import { ConfirmModal } from "@/components/ConfirmModal";
 
+// Search/status live in the URL (?q= / ?status=), written by the table's toolbar and read
+// here to drive the server-side query — so filtering covers the whole company dataset
+// instead of only the rows already in the browser.
+function useDebounced<T>(value: T, delay: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return debounced;
+}
+
 export const ShipmentsView = () => {
-  const { shipments, isLoading, createShipment, deleteShipment, linkMasterJob, isCreating, isDeleting } = useShipments();
+  const searchParams = useSearchParams();
+  const search = useDebounced(searchParams.get("q") ?? "", 300);
+  const statusBucket = searchParams.get("status") ?? "all";
+
+  const { shipments, isLoading, createShipment, deleteShipment, linkMasterJob, isCreating, isDeleting } =
+    useShipments({ search, statusBucket });
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [masterJobOpen, setMasterJobOpen] = useState(false);

@@ -48,7 +48,7 @@ export const shipmentTable = pgTable(
     masterJobId: uuid("master_job_id"),
 
     // — Meta —
-    shipmentsDate: text("shipments_date").notNull().default(""),
+    shipmentsDate: date("shipments_date", { mode: "string" }),
     department: text("department").notNull().default(""),
     personInCharge: text("person_in_charge").notNull().default(""),
     holidayCover: text("holiday_cover").notNull().default(""),
@@ -136,8 +136,11 @@ export const shipmentTable = pgTable(
 
     // — Quote —
     salesNumber: text("sales_number").notNull().default(""),
-    selling: text("selling").notNull().default(""),
-    buying: text("buying").notNull().default(""),
+    // Money as exact numeric rather than text. Drizzle's default string mode keeps the
+    // API type a string (matching the rest of the money handling) while letting Postgres
+    // SUM/compare these properly.
+    selling: numeric("selling", { precision: 14, scale: 2 }).notNull().default("0"),
+    buying: numeric("buying", { precision: 14, scale: 2 }).notNull().default("0"),
     quoteValidity: text("quote_validity").notNull().default(""),
     validityStatus: text("validity_status").notNull().default(""),
     salesPerson: text("sales_person").notNull().default(""),

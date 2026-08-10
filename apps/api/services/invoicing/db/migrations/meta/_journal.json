@@ -8,6 +8,13 @@
       "when": 1779017870336,
       "tag": "0000_nostalgic_jubilee",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786386305672,
+      "tag": "0001_natural_wonder_man",
+      "breakpoints": true
     }
   ]
 }

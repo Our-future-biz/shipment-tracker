@@ -368,9 +368,17 @@ export namespace customers {
             return await resp.json() as controllers.CustomerGetResponse
         }
 
-        public async customerList(): Promise<controllers.CustomerListResponse> {
+        public async customerList(params: controllers.CustomerListRequest): Promise<controllers.CustomerListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                country: params.country,
+                label:   params.label,
+                search:  params.search,
+                status:  params.status,
+            })
+
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/customers`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers`, undefined, {query})
             return await resp.json() as controllers.CustomerListResponse
         }
 
@@ -869,6 +877,7 @@ export namespace shipments {
                 search:        params.search,
                 sortDirection: params.sortDirection === undefined ? undefined : String(params.sortDirection),
                 status:        params.status,
+                statusBucket:  params.statusBucket,
             })
 
             // Now make the actual call to the API
@@ -1038,7 +1047,6 @@ export namespace controllers {
         column: string
         oldValue: string
         newValue: string
-        triggeredById?: string
         shipmentData?: { [key: string]: string }
     }
 
@@ -1166,6 +1174,17 @@ export namespace controllers {
 
     export interface CustomerGetResponse {
         customer: interfaces.CustomerItem
+    }
+
+    export interface CustomerListRequest {
+        /**
+         * Server-side filtering.
+         */
+        search?: string
+
+        status?: string
+        label?: string
+        country?: string
     }
 
     export interface CustomerListResponse {
@@ -1676,6 +1695,11 @@ export namespace controllers {
          * Server-side filtering.
          */
         status?: string
+
+        /**
+         * Coarse UI status bucket: active | in-transit | customs | delivered
+         */
+        statusBucket?: string
 
         search?: string
     }
@@ -2330,7 +2354,7 @@ export namespace interfaces {
         /**
          * Meta
          */
-        shipmentsDate: string
+        shipmentsDate: string | null
 
         department: string
         personInCharge: string
@@ -2377,13 +2401,13 @@ export namespace interfaces {
         /**
          * Dates
          */
-        cargoReadinessDate: string
+        cargoReadinessDate: string | null
 
-        pickupDate: string
+        pickupDate: string | null
         pickupTime: string
-        closingDate: string
-        etaWarehouse: string
-        plannedDeliveryDate: string
+        closingDate: string | null
+        etaWarehouse: string | null
+        plannedDeliveryDate: string | null
         plannedDeliveryTime: string
         /**
          * Commercial

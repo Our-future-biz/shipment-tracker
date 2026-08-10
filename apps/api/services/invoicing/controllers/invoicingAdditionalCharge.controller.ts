@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { invoicingService } from "../services/invoicing.service";
 import type { AdditionalChargeItem } from "../interfaces/interfaces";
 
@@ -22,7 +23,7 @@ export const invoicingAddCharge = api(
   { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/additional" },
   async (req: AddChargeRequest): Promise<AddChargeResponse> => {
     const { shipmentId, ...data } = req;
-    const charge = await invoicingService.addAdditionalCharge(shipmentId, data);
+    const charge = await invoicingService.addAdditionalCharge(shipmentId, getAuthData()!.companyID, data);
     return { charge: charge as unknown as AdditionalChargeItem };
   },
 );
@@ -48,7 +49,7 @@ export const invoicingUpdateCharge = api(
   async (req: UpdateChargeRequest): Promise<UpdateChargeResponse> => {
     const { shipmentId, chargeId, ...data } = req;
     void shipmentId;
-    const charge = await invoicingService.updateAdditionalCharge(chargeId, data);
+    const charge = await invoicingService.updateAdditionalCharge(chargeId, getAuthData()!.companyID, data);
     if (!charge) throw APIError.notFound("Charge not found");
     return { charge: charge as unknown as AdditionalChargeItem };
   },
@@ -66,7 +67,7 @@ interface DeleteChargeResponse {
 export const invoicingDeleteCharge = api(
   { expose: true, auth: true, method: "DELETE", path: "/invoicing/:shipmentId/additional/:chargeId" },
   async (req: DeleteChargeRequest): Promise<DeleteChargeResponse> => {
-    await invoicingService.deleteAdditionalCharge(req.chargeId);
+    await invoicingService.deleteAdditionalCharge(req.chargeId, getAuthData()!.companyID);
     return { ok: true };
   },
 );

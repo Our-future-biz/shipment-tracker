@@ -10,6 +10,8 @@ interface ShipmentListRequest {
   customerId?: string;
   // Server-side filtering.
   status?: string;
+  /** Coarse UI status bucket: active | in-transit | customs | delivered */
+  statusBucket?: string;
   search?: string;
 }
 
@@ -28,6 +30,7 @@ export const shipmentList = api(
     const result = await shipmentService.list(getAuthData()!.companyID, {
       customerId: req.customerId,
       status: req.status,
+      statusBucket: req.statusBucket,
       search: req.search,
       limit: Math.min(req.limit ?? 100, 200),
       offset: req.offset ?? 0,

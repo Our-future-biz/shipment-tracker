@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { warehouseService } from "../services/warehouse.service";
 import type { WarehouseSectionItem } from "../interfaces/interfaces";
 
@@ -20,7 +21,7 @@ export const warehouseSectionUpsert = api(
     if (!VALID_SECTIONS.has(req.section)) {
       throw APIError.invalidArgument(`Invalid section: ${req.section}. Must be one of: ${[...VALID_SECTIONS].join(", ")}`);
     }
-    const row = await warehouseService.upsertSection(req.shipmentId, req.section, req.data);
+    const row = await warehouseService.upsertSection(req.shipmentId, req.section, getAuthData()!.companyID, req.data);
     return {
       section: {
         id: row.id,

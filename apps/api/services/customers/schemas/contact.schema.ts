@@ -1,4 +1,5 @@
-import { pgTable, text, uuid, boolean, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, uuid, boolean, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { customerTable } from "./customer.schema";
 
@@ -20,6 +21,7 @@ export const contactTable = pgTable(
     ...defaultTableIndexes("contact", table),
     tenantIndex("contact", table),
     index("contact_customer_id_idx").on(table.customerId),
+    check("contact_role_check", sql`${table.role} IN ('Sales', 'Operations', 'Finance')`),
   ],
 );
 

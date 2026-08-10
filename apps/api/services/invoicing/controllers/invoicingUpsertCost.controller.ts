@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { invoicingService } from "../services/invoicing.service";
 import type { InvoiceCostItem } from "../interfaces/interfaces";
 
@@ -24,7 +25,7 @@ export const invoicingUpsertCost = api(
       throw APIError.invalidArgument("category is required");
     }
     const { shipmentId, category, ...data } = req;
-    const cost = await invoicingService.upsertCost(shipmentId, category, data as Record<string, string>);
+    const cost = await invoicingService.upsertCost(shipmentId, getAuthData()!.companyID, category, data as Record<string, string>);
     return { cost: cost as unknown as InvoiceCostItem };
   },
 );

@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { automationService } from "../services/automation.service";
 import type { AutomationLogItem } from "../interfaces/interfaces";
 
@@ -13,7 +14,7 @@ interface AutomationLogsResponse {
 export const automationLogs = api(
   { expose: true, auth: true, method: "GET", path: "/automation/:shipmentId/logs" },
   async (req: AutomationLogsRequest): Promise<AutomationLogsResponse> => {
-    const logs = await automationService.getLogsByShipmentId(req.shipmentId);
+    const logs = await automationService.getLogsByShipmentId(req.shipmentId, getAuthData()!.companyID);
     return { logs: logs as unknown as AutomationLogItem[] };
   },
 );

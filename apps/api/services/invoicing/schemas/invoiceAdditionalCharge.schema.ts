@@ -1,10 +1,11 @@
 import { pgTable, text, numeric, uuid, integer, index } from "drizzle-orm/pg-core";
-import { defaultTableColumns, defaultTableIndexes } from "../../../lib/db/defaults";
+import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const invoiceAdditionalChargeTable = pgTable(
   "invoice_additional_charge",
   {
     ...defaultTableColumns,
+    ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
     invoiceNumber: text("invoice_number").notNull().default(""),
     vendor: text("vendor").notNull().default(""),
@@ -17,6 +18,7 @@ export const invoiceAdditionalChargeTable = pgTable(
   },
   (table) => [
     ...defaultTableIndexes("invoice_additional_charge", table),
+    tenantIndex("invoice_additional_charge", table),
     index("invoice_additional_charge_shipment_id_idx").on(table.shipmentId),
   ],
 );

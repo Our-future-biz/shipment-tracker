@@ -1,4 +1,5 @@
-import { pgTable, text, uuid, bigint, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, uuid, bigint, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { customerTable } from "./customer.schema";
 
@@ -22,6 +23,10 @@ export const customerDocumentTable = pgTable(
     ...defaultTableIndexes("customer_document", table),
     tenantIndex("customer_document", table),
     index("customer_document_customer_id_idx").on(table.customerId),
+    check(
+      "customer_document_type_check",
+      sql`${table.type} IN ('Contract', 'NDA', 'Power of attorney', 'Customs', 'Other')`,
+    ),
   ],
 );
 

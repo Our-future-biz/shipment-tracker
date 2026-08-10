@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { warehouseService } from "../services/warehouse.service";
 import type { WarehouseTaskItem } from "../interfaces/interfaces";
 
@@ -24,7 +25,7 @@ export const warehouseUpdate = api(
   async (req: WarehouseUpdateRequest): Promise<WarehouseUpdateResponse> => {
     // The client sends the task's UUID as the :taskId path param; update by it.
     const { taskId, ...data } = req;
-    const task = await warehouseService.update(taskId, data);
+    const task = await warehouseService.update(taskId, getAuthData()!.companyID, data);
     if (!task) {
       throw APIError.notFound("Warehouse task not found");
     }

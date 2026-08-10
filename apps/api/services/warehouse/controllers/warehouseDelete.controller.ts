@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { warehouseService } from "../services/warehouse.service";
 
 interface WarehouseDeleteRequest {
@@ -12,7 +13,7 @@ interface WarehouseDeleteResponse {
 export const warehouseDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/warehouse/:taskId" },
   async (req: WarehouseDeleteRequest): Promise<WarehouseDeleteResponse> => {
-    await warehouseService.softDelete(req.taskId);
+    await warehouseService.softDelete(req.taskId, getAuthData()!.companyID);
     return { ok: true };
   },
 );

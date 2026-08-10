@@ -45,12 +45,25 @@ export function buildRowData(shipment: ShipmentItem): Record<string, string> {
   return data;
 }
 
-export const useShipments = () => {
+export interface ShipmentQueryParams {
+  /** Free-text search, executed server-side across job#, shipper, consignee, customer, POL, POD. */
+  search?: string;
+  /** Coarse status bucket, matched server-side. */
+  statusBucket?: string;
+}
+
+export const useShipments = (params: ShipmentQueryParams = {}) => {
   const queryClient = useQueryClient();
 
+  const search = params.search?.trim() || undefined;
+  const statusBucket = params.statusBucket && params.statusBucket !== "all" ? params.statusBucket : undefined;
+
+  // Search and status are applied server-side (scoped to the company), so they cover the
+  // whole dataset rather than only the rows already loaded in the browser.
   const query = useQuery({
-    queryKey: ["shipments"],
-    queryFn: () => api.shipments.shipmentList({ limit: 200 }),
+    queryKey: ["shipments", search ?? "", statusBucket ?? ""],
+    queryFn: () => api.shipments.shipmentList({ limit: 200, search, statusBucket }),
+    placeholderData: (prev) => prev,
   });
 
   const createMutation = useMutation({
@@ -61,11 +74,12 @@ export const useShipments = () => {
   const updateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: controllers.ShipmentUpdateRequest }) =>
       api.shipments.shipmentUpdate(id, data),
-    // Optimistic update for snappy inline editing
+    // Optimistic update for snappy inline editing. The query key now carries the active
+    // search/status, so patch every cached shipments page rather than one fixed key.
     onMutate: async ({ id, data }) => {
       await queryClient.cancelQueries({ queryKey: ["shipments"] });
-      const prev = queryClient.getQueryData(["shipments"]);
-      queryClient.setQueryData(["shipments"], (old: { data: ShipmentItem[] } | undefined) => {
+      const prev = queryClient.getQueriesData<{ data: ShipmentItem[] }>({ queryKey: ["shipments"] });
+      queryClient.setQueriesData<{ data: ShipmentItem[] }>({ queryKey: ["shipments"] }, (old) => {
         if (!old) return old;
         return {
           ...old,
@@ -81,7 +95,7 @@ export const useShipments = () => {
       return { prev };
     },
     onError: (_err, _vars, ctx) => {
-      if (ctx?.prev) queryClient.setQueryData(["shipments"], ctx.prev);
+      ctx?.prev?.forEach(([key, value]) => queryClient.setQueryData(key, value));
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
   });
@@ -124,12 +138,12 @@ export const useShipments = () => {
       // Fire automation trigger for watched fields
       if (AUTOMATION_FIELDS.has(fieldKey) && value !== oldValue && shipment) {
         const shipmentData = buildRowData(shipment);
+        // Actor (triggeredById) is derived server-side from the token.
         api.automation.automationTrigger({
           shipmentId,
           column: col.title,
           oldValue,
           newValue: value,
-          triggeredById: undefined,
           shipmentData,
         }).catch(() => { /* fire and forget */ });
       }

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, numeric, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, numeric, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const customerTable = pgTable(
@@ -54,6 +54,13 @@ export const customerTable = pgTable(
     uniqueIndex("customer_company_ico_unique")
       .on(table.companyId, table.ico)
       .where(sql`deleted_at IS NULL`),
+    // Closed sets driven by UI selects — reject anything else at the DB level so a typo
+    // can't silently drop a customer out of every status filter and KPI.
+    check("customer_status_check", sql`${table.status} IN ('Active', 'Prospect', 'Inactive')`),
+    check(
+      "customer_label_check",
+      sql`${table.label} IN ('KEY ACCOUNT', 'STANDARD', 'TARGET CUSTOMER', 'PROSPECT', 'RISK')`,
+    ),
   ],
 );
 

@@ -1,4 +1,5 @@
 import { api, APIError } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import { warehouseService } from "../services/warehouse.service";
 import type { WarehouseTaskItem } from "../interfaces/interfaces";
 
@@ -17,7 +18,7 @@ export const warehouseCreate = api(
     if (!req.taskId) {
       throw APIError.invalidArgument("taskId is required");
     }
-    const task = await warehouseService.create(req.taskId, req.shipmentId);
+    const task = await warehouseService.create(getAuthData()!.companyID, req.taskId, req.shipmentId);
     return { task: task as unknown as WarehouseTaskItem };
   },
 );

@@ -32,10 +32,31 @@ function aggregate(containers: ContainerLine[], field: "containerNumber" | "seal
     .join(", ");
 }
 
-const money = (v: string | null | undefined): number => {
-  const n = parseFloat(v ?? "");
-  return Number.isNaN(n) ? 0 : n;
-};
+// Real `date` columns reject "" — the UI sends an empty string when a date cell is
+// cleared, so coerce blanks to null. Same for the numeric money columns.
+const DATE_FIELDS = new Set([
+  "estimatedDeparture",
+  "estimatedArrival",
+  "actualDeparture",
+  "actualArrival",
+  "cargoReadinessDate",
+  "pickupDate",
+  "closingDate",
+  "etaWarehouse",
+  "plannedDeliveryDate",
+  "shipmentsDate",
+]);
+const MONEY_FIELDS = new Set(["selling", "buying"]);
+
+function sanitizeTypedFields<T extends Record<string, unknown>>(data: T): T {
+  const out = { ...data } as Record<string, unknown>;
+  for (const key of Object.keys(out)) {
+    if (out[key] !== "") continue;
+    if (DATE_FIELDS.has(key)) out[key] = null;
+    else if (MONEY_FIELDS.has(key)) out[key] = "0";
+  }
+  return out as T;
+}
 
 class ShipmentService {
   // The customer's stored rollups (totalRevenue/totalProfit/totalShipments/
@@ -46,22 +67,8 @@ class ShipmentService {
   private async recalcCustomerRollups(customerId: string | null | undefined, companyId: string) {
     if (!customerId) return;
     try {
-      const rows = await shipmentRepository.findByCustomerId(customerId, companyId);
-      const totalRevenue = rows.reduce((sum, r) => sum + money(r.selling), 0);
-      const totalProfit = rows.reduce((sum, r) => sum + (money(r.selling) - money(r.buying)), 0);
-      const lastActivityDate =
-        rows
-          .map((r) => r.estimatedArrival || r.createdAt.toISOString().slice(0, 10))
-          .filter(Boolean)
-          .sort()
-          .pop() ?? "";
-      await customers.customerUpdate({
-        id: customerId,
-        totalRevenue,
-        totalProfit,
-        totalShipments: rows.length,
-        lastActivityDate,
-      });
+      const rollups = await shipmentRepository.customerRollups(customerId, companyId);
+      await customers.customerUpdate({ id: customerId, ...rollups });
     } catch {
       // Customer may have been deleted since; nothing to sync.
     }
@@ -131,7 +138,8 @@ class ShipmentService {
   }
 
   async create(companyId: string, data: Omit<NewShipmentRecord, "companyId"> & { containers?: ContainerLine[] }) {
-    const { containers, ...shipmentData } = data;
+    const { containers, ...rest } = data;
+    const shipmentData = sanitizeTypedFields(rest as Record<string, unknown>);
     const shipment = await shipmentRepository.createForCompany(companyId, shipmentData as never);
     if (containers && containers.length > 0) {
       await containerRepository.replaceForShipment(shipment.id, companyId, containers);
@@ -151,7 +159,8 @@ class ShipmentService {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) return null;
 
-    const { containers, ...shipmentData } = data;
+    const { containers, ...rest } = data;
+    const shipmentData = sanitizeTypedFields(rest as Record<string, unknown>);
 
     // Write audit entries for changed shipment fields
     const existingRecord = existing as unknown as Record<string, unknown>;
@@ -178,7 +187,9 @@ class ShipmentService {
     }
 
     // Recalc for the new customer, and for the old one when the link moved.
-    const newCustomerId = "customerId" in shipmentData ? shipmentData.customerId : existing.customerId;
+    const newCustomerId = ("customerId" in shipmentData
+      ? (shipmentData.customerId as string | null | undefined)
+      : existing.customerId);
     await this.recalcCustomerRollups(newCustomerId, companyId);
     if (existing.customerId && existing.customerId !== newCustomerId) {
       await this.recalcCustomerRollups(existing.customerId, companyId);

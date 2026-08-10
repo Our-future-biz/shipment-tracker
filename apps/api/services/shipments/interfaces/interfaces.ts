@@ -65,7 +65,7 @@ export interface ShipmentItem {
   masterJobMczNumber: string | null;
 
   // Meta
-  shipmentsDate: string;
+  shipmentsDate: string | null;
   department: string;
   personInCharge: string;
   holidayCover: string;
@@ -100,12 +100,12 @@ export interface ShipmentItem {
   insurance: string;
 
   // Dates
-  cargoReadinessDate: string;
-  pickupDate: string;
+  cargoReadinessDate: string | null;
+  pickupDate: string | null;
   pickupTime: string;
-  closingDate: string;
-  etaWarehouse: string;
-  plannedDeliveryDate: string;
+  closingDate: string | null;
+  etaWarehouse: string | null;
+  plannedDeliveryDate: string | null;
   plannedDeliveryTime: string;
 
   // Commercial

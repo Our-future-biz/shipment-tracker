@@ -6,6 +6,7 @@ import { customerNoteTable } from "../schemas/customerNote.schema";
 import { customerDocumentTable } from "../schemas/customerDocument.schema";
 import { customerInvoiceTable } from "../schemas/customerInvoice.schema";
 import { customerRepository } from "../repositories/customer.repository";
+import type { CustomerListFilters } from "../repositories/customer.repository";
 import { aresService } from "./ares.service";
 import { logoService } from "./logo.service";
 
@@ -32,8 +33,8 @@ interface CustomerPatch {
 }
 
 class CustomerService {
-  async list(companyId: string) {
-    return customerRepository.listAll(companyId);
+  async list(companyId: string, filters: CustomerListFilters = {}) {
+    return customerRepository.listFiltered(companyId, filters);
   }
 
   async getById(id: string, companyId: string) {

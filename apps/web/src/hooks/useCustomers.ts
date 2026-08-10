@@ -6,12 +6,26 @@ import type { controllers, interfaces } from "@/lib/api/client";
 
 export type CustomerItem = interfaces.CustomerItem;
 
-export const useCustomers = () => {
+export interface CustomerQueryParams {
+  /** Free-text search, executed server-side across company name, IČO, DIČ and city. */
+  search?: string;
+  status?: string;
+  label?: string;
+  country?: string;
+}
+
+export const useCustomers = (params: CustomerQueryParams = {}) => {
   const queryClient = useQueryClient();
 
+  const search = params.search?.trim() || undefined;
+  const { status, label, country } = params;
+
+  // Filters are applied server-side (scoped to the company) so they cover the whole
+  // customer database rather than only the rows already loaded in the browser.
   const query = useQuery({
-    queryKey: ["customers"],
-    queryFn: () => api.customers.customerList(),
+    queryKey: ["customers", search ?? "", status ?? "", label ?? "", country ?? ""],
+    queryFn: () => api.customers.customerList({ search, status, label, country }),
+    placeholderData: (prev) => prev,
   });
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["customers"] });

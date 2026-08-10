@@ -15,44 +15,44 @@ function sanitizeAmounts<T extends Record<string, unknown>>(data: T): T {
 }
 
 class InvoicingService {
-  async getInvoicingData(shipmentId: string) {
+  async getInvoicingData(shipmentId: string, companyId: string) {
     const [costs, additionalCharges, billingSettings, billingOverrides, generatedInvoices] = await Promise.all([
-      invoiceCostRepository.listByShipmentId(shipmentId),
-      additionalChargeRepository.listByShipmentId(shipmentId),
-      billingSettingsRepository.getByShipmentId(shipmentId),
-      billingOverrideRepository.listByShipmentId(shipmentId),
-      generatedInvoiceRepository.listByShipmentId(shipmentId),
+      invoiceCostRepository.listByShipmentId(shipmentId, companyId),
+      additionalChargeRepository.listByShipmentId(shipmentId, companyId),
+      billingSettingsRepository.getByShipmentId(shipmentId, companyId),
+      billingOverrideRepository.listByShipmentId(shipmentId, companyId),
+      generatedInvoiceRepository.listByShipmentId(shipmentId, companyId),
     ]);
     return { costs, additionalCharges, billingSettings, billingOverrides, generatedInvoices };
   }
 
-  async upsertCost(shipmentId: string, category: string, data: Record<string, string>) {
-    return invoiceCostRepository.upsert(shipmentId, category, sanitizeAmounts(data));
+  async upsertCost(shipmentId: string, companyId: string, category: string, data: Record<string, string>) {
+    return invoiceCostRepository.upsert(shipmentId, companyId, category, sanitizeAmounts(data));
   }
 
-  async addAdditionalCharge(shipmentId: string, data: Record<string, unknown>) {
-    return additionalChargeRepository.create({ shipmentId, ...sanitizeAmounts(data) } as never);
+  async addAdditionalCharge(shipmentId: string, companyId: string, data: Record<string, unknown>) {
+    return additionalChargeRepository.create({ companyId, shipmentId, ...sanitizeAmounts(data) } as never);
   }
 
-  async updateAdditionalCharge(id: string, data: Record<string, unknown>) {
-    return additionalChargeRepository.update(id, sanitizeAmounts(data));
+  async updateAdditionalCharge(id: string, companyId: string, data: Record<string, unknown>) {
+    return additionalChargeRepository.update(id, companyId, sanitizeAmounts(data));
   }
 
-  async deleteAdditionalCharge(id: string) {
-    return additionalChargeRepository.delete(id);
+  async deleteAdditionalCharge(id: string, companyId: string) {
+    return additionalChargeRepository.delete(id, companyId);
   }
 
-  async upsertBillingSettings(shipmentId: string, data: { billingCurrency?: string; roe?: string; quoteRef?: string }) {
-    return billingSettingsRepository.upsert(shipmentId, data);
+  async upsertBillingSettings(shipmentId: string, companyId: string, data: { billingCurrency?: string; roe?: string; quoteRef?: string }) {
+    return billingSettingsRepository.upsert(shipmentId, companyId, data);
   }
 
-  async upsertBillingOverride(shipmentId: string, rowKey: string, billingAmount: string) {
-    return billingOverrideRepository.upsert(shipmentId, rowKey, billingAmount === "" ? null : billingAmount);
+  async upsertBillingOverride(shipmentId: string, companyId: string, rowKey: string, billingAmount: string) {
+    return billingOverrideRepository.upsert(shipmentId, companyId, rowKey, billingAmount === "" ? null : billingAmount);
   }
 
-  async generateInvoice(shipmentId: string, jobNumber: string, invoiceType: string, billingCurrency: string, totalAmount: string) {
-    const invoiceNumber = await generatedInvoiceRepository.getNextInvoiceNumber(jobNumber, shipmentId);
-    return generatedInvoiceRepository.create({ shipmentId, invoiceNumber, invoiceType, billingCurrency, totalAmount });
+  async generateInvoice(shipmentId: string, companyId: string, jobNumber: string, invoiceType: string, billingCurrency: string, totalAmount: string) {
+    const invoiceNumber = await generatedInvoiceRepository.getNextInvoiceNumber(jobNumber, shipmentId, companyId);
+    return generatedInvoiceRepository.create({ companyId, shipmentId, invoiceNumber, invoiceType, billingCurrency, totalAmount });
   }
 }
 

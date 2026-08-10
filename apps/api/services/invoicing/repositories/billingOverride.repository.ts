@@ -3,15 +3,22 @@ import { db } from "../db/db";
 import { billingOverrideTable } from "../schemas/billingOverride.schema";
 
 class BillingOverrideRepository {
-  async listByShipmentId(shipmentId: string) {
-    return db.select().from(billingOverrideTable).where(eq(billingOverrideTable.shipmentId, shipmentId));
+  async listByShipmentId(shipmentId: string, companyId: string) {
+    return db
+      .select()
+      .from(billingOverrideTable)
+      .where(and(eq(billingOverrideTable.companyId, companyId), eq(billingOverrideTable.shipmentId, shipmentId)));
   }
 
-  async upsert(shipmentId: string, rowKey: string, billingAmount: string | null) {
+  async upsert(shipmentId: string, companyId: string, rowKey: string, billingAmount: string | null) {
     const [existing] = await db
       .select()
       .from(billingOverrideTable)
-      .where(and(eq(billingOverrideTable.shipmentId, shipmentId), eq(billingOverrideTable.rowKey, rowKey)))
+      .where(and(
+        eq(billingOverrideTable.companyId, companyId),
+        eq(billingOverrideTable.shipmentId, shipmentId),
+        eq(billingOverrideTable.rowKey, rowKey),
+      ))
       .limit(1);
 
     if (existing) {
@@ -23,7 +30,7 @@ class BillingOverrideRepository {
       return row!;
     }
 
-    const [row] = await db.insert(billingOverrideTable).values({ shipmentId, rowKey, billingAmount }).returning();
+    const [row] = await db.insert(billingOverrideTable).values({ companyId, shipmentId, rowKey, billingAmount }).returning();
     return row!;
   }
 }

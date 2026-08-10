@@ -127,7 +127,17 @@ export const ShipmentsTable = ({
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
-  const [statusFilter, setStatusFilter] = useState("all");
+  // Status bucket is URL-backed (?status=) like the search, so ShipmentsView can read it
+  // and push it to the server-side query.
+  const statusFilter = searchParams.get("status") ?? "all";
+  const setStatusFilter = (value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value && value !== "all") params.set("status", value);
+    else params.delete("status");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
   const [pageSize, setPageSize] = useState(50);
   const [currentPage, setCurrentPage] = useState(1);
   const [mczModal, setMczModal] = useState<string | null>(null);
@@ -179,30 +189,14 @@ export const ShipmentsTable = ({
     }
   };
 
-  // Filter by status + search
+  // Search and the status bucket are applied server-side (see ShipmentsView), so only the
+  // per-column filters are refined here, over the rows the server returned.
   const filtered = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    return shipments.filter((s) => {
-      // Status filter
-      if (statusFilter !== "all") {
-        const status = (s.status || "").toLowerCase();
-        if (statusFilter === "active" && !status.includes("active") && !status.includes("pending") && !status.includes("new")) return false;
-        if (statusFilter === "in-transit" && !status.includes("transport") && !status.includes("shipped") && !status.includes("pre-alert") && !status.includes("loaded")) return false;
-        if (statusFilter === "customs" && !status.includes("customs")) return false;
-        if (statusFilter === "delivered" && !status.includes("billed") && !status.includes("billing") && !status.includes("delivered")) return false;
-      }
-      // Per-column filters (AND, case-insensitive contains)
-      for (const f of activeFilters) {
-        if (!getFieldValue(s, f.key).toLowerCase().includes(f.value.toLowerCase().trim())) return false;
-      }
-      // Global search across every column value
-      if (q) {
-        const haystack = Object.values(buildRowData(s)).join(" ").toLowerCase();
-        if (!haystack.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [shipments, statusFilter, search, activeFilters]);
+    if (activeFilters.length === 0) return shipments;
+    return shipments.filter((s) =>
+      activeFilters.every((f) => getFieldValue(s, f.key).toLowerCase().includes(f.value.toLowerCase().trim())),
+    );
+  }, [shipments, activeFilters]);
 
   // Precompute per-row data + whole-row conditional tint once (used by every cell).
   const rowInfo = useMemo(() => {

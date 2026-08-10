@@ -3,15 +3,22 @@ import { db } from "../db/db";
 import { invoiceCostTable } from "../schemas/invoiceCost.schema";
 
 class InvoiceCostRepository {
-  async listByShipmentId(shipmentId: string) {
-    return db.select().from(invoiceCostTable).where(eq(invoiceCostTable.shipmentId, shipmentId));
+  async listByShipmentId(shipmentId: string, companyId: string) {
+    return db
+      .select()
+      .from(invoiceCostTable)
+      .where(and(eq(invoiceCostTable.companyId, companyId), eq(invoiceCostTable.shipmentId, shipmentId)));
   }
 
-  async upsert(shipmentId: string, category: string, data: Partial<{ estAmount: string; estCurrency: string; realAmount: string; realCurrency: string; invoiceNumber: string; vendor: string }>) {
+  async upsert(shipmentId: string, companyId: string, category: string, data: Partial<{ estAmount: string; estCurrency: string; realAmount: string; realCurrency: string; invoiceNumber: string; vendor: string }>) {
     const [existing] = await db
       .select()
       .from(invoiceCostTable)
-      .where(and(eq(invoiceCostTable.shipmentId, shipmentId), eq(invoiceCostTable.category, category)))
+      .where(and(
+        eq(invoiceCostTable.companyId, companyId),
+        eq(invoiceCostTable.shipmentId, shipmentId),
+        eq(invoiceCostTable.category, category),
+      ))
       .limit(1);
 
     if (existing) {
@@ -23,7 +30,7 @@ class InvoiceCostRepository {
       return row!;
     }
 
-    const [row] = await db.insert(invoiceCostTable).values({ shipmentId, category, ...data }).returning();
+    const [row] = await db.insert(invoiceCostTable).values({ companyId, shipmentId, category, ...data }).returning();
     return row!;
   }
 }
