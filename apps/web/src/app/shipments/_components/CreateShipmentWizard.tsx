@@ -1,14 +1,18 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Select, Button, Checkbox } from "antd";
+import { Select, Button, Checkbox, Segmented, Tag } from "antd";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import { AppModal } from "@/components/AppModal";
 import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { api } from "@/lib/api";
 import { COLUMN_MAP } from "@/lib/columnConfig";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
+import { isSalesQuote, toSalesQuote } from "@/app/sales/_lib/salesQuote";
+import { QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
+import { quoteToCreateRequest, quoteCostPlan, quotePreview } from "./quoteToShipment";
 import type { controllers } from "@/lib/api/client";
 
 interface CreateShipmentWizardProps {
@@ -51,10 +55,25 @@ export const CreateShipmentWizard = ({
   const toast = useToast();
 
   const [step, setStep] = useState<WizardStep>("ask-copy");
+  const [copyMode, setCopyMode] = useState<"shipment" | "quote">("shipment");
   const [copyFromId, setCopyFromId] = useState<string>("");
+  const [quoteRef, setQuoteRef] = useState<string>("");
   const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set(COPYABLE_FIELDS));
   const [copyEstimatedCosts, setCopyEstimatedCosts] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Sales quotes for the "Copy from Quote" mode (all lifecycle statuses,
+  // newest first).
+  const { data: quoteData } = useQuery({
+    queryKey: ["quotes", "wizard"],
+    queryFn: () => api.quotes.quoteList({ limit: 200, sortDirection: "desc" }),
+    enabled: open,
+  });
+  const salesQuotes = useMemo(
+    () => (quoteData?.data ?? []).filter(isSalesQuote).map(toSalesQuote),
+    [quoteData],
+  );
+  const selectedQuote = salesQuotes.find((q) => q.quoteNumber === quoteRef);
 
   // The next job number is generated on the server so it accounts for archived
   // (soft-deleted) shipments and never reuses a reference.
@@ -84,12 +103,24 @@ export const CreateShipmentWizard = ({
     [existingShipments],
   );
 
+  const quoteOptions = useMemo(
+    () =>
+      salesQuotes.map((q) => ({
+        value: q.quoteNumber,
+        label: q.data.customerName ? `${q.quoteNumber} — ${q.data.customerName}` : q.quoteNumber,
+      })),
+    [salesQuotes],
+  );
+  const statusOf = (key?: string) => (key ? (QUOTE_STATUS_MAP[key]?.label ?? key) : "");
+
   const source = existingShipments.find((s) => s.id === copyFromId);
   const sourceJob = source?.jobNumber ?? "";
 
   const resetAndClose = () => {
     setStep("ask-copy");
+    setCopyMode("shipment");
     setCopyFromId("");
+    setQuoteRef("");
     setSelectedFields(new Set(COPYABLE_FIELDS));
     setCopyEstimatedCosts(false);
     onClose();
@@ -175,6 +206,48 @@ export const CreateShipmentWizard = ({
     }
   };
 
+  // Create a shipment carrying everything the quote holds: mapped fields +
+  // cargo lines in the create call, then the quote link and estimated costs.
+  const handleCreateFromQuote = async () => {
+    if (!selectedQuote || !nextJobNumber) return;
+    setSubmitting(true);
+
+    const request: controllers.ShipmentCreateRequest = {
+      ...baseRequest(),
+      ...quoteToCreateRequest(selectedQuote.quoteNumber, selectedQuote.data),
+      jobNumber: nextJobNumber,
+    };
+
+    try {
+      const result = await createShipment(request);
+      const newId = result.shipment.id;
+
+      try {
+        // Link the quote so the Linked Quote panel and invoicing pick it up.
+        await api.invoicing.invoicingUpsertBillingSettings(newId, { quoteRef: selectedQuote.quoteNumber });
+        const plan = quoteCostPlan(selectedQuote.data);
+        for (const cost of plan.costs) {
+          await api.invoicing.invoicingUpsertCost(newId, cost);
+        }
+        let sortOrder = 0;
+        for (const charge of plan.charges) {
+          await api.invoicing.invoicingAddCharge(newId, { ...charge, sortOrder: sortOrder++ });
+        }
+      } catch {
+        toast.error("Shipment created, but copying quote costs failed");
+        openCreated(newId);
+        return;
+      }
+
+      toast.success(`Shipment created from ${selectedQuote.quoteNumber}`);
+      openCreated(newId);
+    } catch {
+      toast.error("Failed to create shipment");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const copyEstimates = async (sourceId: string, targetId: string) => {
     const invoicing = await api.invoicing.invoicingGet(sourceId);
 
@@ -233,9 +306,14 @@ export const CreateShipmentWizard = ({
         <Button onClick={handleCreateBlank} loading={busy}>
           Create Blank
         </Button>
-        {copyFromId && (
+        {copyMode === "shipment" && copyFromId && (
           <Button type="primary" onClick={() => setStep("select-fields")}>
             Next &mdash; Select Fields
+          </Button>
+        )}
+        {copyMode === "quote" && quoteRef && (
+          <Button type="primary" onClick={handleCreateFromQuote} loading={busy}>
+            Create from Quote
           </Button>
         )}
       </div>
@@ -263,18 +341,72 @@ export const CreateShipmentWizard = ({
     <AppModal open={open} onClose={resetAndClose} title={title} subtitle={subtitle} size="medium" footer={footer}>
       {step === "ask-copy" && (
         <>
-          <p className="text-xs text-slate-600 mb-4">Would you like to copy data from a previous shipment?</p>
-          <label className="block text-[11px] text-slate-500 mb-1">Copy from Job Number</label>
-          <Select
-            showSearch
-            allowClear
-            className="w-full"
-            placeholder="Search or select..."
-            value={copyFromId || undefined}
-            onChange={(value) => setCopyFromId(value ?? "")}
-            options={jobOptions}
-            optionFilterProp="label"
+          <p className="text-xs text-slate-600 mb-4">Would you like to copy data from a previous shipment or a quote?</p>
+
+          <Segmented
+            block
+            className="mb-4"
+            value={copyMode}
+            onChange={(v) => {
+              setCopyMode(v as "shipment" | "quote");
+              setCopyFromId("");
+              setQuoteRef("");
+            }}
+            options={[
+              { label: "Copy from Shipment", value: "shipment" },
+              { label: "Copy from Quote", value: "quote" },
+            ]}
           />
+
+          {copyMode === "shipment" ? (
+            <>
+              <label className="block text-[11px] text-slate-500 mb-1">Copy from Job Number</label>
+              <Select
+                showSearch
+                allowClear
+                className="w-full"
+                placeholder="Search or select..."
+                value={copyFromId || undefined}
+                onChange={(value) => setCopyFromId(value ?? "")}
+                options={jobOptions}
+                optionFilterProp="label"
+              />
+            </>
+          ) : (
+            <>
+              <label className="block text-[11px] text-slate-500 mb-1">Copy from Quote Number</label>
+              <Select
+                showSearch
+                allowClear
+                className="w-full"
+                placeholder="Search or select..."
+                value={quoteRef || undefined}
+                onChange={(value) => setQuoteRef(value ?? "")}
+                options={quoteOptions}
+                optionFilterProp="label"
+              />
+
+              {selectedQuote && (
+                <div className="mt-4 border border-slate-200 bg-slate-50 rounded-xl px-4 py-3.5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Data to transfer</span>
+                    <Tag color="geekblue" className="!m-0 font-mono">{selectedQuote.quoteNumber}</Tag>
+                    {statusOf(selectedQuote.data.quoteStatus) && (
+                      <Tag className="!m-0">{statusOf(selectedQuote.data.quoteStatus)}</Tag>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                    {quotePreview(selectedQuote.data).map((item) => (
+                      <div key={item.label}>
+                        <div className="text-[11px] text-slate-400">{item.label}</div>
+                        <div className="text-xs font-semibold text-slate-800">{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </>
       )}
 

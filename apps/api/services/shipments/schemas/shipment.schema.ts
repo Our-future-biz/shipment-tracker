@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, numeric, date, uuid, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, date, uuid, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const shipmentTable = pgTable(
@@ -127,12 +127,6 @@ export const shipmentTable = pgTable(
     containerCount4: text("container_count_4").notNull().default(""),
     containerLength4: text("container_length_4").notNull().default(""),
     containerType4: text("container_type_4").notNull().default(""),
-
-    // — Dimensions (variable-length array, stays JSONB) —
-    dimensions: jsonb("dimensions"),
-
-    // — Cargo items (per-item table rows, variable length) —
-    cargoItems: jsonb("cargo_items"),
 
     // — Quote —
     salesNumber: text("sales_number").notNull().default(""),

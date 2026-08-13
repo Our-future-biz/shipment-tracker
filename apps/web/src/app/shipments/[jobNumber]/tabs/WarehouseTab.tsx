@@ -7,6 +7,7 @@ import type { MessageInstance } from "antd/es/message/interface";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { buildRowData, type ShipmentItem } from "@/hooks/useShipments";
+import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { SpreadsheetSection, CUSTOMS_COLUMNS, INVOICING_COLUMNS } from "@/app/warehouse/_components/sections/SpreadsheetSection";
@@ -96,17 +97,12 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
 // ─── Stackability Badge ─────────────────────────────────────────
 
 function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
-  const raw = shipment.dimensions ? String(shipment.dimensions) : undefined;
+  const rows = shipment.cargoDimensions ?? [];
   let stackability: "stackable" | "not_stackable" | "unknown" = "unknown";
-  if (raw) {
-    try {
-      const rows = JSON.parse(raw) as Array<Record<string, unknown>>;
-      const hasStackable = rows.some((r) => r.stackable === true || r.stackable === "true");
-      const hasNotStackable = rows.some((r) => r.stackable === false || r.stackable === "false");
-      if (hasNotStackable) stackability = "not_stackable";
-      else if (hasStackable) stackability = "stackable";
-    } catch { /* ignore */ }
-  }
+  const hasStackable = rows.some((r) => r.stackable === "Stackable" || r.stackable === "Overstowable");
+  const hasNotStackable = rows.some((r) => r.stackable === "Non-stackable" || r.stackable === "Non-overstowable");
+  if (hasNotStackable) stackability = "not_stackable";
+  else if (hasStackable) stackability = "stackable";
   return (
     <div className="mb-3">
       {stackability === "stackable" && <Tag color="green">Stackable</Tag>}
@@ -117,17 +113,13 @@ function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
 }
 
 // ─── Dimensions / Remeasurement Editor (shipment-specific) ──────
+// Edits the shipment's cargo_dimension rows (the same rows the Cargo Details
+// tab manages per container). Rows keep their containerId when remeasured here;
+// rows added here belong to the shipment directly (containerId null).
 
-interface DimensionRow {
-  colli: string;
-  length: string;
-  width: string;
-  height: string;
-  weightPerPiece: string;
-  stackable?: boolean;
-}
+type DimensionRow = interfaces.CargoDimensionLine;
 
-const EMPTY_DIM: DimensionRow = { colli: "", length: "", width: "", height: "", weightPerPiece: "" };
+const EMPTY_DIM: DimensionRow = { containerId: null, pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable: "" };
 
 function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageInstance }) {
   const queryClient = useQueryClient();
@@ -136,16 +128,14 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const informedAt = jobSection.inform_operations_sent;
 
   const initial: DimensionRow[] = (() => {
-    const dims = shipment.dimensions;
-    if (!dims) return [{ ...EMPTY_DIM }];
-    const arr = Array.isArray(dims) ? dims : (() => { try { return JSON.parse(String(dims)); } catch { return []; } })();
+    const arr = shipment.cargoDimensions ?? [];
     return arr.length > 0 ? arr : [{ ...EMPTY_DIM }];
   })();
 
   const [rows, setRows] = useState<DimensionRow[]>(initial);
   const [dirty, setDirty] = useState(false);
 
-  const updateRow = (idx: number, field: keyof DimensionRow, value: string | boolean) => {
+  const updateRow = (idx: number, field: keyof DimensionRow, value: string) => {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
     setDirty(true);
   };
@@ -153,10 +143,9 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const deleteRow = (idx: number) => { setRows((prev) => prev.filter((_, i) => i !== idx)); setDirty(true); };
 
   const save = async () => {
-    const filtered = rows.filter((r) => r.colli || r.length || r.width || r.height || r.weightPerPiece);
-    const dimData = filtered.length > 0 ? filtered : null;
+    const filtered = rows.filter((r) => r.pieces || r.lengthCm || r.widthCm || r.heightCm || r.weightPerPcKg);
     try {
-      await api.shipments.shipmentUpdate(shipment.id, { dimensions: dimData });
+      await api.shipments.shipmentUpdate(shipment.id, { cargoDimensions: filtered });
       queryClient.invalidateQueries({ queryKey: ["shipments"] });
       setDirty(false);
       messageApi.success("Saved");
@@ -168,11 +157,11 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const rowCbms: number[] = [];
   let totalColli = 0, totalWeightKg = 0, totalVolumeCbm = 0;
   for (const r of rows) {
-    const c = parseFloat(r.colli) || 0;
-    const L = parseFloat(r.length) || 0;
-    const W = parseFloat(r.width) || 0;
-    const H = parseFloat(r.height) || 0;
-    const w = parseFloat(r.weightPerPiece) || 0;
+    const c = parseFloat(r.pieces) || 0;
+    const L = parseFloat(r.lengthCm) || 0;
+    const W = parseFloat(r.widthCm) || 0;
+    const H = parseFloat(r.heightCm) || 0;
+    const w = parseFloat(r.weightPerPcKg) || 0;
     const cbm = (c * (L * W * H)) / 1_000_000;
     rowCbms.push(cbm);
     totalColli += c;
@@ -181,24 +170,19 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   }
 
   const shipmentDims = useMemo(() => {
-    const dims = shipment.dimensions;
-    if (!dims) return { colli: 0, weightKg: 0, volumeCbm: 0 };
-    try {
-      const parsed: DimensionRow[] = Array.isArray(dims) ? dims : JSON.parse(String(dims));
-      let sColli = 0, sWeight = 0, sVolume = 0;
-      for (const r of parsed) {
-        const c = parseFloat(r.colli) || 0;
-        const L = parseFloat(r.length) || 0;
-        const W = parseFloat(r.width) || 0;
-        const H = parseFloat(r.height) || 0;
-        const w = parseFloat(r.weightPerPiece) || 0;
-        sColli += c;
-        sWeight += c * w;
-        sVolume += (c * (L * W * H)) / 1_000_000;
-      }
-      return { colli: sColli, weightKg: sWeight, volumeCbm: sVolume };
-    } catch { return { colli: 0, weightKg: 0, volumeCbm: 0 }; }
-  }, [shipment.dimensions]);
+    let sColli = 0, sWeight = 0, sVolume = 0;
+    for (const r of shipment.cargoDimensions ?? []) {
+      const c = parseFloat(r.pieces) || 0;
+      const L = parseFloat(r.lengthCm) || 0;
+      const W = parseFloat(r.widthCm) || 0;
+      const H = parseFloat(r.heightCm) || 0;
+      const w = parseFloat(r.weightPerPcKg) || 0;
+      sColli += c;
+      sWeight += c * w;
+      sVolume += (c * (L * W * H)) / 1_000_000;
+    }
+    return { colli: sColli, weightKg: sWeight, volumeCbm: sVolume };
+  }, [shipment.cargoDimensions]);
 
   const mismatchCls = (a: number, b: number) => (a !== b && a > 0 && b > 0 ? "bg-amber-500/15 px-1.5 py-0.5 rounded" : "");
   const differs = (a: number, b: number) => a > 0 && b > 0 && Math.abs(a - b) > 0.001;
@@ -239,7 +223,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
         <tbody>
           {rows.map((row, idx) => (
             <tr key={idx} className="border-b border-slate-100">
-              {(["colli", "length", "width", "height", "weightPerPiece"] as const).map((field) => (
+              {(["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const).map((field) => (
                 <td key={field} className="p-0.5 px-1">
                   <Input size="small" value={row[field]} placeholder="0" onChange={(e) => updateRow(idx, field, e.target.value)} className="w-full" />
                 </td>

@@ -31,12 +31,9 @@ interface DerivedRow {
 
 function deriveRows(masterShipments: ShipmentItem[]): DerivedRow[] {
   return masterShipments.map((s) => {
-    const dimsJson = s.dimensions
-      ? typeof s.dimensions === "string"
-        ? s.dimensions
-        : JSON.stringify(s.dimensions)
-      : "";
-    const { weightKg, volumeCbm } = computeDimensionTotals(s.dimensions);
+    const dims = s.cargoDimensions ?? [];
+    const dimsJson = dims.length > 0 ? JSON.stringify(dims) : "";
+    const { weightKg, volumeCbm } = computeDimensionTotals(dims);
     const manualTons = parseFloat(String(s.totalWeightTons ?? "")) || 0;
     const manualCbm = parseFloat(String(s.totalVolumeCbm ?? "")) || 0;
     const tons = weightKg > 0 ? weightKg / 1000 : manualTons;

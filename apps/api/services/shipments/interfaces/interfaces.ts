@@ -1,7 +1,11 @@
 export interface ContainerLine {
+  // Stable row id. Present on reads; clients echo it back on updates so cargo
+  // lines keep pointing at the same container. Absent on brand-new rows.
+  id?: string;
   containerNumber: string;
   sealNumber: string;
   type: string;
+  // Derived from type on the server (20' → 1, 40' → 2); client values are ignored.
   teu: string;
   packages: string;
   packageType: string;
@@ -9,14 +13,30 @@ export interface ContainerLine {
   volume: string;
 }
 
+// A goods line of the Cargo Description card. No volume by design — volume only
+// exists on dimension lines. containerId is null for containerless cargo (LCL/air).
 export interface CargoItemLine {
+  containerId?: string | null;
   cargoDescription: string;
   hsCode: string;
   pieces: string;
   packageType: string;
   grossWeight: string;
-  volume: string;
   commercialInvoiceValue: string;
+  currency: string;
+}
+
+// A dimension line of the Cargo Dimensions card: `pieces` identical pieces of
+// L×W×H (cm) and weightPerPcKg each. Volume per piece is derived, never stored.
+export interface CargoDimensionLine {
+  containerId?: string | null;
+  pieces: string;
+  lengthCm: string;
+  widthCm: string;
+  heightCm: string;
+  weightPerPcKg: string;
+  packageType: string;
+  stackable: string;
 }
 
 export interface ShipmentItem {
@@ -143,14 +163,19 @@ export interface ShipmentItem {
   containerLength4: string;
   containerType4: string;
 
-  // Dimensions (JSONB)
-  dimensions: unknown;
-
-  // Containers (JSONB array of ContainerLine)
+  // Container / cargo detail rows (own tables, ordered by position)
   containers: ContainerLine[] | null;
-
-  // Cargo items (JSONB array of CargoItemLine)
   cargoItems: CargoItemLine[] | null;
+  cargoDimensions: CargoDimensionLine[] | null;
+
+  // Read-only projections computed from the rows above (never stored).
+  // containerNumber/sealNumber/pcs/typeOfPackages/hsCode/cargoDescription are
+  // also overridden with computed values when detail rows exist.
+  containerTypeSummary: string; // e.g. "2× 40' HC, 1× 20' GP"
+  totalTeu: string;
+  totalGrossWeightKg: string;
+  totalVolumeM3: string;
+  civByCurrency: string; // e.g. "12 500 USD, 3 000 EUR"
 
   // Quote
   salesNumber: string;

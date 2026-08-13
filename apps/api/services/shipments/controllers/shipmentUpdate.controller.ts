@@ -1,7 +1,7 @@
 import { api, APIError } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
-import type { ShipmentItem, ContainerLine, CargoItemLine } from "../interfaces/interfaces";
+import type { ShipmentItem, ContainerLine, CargoItemLine, CargoDimensionLine } from "../interfaces/interfaces";
 
 interface ShipmentUpdateRequest {
   shipmentId: string;
@@ -122,10 +122,10 @@ interface ShipmentUpdateRequest {
   containerLength4?: string;
   containerType4?: string;
 
-  // Dimensions (JSONB)
-  dimensions?: unknown;
+  // Detail rows (containers + cargo lines; each replaces the shipment's set when present)
   containers?: ContainerLine[];
   cargoItems?: CargoItemLine[];
+  cargoDimensions?: CargoDimensionLine[];
 
   // Quote
   salesNumber?: string;

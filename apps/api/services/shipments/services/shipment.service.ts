@@ -3,15 +3,29 @@ import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
 import { containerRepository, normalizeContainerNumber } from "../repositories/container.repository";
+import { cargoItemRepository } from "../repositories/cargoItem.repository";
+import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
+import { projectCargo } from "./cargoProjection";
 import type { ShipmentListFilters } from "../repositories/shipment.repository";
-import type { NewShipmentRecord } from "../schemas/shipment.schema";
+import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
-import type { ContainerLine } from "../interfaces/interfaces";
+import type { CargoItemRecord } from "../schemas/cargoItem.schema";
+import type { CargoDimensionRecord } from "../schemas/cargoDimension.schema";
+import type { ContainerLine, CargoItemLine, CargoDimensionLine } from "../interfaces/interfaces";
 
-// Project a container table row down to the API line shape (drops internal
-// id/shipmentId/timestamps).
+// Extra detail rows accepted alongside the shipment's own fields on create/update.
+interface DetailRows {
+  containers?: ContainerLine[];
+  cargoItems?: CargoItemLine[];
+  cargoDimensions?: CargoDimensionLine[];
+}
+
+// Project table rows down to the API line shapes (drop internal
+// shipmentId/companyId/timestamps; containers keep their id — cargo lines
+// reference it and clients echo it back on updates).
 function toContainerLine(row: ContainerRecord): ContainerLine {
   return {
+    id: row.id,
     containerNumber: normalizeContainerNumber(row.containerNumber),
     sealNumber: row.sealNumber,
     type: row.type,
@@ -23,6 +37,32 @@ function toContainerLine(row: ContainerRecord): ContainerLine {
   };
 }
 
+function toCargoItemLine(row: CargoItemRecord): CargoItemLine {
+  return {
+    containerId: row.containerId,
+    cargoDescription: row.cargoDescription,
+    hsCode: row.hsCode,
+    pieces: row.pieces,
+    packageType: row.packageType,
+    grossWeight: row.grossWeight,
+    commercialInvoiceValue: row.commercialInvoiceValue,
+    currency: row.currency,
+  };
+}
+
+function toCargoDimensionLine(row: CargoDimensionRecord): CargoDimensionLine {
+  return {
+    containerId: row.containerId,
+    pieces: row.pieces,
+    lengthCm: row.lengthCm,
+    widthCm: row.widthCm,
+    heightCm: row.heightCm,
+    weightPerPcKg: row.weightPerPcKg,
+    packageType: row.packageType,
+    stackable: row.stackable,
+  };
+}
+
 // Container and seal numbers live per-container; the shipment-level values are
 // read-only aggregates of every container's value.
 function aggregate(containers: ContainerLine[], field: "containerNumber" | "sealNumber"): string {
@@ -30,6 +70,41 @@ function aggregate(containers: ContainerLine[], field: "containerNumber" | "seal
     .map((c) => c[field])
     .filter((v) => v && v.trim().length > 0)
     .join(", ");
+}
+
+// Attach detail rows and the read-only projections to a shipment row. Computed
+// values win over the stored legacy fields; the stored value only shows for
+// shipments that predate the detail tables and have no rows to compute from.
+function enrich(shipment: ShipmentRecord, containers: ContainerLine[], cargoItems: CargoItemLine[], cargoDimensions: CargoDimensionLine[]) {
+  const hasDetailRows = containers.length > 0 || cargoItems.length > 0 || cargoDimensions.length > 0;
+  const p = projectCargo(containers, cargoItems, cargoDimensions);
+  return {
+    ...shipment,
+    containers,
+    cargoItems,
+    cargoDimensions,
+    containerNumber: aggregate(containers, "containerNumber"),
+    sealNumber: aggregate(containers, "sealNumber"),
+    pcs: hasDetailRows ? p.pcs : shipment.pcs,
+    typeOfPackages: hasDetailRows ? p.typeOfPackages : shipment.typeOfPackages,
+    hsCode: hasDetailRows ? p.hsCode : shipment.hsCode,
+    cargoDescription: hasDetailRows ? p.cargoDescription : shipment.cargoDescription,
+    civByCurrency: p.civByCurrency,
+    containerTypeSummary: p.containerTypeSummary,
+    totalTeu: p.totalTeu,
+    totalGrossWeightKg: p.totalGrossWeightKg,
+    totalVolumeM3: p.totalVolumeM3,
+  };
+}
+
+// Cargo lines may only point at containers of their own shipment; anything else
+// (stale id after a container was deleted, foreign id) becomes a shipment-level
+// line rather than an error.
+function sanitizeContainerLinks<T extends { containerId?: string | null }>(lines: T[], validIds: Set<string>): T[] {
+  return lines.map((l) => ({
+    ...l,
+    containerId: l.containerId && validIds.has(l.containerId) ? l.containerId : null,
+  }));
 }
 
 // Real `date` columns reject "" — the UI sends an empty string when a date cell is
@@ -74,6 +149,23 @@ class ShipmentService {
     }
   }
 
+  // Persist the shipment's detail rows. Containers first — cargo lines are
+  // validated against the resulting container ids.
+  private async syncDetailRows(shipmentId: string, companyId: string, rows: DetailRows) {
+    if (rows.containers !== undefined) {
+      await containerRepository.syncForShipment(shipmentId, companyId, rows.containers);
+    }
+    if (rows.cargoItems !== undefined || rows.cargoDimensions !== undefined) {
+      const containerIds = new Set((await containerRepository.listByShipmentId(shipmentId)).map((c) => c.id));
+      if (rows.cargoItems !== undefined) {
+        await cargoItemRepository.replaceForShipment(shipmentId, companyId, sanitizeContainerLinks(rows.cargoItems, containerIds));
+      }
+      if (rows.cargoDimensions !== undefined) {
+        await cargoDimensionRepository.replaceForShipment(shipmentId, companyId, sanitizeContainerLinks(rows.cargoDimensions, containerIds));
+      }
+    }
+  }
+
   async list(companyId: string, filters: ShipmentListFilters) {
     const result = await shipmentRepository.listFiltered(companyId, filters);
 
@@ -93,25 +185,30 @@ class ShipmentService {
       }
     }
 
-    // Enrich with containers (one query for the whole page, grouped by shipment)
-    const containerRows = await containerRepository.listByShipmentIds(result.data.map((s) => s.id));
-    const containersByShipment = new Map<string, ContainerLine[]>();
-    for (const row of containerRows) {
-      const list = containersByShipment.get(row.shipmentId) ?? [];
-      list.push(toContainerLine(row));
-      containersByShipment.set(row.shipmentId, list);
-    }
+    // Enrich with detail rows (one query per table for the whole page, grouped by shipment)
+    const shipmentIds = result.data.map((s) => s.id);
+    const groupByShipment = <R extends { shipmentId: string }, L>(rows: R[], toLine: (r: R) => L) => {
+      const map = new Map<string, L[]>();
+      for (const row of rows) {
+        const list = map.get(row.shipmentId) ?? [];
+        list.push(toLine(row));
+        map.set(row.shipmentId, list);
+      }
+      return map;
+    };
+    const containersByShipment = groupByShipment(await containerRepository.listByShipmentIds(shipmentIds), toContainerLine);
+    const itemsByShipment = groupByShipment(await cargoItemRepository.listByShipmentIds(shipmentIds), toCargoItemLine);
+    const dimensionsByShipment = groupByShipment(await cargoDimensionRepository.listByShipmentIds(shipmentIds), toCargoDimensionLine);
 
-    const enriched = result.data.map((s) => {
-      const containers = containersByShipment.get(s.id) ?? [];
-      return {
-        ...s,
-        masterJobMczNumber: s.masterJobId ? mczMap.get(s.masterJobId) || null : null,
-        containers,
-        containerNumber: aggregate(containers, "containerNumber"),
-        sealNumber: aggregate(containers, "sealNumber"),
-      };
-    });
+    const enriched = result.data.map((s) => ({
+      ...enrich(
+        s,
+        containersByShipment.get(s.id) ?? [],
+        itemsByShipment.get(s.id) ?? [],
+        dimensionsByShipment.get(s.id) ?? [],
+      ),
+      masterJobMczNumber: s.masterJobId ? mczMap.get(s.masterJobId) || null : null,
+    }));
 
     return {
       pagination: { total: result.total, offset: filters.offset, limit: filters.limit },
@@ -128,22 +225,19 @@ class ShipmentService {
       if (mj) masterJobMczNumber = mj.mczNumber;
     }
     const containers = (await containerRepository.listByShipmentId(id)).map(toContainerLine);
+    const cargoItems = (await cargoItemRepository.listByShipmentId(id)).map(toCargoItemLine);
+    const cargoDimensions = (await cargoDimensionRepository.listByShipmentId(id)).map(toCargoDimensionLine);
     return {
-      ...shipment,
+      ...enrich(shipment, containers, cargoItems, cargoDimensions),
       masterJobMczNumber,
-      containers,
-      containerNumber: aggregate(containers, "containerNumber"),
-      sealNumber: aggregate(containers, "sealNumber"),
     };
   }
 
-  async create(companyId: string, data: Omit<NewShipmentRecord, "companyId"> & { containers?: ContainerLine[] }) {
-    const { containers, ...rest } = data;
+  async create(companyId: string, data: Omit<NewShipmentRecord, "companyId"> & DetailRows) {
+    const { containers, cargoItems, cargoDimensions, ...rest } = data;
     const shipmentData = sanitizeTypedFields(rest as Record<string, unknown>);
     const shipment = await shipmentRepository.createForCompany(companyId, shipmentData as never);
-    if (containers && containers.length > 0) {
-      await containerRepository.replaceForShipment(shipment.id, companyId, containers);
-    }
+    await this.syncDetailRows(shipment.id, companyId, { containers, cargoItems, cargoDimensions });
     await this.recalcCustomerRollups(shipment.customerId, companyId);
     return this.getById(shipment.id, companyId);
   }
@@ -155,11 +249,11 @@ class ShipmentService {
     return `CZ${String(max + 1).padStart(8, "0")}`;
   }
 
-  async update(id: string, companyId: string, data: Partial<NewShipmentRecord> & { containers?: ContainerLine[] }, userId: string) {
+  async update(id: string, companyId: string, data: Partial<NewShipmentRecord> & DetailRows, userId: string) {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) return null;
 
-    const { containers, ...rest } = data;
+    const { containers, cargoItems, cargoDimensions, ...rest } = data;
     const shipmentData = sanitizeTypedFields(rest as Record<string, unknown>);
 
     // Write audit entries for changed shipment fields
@@ -178,9 +272,7 @@ class ShipmentService {
       }
     }
 
-    if (containers !== undefined) {
-      await containerRepository.replaceForShipment(id, companyId, containers);
-    }
+    await this.syncDetailRows(id, companyId, { containers, cargoItems, cargoDimensions });
 
     if (Object.keys(shipmentData).length > 0) {
       await shipmentRepository.updateForCompany(id, companyId, shipmentData as never);

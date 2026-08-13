@@ -131,7 +131,7 @@ export const COLUMNS: ColumnDef[] = [
   // References
   { key: "containerNumber", title: "Container Number", width: 150, type: "text", readonly: true, apiField: "containerNumber" },
   { key: "sealNumber", title: "Seal Number", width: 140, type: "text", readonly: true, apiField: "sealNumber" },
-  { key: "typeOfPackages", title: "Type Of Packages", width: 150, type: "text", apiField: "typeOfPackages" },
+  { key: "typeOfPackages", title: "Type Of Packages", width: 150, type: "text", readonly: true, apiField: "typeOfPackages" },
   { key: "serviceName", title: "Service Name", width: 150, type: "text", apiField: "serviceName" },
   { key: "invoicingStatus", title: "Invoicing Status", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Invoicing Status"], apiField: "invoicingStatus" },
   { key: "personalReference", title: "Personal Reference", width: 150, type: "text", apiField: "personalReference" },
@@ -171,9 +171,9 @@ export const COLUMNS: ColumnDef[] = [
   // Commercial
   { key: "commercialInvoice", title: "Commercial Invoice number(s)", width: 170, type: "text", apiField: "commercialInvoice" },
   { key: "commercialInvoiceValue", title: "Commercial Invoice Value", width: 160, type: "text", apiField: "commercialInvoiceValue" },
-  { key: "hsCode", title: "HS Code", width: 110, type: "text", apiField: "hsCode" },
-  { key: "cargoDescription", title: "Cargo Description", width: 220, type: "text", apiField: "cargoDescription" },
-  { key: "pcs", title: "Pieces (PCS)", width: 100, type: "text", apiField: "pcs" },
+  { key: "hsCode", title: "HS Code", width: 110, type: "text", readonly: true, apiField: "hsCode" },
+  { key: "cargoDescription", title: "Cargo Description", width: 220, type: "text", readonly: true, apiField: "cargoDescription" },
+  { key: "pcs", title: "Pieces (PCS)", width: 100, type: "text", readonly: true, apiField: "pcs" },
   { key: "creditCheck", title: "Credit Check", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Credit Check"], apiField: "creditCheck" },
   { key: "approvedBy", title: "Approved By", width: 150, type: "text", apiField: "approvedBy" },
   { key: "bookingConfirmation", title: "Booking Confirmation", width: 180, type: "text", apiField: "bookingConfirmation" },
@@ -213,7 +213,15 @@ export const COLUMNS: ColumnDef[] = [
 
   // Computed columns
   { key: "teu", title: "TEU", width: 70, type: "computed", readonly: true },
-  { key: "dimensions", title: "Dimensions", width: 180, type: "popup", apiField: "dimensions" },
+  // Data carrier for the dimension-derived computed columns (popup type is
+  // hidden from every table/picker). Dimension rows live in cargo_dimension.
+  { key: "dimensions", title: "Dimensions", width: 180, type: "popup", apiField: "cargoDimensions" },
+  // Read-only projections computed by the backend from containers + cargo lines
+  { key: "containerTypeSummary", title: "Container Type", width: 150, type: "text", readonly: true, apiField: "containerTypeSummary" },
+  { key: "totalTeu", title: "Total TEU", width: 90, type: "text", readonly: true, apiField: "totalTeu" },
+  { key: "totalGrossWeightKg", title: "Total Gross Weight (kg)", width: 160, type: "text", readonly: true, apiField: "totalGrossWeightKg" },
+  { key: "totalVolumeM3", title: "Total Volume (m³)", width: 140, type: "text", readonly: true, apiField: "totalVolumeM3" },
+  { key: "civByCurrency", title: "CIV By Currency", width: 170, type: "text", readonly: true, apiField: "civByCurrency" },
   { key: "totalWeightTons", title: "Total Weight In Tons", width: 140, type: "computed", readonly: true, apiField: "totalWeightTons" },
   { key: "totalVolumeCbm", title: "Total Volume In CBM", width: 140, type: "computed", readonly: true, apiField: "totalVolumeCbm" },
   { key: "freightTon", title: "Freight Ton", width: 110, type: "computed", readonly: true },
@@ -426,13 +434,14 @@ export function getCellConditionalStyle(
 
 // ─── Computed Column Calculators ──────────────────────────────────────
 
+// Shape of a cargo_dimension row as served by the API (volume per piece is
+// always derived from L×W×H, never stored).
 export interface DimensionRow {
-  colli: string;
-  length: string;
-  width: string;
-  height: string;
-  weightPerPiece: string;
-  volumePerPiece?: string;
+  pieces: string;
+  lengthCm: string;
+  widthCm: string;
+  heightCm: string;
+  weightPerPcKg: string;
 }
 
 export function computeDimensionTotals(dimensions: unknown): {
@@ -445,15 +454,14 @@ export function computeDimensionTotals(dimensions: unknown): {
     const rows: DimensionRow[] = Array.isArray(dimensions) ? dimensions : JSON.parse(String(dimensions));
     let weightKg = 0, volumeCbm = 0, surface = 0;
     for (const r of rows) {
-      const colli = parseFloat(r.colli || "0") || 0;
-      const L = parseFloat(r.length || "0") || 0;
-      const W = parseFloat(r.width || "0") || 0;
-      const H = parseFloat(r.height || "0") || 0;
-      const wPiece = parseFloat(r.weightPerPiece || "0") || 0;
-      const vPiece = r.volumePerPiece ? parseFloat(r.volumePerPiece) : (L * W * H) / 1_000_000;
-      weightKg += colli * wPiece;
-      volumeCbm += colli * (isNaN(vPiece) ? 0 : vPiece);
-      surface += colli * (L * W) / 10_000;
+      const pieces = parseFloat(r.pieces || "0") || 0;
+      const L = parseFloat(r.lengthCm || "0") || 0;
+      const W = parseFloat(r.widthCm || "0") || 0;
+      const H = parseFloat(r.heightCm || "0") || 0;
+      const wPiece = parseFloat(r.weightPerPcKg || "0") || 0;
+      weightKg += pieces * wPiece;
+      volumeCbm += pieces * (L * W * H) / 1_000_000;
+      surface += pieces * (L * W) / 10_000;
     }
     return { weightKg, volumeCbm, surface };
   } catch {
@@ -493,6 +501,9 @@ export function getComputedValue(key: string, rowData: Record<string, string>): 
 
   switch (key) {
     case "teu": {
+      // Container rows are the source of truth; the legacy count/length field
+      // sets only cover shipments that predate the container table.
+      if (rowData["totalTeu"]) return rowData["totalTeu"];
       const teu = computeTEU(rowData);
       return teu > 0 ? String(teu) : "";
     }

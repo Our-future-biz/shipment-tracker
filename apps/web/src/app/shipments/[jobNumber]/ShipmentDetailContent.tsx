@@ -27,7 +27,7 @@ import { getTasksForDirection, getActiveStageFromTasks } from "./_components/tas
 import Link from "next/link";
 import { CostsTab } from "./tabs/CostsTab";
 import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
-import { CargoItemsTab } from "./tabs/CargoItemsTab";
+import { CargoDetailsTab } from "./tabs/CargoDetailsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
 import { WarehouseTab } from "./tabs/WarehouseTab";
@@ -395,21 +395,28 @@ const SWITCH_BOL_FIELDS: FieldDef[] = [
 ];
 
 /* ── Cargo & Commercial card (mirrors the standalone cargo-details design) ── */
-type CargoField = { key: string; label: string; highlight?: boolean };
+// `ro` fields are read-only projections computed from the Container/Cargo
+// Details rows (the value falls back to the stored legacy field for shipments
+// that predate the detail tables).
+type CargoField = { key: string; label: string; highlight?: boolean; ro?: boolean };
 
 const CARGO_COMMERCIAL_L: CargoField[] = [
   { key: "loadType", label: "Load type" },
   { key: "freightMode", label: "Freight mode" },
   { key: "tradeDirection", label: "Trade direction" },
   { key: "serviceType", label: "Service type" },
-  { key: "pcs", label: "Pieces (PCS)" },
-  { key: "typeOfPackages", label: "Type of packages" },
-  { key: "hsCode", label: "HS code", highlight: true },
-  { key: "cargoDescription", label: "Cargo description", highlight: true },
+  { key: "pcs", label: "Pieces (PCS)", ro: true },
+  { key: "typeOfPackages", label: "Type of packages", ro: true },
+  { key: "hsCode", label: "HS code", highlight: true, ro: true },
+  { key: "cargoDescription", label: "Cargo description", highlight: true, ro: true },
 ];
 const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "commercialInvoice", label: "Commercial invoice number(s)" },
-  { key: "commercialInvoiceValue", label: "Commercial invoice value" },
+  { key: "commercialInvoiceValue", label: "Commercial invoice value", ro: true },
+  { key: "containerTypeSummary", label: "Container type", ro: true },
+  { key: "totalTeu", label: "Total TEU", ro: true },
+  { key: "totalGrossWeightKg", label: "Total gross weight (kg)", ro: true },
+  { key: "totalVolumeM3", label: "Total volume (m³)", ro: true },
   { key: "invoicingStatus", label: "Invoicing status" },
   { key: "insurance", label: "Insurance" },
   { key: "creditCheck", label: "Credit check" },
@@ -427,7 +434,31 @@ function CargoRow({
   onCommit: CommitFn;
   styleFor?: StyleFor;
 }) {
-  const value = getFieldValue(shipment, field.key);
+  // The commercial invoice value shows the per-currency breakdown from the
+  // cargo lines when there is one; the stored single value covers old data.
+  const value =
+    field.key === "commercialInvoiceValue"
+      ? getFieldValue(shipment, "civByCurrency") || getFieldValue(shipment, "commercialInvoiceValue")
+      : getFieldValue(shipment, field.key);
+  if (field.ro) {
+    return (
+      <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+        <span className="w-[180px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">{field.label}</span>
+        <span
+          className={`flex-1 min-w-0 ${
+            value
+              ? field.highlight
+                ? "text-slate-900 font-medium bg-[#eaf6ee] px-1.5 py-px rounded"
+                : "text-slate-900 font-medium"
+              : "text-slate-300"
+          }`}
+          style={styleFor?.(field.key, value) ?? undefined}
+        >
+          {value || "—"}
+        </span>
+      </div>
+    );
+  }
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className="w-[180px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">{field.label}</span>
@@ -516,6 +547,9 @@ export function ShipmentDetailContent() {
   const [notesOpen, setNotesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // Container panel to open/highlight when jumping to Cargo Details from a
+  // container-number link.
+  const [cargoFocusId, setCargoFocusId] = useState<string | null>(null);
 
   const shipment = shipments.find((s) => s.id === jobNumber);
 
@@ -897,9 +931,10 @@ export function ShipmentDetailContent() {
         )}
 
         {activeTab === "cargo" && (
-          <CargoItemsTab
+          <CargoDetailsTab
             shipment={shipment}
-            onChange={(cargoItems) => updateShipment({ id: shipment.id, data: { cargoItems } })}
+            focusContainerId={cargoFocusId}
+            onChange={(data) => updateShipment({ id: shipment.id, data })}
           />
         )}
 
@@ -915,6 +950,10 @@ export function ShipmentDetailContent() {
           <ContainerDetailsTab
             shipment={shipment}
             onChange={(containers) => updateShipment({ id: shipment.id, data: { containers } })}
+            onOpenCargo={(containerId) => {
+              setCargoFocusId(containerId);
+              setActiveTab("cargo");
+            }}
           />
         )}
 
