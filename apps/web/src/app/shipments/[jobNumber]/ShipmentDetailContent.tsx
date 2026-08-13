@@ -400,11 +400,9 @@ const SWITCH_BOL_FIELDS: FieldDef[] = [
 // that predate the detail tables).
 type CargoField = { key: string; label: string; highlight?: boolean; ro?: boolean };
 
+// Load type / freight mode / trade direction / service type / invoicing status
+// moved to the Shipment Overview card (agreed overview mockup).
 const CARGO_COMMERCIAL_L: CargoField[] = [
-  { key: "loadType", label: "Load type" },
-  { key: "freightMode", label: "Freight mode" },
-  { key: "tradeDirection", label: "Trade direction" },
-  { key: "serviceType", label: "Service type" },
   { key: "pcs", label: "Pieces (PCS)", ro: true },
   { key: "typeOfPackages", label: "Type of packages", ro: true },
   { key: "hsCode", label: "HS code", highlight: true, ro: true },
@@ -417,7 +415,6 @@ const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "totalTeu", label: "Total TEU", ro: true },
   { key: "totalGrossWeightKg", label: "Total gross weight (kg)", ro: true },
   { key: "totalVolumeM3", label: "Total volume (m³)", ro: true },
-  { key: "invoicingStatus", label: "Invoicing status" },
   { key: "insurance", label: "Insurance" },
   { key: "creditCheck", label: "Credit check" },
   { key: "approvedBy", label: "Approved by" },
@@ -759,15 +756,23 @@ export function ShipmentDetailContent() {
               {/* SHIPMENT OVERVIEW */}
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                 <SectionHeader icon={<ContainerOutlined />} title="Shipment Overview" />
+                {/* Column order mirrors the agreed overview mockup 1:1 — left is
+                    "who and what", right is "where, when and in which state". */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
                   <div>
                     <RoRow label="Internal Reference" value={shipment.jobNumber} />
+                    <FieldRow label="Trade Direction" fieldKey="tradeDirection" value={shipment.tradeDirection} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Freight Mode" fieldKey="freightMode" value={shipment.freightMode} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Load Type" fieldKey="loadType" value={shipment.loadType} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Service Type" fieldKey="serviceType" value={shipment.serviceType} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Customer Reference" fieldKey="customerReference" value={shipment.customerReference} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Sales Number" fieldKey="salesNumber" value={shipment.salesNumber} onCommit={handleCommit} styleFor={styleFor} />
                     <FieldRow label="Service Name" fieldKey="serviceName" value={shipment.serviceName} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="Handled By" fieldKey="personInCharge" value={shipment.personInCharge} onCommit={handleCommit} styleFor={styleFor} />
                     <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", "customerId", n, id)} />
                     <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
                     <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
-                    <FieldRow label="Customer Reference" fieldKey="customerReference" value={shipment.customerReference} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Handled By" fieldKey="personInCharge" value={shipment.personInCharge} onCommit={handleCommit} styleFor={styleFor} />
+                    <RoRow label="Sales Person" value={shipment.salesPerson} />
                     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
                       <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Incoterm Origin/Destination</span>
                       <span className="flex-1 min-w-0 text-slate-900 font-medium">
@@ -776,25 +781,24 @@ export function ShipmentDetailContent() {
                           : <span className="text-slate-300">—</span>}
                       </span>
                     </div>
-                    <RoRow label="Container Number" value={shipment.containerNumber} />
-                    <RoRow label="Seal Number" value={shipment.sealNumber} />
-                    <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={shipment.shippingLine} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={shipment.masterBolNumber} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="House BoL Number" fieldKey="houseBolNumber" value={shipment.houseBolNumber} onCommit={handleCommit} styleFor={styleFor} />
                     <FieldRow label="Free Comments" fieldKey="freeComments" value={shipment.freeComments} onCommit={handleCommit} styleFor={styleFor} />
                   </div>
                   <div>
-                    <RoRow label="Sales Person" value={shipment.salesPerson} />
-                    <FieldRow label="Sales Number" fieldKey="salesNumber" value={shipment.salesNumber} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="POL" fieldKey="pol" value={shipment.pol} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="ETD Estimated" fieldKey="estimatedDeparture" value={shipment.estimatedDeparture} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="POD" fieldKey="pod" value={shipment.pod} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="ETA Estimated" fieldKey="estimatedArrival" value={shipment.estimatedArrival} onCommit={handleCommit} styleFor={styleFor} />
-                    <RoRow label="Est. Departure Week" value={getFieldValue(shipment, "estimatedDepartureWeek")} />
-                    <RoRow label="Est. Arrival Week" value={getFieldValue(shipment, "estimatedArrivalWeek")} />
-                    <RoRow label="Shipments Date" value={getFieldValue(shipment, "shipmentsDate")} />
                     <FieldRow label="Shipment Status" fieldKey="status" value={shipment.status} onCommit={handleCommit} styleFor={styleFor} />
                     <FieldRow label="Customs Status" fieldKey="customsStatus" value={shipment.customsStatus} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="Invoicing Status" fieldKey="invoicingStatus" value={shipment.invoicingStatus} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="POL" fieldKey="pol" value={shipment.pol} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="ETD Estimated" fieldKey="estimatedDeparture" value={shipment.estimatedDeparture} onCommit={handleCommit} styleFor={styleFor} />
+                    <RoRow label="Est. Departure Week" value={getFieldValue(shipment, "estimatedDepartureWeek")} />
+                    <FieldRow label="POD" fieldKey="pod" value={shipment.pod} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="ETA Estimated" fieldKey="estimatedArrival" value={shipment.estimatedArrival} onCommit={handleCommit} styleFor={styleFor} />
+                    <RoRow label="Est. Arrival Week" value={getFieldValue(shipment, "estimatedArrivalWeek")} />
+                    <RoRow label="Shipments Date" value={getFieldValue(shipment, "shipmentsDate")} />
+                    <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={shipment.shippingLine} onCommit={handleCommit} styleFor={styleFor} />
+                    <RoRow label="Container Number" value={shipment.containerNumber} />
+                    <RoRow label="Seal Number" value={shipment.sealNumber} />
+                    <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={shipment.masterBolNumber} onCommit={handleCommit} styleFor={styleFor} />
+                    <FieldRow label="House BoL Number" fieldKey="houseBolNumber" value={shipment.houseBolNumber} onCommit={handleCommit} styleFor={styleFor} />
                   </div>
                 </div>
               </div>

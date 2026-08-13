@@ -190,10 +190,14 @@ export function ColumnPicker({
 
   return (
     <Popover content={content} trigger="click" placement="bottomRight">
-      <button className="flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors">
-        <SettingOutlined />
-        Columns
-      </button>
+      <Tooltip title="Columns">
+        <button
+          aria-label="Columns"
+          className="flex items-center justify-center shrink-0 rounded-lg border border-slate-300 bg-white w-8 h-8 p-0 text-slate-700 hover:bg-slate-50 transition-colors"
+        >
+          <SettingOutlined />
+        </button>
+      </Tooltip>
     </Popover>
   );
 }

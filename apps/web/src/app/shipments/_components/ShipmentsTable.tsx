@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Button } from "antd";
+import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Button, Badge } from "antd";
 import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined, DownloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
@@ -326,7 +326,23 @@ export const ShipmentsTable = ({
 
       {/* Filters Row */}
       <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
-        <div className="flex items-center gap-3">
+        {/* Actions on the left, search/status/filters/columns/export on the right */}
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={onCreateClick}
+            className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
+          >
+            <PlusOutlined />
+            New Shipment
+          </button>
+          <button
+            onClick={onAddMasterJob}
+            className="flex items-center gap-1.5 shrink-0 rounded-lg border border-slate-300 bg-white px-3 h-8 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+          >
+            Add to Master Job
+          </button>
+        </div>
+        <div className="flex items-center gap-3 shrink-0">
           <Input
             placeholder="Search shipments..."
             prefix={<SearchOutlined className="text-slate-400" />}
@@ -335,6 +351,7 @@ export const ShipmentsTable = ({
             allowClear
             className="w-60"
           />
+          <div className="w-px h-6 bg-slate-200 shrink-0" />
           <Select
             value={statusFilter}
             onChange={setStatusFilter}
@@ -343,7 +360,7 @@ export const ShipmentsTable = ({
           />
           <Popover
             trigger="click"
-            placement="bottomLeft"
+            placement="bottomRight"
             content={
               <div className="w-[430px] -m-1">
                 <div className="flex items-center justify-between px-1 pb-2.5 mb-2.5 border-b border-slate-100">
@@ -422,18 +439,17 @@ export const ShipmentsTable = ({
               </div>
             }
           >
-            <button className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 h-8 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors">
-              <FilterOutlined />
-              Filters
-              {activeFilters.length > 0 && (
-                <span className="ml-0.5 rounded-full bg-indigo-100 text-indigo-600 text-[11px] font-semibold px-1.5 leading-5">
-                  {activeFilters.length}
-                </span>
-              )}
-            </button>
+            <Tooltip title="Filters">
+              <Badge count={activeFilters.length} size="small" color="#4f46e5" offset={[-4, 4]}>
+                <button
+                  aria-label="Filters"
+                  className="flex items-center justify-center shrink-0 rounded-lg border border-slate-300 bg-white w-8 h-8 p-0 text-slate-700 hover:bg-slate-50 transition-colors"
+                >
+                  <FilterOutlined />
+                </button>
+              </Badge>
+            </Tooltip>
           </Popover>
-        </div>
-        <div className="flex items-center gap-3 text-[13px] text-slate-500">
           <ColumnPicker
             visible={visible}
             onChange={setVisible}
@@ -454,20 +470,6 @@ export const ShipmentsTable = ({
           >
             <DownloadOutlined />
             Export
-          </button>
-          <div className="w-px h-6 bg-slate-200" />
-          <button
-            onClick={onCreateClick}
-            className="flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
-          >
-            <PlusOutlined />
-            New Shipment
-          </button>
-          <button
-            onClick={onAddMasterJob}
-            className="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 h-8 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-          >
-            Add to Master Job
           </button>
         </div>
       </div>
