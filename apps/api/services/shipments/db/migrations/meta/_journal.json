@@ -127,6 +127,20 @@
       "when": 1786634160424,
       "tag": "0017_worried_cardiac",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786968199558,
+      "tag": "0018_cute_reaper",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786971623684,
+      "tag": "0019_chilly_quicksilver",
+      "breakpoints": true
     }
   ]
 }

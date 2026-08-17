@@ -46,9 +46,10 @@ interface ShipmentUpdateRequest {
   holidayCover?: string;
 
   // Customer
-  customerId?: string;
-  shipperId?: string;
-  consigneeId?: string;
+  // null unlinks the party from its CRM customer (the name stays as free text).
+  customerId?: string | null;
+  shipperId?: string | null;
+  consigneeId?: string | null;
   customer?: string;
   customerPic?: string;
   customerReference?: string;
@@ -94,6 +95,7 @@ interface ShipmentUpdateRequest {
   bookingConfirmation?: string;
   customsProcedure?: string;
   equipmentDelivery?: string;
+  equipmentDeliveryDate?: string;
   supplierPic?: string;
 
   // Compliance

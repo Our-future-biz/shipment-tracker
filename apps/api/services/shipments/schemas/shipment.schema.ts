@@ -25,6 +25,8 @@ export const shipmentTable = pgTable(
     houseBolNumber: text("house_bol_number").notNull().default(""),
     masterBolNumber: text("master_bol_number").notNull().default(""),
     houseBolType: text("house_bol_type").notNull().default(""),
+    // Who released the house BoL and when; empty until it is released.
+    houseBolRelease: text("house_bol_release").notNull().default(""),
     masterBolType: text("master_bol_type").notNull().default(""),
     vessel: text("vessel").notNull().default(""),
     voyage: text("voyage").notNull().default(""),
@@ -100,6 +102,7 @@ export const shipmentTable = pgTable(
     bookingConfirmation: text("booking_confirmation").notNull().default(""),
     customsProcedure: text("customs_procedure").notNull().default(""),
     equipmentDelivery: text("equipment_delivery").notNull().default(""),
+    equipmentDeliveryDate: date("equipment_delivery_date", { mode: "string" }),
     supplierPic: text("supplier_pic").notNull().default(""),
 
     // — Compliance —

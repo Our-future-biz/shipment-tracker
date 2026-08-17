@@ -61,6 +61,7 @@ export interface ShipmentItem {
   houseBolNumber: string;
   masterBolNumber: string;
   houseBolType: string;
+  houseBolRelease: string;
   masterBolType: string;
   vessel: string;
   voyage: string;
@@ -135,6 +136,7 @@ export interface ShipmentItem {
   bookingConfirmation: string;
   customsProcedure: string;
   equipmentDelivery: string;
+  equipmentDeliveryDate: string | null;
   supplierPic: string;
 
   // Compliance

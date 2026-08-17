@@ -67,11 +67,13 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Container's Type (4)": ["GP", "HC", "RF", "HR", "OT", "HOT", "FR"],
   "Customs Procedure": ["SCP", "JSD", "T1", "C-Goods"],
   "Shipping Instructions": ["Not Queried", "Not Received", "Confirmed"],
-  "VGM": ["Pending (Red)", "Confirmed (Green)", "Not Applicable"],
+  "VGM": ["Pending (Red)", "Confirmed (Green)", "Customer", "Not Applicable"],
   "AMS (if any)": ["Pending (Red)", "Confirmed (Green)", "Not Applicable"],
   "ISF (if any)": ["Pending (Red)", "Confirmed (Green)", "Not Applicable"],
   "BoL draft": ["Not Processed", "Waiting for approval", "Approved"],
   "Invoicing Status": ["Invoiced", "Not Invoiced"],
+  "Claim": ["Yes", "No"],
+  "Booking Confirmation": ["Pending", "Received"],
 };
 
 // ─── Date Columns ─────────────────────────────────────────────────────
@@ -80,7 +82,7 @@ export const DATE_COLUMNS = new Set([
   "cargoReadinessDate", "pickupDate", "pickupTime", "closingDate",
   "estimatedDeparture", "estimatedArrival", "actualDeparture", "actualArrival",
   "etaWarehouse", "plannedDeliveryDate", "plannedDeliveryTime",
-  "quoteValidity",
+  "quoteValidity", "equipmentDeliveryDate",
 ]);
 
 // ─── Computed / Read-only Columns ───────────────────────────────��─────
@@ -176,9 +178,12 @@ export const COLUMNS: ColumnDef[] = [
   { key: "pcs", title: "Pieces (PCS)", width: 100, type: "text", readonly: true, apiField: "pcs" },
   { key: "creditCheck", title: "Credit Check", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Credit Check"], apiField: "creditCheck" },
   { key: "approvedBy", title: "Approved By", width: 150, type: "text", apiField: "approvedBy" },
-  { key: "bookingConfirmation", title: "Booking Confirmation", width: 180, type: "text", apiField: "bookingConfirmation" },
+  { key: "bookingConfirmation", title: "Booking Confirmation", width: 180, type: "dropdown", options: DROPDOWN_OPTIONS["Booking Confirmation"], apiField: "bookingConfirmation" },
+  // Written by the release action on the detail page, never edited by hand.
+  { key: "houseBolRelease", title: "House BoL Release", width: 200, type: "text", readonly: true, apiField: "houseBolRelease" },
   { key: "customsProcedure", title: "Customs Procedure", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Procedure"], apiField: "customsProcedure" },
-  { key: "equipmentDelivery", title: "Equipment Delivery/Pickup", width: 180, type: "text", apiField: "equipmentDelivery" },
+  { key: "equipmentDelivery", title: "Equipment Delivery/Pick-Up Address", width: 200, type: "text", apiField: "equipmentDelivery" },
+  { key: "equipmentDeliveryDate", title: "Equipment Delivery/Pick-Up Date", width: 180, type: "date", apiField: "equipmentDeliveryDate" },
   { key: "supplierPic", title: "Supplier's PIC", width: 170, type: "text", apiField: "supplierPic" },
   { key: "vgm", title: "VGM", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["VGM"], apiField: "vgm" },
   { key: "shippingInstructions", title: "Shipping Instructions", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Shipping Instructions"], apiField: "shippingInstructions" },
@@ -236,7 +241,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "validityStatus", title: "Validity Status", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Validity Status"], apiField: "validityStatus" },
 
   // Misc
-  { key: "claim", title: "Claim", width: 100, type: "text", apiField: "claim" },
+  { key: "claim", title: "Claim", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Claim"], apiField: "claim" },
   { key: "createdBy", title: "Created by", width: 210, type: "text", readonly: true, apiField: "createdBy" },
 ];
 
@@ -355,6 +360,18 @@ export function getCellConditionalStyle(
     if (value === "Pending") return { backgroundColor: "rgba(234, 179, 8, 0.15)" };
   }
 
+  // Booking Confirmation — pending until the carrier confirms
+  if (key === "bookingConfirmation") {
+    if (value === "Received") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
+    if (value === "Pending") return { backgroundColor: "rgba(244, 63, 94, 0.12)" };
+  }
+
+  // Claim — an open claim is a problem (red), no claim is clean (green)
+  if (key === "claim") {
+    if (value === "Yes") return { backgroundColor: "rgba(244, 63, 94, 0.15)" };
+    if (value === "No") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
+  }
+
   // Credit Check
   if (key === "creditCheck") {
     if (value === "Green") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
@@ -402,6 +419,8 @@ export function getCellConditionalStyle(
   const tripleStateFields = ["vgm", "ams", "isf"];
   if (tripleStateFields.includes(key)) {
     if (value === "Confirmed (Green)") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
+    // Handed over to the customer — neither done nor our pending item.
+    if (value === "Customer") return { backgroundColor: "rgba(249, 115, 22, 0.15)" };
     if (value === "Not Applicable") return { backgroundColor: "rgba(156, 163, 175, 0.15)", color: "#9ca3af" };
     return { backgroundColor: "rgba(244, 63, 94, 0.12)" };
   }

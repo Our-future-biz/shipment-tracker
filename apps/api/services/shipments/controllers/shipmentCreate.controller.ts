@@ -90,6 +90,7 @@ interface ShipmentCreateRequest {
   bookingConfirmation?: string;
   customsProcedure?: string;
   equipmentDelivery?: string;
+  equipmentDeliveryDate?: string;
   supplierPic?: string;
 
   // Compliance

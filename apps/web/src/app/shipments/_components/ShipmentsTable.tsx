@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Button, Badge } from "antd";
 import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined, DownloadOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -28,6 +28,8 @@ import { ColumnPicker } from "./ColumnPicker";
 import { MasterJobDetailModal } from "./MasterJobDetailModal";
 import { DocumentsTab } from "@/app/shipments/[jobNumber]/tabs/DocumentsTab";
 import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
+import { CustomerCell } from "./CustomerCell";
+import type { controllers } from "@/lib/api/client";
 
 // Draggable table header cell — id comes from each column's onHeaderCell().
 type HeaderCellProps = React.ThHTMLAttributes<HTMLTableCellElement> & { id?: string };
@@ -62,6 +64,15 @@ interface ShipmentsTableProps {
 }
 
 type ColFilter = { key: string; value: string };
+
+// Columns holding a party name, each paired with the CRM customer id it links to.
+const PARTY_ID_FIELD = {
+  customer: "customerId",
+  shipper: "shipperId",
+  consignee: "consigneeId",
+} as const;
+type PartyColumn = keyof typeof PARTY_ID_FIELD;
+const isPartyColumn = (key: string): key is PartyColumn => key in PARTY_ID_FIELD;
 
 const STATUS_OPTIONS = [
   { value: "all", label: "All Statuses" },
@@ -108,7 +119,7 @@ export const ShipmentsTable = ({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, token } = useAuth();
-  const { updateField } = useShipments();
+  const { updateField, updateShipment } = useShipments();
   const { visible, setVisible, reset, templates, activeTemplateId, isDirty, applyTemplate, deactivate, saveActiveTemplate, saveAsTemplate, deleteTemplate } =
     useColumnView(user?.id, token);
   // Search text, kept in sync with the URL ?q= param (also driven by the global top-nav search)
@@ -120,6 +131,7 @@ export const ShipmentsTable = ({
 
   const onSearchChange = (value: string) => {
     setSearch(value);
+    persist({ q: value });
     const params = new URLSearchParams(searchParams.toString());
     if (value) params.set("q", value);
     else params.delete("q");
@@ -131,6 +143,7 @@ export const ShipmentsTable = ({
   // and push it to the server-side query.
   const statusFilter = searchParams.get("status") ?? "all";
   const setStatusFilter = (value: string) => {
+    persist({ status: value });
     const params = new URLSearchParams(searchParams.toString());
     if (value && value !== "all") params.set("status", value);
     else params.delete("status");
@@ -153,8 +166,61 @@ export const ShipmentsTable = ({
     return out;
   });
 
+  // The URL holds the current filters so a view can be shared or reloaded, but
+  // leaving for another section and coming back lands on a bare /shipments.
+  // Remember the last set per user and restore it on arrival, so filtering
+  // survives navigation until it is cleared or changed by hand.
+  const storageKey = `shipments:list-filters:${user?.id ?? "anon"}`;
+  const persist = (next: { q?: string; status?: string; filters?: ColFilter[] }) => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ q: search, status: statusFilter, filters, ...next }));
+    } catch {
+      // Storage unavailable (private mode / quota) — filters just won't survive navigation.
+    }
+  };
+
+  const restored = useRef(false);
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    let stored: { q?: string; status?: string; filters?: ColFilter[] } | null = null;
+    try {
+      stored = JSON.parse(localStorage.getItem(storageKey) ?? "null");
+    } catch {
+      stored = null;
+    }
+    if (!stored) return;
+
+    // Anything the incoming URL specifies wins (e.g. a search from the top nav);
+    // only the parts it leaves out are restored.
+    const params = new URLSearchParams(searchParams.toString());
+    let changed = false;
+    if (!params.get("q") && stored.q) {
+      params.set("q", stored.q);
+      changed = true;
+    }
+    if (!params.get("status") && stored.status && stored.status !== "all") {
+      params.set("status", stored.status);
+      changed = true;
+    }
+    const urlHasColumnFilters = Array.from(params.keys()).some((k) => k.startsWith("f."));
+    const storedFilters = (stored.filters ?? []).filter((f) => f.key);
+    if (!urlHasColumnFilters && storedFilters.length > 0) {
+      storedFilters.forEach((f) => params.set(`f.${f.key}`, f.value));
+      setFilters(storedFilters);
+      changed = true;
+    }
+    if (changed) {
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    }
+    // Mount-only: restoring is what happens when the page is entered.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const applyFilters = (next: ColFilter[]) => {
     setFilters(next);
+    persist({ filters: next });
     const params = new URLSearchParams(searchParams.toString());
     Array.from(params.keys()).forEach((k) => {
       if (k.startsWith("f.")) params.delete(k);
@@ -261,6 +327,25 @@ export const ShipmentsTable = ({
             <span className="text-slate-300">{"\u2014"}</span>
           );
         }
+        // Party columns \u2014 linked to the customer database (search from 3 characters).
+        if (isPartyColumn(col.key)) {
+          const nameKey = col.key;
+          const idKey = PARTY_ID_FIELD[nameKey];
+          return (
+            <CustomerCell
+              name={record[nameKey]}
+              customerId={record[idKey]}
+              textStyle={textStyle}
+              onChange={(name, id) =>
+                updateShipment({
+                  id: record.id,
+                  // Computed keys can't be inferred as the request shape.
+                  data: { [nameKey]: name, [idKey]: id } as controllers.ShipmentUpdateRequest,
+                })
+              }
+            />
+          );
+        }
         // Read-only columns (computed, createdBy\u2026) \u2014 plain text.
         if (col.readonly) {
           return val ? <span className="text-slate-600" style={textStyle}>{val}</span> : <span className="text-slate-300">{"\u2014"}</span>;
@@ -299,7 +384,7 @@ export const ShipmentsTable = ({
     });
 
     return cols;
-  }, [visible, rowInfo, router, updateField]);
+  }, [visible, rowInfo, router, updateField, updateShipment]);
 
   // Client-side pagination (custom bottom bar so the size selector sits on the left).
   const totalRows = filtered.length;

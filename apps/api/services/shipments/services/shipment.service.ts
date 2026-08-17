@@ -1,4 +1,4 @@
-import { customers } from "~encore/clients";
+import { auth, customers, quotes } from "~encore/clients";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
@@ -6,6 +6,7 @@ import { containerRepository, normalizeContainerNumber } from "../repositories/c
 import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { projectCargo } from "./cargoProjection";
+import { actionStamp, exportBolDefaults, isCreditApproval, startingStateDefaults } from "./fieldDefaults";
 import type { ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
@@ -120,6 +121,7 @@ const DATE_FIELDS = new Set([
   "etaWarehouse",
   "plannedDeliveryDate",
   "shipmentsDate",
+  "equipmentDeliveryDate",
 ]);
 const MONEY_FIELDS = new Set(["selling", "buying"]);
 
@@ -146,6 +148,34 @@ class ShipmentService {
       await customers.customerUpdate({ id: customerId, ...rollups });
     } catch {
       // Customer may have been deleted since; nothing to sync.
+    }
+  }
+
+  // Display name of the acting user, for stamps written into shipment fields.
+  // Users live in the auth service, which this database cannot join against.
+  // An unresolvable user must not fail the write — the stamp just loses the name.
+  private async resolveUserName(userId: string): Promise<string> {
+    try {
+      const { users } = await auth.usersList();
+      const me = users.find((u) => u.id === userId);
+      return me?.displayName || me?.email || "";
+    } catch {
+      return "";
+    }
+  }
+
+  // The sales person of the quote a shipment was sold from. Quotes live in
+  // another service and their fields sit in a jsonb blob, so this reads the
+  // owner off that blob. Empty when the reference isn't a known quote.
+  private async quoteSalesOwner(quoteNumber: string): Promise<string> {
+    try {
+      const { quote } = await quotes.quoteGet({ quoteNumber });
+      const data = (quote.data ?? {}) as { salesOwner?: string; createdBy?: string };
+      return (data.salesOwner || data.createdBy || "").trim();
+    } catch {
+      // Free-text sales numbers are allowed; an unknown reference just means
+      // there is no owner to inherit.
+      return "";
     }
   }
 
@@ -236,6 +266,26 @@ class ShipmentService {
   async create(companyId: string, data: Omit<NewShipmentRecord, "companyId"> & DetailRows) {
     const { containers, cargoItems, cargoDimensions, ...rest } = data;
     const shipmentData = sanitizeTypedFields(rest as Record<string, unknown>);
+    Object.assign(
+      shipmentData,
+      exportBolDefaults(shipmentData.tradeDirection as string, {
+        houseBolType: shipmentData.houseBolType as string,
+        masterBolType: shipmentData.masterBolType as string,
+      }),
+      startingStateDefaults({
+        creditCheck: shipmentData.creditCheck as string,
+        vgm: shipmentData.vgm as string,
+        bookingConfirmation: shipmentData.bookingConfirmation as string,
+        invoicingStatus: shipmentData.invoicingStatus as string,
+      }),
+    );
+
+    // A shipment created against a quote inherits that quote's sales owner.
+    const salesNumber = ((shipmentData.salesNumber as string) ?? "").trim();
+    if (salesNumber && !((shipmentData.salesPerson as string) ?? "").trim()) {
+      const owner = await this.quoteSalesOwner(salesNumber);
+      if (owner) shipmentData.salesPerson = owner;
+    }
     const shipment = await shipmentRepository.createForCompany(companyId, shipmentData as never);
     await this.syncDetailRows(shipment.id, companyId, { containers, cargoItems, cargoDimensions });
     await this.recalcCustomerRollups(shipment.customerId, companyId);
@@ -255,6 +305,41 @@ class ShipmentService {
 
     const { containers, cargoItems, cargoDimensions, ...rest } = data;
     const shipmentData = sanitizeTypedFields(rest as Record<string, unknown>);
+
+    // Seed the export BoL types against the values this update leaves behind, so
+    // switching a shipment to Export fills them in — and so an export shipment
+    // that never had them (e.g. created before this rule) picks them up. Added
+    // before the audit loop below, so the change is recorded like any other.
+    const after = (key: string) => (key in shipmentData ? shipmentData[key] : (existing as Record<string, unknown>)[key]) as string;
+    Object.assign(
+      shipmentData,
+      exportBolDefaults(after("tradeDirection"), {
+        houseBolType: after("houseBolType"),
+        masterBolType: after("masterBolType"),
+      }),
+      startingStateDefaults({
+        creditCheck: after("creditCheck"),
+        vgm: after("vgm"),
+        bookingConfirmation: after("bookingConfirmation"),
+        invoicingStatus: after("invoicingStatus"),
+      }),
+    );
+
+    // Approving the credit check records who did it and when. An explicit
+    // approvedBy in the same request wins — the stamp only fills the field the
+    // approval itself would leave untouched.
+    if (isCreditApproval(shipmentData.creditCheck as string, existing.creditCheck) && !("approvedBy" in shipmentData)) {
+      shipmentData.approvedBy = actionStamp(await this.resolveUserName(userId), new Date());
+    }
+
+    // Assigning a quote number hands the shipment to whoever sold it: the
+    // quote's sales owner becomes the shipment's sales person. Only on a real
+    // change, and never over a salesPerson set in the same request.
+    const nextSalesNumber = (shipmentData.salesNumber as string | undefined)?.trim();
+    if (nextSalesNumber && nextSalesNumber !== existing.salesNumber && !("salesPerson" in shipmentData)) {
+      const owner = await this.quoteSalesOwner(nextSalesNumber);
+      if (owner) shipmentData.salesPerson = owner;
+    }
 
     // Write audit entries for changed shipment fields
     const existingRecord = existing as unknown as Record<string, unknown>;
@@ -314,6 +399,18 @@ class ShipmentService {
     const deleted = await shipmentRepository.softDeleteForCompany(id, companyId);
     await this.recalcCustomerRollups(existing.customerId, companyId);
     return deleted;
+  }
+
+  // Release the house bill of lading, recording who released it and when.
+  // A release is a one-off act: once stamped, the record stands — re-releasing
+  // returns the shipment untouched rather than rewriting who did it.
+  async releaseHouseBol(id: string, companyId: string, userId: string) {
+    const existing = await shipmentRepository.getByIdForCompany(id, companyId);
+    if (!existing) return null;
+    if (existing.houseBolRelease.trim()) return this.getById(id, companyId);
+
+    const stamp = actionStamp(await this.resolveUserName(userId), new Date());
+    return this.update(id, companyId, { houseBolRelease: stamp }, userId);
   }
 
   async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string) {

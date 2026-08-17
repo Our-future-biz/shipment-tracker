@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import React, { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Spin, Dropdown, message, Modal, Tag, Drawer, Tooltip, Select, TimePicker } from "antd";
+import { Spin, Dropdown, message, Modal, Tag, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
 import dayjs from "dayjs";
 import { api } from "@/lib/api";
 import {
@@ -12,6 +12,7 @@ import {
   EnvironmentOutlined,
   InfoCircleOutlined,
   CheckSquareOutlined,
+  CheckCircleOutlined,
   CalendarOutlined,
   ContainerOutlined,
   SplitCellsOutlined,
@@ -33,6 +34,7 @@ import { TrackingTab } from "./tabs/TrackingTab";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { EditableCell } from "./_components/EditableCell";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
+import { PartyContactField } from "./_components/PartyContactField";
 import type { controllers } from "@/lib/api/client";
 import { TasksPanel } from "./_components/TasksPanel";
 import { MasterJobDetailModal } from "../_components/MasterJobDetailModal";
@@ -197,6 +199,7 @@ function DetailCard({
   shipment,
   onCommit,
   styleFor,
+  renderAfter,
   children,
 }: {
   icon: React.ReactNode;
@@ -205,6 +208,8 @@ function DetailCard({
   shipment: ShipmentItem;
   onCommit: CommitFn;
   styleFor?: StyleFor;
+  // Extra rows to place directly below a given field, keyed by its field key.
+  renderAfter?: Record<string, React.ReactNode>;
   children?: React.ReactNode;
 }) {
   return (
@@ -213,13 +218,16 @@ function DetailCard({
       <div className={columns.length > 1 ? "grid grid-cols-1 md:grid-cols-2 gap-x-6" : ""}>
         {columns.map((col, i) => (
           <div key={i}>
-            {col.map((f) =>
-              f.ro ? (
-                <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
-              ) : (
-                <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={onCommit} styleFor={styleFor} />
-              ),
-            )}
+            {col.map((f) => (
+              <React.Fragment key={f.key}>
+                {f.ro ? (
+                  <RoRow label={f.label} value={getFieldValue(shipment, f.key)} />
+                ) : (
+                  <FieldRow label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={onCommit} styleFor={styleFor} />
+                )}
+                {renderAfter?.[f.key]}
+              </React.Fragment>
+            ))}
           </div>
         ))}
       </div>
@@ -250,6 +258,29 @@ function makeStyleFor(shipment: ShipmentItem): StyleFor {
     const merged: React.CSSProperties = { ...(rowStyle ?? {}), ...(cell ?? {}) };
     return Object.keys(merged).length ? merged : undefined;
   };
+}
+
+// House BoL release: a one-off action rather than an editable field. Until it is
+// released it shows the button; afterwards it shows who released it and when.
+function HouseBolReleaseRow({ releasedAt, onRelease }: { releasedAt: string; onRelease: () => void }) {
+  return (
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+        House BoL Release
+      </span>
+      <div className="flex-1 min-w-0">
+        {releasedAt ? (
+          <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
+            <CheckCircleOutlined /> Released by {releasedAt}
+          </span>
+        ) : (
+          <Button size="small" danger onClick={onRelease}>
+            RELEASE BoL
+          </Button>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function EmptyTab({ title }: { title: string }) {
@@ -367,7 +398,8 @@ const PARTIES_AGENTS: FieldDef[] = [
   { key: "agent", label: "Agent" },
   { key: "agentPic", label: "Agent's PIC" },
   { key: "supplierPic", label: "Supplier's PIC" },
-  { key: "equipmentDelivery", label: "Equipment Delivery/Pickup" },
+  { key: "equipmentDelivery", label: "Equipment Delivery/Pick-Up Address" },
+  { key: "equipmentDeliveryDate", label: "Equipment Delivery/Pick-Up Date" },
   { key: "bookingConfirmation", label: "Booking Confirmation" },
   { key: "customsProcedure", label: "Customs Procedure" },
 ];
@@ -544,6 +576,9 @@ export function ShipmentDetailContent() {
   const [notesOpen, setNotesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [releaseOpen, setReleaseOpen] = useState(false);
+  const [releasing, setReleasing] = useState(false);
+  const queryClient = useQueryClient();
   // Container panel to open/highlight when jumping to Cargo Details from a
   // container-number link.
   const [cargoFocusId, setCargoFocusId] = useState<string | null>(null);
@@ -626,6 +661,22 @@ export function ShipmentDetailContent() {
       message.success("Removed from master job");
     } catch {
       message.error("Failed to remove from master job");
+    }
+  };
+
+  // Releasing stamps the acting user server-side, so the browser only triggers
+  // it and refreshes.
+  const confirmReleaseHouseBol = async () => {
+    setReleasing(true);
+    try {
+      await api.shipments.shipmentReleaseHouseBol(shipment.id);
+      await queryClient.invalidateQueries({ queryKey: ["shipments"] });
+      message.success("House BoL released");
+      setReleaseOpen(false);
+    } catch {
+      message.error("Failed to release the House BoL");
+    } finally {
+      setReleasing(false);
     }
   };
 
@@ -761,6 +812,25 @@ export function ShipmentDetailContent() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
                   <div>
                     <RoRow label="Internal Reference" value={shipment.jobNumber} />
+                    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
+                      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Master Job</span>
+                      <div className="flex-1 min-w-0 flex items-center gap-2">
+                        {shipment.masterJobMczNumber ? (
+                          <>
+                            <button onClick={() => setMasterJobOpen(true)} className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
+                              #{shipment.masterJobMczNumber}
+                            </button>
+                            <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-400 hover:text-red-500 cursor-pointer bg-transparent border-none p-0">
+                              unassign
+                            </button>
+                          </>
+                        ) : (
+                          <button onClick={() => setAssignOpen(true)} className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
+                            + Assign to master job
+                          </button>
+                        )}
+                      </div>
+                    </div>
                     <FieldRow label="Trade Direction" fieldKey="tradeDirection" value={shipment.tradeDirection} onCommit={handleCommit} styleFor={styleFor} />
                     <FieldRow label="Freight Mode" fieldKey="freightMode" value={shipment.freightMode} onCommit={handleCommit} styleFor={styleFor} />
                     <FieldRow label="Load Type" fieldKey="loadType" value={shipment.loadType} onCommit={handleCommit} styleFor={styleFor} />
@@ -809,7 +879,7 @@ export function ShipmentDetailContent() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
                   <div>
                     <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
-                    <FieldRow label="Contact" fieldKey="shipperContact" value={shipment.shipperContact} onCommit={commitDirect} styleFor={styleFor} />
+                    <PartyContactField label="Contact" fieldKey="shipperContact" value={shipment.shipperContact} customerId={shipment.shipperId} onCommit={commitDirect} />
                     <FieldRow label="Pick-up Address" fieldKey="pickupAddress" value={shipment.pickupAddress} onCommit={handleCommit} styleFor={styleFor} />
                     <OpeningHoursRow
                       from={shipment.shipperOpeningFrom}
@@ -819,7 +889,7 @@ export function ShipmentDetailContent() {
                   </div>
                   <div>
                     <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
-                    <FieldRow label="Contact" fieldKey="consigneeContact" value={shipment.consigneeContact} onCommit={commitDirect} styleFor={styleFor} />
+                    <PartyContactField label="Contact" fieldKey="consigneeContact" value={shipment.consigneeContact} customerId={shipment.consigneeId} onCommit={commitDirect} />
                     <FieldRow label="Delivery Address" fieldKey="deliveryAddress" value={shipment.deliveryAddress} onCommit={handleCommit} styleFor={styleFor} />
                     <OpeningHoursRow
                       from={shipment.consigneeOpeningFrom}
@@ -832,7 +902,19 @@ export function ShipmentDetailContent() {
 
               {/* CARRIER & BILL OF LADING  |  KEY DATES */}
               <div className="grid grid-cols-1 2xl:grid-cols-2 gap-5 items-start">
-                <DetailCard icon={<SplitCellsOutlined />} title="Carrier & Bill of Lading" columns={[CARRIER_BOL]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+                <DetailCard
+                  icon={<SplitCellsOutlined />}
+                  title="Carrier & Bill of Lading"
+                  columns={[CARRIER_BOL]}
+                  shipment={shipment}
+                  onCommit={handleCommit}
+                  styleFor={styleFor}
+                  renderAfter={{
+                    houseBolType: (
+                      <HouseBolReleaseRow releasedAt={shipment.houseBolRelease} onRelease={() => setReleaseOpen(true)} />
+                    ),
+                  }}
+                />
                 <DetailCard icon={<CalendarOutlined />} title="Key Dates" columns={[KEY_DATES_L, KEY_DATES_R]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
               </div>
 
@@ -885,32 +967,12 @@ export function ShipmentDetailContent() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
                   <div>
                     <RoRow label="Internal Reference" value={shipment.jobNumber} />
-                    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
-                      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Master Job</span>
-                      <div className="flex-1 min-w-0 flex items-center gap-2">
-                        {shipment.masterJobMczNumber ? (
-                          <>
-                            <button onClick={() => setMasterJobOpen(true)} className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
-                              #{shipment.masterJobMczNumber}
-                            </button>
-                            <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-400 hover:text-red-500 cursor-pointer bg-transparent border-none p-0">
-                              unassign
-                            </button>
-                          </>
-                        ) : (
-                          <button onClick={() => setAssignOpen(true)} className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
-                            + Assign to master job
-                          </button>
-                        )}
-                      </div>
-                    </div>
                     <FieldRow label="Department" fieldKey="department" value={shipment.department} onCommit={handleCommit} styleFor={styleFor} />
                     <FieldRow label="Claim" fieldKey="claim" value={shipment.claim} onCommit={handleCommit} styleFor={styleFor} />
                   </div>
                   <div>
                     <FieldRow label="Person In Charge" fieldKey="personInCharge" value={shipment.personInCharge} onCommit={handleCommit} styleFor={styleFor} />
                     <FieldRow label="Holiday Cover" fieldKey="holidayCover" value={shipment.holidayCover} onCommit={handleCommit} styleFor={styleFor} />
-                    <RoRow label="Customer" value={shipment.customer} />
                     <RoRow label="Created By" value={shipment.createdBy} />
                   </div>
                 </div>
@@ -1012,6 +1074,25 @@ export function ShipmentDetailContent() {
         onSave={(value) => updateField(shipment.id, "freeComments", value)}
       />
 
+
+      <Modal
+        open={releaseOpen}
+        title="Release Bill of Lading?"
+        okText="Yes, release the BoL"
+        okButtonProps={{ danger: true, loading: releasing }}
+        cancelText="Cancel"
+        onOk={confirmReleaseHouseBol}
+        onCancel={() => setReleaseOpen(false)}
+        destroyOnHidden
+      >
+        <p className="text-sm text-slate-700">
+          Do you really want to release the shipment{" "}
+          <b className="font-mono">{shipment.jobNumber ?? shipment.id}</b>?
+        </p>
+        <p className="text-sm text-slate-500 mt-2">
+          Your name and the current date and time will be recorded as the release. This cannot be undone.
+        </p>
+      </Modal>
 
       <Modal
         open={deleteOpen}

@@ -7,6 +7,7 @@ import { PlusOutlined, FileTextOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { useToast } from "@/lib/toast";
+import { useAuth } from "@/lib/auth/AuthContext";
 
 // "New Quote" action with a confirmation step: previews the next reference
 // (read-only) and only creates it on confirm, so an accidental click never
@@ -15,6 +16,7 @@ export function NewQuoteButton({ size = "middle", block = false }: { size?: "lar
   const router = useRouter();
   const { createQuote } = useSalesQuotes();
   const toast = useToast();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [nextRef, setNextRef] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -33,7 +35,9 @@ export function NewQuoteButton({ size = "middle", block = false }: { size?: "lar
   const confirm = async () => {
     setCreating(true);
     try {
-      const ref = await createQuote({});
+      // The creator owns the quote by default; it stays editable and follows the
+      // quote onto any shipment the reference is later assigned to.
+      const ref = await createQuote({ salesOwner: user?.displayName || user?.email || "" });
       setOpen(false);
       router.push(`/sales/quote/${ref}`);
     } catch {

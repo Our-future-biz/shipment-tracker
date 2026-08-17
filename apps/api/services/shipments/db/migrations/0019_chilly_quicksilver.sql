@@ -1,0 +1,1 @@
+ALTER TABLE "shipment" ADD COLUMN "house_bol_release" text DEFAULT '' NOT NULL;
