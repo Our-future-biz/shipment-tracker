@@ -1,5 +1,5 @@
 {
-	"id":   "shipment-tracker-ysci",
+	"id":   "",
 	"lang": "typescript",
 	"build": {
 		"docker": {
