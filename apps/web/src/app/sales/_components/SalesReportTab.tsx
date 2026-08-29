@@ -126,27 +126,27 @@ export function SalesReportTab() {
     { title: "Quotes", dataIndex: "quotes" },
     { title: "Won", dataIndex: "won" },
     { title: "Lost", dataIndex: "lost" },
-    { title: "Revenue", dataIndex: "selling", align: "right", render: (v: number) => fmt(v) },
+    { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: (v: number) => fmt(v) },
     { title: "Avg Margin", dataIndex: "avgMargin", align: "right", render: (v: number) => `${v}%` },
     { title: "Conversion", dataIndex: "conversion", align: "right", render: (v: number) => `${v}%` },
   ];
 
   const serviceColumns: ColumnsType<ServiceRow> = [
     {
-      title: "Service Type",
+      title: "Freight Mode",
       dataIndex: "serviceType",
       render: (v: string) => <span className="font-medium text-slate-700">{v}</span>,
     },
     { title: "Quotes", dataIndex: "quotes" },
     { title: "Won", dataIndex: "won" },
-    { title: "Selling", dataIndex: "selling", align: "right", render: (v: number) => fmt(v) },
+    { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: (v: number) => fmt(v) },
     { title: "Profit", dataIndex: "profit", align: "right", render: (v: number) => fmt(v) },
     { title: "Avg Margin", dataIndex: "avgMargin", align: "right", render: (v: number) => `${v}%` },
   ];
 
   const statusColumns: ColumnsType<StatusRow> = [
     {
-      title: "Status",
+      title: "Quote Status",
       dataIndex: "status",
       render: (v: string) => {
         const def = QUOTE_STATUS_MAP[v];
@@ -162,7 +162,7 @@ export function SalesReportTab() {
       },
     },
     { title: "Count", dataIndex: "count" },
-    { title: "Selling", dataIndex: "selling", align: "right", render: (v: number) => fmt(v) },
+    { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: (v: number) => fmt(v) },
   ];
 
   if (isLoading) {

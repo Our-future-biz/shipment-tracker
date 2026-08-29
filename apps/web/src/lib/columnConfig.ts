@@ -151,7 +151,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "insurance", title: "Insurance", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Insurance"], apiField: "insurance" },
 
   // Dates
-  { key: "cargoReadinessDate", title: "Cargo Readyness Date", width: 140, type: "date", apiField: "cargoReadinessDate" },
+  { key: "cargoReadinessDate", title: "Cargo Readiness Date", width: 140, type: "date", apiField: "cargoReadinessDate" },
   { key: "pickupDate", title: "Pickup Date", width: 110, type: "date", apiField: "pickupDate" },
   { key: "pickupTime", title: "Pickup Time", width: 110, type: "date", apiField: "pickupTime" },
   { key: "closingDate", title: "Closing Date", width: 110, type: "date", apiField: "closingDate" },

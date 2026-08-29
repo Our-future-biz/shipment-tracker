@@ -102,17 +102,17 @@ export interface CsvColumn {
 // Quote History passes its active (visible + ordered) columns instead.
 export function exportQuotesCsv(quotes: SalesQuote[], columns?: CsvColumn[]): void {
   const cols: CsvColumn[] = columns ?? [
-    { title: "Reference", accessor: (q) => q.quoteNumber },
+    { title: "Sales Number", accessor: (q) => q.quoteNumber },
     { title: "Customer", accessor: (q) => q.data.customerName ?? "" },
-    { title: "Service", accessor: (q) => q.data.serviceType ?? "" },
+    { title: "Freight Mode", accessor: (q) => q.data.serviceType ?? "" },
     { title: "Origin", accessor: (q) => q.data.origin ?? "" },
     { title: "Destination", accessor: (q) => q.data.destination ?? "" },
     { title: "Incoterm", accessor: (q) => q.data.incoterm ?? "" },
-    { title: "Status", accessor: (q) => q.data.quoteStatus ?? "" },
-    { title: "Selling", accessor: (q) => String(computeTotals(q.data).selling) },
+    { title: "Quote Status", accessor: (q) => q.data.quoteStatus ?? "" },
+    { title: "Total Selling Costs", accessor: (q) => String(computeTotals(q.data).selling) },
     { title: "Profit", accessor: (q) => String(computeTotals(q.data).profit) },
     { title: "Margin%", accessor: (q) => String(computeTotals(q.data).margin) },
-    { title: "Created", accessor: (q) => q.createdAt?.slice(0, 10) ?? "" },
+    { title: "Created Date", accessor: (q) => q.createdAt?.slice(0, 10) ?? "" },
   ];
   const headers = cols.map((c) => c.title);
   const rows = quotes.map((q) => cols.map((c) => c.accessor(q)));
