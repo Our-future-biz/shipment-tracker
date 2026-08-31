@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Local dev runner for shipment-tracker (Encore API + Next.js web).
 #
-#   ./run-local.sh          setup + start API (:4001) and web (:3001)
-#   ./run-local.sh seed     seed demo data (run in a 2nd terminal while dev is up)
-#   ./run-local.sh admin <email> <password> ["Name"]   create a superadmin
+#   ./run-local.sh          spusti aplikaci (web :3001, API :4001)
+#   ./run-local.sh stav     ukaze co bezi a co ne
+#   ./run-local.sh seed     naplni ukazkova data (druhe okno, kdyz aplikace bezi)
+#   ./run-local.sh admin <email> <heslo> ["Jmeno"]   vytvori superadmina
 #
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -13,24 +14,76 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "❌ missing: $1 — $2"; exi
 cmd="${1:-dev}"
 
 if [ "$cmd" = "dev" ]; then
-  need docker "install Docker Desktop and start it (Encore provisions Postgres in Docker)"
-  docker info >/dev/null 2>&1 || { echo "❌ Docker is installed but not running — start Docker Desktop."; exit 1; }
   need encore "brew install encoredev/tap/encore"
-  command -v pnpm >/dev/null 2>&1 || { echo "→ enabling pnpm via corepack"; corepack enable; corepack prepare pnpm@10.28.1 --activate; }
+  need docker "install Docker Desktop: brew install --cask docker"
 
-  echo "→ installing dependencies"
+  # Docker Desktop nebezi? Spustime ho a pockame, misto abychom skoncili chybou.
+  if ! docker info >/dev/null 2>&1; then
+    echo "→ Docker Desktop nebezi, spoustim ho…"
+    open -a Docker 2>/dev/null || true
+    printf "   cekam na Docker "
+    for i in $(seq 1 60); do
+      if docker info >/dev/null 2>&1; then echo " OK"; break; fi
+      printf "."; sleep 2
+    done
+    if ! docker info >/dev/null 2>&1; then
+      echo ""
+      echo "❌ Docker se nerozjel do 2 minut. Spust Docker Desktop rucne a zkus znovu."
+      exit 1
+    fi
+  fi
+
+  command -v pnpm >/dev/null 2>&1 || { echo "→ zapinam pnpm pres corepack"; corepack enable; corepack prepare pnpm@10.28.1 --activate; }
+
+  # Zbytek po predchozim behu drzi porty. Uvolnime je, jinak start selze.
+  for port in 3001 4001; do
+    pid=$(lsof -ti tcp:$port 2>/dev/null || true)
+    if [ -n "$pid" ]; then
+      echo "→ port $port drzi stary proces ($pid), ukoncuji"
+      kill $pid 2>/dev/null || true
+      sleep 1
+      still=$(lsof -ti tcp:$port 2>/dev/null || true)
+      [ -n "$still" ] && kill -9 $still 2>/dev/null || true
+    fi
+  done
+
+  echo "→ instaluji zavislosti"
   pnpm install
 
   if [ ! -f apps/api/.secrets.local.cue ]; then
-    echo "❌ apps/api/.secrets.local.cue is missing — local secrets live there. Recreate it with:"
-    echo '   printf %s\\n "JWT_SECRET: \"local-dev-jwt-secret\"" "ANTHROPIC_API_KEY: \"sk-placeholder\"" > apps/api/.secrets.local.cue'
-    exit 1
+    echo "→ chybi apps/api/.secrets.local.cue, vytvarim vychozi"
+    printf '%s\n' \
+      '// Local-only secret overrides. Never committed.' \
+      'JWT_SECRET: "local-dev-jwt-secret-not-for-production"' \
+      'ANTHROPIC_API_KEY: "sk-local-placeholder-set-a-real-key-to-use-doc-extraction"' \
+      > apps/api/.secrets.local.cue
   fi
-  echo "ℹ️  This app runs unlinked from Encore Cloud; secrets come from apps/api/.secrets.local.cue"
 
-  echo "→ starting API on :4001 and web on :3001  (Ctrl-C to stop)"
-  echo "   app:  http://localhost:3001     Encore dashboard: http://localhost:9400"
+  echo ""
+  echo "────────────────────────────────────────────────────────"
+  echo " Aplikace startuje. Toto okno nechej OTEVRENE."
+  echo " Az bude hotovo, otevri:  http://localhost:3001"
+  echo " Vypnout:  Ctrl+C  (nebo zavreni okna)"
+  echo "────────────────────────────────────────────────────────"
+  echo ""
   exec pnpm dev
+fi
+
+if [ "$cmd" = "stav" ] || [ "$cmd" = "status" ]; then
+  echo "Docker Desktop:"
+  if docker info >/dev/null 2>&1; then echo "  ✅ bezi"; else echo "  ❌ nebezi  →  open -a Docker"; fi
+  echo "Aplikace:"
+  for port in 3001 4001; do
+    what=$([ "$port" = "3001" ] && echo "web  " || echo "API  ")
+    if lsof -ti tcp:$port >/dev/null 2>&1; then
+      echo "  ✅ $what na portu $port bezi"
+    else
+      echo "  ❌ $what na portu $port nebezi"
+    fi
+  done
+  echo ""
+  echo "Kdyz neco chybi:  ./run-local.sh"
+  exit 0
 fi
 
 # Steps below need `encore run` to be up so the DB URIs resolve.
