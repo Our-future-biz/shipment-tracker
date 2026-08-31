@@ -246,6 +246,10 @@ class ShipmentService {
     };
   }
 
+  async tileCounts(companyId: string) {
+    return shipmentRepository.tileCounts(companyId);
+  }
+
   async getById(id: string, companyId: string) {
     const shipment = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!shipment) return null;

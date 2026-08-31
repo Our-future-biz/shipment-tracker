@@ -4,6 +4,8 @@ import { db } from "../db/db";
 import { shipmentTable } from "../schemas/shipment.schema";
 
 export interface ShipmentListFilters {
+  /** Overview tile filter: active | attention | import | export | week | nextweek */
+  tile?: string;
   customerId?: string;
   status?: string;
   /** UI status bucket — a coarse grouping over the many free-text status values. */
@@ -108,6 +110,30 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         if (bucketMatch) clauses.push(bucketMatch);
       }
     }
+    if (f.tile && f.tile !== "all") {
+      const relevantEta = sql`COALESCE(
+        CASE WHEN lower(${shipmentTable.tradeDirection}) = 'export'
+             THEN ${shipmentTable.estimatedDeparture}
+             ELSE ${shipmentTable.estimatedArrival} END, NULL)`;
+      if (f.tile === "active") {
+        clauses.push(sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`);
+      } else if (f.tile === "attention") {
+        clauses.push(sql`${relevantEta} IS NOT NULL
+          AND ${relevantEta} >= CURRENT_DATE
+          AND ${relevantEta} <= CURRENT_DATE + 3
+          AND EXISTS (SELECT 1 FROM shipment_task t
+                      WHERE t.shipment_id = ${shipmentTable.id}
+                        AND t.completed = false AND t.deleted_at IS NULL)`);
+      } else if (f.tile === "import" || f.tile === "export") {
+        clauses.push(eq(shipmentTable.tradeDirection, f.tile === "import" ? "Import" : "Export"));
+      } else if (f.tile === "week") {
+        clauses.push(sql`${relevantEta} IS NOT NULL
+          AND date_trunc('week', ${relevantEta}) = date_trunc('week', CURRENT_DATE)`);
+      } else if (f.tile === "nextweek") {
+        clauses.push(sql`${relevantEta} IS NOT NULL
+          AND date_trunc('week', ${relevantEta}) = date_trunc('week', CURRENT_DATE + 7)`);
+      }
+    }
     if (f.search) {
       const s = `%${f.search}%`;
       const match = or(
@@ -128,6 +154,57 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       this.db.select({ value: count() }).from(shipmentTable).where(where),
     ]);
     return { data: rows, total: Number(total) };
+  }
+
+
+  /**
+   * Counts for the Shipments overview tiles, computed in SQL over the whole
+   * company dataset (not just the current page).
+   *
+   * "attention" mirrors the mockup: a relevant ETA within 3 days AND at least
+   * one open task. Import uses estimatedArrival, export uses estimatedDeparture.
+   */
+  async tileCounts(companyId: string) {
+    const base = and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt));
+
+    // Relevant date: export -> departure, otherwise arrival.
+    const relevantEta = sql`COALESCE(
+      CASE WHEN lower(${shipmentTable.tradeDirection}) = 'export'
+           THEN ${shipmentTable.estimatedDeparture}
+           ELSE ${shipmentTable.estimatedArrival} END, NULL)`;
+
+    const openTasks = sql`EXISTS (
+      SELECT 1 FROM shipment_task t
+      WHERE t.shipment_id = ${shipmentTable.id}
+        AND t.completed = false
+        AND t.deleted_at IS NULL
+    )`;
+
+    const [row] = await this.db
+      .select({
+        active: sql<number>`COUNT(*) FILTER (WHERE ${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced')`,
+        attention: sql<number>`COUNT(*) FILTER (WHERE ${relevantEta} IS NOT NULL
+          AND ${relevantEta} >= CURRENT_DATE
+          AND ${relevantEta} <= CURRENT_DATE + 3
+          AND ${openTasks})`,
+        importCount: sql<number>`COUNT(*) FILTER (WHERE ${shipmentTable.tradeDirection} = 'Import')`,
+        exportCount: sql<number>`COUNT(*) FILTER (WHERE ${shipmentTable.tradeDirection} = 'Export')`,
+        week: sql<number>`COUNT(*) FILTER (WHERE ${relevantEta} IS NOT NULL
+          AND date_trunc('week', ${relevantEta}) = date_trunc('week', CURRENT_DATE))`,
+        nextWeek: sql<number>`COUNT(*) FILTER (WHERE ${relevantEta} IS NOT NULL
+          AND date_trunc('week', ${relevantEta}) = date_trunc('week', CURRENT_DATE + 7))`,
+      })
+      .from(shipmentTable)
+      .where(base);
+
+    return {
+      active: Number(row?.active ?? 0),
+      attention: Number(row?.attention ?? 0),
+      import: Number(row?.importCount ?? 0),
+      export: Number(row?.exportCount ?? 0),
+      week: Number(row?.week ?? 0),
+      nextWeek: Number(row?.nextWeek ?? 0),
+    };
   }
 
   // Company-scoped full scan for the dashboard aggregates.

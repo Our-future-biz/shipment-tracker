@@ -777,6 +777,7 @@ export namespace shipments {
             this.commentList = this.commentList.bind(this)
             this.shipmentCreate = this.shipmentCreate.bind(this)
             this.shipmentDashboard = this.shipmentDashboard.bind(this)
+            this.shipmentTileCounts = this.shipmentTileCounts.bind(this)
             this.shipmentDelete = this.shipmentDelete.bind(this)
             this.shipmentGet = this.shipmentGet.bind(this)
             this.shipmentLinkMasterJob = this.shipmentLinkMasterJob.bind(this)
@@ -844,6 +845,12 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/dashboard`)
             return await resp.json() as controllers.DashboardResponse
+        }
+
+        public async shipmentTileCounts(): Promise<controllers.ShipmentTileCountsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/tile-counts`)
+            return await resp.json() as controllers.ShipmentTileCountsResponse
         }
 
         /**
@@ -1703,6 +1710,16 @@ export namespace controllers {
         shipment: interfaces.ShipmentItem
     }
 
+    /** Counts behind the Shipments overview tiles, over the whole company dataset. */
+    export interface ShipmentTileCountsResponse {
+        active: number
+        attention: number
+        import: number
+        export: number
+        week: number
+        nextWeek: number
+    }
+
     export interface ShipmentListRequest {
         limit?: number
         offset?: number
@@ -1717,6 +1734,11 @@ export namespace controllers {
          * Coarse UI status bucket: active | in-transit | customs | delivered
          */
         statusBucket?: string
+
+        /**
+         * Overview tile filter: active | attention | import | export | week | nextweek
+         */
+        tile?: string
 
         search?: string
     }
