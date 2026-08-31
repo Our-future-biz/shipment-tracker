@@ -182,6 +182,7 @@ export const COLUMNS: ColumnDef[] = [
   // Written by the release action on the detail page, never edited by hand.
   { key: "houseBolRelease", title: "House BoL Release", width: 200, type: "text", readonly: true, apiField: "houseBolRelease" },
   { key: "customsProcedure", title: "Customs Procedure", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Procedure"], apiField: "customsProcedure" },
+  { key: "mrn", title: "MRN Number", width: 150, type: "text", apiField: "mrn" },
   { key: "equipmentDelivery", title: "Equipment Delivery/Pick-Up Address", width: 200, type: "text", apiField: "equipmentDelivery" },
   { key: "equipmentDeliveryDate", title: "Equipment Delivery/Pick-Up Date", width: 180, type: "date", apiField: "equipmentDeliveryDate" },
   { key: "supplierPic", title: "Supplier's PIC", width: 170, type: "text", apiField: "supplierPic" },

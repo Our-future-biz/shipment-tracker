@@ -32,6 +32,7 @@ import { CargoDetailsTab } from "./tabs/CargoDetailsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
 import { WarehouseTab } from "./tabs/WarehouseTab";
+import { CustomsTab } from "./tabs/CustomsTab";
 import { EditableCell } from "./_components/EditableCell";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
@@ -43,7 +44,7 @@ import { LinkedQuotePanel } from "../_components/LinkedQuotePanel";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
 import { NotesDrawer } from "../_components/NotesDrawer";
 
-type CommitFn = (fieldKey: string, value: string) => void;
+export type CommitFn = (fieldKey: string, value: string) => void;
 
 /* ── Tabs ── */
 const TABS = [
@@ -192,7 +193,7 @@ function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: 
 type FieldDef = { key: string; label: string; ro?: boolean };
 
 // A card of horizontal rows, optionally split into two columns.
-function DetailCard({
+export function DetailCard({
   icon,
   title,
   columns,
@@ -248,9 +249,9 @@ function SubHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
 
 // Conditional-format style for a field, replicating the shipment list colors
 // (per-cell background/color rules + whole-row OBL text color).
-type StyleFor = (fieldKey: string, value?: string | null) => React.CSSProperties | undefined;
+export type StyleFor = (fieldKey: string, value?: string | null) => React.CSSProperties | undefined;
 
-function makeStyleFor(shipment: ShipmentItem): StyleFor {
+export function makeStyleFor(shipment: ShipmentItem): StyleFor {
   const rowData = buildRowData(shipment);
   const rowStyle = getRowConditionalStyle(rowData);
   return (fieldKey, value) => {
@@ -1023,7 +1024,7 @@ export function ShipmentDetailContent() {
           />
         )}
 
-        {activeTab === "customs" && <EmptyTab title="Customs" />}
+        {activeTab === "customs" && <CustomsTab shipment={shipment} onCommit={handleCommit} />}
 
         {activeTab === "claim" && <EmptyTab title="Claim" />}
       </div>

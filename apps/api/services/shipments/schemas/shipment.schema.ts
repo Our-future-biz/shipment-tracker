@@ -101,6 +101,8 @@ export const shipmentTable = pgTable(
     approvedBy: text("approved_by").notNull().default(""),
     bookingConfirmation: text("booking_confirmation").notNull().default(""),
     customsProcedure: text("customs_procedure").notNull().default(""),
+    /** Movement Reference Number issued by customs. */
+    mrn: text("mrn").notNull().default(""),
     equipmentDelivery: text("equipment_delivery").notNull().default(""),
     equipmentDeliveryDate: date("equipment_delivery_date", { mode: "string" }),
     supplierPic: text("supplier_pic").notNull().default(""),

@@ -94,6 +94,7 @@ interface ShipmentUpdateRequest {
   approvedBy?: string;
   bookingConfirmation?: string;
   customsProcedure?: string;
+  mrn?: string;
   equipmentDelivery?: string;
   equipmentDeliveryDate?: string;
   supplierPic?: string;

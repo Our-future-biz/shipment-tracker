@@ -135,6 +135,8 @@ export interface ShipmentItem {
   approvedBy: string;
   bookingConfirmation: string;
   customsProcedure: string;
+  /** Customs Movement Reference Number. */
+  mrn: string;
   equipmentDelivery: string;
   equipmentDeliveryDate: string | null;
   supplierPic: string;
