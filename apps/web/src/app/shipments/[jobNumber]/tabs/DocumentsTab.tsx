@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Upload, Select, Tooltip, message } from "antd";
+import { Select, Tooltip, message } from "antd";
 import {
   InboxOutlined,
   DeleteOutlined,
@@ -193,6 +193,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   // without a document type, so the checklist can never go stale.
   const [pending, setPending] = useState<PendingFile[]>([]);
   const [saving, setSaving] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // Type pre-selected by clicking a "Missing" row in the checklist.
   const presetRef = useRef<string | null>(null);
@@ -227,8 +228,9 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   const savePending = async () => {
     if (pending.length === 0 || pending.some((p) => !p.type)) return;
     setSaving(true);
-    try {
-      for (const p of pending) {
+    const failed: string[] = [];
+    for (const p of pending) {
+      try {
         const contentBase64 = await fileToBase64(p.file);
         await api.shipments.attachmentCreate(shipment.id, {
           fileName: p.name,
@@ -237,15 +239,25 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
           contentBase64,
           documentType: p.type,
         });
+      } catch (err) {
+        // Surface the real reason (size limit, network, server) instead of a
+        // generic failure — a silent no-op is impossible to diagnose.
+        console.error("Attachment upload failed", p.name, err);
+        failed.push(`${p.name}: ${err instanceof Error ? err.message : "unknown error"}`);
       }
-      await queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
+    }
+    await queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
+    setSaving(false);
+
+    if (failed.length === 0) {
       message.success(pending.length === 1 ? "Document added" : `${pending.length} documents added`);
       setPending([]);
-    } catch {
-      message.error("Upload failed");
-    } finally {
-      setSaving(false);
+      return;
     }
+    // Keep the failed ones in the queue so the user can retry without re-picking.
+    message.error({ content: failed[0], duration: 8 });
+    const failedNames = new Set(failed.map((f) => f.split(":")[0]));
+    setPending((list) => list.filter((p) => failedNames.has(p.name)));
   };
 
   // Assign a business document type. Separate from upload so a file can be
@@ -291,17 +303,28 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                 e.target.value = "";
               }}
             />
-            <Upload.Dragger
-              name="file"
-              multiple
-              showUploadList={false}
-              openFileDialogOnClick={false}
-              className="!border-[1.5px] !border-dashed !border-[#D3D8E5] !rounded-[9px] !bg-[#FAFBFD]"
-              beforeUpload={(file, fileList) => {
-                // Queue instead of uploading; classification happens first.
-                if (fileList[0] === file) addFiles(fileList);
-                return Upload.LIST_IGNORE;
+            {/*
+              Plain drop zone rather than Upload.Dragger's own upload pipeline:
+              files are queued for classification first, and both the drop and the
+              Browse button hand over real File objects (antd's beforeUpload passes
+              a wrapped RcFile, which does not survive the queue reliably).
+            */}
+            <div
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
               }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                addFiles(e.dataTransfer.files);
+              }}
+              onClick={() => openPicker()}
+              className={[
+                "border-[1.5px] border-dashed rounded-[9px] p-5 cursor-pointer transition-colors",
+                dragOver ? "border-[#4457D6] bg-[#E7EAFC]" : "border-[#D3D8E5] bg-[#FAFBFD]",
+              ].join(" ")}
             >
               <div className="flex items-center gap-4 flex-wrap px-2 py-1">
                 <span className="w-10 h-10 rounded-[9px] bg-[#E7EAFC] text-[#4457D6] grid place-items-center flex-none text-[19px]">
@@ -324,7 +347,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                   Browse files
                 </button>
               </div>
-            </Upload.Dragger>
+            </div>
 
             {pending.length > 0 && (
               <div className="mt-4 border border-[#4457D6] rounded-[9px] overflow-hidden">
