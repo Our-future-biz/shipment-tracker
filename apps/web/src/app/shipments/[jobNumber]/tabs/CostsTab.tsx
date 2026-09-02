@@ -120,7 +120,6 @@ function HeadBtn({
 export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   const queryClient = useQueryClient();
   const [quoteInput, setQuoteInput] = useState("");
-  const [quoteStatus, setQuoteStatus] = useState<string | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   // modalni okno Copy from quote (mockup: #quoteModal)
   const [quoteModal, setQuoteModal] = useState<null | "buy" | "sell">(null);
@@ -156,14 +155,11 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     message.error(detail ? `${what}: ${detail}` : what);
   };
 
-  /* ── Billing nastaveni ── */
-  const billing = data?.billingSettings ?? null;
-  const [billingCur, setBillingCur] = useState("CZK");
-  const [roe, setRoe] = useState("1");
-  useEffect(() => {
-    if (billing?.billingCurrency) setBillingCur(billing.billingCurrency);
-    if (billing?.roe) setRoe(billing.roe);
-  }, [billing?.billingCurrency, billing?.roe]);
+  /* ── Billing mena ──
+     Prepinac byl odstranen - souhrny jsou v CZK, pripadne v mene ulozene
+     u zakazky. ROE se nepouziva, kurzy chodi z kurzovniho listku. */
+  const billingCur = data?.billingSettings?.billingCurrency || "CZK";
+  const roe = "1";
 
   const upsertBilling = useMutation({
     mutationFn: (params: { billingCurrency?: string; roe?: string; quoteRef?: string }) =>
@@ -171,14 +167,13 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     onSuccess: invalidate,
   });
 
-  /* ── Kurzy z kurzovniho listku (stranka Exchange) ── */
-  // Zaklad kurzu dle mockupu: u importu ETA, u exportu ETD.
-  // Vychozi volba se ridi smerem zasilky, uzivatel ji muze prepnout.
+  /* ── Datum pro kurz ──
+     Odvozuje se automaticky ze zasilky: import -> ETA, export -> ETD.
+     Zadne rucni nastaveni. */
   const tradeDirection = (getFieldValue(shipment, "tradeDirection") || "").trim().toLowerCase();
-  const [rateBasis, setRateBasis] = useState<"eta" | "etd">(
-    tradeDirection === "export" ? "etd" : "eta",
-  );
-  const shipmentDate = useMemo(() => {
+  const rateBasis: "eta" | "etd" = tradeDirection === "export" ? "etd" : "eta";
+
+  const rateDate = useMemo(() => {
     const raw = getFieldValue(
       shipment,
       rateBasis === "etd" ? "estimatedDeparture" : "estimatedArrival",
@@ -197,18 +192,6 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     const parsed = new Date(txt);
     return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
   }, [shipment, rateBasis]);
-  // Datum se nastavi rovnou pri prvnim vykresleni. Drive se inicializovalo
-  // prazdne a doplnovalo v useEffect - dotaz na kurzy se tim volal dvakrat
-  // (jednou bez data, podruhe s nim).
-  const [rateDate, setRateDate] = useState(shipmentDate);
-  const lastAutoDate = useRef(shipmentDate);
-  useEffect(() => {
-    // prepnuti ETA/ETD prepise datum, rucni zmenu uzivatele ale neprepisujeme
-    if (shipmentDate && shipmentDate !== lastAutoDate.current) {
-      lastAutoDate.current = shipmentDate;
-      setRateDate(shipmentDate);
-    }
-  }, [shipmentDate]);
 
   // Kurzy se berou z ulozeneho kurzovniho listku (stranka Exchange), ne z CNB.
   const ratesQuery = useQuery({
@@ -542,7 +525,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         ...(qBilling?.roe ? { roe: qBilling.roe } : {}),
       });
       invalidate();
-      setQuoteStatus(`Imported ${imported} cost(s) from ${qn}`);
+      message.success(`Imported ${imported} cost(s) from ${qn}`);
       setQuoteModal(null);
     } catch {
       setQuoteErr("Quote not found or error.");
@@ -888,103 +871,56 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         </div>
       </SectionCard>
 
-      {/* ═══════════ 3. BILLING & KURZY ČNB ═══════════ */}
-      <SectionCard title="Billing & exchange rates" tone="fx">
-        <div className="p-4">
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="text-[12px] font-bold tracking-[.07em] uppercase text-slate-500">Billing currency</span>
-            <Select
-              value={billingCur}
-              className="w-[110px]"
-              options={CURRENCIES.map(([code, name]) => ({ value: code, label: `${code} — ${name}` }))}
-              onChange={(v) => { setBillingCur(v); upsertBilling.mutate({ billingCurrency: v }); }}
-            />
-            <Tooltip title="Záložní kurz (CZK za 1 jednotku) pro měny mimo kurzovní lístek ČNB">
-              <span className="text-[12px] font-bold tracking-[.07em] uppercase text-slate-500">ROE</span>
-            </Tooltip>
-            <Input
-              value={roe}
-              onChange={(e) => setRoe(e.target.value)}
-              onBlur={() => upsertBilling.mutate({ roe })}
-              className="w-[110px] text-right"
-            />
-            <Tooltip title="U importu se kurz bere k datu ETA, u exportu k datu ETD">
-              <Select
-                value={rateBasis}
-                className="w-[150px]"
-                options={[
-                  { value: "eta", label: "Rate at ETA" },
-                  { value: "etd", label: "Rate at ETD" },
-                ]}
-                onChange={(v) => setRateBasis(v)}
-              />
-            </Tooltip>
-            <Tooltip title="Datum ETA/ETD zásilky — kurz ČNB se načte k tomuto dni">
-              <input
-                type="date"
-                value={rateDate}
-                onChange={(e) => setRateDate(e.target.value)}
-                className="h-8 px-2 text-[13px] border border-slate-200 rounded-md outline-none focus:border-indigo-500"
-              />
-            </Tooltip>
-            {/* zdroj kurzu: ulozeny kurzovni listek ze stranky Exchange */}
-            {ratesQuery.isLoading ? (
-              <span className="text-[12.5px] font-semibold text-slate-500">Loading rates…</span>
-            ) : fx.source === "none" ? (
-              <span className="text-[12.5px] font-semibold text-[#95620B]">
-                No exchange rates entered yet —{" "}
-                <a href="/exchange" className="underline">add them in Exchange</a>. Using fallback rates.
-              </span>
-            ) : (
-              <span className="text-[12.5px] font-semibold text-slate-500">
-                {fx.source === "older" && (
-                  <span className="text-[#95620B]">
-                    No rates for {weekKey ? formatWeekLabel(weekKey) : "this week"} — using{" "}
-                    {formatWeekLabel(fx.usedWeek)}.{" "}
-                  </span>
-                )}
-                {fx.source === "exact" && `Rates ${formatWeekLabel(fx.usedWeek)}: `}
-                {rates.USD ? `USD ${rates.USD.toFixed(3)}` : "USD —"}
-                {" · "}
-                {rates.EUR ? `EUR ${rates.EUR.toFixed(3)}` : "EUR —"} CZK
-              </span>
-            )}
-          </div>
+      {/* ═══════════ 3. KURZY (dle ETA/ETD zasilky) ═══════════
+          Zadne nastaveni - kurz se odvodi sam z tydne, do ktereho spada
+          ETA (import) nebo ETD (export). Zdrojem je stranka Exchange. */}
+      <div className="flex items-center gap-4 flex-wrap bg-white border border-slate-200 rounded-xl px-4 py-3 mb-4">
+        <span className="text-[12px] font-bold tracking-[.06em] uppercase text-slate-500">
+          Exchange rate
+        </span>
 
-          {/* souhrnny grid: Total buying costs Estimated/Real v CZK, USD a EUR */}
-          <table className="mt-4 w-full max-w-[620px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
-            <thead>
-              <tr>
-                <th className={`${TH} text-left`} />
-                <th className={`${TH} text-right`}>CZK</th>
-                <th className={`${TH} text-right`}>USD</th>
-                <th className={`${TH} text-right`}>EUR</th>
-              </tr>
-            </thead>
-            <tbody>
-              {[
-                { label: "Total buying — Estimated", czk: t.estCZK },
-                { label: "Total buying — Real", czk: t.realCZK },
-              ].map((row) => (
-                <tr key={row.label}>
-                  <td className="px-[15px] py-[10px] text-[12px] font-bold tracking-[.06em] uppercase text-slate-600 border-b border-slate-100">
-                    {row.label}
-                  </td>
-                  {[row.czk, row.czk / (rates.USD || 1), row.czk / (rates.EUR || 1)].map((v, i) => (
-                    <td key={i} className="px-[15px] py-[10px] text-right font-bold text-slate-900 tabular-nums border-b border-slate-100 whitespace-nowrap">
-                      {row.czk > 0 ? money(v) : "—"}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          {quoteStatus && (
-            <div className="mt-3 text-[12.5px] font-semibold text-[#177245]">{quoteStatus}</div>
-          )}
+        {/* tri kurzy vedle sebe: EUR / CZK / USD */}
+        <div className="flex items-center gap-2">
+          {([
+            ["EUR", rates.EUR],
+            ["CZK", 1],
+            ["USD", rates.USD],
+          ] as [string, number | undefined][]).map(([code, value]) => (
+            <span
+              key={code}
+              className="inline-flex items-center gap-2 border border-slate-200 rounded-md px-3 h-8 bg-white"
+            >
+              <span className="text-[12px] font-bold text-slate-500">{code}</span>
+              <span className="text-[13px] font-semibold text-slate-900 tabular-nums">
+                {value ? value.toFixed(3) : "—"}
+              </span>
+            </span>
+          ))}
         </div>
-      </SectionCard>
+
+        {/* odkud se kurz vzal */}
+        <span className="text-[12.5px] text-slate-500">
+          {ratesQuery.isLoading ? (
+            "Loading rates…"
+          ) : fx.source === "none" ? (
+            <span className="text-[#95620B] font-semibold">
+              No rates entered — <a href="/exchange" className="underline">add them in Exchange</a>
+            </span>
+          ) : !rateDate ? (
+            <span className="text-[#95620B] font-semibold">
+              Shipment has no {rateBasis.toUpperCase()} date — using {formatWeekLabel(fx.usedWeek)}
+            </span>
+          ) : fx.source === "older" ? (
+            <span className="text-[#95620B] font-semibold">
+              No rates for {formatWeekLabel(weekKey)} — using {formatWeekLabel(fx.usedWeek)}
+            </span>
+          ) : (
+            <>
+              {formatWeekLabel(fx.usedWeek)} · by {rateBasis.toUpperCase()} {rateDate}
+            </>
+          )}
+        </span>
+      </div>
 
       {/* ═══════════ 4. REPORT ═══════════ */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
