@@ -79,6 +79,12 @@ interface ShipmentCreateRequest {
   pickupDate?: string;
   pickupTime?: string;
   closingDate?: string;
+  vgmClosing?: string;
+  siClosing?: string;
+  releaseReference?: string;
+  releaseDepot?: string;
+  redeliveryReference?: string;
+  redeliveryDepot?: string;
   etaWarehouse?: string;
   plannedDeliveryDate?: string;
   plannedDeliveryTime?: string;

@@ -125,6 +125,8 @@ export interface ShipmentItem {
   pickupDate: string | null;
   pickupTime: string;
   closingDate: string | null;
+  vgmClosing: string | null;
+  siClosing: string | null;
   etaWarehouse: string | null;
   plannedDeliveryDate: string | null;
   plannedDeliveryTime: string;
@@ -143,6 +145,10 @@ export interface ShipmentItem {
   /** Business document types present on the shipment (Invoice, Packing list, …). */
   documentTypes: string[];
   equipmentDelivery: string;
+  releaseReference: string;
+  releaseDepot: string;
+  redeliveryReference: string;
+  redeliveryDepot: string;
   equipmentDeliveryDate: string | null;
   supplierPic: string;
 

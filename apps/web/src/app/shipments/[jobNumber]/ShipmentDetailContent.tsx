@@ -555,10 +555,23 @@ const KEY_DATES_R: FieldDef[] = [
   { key: "actualDepartureWeek", label: "Actual Departure Week", ro: true },
   { key: "estimatedArrivalWeek", label: "Est. Arrival Week", ro: true },
   { key: "actualArrivalWeek", label: "Actual Arrival Week", ro: true },
-  { key: "closingDate", label: "Closing Date" },
+  { key: "closingDate", label: "Closing Date (Cargo Closing)" },
+  { key: "vgmClosing", label: "VGM Closing" },
+  { key: "siClosing", label: "SI Closing" },
   { key: "plannedDeliveryDate", label: "Planned Delivery" },
   { key: "plannedDeliveryTime", label: "Planned Delivery Time" },
 ];
+/** Equipment & Depot dle mockupu (id "equip") */
+const EQUIP_DEPOT_L: FieldDef[] = [
+  { key: "releaseReference", label: "Release Reference" },
+  { key: "releaseDepot", label: "Release Depot" },
+];
+const EQUIP_DEPOT_R: FieldDef[] = [
+  { key: "redeliveryReference", label: "Redelivery Reference" },
+  { key: "redeliveryDepot", label: "Redelivery Depot" },
+  { key: "equipmentDeliveryDate", label: "Equipment Delivery/Pick-Up Date" },
+];
+
 const REFS_ROUTING: FieldDef[] = [
   { key: "personalReference", label: "Personal Reference" },
   { key: "bookingNumber", label: "Booking Number" },
@@ -1218,6 +1231,18 @@ export function ShipmentDetailContent() {
                 />
                 <DetailCard icon={<CalendarOutlined />} title="Key Dates" cardId="dates" columns={[KEY_DATES_L, KEY_DATES_R]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
               </div>
+
+              {/* EQUIPMENT & DEPOT (mockup: card("equip") mezi dvojici
+                  Carrier/Key Dates a kartou References) */}
+              <DetailCard
+                icon={<ContainerOutlined />}
+                title="Equipment & Depot"
+                cardId="equip"
+                columns={[EQUIP_DEPOT_L, EQUIP_DEPOT_R]}
+                shipment={shipment}
+                onCommit={handleCommit}
+                styleFor={styleFor}
+              />
 
               {/* REFERENCES & ROUTING  |  PARTIES & AGENTS
                   Dve samostatne karty vedle sebe, kazda s vlastni hlavickou

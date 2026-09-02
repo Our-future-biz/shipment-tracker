@@ -1857,6 +1857,12 @@ export namespace controllers {
         pickupDate?: string
         pickupTime?: string
         closingDate?: string
+        vgmClosing?: string
+        siClosing?: string
+        releaseReference?: string
+        releaseDepot?: string
+        redeliveryReference?: string
+        redeliveryDepot?: string
         etaWarehouse?: string
         plannedDeliveryDate?: string
         plannedDeliveryTime?: string
@@ -2082,6 +2088,12 @@ export namespace controllers {
         pickupDate?: string
         pickupTime?: string
         closingDate?: string
+        vgmClosing?: string
+        siClosing?: string
+        releaseReference?: string
+        releaseDepot?: string
+        redeliveryReference?: string
+        redeliveryDepot?: string
         etaWarehouse?: string
         plannedDeliveryDate?: string
         plannedDeliveryTime?: string
@@ -2738,6 +2750,8 @@ export namespace interfaces {
         pickupDate: string | null
         pickupTime: string
         closingDate: string | null
+        vgmClosing: string | null
+        siClosing: string | null
         etaWarehouse: string | null
         plannedDeliveryDate: string | null
         plannedDeliveryTime: string
@@ -2755,6 +2769,10 @@ export namespace interfaces {
         csRecvPacking: string
         documentTypes: string[]
         equipmentDelivery: string
+        releaseReference: string
+        releaseDepot: string
+        redeliveryReference: string
+        redeliveryDepot: string
         equipmentDeliveryDate: string | null
         supplierPic: string
         /**
