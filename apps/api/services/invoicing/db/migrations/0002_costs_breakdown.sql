@@ -2,7 +2,6 @@
 --  1) invoice_cost (Buying costs) dostava Qty pro Estimated i Real,
 --     priznak "Received" (prijata faktura obdrzena) a poradi radku.
 --  2) nova tabulka invoice_selling_cost (Selling costs).
-ALTER TABLE "invoice_cost" ALTER COLUMN "category" SET DEFAULT '';--> statement-breakpoint
 ALTER TABLE "invoice_cost" ADD COLUMN "est_qty" numeric(14, 2);--> statement-breakpoint
 ALTER TABLE "invoice_cost" ADD COLUMN "real_qty" numeric(14, 2);--> statement-breakpoint
 ALTER TABLE "invoice_cost" ADD COLUMN "received" boolean DEFAULT false NOT NULL;--> statement-breakpoint
@@ -19,8 +18,7 @@ CREATE TABLE "invoice_selling_cost" (
 	"qty" numeric(14, 2),
 	"amount" numeric(14, 2),
 	"currency" text DEFAULT 'CZK' NOT NULL,
-	"invoice" boolean DEFAULT true NOT NULL,
-	"source_buy_id" uuid,
+	"invoice" boolean DEFAULT false NOT NULL,
 	"sort_order" integer DEFAULT 0 NOT NULL
 );--> statement-breakpoint
 CREATE INDEX "invoice_selling_cost_created_at_idx" ON "invoice_selling_cost" USING btree ("created_at");--> statement-breakpoint
