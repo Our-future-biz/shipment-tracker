@@ -139,22 +139,28 @@ export function CustomsView() {
   return (
     <>
       {/* Toolbar */}
+      {/* .toolbar from the mockup: 12/16 padding, 16px radius, 12px gaps */}
       <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4 flex-wrap">
         <span className="text-[13px] font-semibold text-slate-600">Shipments to clear</span>
         <div className="flex items-center gap-3 shrink-0 flex-wrap">
+          {/* .tb-search: 240px wide, 6px radius, 14px text */}
           <Input
             placeholder="Search job, container, invoice…"
-            prefix={<SearchOutlined className="text-slate-400" />}
+            prefix={<SearchOutlined className="text-slate-400 text-[13px]" />}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             allowClear
-            className="w-72"
+            size="middle"
+            className="w-60 [&_.ant-input-affix-wrapper]:rounded-md"
+            style={{ borderRadius: 6, height: 32 }}
           />
+          {/* .tb-divider */}
           <div className="w-px h-6 bg-slate-200 shrink-0" />
+          {/* select.antd .w-44 */}
           <Select
             value={statusFilter}
             onChange={setStatusFilter}
-            className="w-56"
+            className="w-44 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!h-8"
             options={[
               { value: "all", label: "All customs statuses" },
               ...CUSTOMS_STATUSES.map((o) => ({ value: o, label: o })),
