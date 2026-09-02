@@ -7,7 +7,7 @@ export const invoiceCostTable = pgTable(
     ...defaultTableColumns,
     ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
-    category: text("category").notNull(),
+    category: text("category").notNull().default(""),
     /** Estimated buying costs (mockup: Qty | Est. Amount | Cur) */
     estQty: numeric("est_qty", { precision: 14, scale: 2 }),
     estAmount: numeric("est_amount", { precision: 14, scale: 2 }),

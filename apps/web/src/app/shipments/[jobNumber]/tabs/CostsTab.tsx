@@ -14,6 +14,9 @@ import {
 
 const CURRENCIES = ["CZK", "USD", "EUR", "GBP", "CNY"];
 
+/** Zalozni kurzy z mockupu - plati, dokud se nenactou kurzy CNB. */
+const FALLBACK_RATES: Record<string, number> = { CZK: 1, USD: 20.62, EUR: 24.12 };
+
 /** Mockup naseptava meny podle kodu i nazvu (renderCombo, mode "cur"). */
 const CURRENCY_NAMES: Record<string, string> = {
   CZK: "Czech koruna",
@@ -170,8 +173,16 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     queryKey: ["fx-cnb", rateDate],
     queryFn: () => api.invoicing.invoicingFxRates(rateDate ? { date: rateDate } : {}),
     staleTime: 60 * 60 * 1000,
+    // kurzy nesmi blokovat praci s tabulkami - do jejich nacteni plati zalozni
+    retry: 1,
+    refetchOnWindowFocus: false,
   });
-  const rates: Rates = fxQuery.data?.rates ?? { CZK: 1, USD: 20.62, EUR: 24.12 };
+  // POZOR: musi byt stabilni reference, jinak se prepocty spousti pri kazdem
+  // vykresleni (useMemo s rates v zavislostech by se prepocitaval donekonecna)
+  const rates: Rates = useMemo(
+    () => fxQuery.data?.rates ?? FALLBACK_RATES,
+    [fxQuery.data?.rates],
+  );
 
   /* ── Buying costs ── */
   const buyRows: BuyingRow[] = useMemo(
@@ -272,14 +283,12 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     if (!entry) return;
     // vraceni na puvodni pozici: radek dostane sortOrder podle ulozeneho indexu
     // a nasledujici radky se posunou
-    await api.invoicing.invoicingAddBuyingCost(shipment.id, {
-      ...entry.values, sortOrder: entry.index,
-    });
-    for (const [i, r] of buyRows.entries()) {
-      if (i >= entry.index) {
-        await api.invoicing.invoicingUpdateBuyingCost(shipment.id, r.id, { sortOrder: i + 1 } as never);
-      }
-    }
+    await Promise.all([
+      api.invoicing.invoicingAddBuyingCost(shipment.id, { ...entry.values, sortOrder: entry.index }),
+      ...buyRows.flatMap((r, i) => i >= entry.index
+        ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, r.id, { sortOrder: i + 1 } as never)]
+        : []),
+    ]);
     invalidate();
   };
 
@@ -296,14 +305,12 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     const entry = undoSellStack.current.pop();
     setUndoSellCount(undoSellStack.current.length);
     if (!entry) return;
-    await api.invoicing.invoicingAddSellingCost(shipment.id, {
-      ...entry.values, sortOrder: entry.index,
-    } as never);
-    for (const [i, r] of sellRows.entries()) {
-      if (i >= entry.index) {
-        await api.invoicing.invoicingUpdateSellingCost(shipment.id, r.id, { sortOrder: i + 1 } as never);
-      }
-    }
+    await Promise.all([
+      api.invoicing.invoicingAddSellingCost(shipment.id, { ...entry.values, sortOrder: entry.index } as never),
+      ...sellRows.flatMap((r, i) => i >= entry.index
+        ? [api.invoicing.invoicingUpdateSellingCost(shipment.id, r.id, { sortOrder: i + 1 } as never)]
+        : []),
+    ]);
     invalidate();
   };
 
@@ -317,9 +324,9 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       realQty: r.realQty, realAmount: r.realAmount, realCurrency: r.realCurrency,
       sortOrder: index + 1,
     });
-    for (const [i, row] of buyRows.entries()) {
-      if (i > index) await api.invoicing.invoicingUpdateBuyingCost(shipment.id, row.id, { sortOrder: i + 1 } as never);
-    }
+    await Promise.all(buyRows.flatMap((row, i) => i > index
+      ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, row.id, { sortOrder: i + 1 } as never)]
+      : []));
     invalidate();
   };
 
@@ -329,9 +336,9 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       qty: r.qty, amount: r.amount, currency: r.currency, invoice: r.invoice,
       sortOrder: index + 1,
     });
-    for (const [i, row] of sellRows.entries()) {
-      if (i > index) await api.invoicing.invoicingUpdateSellingCost(shipment.id, row.id, { sortOrder: i + 1 } as never);
-    }
+    await Promise.all(sellRows.flatMap((row, i) => i > index
+      ? [api.invoicing.invoicingUpdateSellingCost(shipment.id, row.id, { sortOrder: i + 1 } as never)]
+      : []));
     invalidate();
   };
 
@@ -357,16 +364,15 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       message.info(already.size ? "All buying rows are already copied" : "No buying costs to copy");
       return;
     }
-    for (const [i, r] of rows.entries()) {
-      await api.invoicing.invoicingAddSellingCost(shipment.id, {
+    await Promise.all(rows.map((r, i) =>
+      api.invoicing.invoicingAddSellingCost(shipment.id, {
         category: r.category,
         qty: r.estQty || "1",
         amount: r.estAmount || "",
         currency: r.estCurrency,
         sourceBuyId: r.id,
         sortOrder: sellRows.length + i,
-      } as never);
-    }
+      } as never)));
     invalidate();
     message.success(`Copied ${rows.length} row(s) from buying`);
   };
@@ -390,27 +396,24 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         setQuoteLoading(false);
         return;
       }
-      let imported = 0;
-      for (const [i, c] of quoteCosts.entries()) {
-        const amount = c.realAmount || c.estAmount;
-        if (!amount) continue;
+      const usable = quoteCosts.filter((c) => c.realAmount || c.estAmount);
+      await Promise.all(usable.map((c, i) => {
+        const amount = (c.realAmount || c.estAmount)!;
         const currency = (c.realAmount ? c.realCurrency : c.estCurrency) || billingCur;
         const qty = (c.realAmount ? c.realQty : c.estQty) || "1";
-        if (target === "buy") {
-          await api.invoicing.invoicingAddBuyingCost(shipment.id, {
-            category: c.category, vendor: c.vendor ?? "",
-            estQty: qty, estAmount: amount, estCurrency: currency,
-            realQty: "1", realCurrency: currency,
-            sortOrder: buyRows.length + i,
-          });
-        } else {
-          await api.invoicing.invoicingAddSellingCost(shipment.id, {
-            category: c.category, qty, amount, currency, invoice: true,
-            sortOrder: sellRows.length + i,
-          } as never);
-        }
-        imported++;
-      }
+        return target === "buy"
+          ? api.invoicing.invoicingAddBuyingCost(shipment.id, {
+              category: c.category ?? "", vendor: c.vendor ?? "",
+              estQty: qty, estAmount: amount, estCurrency: currency,
+              realQty: "1", realCurrency: currency,
+              sortOrder: buyRows.length + i,
+            })
+          : api.invoicing.invoicingAddSellingCost(shipment.id, {
+              category: c.category ?? "", qty, amount, currency, invoice: true,
+              sortOrder: sellRows.length + i,
+            } as never);
+      }));
+      const imported = usable.length;
       const qBilling = quoteData.billingSettings;
       await upsertBilling.mutateAsync({
         quoteRef: qn,
@@ -435,6 +438,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   if (isLoading) {
     return <div className="p-6 text-center text-slate-400 text-sm">Loading…</div>;
   }
+
 
   return (
     <div>

@@ -2,6 +2,7 @@
 --  1) invoice_cost (Buying costs) dostava Qty pro Estimated i Real,
 --     priznak "Received" (prijata faktura obdrzena) a poradi radku.
 --  2) nova tabulka invoice_selling_cost (Selling costs).
+ALTER TABLE "invoice_cost" ALTER COLUMN "category" SET DEFAULT '';--> statement-breakpoint
 ALTER TABLE "invoice_cost" ADD COLUMN "est_qty" numeric(14, 2);--> statement-breakpoint
 ALTER TABLE "invoice_cost" ADD COLUMN "real_qty" numeric(14, 2);--> statement-breakpoint
 ALTER TABLE "invoice_cost" ADD COLUMN "received" boolean DEFAULT false NOT NULL;--> statement-breakpoint

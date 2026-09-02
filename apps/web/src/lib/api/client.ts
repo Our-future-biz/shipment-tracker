@@ -638,7 +638,7 @@ export namespace invoicing {
 
         public async invoicingFxRates(params?: { date?: string }): Promise<controllers.FxRatesResponse> {
             const query = params?.date ? `?date=${encodeURIComponent(params.date)}` : ""
-            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/fx/cnb${query}`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/cnb-rates${query}`)
             return await resp.json() as controllers.FxRatesResponse
         }
     }

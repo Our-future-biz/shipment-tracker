@@ -1,4 +1,4 @@
-import { api } from "encore.dev/api";
+import { api, Query } from "encore.dev/api";
 
 /**
  * Serverova proxy na kurzovni listek CNB.
@@ -14,7 +14,7 @@ const CNB_FALLBACK: Record<string, number> = { USD: 20.62, EUR: 24.12 };
 
 interface FxRatesRequest {
   /** YYYY-MM-DD; prazdne = aktualni kurzovni listek */
-  date?: string;
+  date?: Query<string>;
 }
 
 interface FxRatesResponse {
@@ -35,7 +35,7 @@ function isoWeek(d: Date): number {
 }
 
 export const invoicingFxRates = api(
-  { expose: true, auth: true, method: "GET", path: "/invoicing/fx/cnb" },
+  { expose: true, auth: true, method: "GET", path: "/fx/cnb-rates" },
   async (req: FxRatesRequest): Promise<FxRatesResponse> => {
     const date = (req.date ?? "").trim();
     const url = "https://api.cnb.cz/cnbapi/exrates/daily?lang=EN" + (date ? `&date=${date}` : "");

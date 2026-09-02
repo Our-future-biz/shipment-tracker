@@ -12,6 +12,10 @@ function sanitizeAmounts<T extends Record<string, unknown>>(data: T): T {
   for (const key of ["estAmount", "realAmount", "estQty", "realQty", "qty", "amount"]) {
     if (out[key] === "") out[key] = null;
   }
+  // undefined klice by pri spreadu prepsaly vychozi hodnoty na undefined
+  for (const key of Object.keys(out)) {
+    if (out[key] === undefined) delete out[key];
+  }
   return out as T;
 }
 
