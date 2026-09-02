@@ -6,6 +6,8 @@
 #   ./run-local.sh seed     naplni ukazkova data (druhe okno, kdyz aplikace bezi)
 #   ./run-local.sh admin <email> <heslo> ["Jmeno"]   vytvori superadmina
 #
+#   Zaloha dat:  ./zaloha.sh   (viz ./zaloha.sh seznam)
+#
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -64,6 +66,7 @@ if [ "$cmd" = "dev" ]; then
   echo " Aplikace startuje. Toto okno nechej OTEVRENE."
   echo " Az bude hotovo, otevri:  http://localhost:3001"
   echo " Vypnout:  Ctrl+C  (nebo zavreni okna)"
+  echo " Zaloha dat: ve druhe zalozce  ./zaloha.sh"
   echo "────────────────────────────────────────────────────────"
   echo ""
   exec pnpm dev
