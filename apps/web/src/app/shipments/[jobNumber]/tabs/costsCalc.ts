@@ -61,6 +61,8 @@ export interface SellingRow {
   amount: string;
   currency: string;
   invoice: boolean;
+  /** vazba na zdrojovy buying radek (mockup: data-src) */
+  sourceBuyId: string | null;
 }
 
 export interface RxeRow {

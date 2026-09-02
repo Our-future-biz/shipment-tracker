@@ -17,8 +17,10 @@ export const invoiceSellingCostTable = pgTable(
     qty: numeric("qty", { precision: 14, scale: 2 }),
     amount: numeric("amount", { precision: 14, scale: 2 }),
     currency: text("currency").notNull().default("CZK"),
-    /** zahrnout do kalkulacniho listu k fakturaci */
-    invoice: boolean("invoice").notNull().default(false),
+    /** zahrnout do kalkulacniho listu k fakturaci (mockup: vychozi zaskrtnuto) */
+    invoice: boolean("invoice").notNull().default(true),
+    /** vazba na zdrojovy buying radek (mockup: data-src) - brani opakovanemu kopirovani */
+    sourceBuyId: uuid("source_buy_id"),
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (table) => [

@@ -1496,6 +1496,7 @@ export namespace controllers {
         amount?: string
         currency?: string
         invoice?: boolean
+        sourceBuyId?: string
         sortOrder?: number
     }
 
@@ -2505,6 +2506,7 @@ export namespace interfaces {
         amount: string | null
         currency: string
         invoice: boolean
+        sourceBuyId: string | null
         sortOrder: number
     }
 

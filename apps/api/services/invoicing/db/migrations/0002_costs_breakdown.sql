@@ -18,7 +18,8 @@ CREATE TABLE "invoice_selling_cost" (
 	"qty" numeric(14, 2),
 	"amount" numeric(14, 2),
 	"currency" text DEFAULT 'CZK' NOT NULL,
-	"invoice" boolean DEFAULT false NOT NULL,
+	"invoice" boolean DEFAULT true NOT NULL,
+	"source_buy_id" uuid,
 	"sort_order" integer DEFAULT 0 NOT NULL
 );--> statement-breakpoint
 CREATE INDEX "invoice_selling_cost_created_at_idx" ON "invoice_selling_cost" USING btree ("created_at");--> statement-breakpoint

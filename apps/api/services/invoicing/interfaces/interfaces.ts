@@ -24,6 +24,7 @@ export interface SellingCostItem {
   amount: string | null;
   currency: string;
   invoice: boolean;
+  sourceBuyId: string | null;
   sortOrder: number;
 }
 

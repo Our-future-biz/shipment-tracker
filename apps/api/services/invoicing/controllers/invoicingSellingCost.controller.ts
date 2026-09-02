@@ -11,6 +11,7 @@ interface AddSellingRequest {
   amount?: string;
   currency?: string;
   invoice?: boolean;
+  sourceBuyId?: string;
   sortOrder?: number;
 }
 

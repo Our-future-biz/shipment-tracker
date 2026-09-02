@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Input, Select, Button, Checkbox, Tooltip, message } from "antd";
-import { DeleteOutlined, UndoOutlined, DownOutlined } from "@ant-design/icons";
+import { Input, Select, Checkbox, Tooltip, Modal, AutoComplete, message } from "antd";
+import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ShipmentItem } from "@/hooks/useShipments";
@@ -13,6 +13,36 @@ import {
 } from "./costsCalc";
 
 const CURRENCIES = ["CZK", "USD", "EUR", "GBP", "CNY"];
+
+/** Mockup naseptava meny podle kodu i nazvu (renderCombo, mode "cur"). */
+const CURRENCY_NAMES: Record<string, string> = {
+  CZK: "Czech koruna",
+  USD: "US dollar",
+  EUR: "Euro",
+  GBP: "Pound sterling",
+  CNY: "Chinese yuan",
+};
+
+/** Vyber meny s naseptavanim - filtruje podle kodu i nazvu meny. */
+function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <AutoComplete
+      value={value}
+      onChange={(v) => onChange((v || "").toUpperCase())}
+      onSelect={(v) => onChange(v)}
+      filterOption={(input, option) => {
+        const q = (input || "").toLowerCase().trim();
+        if (!q) return true;
+        const code = String(option?.value ?? "").toLowerCase();
+        return code.includes(q) || (CURRENCY_NAMES[String(option?.value)] ?? "").toLowerCase().includes(q);
+      }}
+      options={CURRENCIES.map((c) => ({ value: c, label: `${c} — ${CURRENCY_NAMES[c] ?? ""}` }))}
+      className="w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
+                 [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
+                 [&_input]:!text-[13px]"
+    />
+  );
+}
 
 /** Kategorie z mockupu (select .b-type) */
 const COST_CATEGORIES = [
@@ -81,6 +111,9 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   const [quoteInput, setQuoteInput] = useState("");
   const [quoteStatus, setQuoteStatus] = useState<string | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
+  // modalni okno Copy from quote (mockup: #quoteModal)
+  const [quoteModal, setQuoteModal] = useState<null | "buy" | "sell">(null);
+  const [quoteErr, setQuoteErr] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
@@ -158,8 +191,13 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     [data?.costs],
   );
 
+  // novy radek dle mockupu: Qty = 1, meny podle zvolene billing meny
   const addBuy = useMutation({
-    mutationFn: () => api.invoicing.invoicingAddBuyingCost(shipment.id, { sortOrder: buyRows.length }),
+    mutationFn: () => api.invoicing.invoicingAddBuyingCost(shipment.id, {
+      estQty: "1", realQty: "1",
+      estCurrency: billingCur, realCurrency: billingCur,
+      sortOrder: buyRows.length,
+    }),
     onSuccess: invalidate,
   });
   const updateBuy = useMutation({
@@ -182,13 +220,18 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       amount: c.amount ?? "",
       currency: c.currency || "CZK",
       invoice: !!c.invoice,
+      sourceBuyId: c.sourceBuyId ?? null,
     })),
     [data?.sellingCosts],
   );
 
+  // novy radek dle mockupu: Qty = 1, mena podle billing meny, Invoice zaskrtnuto
   const addSell = useMutation({
     mutationFn: (params: Record<string, unknown> = {}) =>
-      api.invoicing.invoicingAddSellingCost(shipment.id, { sortOrder: sellRows.length, ...params }),
+      api.invoicing.invoicingAddSellingCost(shipment.id, {
+        qty: "1", currency: billingCur, invoice: true,
+        sortOrder: sellRows.length, ...params,
+      } as never),
     onSuccess: invalidate,
   });
   const updateSell = useMutation({
@@ -201,70 +244,149 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     onSuccess: invalidate,
   });
 
-  /* ── Undo smazani (mockup: undo-btn) ── */
-  const undoBuyRef = useRef<Record<string, unknown> | null>(null);
-  const undoSellRef = useRef<Record<string, unknown> | null>(null);
-  const [canUndoBuy, setCanUndoBuy] = useState(false);
-  const [canUndoSell, setCanUndoSell] = useState(false);
+  /* ── Undo jako zasobnik (mockup: undoStack + snapshotCostRow/restoreCostRow) ──
+     Mockup si pamatuje vice smazanych radku a vraci je na PUVODNI pozici. */
+  interface UndoEntry { index: number; values: Record<string, unknown> }
+  const undoBuyStack = useRef<UndoEntry[]>([]);
+  const undoSellStack = useRef<UndoEntry[]>([]);
+  const [undoBuyCount, setUndoBuyCount] = useState(0);
+  const [undoSellCount, setUndoSellCount] = useState(0);
 
-  const removeBuy = (row: BuyingRow) => {
-    const { id: _id, ...rest } = row;
-    undoBuyRef.current = rest;
-    setCanUndoBuy(true);
+  /** prazdny radek nema smysl vracet (mockup: costRowFilled) */
+  const buyRowFilled = (r: BuyingRow) =>
+    !!(r.category || r.vendor || r.estAmount || r.realAmount || r.invoiceNumber);
+  const sellRowFilled = (r: SellingRow) => !!(r.category || r.customer || r.amount);
+
+  const removeBuy = (row: BuyingRow, index: number) => {
+    if (buyRowFilled(row)) {
+      const { id: _id, ...values } = row;
+      undoBuyStack.current.push({ index, values });
+      setUndoBuyCount(undoBuyStack.current.length);
+    }
     deleteBuy.mutate(row.id);
   };
-  const undoBuy = () => {
-    const r = undoBuyRef.current;
-    if (!r) return;
-    api.invoicing.invoicingAddBuyingCost(shipment.id, r).then(() => {
-      undoBuyRef.current = null;
-      setCanUndoBuy(false);
-      invalidate();
-    });
-  };
-  const removeSell = (row: SellingRow) => {
-    const { id: _id, ...rest } = row;
-    undoSellRef.current = rest;
-    setCanUndoSell(true);
-    deleteSell.mutate(row.id);
-  };
-  const undoSell = () => {
-    const r = undoSellRef.current;
-    if (!r) return;
-    api.invoicing.invoicingAddSellingCost(shipment.id, r).then(() => {
-      undoSellRef.current = null;
-      setCanUndoSell(false);
-      invalidate();
-    });
-  };
 
-  /* ── Copy from buying (mockup: copyFromBuying) ── */
-  const copyFromBuying = async () => {
-    if (!buyRows.length) return message.info("No buying costs to copy");
+  const undoBuy = async () => {
+    const entry = undoBuyStack.current.pop();
+    setUndoBuyCount(undoBuyStack.current.length);
+    if (!entry) return;
+    // vraceni na puvodni pozici: radek dostane sortOrder podle ulozeneho indexu
+    // a nasledujici radky se posunou
+    await api.invoicing.invoicingAddBuyingCost(shipment.id, {
+      ...entry.values, sortOrder: entry.index,
+    });
     for (const [i, r] of buyRows.entries()) {
-      await api.invoicing.invoicingAddSellingCost(shipment.id, {
-        category: r.category,
-        qty: r.realQty || r.estQty || "",
-        amount: r.realAmount || r.estAmount || "",
-        currency: r.realAmount ? r.realCurrency : r.estCurrency,
-        sortOrder: sellRows.length + i,
-      });
+      if (i >= entry.index) {
+        await api.invoicing.invoicingUpdateBuyingCost(shipment.id, r.id, { sortOrder: i + 1 } as never);
+      }
     }
     invalidate();
-    message.success(`Copied ${buyRows.length} row(s) from buying`);
   };
 
-  /* ── Copy from quote (zachovano z puvodni verze) ── */
-  const importQuoteCosts = async (target: "buy" | "sell") => {
-    if (!quoteInput.trim()) return;
+  const removeSell = (row: SellingRow, index: number) => {
+    if (sellRowFilled(row)) {
+      const { id: _id, ...values } = row;
+      undoSellStack.current.push({ index, values });
+      setUndoSellCount(undoSellStack.current.length);
+    }
+    deleteSell.mutate(row.id);
+  };
+
+  const undoSell = async () => {
+    const entry = undoSellStack.current.pop();
+    setUndoSellCount(undoSellStack.current.length);
+    if (!entry) return;
+    await api.invoicing.invoicingAddSellingCost(shipment.id, {
+      ...entry.values, sortOrder: entry.index,
+    } as never);
+    for (const [i, r] of sellRows.entries()) {
+      if (i >= entry.index) {
+        await api.invoicing.invoicingUpdateSellingCost(shipment.id, r.id, { sortOrder: i + 1 } as never);
+      }
+    }
+    invalidate();
+  };
+
+  /* ── Kopie radku (mockup: tlacitko .dup) ──
+     Nekopiruje se Invoice number ani Received - vazou se ke konkretni fakture.
+     U selling se nekopiruje vazba na zdrojovy radek - kopie je novy nezavisly radek. */
+  const duplicateBuy = async (r: BuyingRow, index: number) => {
+    await api.invoicing.invoicingAddBuyingCost(shipment.id, {
+      category: r.category, vendor: r.vendor,
+      estQty: r.estQty, estAmount: r.estAmount, estCurrency: r.estCurrency,
+      realQty: r.realQty, realAmount: r.realAmount, realCurrency: r.realCurrency,
+      sortOrder: index + 1,
+    });
+    for (const [i, row] of buyRows.entries()) {
+      if (i > index) await api.invoicing.invoicingUpdateBuyingCost(shipment.id, row.id, { sortOrder: i + 1 } as never);
+    }
+    invalidate();
+  };
+
+  const duplicateSell = async (r: SellingRow, index: number) => {
+    await api.invoicing.invoicingAddSellingCost(shipment.id, {
+      category: r.category, customer: r.customer,
+      qty: r.qty, amount: r.amount, currency: r.currency, invoice: r.invoice,
+      sortOrder: index + 1,
+    });
+    for (const [i, row] of sellRows.entries()) {
+      if (i > index) await api.invoicing.invoicingUpdateSellingCost(shipment.id, row.id, { sortOrder: i + 1 } as never);
+    }
+    invalidate();
+  };
+
+  /* ── Zmena meny u Estimated se zrcadli do Real, dokud neni Real vyplneny ── */
+  const changeEstCurrency = (r: BuyingRow, currency: string) => {
+    const mirror = !num(r.realAmount);
+    updateBuy.mutate({ id: r.id, estCurrency: currency, ...(mirror ? { realCurrency: currency } : {}) });
+  };
+
+  /* ── Received se ridi vyplnenim cisla faktury, rucne zaskrtnout nejde ── */
+  const changeInvoiceNumber = (r: BuyingRow, value: string) => {
+    if (value === r.invoiceNumber) return;
+    updateBuy.mutate({ id: r.id, invoiceNumber: value, received: !!value.trim() });
+  };
+
+  /* ── Copy from buying (mockup: copyFromBuying) ──
+     Kopiruje VZDY z Estimated (Qty x Est. Amount v mene estimated) - Real se nikdy
+     nepouziva. Radky jiz zkopirovane driv se preskoci (vazba sourceBuyId). */
+  const copyFromBuying = async () => {
+    const already = new Set(sellRows.map((r) => r.sourceBuyId).filter(Boolean));
+    const rows = buyRows.filter((r) => !already.has(r.id) && (r.category || num(r.estAmount)));
+    if (!rows.length) {
+      message.info(already.size ? "All buying rows are already copied" : "No buying costs to copy");
+      return;
+    }
+    for (const [i, r] of rows.entries()) {
+      await api.invoicing.invoicingAddSellingCost(shipment.id, {
+        category: r.category,
+        qty: r.estQty || "1",
+        amount: r.estAmount || "",
+        currency: r.estCurrency,
+        sourceBuyId: r.id,
+        sortOrder: sellRows.length + i,
+      } as never);
+    }
+    invalidate();
+    message.success(`Copied ${rows.length} row(s) from buying`);
+  };
+
+  /* ── Copy from quote (mockup: openQuoteModal / doQuoteImport) ──
+     Reference se zadava v modalnim okne, ne primo v karte. */
+  const importQuoteCosts = async () => {
+    const target = quoteModal;
+    if (!target) return;
+    const ref = quoteInput.trim();
+    if (!ref) { setQuoteErr("Enter the quotation reference."); return; }
+
     setQuoteLoading(true);
-    setQuoteStatus(null);
-    const qn = quoteInput.trim().replace(/-\d+$/, "");
+    setQuoteErr("");
+    const qn = ref.replace(/-\d+$/, "");
     try {
       const quoteData = await api.invoicing.invoicingGet(qn);
       const quoteCosts = quoteData.costs ?? [];
       if (!quoteCosts.length) {
-        setQuoteStatus("No costs found for this quote");
+        setQuoteErr(`No costs found for quote ${qn}.`);
         setQuoteLoading(false);
         return;
       }
@@ -272,19 +394,20 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       for (const [i, c] of quoteCosts.entries()) {
         const amount = c.realAmount || c.estAmount;
         if (!amount) continue;
-        const currency = (c.realAmount ? c.realCurrency : c.estCurrency) || "CZK";
+        const currency = (c.realAmount ? c.realCurrency : c.estCurrency) || billingCur;
+        const qty = (c.realAmount ? c.realQty : c.estQty) || "1";
         if (target === "buy") {
           await api.invoicing.invoicingAddBuyingCost(shipment.id, {
             category: c.category, vendor: c.vendor ?? "",
-            estQty: c.realAmount ? (c.realQty ?? "") : (c.estQty ?? ""),
-            estAmount: amount, estCurrency: currency,
+            estQty: qty, estAmount: amount, estCurrency: currency,
+            realQty: "1", realCurrency: currency,
             sortOrder: buyRows.length + i,
           });
         } else {
           await api.invoicing.invoicingAddSellingCost(shipment.id, {
-            category: c.category, amount, currency,
+            category: c.category, qty, amount, currency, invoice: true,
             sortOrder: sellRows.length + i,
-          });
+          } as never);
         }
         imported++;
       }
@@ -296,8 +419,9 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       });
       invalidate();
       setQuoteStatus(`Imported ${imported} cost(s) from ${qn}`);
+      setQuoteModal(null);
     } catch {
-      setQuoteStatus("Quote not found or error");
+      setQuoteErr("Quote not found or error.");
     }
     setQuoteLoading(false);
   };
@@ -320,10 +444,10 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         tone="buy"
         actions={
           <>
-            <HeadBtn onClick={undoBuy} disabled={!canUndoBuy} title="Vrátit smazaný náklad zpět">
+            <HeadBtn onClick={undoBuy} disabled={!undoBuyCount} title="Vrátit smazaný náklad zpět">
               <UndoOutlined />
             </HeadBtn>
-            <HeadBtn onClick={() => importQuoteCosts("buy")} disabled={quoteLoading || !quoteInput.trim()}>
+            <HeadBtn onClick={() => { setQuoteErr(""); setQuoteModal("buy"); }}>
               Copy from quote
             </HeadBtn>
             <HeadBtn onClick={() => addBuy.mutate()}>Add buying cost</HeadBtn>
@@ -356,11 +480,11 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                 <th className={`${TH} text-left w-[9%]`}>Invoice number</th>
                 <th className={`${TH} text-center w-[6%]`} title="Přijatá faktura obdržena">Received</th>
                 <th className={`${TH} text-right w-[12%]`}>Total in {billingCur}</th>
-                <th className={`${TH} w-[44px]`} />
+                <th className={`${TH} w-[70px]`} />
               </tr>
             </thead>
             <tbody>
-              {buyRows.map((r) => (
+              {buyRows.map((r, rowIndex) => (
                 <tr key={r.id} className="hover:bg-slate-50/60">
                   <td className={CELL}>
                     <Select
@@ -397,15 +521,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     />
                   </td>
                   <td className={CELL}>
-                    <Select
-                      value={r.estCurrency}
-                      variant="borderless"
-                      className="w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
-                                 [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
-                                 [&_.ant-select-selection-item]:!text-[13px]"
-                      options={CURRENCIES.map((v) => ({ value: v, label: v }))}
-                      onChange={(v) => updateBuy.mutate({ id: r.id, estCurrency: v })}
-                    />
+                    <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
                   </td>
                   {/* Real */}
                   <td className={CELL}>
@@ -431,38 +547,40 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     />
                   </td>
                   <td className={CELL}>
-                    <Select
-                      value={r.realCurrency}
-                      variant="borderless"
-                      className="w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
-                                 [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
-                                 [&_.ant-select-selection-item]:!text-[13px]"
-                      options={CURRENCIES.map((v) => ({ value: v, label: v }))}
-                      onChange={(v) => updateBuy.mutate({ id: r.id, realCurrency: v })}
-                    />
+                    <CurrencyPicker value={r.realCurrency} onChange={(v) => updateBuy.mutate({ id: r.id, realCurrency: v })} />
                   </td>
                   <td className={CELL}>
                     <input
                       className={FIELD}
                       defaultValue={r.invoiceNumber}
-                      onBlur={(e) => e.target.value !== r.invoiceNumber && updateBuy.mutate({ id: r.id, invoiceNumber: e.target.value })}
+                      onBlur={(e) => changeInvoiceNumber(r, e.target.value)}
                     />
                   </td>
                   <td className={`${CELL} text-center`}>
-                    <Checkbox
-                      checked={r.received}
-                      onChange={(e) => updateBuy.mutate({ id: r.id, received: e.target.checked })}
-                    />
+                    <Tooltip title="Received se zaškrtne automaticky po vyplnění čísla přijaté faktury">
+                      <span>
+                        <Checkbox checked={r.received} disabled tabIndex={-1} />
+                      </span>
+                    </Tooltip>
                   </td>
                   <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>
                     {money(t.buyRowTotals[r.id] ?? 0)}
                   </td>
-                  <td className={`${CELL} text-center`}>
+                  <td className={`${CELL} text-center whitespace-nowrap`}>
+                    <Tooltip title="Kopírovat řádek">
+                      <button
+                        onClick={() => duplicateBuy(r, rowIndex)}
+                        className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
+                                   hover:bg-[#E7EAFC] hover:text-[#4457D6] border-0 bg-transparent cursor-pointer inline-grid"
+                      >
+                        <CopyOutlined />
+                      </button>
+                    </Tooltip>
                     <Tooltip title="Smazat řádek">
                       <button
-                        onClick={() => removeBuy(r)}
+                        onClick={() => removeBuy(r, rowIndex)}
                         className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
-                                   hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer"
+                                   hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer inline-grid"
                       >
                         <DeleteOutlined />
                       </button>
@@ -506,10 +624,10 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         tone="sell"
         actions={
           <>
-            <HeadBtn onClick={undoSell} disabled={!canUndoSell} title="Vrátit smazaný náklad zpět">
+            <HeadBtn onClick={undoSell} disabled={!undoSellCount} title="Vrátit smazaný náklad zpět">
               <UndoOutlined />
             </HeadBtn>
-            <HeadBtn onClick={() => importQuoteCosts("sell")} disabled={quoteLoading || !quoteInput.trim()}>
+            <HeadBtn onClick={() => { setQuoteErr(""); setQuoteModal("sell"); }}>
               Copy from quote
             </HeadBtn>
             <HeadBtn onClick={copyFromBuying}>Copy from buying</HeadBtn>
@@ -528,11 +646,11 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                 <th className={`${TH} text-left w-[9%]`}>Cur</th>
                 <th className={`${TH} text-right w-[14%]`}>Total in {billingCur}</th>
                 <th className={`${TH} text-center w-[7%]`} title="Zahrnout do kalkulačního listu k fakturaci">Invoice</th>
-                <th className={`${TH} w-[44px]`} />
+                <th className={`${TH} w-[70px]`} />
               </tr>
             </thead>
             <tbody>
-              {sellRows.map((r) => (
+              {sellRows.map((r, rowIndex) => (
                 <tr key={r.id} className="hover:bg-slate-50/60">
                   <td className={CELL}>
                     <Select
@@ -568,15 +686,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     />
                   </td>
                   <td className={CELL}>
-                    <Select
-                      value={r.currency}
-                      variant="borderless"
-                      className="w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
-                                 [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
-                                 [&_.ant-select-selection-item]:!text-[13px]"
-                      options={CURRENCIES.map((v) => ({ value: v, label: v }))}
-                      onChange={(v) => updateSell.mutate({ id: r.id, currency: v })}
-                    />
+                    <CurrencyPicker value={r.currency} onChange={(v) => updateSell.mutate({ id: r.id, currency: v })} />
                   </td>
                   <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>
                     {money(t.sellRowTotals[r.id] ?? 0)}
@@ -587,12 +697,21 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                       onChange={(e) => updateSell.mutate({ id: r.id, invoice: e.target.checked })}
                     />
                   </td>
-                  <td className={`${CELL} text-center`}>
+                  <td className={`${CELL} text-center whitespace-nowrap`}>
+                    <Tooltip title="Kopírovat řádek">
+                      <button
+                        onClick={() => duplicateSell(r, rowIndex)}
+                        className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
+                                   hover:bg-[#E7EAFC] hover:text-[#4457D6] border-0 bg-transparent cursor-pointer inline-grid"
+                      >
+                        <CopyOutlined />
+                      </button>
+                    </Tooltip>
                     <Tooltip title="Smazat řádek">
                       <button
-                        onClick={() => removeSell(r)}
+                        onClick={() => removeSell(r, rowIndex)}
                         className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
-                                   hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer"
+                                   hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer inline-grid"
                       >
                         <DeleteOutlined />
                       </button>
@@ -700,19 +819,9 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
             </tbody>
           </table>
 
-          {/* import z nabidky */}
-          <div className="mt-4 flex items-center gap-2 flex-wrap">
-            <Input
-              placeholder="QCZ20260815001"
-              value={quoteInput}
-              onChange={(e) => setQuoteInput(e.target.value)}
-              className="w-[200px]"
-            />
-            <span className="text-[12.5px] text-slate-500">
-              Quote reference for “Copy from quote”
-            </span>
-            {quoteStatus && <span className="text-[12.5px] font-semibold text-[#177245]">{quoteStatus}</span>}
-          </div>
+          {quoteStatus && (
+            <div className="mt-3 text-[12.5px] font-semibold text-[#177245]">{quoteStatus}</div>
+          )}
         </div>
       </SectionCard>
 
@@ -842,6 +951,35 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
           </div>
         )}
       </div>
+
+      {/* Copy from quote - modalni okno dle mockupu (#quoteModal) */}
+      <Modal
+        open={quoteModal !== null}
+        onCancel={() => { setQuoteModal(null); setQuoteErr(""); }}
+        onOk={importQuoteCosts}
+        okText="Import"
+        cancelText="Cancel"
+        confirmLoading={quoteLoading}
+        title="Copy from quote"
+        width={430}
+      >
+        <p className="text-[13px] text-slate-600 mb-3.5">
+          {quoteModal === "sell"
+            ? "Enter the quotation reference. All selling costs will be imported from the quote."
+            : "Enter the quotation reference. All buying costs will be imported from the quote."}
+        </p>
+        <Input
+          autoFocus
+          placeholder="QCZ20260815001"
+          value={quoteInput}
+          onChange={(e) => { setQuoteInput(e.target.value); setQuoteErr(""); }}
+          onPressEnter={importQuoteCosts}
+          className="font-mono tracking-[.03em]"
+        />
+        <div className="text-[#C3392B] text-[12.5px] font-semibold min-h-[17px] mt-[7px]">
+          {quoteErr}
+        </div>
+      </Modal>
     </div>
   );
 }
