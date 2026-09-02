@@ -140,35 +140,36 @@ export function CustomsView() {
     <>
       {/* Toolbar */}
       {/* .toolbar from the mockup: 12/16 padding, 16px radius, 12px gaps */}
-      <div className="flex flex-nowrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4 box-border"
+      <div className="flex flex-nowrap items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4 box-border"
         style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box" }}>
-        <span className="text-[13px] font-semibold text-slate-600 truncate min-w-0">Shipments to clear</span>
-        <div className="flex flex-nowrap items-center gap-3 shrink-0">
-          {/* .tb-search: 240px wide, 6px radius, 14px text */}
-          <Input
-            placeholder="Search job, container, invoice…"
-            prefix={<SearchOutlined className="text-slate-400 text-[13px]" />}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            allowClear
-            size="middle"
-            className="w-60 shrink-0"
-            style={{ borderRadius: 6, height: 32 }}
-          />
-          {/* .tb-divider */}
-          <div className="w-px h-6 bg-slate-200 shrink-0" />
-          {/* select.antd .w-44 */}
-          <Select
-            value={statusFilter}
-            onChange={setStatusFilter}
-            className="w-44 shrink-0 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!h-8"
-            popupMatchSelectWidth={false}
-            options={[
-              { value: "all", label: "All customs statuses" },
-              ...CUSTOMS_STATUSES.map((o) => ({ value: o, label: o })),
-            ]}
-          />
-        </div>
+        <span className="text-[13px] font-semibold text-slate-600 shrink-0 whitespace-nowrap">Shipments to clear</span>
+
+        {/* Filtr stavu: mezi popiskem a vyhledavacem */}
+        <Select
+          value={statusFilter}
+          onChange={setStatusFilter}
+          className="w-44 shrink-0 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!h-8"
+          popupMatchSelectWidth={false}
+          options={[
+            { value: "all", label: "All customs statuses" },
+            ...CUSTOMS_STATUSES.map((o) => ({ value: o, label: o })),
+          ]}
+        />
+
+        {/* .tb-divider */}
+        <div className="w-px h-6 bg-slate-200 shrink-0" />
+
+        {/* .tb-search: 240px wide, 6px radius, 14px text */}
+        <Input
+          placeholder="Search job, container, invoice…"
+          prefix={<SearchOutlined className="text-slate-400 text-[13px]" />}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          allowClear
+          size="middle"
+          className="w-60 shrink-0"
+          style={{ borderRadius: 6, height: 32 }}
+        />
       </div>
 
       {/* Grid */}
