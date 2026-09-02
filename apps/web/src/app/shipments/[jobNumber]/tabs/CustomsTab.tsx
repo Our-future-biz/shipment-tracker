@@ -155,9 +155,16 @@ export function CustomsTab({
                     <td className="py-2">
                       {d.customsStatus === "approved" || d.customsStatus === "declined" ? (
                         <div className="flex items-center gap-2">
-                          <Tag color={d.customsStatus === "approved" ? "success" : "error"} className="text-[11px] m-0">
-                            {d.customsStatus === "approved" ? "Approved" : "Declined"}
-                          </Tag>
+                          <span className="flex flex-col items-start gap-[2px] min-w-0">
+                            <Tag color={d.customsStatus === "approved" ? "success" : "error"} className="text-[11px] m-0">
+                              {d.customsStatus === "approved" ? "Approved" : "Declined"}
+                            </Tag>
+                            {d.customsReviewedAt && (
+                              <small className="text-[11px] text-slate-400 whitespace-nowrap">
+                                Customs · {formatDateTime(d.customsReviewedAt)}
+                              </small>
+                            )}
+                          </span>
                           {d.customsStatus === "declined" && d.customsNote && (
                             <Tooltip title={d.customsNote}>
                               <span className="text-[11px] text-slate-400 truncate max-w-[90px]">{d.customsNote}</span>
