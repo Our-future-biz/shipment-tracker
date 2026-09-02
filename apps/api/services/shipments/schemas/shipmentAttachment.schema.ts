@@ -1,4 +1,4 @@
-import { pgTable, text, uuid, bigint, index } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, bigint, index, timestamp } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const shipmentAttachmentTable = pgTable(
@@ -11,6 +11,14 @@ export const shipmentAttachmentTable = pgTable(
     fileSize: bigint("file_size", { mode: "number" }).notNull().default(0),
     fileType: text("file_type").notNull().default(""),
     storageKey: text("storage_key").notNull().default(""),
+    /** Business document type: Invoice, Packing list, Bill of Lading, … ("" = not classified yet). */
+    documentType: text("document_type").notNull().default(""),
+    /** Customs review: "" (pending) | approved | declined. */
+    customsStatus: text("customs_status").notNull().default(""),
+    /** Reason shown to operations when a document is declined. */
+    customsNote: text("customs_note").notNull().default(""),
+    customsReviewedAt: timestamp("customs_reviewed_at", { withTimezone: true }),
+    customsReviewedById: uuid("customs_reviewed_by_id"),
   },
   (table) => [
     ...defaultTableIndexes("shipment_attachment", table),

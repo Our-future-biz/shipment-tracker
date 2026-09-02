@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Input, Empty, Tag } from "antd";
-import { SafetyCertificateOutlined, FileTextOutlined, SearchOutlined } from "@ant-design/icons";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Input, Empty, Tag, Button, Tooltip, message } from "antd";
+import { SafetyCertificateOutlined, FileTextOutlined, SearchOutlined, CheckOutlined, CloseOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { DetailCard, makeStyleFor, type CommitFn } from "../ShipmentDetailContent";
@@ -47,6 +47,23 @@ export function CustomsTab({
     queryFn: () => api.shipments.attachmentList(shipment.id),
   });
 
+  const queryClient = useQueryClient();
+  const [declining, setDeclining] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+
+  // Customs can only approve or decline — the document type itself is set in the
+  // Documents tab, so operations stays the owner of classification.
+  const review = useMutation({
+    mutationFn: ({ id, status, reason }: { id: string; status: string; reason?: string }) =>
+      api.shipments.attachmentReview(shipment.id, id, { status, note: reason ?? "" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
+      setDeclining(null);
+      setNote("");
+    },
+    onError: () => message.error("Could not save the review"),
+  });
+
   const documents = attachmentsQuery.data?.attachments ?? [];
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -74,6 +91,18 @@ export function CustomsTab({
               {documents.length === 0
                 ? "no documents"
                 : `${documents.length} document${documents.length === 1 ? "" : "s"}`}
+              {documents.length > 0 && (
+                <>
+                  {" · "}
+                  <span className="text-emerald-600">
+                    {documents.filter((d) => d.customsStatus === "approved").length} approved
+                  </span>
+                  {" · "}
+                  <span className="text-rose-600">
+                    {documents.filter((d) => d.customsStatus === "declined").length} declined
+                  </span>
+                </>
+              )}
             </span>
           </div>
           <Input
@@ -102,9 +131,9 @@ export function CustomsTab({
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500 border-b border-slate-200">
                   <th className="py-2 pr-3 font-semibold min-w-[240px]">File</th>
-                  <th className="py-2 pr-3 font-semibold w-[150px]">Type</th>
-                  <th className="py-2 pr-3 font-semibold w-[170px]">Uploaded</th>
-                  <th className="py-2 font-semibold w-[110px]">Size</th>
+                  <th className="py-2 pr-3 font-semibold w-[150px]">Document type</th>
+                  <th className="py-2 pr-3 font-semibold w-[150px]">Uploaded</th>
+                  <th className="py-2 font-semibold w-[230px]">Customs review</th>
                 </tr>
               </thead>
               <tbody>
@@ -112,13 +141,76 @@ export function CustomsTab({
                   <tr key={d.id} className="border-b border-slate-100 last:border-b-0">
                     <td className="py-2 pr-3 text-slate-800 font-medium">{d.fileName}</td>
                     <td className="py-2 pr-3">
-                      <Tag className="text-[11px]">{d.fileType || "—"}</Tag>
+                      {d.documentType ? (
+                        <Tag className="text-[11px]">{d.documentType}</Tag>
+                      ) : (
+                        <Tooltip title="Set the type in the Documents tab">
+                          <span className="text-[11px] text-amber-600">not classified</span>
+                        </Tooltip>
+                      )}
                     </td>
                     <td className="py-2 pr-3 text-slate-500">
                       {d.createdAt ? formatDateTime(d.createdAt) : "—"}
                     </td>
-                    <td className="py-2 text-slate-500 tabular-nums">
-                      {d.fileSize ? `${Math.max(1, Math.round(d.fileSize / 1024))} KB` : "—"}
+                    <td className="py-2">
+                      {d.customsStatus === "approved" || d.customsStatus === "declined" ? (
+                        <div className="flex items-center gap-2">
+                          <Tag color={d.customsStatus === "approved" ? "success" : "error"} className="text-[11px] m-0">
+                            {d.customsStatus === "approved" ? "Approved" : "Declined"}
+                          </Tag>
+                          {d.customsStatus === "declined" && d.customsNote && (
+                            <Tooltip title={d.customsNote}>
+                              <span className="text-[11px] text-slate-400 truncate max-w-[90px]">{d.customsNote}</span>
+                            </Tooltip>
+                          )}
+                          <Button
+                            size="small"
+                            type="link"
+                            className="text-[11px] px-0"
+                            onClick={() => review.mutate({ id: d.id, status: "" })}
+                          >
+                            Change
+                          </Button>
+                        </div>
+                      ) : declining === d.id ? (
+                        <div className="flex items-center gap-1.5">
+                          <Input
+                            size="small"
+                            autoFocus
+                            placeholder="Reason for decline"
+                            value={note}
+                            onChange={(e) => setNote(e.target.value)}
+                            onPressEnter={() => review.mutate({ id: d.id, status: "declined", reason: note })}
+                            className="w-[130px]"
+                          />
+                          <Button size="small" danger onClick={() => review.mutate({ id: d.id, status: "declined", reason: note })}>
+                            Save
+                          </Button>
+                          <Button size="small" type="text" onClick={() => { setDeclining(null); setNote(""); }}>
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5">
+                          <Button
+                            size="small"
+                            icon={<CheckOutlined />}
+                            className="text-[11px] text-emerald-600 border-emerald-300"
+                            onClick={() => review.mutate({ id: d.id, status: "approved" })}
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            size="small"
+                            danger
+                            icon={<CloseOutlined />}
+                            className="text-[11px]"
+                            onClick={() => { setDeclining(d.id); setNote(""); }}
+                          >
+                            Decline
+                          </Button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}

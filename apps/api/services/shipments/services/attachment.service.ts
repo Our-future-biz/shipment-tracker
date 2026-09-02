@@ -7,7 +7,7 @@ class AttachmentService {
     return shipmentAttachmentRepository.listByShipmentId(shipmentId, companyId);
   }
 
-  async create(shipmentId: string, companyId: string, fileName: string, fileSize: number, fileType: string, contentBase64: string) {
+  async create(shipmentId: string, companyId: string, fileName: string, fileSize: number, fileType: string, contentBase64: string, documentType = "") {
     let storageKey = "";
     if (contentBase64) {
       const buffer = Buffer.from(contentBase64, "base64");
@@ -16,7 +16,7 @@ class AttachmentService {
         contentType: fileType || "application/octet-stream",
       });
     }
-    return shipmentAttachmentRepository.create({ companyId, shipmentId, fileName, fileSize, fileType, storageKey });
+    return shipmentAttachmentRepository.create({ companyId, shipmentId, fileName, fileSize, fileType, storageKey, documentType });
   }
 
   // Public path (no token): relies on the caller checking shipmentId matches the URL.
@@ -31,6 +31,25 @@ class AttachmentService {
     } catch {
       return null;
     }
+  }
+
+  /** Set the business document type (Invoice, Packing list, …). */
+  async classify(id: string, companyId: string, documentType: string) {
+    return shipmentAttachmentRepository.update(id, companyId, { documentType });
+  }
+
+  /**
+   * Customs review. status "" clears the review back to pending; "declined"
+   * keeps the reason so operations can see what to fix.
+   */
+  async review(id: string, companyId: string, status: string, note: string, userId: string) {
+    const clear = status !== "approved" && status !== "declined";
+    return shipmentAttachmentRepository.update(id, companyId, {
+      customsStatus: clear ? "" : status,
+      customsNote: status === "declined" ? note : "",
+      customsReviewedAt: clear ? null : new Date(),
+      customsReviewedById: clear ? null : userId,
+    });
   }
 
   async delete(id: string, companyId: string) {

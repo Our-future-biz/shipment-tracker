@@ -36,9 +36,29 @@ class ShipmentAttachmentRepository {
     return row ?? null;
   }
 
-  async create(data: { companyId: string; shipmentId: string; fileName: string; fileSize: number; fileType: string; storageKey: string }) {
+  async create(data: { companyId: string; shipmentId: string; fileName: string; fileSize: number; fileType: string; storageKey: string; documentType?: string }) {
     const [row] = await db.insert(shipmentAttachmentTable).values(data).returning();
     return row!;
+  }
+
+  /** Partial update of an attachment's classification / customs review. */
+  async update(
+    id: string,
+    companyId: string,
+    data: Partial<{
+      documentType: string;
+      customsStatus: string;
+      customsNote: string;
+      customsReviewedAt: Date | null;
+      customsReviewedById: string | null;
+    }>,
+  ) {
+    const [row] = await db
+      .update(shipmentAttachmentTable)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(shipmentAttachmentTable.id, id), eq(shipmentAttachmentTable.companyId, companyId), isNull(shipmentAttachmentTable.deletedAt)))
+      .returning();
+    return row ?? null;
   }
 
   async delete(id: string, companyId: string) {

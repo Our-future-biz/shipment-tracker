@@ -771,6 +771,8 @@ export namespace shipments {
             this.attachmentContent = this.attachmentContent.bind(this)
             this.attachmentCreate = this.attachmentCreate.bind(this)
             this.attachmentDelete = this.attachmentDelete.bind(this)
+            this.attachmentClassify = this.attachmentClassify.bind(this)
+            this.attachmentReview = this.attachmentReview.bind(this)
             this.attachmentList = this.attachmentList.bind(this)
             this.commentCreate = this.commentCreate.bind(this)
             this.commentDelete = this.commentDelete.bind(this)
@@ -809,6 +811,18 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/shipments/${encodeURIComponent(shipmentId)}/attachments/${encodeURIComponent(attachmentId)}`)
             return await resp.json() as controllers.AttachmentDeleteResponse
+        }
+
+        public async attachmentClassify(shipmentId: string, attachmentId: string, params: controllers.AttachmentClassifyRequestBody): Promise<controllers.AttachmentClassifyResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/shipments/${encodeURIComponent(shipmentId)}/attachments/${encodeURIComponent(attachmentId)}/type`, JSON.stringify(params))
+            return await resp.json() as controllers.AttachmentClassifyResponse
+        }
+
+        public async attachmentReview(shipmentId: string, attachmentId: string, params: controllers.AttachmentReviewRequestBody): Promise<controllers.AttachmentReviewResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/shipments/${encodeURIComponent(shipmentId)}/attachments/${encodeURIComponent(attachmentId)}/review`, JSON.stringify(params))
+            return await resp.json() as controllers.AttachmentReviewResponse
         }
 
         public async attachmentList(shipmentId: string): Promise<controllers.AttachmentListResponse> {
@@ -1015,11 +1029,29 @@ export namespace controllers {
         charge: interfaces.AdditionalChargeItem
     }
 
+    export interface AttachmentClassifyRequestBody {
+        documentType: string
+    }
+
+    export interface AttachmentClassifyResponse {
+        attachment: interfaces.AttachmentItem | null
+    }
+
+    export interface AttachmentReviewRequestBody {
+        status: string
+        note?: string
+    }
+
+    export interface AttachmentReviewResponse {
+        attachment: interfaces.AttachmentItem | null
+    }
+
     export interface AttachmentCreateRequest {
         fileName: string
         fileSize: number
         fileType: string
         contentBase64?: string
+        documentType?: string
     }
 
     export interface AttachmentCreateResponse {
@@ -2145,6 +2177,10 @@ export namespace interfaces {
         fileType: string
         storageKey: string
         createdAt: string
+        documentType: string
+        customsStatus: string
+        customsNote: string
+        customsReviewedAt: string | null
     }
 
     export interface AutomationLogItem {

@@ -9,6 +9,8 @@ interface AttachmentCreateRequest {
   fileSize: number;
   fileType: string;
   contentBase64?: string;
+  /** Optional business document type set right at upload. */
+  documentType?: string;
 }
 
 interface AttachmentCreateResponse {
@@ -22,7 +24,15 @@ export const attachmentCreate = api(
     if (!req.fileName) {
       throw APIError.invalidArgument("fileName is required");
     }
-    const attachment = await attachmentService.create(req.shipmentId, getAuthData()!.companyID, req.fileName, req.fileSize ?? 0, req.fileType ?? "", req.contentBase64 ?? "");
+    const attachment = await attachmentService.create(
+      req.shipmentId,
+      getAuthData()!.companyID,
+      req.fileName,
+      req.fileSize ?? 0,
+      req.fileType ?? "",
+      req.contentBase64 ?? "",
+      req.documentType ?? "",
+    );
     return { attachment: attachment as unknown as AttachmentItem };
   },
 );

@@ -228,6 +228,12 @@ export interface AttachmentItem {
   fileType: string;
   storageKey: string;
   createdAt: string;
+  /** Business document type (Invoice, Packing list, …); "" until classified. */
+  documentType: string;
+  /** Customs review: "" (pending) | approved | declined. */
+  customsStatus: string;
+  customsNote: string;
+  customsReviewedAt: string | null;
 }
 
 export interface AuditItem {

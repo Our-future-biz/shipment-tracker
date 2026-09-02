@@ -148,6 +148,13 @@
       "when": 1788159392057,
       "tag": "0020_add_shipment_mrn",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788358447620,
+      "tag": "0021_add_attachment_document_type",
+      "breakpoints": true
     }
   ]
 }
