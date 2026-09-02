@@ -10,7 +10,19 @@ interface ProvidersProps {
 }
 
 export const Providers = ({ children }: ProvidersProps) => {
-  const [queryClient] = useState(() => new QueryClient());
+  const [queryClient] = useState(() => new QueryClient({
+    defaultOptions: {
+      queries: {
+        // Data zustanou pouzitelna 1 minutu - prepnuti zalozky nebo navrat
+        // na stranku pak zobrazi ulozena data okamzite a pripadnou aktualizaci
+        // dohraje na pozadi, misto aby ukazoval prazdne "Loading...".
+        staleTime: 60 * 1000,
+        gcTime: 10 * 60 * 1000,
+        refetchOnWindowFocus: false,
+        retry: 1,
+      },
+    },
+  }));
 
   return (
     <QueryClientProvider client={queryClient}>

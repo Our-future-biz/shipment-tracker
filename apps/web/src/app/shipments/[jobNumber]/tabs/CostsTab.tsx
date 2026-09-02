@@ -120,9 +120,11 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   const [quoteErr, setQuoteErr] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isFetching } = useQuery({
     queryKey: ["invoicing", shipment.id],
     queryFn: () => api.invoicing.invoicingGet(shipment.id),
+    // ulozena data zustanou na obrazovce, dokud se nenactou nova
+    placeholderData: (prev) => prev,
   });
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
 
@@ -470,13 +472,22 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     [buyRows, sellRows, billingCur, rates, roe],
   );
 
-  if (isLoading) {
+  // Prazdna obrazovka jen pri uplne prvnim nacteni. Pri prepnuti zalozky
+  // se ulozena data zobrazi hned a aktualizace probehne na pozadi.
+  if (isLoading && !data) {
     return <div className="p-6 text-center text-slate-400 text-sm">Loading…</div>;
   }
 
 
   return (
     <div>
+      {/* jemny indikator aktualizace na pozadi - obsah zustava viditelny */}
+      {isFetching && !isLoading && (
+        <div className="h-[2px] bg-indigo-100 overflow-hidden rounded-full mb-2">
+          <div className="h-full w-1/3 bg-indigo-500 animate-pulse" />
+        </div>
+      )}
+
       {/* ═══════════ 1. BUYING COSTS ═══════════ */}
       <SectionCard
         title="Buying costs"
