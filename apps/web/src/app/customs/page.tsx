@@ -1,14 +1,12 @@
 import { PageHeader } from "@/components/PageHeader";
+import { CustomsView } from "./CustomsView";
 
 export default function CustomsPage() {
   return (
     <div className="bg-slate-50 min-h-full p-6">
-      <div className="max-w-[1400px] mx-auto">
+      <div className="max-w-[1600px] mx-auto">
         <PageHeader title="Customs" />
-        <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center">
-          <div className="text-sm font-semibold text-slate-700">Customs</div>
-          <div className="text-xs text-slate-400 mt-1">Coming soon.</div>
-        </div>
+        <CustomsView />
       </div>
     </div>
   );

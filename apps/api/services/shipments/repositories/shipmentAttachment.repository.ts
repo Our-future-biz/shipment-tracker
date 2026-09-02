@@ -1,4 +1,4 @@
-import { eq, and, isNull, asc } from "drizzle-orm";
+import { eq, and, isNull, asc, inArray } from "drizzle-orm";
 import { db } from "../db/db";
 import { shipmentAttachmentTable } from "../schemas/shipmentAttachment.schema";
 
@@ -13,6 +13,22 @@ class ShipmentAttachmentRepository {
         isNull(shipmentAttachmentTable.deletedAt),
       ))
       .orderBy(asc(shipmentAttachmentTable.createdAt));
+  }
+
+  /** Document types present on each shipment — powers the Customs "received" ticks. */
+  async documentTypesByShipmentIds(shipmentIds: string[], companyId: string) {
+    if (shipmentIds.length === 0) return [];
+    return db
+      .select({
+        shipmentId: shipmentAttachmentTable.shipmentId,
+        documentType: shipmentAttachmentTable.documentType,
+      })
+      .from(shipmentAttachmentTable)
+      .where(and(
+        eq(shipmentAttachmentTable.companyId, companyId),
+        inArray(shipmentAttachmentTable.shipmentId, shipmentIds),
+        isNull(shipmentAttachmentTable.deletedAt),
+      ));
   }
 
   // Company-agnostic lookup for the PUBLIC raw content endpoint (bare-URL download that

@@ -1672,6 +1672,8 @@ export namespace controllers {
         bookingConfirmation?: string
         customsProcedure?: string
         mrn?: string
+        csRecvInvoice?: string
+        csRecvPacking?: string
         equipmentDelivery?: string
         equipmentDeliveryDate?: string
         supplierPic?: string
@@ -1895,6 +1897,8 @@ export namespace controllers {
         bookingConfirmation?: string
         customsProcedure?: string
         mrn?: string
+        csRecvInvoice?: string
+        csRecvPacking?: string
         equipmentDelivery?: string
         equipmentDeliveryDate?: string
         supplierPic?: string
@@ -2532,6 +2536,9 @@ export namespace interfaces {
         bookingConfirmation: string
         customsProcedure: string
         mrn: string
+        csRecvInvoice: string
+        csRecvPacking: string
+        documentTypes: string[]
         equipmentDelivery: string
         equipmentDeliveryDate: string | null
         supplierPic: string

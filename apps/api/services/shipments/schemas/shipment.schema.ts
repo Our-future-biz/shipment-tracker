@@ -103,6 +103,12 @@ export const shipmentTable = pgTable(
     customsProcedure: text("customs_procedure").notNull().default(""),
     /** Movement Reference Number issued by customs. */
     mrn: text("mrn").notNull().default(""),
+    /**
+     * Customs "received" flags. Empty = follow the shipment's documents
+     * automatically; "yes"/"no" = set manually by a customs officer.
+     */
+    csRecvInvoice: text("cs_recv_invoice").notNull().default(""),
+    csRecvPacking: text("cs_recv_packing").notNull().default(""),
     equipmentDelivery: text("equipment_delivery").notNull().default(""),
     equipmentDeliveryDate: date("equipment_delivery_date", { mode: "string" }),
     supplierPic: text("supplier_pic").notNull().default(""),

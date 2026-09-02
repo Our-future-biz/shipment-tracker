@@ -95,6 +95,8 @@ interface ShipmentUpdateRequest {
   bookingConfirmation?: string;
   customsProcedure?: string;
   mrn?: string;
+  csRecvInvoice?: string;
+  csRecvPacking?: string;
   equipmentDelivery?: string;
   equipmentDeliveryDate?: string;
   supplierPic?: string;

@@ -1,4 +1,5 @@
 import { auth, customers, quotes } from "~encore/clients";
+import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
@@ -230,6 +231,17 @@ class ShipmentService {
     const itemsByShipment = groupByShipment(await cargoItemRepository.listByShipmentIds(shipmentIds), toCargoItemLine);
     const dimensionsByShipment = groupByShipment(await cargoDimensionRepository.listByShipmentIds(shipmentIds), toCargoDimensionLine);
 
+    // Document types per shipment — the Customs screen shows a tick when the
+    // required document is present.
+    const docRows = await shipmentAttachmentRepository.documentTypesByShipmentIds(shipmentIds, companyId);
+    const docTypesByShipment = new Map<string, string[]>();
+    for (const r of docRows) {
+      if (!r.documentType) continue;
+      const list = docTypesByShipment.get(r.shipmentId) ?? [];
+      list.push(r.documentType);
+      docTypesByShipment.set(r.shipmentId, list);
+    }
+
     const enriched = result.data.map((s) => ({
       ...enrich(
         s,
@@ -238,6 +250,7 @@ class ShipmentService {
         dimensionsByShipment.get(s.id) ?? [],
       ),
       masterJobMczNumber: s.masterJobId ? mczMap.get(s.masterJobId) || null : null,
+      documentTypes: docTypesByShipment.get(s.id) ?? [],
     }));
 
     return {

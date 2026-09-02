@@ -137,6 +137,11 @@ export interface ShipmentItem {
   customsProcedure: string;
   /** Customs Movement Reference Number. */
   mrn: string;
+  /** Manual override of the Customs "received" ticks: "" | "yes" | "no". */
+  csRecvInvoice: string;
+  csRecvPacking: string;
+  /** Business document types present on the shipment (Invoice, Packing list, …). */
+  documentTypes: string[];
   equipmentDelivery: string;
   equipmentDeliveryDate: string | null;
   supplierPic: string;
