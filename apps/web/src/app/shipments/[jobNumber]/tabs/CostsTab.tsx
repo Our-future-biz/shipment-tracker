@@ -122,7 +122,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
 
   // Stejny klic jako v ShipmentDetailContent - data uz jsou v pameti
   // z okamziku otevreni zakazky, takze zalozka naskoci bez cekani.
-  const { data, isFetching } = useQuery({
+  const { data } = useQuery({
     queryKey: ["invoicing", shipment.id],
     queryFn: () => api.invoicing.invoicingGet(shipment.id),
     placeholderData: (prev) => prev,
@@ -483,13 +483,6 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
 
   return (
     <div>
-      {/* jemny indikator aktualizace na pozadi - obsah zustava viditelny */}
-      {isFetching && (
-        <div className="h-[2px] bg-indigo-100 overflow-hidden rounded-full mb-2">
-          <div className="h-full w-1/3 bg-indigo-500 animate-pulse" />
-        </div>
-      )}
-
       {/* ═══════════ 1. BUYING COSTS ═══════════ */}
       <SectionCard
         title="Buying costs"
