@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { Input, Select, Checkbox, Tooltip, Spin } from "antd";
-import { SearchOutlined } from "@ant-design/icons";
+import { SearchOutlined, ArrowLeftOutlined } from "@ant-design/icons";
 import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { DROPDOWN_OPTIONS, getCellConditionalStyle, COLUMN_MAP } from "@/lib/columnConfig";
+import { CustomsTab } from "@/app/shipments/[jobNumber]/tabs/CustomsTab";
 
 /**
  * Columns of the Customs overview, mirroring CUSTOMS_GRID from the approved mockup.
@@ -58,6 +58,9 @@ export function CustomsView() {
   const { shipments, isLoading, updateField } = useShipments();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  // Shipment opened inside Customs (csDetailId in the mockup) — the same
+  // interface as the Customs tab in the shipment detail, without leaving here.
+  const [openId, setOpenId] = useState<string | null>(null);
   // Cell being edited after a double-click: which shipment + which column.
   const [editing, setEditing] = useState<{ id: string; key: string } | null>(null);
   const [draft, setDraft] = useState("");
@@ -102,6 +105,34 @@ export function CustomsView() {
       <div className="flex items-center justify-center py-20">
         <Spin />
       </div>
+    );
+  }
+
+  // Detail of one shipment, shown inside Customs (mockup: csDetailId branch).
+  const openShipment = openId ? shipments.find((x) => x.id === openId) : null;
+  if (openShipment) {
+    return (
+      <>
+        <div className="flex items-center gap-3.5 mb-4">
+          <button
+            type="button"
+            onClick={() => setOpenId(null)}
+            className="inline-flex items-center gap-1.5 h-7 px-3 rounded-lg border border-[#d8dce6] bg-white text-slate-600 text-[12.5px] font-semibold cursor-pointer hover:bg-[#f4f5f9] hover:text-[#46506b] transition-colors"
+          >
+            <ArrowLeftOutlined /> Customs
+          </button>
+          <span className="font-mono text-[18px] font-bold tracking-[.02em] text-[#10141f]">
+            {openShipment.jobNumber}
+          </span>
+          {openShipment.customer && (
+            <span className="text-[13px] font-semibold text-slate-600">{openShipment.customer}</span>
+          )}
+        </div>
+        <CustomsTab
+          shipment={openShipment}
+          onCommit={(fieldKey, value) => updateField(openShipment.id, fieldKey, value)}
+        />
+      </>
     );
   }
 
@@ -198,13 +229,14 @@ export function CustomsView() {
                         const refStyle = getCellConditionalStyle("jobNumber", value, rowData) ?? undefined;
                         return (
                           <td key={i} className="px-2 py-1.5 border-b border-[#f0f0f0] whitespace-nowrap overflow-hidden text-ellipsis">
-                            <Link
-                              href={`/shipments/${encodeURIComponent(s.jobNumber)}?tab=customs`}
-                              className="font-mono text-[14px] font-bold hover:underline"
+                            <button
+                              type="button"
+                              onClick={() => setOpenId(s.id)}
+                              className="font-mono text-[14px] font-bold hover:underline border-0 bg-transparent p-0 cursor-pointer"
                               style={refStyle ?? { color: "#4f46e5" }}
                             >
                               {value || "—"}
-                            </Link>
+                            </button>
                           </td>
                         );
                       }
