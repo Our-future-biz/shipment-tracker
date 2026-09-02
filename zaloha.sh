@@ -9,6 +9,13 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
+# libpq (pg_dump/psql) je keg-only - Homebrew ho nedava na PATH natrvalo.
+# Pridame ho sami, aby skript fungoval i v novem okne Terminalu.
+for d in /opt/homebrew/opt/libpq/bin /usr/local/opt/libpq/bin; do
+  [ -d "$d" ] && PATH="$d:$PATH"
+done
+export PATH
+
 DBS="auth automation customers invoicing quotes sales shipments warehouse"
 KAM="$HOME/Documents/Shipment Tracker/zalohy"
 cmd="${1:-zaloha}"
