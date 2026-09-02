@@ -140,9 +140,9 @@ export function CustomsView() {
     <>
       {/* Toolbar */}
       {/* .toolbar from the mockup: 12/16 padding, 16px radius, 12px gaps */}
-      <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4">
-        <span className="text-[13px] font-semibold text-slate-600">Shipments to clear</span>
-        <div className="flex items-center gap-3 shrink-0">
+      <div className="flex flex-nowrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4 w-full max-w-full box-border overflow-hidden">
+        <span className="text-[13px] font-semibold text-slate-600 truncate min-w-0">Shipments to clear</span>
+        <div className="flex flex-nowrap items-center gap-3 shrink-0">
           {/* .tb-search: 240px wide, 6px radius, 14px text */}
           <Input
             placeholder="Search job, container, invoice…"
@@ -161,6 +161,8 @@ export function CustomsView() {
             value={statusFilter}
             onChange={setStatusFilter}
             className="w-44 shrink-0 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!h-8"
+            popupMatchSelectWidth={false}
+            getPopupContainer={(trigger) => trigger.parentElement ?? document.body}
             options={[
               { value: "all", label: "All customs statuses" },
               ...CUSTOMS_STATUSES.map((o) => ({ value: o, label: o })),
@@ -170,8 +172,8 @@ export function CustomsView() {
       </div>
 
       {/* Grid */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden w-full max-w-full min-w-0">
+        <div className="overflow-x-auto max-w-full">
           <table className="w-full text-[14px]" style={{ borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed", minWidth: "2650px" }}>
             <colgroup>
               {CUSTOMS_GRID.map((c, i) => (
