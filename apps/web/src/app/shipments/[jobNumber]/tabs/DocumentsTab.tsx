@@ -17,6 +17,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { fileToBase64, attachmentContentUrl } from "@/lib/files";
+import { formatFileSize, ExtBadge, CustomsPill } from "./docsShared";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { formatDate } from "@/lib/date";
 import {
@@ -38,36 +39,7 @@ interface AttachmentFile {
   customsReviewedAt: string | null;
 }
 
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
-/** Colour-coded file-extension badge, matching the mockup's .ext classes. */
-function ExtBadge({ fileName }: { fileName: string }) {
-  const ext = (fileName.split(".").pop() ?? "").toLowerCase();
-  const kind = ["pdf"].includes(ext)
-    ? "pdf"
-    : ["xls", "xlsx", "csv"].includes(ext)
-      ? "xls"
-      : ["jpg", "jpeg", "png", "gif", "webp"].includes(ext)
-        ? "img"
-        : "other";
-  const cls = {
-    pdf: "text-[#C3392B] border-[#C3392B] bg-[#FBE6E4]",
-    xls: "text-[#177245] border-[#177245] bg-[#E1F3E9]",
-    img: "text-[#4457D6] border-[#4457D6] bg-[#E7EAFC]",
-    other: "text-[#8B94A7] border-[#D3D8E5] bg-[#FAFBFD]",
-  }[kind];
-  return (
-    <span
-      className={`flex-none w-[30px] h-[36px] rounded-[5px] grid place-items-center text-[8.5px] font-extrabold border ${cls}`}
-    >
-      {ext.slice(0, 4).toUpperCase() || "FILE"}
-    </span>
-  );
-}
 
 /** Card shell reproducing .docs2 .card + .card-head from the mockup. */
 function Card({
@@ -154,26 +126,6 @@ function ReqRow({
   );
 }
 
-/** Customs review pill (.pill.ok / .bad / .wait). */
-function CustomsPill({ status }: { status: string }) {
-  if (status === "approved")
-    return (
-      <span className="inline-flex items-center gap-[5px] text-[11.5px] font-extrabold tracking-[.04em] uppercase px-2 py-1 rounded-[6px] border text-[#177245] bg-[#E1F3E9] border-[#177245]">
-        Approved
-      </span>
-    );
-  if (status === "declined")
-    return (
-      <span className="inline-flex items-center gap-[5px] text-[11.5px] font-extrabold tracking-[.04em] uppercase px-2 py-1 rounded-[6px] border text-[#C3392B] bg-[#FBE6E4] border-[#C3392B]">
-        Declined
-      </span>
-    );
-  return (
-    <span className="inline-flex items-center gap-[5px] text-[11.5px] font-extrabold tracking-[.04em] uppercase px-2 py-1 rounded-[6px] border text-[#8B94A7] bg-[#FAFBFD] border-[#D3D8E5]">
-      Pending
-    </span>
-  );
-}
 
 /** A file waiting to be classified before it is uploaded (docPending in the mockup). */
 interface PendingFile {
