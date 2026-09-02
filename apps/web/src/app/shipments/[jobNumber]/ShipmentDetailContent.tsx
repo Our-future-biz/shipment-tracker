@@ -1229,22 +1229,47 @@ export function ShipmentDetailContent() {
                 <DetailCard icon={<CalendarOutlined />} title="Key Dates" cardId="dates" columns={[KEY_DATES_L, KEY_DATES_R]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
               </div>
 
-              {/* REFERENCES & ROUTING  |  PARTIES & AGENTS */}
+              {/* REFERENCES & ROUTING  |  PARTIES & AGENTS
+                  Jedna karta se dvema podnadpisy - tuzka filtruje pole
+                  obou sloupcu dohromady. */}
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
-                  <div>
-                    <SubHeader icon={<EnvironmentOutlined />} title="References & Routing" />
-                    {REFS_ROUTING.map((f) => (
+                {(() => {
+                  const allFields = [...REFS_ROUTING, ...PARTIES_AGENTS];
+                  const shown = new Set(
+                    visibleCardKeys("refsParties", allFields.map((f) => f.key)),
+                  );
+                  const renderCol = (col: FieldDef[]) =>
+                    col.filter((f) => shown.has(f.key)).map((f) => (
                       <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
-                    ))}
-                  </div>
-                  <div>
-                    <SubHeader icon={<InfoCircleOutlined />} title="Parties & Agents" />
-                    {PARTIES_AGENTS.map((f) => (
-                      <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
-                    ))}
-                  </div>
-                </div>
+                    ));
+                  const leftShown = REFS_ROUTING.some((f) => shown.has(f.key));
+                  const rightShown = PARTIES_AGENTS.some((f) => shown.has(f.key));
+
+                  return (
+                    <>
+                      <SectionHeader
+                        icon={<EnvironmentOutlined />}
+                        title="References & Routing · Parties & Agents"
+                        cardId="refsParties"
+                        allFields={allFields}
+                        shipment={shipment}
+                        onCommit={handleCommit}
+                        styleFor={styleFor}
+                      />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
+                        <div>
+                          {/* podnadpis se skryje, kdyz z jeho sloupce nezbylo zadne pole */}
+                          {leftShown && <SubHeader icon={<EnvironmentOutlined />} title="References & Routing" />}
+                          {renderCol(REFS_ROUTING)}
+                        </div>
+                        <div>
+                          {rightShown && <SubHeader icon={<InfoCircleOutlined />} title="Parties & Agents" />}
+                          {renderCol(PARTIES_AGENTS)}
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* QUOTE */}
