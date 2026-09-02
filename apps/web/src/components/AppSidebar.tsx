@@ -19,6 +19,7 @@ import {
   DownOutlined,
   UsergroupAddOutlined,
   ApartmentOutlined,
+  SwapOutlined,
 } from "@ant-design/icons";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -45,6 +46,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/sales", label: "Sales", icon: <LineChartOutlined />, children: SALES_NAV.map(({ path, label }) => ({ path, label })) },
   { path: "/documents", label: "Document / Text Reading", icon: <FileTextOutlined /> },
   { path: "/invoicing", label: "Invoicing", icon: <DollarOutlined /> },
+  { path: "/exchange", label: "Exchange", icon: <SwapOutlined /> },
   { path: "/customs", label: "Customs", icon: <SafetyCertificateOutlined /> },
   { path: "/warehouse", label: "Warehouse", icon: <InboxOutlined /> },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },

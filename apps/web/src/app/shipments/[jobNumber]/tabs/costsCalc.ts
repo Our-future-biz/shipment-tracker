@@ -3,7 +3,7 @@
  *
  * Klicova pravidla z mockupu:
  *  - radek = mnozstvi x jednotkova cena; prazdne mnozstvi se bere jako 1
- *  - prepocty jdou vzdy pres CZK: meny z kurzovniho listku CNB podle kurzu,
+ *  - prepocty jdou vzdy pres CZK: meny z ulozeneho kurzovniho listku
  *    ostatni meny pres zalozni rucni kurz ROE
  *  - zaklad radku je Real Cost, dokud neni vyplnen, pouzije se Est. Amount
  *  - "R x E" = Real - Estimated, pocita se jen kdyz je vyplneno oboji
@@ -28,7 +28,7 @@ export function money(v: number): string {
   });
 }
 
-/** prevod do CZK: kurz CNB, jinak zalozni ROE */
+/** prevod do CZK: kurz z kurzovniho listku, jinak zalozni ROE */
 export function toCZK(v: number, currency: string, rates: Rates, roe: number): number {
   return currency === "CZK" ? v : v * (rates[currency] || roe);
 }

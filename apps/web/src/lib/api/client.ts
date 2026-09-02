@@ -555,7 +555,10 @@ export namespace invoicing {
             this.invoicingAddSellingCost = this.invoicingAddSellingCost.bind(this)
             this.invoicingUpdateSellingCost = this.invoicingUpdateSellingCost.bind(this)
             this.invoicingDeleteSellingCost = this.invoicingDeleteSellingCost.bind(this)
-            this.invoicingFxRates = this.invoicingFxRates.bind(this)
+            this.exchangeRateList = this.exchangeRateList.bind(this)
+            this.exchangeRateCreate = this.exchangeRateCreate.bind(this)
+            this.exchangeRateUpdate = this.exchangeRateUpdate.bind(this)
+            this.exchangeRateDelete = this.exchangeRateDelete.bind(this)
         }
 
         public async invoicingAddCharge(shipmentId: string, params: controllers.AddChargeRequest): Promise<controllers.AddChargeResponse> {
@@ -636,11 +639,26 @@ export namespace invoicing {
             return await resp.json() as controllers.DeleteSellingResponse
         }
 
-        public async invoicingFxRates(params?: { date?: string }): Promise<controllers.FxRatesResponse> {
-            const query = params?.date ? `?date=${encodeURIComponent(params.date)}` : ""
-            const resp = await this.baseClient.callTypedAPI("GET", `/fx/cnb-rates${query}`)
-            return await resp.json() as controllers.FxRatesResponse
+        public async exchangeRateList(): Promise<controllers.ListRatesResponse> {
+            const resp = await this.baseClient.callTypedAPI("GET", `/exchange-rates`)
+            return await resp.json() as controllers.ListRatesResponse
         }
+
+        public async exchangeRateCreate(params: controllers.CreateRateRequest): Promise<controllers.CreateRateResponse> {
+            const resp = await this.baseClient.callTypedAPI("POST", `/exchange-rates`, JSON.stringify(params))
+            return await resp.json() as controllers.CreateRateResponse
+        }
+
+        public async exchangeRateUpdate(rateId: string, params: controllers.UpdateRateRequest): Promise<controllers.UpdateRateResponse> {
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/exchange-rates/${encodeURIComponent(rateId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.UpdateRateResponse
+        }
+
+        public async exchangeRateDelete(rateId: string): Promise<controllers.DeleteRateResponse> {
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/exchange-rates/${encodeURIComponent(rateId)}`)
+            return await resp.json() as controllers.DeleteRateResponse
+        }
+
     }
 }
 
@@ -1450,6 +1468,47 @@ export namespace controllers {
         generatedInvoices: interfaces.GeneratedInvoiceItem[]
     }
 
+    export interface ExchangeRateItem {
+        id: string
+        week: string
+        validFrom: string
+        validTo: string
+        rateEur: string | null
+        rateUsd: string | null
+        note: string
+    }
+
+    export interface ListRatesResponse {
+        rates: ExchangeRateItem[]
+    }
+
+    export interface CreateRateRequest {
+        week: string
+        validFrom: string
+        validTo: string
+        rateEur?: string
+        rateUsd?: string
+        note?: string
+    }
+
+    export interface CreateRateResponse {
+        rate: ExchangeRateItem
+    }
+
+    export interface UpdateRateRequest {
+        rateEur?: string
+        rateUsd?: string
+        note?: string
+    }
+
+    export interface UpdateRateResponse {
+        rate: ExchangeRateItem
+    }
+
+    export interface DeleteRateResponse {
+        ok: boolean
+    }
+
     export interface AddBuyingRequest {
         category?: string
         vendor?: string
@@ -1519,13 +1578,6 @@ export namespace controllers {
 
     export interface DeleteSellingResponse {
         ok: boolean
-    }
-
-    export interface FxRatesResponse {
-        rates: Record<string, number>
-        validFor: string
-        fallback: boolean
-        week: number
     }
 
     export interface LinkMasterJobRequest {

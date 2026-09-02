@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { getFieldValue } from "@/hooks/useShipments";
+import { weekKeyFromDate, formatWeekLabel } from "@/lib/isoWeek";
 import {
   computeCosts, money, signed, num,
   type BuyingRow, type SellingRow, type Rates,
@@ -14,7 +15,7 @@ import {
 
 const CURRENCIES = ["CZK", "USD", "EUR", "GBP", "CNY"];
 
-/** Zalozni kurzy z mockupu - plati, dokud se nenactou kurzy CNB. */
+/** Zalozni kurzy - plati, dokud nejsou zadany kurzy na strance Exchange. */
 const FALLBACK_RATES: Record<string, number> = { CZK: 1, USD: 20.62, EUR: 24.12 };
 
 /** Mockup naseptava meny podle kodu i nazvu (renderCombo, mode "cur"). */
@@ -140,7 +141,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     onSuccess: invalidate,
   });
 
-  /* ── Kurzy CNB (mockup: fetchCnbRates) ── */
+  /* ── Kurzy z kurzovniho listku (stranka Exchange) ── */
   // Zaklad kurzu dle mockupu: u importu ETA, u exportu ETD.
   // Vychozi volba se ridi smerem zasilky, uzivatel ji muze prepnout.
   const tradeDirection = (getFieldValue(shipment, "tradeDirection") || "").trim().toLowerCase();
@@ -179,23 +180,44 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     }
   }, [shipmentDate]);
 
-  const fxQuery = useQuery({
-    queryKey: ["fx-cnb", rateDate],
-    queryFn: () => api.invoicing.invoicingFxRates(rateDate ? { date: rateDate } : {}),
-    // kurzovni listek se meni jednou denne
-    staleTime: 12 * 60 * 60 * 1000,
-    gcTime: 24 * 60 * 60 * 1000,
-    // kurzy nesmi zdrzovat praci s tabulkami - do jejich nacteni plati zalozni
-    retry: false,
-    refetchOnWindowFocus: false,
-    refetchOnMount: false,
+  // Kurzy se berou z ulozeneho kurzovniho listku (stranka Exchange), ne z CNB.
+  const ratesQuery = useQuery({
+    queryKey: ["exchange-rates"],
+    queryFn: () => api.invoicing.exchangeRateList(),
+    staleTime: 10 * 60 * 1000,
   });
-  // POZOR: musi byt stabilni reference, jinak se prepocty spousti pri kazdem
-  // vykresleni (useMemo s rates v zavislostech by se prepocitaval donekonecna)
-  const rates: Rates = useMemo(
-    () => fxQuery.data?.rates ?? FALLBACK_RATES,
-    [fxQuery.data?.rates],
-  );
+
+  const weekKey = useMemo(() => (rateDate ? weekKeyFromDate(rateDate) : ""), [rateDate]);
+
+  /**
+   * Kurz pro tyden data ETA/ETD. Kdyz pro dany tyden zaznam neni,
+   * pouzije se posledni znamy starsi kurz a uzivatel je upozornen.
+   */
+  const fx = useMemo(() => {
+    const list = ratesQuery.data?.rates ?? [];
+    if (!list.length) return { rates: FALLBACK_RATES, source: "none" as const, usedWeek: "" };
+
+    const exact = list.find((r) => r.week === weekKey);
+    // list chodi serazeny od nejnovejsiho, hledame nejblizsi starsi tyden
+    const fallbackRow = exact
+      ?? (rateDate ? list.find((r) => r.validFrom <= rateDate) : list[0])
+      ?? list[0];
+    if (!fallbackRow) return { rates: FALLBACK_RATES, source: "none" as const, usedWeek: "" };
+
+    const eur = Number(fallbackRow.rateEur);
+    const usd = Number(fallbackRow.rateUsd);
+    return {
+      rates: {
+        CZK: 1,
+        ...(Number.isFinite(eur) && eur > 0 ? { EUR: eur } : {}),
+        ...(Number.isFinite(usd) && usd > 0 ? { USD: usd } : {}),
+      } as Rates,
+      source: exact ? ("exact" as const) : ("older" as const),
+      usedWeek: fallbackRow.week,
+    };
+  }, [ratesQuery.data?.rates, weekKey, rateDate]);
+
+  const rates: Rates = fx.rates;
 
   /* ── Buying costs ── */
   const buyRows: BuyingRow[] = useMemo(
@@ -798,13 +820,28 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                 className="h-8 px-2 text-[13px] border border-slate-200 rounded-md outline-none focus:border-indigo-500"
               />
             </Tooltip>
-            <span className="text-[12.5px] font-semibold text-slate-500">
-              {fxQuery.isLoading
-                ? "Načítám kurzy ČNB…"
-                : fxQuery.data
-                  ? `Kurzy ČNB ${fxQuery.data.fallback ? "— záložní (ČNB nedostupná)" : `k ${rateBasis.toUpperCase()} ${fxQuery.data.validFor} (týden ${fxQuery.data.week})`}: USD ${rates.USD?.toFixed(3)} · EUR ${rates.EUR?.toFixed(3)} CZK`
-                  : ""}
-            </span>
+            {/* zdroj kurzu: ulozeny kurzovni listek ze stranky Exchange */}
+            {ratesQuery.isLoading ? (
+              <span className="text-[12.5px] font-semibold text-slate-500">Loading rates…</span>
+            ) : fx.source === "none" ? (
+              <span className="text-[12.5px] font-semibold text-[#95620B]">
+                No exchange rates entered yet —{" "}
+                <a href="/exchange" className="underline">add them in Exchange</a>. Using fallback rates.
+              </span>
+            ) : (
+              <span className="text-[12.5px] font-semibold text-slate-500">
+                {fx.source === "older" && (
+                  <span className="text-[#95620B]">
+                    No rates for {weekKey ? formatWeekLabel(weekKey) : "this week"} — using{" "}
+                    {formatWeekLabel(fx.usedWeek)}.{" "}
+                  </span>
+                )}
+                {fx.source === "exact" && `Rates ${formatWeekLabel(fx.usedWeek)}: `}
+                {rates.USD ? `USD ${rates.USD.toFixed(3)}` : "USD —"}
+                {" · "}
+                {rates.EUR ? `EUR ${rates.EUR.toFixed(3)}` : "EUR —"} CZK
+              </span>
+            )}
           </div>
 
           {/* souhrnny grid: Total buying costs Estimated/Real v CZK, USD a EUR */}

@@ -65,3 +65,14 @@ export interface GeneratedInvoiceItem {
   totalAmount: string;
   createdAt: string;
 }
+
+/** Kurzovni listek s tydenni platnosti (stranka Exchange) */
+export interface ExchangeRateItem {
+  id: string;
+  week: string;
+  validFrom: string;
+  validTo: string;
+  rateEur: string | null;
+  rateUsd: string | null;
+  note: string;
+}
