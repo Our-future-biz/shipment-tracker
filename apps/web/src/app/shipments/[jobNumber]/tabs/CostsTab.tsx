@@ -166,16 +166,29 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     const parsed = new Date(txt);
     return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
   }, [shipment, rateBasis]);
-  const [rateDate, setRateDate] = useState("");
-  useEffect(() => { if (shipmentDate) setRateDate(shipmentDate); }, [shipmentDate]);
+  // Datum se nastavi rovnou pri prvnim vykresleni. Drive se inicializovalo
+  // prazdne a doplnovalo v useEffect - dotaz na kurzy se tim volal dvakrat
+  // (jednou bez data, podruhe s nim).
+  const [rateDate, setRateDate] = useState(shipmentDate);
+  const lastAutoDate = useRef(shipmentDate);
+  useEffect(() => {
+    // prepnuti ETA/ETD prepise datum, rucni zmenu uzivatele ale neprepisujeme
+    if (shipmentDate && shipmentDate !== lastAutoDate.current) {
+      lastAutoDate.current = shipmentDate;
+      setRateDate(shipmentDate);
+    }
+  }, [shipmentDate]);
 
   const fxQuery = useQuery({
     queryKey: ["fx-cnb", rateDate],
     queryFn: () => api.invoicing.invoicingFxRates(rateDate ? { date: rateDate } : {}),
-    staleTime: 60 * 60 * 1000,
-    // kurzy nesmi blokovat praci s tabulkami - do jejich nacteni plati zalozni
-    retry: 1,
+    // kurzovni listek se meni jednou denne
+    staleTime: 12 * 60 * 60 * 1000,
+    gcTime: 24 * 60 * 60 * 1000,
+    // kurzy nesmi zdrzovat praci s tabulkami - do jejich nacteni plati zalozni
+    retry: false,
     refetchOnWindowFocus: false,
+    refetchOnMount: false,
   });
   // POZOR: musi byt stabilni reference, jinak se prepocty spousti pri kazdem
   // vykresleni (useMemo s rates v zavislostech by se prepocitaval donekonecna)

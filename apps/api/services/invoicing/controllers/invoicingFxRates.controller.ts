@@ -12,6 +12,18 @@ import { api, Query } from "encore.dev/api";
 /** Zalozni kurzy z mockupu, pouziti kdyz je CNB nedostupna. */
 const CNB_FALLBACK: Record<string, number> = { USD: 20.62, EUR: 24.12 };
 
+/**
+ * Mezipamet kurzu v pameti sluzby. Kurzovni listek se meni jednou denne,
+ * takze nema smysl volat CNB pri kazdem otevreni zalozky.
+ * Uspesny vysledek plati 12 hodin, neuspesny 1 minutu (aby vypadek CNB
+ * neznamenal cekani pri kazdem kliknuti).
+ */
+const fxCache = new Map<string, { value: FxRatesResponse; until: number }>();
+const CACHE_OK_MS = 12 * 60 * 60 * 1000;
+const CACHE_FAIL_MS = 60 * 1000;
+/** CNB neodpovida do 3 s -> pouzijeme zalozni kurzy, uzivatel neceka */
+const CNB_TIMEOUT_MS = 3000;
+
 interface FxRatesRequest {
   /** YYYY-MM-DD; prazdne = aktualni kurzovni listek */
   date?: Query<string>;
@@ -38,11 +50,15 @@ export const invoicingFxRates = api(
   { expose: true, auth: true, method: "GET", path: "/fx/cnb-rates" },
   async (req: FxRatesRequest): Promise<FxRatesResponse> => {
     const date = (req.date ?? "").trim();
+    const cacheKey = date || "today";
+    const cached = fxCache.get(cacheKey);
+    if (cached && cached.until > Date.now()) return cached.value;
+
     const url = "https://api.cnb.cz/cnbapi/exrates/daily?lang=EN" + (date ? `&date=${date}` : "");
 
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 8000);
+      const timeout = setTimeout(() => controller.abort(), CNB_TIMEOUT_MS);
       const res = await fetch(url, { signal: controller.signal });
       clearTimeout(timeout);
       if (!res.ok) throw new Error(`CNB responded ${res.status}`);
@@ -60,16 +76,22 @@ export const invoicingFxRates = api(
       if (!rates.USD || !rates.EUR) throw new Error("rates missing");
 
       const validFor = list[0]!.validFor || date;
-      return { rates, validFor, fallback: false, week: isoWeek(new Date(validFor)) };
+      const result: FxRatesResponse = {
+        rates, validFor, fallback: false, week: isoWeek(new Date(validFor)),
+      };
+      fxCache.set(cacheKey, { value: result, until: Date.now() + CACHE_OK_MS });
+      return result;
     } catch {
       // CNB nedostupna - vratime zalozni kurzy, aby prepocty fungovaly dal
       const validFor = date || new Date().toISOString().slice(0, 10);
-      return {
+      const result: FxRatesResponse = {
         rates: { CZK: 1, ...CNB_FALLBACK },
         validFor,
         fallback: true,
         week: isoWeek(new Date(validFor)),
       };
+      fxCache.set(cacheKey, { value: result, until: Date.now() + CACHE_FAIL_MS });
+      return result;
     }
   },
 );
