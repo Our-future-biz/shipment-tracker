@@ -66,9 +66,31 @@ if [ "$cmd" = "dev" ]; then
   echo " Aplikace startuje. Toto okno nechej OTEVRENE."
   echo " Az bude hotovo, otevri:  http://localhost:3001"
   echo " Vypnout:  Ctrl+C  (nebo zavreni okna)"
-  echo " Zaloha dat: ve druhe zalozce  ./zaloha.sh"
+  echo " Data se zalohuji automaticky (1x denne, po nabehnuti API)."
   echo "────────────────────────────────────────────────────────"
   echo ""
+  # Automaticka zaloha dat: pocka, az API nabehne, a zalohuje na pozadi.
+  # Preskoci se, pokud uz dnes zaloha existuje (staci jedna denne).
+  (
+    DNES=$(date +%Y-%m-%d)
+    KAM="$HOME/Documents/Shipment Tracker/zalohy"
+    if ls -d "$KAM/${DNES}"_* >/dev/null 2>&1; then
+      exit 0   # dnes uz zalohovano
+    fi
+    for i in $(seq 1 60); do
+      if curl -s -o /dev/null -m 2 http://localhost:4001/auth/me 2>/dev/null; then
+        sleep 3
+        ./zaloha.sh >/tmp/shipment-zaloha.log 2>&1
+        if grep -q "Hotovo:" /tmp/shipment-zaloha.log; then
+          echo ""
+          echo "💾 Automaticka zaloha dat hotova ($(grep -o 'Hotovo: [0-9]* z [0-9]*' /tmp/shipment-zaloha.log))"
+        fi
+        exit 0
+      fi
+      sleep 2
+    done
+  ) &
+
   exec pnpm dev
 fi
 
