@@ -1,11 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { Input, Select, Checkbox, Tooltip, Spin } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
-import { DROPDOWN_OPTIONS, getCellConditionalStyle } from "@/lib/columnConfig";
+import { DROPDOWN_OPTIONS, getCellConditionalStyle, COLUMN_MAP } from "@/lib/columnConfig";
 
 /**
  * Columns of the Customs overview, mirroring CUSTOMS_GRID from the approved mockup.
@@ -58,6 +58,10 @@ export function CustomsView() {
   const { shipments, isLoading, updateField } = useShipments();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  // Cell being edited after a double-click: which shipment + which column.
+  const [editing, setEditing] = useState<{ id: string; key: string } | null>(null);
+  const [draft, setDraft] = useState("");
+  const committedRef = useRef(false);
 
   const rows = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -70,8 +74,27 @@ export function CustomsView() {
   }, [shipments, search, statusFilter]);
 
   const toggleRecv = (s: ShipmentItem, field: "csRecvInvoice" | "csRecvPacking", doc: string) => {
-    const next = recvValue(s, field, doc) ? "no" : "yes";
-    updateField(s.id, field, next);
+    const wanted = !recvValue(s, field, doc);
+    const fromDocuments = (s.documentTypes ?? []).includes(doc);
+    // If the manual choice matches what the documents say, drop the override and
+    // let the tick follow the documents again (same as the mockup).
+    updateField(s.id, field, wanted === fromDocuments ? "" : wanted ? "yes" : "no");
+  };
+
+  const startEdit = (s: ShipmentItem, key: string) => {
+    setEditing({ id: s.id, key });
+    setDraft(getFieldValue(s, key));
+    committedRef.current = false;
+  };
+
+  const commitEdit = () => {
+    if (!editing || committedRef.current) return;
+    committedRef.current = true;
+    const current = shipments.find((x) => x.id === editing.id);
+    if (current && draft !== getFieldValue(current, editing.key)) {
+      updateField(editing.id, editing.key, draft);
+    }
+    setEditing(null);
   };
 
   if (isLoading) {
@@ -158,15 +181,23 @@ export function CustomsView() {
                         );
                       }
 
-                      const value = getFieldValue(s, c.key!);
+                      // Commercial Invoice Value shows the per-currency projection
+                      // when the backend has one (civByCurrency in the mockup).
+                      const value =
+                        c.key === "commercialInvoiceValue"
+                          ? getFieldValue(s, "civByCurrency") || getFieldValue(s, c.key!)
+                          : getFieldValue(s, c.key!);
                       const style = getCellConditionalStyle(c.key!, value, rowData) ?? undefined;
 
                       if (c.ref) {
+                        // Reference is coloured by department, like in the shipments list.
+                        const refStyle = getCellConditionalStyle("jobNumber", value, rowData) ?? undefined;
                         return (
                           <td key={i} className="px-3 py-2 border-b border-slate-100">
                             <Link
                               href={`/shipments/${encodeURIComponent(s.jobNumber)}?tab=customs`}
-                              className="font-mono text-[11px] font-semibold text-indigo-600 hover:underline"
+                              className="font-mono text-[11px] font-semibold hover:underline"
+                              style={refStyle ?? { color: "#4f46e5" }}
                             >
                               {value || "—"}
                             </Link>
@@ -174,8 +205,54 @@ export function CustomsView() {
                         );
                       }
 
+                      const isEditing = editing?.id === s.id && editing.key === c.key;
+                      if (c.edit && isEditing) {
+                        const options = COLUMN_MAP.get(c.key!)?.options;
+                        return (
+                          <td key={i} className="px-2 py-1 border-b border-slate-100" style={style}>
+                            {options ? (
+                              <Select
+                                size="small"
+                                autoFocus
+                                defaultOpen
+                                value={draft || undefined}
+                                options={[{ value: "", label: "—" }, ...options.map((o) => ({ value: o, label: o }))]}
+                                onChange={(v) => setDraft(v)}
+                                onBlur={commitEdit}
+                                onSelect={(v) => {
+                                  setDraft(v);
+                                  setTimeout(commitEdit, 0);
+                                }}
+                                className="w-full"
+                              />
+                            ) : (
+                              <Input
+                                size="small"
+                                autoFocus
+                                value={draft}
+                                onChange={(e) => setDraft(e.target.value)}
+                                onBlur={commitEdit}
+                                onPressEnter={commitEdit}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Escape") {
+                                    committedRef.current = true;
+                                    setEditing(null);
+                                  }
+                                }}
+                              />
+                            )}
+                          </td>
+                        );
+                      }
+
                       return (
-                        <td key={i} className="px-3 py-2 border-b border-slate-100" style={style}>
+                        <td
+                          key={i}
+                          className={`px-3 py-2 border-b border-slate-100 ${c.edit ? "cursor-text" : ""}`}
+                          style={style}
+                          onDoubleClick={c.edit ? () => startEdit(s, c.key!) : undefined}
+                          title={c.edit ? "Double-click to edit" : undefined}
+                        >
                           {value ? (
                             <span className="text-slate-700">{value}</span>
                           ) : (
