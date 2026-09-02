@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Input, Select, Checkbox, Tooltip, Modal, AutoComplete, message } from "antd";
+import { Input, Select, Checkbox, Tooltip, Modal, message } from "antd";
 import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -37,12 +37,19 @@ const COST_CATEGORIES = [
 ];
 
 /** Vyber meny s naseptavanim - filtruje podle kodu i nazvu meny. */
-function CurrencyPicker({ value, onChange, locked }: { value: string; onChange: (v: string) => void; locked?: boolean }) {
+/**
+ * Vyber meny. Naseptava podle kodu i nazvu (mockup: renderCombo, mode "cur").
+ * Mena jde prepnout i v zamcenem radku - je to caste nastaveni a nema smysl
+ * kvuli nemu radek nejdriv odemykat dvojklikem.
+ */
+function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
-    <AutoComplete
-      value={value}
-      onChange={(v) => onChange((v || "").toUpperCase())}
-      onSelect={(v) => onChange(v)}
+    <Select
+      value={value || undefined}
+      onChange={onChange}
+      showSearch
+      placeholder="CUR"
+      // hleda podle kodu i nazvu meny
       filterOption={(input, option) => {
         const q = (input || "").toLowerCase().trim();
         if (!q) return true;
@@ -53,9 +60,18 @@ function CurrencyPicker({ value, onChange, locked }: { value: string; onChange: 
       options={CURRENCIES.map(([code, name]) => ({
         value: code, title: name, label: `${code} — ${name}`,
       }))}
-      className={`w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
+      // v rozbalenem seznamu je videt i nazev meny, v bunce jen kod
+      optionRender={(opt) => (
+        <span className="text-[13px]">
+          <span className="font-semibold">{String(opt.value)}</span>
+          <span className="text-slate-400"> — {String(opt.data?.title ?? "")}</span>
+        </span>
+      )}
+      labelRender={(p) => <span className="text-[13px]">{String(p.value ?? "")}</span>}
+      popupMatchSelectWidth={false}
+      className="w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
                  [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
-                 [&_input]:!text-[13px]${locked ? " [&_.ant-select-selector]:!border-transparent pointer-events-none" : ""}`}
+                 [&_.ant-select-selection-item]:!text-[13px] [&_.ant-select-selection-search-input]:!text-[13px]"
     />
   );
 }
@@ -638,7 +654,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} locked={locked} />
+                    <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
                   </td>
                   {/* Real */}
                   <td className={CELL}>
@@ -664,7 +680,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker value={r.realCurrency} onChange={(v) => updateBuy.mutate({ id: r.id, realCurrency: v })} locked={locked} />
+                    <CurrencyPicker value={r.realCurrency} onChange={(v) => updateBuy.mutate({ id: r.id, realCurrency: v })} />
                   </td>
                   <td className={CELL}>
                     <input
@@ -814,7 +830,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker value={r.currency} onChange={(v) => updateSell.mutate({ id: r.id, currency: v })} locked={locked} />
+                    <CurrencyPicker value={r.currency} onChange={(v) => updateSell.mutate({ id: r.id, currency: v })} />
                   </td>
                   <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>
                     {money(t.sellRowTotals[r.id] ?? 0)}
