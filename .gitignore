@@ -24,3 +24,7 @@ tsconfig.check.json
 
 # Pracovni prehledy (zijou v ~/Documents/Shipment Tracker, ne v repu)
 *.xlsx
+
+# Docasne soubory z generovani prehledu
+.cols_tmp.json
+.opts_tmp.json
