@@ -423,16 +423,6 @@ export function DetailCard({
   );
 }
 
-// Small in-card column sub-heading bar (used where two sections share one card).
-function SubHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
-  return (
-    <div className="flex items-center gap-1.5 bg-indigo-50/60 border border-indigo-100 rounded-md px-2.5 py-1.5 mb-2">
-      <span className="text-indigo-500 text-sm leading-none">{icon}</span>
-      <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wide">{title}</span>
-    </div>
-  );
-}
-
 // Conditional-format style for a field, replicating the shipment list colors
 // (per-cell background/color rules + whole-row OBL text color).
 export type StyleFor = (fieldKey: string, value?: string | null) => React.CSSProperties | undefined;
@@ -1230,46 +1220,27 @@ export function ShipmentDetailContent() {
               </div>
 
               {/* REFERENCES & ROUTING  |  PARTIES & AGENTS
-                  Jedna karta se dvema podnadpisy - tuzka filtruje pole
-                  obou sloupcu dohromady. */}
-              <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                {(() => {
-                  const allFields = [...REFS_ROUTING, ...PARTIES_AGENTS];
-                  const shown = new Set(
-                    visibleCardKeys("refsParties", allFields.map((f) => f.key)),
-                  );
-                  const renderCol = (col: FieldDef[]) =>
-                    col.filter((f) => shown.has(f.key)).map((f) => (
-                      <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
-                    ));
-                  const leftShown = REFS_ROUTING.some((f) => shown.has(f.key));
-                  const rightShown = PARTIES_AGENTS.some((f) => shown.has(f.key));
-
-                  return (
-                    <>
-                      <SectionHeader
-                        icon={<EnvironmentOutlined />}
-                        title="References & Routing · Parties & Agents"
-                        cardId="refsParties"
-                        allFields={allFields}
-                        shipment={shipment}
-                        onCommit={handleCommit}
-                        styleFor={styleFor}
-                      />
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3">
-                        <div>
-                          {/* podnadpis se skryje, kdyz z jeho sloupce nezbylo zadne pole */}
-                          {leftShown && <SubHeader icon={<EnvironmentOutlined />} title="References & Routing" />}
-                          {renderCol(REFS_ROUTING)}
-                        </div>
-                        <div>
-                          {rightShown && <SubHeader icon={<InfoCircleOutlined />} title="Parties & Agents" />}
-                          {renderCol(PARTIES_AGENTS)}
-                        </div>
-                      </div>
-                    </>
-                  );
-                })()}
+                  Dve samostatne karty vedle sebe, kazda s vlastni hlavickou
+                  a tuzkou - stejne jako dvojice Carrier & Key Dates vyse. */}
+              <div className="grid grid-cols-1 2xl:grid-cols-2 gap-5 items-start">
+                <DetailCard
+                  icon={<EnvironmentOutlined />}
+                  title="References & Routing"
+                  cardId="refsRouting"
+                  columns={[REFS_ROUTING]}
+                  shipment={shipment}
+                  onCommit={handleCommit}
+                  styleFor={styleFor}
+                />
+                <DetailCard
+                  icon={<InfoCircleOutlined />}
+                  title="Parties & Agents"
+                  cardId="partiesAgents"
+                  columns={[PARTIES_AGENTS]}
+                  shipment={shipment}
+                  onCommit={handleCommit}
+                  styleFor={styleFor}
+                />
               </div>
 
               {/* QUOTE */}
