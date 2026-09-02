@@ -140,7 +140,7 @@ function ShipmentStepper({ shipment }: { shipment: ShipmentItem }) {
 /* ── Shared UI pieces ── */
 
 function SectionHeader({
-  icon, title, cardId, allFields, shipment, onCommit, styleFor,
+  icon, title, cardId, allFields, shipment, onCommit, styleFor, renderField,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -150,6 +150,9 @@ function SectionHeader({
   shipment?: ShipmentItem;
   onCommit?: CommitFn;
   styleFor?: StyleFor;
+  /** Vlastni vykresleni pro pole, ktera nejsou obycejny FieldRow
+   *  (Master Job s odkazem, Incoterm, propojeni zakazniku). */
+  renderField?: Record<string, React.ReactNode>;
 }) {
   const [showAll, setShowAll] = useState(false);
   const [picking, setPicking] = useState(false);
@@ -219,7 +222,9 @@ function SectionHeader({
               allFields!.slice(Math.ceil(allFields!.length / 2))].map((col, i) => (
               <div key={i}>
                 {col.map((f) =>
-                  f.ro ? (
+                  renderField?.[f.key] ? (
+                    <React.Fragment key={f.key}>{renderField[f.key]}</React.Fragment>
+                  ) : f.ro ? (
                     <RoRow key={f.key} label={f.label} value={getFieldValue(shipment!, f.key)} />
                   ) : (
                     <FieldRow
@@ -700,20 +705,30 @@ function CargoCommercialCard({
   onCommit: CommitFn;
   styleFor?: StyleFor;
 }) {
+  const { visibleKeys } = useCardFields();
+  const cargoShown = new Set(
+    visibleKeys("cargo", [...CARGO_COMMERCIAL_L, ...CARGO_COMMERCIAL_R].map((f) => f.key)),
+  );
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-      <SectionHeader icon={<FileTextOutlined />} title="Cargo & Commercial" />
+      <SectionHeader
+        icon={<FileTextOutlined />}
+        title="Cargo & Commercial"
+        cardId="cargo"
+        allFields={[...CARGO_COMMERCIAL_L, ...CARGO_COMMERCIAL_R]}
+        shipment={shipment}
+        onCommit={onCommit}
+        styleFor={styleFor}
+      />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-x-7">
-        <div>
-          {CARGO_COMMERCIAL_L.map((f) => (
-            <CargoRow key={f.key} field={f} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />
-          ))}
-        </div>
-        <div>
-          {CARGO_COMMERCIAL_R.map((f) => (
-            <CargoRow key={f.key} field={f} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />
-          ))}
-        </div>
+        {[CARGO_COMMERCIAL_L, CARGO_COMMERCIAL_R].map((col, i) => (
+          <div key={i}>
+            {col.filter((f) => cargoShown.has(f.key)).map((f) => (
+              <CargoRow key={f.key} field={f} shipment={shipment} onCommit={onCommit} styleFor={styleFor} />
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -761,6 +776,8 @@ export function ShipmentDetailContent() {
   const [releaseOpen, setReleaseOpen] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const queryClient = useQueryClient();
+  // vyber poli zobrazenych v kartach (tuzka v hlavicce karty)
+  const { visibleKeys: visibleCardKeys } = useCardFields();
   // Container panel to open/highlight when jumping to Cargo Details from a
   // container-number link.
   const [cargoFocusId, setCargoFocusId] = useState<string | null>(null);
@@ -998,98 +1015,199 @@ export function ShipmentDetailContent() {
             <div className="space-y-5 min-w-0">
               {/* SHIPMENT OVERVIEW */}
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                <SectionHeader icon={<ContainerOutlined />} title="Shipment Overview" />
                 {/* Column order mirrors the agreed overview mockup 1:1 — left is
-                    "who and what", right is "where, when and in which state". */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-                  <div>
-                    <RoRow label="Internal Reference" value={shipment.jobNumber} />
-                    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
-                      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Master Job</span>
-                      <div className="flex-1 min-w-0 flex items-center gap-2">
-                        {shipment.masterJobMczNumber ? (
-                          <>
-                            <button onClick={() => setMasterJobOpen(true)} className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
-                              #{shipment.masterJobMczNumber}
+                    "who and what", right is "where, when and in which state".
+                    Fields are declared as a list so the pencil can filter them. */}
+                {(() => {
+                  const left: FieldDef[] = [
+                    { key: "jobNumber", label: "Internal Reference", ro: true },
+                    { key: "masterJob", label: "Master Job", ro: true },
+                    { key: "tradeDirection", label: "Trade Direction" },
+                    { key: "freightMode", label: "Freight Mode" },
+                    { key: "loadType", label: "Load Type" },
+                    { key: "serviceType", label: "Service Type" },
+                    { key: "customerReference", label: "Customer Reference" },
+                    { key: "salesNumber", label: "Sales Number" },
+                    { key: "serviceName", label: "Service Name" },
+                    { key: "customer", label: "Customer", ro: true },
+                    { key: "shipper", label: "Shipper", ro: true },
+                    { key: "consignee", label: "Consignee", ro: true },
+                    { key: "personInCharge", label: "Handled By" },
+                    { key: "salesPerson", label: "Sales Person", ro: true },
+                    { key: "incoterm", label: "Incoterm Origin/Destination", ro: true },
+                    { key: "freeComments", label: "Free Comments" },
+                  ];
+                  const right: FieldDef[] = [
+                    { key: "status", label: "Shipment Status" },
+                    { key: "customsStatus", label: "Customs Status" },
+                    { key: "invoicingStatus", label: "Invoicing Status" },
+                    { key: "pol", label: "POL" },
+                    { key: "estimatedDeparture", label: "ETD Estimated" },
+                    { key: "estimatedDepartureWeek", label: "Est. Departure Week", ro: true },
+                    { key: "pod", label: "POD" },
+                    { key: "estimatedArrival", label: "ETA Estimated" },
+                    { key: "estimatedArrivalWeek", label: "Est. Arrival Week", ro: true },
+                    { key: "shipmentsDate", label: "Shipments Date", ro: true },
+                    { key: "shippingLine", label: "Shipping line / Coloader" },
+                    { key: "containerNumber", label: "Container Number", ro: true },
+                    { key: "sealNumber", label: "Seal Number", ro: true },
+                    { key: "masterBolNumber", label: "Master BoL Number" },
+                    { key: "houseBolNumber", label: "House BoL Number" },
+                  ];
+
+                  // Radky, ktere nejsou obycejny FieldRow
+                  const custom: Record<string, React.ReactNode> = {
+                    masterJob: (
+                      <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
+                        <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Master Job</span>
+                        <div className="flex-1 min-w-0 flex items-center gap-2">
+                          {shipment.masterJobMczNumber ? (
+                            <>
+                              <button onClick={() => setMasterJobOpen(true)} className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
+                                #{shipment.masterJobMczNumber}
+                              </button>
+                              <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-400 hover:text-red-500 cursor-pointer bg-transparent border-none p-0">
+                                unassign
+                              </button>
+                            </>
+                          ) : (
+                            <button onClick={() => setAssignOpen(true)} className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
+                              + Assign to master job
                             </button>
-                            <button onClick={handleUnlinkMasterJob} className="text-[10px] text-slate-400 hover:text-red-500 cursor-pointer bg-transparent border-none p-0">
-                              unassign
-                            </button>
-                          </>
-                        ) : (
-                          <button onClick={() => setAssignOpen(true)} className="text-indigo-500 hover:underline cursor-pointer bg-transparent border-none p-0 font-medium">
-                            + Assign to master job
-                          </button>
-                        )}
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <FieldRow label="Trade Direction" fieldKey="tradeDirection" value={shipment.tradeDirection} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="Freight Mode" fieldKey="freightMode" value={shipment.freightMode} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="Load Type" fieldKey="loadType" value={shipment.loadType} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="Service Type" fieldKey="serviceType" value={shipment.serviceType} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="Customer Reference" fieldKey="customerReference" value={shipment.customerReference} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="Sales Number" fieldKey="salesNumber" value={shipment.salesNumber} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="Service Name" fieldKey="serviceName" value={shipment.serviceName} onCommit={handleCommit} styleFor={styleFor} />
-                    <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", "customerId", n, id)} />
-                    <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
-                    <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
-                    <FieldRow label="Handled By" fieldKey="personInCharge" value={shipment.personInCharge} onCommit={handleCommit} styleFor={styleFor} />
-                    <RoRow label="Sales Person" value={shipment.salesPerson} />
-                    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
-                      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Incoterm Origin/Destination</span>
-                      <span className="flex-1 min-w-0 text-slate-900 font-medium">
-                        {shipment.incotermOrigin || shipment.incotermDestination
-                          ? `${shipment.incotermOrigin || "—"}/${shipment.incotermDestination || "—"}`
-                          : <span className="text-slate-300">—</span>}
-                      </span>
-                    </div>
-                    <FieldRow label="Free Comments" fieldKey="freeComments" value={shipment.freeComments} onCommit={handleCommit} styleFor={styleFor} />
-                  </div>
-                  <div>
-                    <FieldRow label="Shipment Status" fieldKey="status" value={shipment.status} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="Customs Status" fieldKey="customsStatus" value={shipment.customsStatus} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="Invoicing Status" fieldKey="invoicingStatus" value={shipment.invoicingStatus} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="POL" fieldKey="pol" value={shipment.pol} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="ETD Estimated" fieldKey="estimatedDeparture" value={shipment.estimatedDeparture} onCommit={handleCommit} styleFor={styleFor} />
-                    <RoRow label="Est. Departure Week" value={getFieldValue(shipment, "estimatedDepartureWeek")} />
-                    <FieldRow label="POD" fieldKey="pod" value={shipment.pod} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="ETA Estimated" fieldKey="estimatedArrival" value={shipment.estimatedArrival} onCommit={handleCommit} styleFor={styleFor} />
-                    <RoRow label="Est. Arrival Week" value={getFieldValue(shipment, "estimatedArrivalWeek")} />
-                    <RoRow label="Shipments Date" value={getFieldValue(shipment, "shipmentsDate")} />
-                    <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={shipment.shippingLine} onCommit={handleCommit} styleFor={styleFor} />
-                    <RoRow label="Container Number" value={shipment.containerNumber} />
-                    <RoRow label="Seal Number" value={shipment.sealNumber} />
-                    <FieldRow label="Master BoL Number" fieldKey="masterBolNumber" value={shipment.masterBolNumber} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="House BoL Number" fieldKey="houseBolNumber" value={shipment.houseBolNumber} onCommit={handleCommit} styleFor={styleFor} />
-                  </div>
-                </div>
+                    ),
+                    customer: (
+                      <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", "customerId", n, id)} />
+                    ),
+                    shipper: (
+                      <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
+                    ),
+                    consignee: (
+                      <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
+                    ),
+                    incoterm: (
+                      <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
+                        <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Incoterm Origin/Destination</span>
+                        <span className="flex-1 min-w-0 text-slate-900 font-medium">
+                          {shipment.incotermOrigin || shipment.incotermDestination
+                            ? `${shipment.incotermOrigin || "—"}/${shipment.incotermDestination || "—"}`
+                            : <span className="text-slate-300">—</span>}
+                        </span>
+                      </div>
+                    ),
+                  };
+
+                  const allKeys = [...left, ...right].map((f) => f.key);
+                  const shown = new Set(visibleCardKeys("overview", allKeys));
+                  const renderCol = (col: FieldDef[]) =>
+                    col.filter((f) => shown.has(f.key)).map((f) =>
+                      custom[f.key] ? (
+                        <React.Fragment key={f.key}>{custom[f.key]}</React.Fragment>
+                      ) : f.ro ? (
+                        <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
+                      ) : (
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                      ),
+                    );
+
+                  return (
+                    <>
+                      <SectionHeader
+                        icon={<ContainerOutlined />}
+                        title="Shipment Overview"
+                        cardId="overview"
+                        allFields={[...left, ...right]}
+                        shipment={shipment}
+                        onCommit={handleCommit}
+                        styleFor={styleFor}
+                        renderField={custom}
+                      />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <div>{renderCol(left)}</div>
+                        <div>{renderCol(right)}</div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* COMMERCIAL PARTIES */}
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                <SectionHeader icon={<EnvironmentOutlined />} title="Commercial Parties" />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-                  <div>
-                    <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
-                    <PartyContactField label="Contact" fieldKey="shipperContact" value={shipment.shipperContact} customerId={shipment.shipperId} onCommit={commitDirect} />
-                    <FieldRow label="Pick-up Address" fieldKey="pickupAddress" value={shipment.pickupAddress} onCommit={handleCommit} styleFor={styleFor} />
-                    <OpeningHoursRow
-                      from={shipment.shipperOpeningFrom}
-                      to={shipment.shipperOpeningTo}
-                      onChange={(f, t) => updateShipment({ id: shipment.id, data: { shipperOpeningFrom: f, shipperOpeningTo: t } })}
-                    />
-                  </div>
-                  <div>
-                    <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
-                    <PartyContactField label="Contact" fieldKey="consigneeContact" value={shipment.consigneeContact} customerId={shipment.consigneeId} onCommit={commitDirect} />
-                    <FieldRow label="Delivery Address" fieldKey="deliveryAddress" value={shipment.deliveryAddress} onCommit={handleCommit} styleFor={styleFor} />
-                    <OpeningHoursRow
-                      from={shipment.consigneeOpeningFrom}
-                      to={shipment.consigneeOpeningTo}
-                      onChange={(f, t) => updateShipment({ id: shipment.id, data: { consigneeOpeningFrom: f, consigneeOpeningTo: t } })}
-                    />
-                  </div>
-                </div>
+                {(() => {
+                  const left: FieldDef[] = [
+                    { key: "shipper", label: "Shipper", ro: true },
+                    { key: "shipperContact", label: "Contact", ro: true },
+                    { key: "pickupAddress", label: "Pick-up Address" },
+                    { key: "shipperOpening", label: "Opening Hours", ro: true },
+                  ];
+                  const right: FieldDef[] = [
+                    { key: "consignee", label: "Consignee", ro: true },
+                    { key: "consigneeContact", label: "Contact", ro: true },
+                    { key: "deliveryAddress", label: "Delivery Address" },
+                    { key: "consigneeOpening", label: "Opening Hours", ro: true },
+                  ];
+
+                  const custom: Record<string, React.ReactNode> = {
+                    shipper: (
+                      <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
+                    ),
+                    shipperContact: (
+                      <PartyContactField label="Contact" fieldKey="shipperContact" value={shipment.shipperContact} customerId={shipment.shipperId} onCommit={commitDirect} />
+                    ),
+                    shipperOpening: (
+                      <OpeningHoursRow
+                        from={shipment.shipperOpeningFrom}
+                        to={shipment.shipperOpeningTo}
+                        onChange={(f, t) => updateShipment({ id: shipment.id, data: { shipperOpeningFrom: f, shipperOpeningTo: t } })}
+                      />
+                    ),
+                    consignee: (
+                      <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
+                    ),
+                    consigneeContact: (
+                      <PartyContactField label="Contact" fieldKey="consigneeContact" value={shipment.consigneeContact} customerId={shipment.consigneeId} onCommit={commitDirect} />
+                    ),
+                    consigneeOpening: (
+                      <OpeningHoursRow
+                        from={shipment.consigneeOpeningFrom}
+                        to={shipment.consigneeOpeningTo}
+                        onChange={(f, t) => updateShipment({ id: shipment.id, data: { consigneeOpeningFrom: f, consigneeOpeningTo: t } })}
+                      />
+                    ),
+                  };
+
+                  const allKeys = [...left, ...right].map((f) => f.key);
+                  const shown = new Set(visibleCardKeys("parties", allKeys));
+                  const renderCol = (col: FieldDef[]) =>
+                    col.filter((f) => shown.has(f.key)).map((f) =>
+                      custom[f.key] ? (
+                        <React.Fragment key={f.key}>{custom[f.key]}</React.Fragment>
+                      ) : (
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                      ),
+                    );
+
+                  return (
+                    <>
+                      <SectionHeader
+                        icon={<EnvironmentOutlined />}
+                        title="Commercial Parties"
+                        cardId="parties"
+                        allFields={[...left, ...right]}
+                        shipment={shipment}
+                        onCommit={handleCommit}
+                        styleFor={styleFor}
+                        renderField={custom}
+                      />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <div>{renderCol(left)}</div>
+                        <div>{renderCol(right)}</div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* CARRIER & BILL OF LADING  |  KEY DATES */}
@@ -1131,24 +1249,45 @@ export function ShipmentDetailContent() {
 
               {/* QUOTE */}
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                <SectionHeader icon={<FileTextOutlined />} title="Quote" />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-                  <div>
-                    {QUOTE_L.map((f) =>
-                      f.ro ? (
+                {(() => {
+                  const right: FieldDef[] = [...QUOTE_R, { key: "salesPerson", label: "Sales Person", ro: true }];
+                  const custom: Record<string, React.ReactNode> = {
+                    salesPerson: (
+                      <SalesPersonField value={shipment.salesPerson} onChange={(v) => updateShipment({ id: shipment.id, data: { salesPerson: v } })} />
+                    ),
+                  };
+                  const allKeys = [...QUOTE_L, ...right].map((f) => f.key);
+                  const shown = new Set(visibleCardKeys("quote", allKeys));
+                  const renderCol = (col: FieldDef[]) =>
+                    col.filter((f) => shown.has(f.key)).map((f) =>
+                      custom[f.key] ? (
+                        <React.Fragment key={f.key}>{custom[f.key]}</React.Fragment>
+                      ) : f.ro ? (
                         <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
                       ) : (
                         <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
                       ),
-                    )}
-                  </div>
-                  <div>
-                    {QUOTE_R.map((f) => (
-                      <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
-                    ))}
-                    <SalesPersonField value={shipment.salesPerson} onChange={(v) => updateShipment({ id: shipment.id, data: { salesPerson: v } })} />
-                  </div>
-                </div>
+                    );
+
+                  return (
+                    <>
+                      <SectionHeader
+                        icon={<FileTextOutlined />}
+                        title="Quote"
+                        cardId="quote"
+                        allFields={[...QUOTE_L, ...right]}
+                        shipment={shipment}
+                        onCommit={handleCommit}
+                        styleFor={styleFor}
+                        renderField={custom}
+                      />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <div>{renderCol(QUOTE_L)}</div>
+                        <div>{renderCol(right)}</div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
 
               {/* CARGO & COMMERCIAL */}
@@ -1156,19 +1295,46 @@ export function ShipmentDetailContent() {
 
               {/* BASIC INFORMATION */}
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-                <SectionHeader icon={<InfoCircleOutlined />} title="Basic Information" />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
-                  <div>
-                    <RoRow label="Internal Reference" value={shipment.jobNumber} />
-                    <FieldRow label="Department" fieldKey="department" value={shipment.department} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="Claim" fieldKey="claim" value={shipment.claim} onCommit={handleCommit} styleFor={styleFor} />
-                  </div>
-                  <div>
-                    <FieldRow label="Person In Charge" fieldKey="personInCharge" value={shipment.personInCharge} onCommit={handleCommit} styleFor={styleFor} />
-                    <FieldRow label="Holiday Cover" fieldKey="holidayCover" value={shipment.holidayCover} onCommit={handleCommit} styleFor={styleFor} />
-                    <RoRow label="Created By" value={shipment.createdBy} />
-                  </div>
-                </div>
+                {(() => {
+                  const left: FieldDef[] = [
+                    { key: "jobNumber", label: "Internal Reference", ro: true },
+                    { key: "department", label: "Department" },
+                    { key: "claim", label: "Claim" },
+                  ];
+                  const right: FieldDef[] = [
+                    { key: "personInCharge", label: "Person In Charge" },
+                    { key: "holidayCover", label: "Holiday Cover" },
+                    { key: "createdBy", label: "Created By", ro: true },
+                  ];
+                  const allKeys = [...left, ...right].map((f) => f.key);
+                  const shown = new Set(visibleCardKeys("basic", allKeys));
+                  const renderCol = (col: FieldDef[]) =>
+                    col.filter((f) => shown.has(f.key)).map((f) =>
+                      f.ro ? (
+                        <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
+                      ) : (
+                        <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
+                      ),
+                    );
+
+                  return (
+                    <>
+                      <SectionHeader
+                        icon={<InfoCircleOutlined />}
+                        title="Basic Information"
+                        cardId="basic"
+                        allFields={[...left, ...right]}
+                        shipment={shipment}
+                        onCommit={handleCommit}
+                        styleFor={styleFor}
+                      />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+                        <div>{renderCol(left)}</div>
+                        <div>{renderCol(right)}</div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
