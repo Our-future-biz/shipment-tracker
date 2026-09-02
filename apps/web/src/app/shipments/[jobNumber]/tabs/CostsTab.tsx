@@ -328,6 +328,29 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     onError: showError("Could not delete the row"),
   });
 
+  /* ── Prvni prazdny radek ──
+     Mockup startuje s jednim prazdnym radkem v obou tabulkach, aby
+     uzivatel mohl rovnou psat bez klikani na "Add".
+     Zaklada se az po nacteni dat a jen jednou (drzi se v ref, aby
+     opakovane vykresleni nezalozilo radku vic). */
+  const seeding = useRef({ buy: false, sell: false });
+
+  useEffect(() => {
+    if (!data) return;
+    if (!buyRows.length && !seeding.current.buy && !addBuy.isPending) {
+      seeding.current.buy = true;
+      addBuy.mutate(undefined, { onSettled: () => { seeding.current.buy = false; } });
+    }
+  }, [data, buyRows.length]);
+
+  useEffect(() => {
+    if (!data) return;
+    if (!sellRows.length && !seeding.current.sell && !addSell.isPending) {
+      seeding.current.sell = true;
+      addSell.mutate({}, { onSettled: () => { seeding.current.sell = false; } });
+    }
+  }, [data, sellRows.length]);
+
   /* ── Undo jako zasobnik (mockup: undoStack + snapshotCostRow/restoreCostRow) ──
      Mockup si pamatuje vice smazanych radku a vraci je na PUVODNI pozici. */
   interface UndoEntry { index: number; values: Record<string, unknown> }
