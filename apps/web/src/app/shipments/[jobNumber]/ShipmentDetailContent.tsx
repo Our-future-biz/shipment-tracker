@@ -586,12 +586,22 @@ export function ShipmentDetailContent() {
 
   const shipment = shipments.find((s) => s.id === jobNumber);
 
+  // Fakturacni data se nactou uz pri otevreni zakazky, takze zalozka
+  // Costs Breakdown je pri prokliku ma hned k dispozici a nic nedonacita.
   const { data: invoicingData } = useQuery({
     queryKey: ["invoicing", shipment?.id],
     queryFn: () => api.invoicing.invoicingGet(shipment!.id),
     enabled: !!shipment,
   });
   const linkedQuote = invoicingData?.billingSettings?.quoteRef ?? "";
+
+  // Kurzovni listek se predava dopredu ze stejneho duvodu - Costs Breakdown
+  // ho pak nacita z pameti, ne ze serveru.
+  useQuery({
+    queryKey: ["exchange-rates"],
+    queryFn: () => api.invoicing.exchangeRateList(),
+    staleTime: 10 * 60 * 1000,
+  });
 
   const TAB_KEYS = TABS.map((t) => t.key);
   const rawTab = searchParams.get("tab");

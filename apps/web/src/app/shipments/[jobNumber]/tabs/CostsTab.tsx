@@ -120,11 +120,14 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   const [quoteErr, setQuoteErr] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
 
-  const { data, isLoading, isFetching } = useQuery({
+  // Stejny klic jako v ShipmentDetailContent - data uz jsou v pameti
+  // z okamziku otevreni zakazky, takze zalozka naskoci bez cekani.
+  const { data, isFetching } = useQuery({
     queryKey: ["invoicing", shipment.id],
     queryFn: () => api.invoicing.invoicingGet(shipment.id),
-    // ulozena data zustanou na obrazovce, dokud se nenactou nova
     placeholderData: (prev) => prev,
+    // nedotahuj znovu jen kvuli tomu, ze se komponenta prave pripojila
+    refetchOnMount: false,
   });
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
 
@@ -187,6 +190,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     queryKey: ["exchange-rates"],
     queryFn: () => api.invoicing.exchangeRateList(),
     staleTime: 10 * 60 * 1000,
+    placeholderData: (prev) => prev,
+    refetchOnMount: false,
   });
 
   const weekKey = useMemo(() => (rateDate ? weekKeyFromDate(rateDate) : ""), [rateDate]);
@@ -472,17 +477,14 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     [buyRows, sellRows, billingCur, rates, roe],
   );
 
-  // Prazdna obrazovka jen pri uplne prvnim nacteni. Pri prepnuti zalozky
-  // se ulozena data zobrazi hned a aktualizace probehne na pozadi.
-  if (isLoading && !data) {
-    return <div className="p-6 text-center text-slate-400 text-sm">Loading…</div>;
-  }
+  // Zadna blokujici obrazovka - karty se vykresli vzdy. Dokud data nedorazi,
+  // jsou tabulky prazdne a nahore bezi tenky prouzek.
 
 
   return (
     <div>
       {/* jemny indikator aktualizace na pozadi - obsah zustava viditelny */}
-      {isFetching && !isLoading && (
+      {isFetching && (
         <div className="h-[2px] bg-indigo-100 overflow-hidden rounded-full mb-2">
           <div className="h-full w-1/3 bg-indigo-500 animate-pulse" />
         </div>
