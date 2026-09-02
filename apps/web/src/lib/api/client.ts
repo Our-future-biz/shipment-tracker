@@ -829,6 +829,8 @@ export namespace shipments {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.userPrefGet = this.userPrefGet.bind(this)
+            this.userPrefSet = this.userPrefSet.bind(this)
             this.attachmentContent = this.attachmentContent.bind(this)
             this.attachmentCreate = this.attachmentCreate.bind(this)
             this.attachmentDelete = this.attachmentDelete.bind(this)
@@ -1012,6 +1014,16 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/tasks`, JSON.stringify(params))
             return await resp.json() as controllers.TaskUpsertResponse
+        }
+
+        public async userPrefGet(prefKey: string): Promise<controllers.UserPrefGetResponse> {
+            const resp = await this.baseClient.callTypedAPI("GET", `/user-prefs/${encodeURIComponent(prefKey)}`)
+            return await resp.json() as controllers.UserPrefGetResponse
+        }
+
+        public async userPrefSet(prefKey: string, params: controllers.UserPrefSetRequest): Promise<controllers.UserPrefSetResponse> {
+            const resp = await this.baseClient.callTypedAPI("PUT", `/user-prefs/${encodeURIComponent(prefKey)}`, JSON.stringify(params))
+            return await resp.json() as controllers.UserPrefSetResponse
         }
     }
 }
@@ -1466,6 +1478,18 @@ export namespace controllers {
         billingSettings: interfaces.BillingSettingsItem | null
         billingOverrides: interfaces.BillingOverrideItem[]
         generatedInvoices: interfaces.GeneratedInvoiceItem[]
+    }
+
+    export interface UserPrefGetResponse {
+        value: string | null
+    }
+
+    export interface UserPrefSetRequest {
+        value: string
+    }
+
+    export interface UserPrefSetResponse {
+        ok: boolean
     }
 
     export interface ExchangeRateItem {

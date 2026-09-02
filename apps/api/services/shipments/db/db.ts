@@ -7,6 +7,7 @@ import * as shipmentAuditSchema from "../schemas/shipmentAudit.schema";
 import * as shipmentCommentSchema from "../schemas/shipmentComment.schema";
 import * as shipmentTaskSchema from "../schemas/shipmentTask.schema";
 import * as shipmentAttachmentSchema from "../schemas/shipmentAttachment.schema";
+import * as userPreferenceSchema from "../schemas/userPreference.schema";
 
 const { Pool } = pg;
 
@@ -26,5 +27,6 @@ export const db = drizzle(pool, {
     ...shipmentCommentSchema,
     ...shipmentTaskSchema,
     ...shipmentAttachmentSchema,
+    ...userPreferenceSchema,
   },
 });

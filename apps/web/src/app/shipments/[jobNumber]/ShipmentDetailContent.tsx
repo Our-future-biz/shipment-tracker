@@ -18,11 +18,13 @@ import {
   SplitCellsOutlined,
   PaperClipOutlined,
   FileTextOutlined,
+  EditOutlined,
 } from "@ant-design/icons";
 import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
+import { useCardFields } from "./useCardFields";
 import { useUsers } from "@/hooks/useUsers";
 import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
 import Link from "next/link";
@@ -137,15 +139,177 @@ function ShipmentStepper({ shipment }: { shipment: ShipmentItem }) {
 
 /* ── Shared UI pieces ── */
 
-function SectionHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
-  // Full-width colored top bar across the card (card padding is p-4, so break out with -mx-4/-mt-4).
+function SectionHeader({
+  icon, title, cardId, allFields, shipment, onCommit, styleFor,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  /** Kdyz je zadano, hlavicka dostane "Show all" a tuzku pro vyber poli. */
+  cardId?: string;
+  allFields?: FieldDef[];
+  shipment?: ShipmentItem;
+  onCommit?: CommitFn;
+  styleFor?: StyleFor;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const [picking, setPicking] = useState(false);
+  const { visibleKeys, toggleField, resetCard, isCustomised } = useCardFields();
+
+  const hasTools = !!(cardId && allFields?.length && shipment);
+  const allKeys = allFields?.map((f) => f.key) ?? [];
+  const shownCount = hasTools ? visibleKeys(cardId!, allKeys).length : 0;
+
   return (
-    <div className="-mx-4 -mt-4 mb-4 px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
-      <span className="text-indigo-500 text-base leading-none">{icon}</span>
-      <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">
-        {title}
-      </h3>
-    </div>
+    <>
+      {/* Full-width colored top bar across the card (card padding is p-4, so break out with -mx-4/-mt-4). */}
+      <div className="-mx-4 -mt-4 mb-4 px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
+        <span className="text-indigo-500 text-base leading-none">{icon}</span>
+        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">
+          {title}
+        </h3>
+
+        {hasTools && (
+          <span className="ml-auto flex items-center gap-1.5">
+            {/* .sec-all z mockupu */}
+            <button
+              onClick={() => setShowAll(true)}
+              className="h-[26px] px-2.5 text-[11.5px] font-semibold rounded-md border border-[#d8dce6]
+                         bg-white text-slate-600 cursor-pointer hover:bg-[#f4f5f9] hover:text-[#46506b]
+                         hover:border-[#c3c9d6] transition-colors whitespace-nowrap"
+            >
+              Show all ({allKeys.length})
+            </button>
+            {/* .sec-edit z mockupu */}
+            <Tooltip title="Choose which fields appear in this card">
+              <button
+                onClick={() => setPicking(true)}
+                className={`w-[26px] h-[26px] grid place-items-center rounded-md border cursor-pointer
+                            transition-colors ${
+                  isCustomised(cardId!)
+                    ? "bg-indigo-500 border-indigo-500 text-white"
+                    : "border-[#d8dce6] bg-white text-slate-600 hover:bg-[#f4f5f9] hover:text-indigo-500 hover:border-[#c3c9d6]"
+                }`}
+              >
+                <EditOutlined className="text-[12px]" />
+              </button>
+            </Tooltip>
+          </span>
+        )}
+      </div>
+
+      {/* Okno "Show all" - vsechna pole karty, stale editovatelna */}
+      {hasTools && (
+        <Modal
+          open={showAll}
+          onCancel={() => setShowAll(false)}
+          footer={null}
+          width={860}
+          title={
+            <span className="flex items-center gap-2">
+              <span className="text-indigo-500">{icon}</span>
+              <span className="text-[13px] font-bold uppercase tracking-wider">{title}</span>
+              <span className="ml-2 text-[12px] font-normal text-slate-400">
+                {allKeys.length} fields
+              </span>
+            </span>
+          }
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 max-h-[65vh] overflow-y-auto pr-1">
+            {[allFields!.slice(0, Math.ceil(allFields!.length / 2)),
+              allFields!.slice(Math.ceil(allFields!.length / 2))].map((col, i) => (
+              <div key={i}>
+                {col.map((f) =>
+                  f.ro ? (
+                    <RoRow key={f.key} label={f.label} value={getFieldValue(shipment!, f.key)} />
+                  ) : (
+                    <FieldRow
+                      key={f.key}
+                      label={f.label}
+                      fieldKey={f.key}
+                      value={getFieldValue(shipment!, f.key)}
+                      onCommit={onCommit ?? (() => {})}
+                      styleFor={styleFor}
+                    />
+                  ),
+                )}
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+
+      {/* Okno vyberu poli - stejny seznam, jen se zaskrtavatky */}
+      {hasTools && (
+        <Modal
+          open={picking}
+          onCancel={() => setPicking(false)}
+          width={860}
+          title={
+            <span className="flex items-center gap-2">
+              <EditOutlined className="text-indigo-500" />
+              <span className="text-[13px] font-bold uppercase tracking-wider">
+                {title} — choose fields
+              </span>
+              <span className="ml-2 text-[12px] font-normal text-slate-400">
+                {shownCount} of {allKeys.length} in card
+              </span>
+            </span>
+          }
+          footer={
+            <div className="flex items-center gap-3">
+              <span className="text-[12px] text-slate-500 mr-auto text-left">
+                Unchecked fields stay available under “Show all”.
+              </span>
+              <button
+                onClick={() => resetCard(cardId!)}
+                className="h-8 px-3 text-[12.5px] font-semibold rounded-md border border-[#d8dce6]
+                           bg-white text-slate-600 cursor-pointer hover:bg-[#f4f5f9]"
+              >
+                Show all fields
+              </button>
+              <button
+                onClick={() => setPicking(false)}
+                className="h-8 px-3 text-[12.5px] font-semibold rounded-md border border-indigo-500
+                           bg-indigo-500 text-white cursor-pointer hover:brightness-110"
+              >
+                Done
+              </button>
+            </div>
+          }
+        >
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 max-h-[65vh] overflow-y-auto pr-1">
+            {[allFields!.slice(0, Math.ceil(allFields!.length / 2)),
+              allFields!.slice(Math.ceil(allFields!.length / 2))].map((col, i) => (
+              <div key={i}>
+                {col.map((f) => {
+                  const on = visibleKeys(cardId!, allKeys).includes(f.key);
+                  return (
+                    <label
+                      key={f.key}
+                      className={`flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer
+                                  hover:bg-slate-50 ${on ? "" : "opacity-55"}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => toggleField(cardId!, f.key, allKeys)}
+                        className="cursor-pointer"
+                      />
+                      <span className="text-[12.5px] text-slate-600 flex-1 min-w-0 truncate">
+                        {f.label}
+                      </span>
+                      <span className="text-[12.5px] text-slate-400 max-w-[45%] truncate text-right">
+                        {getFieldValue(shipment!, f.key) || "—"}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
 
@@ -196,6 +360,7 @@ type FieldDef = { key: string; label: string; ro?: boolean };
 export function DetailCard({
   icon,
   title,
+  cardId,
   columns,
   shipment,
   onCommit,
@@ -205,6 +370,8 @@ export function DetailCard({
 }: {
   icon: React.ReactNode;
   title: string;
+  /** Kdyz je zadano, karta dostane "Show all" a tuzku pro vyber poli. */
+  cardId?: string;
   columns: FieldDef[][];
   shipment: ShipmentItem;
   onCommit: CommitFn;
@@ -213,13 +380,27 @@ export function DetailCard({
   renderAfter?: Record<string, React.ReactNode>;
   children?: React.ReactNode;
 }) {
+  const { visibleKeys } = useCardFields();
+  const allFields = columns.flat();
+  const shown = cardId
+    ? new Set(visibleKeys(cardId, allFields.map((f) => f.key)))
+    : null;
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
-      <SectionHeader icon={icon} title={title} />
+      <SectionHeader
+        icon={icon}
+        title={title}
+        cardId={cardId}
+        allFields={cardId ? allFields : undefined}
+        shipment={shipment}
+        onCommit={onCommit}
+        styleFor={styleFor}
+      />
       <div className={columns.length > 1 ? "grid grid-cols-1 md:grid-cols-2 gap-x-6" : ""}>
         {columns.map((col, i) => (
           <div key={i}>
-            {col.map((f) => (
+            {col.filter((f) => !shown || shown.has(f.key)).map((f) => (
               <React.Fragment key={f.key}>
                 {f.ro ? (
                   <RoRow label={f.label} value={getFieldValue(shipment, f.key)} />
@@ -916,6 +1097,7 @@ export function ShipmentDetailContent() {
                 <DetailCard
                   icon={<SplitCellsOutlined />}
                   title="Carrier & Bill of Lading"
+                  cardId="carrier"
                   columns={[CARRIER_BOL]}
                   shipment={shipment}
                   onCommit={handleCommit}
@@ -926,7 +1108,7 @@ export function ShipmentDetailContent() {
                     ),
                   }}
                 />
-                <DetailCard icon={<CalendarOutlined />} title="Key Dates" columns={[KEY_DATES_L, KEY_DATES_R]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+                <DetailCard icon={<CalendarOutlined />} title="Key Dates" cardId="dates" columns={[KEY_DATES_L, KEY_DATES_R]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
               </div>
 
               {/* REFERENCES & ROUTING  |  PARTIES & AGENTS */}
@@ -1001,8 +1183,8 @@ export function ShipmentDetailContent() {
                 <TasksPanel shipment={shipment} />
               </div>
 
-              <DetailCard icon={<CheckSquareOutlined />} title="Compliance" columns={[COMPLIANCE_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
-              <DetailCard icon={<SplitCellsOutlined />} title="Switch BOL" columns={[SWITCH_BOL_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+              <DetailCard icon={<CheckSquareOutlined />} title="Compliance" cardId="compliance" columns={[COMPLIANCE_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+              <DetailCard icon={<SplitCellsOutlined />} title="Switch BOL" cardId="switchBol" columns={[SWITCH_BOL_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
             </div>
           </div>
         )}
