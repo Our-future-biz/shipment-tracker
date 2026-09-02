@@ -144,20 +144,8 @@ export function CustomsView() {
         style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box" }}>
         <span className="text-[13px] font-semibold text-slate-600 shrink-0 whitespace-nowrap">Shipments to clear</span>
 
-        {/* Filtr stavu: mezi popiskem a vyhledavacem */}
-        <Select
-          value={statusFilter}
-          onChange={setStatusFilter}
-          className="w-44 shrink-0 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!h-8"
-          popupMatchSelectWidth={false}
-          options={[
-            { value: "all", label: "All customs statuses" },
-            ...CUSTOMS_STATUSES.map((o) => ({ value: o, label: o })),
-          ]}
-        />
-
-        {/* .tb-divider */}
-        <div className="w-px h-6 bg-slate-200 shrink-0" />
+        {/* mezera tlaci ovladaci prvky doprava (misto justify-between) */}
+        <div className="flex-1 min-w-0" />
 
         {/* .tb-search: 240px wide, 6px radius, 14px text */}
         <Input
@@ -169,6 +157,21 @@ export function CustomsView() {
           size="middle"
           className="w-60 shrink-0"
           style={{ borderRadius: 6, height: 32 }}
+        />
+
+        {/* .tb-divider */}
+        <div className="w-px h-6 bg-slate-200 shrink-0" />
+
+        {/* select.antd .w-44 */}
+        <Select
+          value={statusFilter}
+          onChange={setStatusFilter}
+          className="w-44 shrink-0 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!h-8"
+          popupMatchSelectWidth={false}
+          options={[
+            { value: "all", label: "All customs statuses" },
+            ...CUSTOMS_STATUSES.map((o) => ({ value: o, label: o })),
+          ]}
         />
       </div>
 
