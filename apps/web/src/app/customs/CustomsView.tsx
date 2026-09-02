@@ -140,7 +140,7 @@ export function CustomsView() {
     <>
       {/* Toolbar */}
       {/* .toolbar from the mockup: 12/16 padding, 16px radius, 12px gaps */}
-      <div className="flex flex-nowrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4 w-full max-w-full box-border overflow-hidden">
+      <div className="flex flex-nowrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4 w-full max-w-full box-border">
         <span className="text-[13px] font-semibold text-slate-600 truncate min-w-0">Shipments to clear</span>
         <div className="flex flex-nowrap items-center gap-3 shrink-0">
           {/* .tb-search: 240px wide, 6px radius, 14px text */}
@@ -162,7 +162,6 @@ export function CustomsView() {
             onChange={setStatusFilter}
             className="w-44 shrink-0 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!h-8"
             popupMatchSelectWidth={false}
-            getPopupContainer={(trigger) => trigger.parentElement ?? document.body}
             options={[
               { value: "all", label: "All customs statuses" },
               ...CUSTOMS_STATUSES.map((o) => ({ value: o, label: o })),
