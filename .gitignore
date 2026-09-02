@@ -17,3 +17,7 @@ encore.gen.cue
 # local-only Encore secret overrides
 .secrets.local.cue
 **/.secrets.local.cue
+
+# TypeScript build cache (vznika pri kazdem prekladu, necommitovat)
+*.tsbuildinfo
+tsconfig.check.json
