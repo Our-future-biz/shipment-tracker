@@ -13,22 +13,31 @@ import {
   type BuyingRow, type SellingRow, type Rates,
 } from "./costsCalc";
 
-const CURRENCIES = ["CZK", "USD", "EUR", "GBP", "CNY"];
+/** CURRENCIES z mockupu - kod a nazev meny (naseptavac filtruje podle obojiho) */
+const CURRENCIES: [string, string][] = [
+  ["USD", "US Dollar"], ["EUR", "Euro"], ["INR", "Indian Rupee"], ["CNY", "Chinese Yuan Renminbi"],
+  ["GBP", "British Pound"], ["JPY", "Japanese Yen"], ["CHF", "Swiss Franc"], ["CZK", "Czech Koruna"],
+  ["PLN", "Polish Zloty"], ["HUF", "Hungarian Forint"], ["SEK", "Swedish Krona"], ["NOK", "Norwegian Krone"],
+  ["DKK", "Danish Krone"], ["CAD", "Canadian Dollar"], ["AUD", "Australian Dollar"], ["NZD", "New Zealand Dollar"],
+  ["SGD", "Singapore Dollar"], ["HKD", "Hong Kong Dollar"], ["KRW", "South Korean Won"], ["TWD", "New Taiwan Dollar"],
+  ["THB", "Thai Baht"], ["VND", "Vietnamese Dong"], ["MYR", "Malaysian Ringgit"], ["IDR", "Indonesian Rupiah"],
+  ["PHP", "Philippine Peso"], ["AED", "UAE Dirham"], ["SAR", "Saudi Riyal"], ["TRY", "Turkish Lira"],
+  ["ZAR", "South African Rand"], ["BRL", "Brazilian Real"], ["MXN", "Mexican Peso"], ["RUB", "Russian Ruble"],
+];
 
 /** Zalozni kurzy - plati, dokud nejsou zadany kurzy na strance Exchange. */
 const FALLBACK_RATES: Record<string, number> = { CZK: 1, USD: 20.62, EUR: 24.12 };
 
-/** Mockup naseptava meny podle kodu i nazvu (renderCombo, mode "cur"). */
-const CURRENCY_NAMES: Record<string, string> = {
-  CZK: "Czech koruna",
-  USD: "US dollar",
-  EUR: "Euro",
-  GBP: "Pound sterling",
-  CNY: "Chinese yuan",
-};
+/** COST_TYPES z mockupu - kategorie nakladu (spolecne pro buying i selling) */
+const COST_CATEGORIES = [
+  "Ocean freight", "Air freight", "Rail freight", "Road freight",
+  "Documentation", "THC Origin", "THC Destination", "Customs clearance",
+  "Handling", "Delivery", "Pickup", "Insurance", "Inspection",
+  "Storage", "Demurrage", "Other",
+];
 
 /** Vyber meny s naseptavanim - filtruje podle kodu i nazvu meny. */
-function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function CurrencyPicker({ value, onChange, locked }: { value: string; onChange: (v: string) => void; locked?: boolean }) {
   return (
     <AutoComplete
       value={value}
@@ -38,20 +47,18 @@ function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: stri
         const q = (input || "").toLowerCase().trim();
         if (!q) return true;
         const code = String(option?.value ?? "").toLowerCase();
-        return code.includes(q) || (CURRENCY_NAMES[String(option?.value)] ?? "").toLowerCase().includes(q);
+        const name = String(option?.title ?? "").toLowerCase();
+        return code.includes(q) || name.includes(q);
       }}
-      options={CURRENCIES.map((c) => ({ value: c, label: `${c} — ${CURRENCY_NAMES[c] ?? ""}` }))}
-      className="w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
+      options={CURRENCIES.map(([code, name]) => ({
+        value: code, title: name, label: `${code} — ${name}`,
+      }))}
+      className={`w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
                  [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
-                 [&_input]:!text-[13px]"
+                 [&_input]:!text-[13px]${locked ? " [&_.ant-select-selector]:!border-transparent pointer-events-none" : ""}`}
     />
   );
 }
-
-/** Kategorie z mockupu (select .b-type) */
-const COST_CATEGORIES = [
-  "Freight", "Collection/Delivery", "Locals", "Others", "Insurance", "Customs clearance",
-];
 
 /* ── sdilene tridy dle mockupu (--cb-field-h 30px, --cb-cell-x 6px) ── */
 const CELL = "px-[6px] py-[6px] border-b border-slate-100 align-middle";
@@ -119,6 +126,16 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   const [quoteModal, setQuoteModal] = useState<null | "buy" | "sell">(null);
   const [quoteErr, setQuoteErr] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
+  /* Zamykani radku dle mockupu (trida .display): vyplneny radek se po
+     opusteni zamkne do "read-only" podoby, dvojklik ho zase otevre.
+     Drzime ID odemcenych radku - vse ostatni vyplnene je zamcene. */
+  const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
+  const unlock = (id: string) => setUnlocked((p) => new Set(p).add(id));
+  const lock = (id: string) => setUnlocked((p) => {
+    const n = new Set(p);
+    n.delete(id);
+    return n;
+  });
 
   // Stejny klic jako v ShipmentDetailContent - data uz jsou v pameti
   // z okamziku otevreni zakazky, takze zalozka naskoci bez cekani.
@@ -130,6 +147,14 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     refetchOnMount: false,
   });
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
+
+  /** Chyba zapisu se musi ukazat - drive se tise spolkla a tlacitko
+   *  vypadalo, ze nic nedela. */
+  const showError = (what: string) => (e: unknown) => {
+    const detail = e instanceof Error ? e.message : "";
+    console.error(`[CostsTab] ${what}`, e);
+    message.error(detail ? `${what}: ${detail}` : what);
+  };
 
   /* ── Billing nastaveni ── */
   const billing = data?.billingSettings ?? null;
@@ -251,16 +276,19 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       estCurrency: billingCur, realCurrency: billingCur,
       sortOrder: buyRows.length,
     }),
-    onSuccess: invalidate,
+    onSuccess: (res) => { unlock(res.cost.id); invalidate(); },
+    onError: showError("Could not add the buying cost"),
   });
   const updateBuy = useMutation({
     mutationFn: ({ id, ...params }: { id: string } & Record<string, unknown>) =>
       api.invoicing.invoicingUpdateBuyingCost(shipment.id, id, params),
     onSuccess: invalidate,
+    onError: showError("Could not save the change"),
   });
   const deleteBuy = useMutation({
     mutationFn: (id: string) => api.invoicing.invoicingDeleteBuyingCost(shipment.id, id),
     onSuccess: invalidate,
+    onError: showError("Could not delete the row"),
   });
 
   /* ── Selling costs ── */
@@ -285,16 +313,19 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         qty: "1", currency: billingCur, invoice: true,
         sortOrder: sellRows.length, ...params,
       } as never),
-    onSuccess: invalidate,
+    onSuccess: (res) => { unlock(res.sellingCost.id); invalidate(); },
+    onError: showError("Could not add the selling cost"),
   });
   const updateSell = useMutation({
     mutationFn: ({ id, ...params }: { id: string } & Record<string, unknown>) =>
       api.invoicing.invoicingUpdateSellingCost(shipment.id, id, params),
     onSuccess: invalidate,
+    onError: showError("Could not save the change"),
   });
   const deleteSell = useMutation({
     mutationFn: (id: string) => api.invoicing.invoicingDeleteSellingCost(shipment.id, id),
     onSuccess: invalidate,
+    onError: showError("Could not delete the row"),
   });
 
   /* ── Undo jako zasobnik (mockup: undoStack + snapshotCostRow/restoreCostRow) ──
@@ -309,6 +340,18 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   const buyRowFilled = (r: BuyingRow) =>
     !!(r.category || r.vendor || r.estAmount || r.realAmount || r.invoiceNumber);
   const sellRowFilled = (r: SellingRow) => !!(r.category || r.customer || r.amount);
+
+  /** costRowFilled z mockupu - podle nej se radek zamyka */
+  const buyLocked = (r: BuyingRow) =>
+    !unlocked.has(r.id) && !!(r.category || num(r.estAmount) || num(r.realAmount));
+  const sellLocked = (r: SellingRow) =>
+    !unlocked.has(r.id) && !!(r.category || num(r.amount));
+
+  /** zamceny radek: pole vypadaji jako text, dvojklik je otevre */
+  const lockedField = (locked: boolean) =>
+    locked
+      ? " !border-transparent !bg-transparent pointer-events-none"
+      : "";
 
   const removeBuy = (row: BuyingRow, index: number) => {
     if (buyRowFilled(row)) {
@@ -529,23 +572,33 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
               </tr>
             </thead>
             <tbody>
-              {buyRows.map((r, rowIndex) => (
-                <tr key={r.id} className="hover:bg-slate-50/60">
+              {buyRows.map((r, rowIndex) => {
+                const locked = buyLocked(r);
+                const fld = lockedField(locked);
+                return (
+                <tr
+                  key={r.id}
+                  className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
+                  onDoubleClick={() => unlock(r.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLElement).blur(); lock(r.id); } }}
+                >
                   <td className={CELL}>
                     <Select
                       value={r.category || undefined}
                       placeholder="—"
                       variant="borderless"
-                      className="w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
+                      className={`w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
                                  [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
-                                 [&_.ant-select-selection-item]:!text-[13px]"
+                                 [&_.ant-select-selection-item]:!text-[13px]${
+                        locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
+                      }`}
                       options={COST_CATEGORIES.map((v) => ({ value: v, label: v }))}
                       onChange={(v) => updateBuy.mutate({ id: r.id, category: v })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
-                      className={FIELD}
+                      className={`${FIELD}${fld}`}
                       defaultValue={r.vendor}
                       onBlur={(e) => e.target.value !== r.vendor && updateBuy.mutate({ id: r.id, vendor: e.target.value })}
                     />
@@ -553,25 +606,25 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                   {/* Estimated */}
                   <td className={CELL}>
                     <input
-                      className={`${FIELD} text-center`}
+                      className={`${FIELD} text-center${fld}`}
                       defaultValue={r.estQty}
                       onBlur={(e) => e.target.value !== r.estQty && updateBuy.mutate({ id: r.id, estQty: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
-                      className={`${FIELD} text-right`}
+                      className={`${FIELD} text-right${fld}`}
                       defaultValue={r.estAmount}
                       onBlur={(e) => e.target.value !== r.estAmount && updateBuy.mutate({ id: r.id, estAmount: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
+                    <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} locked={locked} />
                   </td>
                   {/* Real */}
                   <td className={CELL}>
                     <input
-                      className={`${FIELD} text-center`}
+                      className={`${FIELD} text-center${fld}`}
                       defaultValue={r.realQty}
                       onBlur={(e) => e.target.value !== r.realQty && updateBuy.mutate({ id: r.id, realQty: e.target.value })}
                     />
@@ -586,17 +639,17 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     }
                   >
                     <input
-                      className={`${FIELD} text-right ${t.buyRowUnder[r.id] ? "!text-[#177245] font-bold" : ""}`}
+                      className={`${FIELD} text-right${fld} ${t.buyRowUnder[r.id] ? "!text-[#177245] font-bold" : ""}`}
                       defaultValue={r.realAmount}
                       onBlur={(e) => e.target.value !== r.realAmount && updateBuy.mutate({ id: r.id, realAmount: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker value={r.realCurrency} onChange={(v) => updateBuy.mutate({ id: r.id, realCurrency: v })} />
+                    <CurrencyPicker value={r.realCurrency} onChange={(v) => updateBuy.mutate({ id: r.id, realCurrency: v })} locked={locked} />
                   </td>
                   <td className={CELL}>
                     <input
-                      className={FIELD}
+                      className={`${FIELD}${fld}`}
                       defaultValue={r.invoiceNumber}
                       onBlur={(e) => changeInvoiceNumber(r, e.target.value)}
                     />
@@ -632,7 +685,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     </Tooltip>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {!buyRows.length && (
                 <tr>
                   <td colSpan={12} className="px-4 py-8 text-center text-slate-400 text-[13px]">
@@ -695,43 +749,53 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
               </tr>
             </thead>
             <tbody>
-              {sellRows.map((r, rowIndex) => (
-                <tr key={r.id} className="hover:bg-slate-50/60">
+              {sellRows.map((r, rowIndex) => {
+                const locked = sellLocked(r);
+                const fld = lockedField(locked);
+                return (
+                <tr
+                  key={r.id}
+                  className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
+                  onDoubleClick={() => unlock(r.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLElement).blur(); lock(r.id); } }}
+                >
                   <td className={CELL}>
                     <Select
                       value={r.category || undefined}
                       placeholder="—"
                       variant="borderless"
-                      className="w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
+                      className={`w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
                                  [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
-                                 [&_.ant-select-selection-item]:!text-[13px]"
+                                 [&_.ant-select-selection-item]:!text-[13px]${
+                        locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
+                      }`}
                       options={COST_CATEGORIES.map((v) => ({ value: v, label: v }))}
                       onChange={(v) => updateSell.mutate({ id: r.id, category: v })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
-                      className={FIELD}
+                      className={`${FIELD}${fld}`}
                       defaultValue={r.customer}
                       onBlur={(e) => e.target.value !== r.customer && updateSell.mutate({ id: r.id, customer: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
-                      className={`${FIELD} text-center`}
+                      className={`${FIELD} text-center${fld}`}
                       defaultValue={r.qty}
                       onBlur={(e) => e.target.value !== r.qty && updateSell.mutate({ id: r.id, qty: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
-                      className={`${FIELD} text-right`}
+                      className={`${FIELD} text-right${fld}`}
                       defaultValue={r.amount}
                       onBlur={(e) => e.target.value !== r.amount && updateSell.mutate({ id: r.id, amount: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker value={r.currency} onChange={(v) => updateSell.mutate({ id: r.id, currency: v })} />
+                    <CurrencyPicker value={r.currency} onChange={(v) => updateSell.mutate({ id: r.id, currency: v })} locked={locked} />
                   </td>
                   <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>
                     {money(t.sellRowTotals[r.id] ?? 0)}
@@ -763,7 +827,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     </Tooltip>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {!sellRows.length && (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-slate-400 text-[13px]">
@@ -795,7 +860,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
             <Select
               value={billingCur}
               className="w-[110px]"
-              options={CURRENCIES.map((v) => ({ value: v, label: v }))}
+              options={CURRENCIES.map(([code, name]) => ({ value: code, label: `${code} — ${name}` }))}
               onChange={(v) => { setBillingCur(v); upsertBilling.mutate({ billingCurrency: v }); }}
             />
             <Tooltip title="Záložní kurz (CZK za 1 jednotku) pro měny mimo kurzovní lístek ČNB">
