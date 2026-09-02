@@ -2,12 +2,29 @@ export interface InvoiceCostItem {
   id: string;
   shipmentId: string;
   category: string;
+  estQty: string | null;
   estAmount: string | null;
   estCurrency: string;
+  realQty: string | null;
   realAmount: string | null;
   realCurrency: string;
   invoiceNumber: string;
+  received: boolean;
   vendor: string;
+  sortOrder: number;
+}
+
+/** Selling costs z Costs Breakdownu (mockup: #sellTable) */
+export interface SellingCostItem {
+  id: string;
+  shipmentId: string;
+  category: string;
+  customer: string;
+  qty: string | null;
+  amount: string | null;
+  currency: string;
+  invoice: boolean;
+  sortOrder: number;
 }
 
 export interface AdditionalChargeItem {

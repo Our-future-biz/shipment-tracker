@@ -15,6 +15,13 @@
       "when": 1786386305672,
       "tag": "0001_natural_wonder_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787000000000,
+      "tag": "0002_costs_breakdown",
+      "breakpoints": true
     }
   ]
 }

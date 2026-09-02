@@ -549,6 +549,13 @@ export namespace invoicing {
             this.invoicingUpsertBillingOverride = this.invoicingUpsertBillingOverride.bind(this)
             this.invoicingUpsertBillingSettings = this.invoicingUpsertBillingSettings.bind(this)
             this.invoicingUpsertCost = this.invoicingUpsertCost.bind(this)
+            this.invoicingAddBuyingCost = this.invoicingAddBuyingCost.bind(this)
+            this.invoicingUpdateBuyingCost = this.invoicingUpdateBuyingCost.bind(this)
+            this.invoicingDeleteBuyingCost = this.invoicingDeleteBuyingCost.bind(this)
+            this.invoicingAddSellingCost = this.invoicingAddSellingCost.bind(this)
+            this.invoicingUpdateSellingCost = this.invoicingUpdateSellingCost.bind(this)
+            this.invoicingDeleteSellingCost = this.invoicingDeleteSellingCost.bind(this)
+            this.invoicingFxRates = this.invoicingFxRates.bind(this)
         }
 
         public async invoicingAddCharge(shipmentId: string, params: controllers.AddChargeRequest): Promise<controllers.AddChargeResponse> {
@@ -597,6 +604,42 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/costs`, JSON.stringify(params))
             return await resp.json() as controllers.UpsertCostResponse
+        }
+
+        public async invoicingAddBuyingCost(shipmentId: string, params: controllers.AddBuyingRequest): Promise<controllers.AddBuyingResponse> {
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/buying`, JSON.stringify(params))
+            return await resp.json() as controllers.AddBuyingResponse
+        }
+
+        public async invoicingUpdateBuyingCost(shipmentId: string, costId: string, params: controllers.UpdateBuyingRequest): Promise<controllers.UpdateBuyingResponse> {
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/invoicing/${encodeURIComponent(shipmentId)}/buying/${encodeURIComponent(costId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.UpdateBuyingResponse
+        }
+
+        public async invoicingDeleteBuyingCost(shipmentId: string, costId: string): Promise<controllers.DeleteBuyingResponse> {
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/invoicing/${encodeURIComponent(shipmentId)}/buying/${encodeURIComponent(costId)}`)
+            return await resp.json() as controllers.DeleteBuyingResponse
+        }
+
+        public async invoicingAddSellingCost(shipmentId: string, params: controllers.AddSellingRequest): Promise<controllers.AddSellingResponse> {
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/selling`, JSON.stringify(params))
+            return await resp.json() as controllers.AddSellingResponse
+        }
+
+        public async invoicingUpdateSellingCost(shipmentId: string, sellingId: string, params: controllers.UpdateSellingRequest): Promise<controllers.UpdateSellingResponse> {
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/invoicing/${encodeURIComponent(shipmentId)}/selling/${encodeURIComponent(sellingId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.UpdateSellingResponse
+        }
+
+        public async invoicingDeleteSellingCost(shipmentId: string, sellingId: string): Promise<controllers.DeleteSellingResponse> {
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/invoicing/${encodeURIComponent(shipmentId)}/selling/${encodeURIComponent(sellingId)}`)
+            return await resp.json() as controllers.DeleteSellingResponse
+        }
+
+        public async invoicingFxRates(params?: { date?: string }): Promise<controllers.FxRatesResponse> {
+            const query = params?.date ? `?date=${encodeURIComponent(params.date)}` : ""
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/fx/cnb${query}`)
+            return await resp.json() as controllers.FxRatesResponse
         }
     }
 }
@@ -1400,10 +1443,88 @@ export namespace controllers {
 
     export interface InvoicingGetResponse {
         costs: interfaces.InvoiceCostItem[]
+        sellingCosts: interfaces.SellingCostItem[]
         additionalCharges: interfaces.AdditionalChargeItem[]
         billingSettings: interfaces.BillingSettingsItem | null
         billingOverrides: interfaces.BillingOverrideItem[]
         generatedInvoices: interfaces.GeneratedInvoiceItem[]
+    }
+
+    export interface AddBuyingRequest {
+        category?: string
+        vendor?: string
+        estQty?: string
+        estAmount?: string
+        estCurrency?: string
+        realQty?: string
+        realAmount?: string
+        realCurrency?: string
+        invoiceNumber?: string
+        received?: boolean
+        sortOrder?: number
+    }
+
+    export interface AddBuyingResponse {
+        cost: interfaces.InvoiceCostItem
+    }
+
+    export interface UpdateBuyingRequest {
+        category?: string
+        vendor?: string
+        estQty?: string
+        estAmount?: string
+        estCurrency?: string
+        realQty?: string
+        realAmount?: string
+        realCurrency?: string
+        invoiceNumber?: string
+        received?: boolean
+    }
+
+    export interface UpdateBuyingResponse {
+        cost: interfaces.InvoiceCostItem
+    }
+
+    export interface DeleteBuyingResponse {
+        ok: boolean
+    }
+
+    export interface AddSellingRequest {
+        category?: string
+        customer?: string
+        qty?: string
+        amount?: string
+        currency?: string
+        invoice?: boolean
+        sortOrder?: number
+    }
+
+    export interface AddSellingResponse {
+        sellingCost: interfaces.SellingCostItem
+    }
+
+    export interface UpdateSellingRequest {
+        category?: string
+        customer?: string
+        qty?: string
+        amount?: string
+        currency?: string
+        invoice?: boolean
+    }
+
+    export interface UpdateSellingResponse {
+        sellingCost: interfaces.SellingCostItem
+    }
+
+    export interface DeleteSellingResponse {
+        ok: boolean
+    }
+
+    export interface FxRatesResponse {
+        rates: Record<string, number>
+        validFor: string
+        fallback: boolean
+        week: number
     }
 
     export interface LinkMasterJobRequest {
@@ -2363,12 +2484,28 @@ export namespace interfaces {
         id: string
         shipmentId: string
         category: string
+        estQty: string | null
         estAmount: string | null
         estCurrency: string
+        realQty: string | null
         realAmount: string | null
         realCurrency: string
         invoiceNumber: string
+        received: boolean
         vendor: string
+        sortOrder: number
+    }
+
+    export interface SellingCostItem {
+        id: string
+        shipmentId: string
+        category: string
+        customer: string
+        qty: string | null
+        amount: string | null
+        currency: string
+        invoice: boolean
+        sortOrder: number
     }
 
     export interface InvoiceItem {

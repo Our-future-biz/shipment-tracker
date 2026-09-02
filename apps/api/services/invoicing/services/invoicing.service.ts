@@ -3,12 +3,13 @@ import { additionalChargeRepository } from "../repositories/additionalCharge.rep
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
 import { billingOverrideRepository } from "../repositories/billingOverride.repository";
 import { generatedInvoiceRepository } from "../repositories/generatedInvoice.repository";
+import { sellingCostRepository } from "../repositories/sellingCost.repository";
 
 // Numeric columns (est/real amounts) reject "" in Postgres — coerce blanks to null
 // so amounts can be cleared instead of erroring or sticking to a stale value.
 function sanitizeAmounts<T extends Record<string, unknown>>(data: T): T {
   const out = { ...data } as Record<string, unknown>;
-  for (const key of ["estAmount", "realAmount"]) {
+  for (const key of ["estAmount", "realAmount", "estQty", "realQty", "qty", "amount"]) {
     if (out[key] === "") out[key] = null;
   }
   return out as T;
@@ -16,14 +17,41 @@ function sanitizeAmounts<T extends Record<string, unknown>>(data: T): T {
 
 class InvoicingService {
   async getInvoicingData(shipmentId: string, companyId: string) {
-    const [costs, additionalCharges, billingSettings, billingOverrides, generatedInvoices] = await Promise.all([
+    const [costs, sellingCosts, additionalCharges, billingSettings, billingOverrides, generatedInvoices] = await Promise.all([
       invoiceCostRepository.listByShipmentId(shipmentId, companyId),
+      sellingCostRepository.listByShipmentId(shipmentId, companyId),
       additionalChargeRepository.listByShipmentId(shipmentId, companyId),
       billingSettingsRepository.getByShipmentId(shipmentId, companyId),
       billingOverrideRepository.listByShipmentId(shipmentId, companyId),
       generatedInvoiceRepository.listByShipmentId(shipmentId, companyId),
     ]);
-    return { costs, additionalCharges, billingSettings, billingOverrides, generatedInvoices };
+    return { costs, sellingCosts, additionalCharges, billingSettings, billingOverrides, generatedInvoices };
+  }
+
+  // ── Buying costs jako volne radky (Costs Breakdown) ──
+  async addBuyingCost(shipmentId: string, companyId: string, data: Record<string, unknown>) {
+    return invoiceCostRepository.create({ companyId, shipmentId, category: "", ...sanitizeAmounts(data) } as never);
+  }
+
+  async updateBuyingCost(id: string, companyId: string, data: Record<string, unknown>) {
+    return invoiceCostRepository.updateById(id, companyId, sanitizeAmounts(data));
+  }
+
+  async deleteBuyingCost(id: string, companyId: string) {
+    return invoiceCostRepository.deleteById(id, companyId);
+  }
+
+  // ── Selling costs ──
+  async addSellingCost(shipmentId: string, companyId: string, data: Record<string, unknown>) {
+    return sellingCostRepository.create({ companyId, shipmentId, ...sanitizeAmounts(data) } as never);
+  }
+
+  async updateSellingCost(id: string, companyId: string, data: Record<string, unknown>) {
+    return sellingCostRepository.update(id, companyId, sanitizeAmounts(data));
+  }
+
+  async deleteSellingCost(id: string, companyId: string) {
+    return sellingCostRepository.delete(id, companyId);
   }
 
   async upsertCost(shipmentId: string, companyId: string, category: string, data: Record<string, string>) {
