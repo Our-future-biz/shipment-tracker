@@ -140,7 +140,8 @@ export function CustomsView() {
     <>
       {/* Toolbar */}
       {/* .toolbar from the mockup: 12/16 padding, 16px radius, 12px gaps */}
-      <div className="flex flex-nowrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4 w-full max-w-full min-w-0 shrink-0 box-border">
+      <div className="flex flex-nowrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4 box-border"
+        style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box" }}>
         <span className="text-[13px] font-semibold text-slate-600 truncate min-w-0">Shipments to clear</span>
         <div className="flex flex-nowrap items-center gap-3 shrink-0">
           {/* .tb-search: 240px wide, 6px radius, 14px text */}
@@ -171,7 +172,10 @@ export function CustomsView() {
       </div>
 
       {/* Grid */}
-      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden w-full max-w-full min-w-0 shrink-0">
+      <div
+        className="bg-white border border-slate-200 rounded-2xl overflow-hidden box-border"
+        style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", contain: "inline-size" }}
+      >
         <div className="overflow-x-auto max-w-full">
           <table className="w-full text-[14px]" style={{ borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed", minWidth: "2650px" }}>
             <colgroup>
