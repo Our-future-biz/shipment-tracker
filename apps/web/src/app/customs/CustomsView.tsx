@@ -138,50 +138,55 @@ export function CustomsView() {
 
   return (
     <>
-      {/* Toolbar */}
-      {/* .toolbar from the mockup: 12/16 padding, 16px radius, 12px gaps */}
-      <div className="flex flex-nowrap items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 mb-4 box-border"
-        style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box" }}>
-        <span className="text-[13px] font-semibold text-slate-600 shrink-0 whitespace-nowrap">Shipments to clear</span>
+      {/*
+        .toolbar z mockupu:
+          display:flex; align-items:center; justify-content:space-between;
+          gap:12px; background:#fff; border:1px solid slate-200;
+          border-radius:16px; padding:12px 16px;
+        Zadny margin-bottom - mezery resi gap:20px na .page-inner.
+      */}
+      <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
+        {/* .tb-left */}
+        <div className="flex items-center gap-3">
+          {/* .cs-lead: 13px, 600, slate-600 */}
+          <span className="text-[13px] font-semibold text-slate-600">Shipments to clear</span>
+        </div>
 
-        {/* mezera tlaci ovladaci prvky doprava (misto justify-between) */}
-        <div className="flex-1 min-w-0" />
+        {/* .tb-right */}
+        <div className="flex items-center gap-3">
+          {/* .tb-search: width 240px, border #d9d9d9, radius 6px, padding 5px 10px */}
+          <Input
+            placeholder="Search job, container, invoice…"
+            prefix={<SearchOutlined className="text-slate-400 text-[13px]" />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            allowClear
+            size="middle"
+            className="w-60"
+            style={{ borderRadius: 6, height: 32 }}
+          />
 
-        {/* .tb-search: 240px wide, 6px radius, 14px text */}
-        <Input
-          placeholder="Search job, container, invoice…"
-          prefix={<SearchOutlined className="text-slate-400 text-[13px]" />}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          allowClear
-          size="middle"
-          className="w-60 shrink-0"
-          style={{ borderRadius: 6, height: 32 }}
-        />
+          {/* .tb-divider: 1px x 24px, slate-200 */}
+          <div className="w-px h-6 bg-slate-200" />
 
-        {/* .tb-divider */}
-        <div className="w-px h-6 bg-slate-200 shrink-0" />
-
-        {/* select.antd .w-44 */}
-        <Select
-          value={statusFilter}
-          onChange={setStatusFilter}
-          className="w-44 shrink-0 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!h-8"
-          popupMatchSelectWidth={false}
-          options={[
-            { value: "all", label: "All customs statuses" },
-            ...CUSTOMS_STATUSES.map((o) => ({ value: o, label: o })),
-          ]}
-        />
+          {/* select.antd .w-44: height 32px, radius 6px, width 176px */}
+          <Select
+            value={statusFilter}
+            onChange={setStatusFilter}
+            className="w-44 [&_.ant-select-selector]:!rounded-md [&_.ant-select-selector]:!h-8"
+            options={[
+              { value: "all", label: "All customs statuses" },
+              ...CUSTOMS_STATUSES.map((o) => ({ value: o, label: o })),
+            ]}
+          />
+        </div>
       </div>
 
-      {/* Grid */}
-      <div
-        className="bg-white border border-slate-200 rounded-2xl overflow-hidden box-border"
-        style={{ width: "100%", maxWidth: "100%", minWidth: 0, boxSizing: "border-box", contain: "inline-size" }}
-      >
-        <div className="overflow-x-auto max-w-full">
-          <table className="w-full text-[14px]" style={{ borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed", minWidth: "2650px" }}>
+      {/* .table-card: #fff, border slate-200, radius 16px, overflow hidden */}
+      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+        {/* .tbl-scroll: overflow-x auto */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-[14px]" style={{ borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed", minWidth: "2720px" }}>
             <colgroup>
               {CUSTOMS_GRID.map((c, i) => (
                 <col key={i} style={{ width: `${c.w}px` }} />

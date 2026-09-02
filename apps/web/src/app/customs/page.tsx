@@ -2,15 +2,20 @@ import { CustomsView } from "./CustomsView";
 
 export default function CustomsPage() {
   return (
-    <div className="bg-slate-50 min-h-full px-8 py-6 w-full min-w-0 overflow-x-hidden">
+    /* .page z mockupu: padding 24px 32px, flex:1 */
+    <div className="bg-slate-50 min-h-full px-8 py-6">
       {/*
-        flex-col + min-w-0: deti (toolbar, grid) se nesmi roztahnout podle
-        sirsi tabulky uvnitr gridu. Bez toho by toolbar prevzal sirku
-        tabulky (2650px) a filtr by skoncil mimo obrazovku.
+        .page-inner z mockupu:
+          max-width: 1400px; margin: 0 auto;
+          display: flex; flex-direction: column; gap: 20px;
+        Flex sloupec je zasadni - v nem se polozky roztahuji jen na sirku
+        kontejneru, takze siroka tabulka (2720px) uvnitr .table-card
+        nemuze roztahnout toolbar. Bez toho toolbar prebiral sirku tabulky
+        a filtr koncil mimo obrazovku.
       */}
-      <div className="max-w-[1600px] mx-auto w-full min-w-0 flex flex-col items-stretch">
-        {/* h1.pg from the mockup: 24px bold, same as the Shipments heading */}
-        <h1 className="text-2xl font-bold text-slate-900 mb-5">Customs</h1>
+      <div className="max-w-[1400px] mx-auto flex flex-col gap-5 min-w-0">
+        {/* h1.pg: 24px, 700, slate-900 */}
+        <h1 className="text-2xl font-bold text-slate-900">Customs</h1>
         <CustomsView />
       </div>
     </div>
