@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Upload, Select, Tooltip, message } from "antd";
 import {
   InboxOutlined,
@@ -8,6 +8,7 @@ import {
   EyeOutlined,
   DownloadOutlined,
   CheckOutlined,
+  CloseOutlined,
   SearchOutlined,
   FileTextOutlined,
   UploadOutlined,
@@ -22,6 +23,7 @@ import {
   DOCUMENT_TYPES,
   REQUIRED_DOCUMENT_TYPES,
   OPTIONAL_DOCUMENT_TYPES,
+  guessDocumentType,
 } from "@/lib/documentTypes";
 
 interface AttachmentFile {
@@ -95,11 +97,33 @@ function Card({
   );
 }
 
-/** One row of the required/optional checklist (.req / .req.done / .req.todo). */
-function ReqRow({ label, file, optional }: { label: string; file?: AttachmentFile; optional?: boolean }) {
+/**
+ * One row of the required/optional checklist (.req / .req.done / .req.todo).
+ * A missing required row is a button: clicking it opens the file picker with
+ * that type pre-selected, exactly like docPreset in the mockup.
+ */
+function ReqRow({
+  label,
+  file,
+  optional,
+  onPick,
+}: {
+  label: string;
+  file?: AttachmentFile;
+  optional?: boolean;
+  onPick?: (type: string) => void;
+}) {
   const done = !!file;
+  const clickable = !done && !optional && !!onPick;
+  const Tag = clickable ? "button" : "div";
   return (
-    <div className="flex items-center gap-[11px] w-full px-[18px] py-[9px] text-[#5A6478]">
+    <Tag
+      {...(clickable ? { type: "button" as const, onClick: () => onPick!(label) } : {})}
+      className={[
+        "flex items-center gap-[11px] w-full px-[18px] py-[9px] text-left text-[#5A6478] border-0 bg-transparent transition-colors",
+        clickable ? "cursor-pointer hover:bg-[#E7EAFC]" : "cursor-default",
+      ].join(" ")}
+    >
       <span
         className={[
           "w-[19px] h-[19px] rounded-[5px] flex-none grid place-items-center border-[1.5px] text-[10px]",
@@ -126,7 +150,7 @@ function ReqRow({ label, file, optional }: { label: string; file?: AttachmentFil
           Missing
         </span>
       )}
-    </div>
+    </Tag>
   );
 }
 
@@ -151,9 +175,43 @@ function CustomsPill({ status }: { status: string }) {
   );
 }
 
+/** A file waiting to be classified before it is uploaded (docPending in the mockup). */
+interface PendingFile {
+  file: File;
+  name: string;
+  size: number;
+  type: string;
+  /** true when the type came from the file name rather than the user */
+  guessed: boolean;
+}
+
 export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+
+  // Files are classified BEFORE they are uploaded — nothing reaches the list
+  // without a document type, so the checklist can never go stale.
+  const [pending, setPending] = useState<PendingFile[]>([]);
+  const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Type pre-selected by clicking a "Missing" row in the checklist.
+  const presetRef = useRef<string | null>(null);
+
+  const addFiles = (list: FileList | File[] | null) => {
+    if (!list || list.length === 0) return;
+    const preset = presetRef.current;
+    const next = Array.from(list).map((f) => {
+      const guess = preset || guessDocumentType(f.name);
+      return { file: f, name: f.name, size: f.size, type: guess, guessed: !preset && !!guess };
+    });
+    presetRef.current = null;
+    setPending((p) => [...p, ...next]);
+  };
+
+  const openPicker = (preset?: string) => {
+    presetRef.current = preset ?? null;
+    fileInputRef.current?.click();
+  };
 
   const attachmentsQuery = useQuery({
     queryKey: ["shipment-attachments", shipment.id],
@@ -165,22 +223,30 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] }),
   });
 
-  const uploadAttachment = useMutation({
-    mutationFn: async (file: File) => {
-      const contentBase64 = await fileToBase64(file);
-      return api.shipments.attachmentCreate(shipment.id, {
-        fileName: file.name,
-        fileSize: file.size,
-        fileType: file.type || "application/octet-stream",
-        contentBase64,
-      });
-    },
-    onSuccess: (_data, file) => {
-      queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
-      message.success(`${file.name} uploaded`);
-    },
-    onError: () => message.error("Upload failed"),
-  });
+  // Uploads the whole classified queue in one go ("Add to list" in the mockup).
+  const savePending = async () => {
+    if (pending.length === 0 || pending.some((p) => !p.type)) return;
+    setSaving(true);
+    try {
+      for (const p of pending) {
+        const contentBase64 = await fileToBase64(p.file);
+        await api.shipments.attachmentCreate(shipment.id, {
+          fileName: p.name,
+          fileSize: p.size,
+          fileType: p.file.type || "application/octet-stream",
+          contentBase64,
+          documentType: p.type,
+        });
+      }
+      await queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
+      message.success(pending.length === 1 ? "Document added" : `${pending.length} documents added`);
+      setPending([]);
+    } catch {
+      message.error("Upload failed");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Assign a business document type. Separate from upload so a file can be
   // re-classified later without re-uploading it.
@@ -214,16 +280,27 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
       <div className="grid gap-5 min-w-0">
         <Card icon={<UploadOutlined />} title="Add documents">
           <div className="p-[18px]">
+            {/* Hidden input so a "Missing" checklist row can open the picker with a preset type. */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              hidden
+              onChange={(e) => {
+                addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
             <Upload.Dragger
               name="file"
               multiple
               showUploadList={false}
+              openFileDialogOnClick={false}
               className="!border-[1.5px] !border-dashed !border-[#D3D8E5] !rounded-[9px] !bg-[#FAFBFD]"
-              customRequest={({ file, onSuccess, onError }) => {
-                uploadAttachment.mutate(file as File, {
-                  onSuccess: () => onSuccess?.("ok"),
-                  onError: (err) => onError?.(err as Error),
-                });
+              beforeUpload={(file, fileList) => {
+                // Queue instead of uploading; classification happens first.
+                if (fileList[0] === file) addFiles(fileList);
+                return Upload.LIST_IGNORE;
               }}
             >
               <div className="flex items-center gap-4 flex-wrap px-2 py-1">
@@ -236,11 +313,93 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                     PDF, XLSX, DOCX, JPG · max 25 MB per file
                   </span>
                 </span>
-                <span className="text-[13.5px] font-semibold px-[15px] py-2 rounded-lg bg-[#4457D6] text-white">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openPicker();
+                  }}
+                  className="text-[13.5px] font-semibold px-[15px] py-2 rounded-lg bg-[#4457D6] text-white border-0 cursor-pointer hover:brightness-110"
+                >
                   Browse files
-                </span>
+                </button>
               </div>
             </Upload.Dragger>
+
+            {pending.length > 0 && (
+              <div className="mt-4 border border-[#4457D6] rounded-[9px] overflow-hidden">
+                <div className="px-4 py-2.5 bg-[#E7EAFC] border-b border-[#E4E7F0] text-[12.5px] font-extrabold tracking-[.06em] uppercase text-[#4457D6]">
+                  {pending.length} {pending.length === 1 ? "file" : "files"} to classify
+                </div>
+                <div>
+                  {pending.map((p, i) => (
+                    <div
+                      key={`${p.name}-${i}`}
+                      className="flex items-center gap-[13px] px-4 py-[11px] flex-wrap border-b border-[#E4E7F0] last:border-b-0"
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-[190px]">
+                        <ExtBadge fileName={p.name} />
+                        <span className="min-w-0">
+                          <span className="font-semibold text-[#151B2B] truncate block">{p.name}</span>
+                          <span className="text-[12px] text-[#8B94A7] font-medium">{formatFileSize(p.size)}</span>
+                        </span>
+                      </div>
+                      {p.guessed && p.type && (
+                        <span className="text-[10.5px] font-bold tracking-[.05em] uppercase text-[#177245] bg-[#E1F3E9] px-[7px] py-[3px] rounded-[5px]">
+                          guessed from name
+                        </span>
+                      )}
+                      <Select
+                        size="small"
+                        value={p.type || undefined}
+                        placeholder="Select type"
+                        options={DOCUMENT_TYPES.map((t) => ({ value: t, label: t }))}
+                        onChange={(v) =>
+                          setPending((list) =>
+                            list.map((x, xi) => (xi === i ? { ...x, type: v, guessed: false } : x)),
+                          )
+                        }
+                        className="min-w-[200px]"
+                        status={p.type ? undefined : "warning"}
+                      />
+                      <Tooltip title="Remove">
+                        <button
+                          type="button"
+                          onClick={() => setPending((list) => list.filter((_, xi) => xi !== i))}
+                          className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer"
+                        >
+                          <CloseOutlined />
+                        </button>
+                      </Tooltip>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2.5 flex-wrap px-4 py-3 bg-[#FAFBFD] border-t border-[#E4E7F0]">
+                  <span className="text-[12.5px] text-[#95620B] font-semibold mr-auto">
+                    {pending.filter((p) => !p.type).length === 0
+                      ? ""
+                      : pending.filter((p) => !p.type).length === 1
+                        ? "1 file still needs a type"
+                        : `${pending.filter((p) => !p.type).length} files still need a type`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPending([])}
+                    className="text-[13.5px] font-semibold px-[15px] py-2 rounded-lg border border-[#D3D8E5] bg-white text-[#151B2B] cursor-pointer hover:bg-[#F6F7FB]"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving || pending.some((p) => !p.type)}
+                    onClick={savePending}
+                    className="text-[13.5px] font-semibold px-[15px] py-2 rounded-lg bg-[#4457D6] text-white border-0 cursor-pointer hover:brightness-110 disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:brightness-100"
+                  >
+                    {saving ? "Adding…" : "Add to list"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </Card>
 
@@ -391,7 +550,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
       >
         <div className="pt-1.5 pb-2">
           {REQUIRED_DOCUMENT_TYPES.map((t) => (
-            <ReqRow key={t} label={t} file={byType.get(t)} />
+            <ReqRow key={t} label={t} file={byType.get(t)} onPick={openPicker} />
           ))}
           <div className="px-[18px] pt-[9px] pb-1 text-[11px] font-extrabold tracking-[.07em] uppercase text-[#4E5769]">
             Optional
