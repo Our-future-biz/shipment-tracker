@@ -6,7 +6,7 @@ import { Input, Button, Modal, Tooltip, Spin, message } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import {
-  currentWeekKey, weekRange, weekKeyFromDate, formatWeekLabel, weeksInYear,
+  currentWeekKey, weekRange, formatWeekLabel,
 } from "@/lib/isoWeek";
 
 /** Kurzy se zadavaji v CZK za 1 jednotku meny. CZK je zaklad. */

@@ -4,13 +4,13 @@
  * proto napr. 29. 12. 2025 uz patri do tydne 2026-W01.
  */
 
-export interface WeekParts {
+interface WeekParts {
   year: number;
   week: number;
 }
 
 /** Rozlozi datum (YYYY-MM-DD) na ISO rok a cislo tydne. */
-export function isoWeekParts(dateStr: string): WeekParts | null {
+function isoWeekParts(dateStr: string): WeekParts | null {
   const d = new Date(`${dateStr}T00:00:00Z`);
   if (Number.isNaN(d.getTime())) return null;
   const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -27,12 +27,13 @@ export function weekKeyFromDate(dateStr: string): string {
   return p ? formatWeekKey(p.year, p.week) : "";
 }
 
-export function formatWeekKey(year: number, week: number): string {
+function formatWeekKey(year: number, week: number): string {
   return `${year}-W${String(week).padStart(2, "0")}`;
 }
 
-/** Pocet ISO tydnu v roce (52 nebo 53). */
-export function weeksInYear(year: number): number {
+/** Pocet ISO tydnu v roce (52 nebo 53). Pouziva weekRange pro overeni,
+ *  ze zadany tyden v danem roce vubec existuje. */
+function weeksInYear(year: number): number {
   const dec28 = `${year}-12-28`; // 28. 12. je vzdy v poslednim tydnu roku
   return isoWeekParts(dec28)?.week ?? 52;
 }

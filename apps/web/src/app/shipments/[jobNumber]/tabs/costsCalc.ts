@@ -29,12 +29,12 @@ export function money(v: number): string {
 }
 
 /** prevod do CZK: kurz z kurzovniho listku, jinak zalozni ROE */
-export function toCZK(v: number, currency: string, rates: Rates, roe: number): number {
+function toCZK(v: number, currency: string, rates: Rates, roe: number): number {
   return currency === "CZK" ? v : v * (rates[currency] || roe);
 }
 
 /** prevod do zvolene billing meny (vzdy pres CZK) */
-export function conv(v: number, currency: string, billingCur: string, rates: Rates, roe: number): number {
+function conv(v: number, currency: string, billingCur: string, rates: Rates, roe: number): number {
   const czk = toCZK(v, currency, rates, roe);
   return billingCur === "CZK" ? czk : czk / (rates[billingCur] || roe);
 }
@@ -82,9 +82,6 @@ export interface CostsTotals {
   estTotal: number;
   /** soucet Real v billing mene, jen vyplnene radky */
   realStrictTotal: number;
-  /** soucty v CZK pro kurzovy prehled */
-  estCZK: number;
-  realCZK: number;
   /** naklady: Sigma Real, fallback Est. */
   buyTotal: number;
   /** Total in CZK pro kazdy selling radek */
@@ -107,9 +104,10 @@ export function computeCosts(
   selling: SellingRow[],
   billingCur: string,
   rates: Rates,
-  roeInput: string | number,
 ): CostsTotals {
-  const roe = num(roeInput) || 1;
+  // Meny mimo kurzovni listek se prepoctou kurzem 1 - rucni ROE bylo
+  // odstraneno spolu s kartou Billing, kurzy chodi ze stranky Exchange.
+  const roe = 1;
   const c = (v: number, cur: string) => conv(v, cur, billingCur, rates, roe);
   const czk = (v: number, cur: string) => toCZK(v, cur, rates, roe);
 
@@ -121,8 +119,6 @@ export function computeCosts(
   let buyTotal = 0;
   let estTotal = 0;
   let realStrictTotal = 0;
-  let estCZK = 0;
-  let realCZK = 0;
   let rxeTotal = 0;
   let hasRxe = false;
 
@@ -134,11 +130,7 @@ export function computeCosts(
     const realC = c(real, r.realCurrency);
 
     estTotal += estC;
-    estCZK += czk(est, r.estCurrency);
-    if (real) {
-      realCZK += czk(real, r.realCurrency);
-      realStrictTotal += realC;
-    }
+    if (real) realStrictTotal += realC;
 
     // zaklad radku: Real Cost, dokud neni -> Est. Amount
     const basis = real ? realC : estC;
@@ -182,8 +174,6 @@ export function computeCosts(
     buyRowUnder,
     estTotal,
     realStrictTotal,
-    estCZK,
-    realCZK,
     buyTotal,
     sellRowTotals,
     sellTotal,

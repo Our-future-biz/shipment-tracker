@@ -89,15 +89,13 @@ function SectionCard({
   title, tone, actions, children,
 }: {
   title: string;
-  tone: "buy" | "sell" | "fx" | "report";
+  tone: "buy" | "sell";
   actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const bg = {
     buy: "bg-[#EEF0FC] text-[#3F4DBF]",
     sell: "bg-[#E6F5EC] text-[#177245]",
-    fx: "bg-[#F3F4F8] text-slate-600",
-    report: "bg-[#151B2B] text-white",
   }[tone];
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden mb-4">
@@ -175,7 +173,6 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
      Prepinac byl odstranen - souhrny jsou v CZK, pripadne v mene ulozene
      u zakazky. ROE se nepouziva, kurzy chodi z kurzovniho listku. */
   const billingCur = data?.billingSettings?.billingCurrency || "CZK";
-  const roe = "1";
 
   const upsertBilling = useMutation({
     mutationFn: (params: { billingCurrency?: string; roe?: string; quoteRef?: string }) =>
@@ -209,7 +206,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
   }, [shipment, rateBasis]);
 
-  // Kurzy se berou z ulozeneho kurzovniho listku (stranka Exchange), ne z CNB.
+  // Kurzy se berou z kurzovniho listku zadaneho na strance Exchange.
   const ratesQuery = useQuery({
     queryKey: ["exchange-rates"],
     queryFn: () => api.invoicing.exchangeRateList(),
@@ -551,8 +548,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
 
   /* ── Vypocty (presne dle recalcCosts z mockupu) ── */
   const t = useMemo(
-    () => computeCosts(buyRows, sellRows, billingCur, rates, roe),
-    [buyRows, sellRows, billingCur, rates, roe],
+    () => computeCosts(buyRows, sellRows, billingCur, rates),
+    [buyRows, sellRows, billingCur, rates],
   );
 
   // Zadna blokujici obrazovka - karty se vykresli vzdy. Dokud data nedorazi,
