@@ -135,7 +135,7 @@ export function CustomsView() {
       {/* Grid */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse text-xs">
+          <table className="w-full text-[14px]" style={{ borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed", minWidth: "2650px" }}>
             <colgroup>
               {CUSTOMS_GRID.map((c, i) => (
                 <col key={i} style={{ width: `${c.w}px` }} />
@@ -147,8 +147,12 @@ export function CustomsView() {
                   <th
                     key={i}
                     className={[
-                      "text-[11px] font-bold uppercase tracking-wide text-slate-500 px-3 py-2.5",
-                      "border-b border-slate-200 bg-slate-50 whitespace-nowrap",
+                      // Mirrors .antd-table th from the mockup: normal-case 13.5px,
+                      // grey header, hairline separator between columns.
+                      "text-[13.5px] font-semibold text-slate-900 px-2 py-2 bg-[#fafafa]",
+                      "border-b border-[#f0f0f0] whitespace-nowrap relative",
+                      "after:content-[''] after:absolute after:right-0 after:top-1/4 after:h-1/2 after:w-px after:bg-[#f0f0f0]",
+                      "last:after:hidden",
                       c.recv ? "text-center" : "text-left",
                     ].join(" ")}
                   >
@@ -161,13 +165,13 @@ export function CustomsView() {
               {rows.map((s) => {
                 const rowData = buildRowData(s);
                 return (
-                  <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">
+                  <tr key={s.id} className="[&:hover>td]:bg-[#fafafa] transition-colors">
                     {CUSTOMS_GRID.map((c, i) => {
                       if (c.recv) {
                         const on = recvValue(s, c.recv.field, c.recv.doc);
                         const auto = !((s[c.recv.field] as string | undefined) ?? "");
                         return (
-                          <td key={i} className="px-3 py-2 border-b border-slate-100 text-center">
+                          <td key={i} className="px-2 py-1.5 border-b border-[#f0f0f0] text-center">
                             <Tooltip
                               title={
                                 auto
@@ -193,10 +197,10 @@ export function CustomsView() {
                         // Reference is coloured by department, like in the shipments list.
                         const refStyle = getCellConditionalStyle("jobNumber", value, rowData) ?? undefined;
                         return (
-                          <td key={i} className="px-3 py-2 border-b border-slate-100">
+                          <td key={i} className="px-2 py-1.5 border-b border-[#f0f0f0] whitespace-nowrap overflow-hidden text-ellipsis">
                             <Link
                               href={`/shipments/${encodeURIComponent(s.jobNumber)}?tab=customs`}
-                              className="font-mono text-[11px] font-semibold hover:underline"
+                              className="font-mono text-[14px] font-bold hover:underline"
                               style={refStyle ?? { color: "#4f46e5" }}
                             >
                               {value || "—"}
@@ -209,7 +213,7 @@ export function CustomsView() {
                       if (c.edit && isEditing) {
                         const options = COLUMN_MAP.get(c.key!)?.options;
                         return (
-                          <td key={i} className="px-2 py-1 border-b border-slate-100" style={style}>
+                          <td key={i} className="px-2 py-1 border-b border-[#f0f0f0]" style={style}>
                             {options ? (
                               <Select
                                 size="small"
@@ -248,13 +252,17 @@ export function CustomsView() {
                       return (
                         <td
                           key={i}
-                          className={`px-3 py-2 border-b border-slate-100 ${c.edit ? "cursor-text" : ""}`}
+                          className={[
+                            "px-2 py-1.5 border-b border-[#f0f0f0] text-[14px]",
+                            "whitespace-nowrap overflow-hidden text-ellipsis",
+                            c.edit ? "cursor-pointer hover:bg-slate-100" : "",
+                          ].join(" ")}
                           style={style}
                           onDoubleClick={c.edit ? () => startEdit(s, c.key!) : undefined}
                           title={c.edit ? "Double-click to edit" : undefined}
                         >
                           {value ? (
-                            <span className="text-slate-700">{value}</span>
+                            <span className="text-slate-600">{value}</span>
                           ) : (
                             <span className="text-slate-300">—</span>
                           )}
@@ -267,13 +275,15 @@ export function CustomsView() {
             </tbody>
           </table>
           {rows.length === 0 && (
-            <div className="px-4 py-12 text-center text-sm text-slate-400">
+            <div className="px-3 py-7 text-center text-sm text-slate-400">
               No shipment matches the filter.
             </div>
           )}
         </div>
-        <div className="flex items-center justify-end px-4 py-2.5 border-t border-slate-200 bg-slate-50/60">
-          <span className="text-[11px] text-slate-500">
+        {/* .tbl-foot from the mockup */}
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 text-[13px] text-slate-500">
+          <span />
+          <span>
             {rows.length} of {shipments.length} entries
           </span>
         </div>
