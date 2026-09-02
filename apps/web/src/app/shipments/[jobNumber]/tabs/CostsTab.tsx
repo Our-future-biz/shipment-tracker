@@ -472,15 +472,28 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       message.info(already.size ? "All buying rows are already copied" : "No buying costs to copy");
       return;
     }
-    await Promise.all(rows.map((r, i) =>
-      api.invoicing.invoicingAddSellingCost(shipment.id, {
-        category: r.category,
-        qty: r.estQty || "1",
-        amount: r.estAmount || "",
-        currency: r.estCurrency,
-        sourceBuyId: r.id,
-        sortOrder: sellRows.length + i,
-      } as never)));
+    // Jediny prazdny radek se pri kopirovani zahodi, aby nezustaval navic
+    // (mockup: const onlyEmpty = ... ; if (onlyEmpty) sellBody.innerHTML = "").
+    const onlyEmpty =
+      sellRows.length === 1 && !sellRowFilled(sellRows[0]!) ? sellRows[0]! : null;
+
+    // pojistka proti tomu, aby prazdny radek hned znovu naskocil
+    if (onlyEmpty) seeding.current.sell = true;
+
+    const baseOrder = onlyEmpty ? 0 : sellRows.length;
+    await Promise.all([
+      ...rows.map((r, i) =>
+        api.invoicing.invoicingAddSellingCost(shipment.id, {
+          category: r.category,
+          qty: r.estQty || "1",
+          amount: r.estAmount || "",
+          currency: r.estCurrency,
+          sourceBuyId: r.id,
+          sortOrder: baseOrder + i,
+        } as never)),
+      ...(onlyEmpty ? [api.invoicing.invoicingDeleteSellingCost(shipment.id, onlyEmpty.id)] : []),
+    ]);
+    seeding.current.sell = false;
     invalidate();
     message.success(`Copied ${rows.length} row(s) from buying`);
   };
