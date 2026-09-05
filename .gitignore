@@ -13,3 +13,6 @@ encore.gen.go
 encore.gen.cue
 /.encore
 /encore.gen
+
+# Encore local secret overrides — never commit
+.secrets.local.cue
