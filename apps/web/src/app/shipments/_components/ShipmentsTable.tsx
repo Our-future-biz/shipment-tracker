@@ -415,7 +415,7 @@ export const ShipmentsTable = ({
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onCreateClick}
-            className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
+            className="flex items-center gap-1.5 shrink-0 rounded-lg bg-emerald-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-emerald-700 transition-colors"
           >
             <PlusOutlined />
             New Shipment
