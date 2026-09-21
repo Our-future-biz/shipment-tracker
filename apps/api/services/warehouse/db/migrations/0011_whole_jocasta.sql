@@ -1,0 +1,2 @@
+ALTER TABLE "warehouse_gate_movement" ADD COLUMN "cfs_customs_number" text DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE "warehouse_gate_movement" ADD COLUMN "cfs_customs_procedure" text DEFAULT '' NOT NULL;

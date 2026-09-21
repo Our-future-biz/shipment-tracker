@@ -10,8 +10,13 @@ class WarehouseService {
     return warehouseTaskRepository.listByShipmentId(shipmentId, companyId);
   }
 
-  async create(companyId: string, taskId: string, shipmentId?: string) {
-    return warehouseTaskRepository.create({ companyId, taskId, shipmentId });
+  async addShipment(companyId: string, shipmentId: string, now = new Date()) {
+    return warehouseTaskRepository.createForShipment(companyId, shipmentId, warehouseRefPrefix(now));
+  }
+
+  // A position created in the warehouse itself: its own WCZ reference, no shipment job.
+  async createPosition(companyId: string, now = new Date()) {
+    return (await warehouseTaskRepository.createForShipment(companyId, null, warehouseRefPrefix(now))).task;
   }
 
   async update(id: string, companyId: string, data: Record<string, unknown>) {
@@ -33,3 +38,10 @@ class WarehouseService {
 }
 
 export const warehouseService = new WarehouseService();
+
+// Warehouse references are WCZ + the Prague calendar date (YYYYMMDD) + a daily sequence.
+export function warehouseRefPrefix(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Prague", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)!.value;
+  return `WCZ${get("year")}${get("month")}${get("day")}`;
+}

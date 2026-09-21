@@ -1,7 +1,7 @@
+"use client";
+
+import { GateLogView } from "./_components/GateLogView";
+
 export default function GateLogPage() {
-  return (
-    <div>
-      <h1>Gate Log</h1>
-    </div>
-  );
+  return <GateLogView />;
 }

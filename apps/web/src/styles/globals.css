@@ -30,3 +30,10 @@
   padding-top: 6px !important;
   padding-bottom: 6px !important;
 }
+
+/* One row height for every grid, whatever the cells contain (the Shipments grid's
+   documents-icon column sets it at 42px), so all list pages line up the same. */
+.shipments-table .ant-table-tbody > tr > td.ant-table-cell,
+.data-table .ant-table-tbody > tr > td.ant-table-cell {
+  height: 42px;
+}

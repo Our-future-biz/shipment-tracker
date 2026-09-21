@@ -1,0 +1,1 @@
+ALTER TABLE "warehouse_gate_movement" ADD COLUMN "release_status" text DEFAULT '' NOT NULL;

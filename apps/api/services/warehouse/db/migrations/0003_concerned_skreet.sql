@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "warehouse_task_company_shipment_unique" ON "warehouse_task" USING btree ("company_id","shipment_id") WHERE deleted_at IS NULL AND shipment_id IS NOT NULL;

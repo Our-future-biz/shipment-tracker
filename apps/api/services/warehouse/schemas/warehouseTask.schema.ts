@@ -22,11 +22,15 @@ export const warehouseTaskTable = pgTable(
   (table) => [
     ...defaultTableIndexes("warehouse_task", table),
     tenantIndex("warehouse_task", table),
-    // Task references are a per-company sequence (WHCZ…), unique within a company among live rows.
+    // Task references (WCZYYYYMMDDNN) are unique within a company among live rows.
     uniqueIndex("warehouse_task_company_task_id_unique")
       .on(table.companyId, table.taskId)
       .where(sql`deleted_at IS NULL`),
     index("warehouse_task_shipment_id_idx").on(table.shipmentId),
+    // A shipment is in the warehouse at most once at a time.
+    uniqueIndex("warehouse_task_company_shipment_unique")
+      .on(table.companyId, table.shipmentId)
+      .where(sql`deleted_at IS NULL AND shipment_id IS NOT NULL`),
   ],
 );
 

@@ -1,42 +1,39 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Button, Spin, Modal, message } from "antd";
-import { DeleteOutlined } from "@ant-design/icons";
+import { Spin } from "antd";
+import { ArrowLeftOutlined } from "@ant-design/icons";
+import type { ReactNode } from "react";
 import { useWarehouse } from "@/hooks/useWarehouse";
-import { TaskMeta, StandaloneDimensions } from "../_components/WarehouseTaskDetail";
-import { SpreadsheetSection, CUSTOMS_COLUMNS, INVOICING_COLUMNS } from "../_components/sections/SpreadsheetSection";
-import { PickupSection } from "../_components/sections/PickupSection";
-import { JobNotes, ActionPushButtons } from "../_components/sections/JobExtras";
+import { useGateLog } from "@/hooks/useGateLog";
+import { formatDate } from "@/lib/date";
+import { FieldRow, Section } from "@/app/warehouse/gate-log/_components/job/fields";
 
-const TABS = [
-  { key: "details", label: "Details" },
-  { key: "customs", label: "Customs" },
-  { key: "pickup", label: "Pick-up" },
-  { key: "invoicing", label: "Invoicing" },
-];
+// Warehouse task view: three boards styled like the Gate Log job's sections (e.g. Gate overview).
+// Details shows the position; the other two boards are placeholders still to be defined.
+// Placeholder label/value rows per board column, same row height as the Gate overview fields.
+const EMPTY_ROWS = 6;
 
-function Card({ title, children, className = "" }: { title?: string; children: React.ReactNode; className?: string }) {
-  return (
-    <div className={`bg-white border border-slate-200 rounded-lg p-5 ${className}`}>
-      {title && <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider m-0 mb-4">{title}</h3>}
-      {children}
-    </div>
-  );
-}
+// Read-only value in a board row; empty values show a dash.
+const value = (v: ReactNode, mono = false) => (
+  <div className={`min-h-[25px] flex items-center text-xs font-medium text-slate-900 break-words ${mono ? "font-mono" : ""}`}>
+    {v === "" || v == null ? <span className="text-slate-300">—</span> : v}
+  </div>
+);
+const num = (v: number | null | undefined, digits = 0) =>
+  v ? v.toLocaleString("en-GB", { minimumFractionDigits: digits, maximumFractionDigits: digits }).replace(/,/g, " ") : "";
 
 export function WarehouseTaskDetailContent() {
   const { taskId } = useParams<{ taskId: string }>();
   const router = useRouter();
-  const { tasks, isLoading, deleteTask } = useWarehouse();
-  const [messageApi, contextHolder] = message.useMessage();
-  const [activeTab, setActiveTab] = useState("details");
-
+  const { tasks, isLoading } = useWarehouse();
   const task = tasks.find((t) => t.id === taskId);
+  // The position's data lives on its gate movement only (job values were copied in when it was recorded).
+  const { movements, isLoading: movementsLoading } = useGateLog();
+  const m = movements.find((x) => x.warehouseTaskId === taskId);
 
-  if (isLoading) {
+  if (isLoading || movementsLoading) {
     return (
       <div className="flex justify-center p-20">
         <Spin size="large" />
@@ -55,87 +52,72 @@ export function WarehouseTaskDetailContent() {
     );
   }
 
-  const handleDelete = () => {
-    Modal.confirm({
-      title: "Delete task",
-      content: `Delete ${task.taskId}? This cannot be undone.`,
-      okText: "Delete",
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        await deleteTask(task.id);
-        router.push("/warehouse");
-      },
-    });
-  };
-
   return (
     <div className="bg-slate-50 min-h-full">
-      {contextHolder}
-
-      {/* ── Header ── */}
-      <div className="bg-white border-b border-slate-200 px-6 pt-4 pb-0">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-[22px] font-bold text-slate-800 font-mono m-0">{task.taskId}</h1>
-          <Button danger icon={<DeleteOutlined />} onClick={handleDelete}>
-            Delete
-          </Button>
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-0 mt-4">
-          {TABS.map((tab) => (
-            <div
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2.5 text-sm cursor-pointer transition-all duration-150 border-b-2 ${
-                activeTab === tab.key
-                  ? "font-semibold text-indigo-500 border-indigo-500"
-                  : "font-normal text-slate-400 border-transparent hover:text-slate-600"
-              }`}
-            >
-              {tab.label}
-            </div>
-          ))}
+      <div className="bg-white border-b border-slate-200 px-6 py-4">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => router.push("/warehouse")}
+            aria-label="Back to Warehouse"
+            className="text-slate-400 hover:text-indigo-500 cursor-pointer bg-transparent border-none p-1"
+          >
+            <ArrowLeftOutlined />
+          </button>
+          <h1 className="text-[22px] font-bold text-slate-800 m-0 font-mono">{task.taskId}</h1>
         </div>
       </div>
-
-      {/* ── Body ── */}
-      <div className="p-6">
-        <Card title="Task Details" className="mb-4">
-          <TaskMeta task={task} />
-        </Card>
-
-        {activeTab === "details" && (
-          <div className="space-y-4">
-            <Card>
-              <JobNotes ownerId={task.id} messageApi={messageApi} />
-            </Card>
-            <Card>
-              <StandaloneDimensions ownerId={task.id} messageApi={messageApi} />
-            </Card>
-            <Card>
-              <ActionPushButtons ownerId={task.id} messageApi={messageApi} />
-            </Card>
+      <div className="p-6 space-y-5">
+        <Section title="Details">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+            <div>
+              <FieldRow label="Warehouse ref.">{value(task.taskId, true)}</FieldRow>
+              <FieldRow label="Job number">{value(m?.jobNumber, true)}</FieldRow>
+              <FieldRow label="Customer">{value(m?.customer)}</FieldRow>
+              <FieldRow label="Customer ref.">{value(m?.customerRef)}</FieldRow>
+              <FieldRow label="Customer contact">{value(m?.customerContact)}</FieldRow>
+              <FieldRow label="Ship. owner">{value(m?.shipmentOwner)}</FieldRow>
+              <FieldRow label="Trade direction">{value(m?.handling)}</FieldRow>
+              <FieldRow label="Freight mode">{value(m?.freightMode)}</FieldRow>
+              <FieldRow label="Load type">{value(m?.loadType)}</FieldRow>
+              <FieldRow label="Operation">{value(m?.operationType)}</FieldRow>
+              <FieldRow label="POL / POD">{value([m?.pol, m?.pod].filter(Boolean).join(" → "))}</FieldRow>
+              <FieldRow label="ETD / ETA">
+                {value([m?.etd, m?.eta].some(Boolean) ? `${formatDate(m?.etd) || "—"} / ${formatDate(m?.eta) || "—"}` : "")}
+              </FieldRow>
+              <FieldRow label="Vessel / voyage">{value([m?.vessel, m?.voyage].filter(Boolean).join(" / "))}</FieldRow>
+            </div>
+            <div>
+              <FieldRow label="Status">{value(m?.status)}</FieldRow>
+              <FieldRow label="Customs status">{value(m?.customsStatus)}</FieldRow>
+              <FieldRow label="Customs procedure">{value(m?.customsMode)}</FieldRow>
+              <FieldRow label="MRN number">{value(m?.mrn, true)}</FieldRow>
+              <FieldRow label="Total pieces">{value(num(m?.colli))}</FieldRow>
+              <FieldRow label="Type of packages">{value(m?.packing)}</FieldRow>
+              <FieldRow label="Gross weight (kg)">{value(num(m?.weightKg))}</FieldRow>
+              <FieldRow label="Volume (m³)">{value(num(m?.measureCbm, 2))}</FieldRow>
+              <FieldRow label="Commodity">{value(m?.commodity)}</FieldRow>
+              <FieldRow label="Container / seal">{value([m?.containerNumber, m?.sealNumber].filter(Boolean).join(" / "), true)}</FieldRow>
+              <FieldRow label="Booking no.">{value(m?.bookingNumber, true)}</FieldRow>
+              <FieldRow label="HBL / MBL">{value([m?.hblNumber, m?.mblNumber].filter(Boolean).join(" / "), true)}</FieldRow>
+              <FieldRow label="Created">{value(formatDate(task.createdAt))}</FieldRow>
+            </div>
           </div>
-        )}
-
-        {activeTab === "customs" && (
-          <Card>
-            <SpreadsheetSection ownerId={task.id} section="customs" title="Customs Details" columns={CUSTOMS_COLUMNS} messageApi={messageApi} />
-          </Card>
-        )}
-
-        {activeTab === "pickup" && (
-          <Card>
-            <PickupSection ownerId={task.id} messageApi={messageApi} />
-          </Card>
-        )}
-
-        {activeTab === "invoicing" && (
-          <Card>
-            <SpreadsheetSection ownerId={task.id} section="invoicing" title="Invoice Records" columns={INVOICING_COLUMNS} messageApi={messageApi} />
-          </Card>
-        )}
+        </Section>
+        {[1, 2].map((i) => (
+          <Section key={i} title={"\u00a0"}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+              {[0, 1].map((col) => (
+                <div key={col}>
+                  {Array.from({ length: EMPTY_ROWS }, (_, row) => (
+                    <FieldRow key={row} label="">
+                      <div className="h-[25px]" />
+                    </FieldRow>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </Section>
+        ))}
       </div>
     </div>
   );
