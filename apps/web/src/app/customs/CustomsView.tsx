@@ -90,12 +90,18 @@ export function CustomsView() {
     committedRef.current = false;
   };
 
-  const commitEdit = () => {
+  /**
+   * Saves the edited cell. `value` must be passed explicitly when the commit is
+   * triggered from the same event that changes it (Select's onSelect) — `draft`
+   * is still the pre-change value inside that handler's closure.
+   */
+  const commitEdit = (value?: string) => {
     if (!editing || committedRef.current) return;
     committedRef.current = true;
+    const next = value ?? draft;
     const current = shipments.find((x) => x.id === editing.id);
-    if (current && draft !== getFieldValue(current, editing.key)) {
-      updateField(editing.id, editing.key, draft);
+    if (current && next !== getFieldValue(current, editing.key)) {
+      updateField(editing.id, editing.key, next);
     }
     setEditing(null);
   };
@@ -274,10 +280,10 @@ export function CustomsView() {
                                 value={draft || undefined}
                                 options={[{ value: "", label: "—" }, ...options.map((o) => ({ value: o, label: o }))]}
                                 onChange={(v) => setDraft(v)}
-                                onBlur={commitEdit}
+                                onBlur={() => commitEdit()}
                                 onSelect={(v) => {
                                   setDraft(v);
-                                  setTimeout(commitEdit, 0);
+                                  commitEdit(v);
                                 }}
                                 className="w-full"
                               />
@@ -287,8 +293,8 @@ export function CustomsView() {
                                 autoFocus
                                 value={draft}
                                 onChange={(e) => setDraft(e.target.value)}
-                                onBlur={commitEdit}
-                                onPressEnter={commitEdit}
+                                onBlur={() => commitEdit()}
+                                onPressEnter={() => commitEdit()}
                                 onKeyDown={(e) => {
                                   if (e.key === "Escape") {
                                     committedRef.current = true;

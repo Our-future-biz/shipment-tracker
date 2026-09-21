@@ -36,6 +36,13 @@
       "when": 1787200000000,
       "tag": "0004_costs_fixups",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790005242803,
+      "tag": "0005_snapshot_realign",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,8 @@
 #!/bin/bash
 # Dvojklikem restartuje aplikaci: ukonci bezici procesy a spusti ji znovu.
 # Pouzij po zmene databaze nebo API (obnoveni prohlizece na to nestaci).
-REPO="$HOME/Projects/shipment-tracker"
+# Repo je slozka, ve ktere lezi tento skript (stejne jako "Spustit Shipment Tracker").
+REPO="$(cd "$(dirname "$0")" && pwd)"
 cd "$REPO" 2>/dev/null || { echo "❌ Slozka $REPO neexistuje."; read -r -p "Enter zavre okno."; exit 1; }
 
 echo "────────────────────────────────────────────────────────"

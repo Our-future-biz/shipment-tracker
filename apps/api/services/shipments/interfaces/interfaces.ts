@@ -245,6 +245,10 @@ export interface AttachmentItem {
   customsStatus: string;
   customsNote: string;
   customsReviewedAt: string | null;
+  /** Display name of the uploader; "Unknown" when it cannot be resolved. */
+  uploadedByName: string;
+  /** Display name of the customs reviewer; "" while the document is unreviewed. */
+  customsReviewedByName: string;
 }
 
 export interface AuditItem {

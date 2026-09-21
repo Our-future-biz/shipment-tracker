@@ -37,6 +37,8 @@ interface AttachmentFile {
   customsStatus: string;
   customsNote: string;
   customsReviewedAt: string | null;
+  uploadedByName: string;
+  customsReviewedByName: string;
 }
 
 
@@ -221,7 +223,12 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     onError: () => message.error("Could not save the document type"),
   });
 
-  const attachments: AttachmentFile[] = (attachmentsQuery.data?.attachments ?? []) as AttachmentFile[];
+  // Memoised so the `?? []` fallback does not hand the memos below a new array
+  // (and therefore a new dependency) on every render.
+  const attachments: AttachmentFile[] = useMemo(
+    () => (attachmentsQuery.data?.attachments ?? []) as AttachmentFile[],
+    [attachmentsQuery.data?.attachments],
+  );
   const contentUrl = (id: string, download = false) => attachmentContentUrl(shipment.id, id, download);
 
   const filtered = useMemo(() => {
@@ -452,7 +459,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                     </td>
                     <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
                       <span className="text-[13.5px] font-semibold text-[#C3392B] whitespace-nowrap">
-                        You
+                        {file.uploadedByName || "Unknown"}
                         <small className="block text-[12px] font-medium text-[#8B94A7]">
                           {formatDate(file.createdAt)}
                         </small>

@@ -58,8 +58,7 @@ export const invoicingUpdateBuyingCost = api(
   { expose: true, auth: true, method: "PATCH", path: "/invoicing/:shipmentId/buying/:costId" },
   async (req: UpdateBuyingRequest): Promise<UpdateBuyingResponse> => {
     const { shipmentId, costId, ...data } = req;
-    void shipmentId;
-    const row = await invoicingService.updateBuyingCost(costId, getAuthData()!.companyID, data);
+    const row = await invoicingService.updateBuyingCost(costId, getAuthData()!.companyID, shipmentId, data);
     if (!row) throw APIError.notFound("Buying cost not found");
     return { cost: row as unknown as InvoiceCostItem };
   },
@@ -77,7 +76,8 @@ interface DeleteBuyingResponse {
 export const invoicingDeleteBuyingCost = api(
   { expose: true, auth: true, method: "DELETE", path: "/invoicing/:shipmentId/buying/:costId" },
   async (req: DeleteBuyingRequest): Promise<DeleteBuyingResponse> => {
-    await invoicingService.deleteBuyingCost(req.costId, getAuthData()!.companyID);
+    const deleted = await invoicingService.deleteBuyingCost(req.costId, getAuthData()!.companyID, req.shipmentId);
+    if (!deleted) throw APIError.notFound("Buying cost not found");
     return { ok: true };
   },
 );

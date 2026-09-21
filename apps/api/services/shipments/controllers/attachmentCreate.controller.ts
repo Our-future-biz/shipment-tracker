@@ -24,14 +24,16 @@ export const attachmentCreate = api(
     if (!req.fileName) {
       throw APIError.invalidArgument("fileName is required");
     }
+    const auth = getAuthData()!;
     const attachment = await attachmentService.create(
       req.shipmentId,
-      getAuthData()!.companyID,
+      auth.companyID,
       req.fileName,
       req.fileSize ?? 0,
       req.fileType ?? "",
       req.contentBase64 ?? "",
       req.documentType ?? "",
+      auth.userID,
     );
     return { attachment: attachment as unknown as AttachmentItem };
   },

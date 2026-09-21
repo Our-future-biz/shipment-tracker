@@ -2,6 +2,51 @@ import { and, eq, or, ilike, isNull, like, desc, asc, count, sql } from "drizzle
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { shipmentTable } from "../schemas/shipment.schema";
+import { IMPORT_TASK_COUNT, EXPORT_TASK_COUNT } from "../taskCatalog";
+
+/**
+ * Predicates behind the Shipments overview tiles. Shared by the list filter and
+ * the counts endpoint so a tile's number always matches the rows it opens.
+ *
+ * trade_direction is free text and has been written as both "Import" and
+ * "IMPORT" over time, so every comparison against it is case-insensitive.
+ */
+// Relevant date: export -> departure, otherwise arrival.
+const RELEVANT_ETA = sql`CASE WHEN lower(${shipmentTable.tradeDirection}) = 'export'
+       THEN ${shipmentTable.estimatedDeparture}
+       ELSE ${shipmentTable.estimatedArrival} END`;
+
+/**
+ * Outstanding workflow tasks.
+ *
+ * A shipment_task row only exists once someone ticks that task, and ticking is
+ * write-once, so a `completed = false` row is never written — testing for one
+ * would match nothing. Instead compare how many tasks have been ticked against
+ * how many the shipment's direction defines (see taskCatalog.ts).
+ */
+const HAS_OPEN_TASK = sql`(
+  SELECT COUNT(*) FROM shipment_task t
+  WHERE t.shipment_id = ${shipmentTable.id}
+    AND t.completed = true
+    AND t.deleted_at IS NULL
+) < CASE WHEN lower(${shipmentTable.tradeDirection}) = 'export'
+         THEN ${EXPORT_TASK_COUNT} ELSE ${IMPORT_TASK_COUNT} END`;
+
+const TILE_PREDICATES = {
+  active: sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`,
+  attention: sql`${RELEVANT_ETA} IS NOT NULL
+    AND ${RELEVANT_ETA} >= CURRENT_DATE
+    AND ${RELEVANT_ETA} <= CURRENT_DATE + 3
+    AND ${HAS_OPEN_TASK}`,
+  import: sql`lower(${shipmentTable.tradeDirection}) = 'import'`,
+  export: sql`lower(${shipmentTable.tradeDirection}) = 'export'`,
+  week: sql`${RELEVANT_ETA} IS NOT NULL
+    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', CURRENT_DATE)`,
+  nextweek: sql`${RELEVANT_ETA} IS NOT NULL
+    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', CURRENT_DATE + 7)`,
+} as const;
+
+export type TileId = keyof typeof TILE_PREDICATES;
 
 export interface ShipmentListFilters {
   /** Overview tile filter: active | attention | import | export | week | nextweek */
@@ -111,28 +156,8 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       }
     }
     if (f.tile && f.tile !== "all") {
-      const relevantEta = sql`COALESCE(
-        CASE WHEN lower(${shipmentTable.tradeDirection}) = 'export'
-             THEN ${shipmentTable.estimatedDeparture}
-             ELSE ${shipmentTable.estimatedArrival} END, NULL)`;
-      if (f.tile === "active") {
-        clauses.push(sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`);
-      } else if (f.tile === "attention") {
-        clauses.push(sql`${relevantEta} IS NOT NULL
-          AND ${relevantEta} >= CURRENT_DATE
-          AND ${relevantEta} <= CURRENT_DATE + 3
-          AND EXISTS (SELECT 1 FROM shipment_task t
-                      WHERE t.shipment_id = ${shipmentTable.id}
-                        AND t.completed = false AND t.deleted_at IS NULL)`);
-      } else if (f.tile === "import" || f.tile === "export") {
-        clauses.push(eq(shipmentTable.tradeDirection, f.tile === "import" ? "Import" : "Export"));
-      } else if (f.tile === "week") {
-        clauses.push(sql`${relevantEta} IS NOT NULL
-          AND date_trunc('week', ${relevantEta}) = date_trunc('week', CURRENT_DATE)`);
-      } else if (f.tile === "nextweek") {
-        clauses.push(sql`${relevantEta} IS NOT NULL
-          AND date_trunc('week', ${relevantEta}) = date_trunc('week', CURRENT_DATE + 7)`);
-      }
+      const predicate = TILE_PREDICATES[f.tile as TileId];
+      if (predicate) clauses.push(predicate);
     }
     if (f.search) {
       const s = `%${f.search}%`;
@@ -167,32 +192,14 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   async tileCounts(companyId: string) {
     const base = and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt));
 
-    // Relevant date: export -> departure, otherwise arrival.
-    const relevantEta = sql`COALESCE(
-      CASE WHEN lower(${shipmentTable.tradeDirection}) = 'export'
-           THEN ${shipmentTable.estimatedDeparture}
-           ELSE ${shipmentTable.estimatedArrival} END, NULL)`;
-
-    const openTasks = sql`EXISTS (
-      SELECT 1 FROM shipment_task t
-      WHERE t.shipment_id = ${shipmentTable.id}
-        AND t.completed = false
-        AND t.deleted_at IS NULL
-    )`;
-
     const [row] = await this.db
       .select({
-        active: sql<number>`COUNT(*) FILTER (WHERE ${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced')`,
-        attention: sql<number>`COUNT(*) FILTER (WHERE ${relevantEta} IS NOT NULL
-          AND ${relevantEta} >= CURRENT_DATE
-          AND ${relevantEta} <= CURRENT_DATE + 3
-          AND ${openTasks})`,
-        importCount: sql<number>`COUNT(*) FILTER (WHERE ${shipmentTable.tradeDirection} = 'Import')`,
-        exportCount: sql<number>`COUNT(*) FILTER (WHERE ${shipmentTable.tradeDirection} = 'Export')`,
-        week: sql<number>`COUNT(*) FILTER (WHERE ${relevantEta} IS NOT NULL
-          AND date_trunc('week', ${relevantEta}) = date_trunc('week', CURRENT_DATE))`,
-        nextWeek: sql<number>`COUNT(*) FILTER (WHERE ${relevantEta} IS NOT NULL
-          AND date_trunc('week', ${relevantEta}) = date_trunc('week', CURRENT_DATE + 7))`,
+        active: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.active})`,
+        attention: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.attention})`,
+        importCount: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.import})`,
+        exportCount: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.export})`,
+        week: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.week})`,
+        nextWeek: sql<number>`COUNT(*) FILTER (WHERE ${TILE_PREDICATES.nextweek})`,
       })
       .from(shipmentTable)
       .where(base);

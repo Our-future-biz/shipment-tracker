@@ -52,7 +52,7 @@ class ShipmentAttachmentRepository {
     return row ?? null;
   }
 
-  async create(data: { companyId: string; shipmentId: string; fileName: string; fileSize: number; fileType: string; storageKey: string; documentType?: string }) {
+  async create(data: { companyId: string; shipmentId: string; fileName: string; fileSize: number; fileType: string; storageKey: string; documentType?: string; uploadedById?: string | null }) {
     const [row] = await db.insert(shipmentAttachmentTable).values(data).returning();
     return row!;
   }

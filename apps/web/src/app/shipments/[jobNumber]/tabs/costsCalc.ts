@@ -1,22 +1,44 @@
 /**
- * Vypocty pro Costs Breakdown - presne dle recalcCosts() z HTML mockupu.
+ * Vypocty pro Costs Breakdown - dle recalcCosts() z HTML mockupu.
  *
  * Klicova pravidla z mockupu:
  *  - radek = mnozstvi x jednotkova cena; prazdne mnozstvi se bere jako 1
- *  - prepocty jdou vzdy pres CZK: meny z ulozeneho kurzovniho listku
- *    ostatni meny pres zalozni rucni kurz ROE
+ *  - prepocty jdou vzdy pres CZK, kurzy pochazi z kurzovniho listku (Exchange)
  *  - zaklad radku je Real Cost, dokud neni vyplnen, pouzije se Est. Amount
  *  - "R x E" = Real - Estimated, pocita se jen kdyz je vyplneno oboji
+ *
+ * Mena bez kurzu se NIKDY neprepocitava kurzem 1 - takovy radek by se tise
+ * pricetl ve spatne vysi. Misto toho se z vypoctu vynecha a nahlasi se v
+ * missingCurrencies, aby na nej slo uzivatele upozornit.
  */
 
 export type Rates = Record<string, number>;
 
-/** num() z mockupu - tolerantni parsovani cisel (desetinna carka i tecka) */
+/**
+ * num() z mockupu - tolerantni parsovani cisel.
+ * Zvlada desetinnou carku i tecku vcetne oddelovace tisicu:
+ * "1 234,56" i "1,234.56" -> 1234.56. Pri obou oddelovacich plati ten posledni.
+ */
 export function num(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
-  const parsed = parseFloat(
-    String(v ?? "").replace(/[^0-9.,-]/g, "").replace(",", "."),
-  );
+
+  const cleaned = String(v ?? "").replace(/[^0-9.,-]/g, "");
+  if (!cleaned) return 0;
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+  let normalised: string;
+  if (lastComma > -1 && lastDot > -1) {
+    // oba oddelovace - posledni je desetinny, ten druhy oddeluje tisice
+    const decimalAt = Math.max(lastComma, lastDot);
+    normalised =
+      cleaned.slice(0, decimalAt).replace(/[.,]/g, "") + "." + cleaned.slice(decimalAt + 1).replace(/[.,]/g, "");
+  } else {
+    // jen jeden oddelovac - bereme ho jako desetinny (bezne zadani u nas)
+    normalised = cleaned.replace(",", ".");
+  }
+
+  const parsed = parseFloat(normalised);
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
@@ -28,15 +50,11 @@ export function money(v: number): string {
   });
 }
 
-/** prevod do CZK: kurz z kurzovniho listku, jinak zalozni ROE */
-function toCZK(v: number, currency: string, rates: Rates, roe: number): number {
-  return currency === "CZK" ? v : v * (rates[currency] || roe);
-}
-
-/** prevod do zvolene billing meny (vzdy pres CZK) */
-function conv(v: number, currency: string, billingCur: string, rates: Rates, roe: number): number {
-  const czk = toCZK(v, currency, rates, roe);
-  return billingCur === "CZK" ? czk : czk / (rates[billingCur] || roe);
+/** Kurz meny vuci CZK. null = pro tuto menu kurz nemame. */
+function rateOf(currency: string, rates: Rates): number | null {
+  if (!currency || currency === "CZK") return 1;
+  const r = rates[currency];
+  return typeof r === "number" && Number.isFinite(r) && r > 0 ? r : null;
 }
 
 export interface BuyingRow {
@@ -66,6 +84,7 @@ export interface SellingRow {
 }
 
 export interface RxeRow {
+  id: string;
   cat: string;
   vendor: string;
   delta: number;
@@ -73,8 +92,8 @@ export interface RxeRow {
 }
 
 export interface CostsTotals {
-  /** Total in CZK pro kazdy buying radek (klic = id) */
-  buyRowTotals: Record<string, number>;
+  /** Soucet radku v billing mene; null = mena radku nema kurz. */
+  buyRowTotals: Record<string, number | null>;
   /** zvyrazneni: Real vyssi nez Est. (cervene) / nizsi (zelene) */
   buyRowOver: Record<string, boolean>;
   buyRowUnder: Record<string, boolean>;
@@ -84,10 +103,14 @@ export interface CostsTotals {
   realStrictTotal: number;
   /** naklady: Sigma Real, fallback Est. */
   buyTotal: number;
-  /** Total in CZK pro kazdy selling radek */
-  sellRowTotals: Record<string, number>;
+  /** Soucet radku v billing mene; null = mena radku nema kurz. */
+  sellRowTotals: Record<string, number | null>;
+  /** Vynosy - JEN radky zaskrtnute k fakturaci (sloupec Invoice). */
   sellTotal: number;
   sellTotalCZK: number;
+  /** Radky vynechane ze souctu, protoze nejsou zaskrtnute k fakturaci. */
+  sellNotInvoicedTotal: number;
+  sellNotInvoicedCount: number;
   /** Report */
   buyCZK: number;
   sellCZK: number;
@@ -97,6 +120,10 @@ export interface CostsTotals {
   rxeTotal: number;
   rxeRows: RxeRow[];
   hasRxe: boolean;
+  /** Meny bez kurzu, ktere se objevily v radcich - jejich radky jsou ze souctu vynechany. */
+  missingCurrencies: string[];
+  /** Pocet radku vynechanych kvuli chybejicimu kurzu. */
+  unconvertibleRowCount: number;
 }
 
 export function computeCosts(
@@ -105,13 +132,34 @@ export function computeCosts(
   billingCur: string,
   rates: Rates,
 ): CostsTotals {
-  // Meny mimo kurzovni listek se prepoctou kurzem 1 - rucni ROE bylo
-  // odstraneno spolu s kartou Billing, kurzy chodi ze stranky Exchange.
-  const roe = 1;
-  const c = (v: number, cur: string) => conv(v, cur, billingCur, rates, roe);
-  const czk = (v: number, cur: string) => toCZK(v, cur, rates, roe);
+  const missing = new Set<string>();
+  let unconvertibleRowCount = 0;
 
-  const buyRowTotals: Record<string, number> = {};
+  const billingRate = rateOf(billingCur, rates);
+  if (billingRate === null) missing.add(billingCur);
+
+  /** Prevod do billing meny pres CZK. null = chybi kurz na nektere strane. */
+  const conv = (value: number, currency: string): number | null => {
+    const from = rateOf(currency, rates);
+    if (from === null) {
+      missing.add(currency);
+      return null;
+    }
+    if (billingRate === null) return null;
+    return (value * from) / billingRate;
+  };
+
+  /** Prevod do CZK. null = chybi kurz. */
+  const toCZK = (value: number, currency: string): number | null => {
+    const from = rateOf(currency, rates);
+    if (from === null) {
+      missing.add(currency);
+      return null;
+    }
+    return value * from;
+  };
+
+  const buyRowTotals: Record<string, number | null> = {};
   const buyRowOver: Record<string, boolean> = {};
   const buyRowUnder: Record<string, boolean> = {};
   const rxeRows: RxeRow[] = [];
@@ -126,8 +174,17 @@ export function computeCosts(
     // radek = mnozstvi x jednotkova cena, prazdne mnozstvi = 1
     const est = num(r.estAmount) * (num(r.estQty) || 1);
     const real = num(r.realAmount) * (num(r.realQty) || 1);
-    const estC = c(est, r.estCurrency);
-    const realC = c(real, r.realCurrency);
+    const estC = conv(est, r.estCurrency);
+    const realC = real ? conv(real, r.realCurrency) : 0;
+
+    // Radek, u ktereho neumime prepocitat pouzitou stranu, do souctu nevstupuje.
+    if (estC === null || realC === null) {
+      buyRowTotals[r.id] = null;
+      buyRowOver[r.id] = false;
+      buyRowUnder[r.id] = false;
+      unconvertibleRowCount += 1;
+      continue;
+    }
 
     estTotal += estC;
     if (real) realStrictTotal += realC;
@@ -145,7 +202,8 @@ export function computeCosts(
       rxeTotal += d;
       hasRxe = true;
       rxeRows.push({
-        cat: r.category || "(bez kategorie)",
+        id: r.id,
+        cat: r.category || "(no category)",
         vendor: r.vendor.trim(),
         delta: d,
         pct: estC ? (d / estC) * 100 : 0,
@@ -153,18 +211,38 @@ export function computeCosts(
     }
   }
 
-  const sellRowTotals: Record<string, number> = {};
+  const sellRowTotals: Record<string, number | null> = {};
   let sellTotal = 0;
   let sellTotalCZK = 0;
+  let sellNotInvoicedTotal = 0;
+  let sellNotInvoicedCount = 0;
+
   for (const r of selling) {
     const raw = num(r.amount) * (num(r.qty) || 1);
-    const t = c(raw, r.currency);
-    sellTotal += t;
-    sellTotalCZK += czk(raw, r.currency);
-    sellRowTotals[r.id] = t;
+    const inBilling = conv(raw, r.currency);
+    const inCZK = toCZK(raw, r.currency);
+
+    if (inBilling === null || inCZK === null) {
+      sellRowTotals[r.id] = null;
+      unconvertibleRowCount += 1;
+      continue;
+    }
+
+    sellRowTotals[r.id] = inBilling;
+
+    // Sloupec Invoice rika, zda radek jde do kalkulacniho listu k fakturaci.
+    // Nezaskrtnuty radek se do vynosu (a tim i do zisku) nepocita.
+    if (r.invoice) {
+      sellTotal += inBilling;
+      sellTotalCZK += inCZK;
+    } else {
+      sellNotInvoicedTotal += inBilling;
+      sellNotInvoicedCount += 1;
+    }
   }
 
-  const bcToCZK = (v: number) => (billingCur === "CZK" ? v : v * (rates[billingCur] || roe));
+  // Souhrny v CZK: z billing meny zpet pres jeji kurz.
+  const bcToCZK = (v: number) => (billingRate === null ? 0 : v * billingRate);
   const buyCZK = bcToCZK(buyTotal);
   const sellCZK = bcToCZK(sellTotal);
 
@@ -178,6 +256,8 @@ export function computeCosts(
     sellRowTotals,
     sellTotal,
     sellTotalCZK,
+    sellNotInvoicedTotal,
+    sellNotInvoicedCount,
     buyCZK,
     sellCZK,
     profitCZK: sellCZK - buyCZK,
@@ -185,6 +265,8 @@ export function computeCosts(
     rxeTotal,
     rxeRows,
     hasRxe,
+    missingCurrencies: [...missing].sort(),
+    unconvertibleRowCount,
   };
 }
 

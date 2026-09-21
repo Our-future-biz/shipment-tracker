@@ -1,4 +1,4 @@
-import { pgTable, text, numeric, uuid, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 /**

@@ -11,6 +11,8 @@ export const shipmentAttachmentTable = pgTable(
     fileSize: bigint("file_size", { mode: "number" }).notNull().default(0),
     fileType: text("file_type").notNull().default(""),
     storageKey: text("storage_key").notNull().default(""),
+    /** Who uploaded the file. Null on rows created before this was recorded. */
+    uploadedById: uuid("uploaded_by_id"),
     /** Business document type: Invoice, Packing list, Bill of Lading, … ("" = not classified yet). */
     documentType: text("document_type").notNull().default(""),
     /** Customs review: "" (pending) | approved | declined. */

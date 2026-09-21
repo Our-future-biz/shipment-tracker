@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Input, Button, Modal, Tooltip, Spin, message } from "antd";
+import { Input, Button, Modal, Tooltip, Popconfirm, Spin, message } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import {
@@ -56,9 +56,30 @@ export function ExchangeView() {
   const remove = useMutation({
     mutationFn: (id: string) => api.invoicing.exchangeRateDelete(id),
     onSuccess: invalidate,
+    onError: () => message.error("Could not delete the week"),
   });
 
   const range = useMemo(() => weekRange(form.week), [form.week]);
+
+  /**
+   * Rates go into a numeric column, so only a plain number is accepted. A blank
+   * clears the rate; a decimal comma is accepted and normalised.
+   */
+  const parseRate = (raw: string): string | null => {
+    const text = raw.trim().replace(",", ".");
+    if (!text) return "";
+    return /^\d+(\.\d+)?$/.test(text) && Number(text) > 0 ? text : null;
+  };
+
+  const commitRate = (id: string, field: "rateEur" | "rateUsd", raw: string, previous: string) => {
+    if (raw === previous) return;
+    const value = parseRate(raw);
+    if (value === null) {
+      message.error("Enter a positive number, for example 24.12");
+      return;
+    }
+    update.mutate({ id, [field]: value });
+  };
 
   const submit = () => {
     setFormErr("");
@@ -71,12 +92,18 @@ export function ExchangeView() {
       setFormErr("Enter at least one rate.");
       return;
     }
+    const eur = parseRate(form.rateEur);
+    const usd = parseRate(form.rateUsd);
+    if (eur === null || usd === null) {
+      setFormErr("Rates must be positive numbers, for example 24.12.");
+      return;
+    }
     create.mutate({
       week: form.week,
       validFrom: r.from,
       validTo: r.to,
-      rateEur: form.rateEur.trim(),
-      rateUsd: form.rateUsd.trim(),
+      rateEur: eur,
+      rateUsd: usd,
       note: form.note.trim(),
     });
   };
@@ -146,7 +173,7 @@ export function ExchangeView() {
                     <input
                       defaultValue={r.rateEur ?? ""}
                       placeholder="—"
-                      onBlur={(e) => e.target.value !== (r.rateEur ?? "") && update.mutate({ id: r.id, rateEur: e.target.value })}
+                      onBlur={(e) => commitRate(r.id, "rateEur", e.target.value, r.rateEur ?? "")}
                       className="w-[110px] h-8 px-2 text-right text-[14px] tabular-nums border border-slate-200
                                  rounded-md outline-none focus:border-indigo-500"
                     />
@@ -155,7 +182,7 @@ export function ExchangeView() {
                     <input
                       defaultValue={r.rateUsd ?? ""}
                       placeholder="—"
-                      onBlur={(e) => e.target.value !== (r.rateUsd ?? "") && update.mutate({ id: r.id, rateUsd: e.target.value })}
+                      onBlur={(e) => commitRate(r.id, "rateUsd", e.target.value, r.rateUsd ?? "")}
                       className="w-[110px] h-8 px-2 text-right text-[14px] tabular-nums border border-slate-200
                                  rounded-md outline-none focus:border-indigo-500"
                     />
@@ -176,15 +203,23 @@ export function ExchangeView() {
                     />
                   </td>
                   <td className={`${CELL} text-center`}>
-                    <Tooltip title="Delete week">
+                    {/* Deleting a week changes every cost total that falls in it, so confirm first. */}
+                    <Popconfirm
+                      title="Delete these rates?"
+                      description={`Costs dated in ${formatWeekLabel(r.week)} will fall back to an older week.`}
+                      okText="Delete"
+                      okButtonProps={{ danger: true }}
+                      cancelText="Cancel"
+                      onConfirm={() => remove.mutate(r.id)}
+                    >
                       <button
-                        onClick={() => remove.mutate(r.id)}
+                        aria-label={`Delete rates for ${r.week}`}
                         className="w-[28px] h-[28px] rounded-md grid place-items-center text-slate-400
                                    hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer"
                       >
                         <DeleteOutlined />
                       </button>
-                    </Tooltip>
+                    </Popconfirm>
                   </td>
                 </tr>
               ))}

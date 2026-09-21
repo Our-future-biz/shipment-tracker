@@ -74,7 +74,12 @@ export function CustomsTab({
     onError: () => message.error("Could not save the review"),
   });
 
-  const documents = attachmentsQuery.data?.attachments ?? [];
+  // Memoised so the `?? []` fallback does not hand the memos below a new array
+  // (and therefore a new dependency) on every render.
+  const documents = useMemo(
+    () => attachmentsQuery.data?.attachments ?? [],
+    [attachmentsQuery.data?.attachments],
+  );
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return documents;
@@ -171,7 +176,7 @@ export function CustomsTab({
                     {/* Uploaded by - .val */}
                     <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
                       <span className="text-[13.5px] font-semibold text-[#C3392B] whitespace-nowrap">
-                        You
+                        {d.uploadedByName || "Unknown"}
                         <small className="block text-[12px] font-medium text-[#8B94A7]">
                           {d.createdAt ? formatDateTime(d.createdAt) : ""}
                         </small>
@@ -187,7 +192,7 @@ export function CustomsTab({
                             <CustomsPill status={d.customsStatus} />
                             {d.customsReviewedAt && (
                               <small className="text-[11px] text-[#8B94A7] whitespace-nowrap">
-                                Customs · {formatDateTime(d.customsReviewedAt)}
+                                {d.customsReviewedByName || "Customs"} · {formatDateTime(d.customsReviewedAt)}
                               </small>
                             )}
                           </div>

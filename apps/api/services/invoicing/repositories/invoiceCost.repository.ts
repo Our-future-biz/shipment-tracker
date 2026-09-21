@@ -17,19 +17,30 @@ class InvoiceCostRepository {
     return row!;
   }
 
-  async updateById(id: string, companyId: string, data: Record<string, unknown>) {
+  /** shipmentId is part of the where clause so a row can only be written through its own shipment's URL. */
+  async updateById(id: string, companyId: string, shipmentId: string, data: Record<string, unknown>) {
     const [row] = await db
       .update(invoiceCostTable)
       .set({ ...data, updatedAt: new Date() })
-      .where(and(eq(invoiceCostTable.id, id), eq(invoiceCostTable.companyId, companyId)))
+      .where(and(
+        eq(invoiceCostTable.id, id),
+        eq(invoiceCostTable.companyId, companyId),
+        eq(invoiceCostTable.shipmentId, shipmentId),
+      ))
       .returning();
-    return row!;
+    return row ?? null;
   }
 
-  async deleteById(id: string, companyId: string) {
-    await db
+  async deleteById(id: string, companyId: string, shipmentId: string) {
+    const deleted = await db
       .delete(invoiceCostTable)
-      .where(and(eq(invoiceCostTable.id, id), eq(invoiceCostTable.companyId, companyId)));
+      .where(and(
+        eq(invoiceCostTable.id, id),
+        eq(invoiceCostTable.companyId, companyId),
+        eq(invoiceCostTable.shipmentId, shipmentId),
+      ))
+      .returning({ id: invoiceCostTable.id });
+    return deleted.length > 0;
   }
 
   async upsert(shipmentId: string, companyId: string, category: string, data: Partial<{ estAmount: string; estCurrency: string; realAmount: string; realCurrency: string; invoiceNumber: string; vendor: string }>) {

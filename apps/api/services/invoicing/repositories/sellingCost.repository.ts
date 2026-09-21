@@ -19,19 +19,30 @@ class SellingCostRepository {
     return row!;
   }
 
-  async update(id: string, companyId: string, data: Record<string, unknown>) {
+  /** shipmentId is part of the where clause so a row can only be written through its own shipment's URL. */
+  async update(id: string, companyId: string, shipmentId: string, data: Record<string, unknown>) {
     const [row] = await db
       .update(invoiceSellingCostTable)
       .set({ ...data, updatedAt: new Date() })
-      .where(and(eq(invoiceSellingCostTable.id, id), eq(invoiceSellingCostTable.companyId, companyId)))
+      .where(and(
+        eq(invoiceSellingCostTable.id, id),
+        eq(invoiceSellingCostTable.companyId, companyId),
+        eq(invoiceSellingCostTable.shipmentId, shipmentId),
+      ))
       .returning();
-    return row!;
+    return row ?? null;
   }
 
-  async delete(id: string, companyId: string) {
-    await db
+  async delete(id: string, companyId: string, shipmentId: string) {
+    const deleted = await db
       .delete(invoiceSellingCostTable)
-      .where(and(eq(invoiceSellingCostTable.id, id), eq(invoiceSellingCostTable.companyId, companyId)));
+      .where(and(
+        eq(invoiceSellingCostTable.id, id),
+        eq(invoiceSellingCostTable.companyId, companyId),
+        eq(invoiceSellingCostTable.shipmentId, shipmentId),
+      ))
+      .returning({ id: invoiceSellingCostTable.id });
+    return deleted.length > 0;
   }
 }
 

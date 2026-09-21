@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { Input, Select, Checkbox, Tooltip, Modal, message } from "antd";
-import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined } from "@ant-design/icons";
+import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined, WarningOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ShipmentItem } from "@/hooks/useShipments";
@@ -25,8 +26,11 @@ const CURRENCIES: [string, string][] = [
   ["ZAR", "South African Rand"], ["BRL", "Brazilian Real"], ["MXN", "Mexican Peso"], ["RUB", "Russian Ruble"],
 ];
 
-/** Zalozni kurzy - plati, dokud nejsou zadany kurzy na strance Exchange. */
-const FALLBACK_RATES: Record<string, number> = { CZK: 1, USD: 20.62, EUR: 24.12 };
+/**
+ * Bez kurzovniho listku znameme jen CZK. Drive tu byly natvrdo zapsane kurzy
+ * EUR/USD - tise zastaraly a pocitalo se s nimi dal, coz u penez nejde.
+ */
+const CZK_ONLY: Rates = { CZK: 1 };
 
 /** COST_TYPES z mockupu - kategorie nakladu (spolecne pro buying i selling) */
 const COST_CATEGORIES = [
@@ -110,11 +114,13 @@ function SectionCard({
 
 /** male tlacitko v zahlavi karty (mockup: .add-btn, vyska 26px) */
 function HeadBtn({
-  onClick, disabled, title, children,
+  onClick, disabled, title, ariaLabel, children,
 }: {
   onClick: () => void;
   disabled?: boolean;
   title?: string;
+  /** Required when the button renders only an icon. */
+  ariaLabel?: string;
   children: React.ReactNode;
 }) {
   return (
@@ -122,6 +128,7 @@ function HeadBtn({
       onClick={onClick}
       disabled={disabled}
       title={title}
+      aria-label={ariaLabel}
       className="h-[26px] px-[10px] text-[12px] font-semibold rounded-md border border-white/40
                  bg-white/80 text-slate-700 cursor-pointer hover:bg-white disabled:opacity-50
                  disabled:cursor-default transition-colors whitespace-nowrap"
@@ -223,14 +230,14 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
    */
   const fx = useMemo(() => {
     const list = ratesQuery.data?.rates ?? [];
-    if (!list.length) return { rates: FALLBACK_RATES, source: "none" as const, usedWeek: "" };
+    if (!list.length) return { rates: CZK_ONLY, source: "none" as const, usedWeek: "" };
 
     const exact = list.find((r) => r.week === weekKey);
     // list chodi serazeny od nejnovejsiho, hledame nejblizsi starsi tyden
     const fallbackRow = exact
       ?? (rateDate ? list.find((r) => r.validFrom <= rateDate) : list[0])
       ?? list[0];
-    if (!fallbackRow) return { rates: FALLBACK_RATES, source: "none" as const, usedWeek: "" };
+    if (!fallbackRow) return { rates: CZK_ONLY, source: "none" as const, usedWeek: "" };
 
     const eur = Number(fallbackRow.rateEur);
     const usd = Number(fallbackRow.rateUsd);
@@ -324,28 +331,11 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     onError: showError("Could not delete the row"),
   });
 
-  /* ── Prvni prazdny radek ──
-     Mockup startuje s jednim prazdnym radkem v obou tabulkach, aby
-     uzivatel mohl rovnou psat bez klikani na "Add".
-     Zaklada se az po nacteni dat a jen jednou (drzi se v ref, aby
-     opakovane vykresleni nezalozilo radku vic). */
-  const seeding = useRef({ buy: false, sell: false });
-
-  useEffect(() => {
-    if (!data) return;
-    if (!buyRows.length && !seeding.current.buy && !addBuy.isPending) {
-      seeding.current.buy = true;
-      addBuy.mutate(undefined, { onSettled: () => { seeding.current.buy = false; } });
-    }
-  }, [data, buyRows.length]);
-
-  useEffect(() => {
-    if (!data) return;
-    if (!sellRows.length && !seeding.current.sell && !addSell.isPending) {
-      seeding.current.sell = true;
-      addSell.mutate({}, { onSettled: () => { seeding.current.sell = false; } });
-    }
-  }, [data, sellRows.length]);
+  /* ── Prazdna tabulka ──
+     Mockup startuje s jednim prazdnym radkem. Tady se radek NEZAKLADA sam:
+     pouhe otevreni zalozky by zapisovalo do databaze a prazdne naklady by se
+     pak objevovaly i na strance Invoicing. Misto toho je v prazdne tabulce
+     tlacitko, kterym si uzivatel prvni radek zalozi jednim kliknutim. */
 
   /* ── Undo jako zasobnik (mockup: undoStack + snapshotCostRow/restoreCostRow) ──
      Mockup si pamatuje vice smazanych radku a vraci je na PUVODNI pozici. */
@@ -372,13 +362,36 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       ? " !border-transparent !bg-transparent pointer-events-none"
       : "";
 
+  /**
+   * Snapshot of a row's values for the undo stack. The id is dropped (the
+   * restored row gets a new one) and so are nulls — the request fields are
+   * optional strings, and the columns are nullable anyway, so omitting a null
+   * is equivalent to sending it and avoids a type mismatch on the wire.
+   */
+  const undoValues = (row: BuyingRow | SellingRow): Record<string, unknown> => {
+    const values: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (key === "id" || value === null || value === undefined) continue;
+      values[key] = value;
+    }
+    return values;
+  };
+
   const removeBuy = (row: BuyingRow, index: number) => {
     if (buyRowFilled(row)) {
-      const { id: _id, ...values } = row;
-      undoBuyStack.current.push({ index, values });
+      undoBuyStack.current.push({ index, values: undoValues(row) });
       setUndoBuyCount(undoBuyStack.current.length);
     }
     deleteBuy.mutate(row.id);
+  };
+
+  /**
+   * Runs a handler that talks to the API directly (not via a mutation) and
+   * surfaces any failure — otherwise a rejected promise from an onClick just
+   * disappears and the button looks like it did nothing.
+   */
+  const guarded = (what: string, run: () => Promise<void>) => () => {
+    run().catch(showError(what));
   };
 
   const undoBuy = async () => {
@@ -398,8 +411,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
 
   const removeSell = (row: SellingRow, index: number) => {
     if (sellRowFilled(row)) {
-      const { id: _id, ...values } = row;
-      undoSellStack.current.push({ index, values });
+      undoSellStack.current.push({ index, values: undoValues(row) });
       setUndoSellCount(undoSellStack.current.length);
     }
     deleteSell.mutate(row.id);
@@ -473,9 +485,6 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     const onlyEmpty =
       sellRows.length === 1 && !sellRowFilled(sellRows[0]!) ? sellRows[0]! : null;
 
-    // pojistka proti tomu, aby prazdny radek hned znovu naskocil
-    if (onlyEmpty) seeding.current.sell = true;
-
     const baseOrder = onlyEmpty ? 0 : sellRows.length;
     await Promise.all([
       ...rows.map((r, i) =>
@@ -489,7 +498,6 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         } as never)),
       ...(onlyEmpty ? [api.invoicing.invoicingDeleteSellingCost(shipment.id, onlyEmpty.id)] : []),
     ]);
-    seeding.current.sell = false;
     invalidate();
     message.success(`Copied ${rows.length} row(s) from buying`);
   };
@@ -546,6 +554,10 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     setQuoteLoading(false);
   };
 
+  /** Currencies on a row (plus the billing currency) that the rate sheet is missing. */
+  const missingFor = (...currencies: string[]) =>
+    [...new Set([...currencies, billingCur].filter((c) => c && c !== "CZK" && !rates[c]))].join(", ");
+
   /* ── Vypocty (presne dle recalcCosts z mockupu) ── */
   const t = useMemo(
     () => computeCosts(buyRows, sellRows, billingCur, rates),
@@ -564,7 +576,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         tone="buy"
         actions={
           <>
-            <HeadBtn onClick={undoBuy} disabled={!undoBuyCount} title="Vrátit smazaný náklad zpět">
+            <HeadBtn onClick={guarded("Could not restore the row", undoBuy)} disabled={!undoBuyCount} title="Undo the last deleted cost" ariaLabel="Undo the last deleted buying cost">
               <UndoOutlined />
             </HeadBtn>
             <HeadBtn onClick={() => { setQuoteErr(""); setQuoteModal("buy"); }}>
@@ -598,7 +610,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                 <th className={`${TH} text-right w-[9%]`}>Real Cost</th>
                 <th className={`${TH} text-left w-[6%]`}>Cur</th>
                 <th className={`${TH} text-left w-[9%]`}>Invoice number</th>
-                <th className={`${TH} text-center w-[6%]`} title="Přijatá faktura obdržena">Received</th>
+                <th className={`${TH} text-center w-[6%]`} title="Supplier invoice received">Received</th>
                 <th className={`${TH} text-right w-[12%]`}>Total in {billingCur}</th>
                 <th className={`${TH} w-[70px]`} />
               </tr>
@@ -666,8 +678,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                       t.buyRowOver[r.id] ? "bg-[#FBE6E4]" : t.buyRowUnder[r.id] ? "bg-[#E1F3E9]" : ""
                     }`}
                     title={
-                      t.buyRowOver[r.id] ? "Real Cost je vyšší než Estimated"
-                        : t.buyRowUnder[r.id] ? "Real Cost je nižší než Estimated" : undefined
+                      t.buyRowOver[r.id] ? "Real Cost is higher than Estimated"
+                        : t.buyRowUnder[r.id] ? "Real Cost is lower than Estimated" : undefined
                     }
                   >
                     <input
@@ -687,28 +699,36 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     />
                   </td>
                   <td className={`${CELL} text-center`}>
-                    <Tooltip title="Received se zaškrtne automaticky po vyplnění čísla přijaté faktury">
+                    <Tooltip title="Received is ticked automatically once the invoice number is filled in">
                       <span>
                         <Checkbox checked={r.received} disabled tabIndex={-1} />
                       </span>
                     </Tooltip>
                   </td>
                   <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>
-                    {money(t.buyRowTotals[r.id] ?? 0)}
+                    {t.buyRowTotals[r.id] == null ? (
+                      <Tooltip title={`No exchange rate for ${missingFor(r.estCurrency, r.realCurrency)} — this row is left out of the totals`}>
+                        <span className="text-[#95620B] cursor-help">—</span>
+                      </Tooltip>
+                    ) : (
+                      money(t.buyRowTotals[r.id]!)
+                    )}
                   </td>
                   <td className={`${CELL} text-center whitespace-nowrap`}>
-                    <Tooltip title="Kopírovat řádek">
+                    <Tooltip title="Duplicate row">
                       <button
-                        onClick={() => duplicateBuy(r, rowIndex)}
+                        onClick={guarded("Could not duplicate the row", () => duplicateBuy(r, rowIndex))}
+                        aria-label="Duplicate buying cost row"
                         className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
                                    hover:bg-[#E7EAFC] hover:text-[#4457D6] border-0 bg-transparent cursor-pointer inline-grid"
                       >
                         <CopyOutlined />
                       </button>
                     </Tooltip>
-                    <Tooltip title="Smazat řádek">
+                    <Tooltip title="Delete row">
                       <button
                         onClick={() => removeBuy(r, rowIndex)}
+                        aria-label="Delete buying cost row"
                         className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
                                    hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer inline-grid"
                       >
@@ -721,8 +741,15 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
               })}
               {!buyRows.length && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-8 text-center text-slate-400 text-[13px]">
-                    No buying costs yet — use “Add buying cost”.
+                  <td colSpan={12} className="px-4 py-8 text-center">
+                    <button
+                      onClick={() => addBuy.mutate()}
+                      disabled={addBuy.isPending}
+                      className="text-[13px] text-indigo-600 font-semibold border-0 bg-transparent
+                                 cursor-pointer hover:underline disabled:opacity-50"
+                    >
+                      No buying costs yet — add the first one
+                    </button>
                   </td>
                 </tr>
               )}
@@ -755,13 +782,13 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         tone="sell"
         actions={
           <>
-            <HeadBtn onClick={undoSell} disabled={!undoSellCount} title="Vrátit smazaný náklad zpět">
+            <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={!undoSellCount} title="Undo the last deleted cost" ariaLabel="Undo the last deleted selling cost">
               <UndoOutlined />
             </HeadBtn>
             <HeadBtn onClick={() => { setQuoteErr(""); setQuoteModal("sell"); }}>
               Copy from quote
             </HeadBtn>
-            <HeadBtn onClick={copyFromBuying}>Copy from buying</HeadBtn>
+            <HeadBtn onClick={guarded("Could not copy from buying", copyFromBuying)}>Copy from buying</HeadBtn>
             <HeadBtn onClick={() => addSell.mutate({})}>Add selling cost</HeadBtn>
           </>
         }
@@ -776,7 +803,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                 <th className={`${TH} text-right w-[13%]`}>Amount</th>
                 <th className={`${TH} text-left w-[9%]`}>Cur</th>
                 <th className={`${TH} text-right w-[14%]`}>Total in {billingCur}</th>
-                <th className={`${TH} text-center w-[7%]`} title="Zahrnout do kalkulačního listu k fakturaci">Invoice</th>
+                <th className={`${TH} text-center w-[7%]`} title="Include in the billing calculation sheet">Invoice</th>
                 <th className={`${TH} w-[70px]`} />
               </tr>
             </thead>
@@ -829,8 +856,14 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                   <td className={CELL}>
                     <CurrencyPicker value={r.currency} onChange={(v) => updateSell.mutate({ id: r.id, currency: v })} />
                   </td>
-                  <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>
-                    {money(t.sellRowTotals[r.id] ?? 0)}
+                  <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums ${r.invoice ? "text-slate-800" : "text-slate-400 line-through"}`}>
+                    {t.sellRowTotals[r.id] == null ? (
+                      <Tooltip title={`No exchange rate for ${missingFor(r.currency)} — this row is left out of the totals`}>
+                        <span className="text-[#95620B] cursor-help">—</span>
+                      </Tooltip>
+                    ) : (
+                      money(t.sellRowTotals[r.id]!)
+                    )}
                   </td>
                   <td className={`${CELL} text-center`}>
                     <Checkbox
@@ -839,18 +872,20 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     />
                   </td>
                   <td className={`${CELL} text-center whitespace-nowrap`}>
-                    <Tooltip title="Kopírovat řádek">
+                    <Tooltip title="Duplicate row">
                       <button
-                        onClick={() => duplicateSell(r, rowIndex)}
+                        onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex))}
+                        aria-label="Duplicate selling cost row"
                         className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
                                    hover:bg-[#E7EAFC] hover:text-[#4457D6] border-0 bg-transparent cursor-pointer inline-grid"
                       >
                         <CopyOutlined />
                       </button>
                     </Tooltip>
-                    <Tooltip title="Smazat řádek">
+                    <Tooltip title="Delete row">
                       <button
                         onClick={() => removeSell(r, rowIndex)}
+                        aria-label="Delete selling cost row"
                         className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
                                    hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer inline-grid"
                       >
@@ -863,8 +898,15 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
               })}
               {!sellRows.length && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center text-slate-400 text-[13px]">
-                    No selling costs yet — use “Add selling cost”.
+                  <td colSpan={8} className="px-4 py-8 text-center">
+                    <button
+                      onClick={() => addSell.mutate({})}
+                      disabled={addSell.isPending}
+                      className="text-[13px] text-emerald-700 font-semibold border-0 bg-transparent
+                                 cursor-pointer hover:underline disabled:opacity-50"
+                    >
+                      No selling costs yet — add the first one
+                    </button>
                   </td>
                 </tr>
               )}
@@ -873,6 +915,13 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
               <tr className="bg-slate-50 font-bold">
                 <td className="px-[6px] py-2 text-[12px] uppercase tracking-wide text-slate-500" colSpan={5}>
                   Total selling
+                  {/* Only rows ticked for invoicing count towards the total and the profit. */}
+                  {t.sellNotInvoicedCount > 0 && (
+                    <span className="ml-2 font-medium normal-case tracking-normal text-[12px] text-slate-400">
+                      ({t.sellNotInvoicedCount} row{t.sellNotInvoicedCount === 1 ? "" : "s"} not
+                      ticked for Invoice — {money(t.sellNotInvoicedTotal)} {billingCur} excluded)
+                    </span>
+                  )}
                 </td>
                 <td className="px-[6px] py-2 text-right text-[13px] tabular-nums text-slate-900" colSpan={3}>
                   {money(t.sellTotalCZK)} CZK
@@ -917,7 +966,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
             "Loading rates…"
           ) : fx.source === "none" ? (
             <span className="text-[#95620B] font-semibold">
-              No rates entered — <a href="/exchange" className="underline">add them in Exchange</a>
+              No rates entered — <Link href="/exchange" className="underline">add them in Exchange</Link>
             </span>
           ) : !rateDate ? (
             <span className="text-[#95620B] font-semibold">
@@ -935,11 +984,26 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         </span>
       </div>
 
+      {/* Rows in a currency the rate sheet does not cover are left out of every
+          total — say so rather than letting the numbers look complete. */}
+      {t.missingCurrencies.length > 0 && (
+        <div className="flex items-start gap-2 bg-[#FBEED2] border border-[#95620B] rounded-xl px-4 py-3 mb-4">
+          <WarningOutlined className="text-[#95620B] mt-[2px]" />
+          <span className="text-[12.5px] text-[#5A4A20]">
+            <strong>No exchange rate for {t.missingCurrencies.join(", ")}.</strong>{" "}
+            {t.unconvertibleRowCount} row{t.unconvertibleRowCount === 1 ? " is" : "s are"} left out of
+            the totals below.{" "}
+            <Link href="/exchange" className="underline font-semibold">Add the rate in Exchange</Link>
+            {" "}to include {t.unconvertibleRowCount === 1 ? "it" : "them"}.
+          </span>
+        </div>
+      )}
+
       {/* ═══════════ 4. REPORT ═══════════ */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <button
           onClick={() => setReportOpen((v) => !v)}
-          title="Zobrazit / skrýt report"
+          title="Show / hide report"
           className="w-full h-[38px] px-4 flex items-center gap-3 bg-[#151B2B] text-white
                      text-[12.5px] font-bold uppercase tracking-[.05em] border-0 cursor-pointer"
         >
@@ -989,16 +1053,18 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     <td className="px-[15px] py-[10px] text-[13px] text-slate-700 border-b border-slate-100">
                       {row.label}
                     </td>
-                    {[row.czk, row.czk / (rates.USD || 1), row.czk / (rates.EUR || 1)].map((v, i) => (
+                    {/* A missing rate must never be substituted with 1 — that would
+                        reprint the CZK figure verbatim under a USD/EUR heading. */}
+                    {[row.czk, rates.USD ? row.czk / rates.USD : null, rates.EUR ? row.czk / rates.EUR : null].map((v, i) => (
                       <td
                         key={i}
                         className={`px-[15px] py-[10px] text-right text-[13px] tabular-nums border-b border-slate-100 whitespace-nowrap ${
-                          !t.hasAny ? "text-slate-300"
+                          !t.hasAny || v === null ? "text-slate-300"
                             : row.signed ? (t.profitCZK >= 0 ? "text-[#177245] font-bold" : "text-[#C3392B] font-bold")
                               : "text-slate-900"
                         }`}
                       >
-                        {t.hasAny ? (row.signed ? signed(v) : money(v)) : "—"}
+                        {t.hasAny && v !== null ? (row.signed ? signed(v) : money(v)) : "—"}
                       </td>
                     ))}
                   </tr>
@@ -1012,7 +1078,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                 <span className="text-[12px] font-bold tracking-[.06em] uppercase text-slate-600">
                   R x E — Real − Estimated
                 </span>
-                <Tooltip title="Rozdíl Real − Estimated u nákladů. Záporná hodnota = úspora oproti odhadu.">
+                <Tooltip title="Difference Real − Estimated on buying costs. A negative value means a saving against the estimate.">
                   <span
                     className={`text-[13px] font-bold tabular-nums ${
                       !t.hasRxe ? "text-slate-300"
@@ -1036,8 +1102,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {t.rxeRows.map((x, i) => (
-                      <tr key={i}>
+                    {t.rxeRows.map((x) => (
+                      <tr key={x.id}>
                         <td className="px-[15px] py-[8px] text-[13px] text-slate-700 border-b border-slate-100">{x.cat}</td>
                         <td className="px-[15px] py-[8px] text-[13px] text-slate-500 border-b border-slate-100">
                           {x.vendor || "—"}

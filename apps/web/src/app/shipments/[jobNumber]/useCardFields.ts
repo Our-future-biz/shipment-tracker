@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { message } from "antd";
 import { api } from "@/lib/api";
 
 /**
@@ -41,7 +42,18 @@ export function useCardFields() {
   const save = useMutation({
     mutationFn: (next: CardFieldMap) =>
       api.shipments.userPrefSet(PREF_KEY, { value: JSON.stringify(next) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["user-prefs", PREF_KEY] }),
+    // Write the new map into the cache straight away. Without this, two quick
+    // toggles both read the stale `map` and the second one undoes the first.
+    onMutate: (next: CardFieldMap) => {
+      const previous = queryClient.getQueryData(["user-prefs", PREF_KEY]);
+      queryClient.setQueryData(["user-prefs", PREF_KEY], { value: JSON.stringify(next) });
+      return { previous };
+    },
+    onError: (_e, _next, context) => {
+      queryClient.setQueryData(["user-prefs", PREF_KEY], context?.previous);
+      message.error("Could not save the field selection");
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ["user-prefs", PREF_KEY] }),
   });
 
   /** Klice poli videtelnych v karte. Bez ulozene volby jsou videt vsechna. */

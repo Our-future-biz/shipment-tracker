@@ -37,12 +37,12 @@ class InvoicingService {
     return invoiceCostRepository.create({ companyId, shipmentId, category: "", ...sanitizeAmounts(data) } as never);
   }
 
-  async updateBuyingCost(id: string, companyId: string, data: Record<string, unknown>) {
-    return invoiceCostRepository.updateById(id, companyId, sanitizeAmounts(data));
+  async updateBuyingCost(id: string, companyId: string, shipmentId: string, data: Record<string, unknown>) {
+    return invoiceCostRepository.updateById(id, companyId, shipmentId, sanitizeAmounts(data));
   }
 
-  async deleteBuyingCost(id: string, companyId: string) {
-    return invoiceCostRepository.deleteById(id, companyId);
+  async deleteBuyingCost(id: string, companyId: string, shipmentId: string) {
+    return invoiceCostRepository.deleteById(id, companyId, shipmentId);
   }
 
   // ── Selling costs ──
@@ -50,12 +50,12 @@ class InvoicingService {
     return sellingCostRepository.create({ companyId, shipmentId, ...sanitizeAmounts(data) } as never);
   }
 
-  async updateSellingCost(id: string, companyId: string, data: Record<string, unknown>) {
-    return sellingCostRepository.update(id, companyId, sanitizeAmounts(data));
+  async updateSellingCost(id: string, companyId: string, shipmentId: string, data: Record<string, unknown>) {
+    return sellingCostRepository.update(id, companyId, shipmentId, sanitizeAmounts(data));
   }
 
-  async deleteSellingCost(id: string, companyId: string) {
-    return sellingCostRepository.delete(id, companyId);
+  async deleteSellingCost(id: string, companyId: string, shipmentId: string) {
+    return sellingCostRepository.delete(id, companyId, shipmentId);
   }
 
   async upsertCost(shipmentId: string, companyId: string, category: string, data: Record<string, string>) {
