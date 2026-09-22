@@ -62,7 +62,7 @@ export function ShipmentReportsTab() {
 
   const columns: ColumnsType<Row> = [
     {
-      title: "Job #",
+      title: "Internal Reference",
       dataIndex: "jobNumber",
       render: (v: string) => (
         <span className="font-mono text-xs text-indigo-500">{v}</span>
@@ -74,23 +74,23 @@ export function ShipmentReportsTab() {
       render: (v: string) => v || <span className="text-slate-300">—</span>,
     },
     {
-      title: "Mode",
+      title: "Freight Mode",
       dataIndex: "freightMode",
       render: (v: string) => v || <span className="text-slate-300">—</span>,
     },
     {
-      title: "Status",
+      title: "Shipment Status",
       dataIndex: "status",
       render: (v: string) => <StatusBadge status={v} />,
     },
     {
-      title: "Revenue",
+      title: "Total Selling Costs",
       dataIndex: "selling",
       align: "right",
       render: (_: unknown, record) => fmt(parseNum(record.selling), "CZK"),
     },
     {
-      title: "Margin",
+      title: "Profit",
       key: "margin",
       align: "right",
       render: (_: unknown, record) => {

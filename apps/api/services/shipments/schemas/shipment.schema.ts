@@ -91,6 +91,8 @@ export const shipmentTable = pgTable(
     pickupDate: date("pickup_date", { mode: "string" }),
     pickupTime: text("pickup_time").notNull().default(""),
     closingDate: date("closing_date", { mode: "string" }),
+    vgmClosing: date("vgm_closing", { mode: "string" }),
+    siClosing: date("si_closing", { mode: "string" }),
     etaWarehouse: date("eta_warehouse", { mode: "string" }),
     plannedDeliveryDate: date("planned_delivery_date", { mode: "string" }),
     plannedDeliveryTime: text("planned_delivery_time").notNull().default(""),
@@ -101,7 +103,19 @@ export const shipmentTable = pgTable(
     approvedBy: text("approved_by").notNull().default(""),
     bookingConfirmation: text("booking_confirmation").notNull().default(""),
     customsProcedure: text("customs_procedure").notNull().default(""),
+    /** Movement Reference Number issued by customs. */
+    mrn: text("mrn").notNull().default(""),
+    /**
+     * Customs "received" flags. Empty = follow the shipment's documents
+     * automatically; "yes"/"no" = set manually by a customs officer.
+     */
+    csRecvInvoice: text("cs_recv_invoice").notNull().default(""),
+    csRecvPacking: text("cs_recv_packing").notNull().default(""),
     equipmentDelivery: text("equipment_delivery").notNull().default(""),
+    releaseReference: text("release_reference").notNull().default(""),
+    releaseDepot: text("release_depot").notNull().default(""),
+    redeliveryReference: text("redelivery_reference").notNull().default(""),
+    redeliveryDepot: text("redelivery_depot").notNull().default(""),
     equipmentDeliveryDate: date("equipment_delivery_date", { mode: "string" }),
     supplierPic: text("supplier_pic").notNull().default(""),
 

@@ -125,6 +125,8 @@ export interface ShipmentItem {
   pickupDate: string | null;
   pickupTime: string;
   closingDate: string | null;
+  vgmClosing: string | null;
+  siClosing: string | null;
   etaWarehouse: string | null;
   plannedDeliveryDate: string | null;
   plannedDeliveryTime: string;
@@ -135,7 +137,18 @@ export interface ShipmentItem {
   approvedBy: string;
   bookingConfirmation: string;
   customsProcedure: string;
+  /** Customs Movement Reference Number. */
+  mrn: string;
+  /** Manual override of the Customs "received" ticks: "" | "yes" | "no". */
+  csRecvInvoice: string;
+  csRecvPacking: string;
+  /** Business document types present on the shipment (Invoice, Packing list, …). */
+  documentTypes: string[];
   equipmentDelivery: string;
+  releaseReference: string;
+  releaseDepot: string;
+  redeliveryReference: string;
+  redeliveryDepot: string;
   equipmentDeliveryDate: string | null;
   supplierPic: string;
 
@@ -226,6 +239,16 @@ export interface AttachmentItem {
   fileType: string;
   storageKey: string;
   createdAt: string;
+  /** Business document type (Invoice, Packing list, …); "" until classified. */
+  documentType: string;
+  /** Customs review: "" (pending) | approved | declined. */
+  customsStatus: string;
+  customsNote: string;
+  customsReviewedAt: string | null;
+  /** Display name of the uploader; "Unknown" when it cannot be resolved. */
+  uploadedByName: string;
+  /** Display name of the customs reviewer; "" while the document is unreviewed. */
+  customsReviewedByName: string;
 }
 
 export interface AuditItem {

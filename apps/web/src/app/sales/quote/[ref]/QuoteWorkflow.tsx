@@ -197,16 +197,16 @@ export function QuoteWorkflow() {
       subtitle: "Direction, service type and incoterm",
       content: (
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Direction">
+          <Field label="Trade Direction">
             <Select className="w-full" value={draft.direction} onChange={(v) => set({ direction: v })} options={DIRECTIONS.map((d) => ({ value: d, label: d }))} />
           </Field>
-          <Field label="Service type">
+          <Field label="Freight Mode">
             <Select className="w-full" value={draft.serviceType} onChange={(v) => set({ serviceType: v })} options={SERVICE_TYPES.map((d) => ({ value: d, label: d }))} />
           </Field>
           <Field label="Incoterm">
             <Select className="w-full" value={draft.incoterm} onChange={(v) => set({ incoterm: v })} options={INCOTERMS.map((d) => ({ value: d, label: d }))} />
           </Field>
-          <Field label="Cargo ready date">
+          <Field label="Cargo Readiness Date">
             <DatePicker
               className="w-full"
               format="YYYY-MM-DD"
@@ -248,7 +248,7 @@ export function QuoteWorkflow() {
       content: (
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Commodity">
+            <Field label="Cargo Description">
               <Input value={draft.commodity ?? ""} onChange={(e) => set({ commodity: e.target.value })} />
             </Field>
             <div className="flex items-end gap-4 pb-1">

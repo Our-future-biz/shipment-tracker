@@ -84,6 +84,12 @@ interface ShipmentUpdateRequest {
   pickupDate?: string;
   pickupTime?: string;
   closingDate?: string;
+  vgmClosing?: string;
+  siClosing?: string;
+  releaseReference?: string;
+  releaseDepot?: string;
+  redeliveryReference?: string;
+  redeliveryDepot?: string;
   etaWarehouse?: string;
   plannedDeliveryDate?: string;
   plannedDeliveryTime?: string;
@@ -94,6 +100,9 @@ interface ShipmentUpdateRequest {
   approvedBy?: string;
   bookingConfirmation?: string;
   customsProcedure?: string;
+  mrn?: string;
+  csRecvInvoice?: string;
+  csRecvPacking?: string;
   equipmentDelivery?: string;
   equipmentDeliveryDate?: string;
   supplierPic?: string;

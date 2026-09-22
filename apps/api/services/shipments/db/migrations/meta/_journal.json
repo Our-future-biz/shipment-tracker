@@ -141,6 +141,55 @@
       "when": 1786971623684,
       "tag": "0019_chilly_quicksilver",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1788159392057,
+      "tag": "0020_add_shipment_mrn",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1788358447620,
+      "tag": "0021_add_attachment_document_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788362995067,
+      "tag": "0022_add_customs_recv_flags",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1787300000000,
+      "tag": "0023_user_preference",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787400000000,
+      "tag": "0024_equipment_depot_closings",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790005275091,
+      "tag": "0025_snapshot_realign",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790005650041,
+      "tag": "0026_attachment_uploader",
+      "breakpoints": true
     }
   ]
 }

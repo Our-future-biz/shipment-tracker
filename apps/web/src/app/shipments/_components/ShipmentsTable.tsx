@@ -25,6 +25,7 @@ import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle, i
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
 import { ColumnPicker } from "./ColumnPicker";
+import { OverviewTiles, type TileId } from "./OverviewTiles";
 import { MasterJobDetailModal } from "./MasterJobDetailModal";
 import { DocumentsTab } from "@/app/shipments/[jobNumber]/tabs/DocumentsTab";
 import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
@@ -147,6 +148,17 @@ export const ShipmentsTable = ({
     const params = new URLSearchParams(searchParams.toString());
     if (value && value !== "all") params.set("status", value);
     else params.delete("status");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  // Overview tile is URL-backed (?tile=) like search/status, and narrows the same
+  // server-side query — so a tile combines with search and column filters.
+  const activeTile = (searchParams.get("tile") as TileId | null) ?? null;
+  const setActiveTile = (value: TileId | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value) params.set("tile", value);
+    else params.delete("tile");
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
@@ -403,10 +415,11 @@ export const ShipmentsTable = ({
   return (
     <div className="flex flex-col gap-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Shipments</h1>
         </div>
+        <OverviewTiles active={activeTile} onSelect={setActiveTile} />
       </div>
 
       {/* Filters Row */}

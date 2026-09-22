@@ -91,25 +91,25 @@ interface ColDef {
 }
 
 const COLUMN_DEFS: ColDef[] = [
-  { key: "reference", title: "Reference", width: 160, render: (q) => <span className="font-mono text-xs text-indigo-500">{q.quoteNumber}</span> },
+  { key: "reference", title: "Sales Number", width: 160, render: (q) => <span className="font-mono text-xs text-indigo-500">{q.quoteNumber}</span> },
   { key: "customer", title: "Customer", render: (q) => q.data.customerName || <span className="text-slate-300">—</span> },
-  { key: "service", title: "Service type", width: 110, render: (q) => q.data.serviceType || <span className="text-slate-300">—</span> },
-  { key: "direction", title: "Direction", width: 100, render: (q) => q.data.direction || <span className="text-slate-300">—</span> },
+  { key: "service", title: "Freight Mode", width: 130, render: (q) => q.data.serviceType || <span className="text-slate-300">—</span> },
+  { key: "direction", title: "Trade Direction", width: 130, render: (q) => q.data.direction || <span className="text-slate-300">—</span> },
   { key: "origin", title: "Origin", render: (q) => q.data.origin || <span className="text-slate-300">—</span> },
   { key: "destination", title: "Destination", render: (q) => q.data.destination || <span className="text-slate-300">—</span> },
   { key: "incoterm", title: "Incoterm", width: 90, render: (q) => q.data.incoterm || <span className="text-slate-300">—</span> },
-  { key: "cargoReady", title: "Cargo ready", width: 120, render: (q) => q.data.readyDate || <span className="text-slate-300">—</span> },
-  { key: "commodity", title: "Commodity", width: 130, render: (q) => q.data.commodity || <span className="text-slate-300">—</span> },
-  { key: "packages", title: "Pkgs", width: 70, render: (q) => (q.data.packages?.length ? computeCargo(q.data).totalPackages : <span className="text-slate-300">—</span>) },
-  { key: "weight", title: "Gross wt", width: 100, render: (q) => (q.data.packages?.length ? `${computeCargo(q.data).grossWeight} kg` : <span className="text-slate-300">—</span>) },
-  { key: "cbm", title: "CBM", width: 90, render: (q) => (q.data.packages?.length ? `${computeCargo(q.data).cbm} m³` : <span className="text-slate-300">—</span>) },
+  { key: "cargoReady", title: "Cargo Readiness Date", width: 170, render: (q) => q.data.readyDate || <span className="text-slate-300">—</span> },
+  { key: "commodity", title: "Cargo Description", width: 180, render: (q) => q.data.commodity || <span className="text-slate-300">—</span> },
+  { key: "packages", title: "Pieces (PCS)", width: 110, render: (q) => (q.data.packages?.length ? computeCargo(q.data).totalPackages : <span className="text-slate-300">—</span>) },
+  { key: "weight", title: "Total Gross Weight (kg)", width: 180, render: (q) => (q.data.packages?.length ? `${computeCargo(q.data).grossWeight} kg` : <span className="text-slate-300">—</span>) },
+  { key: "cbm", title: "Total Volume (m³)", width: 150, render: (q) => (q.data.packages?.length ? `${computeCargo(q.data).cbm} m³` : <span className="text-slate-300">—</span>) },
   { key: "method", title: "Method", width: 90, render: (q) => q.data.method || <span className="text-slate-300">—</span> },
   { key: "shippingTerms", title: "Shipping terms", width: 130, render: (q) => q.data.shippingTerms || <span className="text-slate-300">—</span> },
-  { key: "selling", title: "Selling", width: 120, render: (q) => fmt(computeTotals(q.data).selling, q.data.currency) },
-  { key: "created", title: "Created", width: 110, render: (q) => (q.createdAt ? q.createdAt.slice(0, 10) : "—") },
+  { key: "selling", title: "Total Selling Costs", width: 160, render: (q) => fmt(computeTotals(q.data).selling, q.data.currency) },
+  { key: "created", title: "Created Date", width: 120, render: (q) => (q.createdAt ? q.createdAt.slice(0, 10) : "—") },
   {
     key: "status",
-    title: "Status",
+    title: "Quote Status",
     width: 130,
     render: (q) => {
       const s = QUOTE_STATUS_MAP[q.data.quoteStatus ?? ""];
@@ -141,8 +141,8 @@ const COLUMN_DEFS: ColDef[] = [
   },
   {
     key: "validity",
-    title: "Validity",
-    width: 120,
+    title: "Quote Validity",
+    width: 130,
     render: (q) => {
       const v = validityInfo(q.data);
       if (!v.date) return <span className="text-slate-300">—</span>;

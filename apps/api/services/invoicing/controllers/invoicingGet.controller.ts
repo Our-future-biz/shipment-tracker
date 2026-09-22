@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { invoicingService } from "../services/invoicing.service";
-import type { InvoiceCostItem, AdditionalChargeItem, BillingSettingsItem, BillingOverrideItem, GeneratedInvoiceItem } from "../interfaces/interfaces";
+import type { InvoiceCostItem, SellingCostItem, AdditionalChargeItem, BillingSettingsItem, BillingOverrideItem, GeneratedInvoiceItem } from "../interfaces/interfaces";
 
 interface InvoicingGetRequest {
   shipmentId: string;
@@ -9,6 +9,7 @@ interface InvoicingGetRequest {
 
 interface InvoicingGetResponse {
   costs: InvoiceCostItem[];
+  sellingCosts: SellingCostItem[];
   additionalCharges: AdditionalChargeItem[];
   billingSettings: BillingSettingsItem | null;
   billingOverrides: BillingOverrideItem[];
