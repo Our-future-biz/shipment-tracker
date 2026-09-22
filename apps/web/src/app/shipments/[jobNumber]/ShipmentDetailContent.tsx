@@ -160,7 +160,28 @@ function SectionHeader({
 
   const hasTools = !!(cardId && allFields?.length && shipment);
   const allKeys = allFields?.map((f) => f.key) ?? [];
-  const shownCount = hasTools ? visibleKeys(cardId!, allKeys).length : 0;
+  const shownKeys = hasTools ? visibleKeys(cardId!, allKeys) : [];
+  const shownCount = shownKeys.length;
+
+  /**
+   * One field row, used by both "Show all" and the field picker so the two
+   * modals always render the same thing — custom fields (Master Job's link,
+   * the party pickers) and editable cells included.
+   */
+  const fieldRow = (f: FieldDef): React.ReactNode =>
+    renderField?.[f.key] ? (
+      renderField[f.key]
+    ) : f.ro ? (
+      <RoRow label={f.label} value={getFieldValue(shipment!, f.key)} />
+    ) : (
+      <FieldRow
+        label={f.label}
+        fieldKey={f.key}
+        value={getFieldValue(shipment!, f.key)}
+        onCommit={onCommit ?? (() => {})}
+        styleFor={styleFor}
+      />
+    );
 
   return (
     <>
@@ -217,29 +238,7 @@ function SectionHeader({
             </span>
           }
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 max-h-[65vh] overflow-y-auto pr-1">
-            {[allFields!.slice(0, Math.ceil(allFields!.length / 2)),
-              allFields!.slice(Math.ceil(allFields!.length / 2))].map((col, i) => (
-              <div key={i}>
-                {col.map((f) =>
-                  renderField?.[f.key] ? (
-                    <React.Fragment key={f.key}>{renderField[f.key]}</React.Fragment>
-                  ) : f.ro ? (
-                    <RoRow key={f.key} label={f.label} value={getFieldValue(shipment!, f.key)} />
-                  ) : (
-                    <FieldRow
-                      key={f.key}
-                      label={f.label}
-                      fieldKey={f.key}
-                      value={getFieldValue(shipment!, f.key)}
-                      onCommit={onCommit ?? (() => {})}
-                      styleFor={styleFor}
-                    />
-                  ),
-                )}
-              </div>
-            ))}
-          </div>
+          <FieldColumns fields={allFields!} renderRow={fieldRow} />
         </Modal>
       )}
 
@@ -251,7 +250,7 @@ function SectionHeader({
           width={860}
           title={
             <span className="flex items-center gap-2">
-              <EditOutlined className="text-indigo-500" />
+              <span className="text-indigo-500">{icon}</span>
               <span className="text-[13px] font-bold uppercase tracking-wider">
                 {title} — choose fields
               </span>
@@ -282,36 +281,33 @@ function SectionHeader({
             </div>
           }
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 max-h-[65vh] overflow-y-auto pr-1">
-            {[allFields!.slice(0, Math.ceil(allFields!.length / 2)),
-              allFields!.slice(Math.ceil(allFields!.length / 2))].map((col, i) => (
-              <div key={i}>
-                {col.map((f) => {
-                  const on = visibleKeys(cardId!, allKeys).includes(f.key);
-                  return (
-                    <label
-                      key={f.key}
-                      className={`flex items-center gap-2 px-2 py-1 rounded-md cursor-pointer
-                                  hover:bg-slate-50 ${on ? "" : "opacity-55"}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={on}
-                        onChange={() => toggleField(cardId!, f.key, allKeys)}
-                        className="cursor-pointer"
-                      />
-                      <span className="text-[12.5px] text-slate-600 flex-1 min-w-0 truncate">
-                        {f.label}
-                      </span>
-                      <span className="text-[12.5px] text-slate-400 max-w-[45%] truncate text-right">
-                        {getFieldValue(shipment!, f.key) || "—"}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
+          {/* Exactly the rows "Show all" renders — same component, same values,
+              same custom fields — with only a checkbox added in front. */}
+          <FieldColumns
+            fields={allFields!}
+            renderRow={(f) => {
+              const on = shownKeys.includes(f.key);
+              // The separator belongs to the wrapper, not the row, so the rule
+              // runs the full width under the checkbox too — otherwise the
+              // indented lines break the table look "Show all" has.
+              return (
+                <div
+                  className={`flex items-start gap-2.5 border-b border-slate-100 last:border-b-0 ${
+                    on ? "" : "opacity-45"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => toggleField(cardId!, f.key, allKeys)}
+                    aria-label={`Show ${f.label} in this card`}
+                    className="mt-[7px] shrink-0 cursor-pointer"
+                  />
+                  <div className="flex-1 min-w-0 [&>div]:border-b-0">{fieldRow(f)}</div>
+                </div>
+              );
+            }}
+          />
         </Modal>
       )}
     </>
@@ -355,6 +351,31 @@ function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: 
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
       <span className="flex-1 min-w-0 text-slate-900 font-medium">{value ? value : <span className="text-slate-300">—</span>}</span>
+    </div>
+  );
+}
+
+/**
+ * The two-column field grid shared by "Show all" and the field picker, so the
+ * two modals lay out identically and only differ in how a row is rendered.
+ */
+function FieldColumns({
+  fields,
+  renderRow,
+}: {
+  fields: FieldDef[];
+  renderRow: (field: FieldDef) => React.ReactNode;
+}) {
+  const half = Math.ceil(fields.length / 2);
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 max-h-[65vh] overflow-y-auto pr-1">
+      {[fields.slice(0, half), fields.slice(half)].map((col, i) => (
+        <div key={i}>
+          {col.map((f) => (
+            <React.Fragment key={f.key}>{renderRow(f)}</React.Fragment>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
