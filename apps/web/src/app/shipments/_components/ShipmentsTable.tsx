@@ -29,7 +29,7 @@ import { useColumnView } from "@/hooks/useColumnView";
 import { ColumnPicker } from "./ColumnPicker";
 import { OverviewTiles, type TileId } from "./OverviewTiles";
 import { MasterJobDetailModal } from "./MasterJobDetailModal";
-import { DocumentsTab } from "@/app/shipments/[jobNumber]/tabs/DocumentsTab";
+import { DocumentsPanel } from "./DocumentsPanel";
 import { ChatPanel } from "./ChatPanel";
 import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { CustomerCell } from "./CustomerCell";
@@ -686,11 +686,12 @@ export const ShipmentsTable = ({
       <Drawer
         open={!!docsShipment}
         onClose={() => setDocsShipment(null)}
-        width={560}
+        width={480}
         destroyOnClose
+        styles={{ body: { padding: 0 } }}
         title={docsShipment ? `Documents — ${docsShipment.jobNumber ?? docsShipment.id}` : "Documents"}
       >
-        {docsShipment && <DocumentsTab shipment={docsShipment} />}
+        {docsShipment && <DocumentsPanel shipmentId={docsShipment.id} />}
       </Drawer>
 
       {/* Chat — the shipment's internal conversation; opening it marks it read. */}
