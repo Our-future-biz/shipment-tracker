@@ -28,7 +28,10 @@ import { useCardFields } from "./useCardFields";
 import { useUsers } from "@/hooks/useUsers";
 import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
 import Link from "next/link";
+import { ClaimsTab } from "./tabs/ClaimsTab";
 import { CostsTab } from "./tabs/CostsTab";
+import { useCostsData } from "./tabs/useCostsData";
+import { money } from "./tabs/costsCalc";
 import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
 import { CargoDetailsTab } from "./tabs/CargoDetailsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
@@ -345,6 +348,40 @@ function FieldRow({
   );
 }
 
+// Row whose value is picked from the company's members (same list as the sales person).
+function MemberRow({
+  label,
+  value,
+  fieldKey,
+  onCommit,
+  labelW = "w-[140px]",
+}: {
+  label: string;
+  value?: string | null;
+  fieldKey: string;
+  onCommit: CommitFn;
+  labelW?: string;
+}) {
+  const { users } = useUsers();
+  return (
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0 items-center">
+      <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
+      <Select
+        showSearch
+        allowClear
+        variant="borderless"
+        size="small"
+        placeholder="—"
+        className="flex-1 min-w-0 -ml-2 text-xs"
+        value={value || undefined}
+        optionFilterProp="label"
+        onChange={(v) => onCommit(fieldKey, v ?? "")}
+        options={users.map((u) => ({ label: u.displayName, value: u.displayName }))}
+      />
+    </div>
+  );
+}
+
 // Read-only horizontal row (label | value), matching FieldRow's look.
 function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: string | null; labelW?: string }) {
   return (
@@ -481,43 +518,6 @@ function HouseBolReleaseRow({ releasedAt, onRelease }: { releasedAt: string; onR
   );
 }
 
-function EmptyTab({ title }: { title: string }) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-lg p-12 text-center">
-      <div className="text-sm font-semibold text-slate-700">{title}</div>
-      <div className="text-xs text-slate-400 mt-1">Coming soon.</div>
-    </div>
-  );
-}
-
-function SalesPersonField({
-  value,
-  onChange,
-}: {
-  value?: string | null;
-  onChange: (value: string) => void;
-}) {
-  const { users } = useUsers();
-  return (
-    <div className="py-1.5">
-      <div className="text-[10px] font-semibold text-slate-600 uppercase tracking-wider mb-1">
-        Sales Person
-      </div>
-      <Select
-        showSearch
-        allowClear
-        variant="borderless"
-        size="small"
-        placeholder="—"
-        className="w-full -ml-2 text-xs"
-        value={value || undefined}
-        optionFilterProp="label"
-        onChange={(v) => onChange(v ?? "")}
-        options={users.map((u) => ({ label: u.displayName, value: u.displayName }))}
-      />
-    </div>
-  );
-}
 
 // Opening hours as a plain time range (from–to), no date, rendered as a card row.
 function OpeningHoursRow({
@@ -614,10 +614,11 @@ const PARTIES_AGENTS: FieldDef[] = [
   { key: "bookingConfirmation", label: "Booking Confirmation" },
   { key: "customsProcedure", label: "Customs Procedure" },
 ];
+// Selling, buying and profit are read-only here: they are the totals of the Costs Breakdown tab.
 const QUOTE_L: FieldDef[] = [
   { key: "salesNumber", label: "Sales Number" },
-  { key: "selling", label: "Total Selling Costs" },
-  { key: "buying", label: "Total Buying Costs" },
+  { key: "selling", label: "Total Selling Costs", ro: true },
+  { key: "buying", label: "Total Buying Costs", ro: true },
   { key: "profit", label: "Profit", ro: true },
 ];
 const QUOTE_R: FieldDef[] = [
@@ -630,6 +631,7 @@ const COMPLIANCE_FIELDS: FieldDef[] = [
   { key: "ams", label: "AMS (if any)" },
   { key: "isf", label: "ISF (if any)" },
   { key: "bolDraft", label: "BoL Draft" },
+  { key: "claim", label: "Claim" },
 ];
 const SWITCH_BOL_FIELDS: FieldDef[] = [
   { key: "switchBol", label: "Switch BOL" },
@@ -645,15 +647,18 @@ type CargoField = { key: string; label: string; highlight?: boolean; ro?: boolea
 
 // Load type / freight mode / trade direction / service type / invoicing status
 // moved to the Shipment Overview card (agreed overview mockup).
+// Split so both columns hold about the same number of rows.
+// Pieces, packages, HS code and description are filled in here when the shipment has no
+// cargo or container lines yet; once it has, the lines compute them and win.
 const CARGO_COMMERCIAL_L: CargoField[] = [
-  { key: "pcs", label: "Pieces (PCS)", ro: true },
-  { key: "typeOfPackages", label: "Type of packages", ro: true },
-  { key: "hsCode", label: "HS code", highlight: true, ro: true },
-  { key: "cargoDescription", label: "Cargo description", highlight: true, ro: true },
+  { key: "pcs", label: "Pieces (PCS)" },
+  { key: "typeOfPackages", label: "Type of packages" },
+  { key: "hsCode", label: "HS code", highlight: true },
+  { key: "cargoDescription", label: "Cargo description", highlight: true },
+  { key: "commercialInvoice", label: "Commercial invoice number(s)" },
+  { key: "commercialInvoiceValue", label: "Commercial invoice value" },
 ];
 const CARGO_COMMERCIAL_R: CargoField[] = [
-  { key: "commercialInvoice", label: "Commercial invoice number(s)" },
-  { key: "commercialInvoiceValue", label: "Commercial invoice value", ro: true },
   { key: "containerTypeSummary", label: "Container type", ro: true },
   { key: "totalTeu", label: "Total TEU", ro: true },
   { key: "totalGrossWeightKg", label: "Total gross weight (kg)", ro: true },
@@ -680,6 +685,10 @@ function CargoRow({
     field.key === "commercialInvoiceValue"
       ? getFieldValue(shipment, "civByCurrency") || getFieldValue(shipment, "commercialInvoiceValue")
       : getFieldValue(shipment, field.key);
+  // Approved by is a person, picked from the company's members.
+  if (field.key === "approvedBy") {
+    return <MemberRow label={field.label} fieldKey={field.key} value={value} onCommit={onCommit} labelW="w-[180px]" />;
+  }
   if (field.ro) {
     return (
       <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
@@ -816,6 +825,9 @@ export function ShipmentDetailContent() {
     enabled: !!shipment,
   });
   const linkedQuote = invoicingData?.billingSettings?.quoteRef ?? "";
+
+  // Totals of the Costs Breakdown tab, shown on the Quote card.
+  const costs = useCostsData(shipment);
 
   // Kurzovni listek se predava dopredu ze stejneho duvodu - Costs Breakdown
   // ho pak nacita z pameti, ne ze serveru.
@@ -1292,10 +1304,21 @@ export function ShipmentDetailContent() {
               {/* QUOTE */}
               <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
                 {(() => {
-                  const right: FieldDef[] = [...QUOTE_R, { key: "salesPerson", label: "Sales Person", ro: true }];
+                  const right: FieldDef[] = [...QUOTE_R, { key: "salesPerson", label: "Sales Person" }];
+                  // The money comes straight from the Costs Breakdown tab, in the billing currency.
+                  const amount = (v: number) => (costs.totals.hasAny ? `${money(v)} ${costs.billingCur}` : "—");
                   const custom: Record<string, React.ReactNode> = {
+                    selling: <RoRow key="selling" label="Total Selling Costs" value={amount(costs.totals.sellTotal)} />,
+                    buying: <RoRow key="buying" label="Total Buying Costs" value={amount(costs.totals.buyTotal)} />,
+                    profit: <RoRow key="profit" label="Profit" value={amount(costs.totals.sellTotal - costs.totals.buyTotal)} />,
                     salesPerson: (
-                      <SalesPersonField value={shipment.salesPerson} onChange={(v) => updateShipment({ id: shipment.id, data: { salesPerson: v } })} />
+                      <MemberRow
+                        key="salesPerson"
+                        label="Sales Person"
+                        fieldKey="salesPerson"
+                        value={shipment.salesPerson}
+                        onCommit={(_k, v) => updateShipment({ id: shipment.id, data: { salesPerson: v } })}
+                      />
                     ),
                   };
                   const allKeys = [...QUOTE_L, ...right].map((f) => f.key);
@@ -1341,7 +1364,6 @@ export function ShipmentDetailContent() {
                   const left: FieldDef[] = [
                     { key: "jobNumber", label: "Internal Reference", ro: true },
                     { key: "department", label: "Department" },
-                    { key: "claim", label: "Claim" },
                   ];
                   const right: FieldDef[] = [
                     { key: "personInCharge", label: "Person In Charge" },
@@ -1354,6 +1376,8 @@ export function ShipmentDetailContent() {
                     col.filter((f) => shown.has(f.key)).map((f) =>
                       f.ro ? (
                         <RoRow key={f.key} label={f.label} value={getFieldValue(shipment, f.key)} />
+                      ) : f.key === "personInCharge" || f.key === "holidayCover" ? (
+                        <MemberRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} />
                       ) : (
                         <FieldRow key={f.key} label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={handleCommit} styleFor={styleFor} />
                       ),
@@ -1426,7 +1450,7 @@ export function ShipmentDetailContent() {
 
         {activeTab === "customs" && <CustomsTab shipment={shipment} onCommit={handleCommit} />}
 
-        {activeTab === "claim" && <EmptyTab title="Claim" />}
+        {activeTab === "claim" && <ClaimsTab shipment={shipment} />}
       </div>
 
       {shipment.masterJobMczNumber && (

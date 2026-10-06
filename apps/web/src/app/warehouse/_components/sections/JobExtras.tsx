@@ -6,6 +6,19 @@ import { InboxOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 
+// White card with the app's indigo section header.
+function Card({ title, extra, children }: { title: string; extra?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm min-w-0">
+      <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
+        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
+        {extra && <div className="ml-auto flex items-center gap-2">{extra}</div>}
+      </div>
+      <div className="p-4">{children}</div>
+    </section>
+  );
+}
+
 interface JobSectionData {
   notes?: string;
   vgm_sent?: string;
@@ -29,17 +42,18 @@ export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi:
   const dirty = notes !== savedNotes;
 
   return (
-    <div className="mb-4">
-      <div className="flex items-center justify-between mb-2">
-        <strong className="text-xs">Notes</strong>
-        {dirty && (
+    <Card
+      title="Notes"
+      extra={
+        dirty && (
           <Button size="small" type="primary" loading={isSaving} onClick={() => save({ ...section, notes }).then(() => messageApi.success("Saved")).catch(() => messageApi.error("Failed to save"))}>
             Save
           </Button>
-        )}
-      </div>
+        )
+      }
+    >
       <Input.TextArea rows={2} value={notes} placeholder="Warehouse notes…" onChange={(e) => setNotes(e.target.value)} />
-    </div>
+    </Card>
   );
 }
 
@@ -83,9 +97,8 @@ export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; me
   };
 
   return (
-    <div className="mt-4">
-      <strong className="text-xs block mb-2">Push to Suppliers</strong>
-      <Space>
+    <Card title="Push to suppliers">
+      <Space wrap>
         {ACTIONS.map((action) => {
           const parsed = parseActionData(section[action.key]);
           return parsed ? (
@@ -119,6 +132,6 @@ export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; me
         </div>
         <Input.TextArea placeholder="Add a note..." rows={3} value={modalState?.note || ""} onChange={(e) => modalState && setModalState({ ...modalState, note: e.target.value })} />
       </Modal>
-    </div>
+    </Card>
   );
 }

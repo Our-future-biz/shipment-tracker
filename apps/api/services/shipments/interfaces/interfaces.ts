@@ -200,8 +200,18 @@ export interface ShipmentItem {
   validityStatus: string;
   salesPerson: string;
 
-  // Other
+  // Claim
   claim: string;
+  /** Damaged | Incomplete | Undamaged | Lost */
+  claimCargoState: string;
+  claimCargoNote: string;
+  claimCostSupplier: string;
+  claimCostInvoiceNumber: string;
+  claimCostReason: string;
+  /** Disputed amount, with currency. */
+  claimCostAmount: string;
+
+  // Other
   createdBy: string;
 
   createdAt: string;
@@ -218,8 +228,42 @@ export interface CommentItem {
   id: string;
   shipmentId: string;
   authorId: string;
+  /** Who wrote it (display name, e-mail when they have none). */
+  authorName: string;
   message: string;
   createdAt: string;
+}
+
+/** One claim of a shipment. */
+export interface ClaimItem {
+  id: string;
+  shipmentId: string;
+  /** cargo = claim on the shipment · cost = claim on a supplier's invoice */
+  kind: string;
+  /** Damaged | Incomplete | Undamaged | Lost (cargo claims) */
+  cargoState: string;
+  note: string;
+  supplier: string;
+  invoiceNumber: string;
+  reason: string;
+  /** Disputed amount, with currency. */
+  amount: string;
+  createdAt: string;
+}
+
+export interface ClaimInput {
+  cargoState?: string;
+  note?: string;
+  supplier?: string;
+  invoiceNumber?: string;
+  reason?: string;
+  amount?: string;
+}
+
+/** Unread chat messages of one shipment, for the user asking. */
+export interface CommentUnreadItem {
+  shipmentId: string;
+  unread: number;
 }
 
 export interface TaskItem {

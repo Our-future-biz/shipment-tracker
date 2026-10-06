@@ -73,6 +73,7 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "BoL draft": ["Not Processed", "Waiting for approval", "Approved"],
   "Invoicing Status": ["Invoiced", "Not Invoiced"],
   "Claim": ["Yes", "No"],
+  "Claim Cargo State": ["Damaged", "Incomplete", "Undamaged", "Lost"],
   "Booking Confirmation": ["Pending", "Received"],
 };
 
@@ -253,6 +254,12 @@ export const COLUMNS: ColumnDef[] = [
 
   // Misc
   { key: "claim", title: "Claim", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Claim"], apiField: "claim" },
+  { key: "claimCargoState", title: "Claim — Cargo State", width: 150, type: "dropdown", options: DROPDOWN_OPTIONS["Claim Cargo State"], apiField: "claimCargoState" },
+  { key: "claimCargoNote", title: "Claim — Cargo Note", width: 220, type: "text", apiField: "claimCargoNote" },
+  { key: "claimCostSupplier", title: "Claim — Supplier", width: 180, type: "text", apiField: "claimCostSupplier" },
+  { key: "claimCostInvoiceNumber", title: "Claim — Invoice Number", width: 170, type: "text", apiField: "claimCostInvoiceNumber" },
+  { key: "claimCostReason", title: "Claim — Reason", width: 220, type: "text", apiField: "claimCostReason" },
+  { key: "claimCostAmount", title: "Claim — Disputed Amount", width: 160, type: "text", apiField: "claimCostAmount" },
   { key: "createdBy", title: "Created by", width: 210, type: "text", readonly: true, apiField: "createdBy" },
 ];
 
@@ -381,6 +388,13 @@ export function getCellConditionalStyle(
   if (key === "claim") {
     if (value === "Yes") return { backgroundColor: "rgba(244, 63, 94, 0.15)" };
     if (value === "No") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
+  }
+
+  // Cargo condition behind a claim: only undamaged cargo is clean.
+  if (key === "claimCargoState") {
+    if (value === "Undamaged") return { backgroundColor: "rgba(34, 197, 94, 0.15)" };
+    if (value === "Incomplete") return { backgroundColor: "rgba(234, 179, 8, 0.15)" };
+    if (value === "Damaged" || value === "Lost") return { backgroundColor: "rgba(244, 63, 94, 0.15)" };
   }
 
   // Credit Check

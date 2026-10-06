@@ -7,15 +7,12 @@ import { Button, Spin, Modal, message } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import { useWarehouse } from "@/hooks/useWarehouse";
 import { TaskMeta, StandaloneDimensions } from "../_components/WarehouseTaskDetail";
-import { SpreadsheetSection, CUSTOMS_COLUMNS, INVOICING_COLUMNS } from "../_components/sections/SpreadsheetSection";
 import { PickupSection } from "../_components/sections/PickupSection";
 import { JobNotes, ActionPushButtons } from "../_components/sections/JobExtras";
 
 const TABS = [
   { key: "details", label: "Details" },
-  { key: "customs", label: "Customs" },
   { key: "pickup", label: "Pick-up" },
-  { key: "invoicing", label: "Invoicing" },
 ];
 
 function Card({ title, children, className = "" }: { title?: string; children: React.ReactNode; className?: string }) {
@@ -119,21 +116,9 @@ export function WarehouseTaskDetailContent() {
           </div>
         )}
 
-        {activeTab === "customs" && (
-          <Card>
-            <SpreadsheetSection ownerId={task.id} section="customs" title="Customs Details" columns={CUSTOMS_COLUMNS} messageApi={messageApi} />
-          </Card>
-        )}
-
         {activeTab === "pickup" && (
           <Card>
             <PickupSection ownerId={task.id} messageApi={messageApi} />
-          </Card>
-        )}
-
-        {activeTab === "invoicing" && (
-          <Card>
-            <SpreadsheetSection ownerId={task.id} section="invoicing" title="Invoice Records" columns={INVOICING_COLUMNS} messageApi={messageApi} />
           </Card>
         )}
       </div>

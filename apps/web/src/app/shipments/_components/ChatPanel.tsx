@@ -1,19 +1,17 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Input, Button } from "antd";
-import { SendOutlined, DeleteOutlined, CloseOutlined } from "@ant-design/icons";
+import { SendOutlined, DeleteOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 
 interface ChatPanelProps {
   shipmentId: string;
-  jobNumber: string;
-  onClose: () => void;
 }
 
-export const ChatPanel = ({ shipmentId, jobNumber, onClose }: ChatPanelProps) => {
+export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [message, setMessage] = useState("");
@@ -30,6 +28,7 @@ export const ChatPanel = ({ shipmentId, jobNumber, onClose }: ChatPanelProps) =>
     mutationFn: (msg: string) => api.shipments.commentCreate(shipmentId, { message: msg }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["comments", shipmentId] });
+      queryClient.invalidateQueries({ queryKey: ["shipment-comments", "unread"] });
       setMessage("");
     },
   });
@@ -39,7 +38,17 @@ export const ChatPanel = ({ shipmentId, jobNumber, onClose }: ChatPanelProps) =>
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["comments", shipmentId] }),
   });
 
-  const comments = data?.comments ?? [];
+  const comments = useMemo(() => data?.comments ?? [], [data]);
+
+  // Opening the chat (and anything arriving while it is open) counts as read.
+  useEffect(() => {
+    api.shipments
+      .commentMarkRead(shipmentId)
+      .then(() => queryClient.invalidateQueries({ queryKey: ["shipment-comments", "unread"] }))
+      .catch(() => {
+        // Not fatal — the badge just stays until the next time the chat is opened.
+      });
+  }, [shipmentId, comments.length, queryClient]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -51,18 +60,7 @@ export const ChatPanel = ({ shipmentId, jobNumber, onClose }: ChatPanelProps) =>
   };
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", borderLeft: "1px solid #e5e7eb", background: "#fff", width: 320 }}>
-      {/* Header */}
-      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 16px", borderBottom: "1px solid #e5e7eb" }}>
-        <div>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Chat</span>
-          <span className="text-[10px] text-gray-400 ml-2 font-mono">{jobNumber}</span>
-        </div>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
-          <CloseOutlined style={{ fontSize: 12 }} />
-        </button>
-      </div>
-
+    <div className="flex flex-col h-full bg-white">
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-3">
         {comments.length === 0 && (
@@ -80,6 +78,7 @@ export const ChatPanel = ({ shipmentId, jobNumber, onClose }: ChatPanelProps) =>
                 {comment.message}
               </div>
               <div className="flex items-center gap-2 mt-0.5 px-1">
+                {!isMe && comment.authorName && <span className="text-[10px] font-semibold text-gray-500">{comment.authorName}</span>}
                 <span className="text-[10px] text-gray-400">
                   {new Date(comment.createdAt).toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" })}
                 </span>

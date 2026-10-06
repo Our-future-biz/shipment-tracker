@@ -156,8 +156,18 @@ export const shipmentTable = pgTable(
     validityStatus: text("validity_status").notNull().default(""),
     salesPerson: text("sales_person").notNull().default(""),
 
-    // — Other —
+    // — Claim —
     claim: text("claim").notNull().default(""),
+    // Claim on the shipment: condition of the cargo.
+    claimCargoState: text("claim_cargo_state").notNull().default(""), // Damaged | Incomplete | Undamaged | Lost
+    claimCargoNote: text("claim_cargo_note").notNull().default(""),
+    // Claim on costs: what we dispute with a supplier.
+    claimCostSupplier: text("claim_cost_supplier").notNull().default(""),
+    claimCostInvoiceNumber: text("claim_cost_invoice_number").notNull().default(""),
+    claimCostReason: text("claim_cost_reason").notNull().default(""),
+    claimCostAmount: text("claim_cost_amount").notNull().default(""), // disputed amount with currency
+
+    // — Other —
     createdBy: text("created_by").notNull().default(""),
   },
   (table) => [

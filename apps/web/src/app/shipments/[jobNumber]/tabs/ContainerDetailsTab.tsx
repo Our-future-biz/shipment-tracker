@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Input, Button, AutoComplete } from "antd";
+import { Input, Button, AutoComplete, Tooltip, message } from "antd";
 import { PlusOutlined, DeleteOutlined, ContainerOutlined } from "@ant-design/icons";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { normalizeContainerNumber } from "@/lib/container";
+import { isValidContainerNumber, normalizeContainerNumber } from "@/lib/container";
 import {
   CONTAINER_SIZES,
   CONTAINER_KINDS,
@@ -106,23 +106,50 @@ export function ContainerDetailsTab({
     }
   });
 
-  const persist = () => onChange(rowsRef.current);
-  const patch = (i: number, p: Partial<ContainerLine>) =>
+  // Nothing is saved while any row holds a container number of the wrong shape.
+  const canPersist = () => rowsRef.current.every((r) => isValidContainerNumber(r.containerNumber));
+  const persist = () => {
+    if (canPersist()) onChange(rowsRef.current);
+  };
+  const patch = (i: number, p: Partial<ContainerLine>) => {
+    // Typing keeps the row open: without this the row with a freshly typed container
+    // number would no longer count as "being edited" and would collapse mid-word.
+    setEditing((e) => (e.has(i) ? e : new Set(e).add(i)));
     setRows((r) => r.map((c, j) => (j === i ? { ...c, ...p } : c)));
+  };
   // On blur, collapse the container number to its canonical form (no spaces/hyphens, uppercase).
+  // A number that is not 4 letters + 7 digits is kept in the row but never saved.
   const normalizeContainerAt = (i: number) => {
     const next = rowsRef.current.map((r, j) =>
       j === i ? { ...r, containerNumber: normalizeContainerNumber(r.containerNumber) } : r,
     );
     setRows(next);
-    onChange(next);
+    const typed = next[i]?.containerNumber ?? "";
+    if (!isValidContainerNumber(typed)) {
+      messageApi.error(`Container number "${typed}" is not valid — it must be 4 letters and 7 digits, e.g. MSKU1234567`);
+      return;
+    }
+    if (next.every((r) => isValidContainerNumber(r.containerNumber))) onChange(next);
   };
+  // A complete number (4 letters + 7 digits) is saved straight away, so leaving the tab
+  // is not needed for it to stick.
+  const setContainerNumber = (i: number, raw: string) => {
+    const canonical = normalizeContainerNumber(raw);
+    const complete = /^[A-Z]{4}[0-9]{7}$/.test(canonical);
+    const value = complete ? canonical : raw;
+    patch(i, { containerNumber: value });
+    if (!complete) return;
+    const next = rowsRef.current.map((r, j) => (j === i ? { ...r, containerNumber: value } : r));
+    rowsRef.current = next;
+    if (next.every((r) => isValidContainerNumber(r.containerNumber))) onChange(next);
+  };
+
   const add = () => {
     const next = [...rowsRef.current, emptyContainer()];
     setRows(next);
     setEditing((e) => new Set(e).add(next.length - 1));
     focusAfterRender.current = `${next.length - 1}:containerNumber`;
-    onChange(next);
+    if (canPersist()) onChange(next);
   };
   // Deleting the last remaining row just clears it (reference-UI behavior); the
   // backend cascades the removed container's cargo lines.
@@ -134,7 +161,8 @@ export function ContainerDetailsTab({
     onChange(filtered);
   };
 
-  const isEditing = (i: number) => editing.has(i) || !(rows[i]?.containerNumber ?? "").trim();
+  const isEditing = (i: number) =>
+    editing.has(i) || !(rows[i]?.containerNumber ?? "").trim() || !isValidContainerNumber(rows[i]?.containerNumber);
   const closeRow = (i: number) =>
     setEditing((e) => {
       if (!e.has(i)) return e;
@@ -148,11 +176,16 @@ export function ContainerDetailsTab({
   };
 
   // Focus leaving the row switches it to read mode (like clicking outside in the
-  // reference UI). relatedTarget is null while antd moves focus into its dropdown,
-  // so only close when focus really landed outside the row.
+  // reference UI). Clicking plain background gives no relatedTarget, so check where the
+  // focus actually ended up once the browser has moved it.
   const onRowBlur = (i: number) => (e: React.FocusEvent<HTMLDivElement>) => {
     if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
-    if (e.relatedTarget) closeRow(i);
+    const row = e.currentTarget;
+    setTimeout(() => {
+      if (row.contains(document.activeElement)) return;
+      persist();
+      closeRow(i);
+    }, 0);
   };
   const onRowKeyDown = (i: number) => (e: React.KeyboardEvent) => {
     if (e.key !== "Enter") return;
@@ -170,11 +203,13 @@ export function ContainerDetailsTab({
   const totalWeight = rows.reduce((s, c) => s + num(c.grossWeight), 0);
   const totalVolume = rows.reduce((s, c) => s + num(c.volume), 0);
 
+  const [messageApi, contextHolder] = message.useMessage();
   const [typeQuery, setTypeQuery] = useState("");
   const typeOptions = useMemo(() => containerTypeOptions(typeQuery), [typeQuery]);
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+      {contextHolder}
       <div className="flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 px-5 py-3">
         <ContainerOutlined className="text-indigo-500 text-base" />
         <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0 flex-1">Container Details</h3>
@@ -205,14 +240,20 @@ export function ContainerDetailsTab({
                   onBlur={onRowBlur(i)}
                   onKeyDown={onRowKeyDown(i)}
                 >
-                  <Input
-                    ref={setInputRef(`${i}:containerNumber`)}
-                    size="small"
-                    value={c.containerNumber}
-                    placeholder="MSKU1234567"
-                    onChange={(e) => patch(i, { containerNumber: e.target.value })}
-                    onBlur={() => normalizeContainerAt(i)}
-                  />
+                  <Tooltip
+                    title={isValidContainerNumber(c.containerNumber) ? "" : "4 letters + 7 digits, e.g. MSKU1234567"}
+                    open={isValidContainerNumber(c.containerNumber) ? false : undefined}
+                  >
+                    <Input
+                      ref={setInputRef(`${i}:containerNumber`)}
+                      size="small"
+                      status={isValidContainerNumber(c.containerNumber) ? undefined : "error"}
+                      value={c.containerNumber}
+                      placeholder="MSKU1234567"
+                      onChange={(e) => setContainerNumber(i, e.target.value)}
+                      onBlur={() => normalizeContainerAt(i)}
+                    />
+                  </Tooltip>
                   <Input
                     ref={setInputRef(`${i}:sealNumber`)}
                     size="small"

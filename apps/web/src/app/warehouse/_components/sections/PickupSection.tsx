@@ -98,7 +98,8 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
         <tbody>
           {rows.map((row, idx) => (
             <tr key={idx} className="border-b border-slate-100">
-              <td className="p-0.5 px-1.5 font-mono text-indigo-500">{idx === 0 && pin ? pin : ""}</td>
+              {/* The PIN belongs to the pick-up, so every row carries it. */}
+              <td className="p-0.5 px-1.5 font-mono text-indigo-500">{pin ?? ""}</td>
               {["haulier", "licensePlate", "driver"].map((f) => (
                 <td key={f} className="p-0.5">
                   <Input size="small" value={row[f] || ""} onChange={(e) => update(idx, f, e.target.value)} />

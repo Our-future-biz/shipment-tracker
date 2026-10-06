@@ -1,18 +1,15 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { Input, Select, Checkbox, Tooltip, Modal, message } from "antd";
 import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined, WarningOutlined } from "@ant-design/icons";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { getFieldValue } from "@/hooks/useShipments";
-import { weekKeyFromDate, formatWeekLabel } from "@/lib/isoWeek";
-import {
-  computeCosts, money, signed, num,
-  type BuyingRow, type SellingRow, type Rates,
-} from "./costsCalc";
+import { formatWeekLabel } from "@/lib/isoWeek";
+import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
+import { useCostsData } from "./useCostsData";
 
 /** CURRENCIES z mockupu - kod a nazev meny (naseptavac filtruje podle obojiho) */
 const CURRENCIES: [string, string][] = [
@@ -26,11 +23,6 @@ const CURRENCIES: [string, string][] = [
   ["ZAR", "South African Rand"], ["BRL", "Brazilian Real"], ["MXN", "Mexican Peso"], ["RUB", "Russian Ruble"],
 ];
 
-/**
- * Bez kurzovniho listku znameme jen CZK. Drive tu byly natvrdo zapsane kurzy
- * EUR/USD - tise zastaraly a pocitalo se s nimi dal, coz u penez nejde.
- */
-const CZK_ONLY: Rates = { CZK: 1 };
 
 /** COST_TYPES z mockupu - kategorie nakladu (spolecne pro buying i selling) */
 const COST_CATEGORIES = [
@@ -82,6 +74,8 @@ function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: stri
 
 /* ── sdilene tridy dle mockupu (--cb-field-h 30px, --cb-cell-x 6px) ── */
 const CELL = "px-[6px] py-[6px] border-b border-slate-100 align-middle";
+/** Splits estimated from real buying costs: a thick line down the whole table. */
+const SPLIT = "border-l-[3px] border-l-slate-900";
 const FIELD =
   "w-full h-[30px] px-2 text-[13px] border border-slate-200 rounded-md outline-none " +
   "focus:border-indigo-500 bg-white";
@@ -157,15 +151,10 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     return n;
   });
 
-  // Stejny klic jako v ShipmentDetailContent - data uz jsou v pameti
-  // z okamziku otevreni zakazky, takze zalozka naskoci bez cekani.
-  const { data } = useQuery({
-    queryKey: ["invoicing", shipment.id],
-    queryFn: () => api.invoicing.invoicingGet(shipment.id),
-    placeholderData: (prev) => prev,
-    // nedotahuj znovu jen kvuli tomu, ze se komponenta prave pripojila
-    refetchOnMount: false,
-  });
+  // Rows, rates and totals come from the shared hook, so the Quote card on the detail page
+  // shows exactly the same figures as this tab.
+  const { billingCur, rateBasis, rateDate, weekKey, fx, rates, ratesLoading, buyRows, sellRows, totals: t } = useCostsData(shipment);
+
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
 
   /** Chyba zapisu se musi ukazat - drive se tise spolkla a tlacitko
@@ -176,102 +165,13 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     message.error(detail ? `${what}: ${detail}` : what);
   };
 
-  /* ── Billing mena ──
-     Prepinac byl odstranen - souhrny jsou v CZK, pripadne v mene ulozene
-     u zakazky. ROE se nepouziva, kurzy chodi z kurzovniho listku. */
-  const billingCur = data?.billingSettings?.billingCurrency || "CZK";
-
   const upsertBilling = useMutation({
     mutationFn: (params: { billingCurrency?: string; roe?: string; quoteRef?: string }) =>
       api.invoicing.invoicingUpsertBillingSettings(shipment.id, params),
     onSuccess: invalidate,
   });
 
-  /* ── Datum pro kurz ──
-     Odvozuje se automaticky ze zasilky: import -> ETA, export -> ETD.
-     Zadne rucni nastaveni. */
-  const tradeDirection = (getFieldValue(shipment, "tradeDirection") || "").trim().toLowerCase();
-  const rateBasis: "eta" | "etd" = tradeDirection === "export" ? "etd" : "eta";
-
-  const rateDate = useMemo(() => {
-    const raw = getFieldValue(
-      shipment,
-      rateBasis === "etd" ? "estimatedDeparture" : "estimatedArrival",
-    );
-    const txt = String(raw ?? "").trim();
-    if (!txt) return "";
-    // uz ve tvaru YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}/.test(txt)) return txt.slice(0, 10);
-    // grid uklada data jako MM/DD/YY nebo MM/DD/YYYY
-    const m = txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
-    if (m) {
-      const [, mm, dd, yy] = m;
-      const year = yy!.length === 2 ? `20${yy}` : yy!;
-      return `${year}-${mm!.padStart(2, "0")}-${dd!.padStart(2, "0")}`;
-    }
-    const parsed = new Date(txt);
-    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
-  }, [shipment, rateBasis]);
-
-  // Kurzy se berou z kurzovniho listku zadaneho na strance Exchange.
-  const ratesQuery = useQuery({
-    queryKey: ["exchange-rates"],
-    queryFn: () => api.invoicing.exchangeRateList(),
-    staleTime: 10 * 60 * 1000,
-    placeholderData: (prev) => prev,
-    refetchOnMount: false,
-  });
-
-  const weekKey = useMemo(() => (rateDate ? weekKeyFromDate(rateDate) : ""), [rateDate]);
-
-  /**
-   * Kurz pro tyden data ETA/ETD. Kdyz pro dany tyden zaznam neni,
-   * pouzije se posledni znamy starsi kurz a uzivatel je upozornen.
-   */
-  const fx = useMemo(() => {
-    const list = ratesQuery.data?.rates ?? [];
-    if (!list.length) return { rates: CZK_ONLY, source: "none" as const, usedWeek: "" };
-
-    const exact = list.find((r) => r.week === weekKey);
-    // list chodi serazeny od nejnovejsiho, hledame nejblizsi starsi tyden
-    const fallbackRow = exact
-      ?? (rateDate ? list.find((r) => r.validFrom <= rateDate) : list[0])
-      ?? list[0];
-    if (!fallbackRow) return { rates: CZK_ONLY, source: "none" as const, usedWeek: "" };
-
-    const eur = Number(fallbackRow.rateEur);
-    const usd = Number(fallbackRow.rateUsd);
-    return {
-      rates: {
-        CZK: 1,
-        ...(Number.isFinite(eur) && eur > 0 ? { EUR: eur } : {}),
-        ...(Number.isFinite(usd) && usd > 0 ? { USD: usd } : {}),
-      } as Rates,
-      source: exact ? ("exact" as const) : ("older" as const),
-      usedWeek: fallbackRow.week,
-    };
-  }, [ratesQuery.data?.rates, weekKey, rateDate]);
-
-  const rates: Rates = fx.rates;
-
   /* ── Buying costs ── */
-  const buyRows: BuyingRow[] = useMemo(
-    () => (data?.costs ?? []).map((c) => ({
-      id: c.id,
-      category: c.category ?? "",
-      vendor: c.vendor ?? "",
-      estQty: c.estQty ?? "",
-      estAmount: c.estAmount ?? "",
-      estCurrency: c.estCurrency || "CZK",
-      realQty: c.realQty ?? "",
-      realAmount: c.realAmount ?? "",
-      realCurrency: c.realCurrency || "CZK",
-      invoiceNumber: c.invoiceNumber ?? "",
-      received: !!c.received,
-    })),
-    [data?.costs],
-  );
-
   // novy radek dle mockupu: Qty = 1, meny podle zvolene billing meny
   const addBuy = useMutation({
     mutationFn: () => api.invoicing.invoicingAddBuyingCost(shipment.id, {
@@ -295,20 +195,6 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   });
 
   /* ── Selling costs ── */
-  const sellRows: SellingRow[] = useMemo(
-    () => (data?.sellingCosts ?? []).map((c) => ({
-      id: c.id,
-      category: c.category ?? "",
-      customer: c.customer ?? "",
-      qty: c.qty ?? "",
-      amount: c.amount ?? "",
-      currency: c.currency || "CZK",
-      invoice: !!c.invoice,
-      sourceBuyId: c.sourceBuyId ?? null,
-    })),
-    [data?.sellingCosts],
-  );
-
   // novy radek dle mockupu: Qty = 1, mena podle billing meny, Invoice zaskrtnuto
   const addSell = useMutation({
     mutationFn: (params: Record<string, unknown> = {}) =>
@@ -558,12 +444,6 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   const missingFor = (...currencies: string[]) =>
     [...new Set([...currencies, billingCur].filter((c) => c && c !== "CZK" && !rates[c]))].join(", ");
 
-  /* ── Vypocty (presne dle recalcCosts z mockupu) ── */
-  const t = useMemo(
-    () => computeCosts(buyRows, sellRows, billingCur, rates),
-    [buyRows, sellRows, billingCur, rates],
-  );
-
   // Zadna blokujici obrazovka - karty se vykresli vzdy. Dokud data nedorazi,
   // jsou tabulky prazdne a nahore bezi tenky prouzek.
 
@@ -595,7 +475,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                 <th colSpan={3} className={`${TH} text-center bg-[#F5F6FD] text-[#3F4DBF]`}>
                   Estimated buying costs
                 </th>
-                <th colSpan={5} className={`${TH} text-center bg-[#FBF6EF] text-[#95620B]`}>
+                <th colSpan={5} className={`${TH} ${SPLIT} text-center bg-[#FBF6EF] text-[#95620B]`}>
                   Real buying costs
                 </th>
                 <th colSpan={2} className="border-b border-slate-200" />
@@ -606,7 +486,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                 <th className={`${TH} text-center w-[5%]`}>Qty</th>
                 <th className={`${TH} text-right w-[9%]`}>Est. Amount</th>
                 <th className={`${TH} text-left w-[6%]`}>Cur</th>
-                <th className={`${TH} text-center w-[5%]`}>Qty</th>
+                <th className={`${TH} ${SPLIT} text-center w-[5%]`}>Qty</th>
                 <th className={`${TH} text-right w-[9%]`}>Real Cost</th>
                 <th className={`${TH} text-left w-[6%]`}>Cur</th>
                 <th className={`${TH} text-left w-[9%]`}>Invoice number</th>
@@ -666,7 +546,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
                   </td>
                   {/* Real */}
-                  <td className={CELL}>
+                  <td className={`${CELL} ${SPLIT}`}>
                     <input
                       className={`${FIELD} text-center${fld}`}
                       defaultValue={r.realQty}
@@ -764,7 +644,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                   {money(t.estTotal)}
                 </td>
                 <td className="px-[6px] py-2 text-[12px] text-slate-500">{billingCur}</td>
-                <td />
+                <td className={SPLIT} />
                 <td className={`px-[6px] py-2 text-right text-[13px] tabular-nums ${t.realStrictTotal ? "text-slate-900" : "text-slate-300"}`}>
                   {t.realStrictTotal ? money(t.realStrictTotal) : "—"}
                 </td>
@@ -962,7 +842,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
 
         {/* odkud se kurz vzal */}
         <span className="text-[12.5px] text-slate-500">
-          {ratesQuery.isLoading ? (
+          {ratesLoading ? (
             "Loading rates…"
           ) : fx.source === "none" ? (
             <span className="text-[#95620B] font-semibold">

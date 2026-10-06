@@ -5,6 +5,12 @@ export function normalizeContainerNumber(raw?: string | null): string {
   return (raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
 }
 
+/** Canonical shape: 4 letters + 7 digits. An empty value is allowed (row not filled in yet). */
+export function isValidContainerNumber(raw?: string | null): boolean {
+  const n = normalizeContainerNumber(raw);
+  return n === "" || /^[A-Z]{4}[0-9]{7}$/.test(n);
+}
+
 // Pull every canonical container number out of a free-text value. A document may
 // list several and use spaces/hyphens, so we strip separators first, then extract
 // each 4-letter + 7-digit number. Falls back to the cleaned string when nothing

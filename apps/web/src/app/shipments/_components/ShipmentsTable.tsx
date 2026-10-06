@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Button, Badge } from "antd";
-import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined, DownloadOutlined } from "@ant-design/icons";
+import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined, DownloadOutlined, MessageOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
@@ -28,6 +30,7 @@ import { ColumnPicker } from "./ColumnPicker";
 import { OverviewTiles, type TileId } from "./OverviewTiles";
 import { MasterJobDetailModal } from "./MasterJobDetailModal";
 import { DocumentsTab } from "@/app/shipments/[jobNumber]/tabs/DocumentsTab";
+import { ChatPanel } from "./ChatPanel";
 import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { CustomerCell } from "./CustomerCell";
 import type { controllers } from "@/lib/api/client";
@@ -167,6 +170,14 @@ export const ShipmentsTable = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [mczModal, setMczModal] = useState<string | null>(null);
   const [docsShipment, setDocsShipment] = useState<ShipmentItem | null>(null);
+  const [chatShipment, setChatShipment] = useState<ShipmentItem | null>(null);
+  // Unread chat messages per shipment, for the red badge on the chat icon.
+  const { data: unreadData } = useQuery({
+    queryKey: ["shipment-comments", "unread"],
+    queryFn: () => api.shipments.commentUnread(),
+    refetchInterval: 30000,
+  });
+  const unreadBy = useMemo(() => new Map((unreadData?.unread ?? []).map((u) => [u.shipmentId, u.unread])), [unreadData]);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
 
   // Per-column filters, persisted in the URL as ?f.<colKey>=<value>
@@ -377,7 +388,7 @@ export const ShipmentsTable = ({
       },
     }));
 
-    // Always-visible Documents column (independent of the column picker).
+    // Always-visible Documents + Chat columns (independent of the column picker).
     cols.push({
       key: "__docs",
       title: "",
@@ -395,8 +406,30 @@ export const ShipmentsTable = ({
       ),
     });
 
+    cols.push({
+      key: "__chat",
+      title: "",
+      width: 52,
+      fixed: "right",
+      render: (_: unknown, record: ShipmentItem) => {
+        const unread = unreadBy.get(record.id) ?? 0;
+        return (
+          <Tooltip title={unread ? `Chat — ${unread} unread` : "Chat"}>
+            <Badge count={unread} size="small" color="#ef4444" offset={[2, -2]}>
+              <button
+                onClick={(e) => { e.stopPropagation(); setChatShipment(record); }}
+                className={`bg-transparent border-none cursor-pointer p-1 ${unread ? "text-red-500 hover:text-red-600" : "text-slate-400 hover:text-indigo-500"}`}
+              >
+                <MessageOutlined />
+              </button>
+            </Badge>
+          </Tooltip>
+        );
+      },
+    });
+
     return cols;
-  }, [visible, rowInfo, router, updateField, updateShipment]);
+  }, [visible, rowInfo, router, updateField, updateShipment, unreadBy]);
 
   // Client-side pagination (custom bottom bar so the size selector sits on the left).
   const totalRows = filtered.length;
@@ -658,6 +691,18 @@ export const ShipmentsTable = ({
         title={docsShipment ? `Documents — ${docsShipment.jobNumber ?? docsShipment.id}` : "Documents"}
       >
         {docsShipment && <DocumentsTab shipment={docsShipment} />}
+      </Drawer>
+
+      {/* Chat — the shipment's internal conversation; opening it marks it read. */}
+      <Drawer
+        open={!!chatShipment}
+        onClose={() => setChatShipment(null)}
+        width={380}
+        destroyOnClose
+        styles={{ body: { padding: 0 } }}
+        title={chatShipment ? `Chat — ${chatShipment.jobNumber ?? chatShipment.id}` : "Chat"}
+      >
+        {chatShipment && <ChatPanel shipmentId={chatShipment.id} />}
       </Drawer>
     </div>
   );
