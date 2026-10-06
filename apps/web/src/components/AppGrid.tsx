@@ -190,14 +190,16 @@ export function AppGrid<T extends object>({
     return rows.filter((r) => set.has(rowKey(r)));
   }, [rows, selectedKeys, rowKey]);
 
-  // Report the selection to the page (for actions outside the bulk bar). selectedRows and the
-  // callback are re-created on every render, so the effect keys off what actually changed.
+  // Report the selection to the page (for actions outside the bulk bar). The rows array can be
+  // a new (even empty) array on every render, so the effect keys off the selected rows' content:
+  // it fires only when the selection or the data of a selected row really changes.
   const clearSelection = useCallback(() => setSelectedKeys([]), []);
   const latest = useRef({ selectedRows, onSelectionChange });
   latest.current = { selectedRows, onSelectionChange };
+  const selectionSignature = onSelectionChange ? JSON.stringify(selectedRows) : "";
   useEffect(() => {
     latest.current.onSelectionChange?.(latest.current.selectedRows, clearSelection);
-  }, [selectedKeys, rows, clearSelection]);
+  }, [selectionSignature, clearSelection]);
 
   const filterColumnOptions = columns.map((c) => ({ value: c.key, label: c.title }));
   const shownColumns = columns.filter((c) => c.title.toLowerCase().includes(columnSearch.trim().toLowerCase()));

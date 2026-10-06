@@ -8,6 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useWarehouse } from "@/hooks/useWarehouse";
 import { useGateLog, type GateMovement } from "@/hooks/useGateLog";
+import { useStockLines } from "@/hooks/useWarehouseRecords";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
 import { formatDate } from "@/lib/date";
@@ -15,8 +16,9 @@ import { api } from "@/lib/api";
 import { isSalesQuote, toSalesQuote } from "@/app/sales/_lib/salesQuote";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { CUSTOMS_STATUSES, HANDLINGS, errorMessage, nf } from "../gate-log/_lib/gate";
+import { CUSTOMS_STATUSES, HANDLINGS, errorMessage, isFcl, isLcl, nf } from "../gate-log/_lib/gate";
 import { ContainersTab } from "./tabs/ContainersTab";
+import { StockTab } from "./tabs/StockTab";
 import { DockYardTab } from "./tabs/DockYardTab";
 import { ReportsTab } from "./tabs/ReportsTab";
 import { ReadmeTab } from "./tabs/ReadmeTab";
@@ -27,6 +29,7 @@ import { ReadmeTab } from "./tabs/ReadmeTab";
 
 type WarehouseTask = interfaces.WarehouseTaskItem;
 type PositionRow = { task: WarehouseTask; m: GateMovement | undefined };
+type LoadFilter = "fcl" | "lcl";
 
 function useDebounced<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -82,6 +85,7 @@ const MODULE_TABS = [
   { key: "dock", label: "Dock & Yard" },
   { key: "reports", label: "Reports" },
   { key: "readme", label: "Read me" },
+  { key: "stock", label: "Stock" },
 ] as const;
 type ModuleTab = (typeof MODULE_TABS)[number]["key"];
 
@@ -143,7 +147,8 @@ const BUBBLES: { id: BubbleId; label: string; hint: string; match: (m: GateMovem
 
 function FilterBubbles({ active, counts, onSelect }: { active: BubbleId | null; counts: Record<BubbleId, number>; onSelect: (id: BubbleId | null) => void }) {
   return (
-    <div className="flex items-center gap-2 flex-wrap mt-4">
+    // Same tiles as the Gate Log: full width, the label with its count beside it.
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
       {BUBBLES.map((b) => {
         const on = active === b.id;
         return (
@@ -153,12 +158,14 @@ function FilterBubbles({ active, counts, onSelect }: { active: BubbleId | null; 
               aria-pressed={on}
               onClick={() => onSelect(on ? null : b.id)}
               className={[
-                "flex items-center gap-1.5 h-8 px-3 rounded-lg border text-[13px] transition-colors cursor-pointer",
-                on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                "w-full text-left rounded-xl border shadow-sm px-4 py-3 min-w-0 transition-colors cursor-pointer",
+                on ? "border-indigo-500 bg-indigo-50" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
               ].join(" ")}
             >
-              <span className="font-medium">{b.label}:</span>
-              <span className={`font-bold tabular-nums ${on ? "text-indigo-700" : "text-slate-900"}`}>{counts[b.id]}</span>
+              <div className="flex items-baseline gap-2">
+                <span className={`text-[15px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{b.label}:</span>
+                <span className={`text-[22px] leading-tight font-bold tabular-nums ${on ? "text-indigo-700" : "text-slate-900"}`}>{counts[b.id]}</span>
+              </div>
             </button>
           </Tooltip>
         );
@@ -203,7 +210,20 @@ export const WarehouseView = () => {
     () => Object.fromEntries(BUBBLES.map((b) => [b.id, allRows.filter((r) => r.m && b.match(r.m)).length])) as Record<BubbleId, number>,
     [allRows],
   );
-  const rows = useMemo(() => (activeBubble ? allRows.filter((r) => r.m && activeBubble.match(r.m)) : allRows), [allRows, activeBubble]);
+  // FCL / LCL switch (?load=fcl|lcl) by the position's operation type; click the active side to clear.
+  const loadParam = searchParams.get("load");
+  const load: LoadFilter | null = loadParam === "fcl" || loadParam === "lcl" ? loadParam : null;
+  const setLoad = (next: LoadFilter | null) => setParam("load", next);
+
+  const rows = useMemo(
+    () =>
+      allRows.filter(
+        (r) =>
+          (!activeBubble || (r.m && activeBubble.match(r.m))) &&
+          (!load || (r.m && (load === "fcl" ? isFcl(r.m.operationType) : isLcl(r.m.operationType)))),
+      ),
+    [allRows, activeBubble, load],
+  );
 
   const [removeRows, setRemoveRows] = useState<{ rows: PositionRow[]; clear: () => void } | null>(null);
   const [removing, setRemoving] = useState(false);
@@ -223,7 +243,8 @@ export const WarehouseView = () => {
     }
   };
 
-  const moduleTabs = <ModuleTabs active={activeTab} counts={{ positions: tasks.length }} onChange={setTab} />;
+  const { items: stockLines } = useStockLines();
+  const moduleTabs = <ModuleTabs active={activeTab} counts={{ positions: tasks.length, stock: stockLines.length }} onChange={setTab} />;
 
   if (activeTab !== "positions") {
     return (
@@ -233,6 +254,7 @@ export const WarehouseView = () => {
             <h1 className="text-2xl font-bold text-slate-900">Warehouse</h1>
             {moduleTabs}
           </div>
+          {activeTab === "stock" && <StockTab />}
           {activeTab === "containers" && <ContainersTab />}
           {activeTab === "dock" && <DockYardTab />}
           {activeTab === "reports" && <ReportsTab />}
@@ -262,15 +284,37 @@ export const WarehouseView = () => {
           storageKey="warehouse:positions"
           exportFilePrefix="warehouse"
           emptyText={tasks.length ? "No positions match this filter." : "No positions in the warehouse yet."}
-          resetKey={activeBubble?.id ?? ""}
+          resetKey={`${activeBubble?.id ?? ""}|${load ?? ""}`}
           actions={
-            <button
-              onClick={() => setCreateOpen(true)}
-              className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
-            >
-              <PlusOutlined />
-              Create new
-            </button>
+            <>
+              <button
+                onClick={() => setCreateOpen(true)}
+                className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
+              >
+                <PlusOutlined />
+                Create new
+              </button>
+              <div role="group" aria-label="Filter by load" className="flex shrink-0 rounded-lg border border-slate-300 overflow-hidden">
+                {(["fcl", "lcl"] as const).map((k, i) => {
+                  const on = load === k;
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => setLoad(on ? null : k)}
+                      className={[
+                        "px-3 h-8 text-[13px] font-medium transition-colors cursor-pointer",
+                        i > 0 ? "border-l border-l-slate-300" : "",
+                        on ? "bg-indigo-50 text-indigo-700 font-semibold" : "bg-white text-slate-700 hover:bg-slate-50",
+                      ].join(" ")}
+                    >
+                      {k.toUpperCase()}
+                    </button>
+                  );
+                })}
+              </div>
+            </>
           }
           bulkActions={(selected, clear) => (
             <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setRemoveRows({ rows: selected, clear })}>

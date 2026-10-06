@@ -177,8 +177,8 @@ export function GateLogView() {
     </div>
   );
 
-  // Filter tiles across the page width, in the same card layout as the status cards inside
-  // a warehouse job: small uppercase label, big number.
+  // Filter tiles across the page width, in the card style of the warehouse job: the label
+  // with its count beside it ("NEED ATTENTION: 1").
   const bubbles = (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
       {BUBBLES.map((b) => {
@@ -191,17 +191,19 @@ export function GateLogView() {
               aria-pressed={on}
               onClick={() => setBubble(on ? null : b.id)}
               className={[
-                "text-left rounded-xl border shadow-sm px-4 py-3 min-w-0 transition-colors cursor-pointer",
+                "w-full text-left rounded-xl border shadow-sm px-4 py-3 min-w-0 transition-colors cursor-pointer",
                 on ? "border-indigo-500 bg-indigo-50" : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
               ].join(" ")}
             >
-              <div className={`text-[11px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{b.label}</div>
-              <div
-                className={`mt-1 text-[26px] leading-tight font-bold tabular-nums ${
-                  b.danger && count > 0 ? "text-red-600" : on ? "text-indigo-700" : "text-slate-900"
-                }`}
-              >
-                {count}
+              <div className="flex items-baseline gap-2">
+                <span className={`text-[15px] font-bold uppercase tracking-wide ${on ? "text-indigo-600" : "text-slate-500"}`}>{b.label}:</span>
+                <span
+                  className={`text-[22px] leading-tight font-bold tabular-nums ${
+                    b.danger && count > 0 ? "text-red-600" : on ? "text-indigo-700" : "text-slate-900"
+                  }`}
+                >
+                  {count}
+                </span>
               </div>
             </button>
           </Tooltip>

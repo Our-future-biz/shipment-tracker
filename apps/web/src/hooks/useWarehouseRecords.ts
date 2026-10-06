@@ -108,3 +108,52 @@ export const useReportSummary = () => {
   });
   return { summary: query.data, isLoading: query.isLoading };
 };
+
+// ---------- Stock tab ----------
+
+export type StockLine = interfaces.WarehouseStockLineItem;
+export type Zone = interfaces.WarehouseZoneItem;
+export type StockMovement = interfaces.WarehouseStockMovementItem;
+export type BondedEntry = interfaces.WarehouseBondedEntryItem;
+
+// Stock lines also change zone occupancy, so both lists refresh together.
+export const useStockLines = () => {
+  const queryClient = useQueryClient();
+  const records = useRecords<StockLine, interfaces.WarehouseStockLineInput>({
+    key: "stock-lines",
+    list: async () => (await w.warehouseStockLineList()).lines,
+    create: (input) => w.warehouseStockLineCreate(input).then(() => queryClient.invalidateQueries({ queryKey: ["warehouse-records", "zones"] })),
+    update: (id, input) => w.warehouseStockLineUpdate(id, input).then(() => queryClient.invalidateQueries({ queryKey: ["warehouse-records", "zones"] })),
+    remove: (id) => w.warehouseStockLineDelete(id).then(() => queryClient.invalidateQueries({ queryKey: ["warehouse-records", "zones"] })),
+  });
+  return records;
+};
+
+export const useZones = () =>
+  useRecords<Zone, interfaces.WarehouseZoneInput>({
+    key: "zones",
+    list: async () => (await w.warehouseZoneList()).zones,
+    create: (input) => w.warehouseZoneCreate(input),
+    update: (id, input) => w.warehouseZoneUpdate(id, input),
+    remove: (id) => w.warehouseZoneDelete(id),
+  });
+
+export const useBondedEntries = () =>
+  useRecords<BondedEntry, interfaces.WarehouseBondedEntryInput>({
+    key: "bonded",
+    list: async () => (await w.warehouseBondedList()).entries,
+    create: (input) => w.warehouseBondedCreate(input),
+    update: (id, input) => w.warehouseBondedUpdate(id, input),
+    remove: (id) => w.warehouseBondedDelete(id),
+  });
+
+// Movements are an audit trail: list and record only.
+export const useStockMovements = () => {
+  const queryClient = useQueryClient();
+  const query = useQuery({ queryKey: ["warehouse-records", "stock-movements"], queryFn: async () => (await w.warehouseStockMovementList()).movements });
+  const record = useMutation({
+    mutationFn: (input: interfaces.WarehouseStockMovementInput) => w.warehouseStockMovementCreate(input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouse-records", "stock-movements"] }),
+  });
+  return { items: query.data ?? [], isLoading: query.isLoading, record: record.mutateAsync, isSaving: record.isPending };
+};

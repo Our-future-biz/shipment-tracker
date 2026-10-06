@@ -11,6 +11,7 @@ import { formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import type { controllers } from "@/lib/api/client";
 import { errorMessage, freeDaysOver } from "../../_lib/gate";
+import { downloadWarehouseLabel } from "../../_lib/labelPdf";
 import { btnDanger, btnDefault, btnPrimary } from "./fields";
 import { OverviewTab } from "./OverviewTab";
 import { SurveyTab } from "./SurveyTab";
@@ -151,15 +152,14 @@ export function GateJobView({ id }: { id: string }) {
           </div>
 
           <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
-            {/* Create Signo — an action button; its menu items are still to be defined. */}
-            <Dropdown
-              trigger={["click"]}
-              menu={{ items: [{ key: "todo", label: "No actions defined yet", disabled: true }] }}
+            {/* Downloads the warehouse label (PDF) led by the WCZ reference. */}
+            <button
+              type="button"
+              className={btnDanger}
+              onClick={() => downloadWarehouseLabel(m).catch(() => toast.error("Failed to create the label"))}
             >
-              <button type="button" className={btnDanger}>
-                Create Signo <DownOutlined className="text-[10px]" />
-              </button>
-            </Dropdown>
+              Create Label
+            </button>
             {stampButton("expReceipt", "WH receipt", m.expReceipt)}
             {stampButton("expDraft", "WH Draft Receipt", m.expDraft)}
             {stampButton("impRelease", "WH release", m.impRelease, true)}
