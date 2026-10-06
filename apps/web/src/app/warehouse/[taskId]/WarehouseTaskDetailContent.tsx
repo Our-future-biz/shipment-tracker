@@ -10,17 +10,20 @@ import { TaskMeta, StandaloneDimensions } from "../_components/WarehouseTaskDeta
 import { PickupSection } from "../_components/sections/PickupSection";
 import { JobNotes, ActionPushButtons } from "../_components/sections/JobExtras";
 
+// Same sub-tabs and cards as the Warehouse tab of a shipment.
 const TABS = [
-  { key: "details", label: "Details" },
+  { key: "details", label: "Task Details" },
   { key: "pickup", label: "Pick-up" },
 ];
 
-function Card({ title, children, className = "" }: { title?: string; children: React.ReactNode; className?: string }) {
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className={`bg-white border border-slate-200 rounded-lg p-5 ${className}`}>
-      {title && <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider m-0 mb-4">{title}</h3>}
-      {children}
-    </div>
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm min-w-0">
+      <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
+        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
+      </div>
+      <div className="p-4">{children}</div>
+    </section>
   );
 }
 
@@ -70,54 +73,48 @@ export function WarehouseTaskDetailContent() {
       {contextHolder}
 
       {/* ── Header ── */}
-      <div className="bg-white border-b border-slate-200 px-6 pt-4 pb-0">
-        <div className="flex items-center justify-between mb-2">
+      <div className="bg-white border-b border-slate-200 px-6 py-4">
+        <div className="flex items-center justify-between">
           <h1 className="text-[22px] font-bold text-slate-800 font-mono m-0">{task.taskId}</h1>
           <Button danger icon={<DeleteOutlined />} onClick={handleDelete}>
             Delete
           </Button>
         </div>
-
-        {/* Tabs */}
-        <div className="flex gap-0 mt-4">
-          {TABS.map((tab) => (
-            <div
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={`px-4 py-2.5 text-sm cursor-pointer transition-all duration-150 border-b-2 ${
-                activeTab === tab.key
-                  ? "font-semibold text-indigo-500 border-indigo-500"
-                  : "font-normal text-slate-400 border-transparent hover:text-slate-600"
-              }`}
-            >
-              {tab.label}
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* ── Body ── */}
-      <div className="p-6">
-        <Card title="Task Details" className="mb-4">
-          <TaskMeta task={task} />
-        </Card>
+      <div className="p-6 flex flex-col gap-5">
+        <div className="flex items-center gap-2 flex-wrap">
+          {TABS.map((tab) => {
+            const on = activeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setActiveTab(tab.key)}
+                className={[
+                  "flex items-center h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
+                  on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                ].join(" ")}
+              >
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
 
         {activeTab === "details" && (
-          <div className="space-y-4">
-            <Card>
-              <JobNotes ownerId={task.id} messageApi={messageApi} />
-            </Card>
-            <Card>
-              <StandaloneDimensions ownerId={task.id} messageApi={messageApi} />
-            </Card>
-            <Card>
-              <ActionPushButtons ownerId={task.id} messageApi={messageApi} />
-            </Card>
-          </div>
+          <>
+            <TaskMeta task={task} />
+            <JobNotes ownerId={task.id} messageApi={messageApi} />
+            <StandaloneDimensions ownerId={task.id} messageApi={messageApi} />
+            <ActionPushButtons ownerId={task.id} messageApi={messageApi} />
+          </>
         )}
 
         {activeTab === "pickup" && (
-          <Card>
+          <Card title="Pick-up">
             <PickupSection ownerId={task.id} messageApi={messageApi} />
           </Card>
         )}

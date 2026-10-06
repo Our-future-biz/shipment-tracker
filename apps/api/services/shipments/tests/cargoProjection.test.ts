@@ -58,7 +58,8 @@ describe("teuForType", () => {
     expect(teuForType("20' GP")).toBe("1");
     expect(teuForType("40' HC")).toBe("2");
     expect(teuForType("")).toBe("");
-    expect(teuForType("45' HC")).toBe("");
+    // 45-foot equipment counts as two TEU, like a 40'.
+    expect(teuForType("45' HQ")).toBe("2");
   });
 });
 

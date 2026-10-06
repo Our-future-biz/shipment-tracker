@@ -58,6 +58,9 @@ export function EditableCell({
 
   const col = COLUMN_MAP.get(fieldKey);
   const isDropdown = col?.type === "dropdown";
+  // Tariff numbers hold digits only.
+  const digitsOnly = fieldKey === "hsCode";
+  const clean = (v: string) => (digitsOnly ? v.replace(/\D/g, "") : v);
   const isDate = col?.type === "date";
   const options = col?.options ?? [];
   const original = value ?? "";
@@ -159,8 +162,10 @@ export function EditableCell({
         ref={inputRef}
         size="small"
         autoFocus
-        defaultValue={original}
-        onChange={(e) => setDraft(e.target.value)}
+        inputMode={digitsOnly ? "numeric" : undefined}
+        value={digitsOnly ? draft : undefined}
+        defaultValue={digitsOnly ? undefined : original}
+        onChange={(e) => setDraft(clean(e.target.value))}
         onPressEnter={() => commit(draft)}
         onBlur={() => {
           if (cancelledRef.current) return;

@@ -8,6 +8,7 @@ import { isValidContainerNumber, normalizeContainerNumber } from "@/lib/containe
 import {
   CONTAINER_SIZES,
   CONTAINER_KINDS,
+  CONTAINER_KINDS_BY_SIZE,
   PACK_TYPES,
   teuForType,
   num,
@@ -39,10 +40,10 @@ function containerTypeOptions(query: string) {
   const q = query.toLowerCase().replace(/['’\s]/g, "");
   return CONTAINER_SIZES.map((size) => {
     const sizeKey = size.replace("'", "");
-    const options = CONTAINER_KINDS.map((k) => `${size} ${k}`).filter((o) =>
+    const options = (CONTAINER_KINDS_BY_SIZE[size] ?? CONTAINER_KINDS).map((k) => `${size} ${k}`).filter((o) =>
       o.toLowerCase().replace(/['’\s]/g, "").includes(q),
     );
-    if (q && ["2", "20", "4", "40"].includes(q) && !sizeKey.startsWith(q)) return null;
+    if (q && ["2", "20", "4", "40", "45"].includes(q) && !sizeKey.startsWith(q)) return null;
     if (options.length === 0) return null;
     return {
       label: `${size} containers · ${teuForType(size)} TEU`,
@@ -57,7 +58,8 @@ const packTypeOptions = (query: string) =>
 const FIELDS = ["containerNumber", "sealNumber", "type", "packages", "packageType", "grossWeight", "volume"] as const;
 type Field = (typeof FIELDS)[number];
 
-const COLS = "grid grid-cols-[1.4fr_1.1fr_1fr_0.7fr_1.1fr_1fr_0.9fr_36px] gap-2 items-center";
+// Centred columns with room between them, like the cargo tables.
+const COLS = "grid grid-cols-[1.5fr_1.1fr_1fr_0.7fr_1.1fr_1.1fr_1fr_36px] gap-3 items-center";
 
 export function ContainerDetailsTab({
   shipment,
@@ -222,13 +224,13 @@ export function ContainerDetailsTab({
         <div className="overflow-x-auto">
           <div className="min-w-[880px]">
             <div className={`${COLS} px-2 pb-2 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
-              <span>Container Number</span>
-              <span>Seal Number</span>
-              <span>Container Type</span>
-              <span className="text-right">Pieces (PCS)</span>
-              <span>Type of Packages</span>
-              <span className="text-right">Gross Weight (kg)</span>
-              <span className="text-right">Volume (m³)</span>
+              <span className="truncate">Container Number</span>
+              <span className="text-center truncate">Seal Number</span>
+              <span className="text-center truncate">Container Type</span>
+              <span className="text-center truncate">Pcs</span>
+              <span className="text-center truncate">Packages</span>
+              <span className="text-center truncate">Gross Weight (kg)</span>
+              <span className="text-center truncate">Volume (m³)</span>
               <span />
             </div>
 
@@ -257,6 +259,7 @@ export function ContainerDetailsTab({
                   <Input
                     ref={setInputRef(`${i}:sealNumber`)}
                     size="small"
+                    className="text-center"
                     value={c.sealNumber}
                     onChange={(e) => patch(i, { sealNumber: e.target.value })}
                     onBlur={persist}
@@ -271,12 +274,12 @@ export function ContainerDetailsTab({
                     onSearch={setTypeQuery}
                     onChange={(v) => patch(i, { type: v })}
                     onBlur={persist}
-                    className="w-full"
+                    className="w-full [&_input]:!text-center"
                   />
                   <Input
                     ref={setInputRef(`${i}:packages`)}
                     size="small"
-                    className="text-right"
+                    className="text-center"
                     value={c.packages}
                     onChange={(e) => patch(i, { packages: e.target.value })}
                     onBlur={persist}
@@ -289,12 +292,12 @@ export function ContainerDetailsTab({
                     options={packTypeOptions(c.packageType)}
                     onChange={(v) => patch(i, { packageType: v })}
                     onBlur={persist}
-                    className="w-full"
+                    className="w-full [&_input]:!text-center"
                   />
                   <Input
                     ref={setInputRef(`${i}:grossWeight`)}
                     size="small"
-                    className="text-right"
+                    className="text-center"
                     value={c.grossWeight}
                     onChange={(e) => patch(i, { grossWeight: e.target.value })}
                     onBlur={persist}
@@ -302,7 +305,7 @@ export function ContainerDetailsTab({
                   <Input
                     ref={setInputRef(`${i}:volume`)}
                     size="small"
-                    className="text-right"
+                    className="text-center"
                     value={c.volume}
                     onChange={(e) => patch(i, { volume: e.target.value })}
                     onBlur={persist}
@@ -334,12 +337,12 @@ export function ContainerDetailsTab({
                       {c.containerNumber}
                     </button>
                   </span>
-                  <span data-field="sealNumber" className="text-sm text-slate-700 px-2 truncate">{c.sealNumber}</span>
-                  <span data-field="type" className="text-sm text-slate-700 px-2">{c.type}</span>
-                  <span data-field="packages" className="text-sm text-slate-700 px-2 text-right">{c.packages}</span>
-                  <span data-field="packageType" className="text-sm text-slate-700 px-2 truncate">{c.packageType}</span>
-                  <span data-field="grossWeight" className="text-sm text-slate-700 px-2 text-right">{c.grossWeight}</span>
-                  <span data-field="volume" className="text-sm text-slate-700 px-2 text-right">{c.volume}</span>
+                  <span data-field="sealNumber" className="text-sm text-slate-700 px-2 text-center truncate">{c.sealNumber}</span>
+                  <span data-field="type" className="text-sm text-slate-700 px-2 text-center truncate">{c.type}</span>
+                  <span data-field="packages" className="text-sm text-slate-700 px-2 text-center tabular-nums">{c.packages}</span>
+                  <span data-field="packageType" className="text-sm text-slate-700 px-2 text-center truncate">{c.packageType}</span>
+                  <span data-field="grossWeight" className="text-sm text-slate-700 px-2 text-center tabular-nums">{c.grossWeight}</span>
+                  <span data-field="volume" className="text-sm text-slate-700 px-2 text-center tabular-nums">{c.volume}</span>
                   <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => remove(i)} />
                 </div>
               ),
@@ -351,10 +354,10 @@ export function ContainerDetailsTab({
               </span>
               <span />
               <span />
-              <span className="text-right">{fmtNum(totalPackages)}</span>
+              <span className="text-center tabular-nums">{fmtNum(totalPackages)}</span>
               <span />
-              <span className="text-right">{fmtNum(totalWeight)}</span>
-              <span className="text-right">{fmtNum(totalVolume)}</span>
+              <span className="text-center tabular-nums">{fmtNum(totalWeight)}</span>
+              <span className="text-center tabular-nums">{fmtNum(totalVolume)}</span>
               <span />
             </div>
           </div>

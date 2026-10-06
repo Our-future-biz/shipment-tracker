@@ -3,13 +3,20 @@ import type { interfaces } from "@/lib/api/client";
 // ── Dictionaries (mirrored 1:1 from the agreed spec; the backend derives TEU
 // with the same 20'→1 / 40'→2 rule) ──
 
-export const CONTAINER_SIZES = ["20'", "40'"] as const;
+export const CONTAINER_SIZES = ["20'", "40'", "45'"] as const;
 export const CONTAINER_KINDS = ["GP", "HC", "RF", "HR", "OT", "HOT", "FR"] as const;
-export const CONTAINER_TYPES = CONTAINER_SIZES.flatMap((s) => CONTAINER_KINDS.map((k) => `${s} ${k}`));
+// 45-foot equipment only comes as a high cube.
+export const CONTAINER_KINDS_BY_SIZE: Record<string, readonly string[]> = {
+  "20'": CONTAINER_KINDS,
+  "40'": CONTAINER_KINDS,
+  "45'": ["HQ"],
+};
+export const CONTAINER_TYPES = CONTAINER_SIZES.flatMap((s) => (CONTAINER_KINDS_BY_SIZE[s] ?? CONTAINER_KINDS).map((k) => `${s} ${k}`));
 
 export function teuForType(type: string): number {
   const t = (type ?? "").trim();
-  if (t.startsWith("40")) return 2;
+  // A 45' box occupies two 40' slots' worth of TEU, same as a 40'.
+  if (t.startsWith("45") || t.startsWith("40")) return 2;
   if (t.startsWith("20")) return 1;
   return 0;
 }

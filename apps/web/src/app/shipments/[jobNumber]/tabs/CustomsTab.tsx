@@ -39,7 +39,7 @@ const CUSTOMS_RIGHT = [
   { key: "sealNumber", label: "Seal Number", ro: true },
   { key: "containerTypeSummary", label: "Container Type", ro: true },
   { key: "commercialInvoice", label: "Commercial Invoice number(s)" },
-  { key: "commercialInvoiceValue", label: "Commercial Invoice(s) Valued", ro: true },
+  { key: "commercialInvoiceValue", label: "Commercial Invoice(s) Value", ro: true },
 ];
 
 export function CustomsTab({

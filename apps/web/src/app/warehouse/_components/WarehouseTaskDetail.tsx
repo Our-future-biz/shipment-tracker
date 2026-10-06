@@ -1,12 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Input, Select, Button, Space } from "antd";
-import { DeleteOutlined } from "@ant-design/icons";
+import { Input, Select, Button } from "antd";
+import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { useWarehouse } from "@/hooks/useWarehouse";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import type { controllers, interfaces } from "@/lib/api/client";
+
+// Same card as the Warehouse tab of a shipment: white box, indigo section header.
+function Card({ title, extra, children }: { title: string; extra?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl shadow-sm min-w-0">
+      <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
+        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
+        {extra && <div className="ml-auto flex items-center gap-2">{extra}</div>}
+      </div>
+      <div className="p-4">{children}</div>
+    </section>
+  );
+}
 
 export const WAREHOUSE_TYPES = ["Import", "Export", "Customs"];
 export const WAREHOUSE_PRIORITIES = ["Low", "Medium", "High"];
@@ -55,22 +68,31 @@ export function StandaloneDimensions({ ownerId, messageApi }: { ownerId: string;
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <strong className="text-sm">Dimensions / Remeasurement</strong>
-        <Space size="small">
-          <Button size="small" onClick={addRow}>+ Row</Button>
-          {dirty && <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>Save</Button>}
-        </Space>
-      </div>
+    <Card
+      title="Dimensions / Remeasurement"
+      extra={
+        <>
+          <Button size="small" icon={<PlusOutlined />} onClick={addRow}>
+            Row
+          </Button>
+          {dirty && (
+            <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>
+              Save
+            </Button>
+          )}
+        </>
+      }
+    >
       <table className="w-full border-collapse text-xs">
         <thead>
           <tr className="bg-slate-50 border-b border-slate-200">
             {["Qty", "L (cm)", "W (cm)", "H (cm)", "Weight/pc (kg)"].map((h) => (
-              <th key={h} className="text-left p-1.5 px-2 font-semibold text-slate-500">{h}</th>
+              <th key={h} className="text-left px-2 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                {h}
+              </th>
             ))}
-            <th className="text-right p-1.5 px-2 font-semibold text-slate-500">Vol (CBM)</th>
-            <th className="w-[30px]" />
+            <th className="text-right px-2 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500">Vol (CBM)</th>
+            <th className="w-[36px]" />
           </tr>
         </thead>
         <tbody>
@@ -89,20 +111,27 @@ export function StandaloneDimensions({ ownerId, messageApi }: { ownerId: string;
           ))}
         </tbody>
       </table>
-      <div className="flex gap-6 mt-3 py-2 border-t border-slate-200">
-        <div><span className="text-[10px] uppercase text-slate-500">Total Colli</span><div className="text-sm font-semibold">{totalColli || "—"}</div></div>
-        <div><span className="text-[10px] uppercase text-slate-500">Total Weight</span><div className="text-sm font-semibold">{totalWeightKg > 0 ? `${totalWeightKg.toFixed(1)} kg` : "—"}</div></div>
-        <div><span className="text-[10px] uppercase text-slate-500">Total Volume</span><div className="text-sm font-semibold">{totalVolumeCbm > 0 ? `${totalVolumeCbm.toFixed(3)} CBM` : "—"}</div></div>
+      <div className="flex flex-wrap gap-8 mt-3 pt-3 border-t border-slate-200">
+        {[
+          ["Total colli", totalColli ? String(totalColli) : "—"],
+          ["Total weight", totalWeightKg > 0 ? `${totalWeightKg.toFixed(1)} kg` : "—"],
+          ["Total volume", totalVolumeCbm > 0 ? `${totalVolumeCbm.toFixed(3)} CBM` : "—"],
+        ].map(([k, v]) => (
+          <div key={k}>
+            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{k}</div>
+            <div className="text-[15px] font-bold text-slate-900 mt-0.5">{v}</div>
+          </div>
+        ))}
       </div>
-    </div>
+    </Card>
   );
 }
 
 // ─── Task meta editor ────────────────────────────────────────────
 function MetaField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[90px_1fr] items-center gap-2">
-      <span className="text-[11px] text-slate-500">{label}</span>
+    <div className="grid grid-cols-[140px_1fr] items-center gap-2.5 py-1.5 border-b border-slate-100 last:border-b-0">
+      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</span>
       {children}
     </div>
   );
@@ -114,7 +143,8 @@ export function TaskMeta({ task }: { task: interfaces.WarehouseTaskItem }) {
     updateTask({ id: task.id, data: { [field]: value } as controllers.WarehouseUpdateRequest });
 
   return (
-    <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+    <Card title="Task details">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
       <MetaField label="Type">
         <Select size="small" defaultValue={task.type} className="w-full" options={WAREHOUSE_TYPES.map((o) => ({ value: o, label: o }))} onChange={(v) => set("type", v)} />
       </MetaField>
@@ -136,7 +166,8 @@ export function TaskMeta({ task }: { task: interfaces.WarehouseTaskItem }) {
       <MetaField label="Weight">
         <Input size="small" defaultValue={task.weight} onBlur={(e) => e.target.value !== task.weight && set("weight", e.target.value)} />
       </MetaField>
-    </div>
+      </div>
+    </Card>
   );
 }
 

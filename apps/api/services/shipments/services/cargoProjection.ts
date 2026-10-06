@@ -19,11 +19,11 @@ export function fmtNum(n: number): string {
     : n.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
-// TEU is always derived from the container type (20' → 1, 40' → 2), never taken
-// from the client.
+// TEU is always derived from the container type (20' → 1, 40' and 45' → 2), never
+// taken from the client.
 export function teuForType(type: string): string {
   const t = (type ?? "").trim();
-  if (t.startsWith("40")) return "2";
+  if (t.startsWith("45") || t.startsWith("40")) return "2";
   if (t.startsWith("20")) return "1";
   return "";
 }

@@ -81,8 +81,13 @@ const currencyOptions = (query: string) => {
   }));
 };
 
-const DIM_COLS = "grid grid-cols-[0.6fr_0.7fr_0.7fr_0.7fr_0.9fr_0.9fr_1fr_1.1fr_32px] gap-1.5 items-center";
-const DESC_COLS = "grid grid-cols-[1.8fr_0.9fr_0.6fr_1fr_0.9fr_1fr_0.75fr_32px] gap-1.5 items-center";
+// Centred columns with room between them, like the cargo description table.
+// Words read better than codes in the summary line.
+const UNIT_LABEL: Record<string, string> = { PCS: "pieces", KG: "kg", "M³": "m³" };
+
+const DIM_COLS = "grid grid-cols-[0.7fr_0.8fr_0.8fr_0.8fr_1fr_1fr_1.1fr_1.2fr_32px] gap-3 items-center";
+// Wider gaps and roomier number columns so the header labels no longer collide.
+const DESC_COLS = "grid grid-cols-[2fr_1fr_0.7fr_1.1fr_1.1fr_1.2fr_0.8fr_32px] gap-3 items-center";
 
 export function CargoDetailsTab({
   shipment,
@@ -149,12 +154,61 @@ export function CargoDetailsTab({
   }, [focusContainerId]);
 
   const persistItems = () => onChange({ cargoItems: itemsRef.current.filter((l) => !itemIsEmpty(l)) });
+
+  // Cargo description rows behave like the container rows: a filled row collapses to a
+  // read-only line when focus leaves it, and a double-click opens it again.
+  const [openItems, setOpenItems] = useState<Set<number>>(() => new Set());
+  const itemIsOpen = (idx: number) => openItems.has(idx) || itemIsEmpty(items[idx] ?? ({} as CargoItemLine));
+  const openItem = (idx: number) => setOpenItems((o) => new Set(o).add(idx));
+  const closeItem = (idx: number) =>
+    setOpenItems((o) => {
+      if (!o.has(idx)) return o;
+      const next = new Set(o);
+      next.delete(idx);
+      return next;
+    });
+  // Clicking plain background gives no relatedTarget, so check where focus really went.
+  const onItemBlur = (idx: number) => (e: React.FocusEvent<HTMLDivElement>) => {
+    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
+    const row = e.currentTarget;
+    setTimeout(() => {
+      if (row.contains(document.activeElement)) return;
+      persistItems();
+      closeItem(idx);
+    }, 0);
+  };
   const persistDims = () => onChange({ cargoDimensions: dimsRef.current.filter((l) => !dimIsEmpty(l)) });
 
-  const patchItem = (idx: number, p: Partial<CargoItemLine>) =>
+  const patchItem = (idx: number, p: Partial<CargoItemLine>) => {
+    // Typing keeps the row open, so it cannot collapse mid-word.
+    setOpenItems((o) => (o.has(idx) ? o : new Set(o).add(idx)));
     setItems((r) => r.map((l, j) => (j === idx ? { ...l, ...p } : l)));
-  const patchDim = (idx: number, p: Partial<CargoDimensionLine>) =>
+  };
+  const patchDim = (idx: number, p: Partial<CargoDimensionLine>) => {
+    setOpenDims((o) => (o.has(idx) ? o : new Set(o).add(idx)));
     setDims((r) => r.map((l, j) => (j === idx ? { ...l, ...p } : l)));
+  };
+
+  // Dimension rows collapse and reopen like the cargo description rows.
+  const [openDims, setOpenDims] = useState<Set<number>>(() => new Set());
+  const dimIsOpen = (idx: number) => openDims.has(idx) || dimIsEmpty(dims[idx] ?? ({} as CargoDimensionLine));
+  const openDim = (idx: number) => setOpenDims((o) => new Set(o).add(idx));
+  const closeDim = (idx: number) =>
+    setOpenDims((o) => {
+      if (!o.has(idx)) return o;
+      const next = new Set(o);
+      next.delete(idx);
+      return next;
+    });
+  const onDimBlur = (idx: number) => (e: React.FocusEvent<HTMLDivElement>) => {
+    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
+    const row = e.currentTarget;
+    setTimeout(() => {
+      if (row.contains(document.activeElement)) return;
+      persistDims();
+      closeDim(idx);
+    }, 0);
+  };
 
   const addItem = (panelKey: string) =>
     setItems((r) => [...r, emptyItem(panelKey === NONE ? null : panelKey)]);
@@ -206,17 +260,27 @@ export function CargoDetailsTab({
         const descTotalPcs = panelItems.reduce((s, { l }) => s + num(l.pieces), 0);
         const descTotalGw = panelItems.reduce((s, { l }) => s + num(l.grossWeight), 0);
         const descCiv = civByCurrency(panelItems.map(({ l }) => l));
+        // Same comparison as the dimensions table: described pieces and weight against
+        // what the container declares.
+        const compare = (sum: number, declared: number) => {
+          const empty = !sum && !declared;
+          return { sum, declared, empty, ok: empty || Math.abs(sum - declared) < 0.001 };
+        };
+        const descCheck = container
+          ? { pcs: compare(descTotalPcs, num(container.packages)), kg: compare(descTotalGw, num(container.grossWeight)) }
+          : null;
 
         // "TOTAL: sum / declared" cells — green when the declaration matches the
         // dimension sums, red when it doesn't, plain when both sides are empty.
+        // One compact figure per measure: "sum / declared" when the container declares a value.
         const totalCell = (m: { sum: number; declared: number; empty: boolean; ok: boolean } | null, sum: number, unit: string, decimals: number) => {
           const f = (v: number) => (decimals === 0 ? fmtNum(v) : fmtFixed(v, decimals));
-          if (!m || m.empty) {
-            return <span className="text-slate-500">TOTAL: {f(m ? 0 : sum)} {unit}</span>;
-          }
+          const body = !m || m.empty ? f(m ? 0 : sum) : `${f(m.sum)} / ${f(m.declared)}`;
+          const tone = !m || m.empty ? "text-slate-500" : m.ok ? "text-emerald-600" : "text-red-600";
+          // The column header already says the unit, so the cell carries the figure alone.
           return (
-            <span className={m.ok ? "text-emerald-600" : "text-red-600"}>
-              TOTAL: {f(m.sum)} / {f(m.declared)} {unit}
+            <span key={unit} className={`text-center tabular-nums whitespace-nowrap ${tone}`} title={`${body} ${UNIT_LABEL[unit] ?? unit}`}>
+              {body}
             </span>
           );
         };
@@ -267,30 +331,60 @@ export function CargoDetailsTab({
                     <div className="overflow-x-auto">
                       <div className="min-w-[860px]">
                         <div className={`${DIM_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
-                          <span className="text-right">Pieces (PCS)</span>
-                          <span className="text-right">Length (cm)</span>
-                          <span className="text-right">Width (cm)</span>
-                          <span className="text-right">Height (cm)</span>
-                          <span className="text-right">Gross Weight / PC (kg)</span>
-                          <span className="text-right">Volume / PC (m³)</span>
-                          <span>Type of Packages</span>
-                          <span>Stackable/Overstow.</span>
+                          <span className="text-center truncate">Pcs</span>
+                          <span className="text-center truncate">Length (cm)</span>
+                          <span className="text-center truncate">Width (cm)</span>
+                          <span className="text-center truncate">Height (cm)</span>
+                          <span className="text-center truncate">Weight / pc (kg)</span>
+                          <span className="text-center truncate">Volume / pc (m³)</span>
+                          <span className="text-center truncate">Packages</span>
+                          <span className="text-center truncate">Stackable</span>
                           <span />
                         </div>
 
                         {panelDims.map(({ l, idx }) => {
                           const vpc = dimensionVolumePerPiece(l);
+                          if (!dimIsOpen(idx)) {
+                            return (
+                              <div
+                                key={idx}
+                                className={`${DIM_COLS} px-1 py-1.5 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
+                                onDoubleClick={() => openDim(idx)}
+                                title="Double-click to edit"
+                              >
+                                <span className="text-center tabular-nums font-medium text-slate-900">{l.pieces || "—"}</span>
+                                <span className="text-center tabular-nums">{l.lengthCm || "—"}</span>
+                                <span className="text-center tabular-nums">{l.widthCm || "—"}</span>
+                                <span className="text-center tabular-nums">{l.heightCm || "—"}</span>
+                                <span className="text-center tabular-nums">{l.weightPerPcKg || "—"}</span>
+                                <span className="text-center tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
+                                <span className="text-center truncate">{l.packageType || "—"}</span>
+                                <span className="text-center truncate">{l.stackable || "—"}</span>
+                                <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeDim(idx, panelDims.length)} />
+                              </div>
+                            );
+                          }
                           return (
-                            <div key={idx} className={`${DIM_COLS} px-1 py-1 border-b border-slate-100`}>
-                              <Input size="small" className="text-right" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: e.target.value })} onBlur={persistDims} />
-                              <Input size="small" className="text-right" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: e.target.value })} onBlur={persistDims} />
-                              <Input size="small" className="text-right" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: e.target.value })} onBlur={persistDims} />
-                              <Input size="small" className="text-right" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: e.target.value })} onBlur={persistDims} />
-                              <Input size="small" className="text-right" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: e.target.value })} onBlur={persistDims} />
-                              <Input size="small" className="text-right !bg-slate-50 !text-slate-500" readOnly tabIndex={-1} value={vpc ? vpc.toFixed(3) : ""} />
+                            <div
+                              key={idx}
+                              className={`${DIM_COLS} px-1 py-1 border-b border-slate-100`}
+                              onBlur={onDimBlur(idx)}
+                              onKeyDown={(e) => {
+                                if (e.key !== "Enter") return;
+                                (e.target as HTMLElement).blur?.();
+                                persistDims();
+                                closeDim(idx);
+                              }}
+                            >
+                              <Input size="small" className="text-center" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: e.target.value })} onBlur={persistDims} />
+                              <Input size="small" className="text-center" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: e.target.value })} onBlur={persistDims} />
+                              <Input size="small" className="text-center" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: e.target.value })} onBlur={persistDims} />
+                              <Input size="small" className="text-center" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: e.target.value })} onBlur={persistDims} />
+                              <Input size="small" className="text-center" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: e.target.value })} onBlur={persistDims} />
+                              <Input size="small" className="text-center !bg-slate-50 !text-slate-500" readOnly tabIndex={-1} value={vpc ? vpc.toFixed(3) : ""} />
                               <Select
                                 size="small"
-                                className="w-full"
+                                className="w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center"
                                 value={l.packageType || undefined}
                                 allowClear
                                 placeholder="—"
@@ -302,7 +396,7 @@ export function CargoDetailsTab({
                               />
                               <Select
                                 size="small"
-                                className="w-full"
+                                className="w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center"
                                 value={l.stackable || undefined}
                                 allowClear
                                 placeholder="—"
@@ -317,13 +411,14 @@ export function CargoDetailsTab({
                           );
                         })}
 
-                        <div className={`${DIM_COLS} px-1 pt-2 text-xs font-extrabold uppercase tracking-wide`}>
-                          <span className="text-right whitespace-nowrap col-span-1">{totalCell(check?.pcs ?? null, dimTotals.pcs, "PCS", 0)}</span>
+                        {/* Each figure sits under the column it sums. */}
+                        <div className={`${DIM_COLS} px-1 pt-2.5 mt-1 border-t border-slate-200 text-[11px] font-bold`}>
+                          {totalCell(check?.pcs ?? null, dimTotals.pcs, "PCS", 0)}
                           <span />
                           <span />
                           <span />
-                          <span className="text-right whitespace-nowrap">{totalCell(check?.kg ?? null, dimTotals.kg, "KG", 2)}</span>
-                          <span className="text-right whitespace-nowrap">{totalCell(check?.m3 ?? null, dimTotals.m3, "M³", 3)}</span>
+                          {totalCell(check?.kg ?? null, dimTotals.kg, "KG", 2)}
+                          {totalCell(check?.m3 ?? null, dimTotals.m3, "M³", 3)}
                           <span className="col-span-3" />
                         </div>
                       </div>
@@ -344,35 +439,71 @@ export function CargoDetailsTab({
                     <div className="overflow-x-auto">
                       <div className="min-w-[860px]">
                         <div className={`${DESC_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
-                          <span>Cargo Description</span>
-                          <span>HS Code</span>
-                          <span className="text-right">Pieces (PCS)</span>
-                          <span>Type of Packages</span>
-                          <span className="text-right">Gross Weight (kg)</span>
-                          <span className="text-right">Commercial Invoice Value</span>
-                          <span>Currency</span>
+                          <span className="truncate">Cargo Description</span>
+                          <span className="text-center truncate">HS Code</span>
+                          <span className="text-center truncate">Pcs</span>
+                          <span className="text-center truncate">Packages</span>
+                          <span className="text-center truncate">Gross Weight (kg)</span>
+                          <span className="text-center truncate">Invoice Value</span>
+                          <span className="text-center truncate">Currency</span>
                           <span />
                         </div>
 
-                        {panelItems.map(({ l, idx }) => (
-                          <div key={idx} className={`${DESC_COLS} px-1 py-1 border-b border-slate-100`}>
+                        {panelItems.map(({ l, idx }) =>
+                          !itemIsOpen(idx) ? (
+                            <div
+                              key={idx}
+                              className={`${DESC_COLS} px-1 py-1.5 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
+                              onDoubleClick={() => openItem(idx)}
+                              title="Double-click to edit"
+                            >
+                              <span className="font-medium text-slate-900 truncate">{l.cargoDescription || "—"}</span>
+                              <span className="font-mono text-center truncate">{l.hsCode || "—"}</span>
+                              <span className="text-center tabular-nums">{l.pieces || "—"}</span>
+                              <span className="text-center truncate">{l.packageType || "—"}</span>
+                              <span className="text-center tabular-nums">{l.grossWeight || "—"}</span>
+                              <span className="text-center tabular-nums">{l.commercialInvoiceValue || "—"}</span>
+                              <span className="text-center truncate">{l.currency || "—"}</span>
+                              <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeItem(idx, panelItems.length)} />
+                            </div>
+                          ) : (
+                          <div
+                            key={idx}
+                            className={`${DESC_COLS} px-1 py-1 border-b border-slate-100`}
+                            onBlur={onItemBlur(idx)}
+                            onKeyDown={(e) => {
+                              if (e.key !== "Enter") return;
+                              (e.target as HTMLElement).blur?.();
+                              persistItems();
+                              closeItem(idx);
+                            }}
+                          >
                             <Input size="small" value={l.cargoDescription} placeholder="PLASTIC PARTS OF SPEAKER" onChange={(e) => patchItem(idx, { cargoDescription: e.target.value })} onBlur={persistItems} />
-                            <Input size="small" value={l.hsCode} placeholder="85319000" onChange={(e) => patchItem(idx, { hsCode: e.target.value })} onBlur={persistItems} />
-                            <Input size="small" className="text-right" value={l.pieces} onChange={(e) => patchItem(idx, { pieces: e.target.value })} onBlur={persistItems} />
+                            {/* HS code is a tariff number — digits only (separators are dropped). */}
+                            <Input
+                              size="small"
+                              className="text-center"
+                              inputMode="numeric"
+                              value={l.hsCode}
+                              placeholder="85319000"
+                              onChange={(e) => patchItem(idx, { hsCode: e.target.value.replace(/\D/g, "") })}
+                              onBlur={persistItems}
+                            />
+                            <Input size="small" className="text-center" value={l.pieces} onChange={(e) => patchItem(idx, { pieces: e.target.value })} onBlur={persistItems} />
                             <AutoComplete
                               size="small"
-                              className="w-full"
+                              className="w-full [&_input]:!text-center"
                               value={l.packageType}
                               placeholder="Pallet(s)"
                               options={packTypeOptions(l.packageType)}
                               onChange={(v) => patchItem(idx, { packageType: v })}
                               onBlur={persistItems}
                             />
-                            <Input size="small" className="text-right" value={l.grossWeight} onChange={(e) => patchItem(idx, { grossWeight: e.target.value })} onBlur={persistItems} />
-                            <Input size="small" className="text-right" value={l.commercialInvoiceValue} placeholder="12 500" onChange={(e) => patchItem(idx, { commercialInvoiceValue: e.target.value })} onBlur={persistItems} />
+                            <Input size="small" className="text-center" value={l.grossWeight} onChange={(e) => patchItem(idx, { grossWeight: e.target.value })} onBlur={persistItems} />
+                            <Input size="small" className="text-center" value={l.commercialInvoiceValue} placeholder="12 500" onChange={(e) => patchItem(idx, { commercialInvoiceValue: e.target.value })} onBlur={persistItems} />
                             <AutoComplete
                               size="small"
-                              className="w-full"
+                              className="w-full [&_input]:!text-center"
                               value={l.currency}
                               placeholder="USD"
                               options={currencyOptions(l.currency)}
@@ -381,16 +512,17 @@ export function CargoDetailsTab({
                             />
                             <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeItem(idx, panelItems.length)} />
                           </div>
-                        ))}
+                          ),
+                        )}
 
                         {/* Informative totals — no comparison, no status color */}
-                        <div className={`${DESC_COLS} px-1 pt-2 text-xs font-bold text-slate-700 uppercase tracking-wide`}>
-                          <span className="text-[11px] text-slate-500">Total</span>
+                        <div className={`${DESC_COLS} px-1 pt-2.5 mt-1 border-t border-slate-200 text-[11px] font-bold`}>
                           <span />
-                          <span className={`text-right ${descTotalPcs ? "" : "text-slate-300"}`}>{descTotalPcs ? fmtNum(descTotalPcs) : "—"}</span>
                           <span />
-                          <span className={`text-right ${descTotalGw ? "" : "text-slate-300"}`}>{descTotalGw ? fmtNum(descTotalGw) : "—"}</span>
-                          <span className={`text-right whitespace-nowrap ${descCiv ? "" : "text-slate-300"}`}>{descCiv || "—"}</span>
+                          {totalCell(descCheck?.pcs ?? null, descTotalPcs, "PCS", 0)}
+                          <span />
+                          {totalCell(descCheck?.kg ?? null, descTotalGw, "KG", 2)}
+                          <span className={`text-center tabular-nums whitespace-nowrap ${descCiv ? "text-slate-700" : "text-slate-300"}`}>{descCiv || "—"}</span>
                           <span className="col-span-2" />
                         </div>
                       </div>
