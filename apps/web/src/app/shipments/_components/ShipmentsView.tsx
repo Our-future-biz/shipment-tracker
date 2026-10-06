@@ -25,9 +25,10 @@ export const ShipmentsView = () => {
   const searchParams = useSearchParams();
   const search = useDebounced(searchParams.get("q") ?? "", 300);
   const statusBucket = searchParams.get("status") ?? "all";
+  const tile = searchParams.get("tile") ?? "all";
 
   const { shipments, isLoading, createShipment, deleteShipment, linkMasterJob, isCreating, isDeleting } =
-    useShipments({ search, statusBucket });
+    useShipments({ search, statusBucket, tile });
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [masterJobOpen, setMasterJobOpen] = useState(false);

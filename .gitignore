@@ -13,3 +13,18 @@ encore.gen.go
 encore.gen.cue
 /.encore
 /encore.gen
+
+# local-only Encore secret overrides
+.secrets.local.cue
+**/.secrets.local.cue
+
+# TypeScript build cache (vznika pri kazdem prekladu, necommitovat)
+*.tsbuildinfo
+tsconfig.check.json
+
+# Pracovni prehledy (zijou v ~/Documents/Shipment Tracker, ne v repu)
+*.xlsx
+
+# Docasne soubory z generovani prehledu
+.cols_tmp.json
+.opts_tmp.json

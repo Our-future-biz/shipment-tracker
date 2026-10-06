@@ -1,352 +1,1161 @@
 "use client";
 
-import { useState } from "react";
-import { Input, Select, Button } from "antd";
-import { DeleteOutlined } from "@ant-design/icons";
+import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { Input, Select, Checkbox, Tooltip, Modal, message } from "antd";
+import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined, WarningOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ShipmentItem } from "@/hooks/useShipments";
+import { getFieldValue } from "@/hooks/useShipments";
+import { weekKeyFromDate, formatWeekLabel } from "@/lib/isoWeek";
+import {
+  computeCosts, money, signed, num,
+  type BuyingRow, type SellingRow, type Rates,
+} from "./costsCalc";
 
-const COST_CATEGORIES = [
-  { key: "freight", label: "Freight" },
-  { key: "collection", label: "Collection/Delivery" },
-  { key: "locals", label: "Locals" },
-  { key: "others", label: "Others" },
-  { key: "insurance", label: "Insurance" },
-  { key: "customs", label: "Customs clearance" },
+/** CURRENCIES z mockupu - kod a nazev meny (naseptavac filtruje podle obojiho) */
+const CURRENCIES: [string, string][] = [
+  ["USD", "US Dollar"], ["EUR", "Euro"], ["INR", "Indian Rupee"], ["CNY", "Chinese Yuan Renminbi"],
+  ["GBP", "British Pound"], ["JPY", "Japanese Yen"], ["CHF", "Swiss Franc"], ["CZK", "Czech Koruna"],
+  ["PLN", "Polish Zloty"], ["HUF", "Hungarian Forint"], ["SEK", "Swedish Krona"], ["NOK", "Norwegian Krone"],
+  ["DKK", "Danish Krone"], ["CAD", "Canadian Dollar"], ["AUD", "Australian Dollar"], ["NZD", "New Zealand Dollar"],
+  ["SGD", "Singapore Dollar"], ["HKD", "Hong Kong Dollar"], ["KRW", "South Korean Won"], ["TWD", "New Taiwan Dollar"],
+  ["THB", "Thai Baht"], ["VND", "Vietnamese Dong"], ["MYR", "Malaysian Ringgit"], ["IDR", "Indonesian Rupiah"],
+  ["PHP", "Philippine Peso"], ["AED", "UAE Dirham"], ["SAR", "Saudi Riyal"], ["TRY", "Turkish Lira"],
+  ["ZAR", "South African Rand"], ["BRL", "Brazilian Real"], ["MXN", "Mexican Peso"], ["RUB", "Russian Ruble"],
 ];
 
-const CURRENCIES = ["CZK", "USD", "EUR", "GBP", "CNY"];
+/**
+ * Bez kurzovniho listku znameme jen CZK. Drive tu byly natvrdo zapsane kurzy
+ * EUR/USD - tise zastaraly a pocitalo se s nimi dal, coz u penez nejde.
+ */
+const CZK_ONLY: Rates = { CZK: 1 };
 
-interface CostRow {
-  key: string;
-  label: string;
-  estAmount: string;
-  estCurrency: string;
-  realAmount: string;
-  realCurrency: string;
-  invoiceNumber: string;
-  vendor: string;
+/** COST_TYPES z mockupu - kategorie nakladu (spolecne pro buying i selling) */
+const COST_CATEGORIES = [
+  "Ocean freight", "Air freight", "Rail freight", "Road freight",
+  "Documentation", "THC Origin", "THC Destination", "Customs clearance",
+  "Handling", "Delivery", "Pickup", "Insurance", "Inspection",
+  "Storage", "Demurrage", "Other",
+];
+
+/** Vyber meny s naseptavanim - filtruje podle kodu i nazvu meny. */
+/**
+ * Vyber meny. Naseptava podle kodu i nazvu (mockup: renderCombo, mode "cur").
+ * Mena jde prepnout i v zamcenem radku - je to caste nastaveni a nema smysl
+ * kvuli nemu radek nejdriv odemykat dvojklikem.
+ */
+function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <Select
+      value={value || undefined}
+      onChange={onChange}
+      showSearch
+      placeholder="CUR"
+      // hleda podle kodu i nazvu meny
+      filterOption={(input, option) => {
+        const q = (input || "").toLowerCase().trim();
+        if (!q) return true;
+        const code = String(option?.value ?? "").toLowerCase();
+        const name = String(option?.title ?? "").toLowerCase();
+        return code.includes(q) || name.includes(q);
+      }}
+      options={CURRENCIES.map(([code, name]) => ({
+        value: code, title: name, label: `${code} — ${name}`,
+      }))}
+      // v rozbalenem seznamu je videt i nazev meny, v bunce jen kod
+      optionRender={(opt) => (
+        <span className="text-[13px]">
+          <span className="font-semibold">{String(opt.value)}</span>
+          <span className="text-slate-400"> — {String(opt.data?.title ?? "")}</span>
+        </span>
+      )}
+      labelRender={(p) => <span className="text-[13px]">{String(p.value ?? "")}</span>}
+      popupMatchSelectWidth={false}
+      className="w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
+                 [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
+                 [&_.ant-select-selection-item]:!text-[13px] [&_.ant-select-selection-search-input]:!text-[13px]"
+    />
+  );
+}
+
+/* ── sdilene tridy dle mockupu (--cb-field-h 30px, --cb-cell-x 6px) ── */
+const CELL = "px-[6px] py-[6px] border-b border-slate-100 align-middle";
+const FIELD =
+  "w-full h-[30px] px-2 text-[13px] border border-slate-200 rounded-md outline-none " +
+  "focus:border-indigo-500 bg-white";
+const TH =
+  "text-[11.5px] font-bold tracking-[.04em] uppercase text-slate-500 px-[6px] py-2 " +
+  "border-b border-slate-200 whitespace-nowrap";
+
+function SectionCard({
+  title, tone, actions, children,
+}: {
+  title: string;
+  tone: "buy" | "sell";
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const bg = {
+    buy: "bg-[#EEF0FC] text-[#3F4DBF]",
+    sell: "bg-[#E6F5EC] text-[#177245]",
+  }[tone];
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden mb-4">
+      <div className={`h-[38px] px-4 flex items-center gap-3 text-[12.5px] font-bold uppercase tracking-[.05em] ${bg}`}>
+        <span>{title}</span>
+        {actions && <span className="ml-auto flex items-center gap-2">{actions}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+/** male tlacitko v zahlavi karty (mockup: .add-btn, vyska 26px) */
+function HeadBtn({
+  onClick, disabled, title, ariaLabel, children,
+}: {
+  onClick: () => void;
+  disabled?: boolean;
+  title?: string;
+  /** Required when the button renders only an icon. */
+  ariaLabel?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={ariaLabel}
+      className="h-[26px] px-[10px] text-[12px] font-semibold rounded-md border border-white/40
+                 bg-white/80 text-slate-700 cursor-pointer hover:bg-white disabled:opacity-50
+                 disabled:cursor-default transition-colors whitespace-nowrap"
+    >
+      {children}
+    </button>
+  );
 }
 
 export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   const queryClient = useQueryClient();
   const [quoteInput, setQuoteInput] = useState("");
-  const [quoteStatus, setQuoteStatus] = useState<string | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
+  // modalni okno Copy from quote (mockup: #quoteModal)
+  const [quoteModal, setQuoteModal] = useState<null | "buy" | "sell">(null);
+  const [quoteErr, setQuoteErr] = useState("");
+  const [reportOpen, setReportOpen] = useState(false);
+  /* Zamykani radku dle mockupu (trida .display): vyplneny radek se po
+     opusteni zamkne do "read-only" podoby, dvojklik ho zase otevre.
+     Drzime ID odemcenych radku - vse ostatni vyplnene je zamcene. */
+  const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
+  const unlock = (id: string) => setUnlocked((p) => new Set(p).add(id));
+  const lock = (id: string) => setUnlocked((p) => {
+    const n = new Set(p);
+    n.delete(id);
+    return n;
+  });
 
-  const { data, isLoading } = useQuery({
+  // Stejny klic jako v ShipmentDetailContent - data uz jsou v pameti
+  // z okamziku otevreni zakazky, takze zalozka naskoci bez cekani.
+  const { data } = useQuery({
     queryKey: ["invoicing", shipment.id],
     queryFn: () => api.invoicing.invoicingGet(shipment.id),
+    placeholderData: (prev) => prev,
+    // nedotahuj znovu jen kvuli tomu, ze se komponenta prave pripojila
+    refetchOnMount: false,
   });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
 
-  const upsertCost = useMutation({
-    mutationFn: (params: { category: string; estAmount?: string; estCurrency?: string; realAmount?: string; realCurrency?: string; invoiceNumber?: string; vendor?: string }) =>
-      api.invoicing.invoicingUpsertCost(shipment.id, params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] }),
-  });
+  /** Chyba zapisu se musi ukazat - drive se tise spolkla a tlacitko
+   *  vypadalo, ze nic nedela. */
+  const showError = (what: string) => (e: unknown) => {
+    const detail = e instanceof Error ? e.message : "";
+    console.error(`[CostsTab] ${what}`, e);
+    message.error(detail ? `${what}: ${detail}` : what);
+  };
+
+  /* ── Billing mena ──
+     Prepinac byl odstranen - souhrny jsou v CZK, pripadne v mene ulozene
+     u zakazky. ROE se nepouziva, kurzy chodi z kurzovniho listku. */
+  const billingCur = data?.billingSettings?.billingCurrency || "CZK";
 
   const upsertBilling = useMutation({
     mutationFn: (params: { billingCurrency?: string; roe?: string; quoteRef?: string }) =>
       api.invoicing.invoicingUpsertBillingSettings(shipment.id, params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] }),
+    onSuccess: invalidate,
   });
 
-  const upsertOverride = useMutation({
-    mutationFn: (params: { rowKey: string; billingAmount: string }) =>
-      api.invoicing.invoicingUpsertBillingOverride(shipment.id, params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] }),
+  /* ── Datum pro kurz ──
+     Odvozuje se automaticky ze zasilky: import -> ETA, export -> ETD.
+     Zadne rucni nastaveni. */
+  const tradeDirection = (getFieldValue(shipment, "tradeDirection") || "").trim().toLowerCase();
+  const rateBasis: "eta" | "etd" = tradeDirection === "export" ? "etd" : "eta";
+
+  const rateDate = useMemo(() => {
+    const raw = getFieldValue(
+      shipment,
+      rateBasis === "etd" ? "estimatedDeparture" : "estimatedArrival",
+    );
+    const txt = String(raw ?? "").trim();
+    if (!txt) return "";
+    // uz ve tvaru YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}/.test(txt)) return txt.slice(0, 10);
+    // grid uklada data jako MM/DD/YY nebo MM/DD/YYYY
+    const m = txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
+    if (m) {
+      const [, mm, dd, yy] = m;
+      const year = yy!.length === 2 ? `20${yy}` : yy!;
+      return `${year}-${mm!.padStart(2, "0")}-${dd!.padStart(2, "0")}`;
+    }
+    const parsed = new Date(txt);
+    return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
+  }, [shipment, rateBasis]);
+
+  // Kurzy se berou z kurzovniho listku zadaneho na strance Exchange.
+  const ratesQuery = useQuery({
+    queryKey: ["exchange-rates"],
+    queryFn: () => api.invoicing.exchangeRateList(),
+    staleTime: 10 * 60 * 1000,
+    placeholderData: (prev) => prev,
+    refetchOnMount: false,
   });
 
-  const addCharge = useMutation({
-    mutationFn: (params: { description?: string; estAmount?: string; estCurrency?: string; realAmount?: string; realCurrency?: string }) =>
-      api.invoicing.invoicingAddCharge(shipment.id, params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] }),
+  const weekKey = useMemo(() => (rateDate ? weekKeyFromDate(rateDate) : ""), [rateDate]);
+
+  /**
+   * Kurz pro tyden data ETA/ETD. Kdyz pro dany tyden zaznam neni,
+   * pouzije se posledni znamy starsi kurz a uzivatel je upozornen.
+   */
+  const fx = useMemo(() => {
+    const list = ratesQuery.data?.rates ?? [];
+    if (!list.length) return { rates: CZK_ONLY, source: "none" as const, usedWeek: "" };
+
+    const exact = list.find((r) => r.week === weekKey);
+    // list chodi serazeny od nejnovejsiho, hledame nejblizsi starsi tyden
+    const fallbackRow = exact
+      ?? (rateDate ? list.find((r) => r.validFrom <= rateDate) : list[0])
+      ?? list[0];
+    if (!fallbackRow) return { rates: CZK_ONLY, source: "none" as const, usedWeek: "" };
+
+    const eur = Number(fallbackRow.rateEur);
+    const usd = Number(fallbackRow.rateUsd);
+    return {
+      rates: {
+        CZK: 1,
+        ...(Number.isFinite(eur) && eur > 0 ? { EUR: eur } : {}),
+        ...(Number.isFinite(usd) && usd > 0 ? { USD: usd } : {}),
+      } as Rates,
+      source: exact ? ("exact" as const) : ("older" as const),
+      usedWeek: fallbackRow.week,
+    };
+  }, [ratesQuery.data?.rates, weekKey, rateDate]);
+
+  const rates: Rates = fx.rates;
+
+  /* ── Buying costs ── */
+  const buyRows: BuyingRow[] = useMemo(
+    () => (data?.costs ?? []).map((c) => ({
+      id: c.id,
+      category: c.category ?? "",
+      vendor: c.vendor ?? "",
+      estQty: c.estQty ?? "",
+      estAmount: c.estAmount ?? "",
+      estCurrency: c.estCurrency || "CZK",
+      realQty: c.realQty ?? "",
+      realAmount: c.realAmount ?? "",
+      realCurrency: c.realCurrency || "CZK",
+      invoiceNumber: c.invoiceNumber ?? "",
+      received: !!c.received,
+    })),
+    [data?.costs],
+  );
+
+  // novy radek dle mockupu: Qty = 1, meny podle zvolene billing meny
+  const addBuy = useMutation({
+    mutationFn: () => api.invoicing.invoicingAddBuyingCost(shipment.id, {
+      estQty: "1", realQty: "1",
+      estCurrency: billingCur, realCurrency: billingCur,
+      sortOrder: buyRows.length,
+    }),
+    onSuccess: (res) => { unlock(res.cost.id); invalidate(); },
+    onError: showError("Could not add the buying cost"),
+  });
+  const updateBuy = useMutation({
+    mutationFn: ({ id, ...params }: { id: string } & Record<string, unknown>) =>
+      api.invoicing.invoicingUpdateBuyingCost(shipment.id, id, params),
+    onSuccess: invalidate,
+    onError: showError("Could not save the change"),
+  });
+  const deleteBuy = useMutation({
+    mutationFn: (id: string) => api.invoicing.invoicingDeleteBuyingCost(shipment.id, id),
+    onSuccess: invalidate,
+    onError: showError("Could not delete the row"),
   });
 
-  const updateCharge = useMutation({
-    mutationFn: ({ chargeId, ...params }: { chargeId: string; description?: string; estAmount?: string; estCurrency?: string; realAmount?: string; realCurrency?: string; invoiceNumber?: string; vendor?: string }) =>
-      api.invoicing.invoicingUpdateCharge(shipment.id, chargeId, params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] }),
+  /* ── Selling costs ── */
+  const sellRows: SellingRow[] = useMemo(
+    () => (data?.sellingCosts ?? []).map((c) => ({
+      id: c.id,
+      category: c.category ?? "",
+      customer: c.customer ?? "",
+      qty: c.qty ?? "",
+      amount: c.amount ?? "",
+      currency: c.currency || "CZK",
+      invoice: !!c.invoice,
+      sourceBuyId: c.sourceBuyId ?? null,
+    })),
+    [data?.sellingCosts],
+  );
+
+  // novy radek dle mockupu: Qty = 1, mena podle billing meny, Invoice zaskrtnuto
+  const addSell = useMutation({
+    mutationFn: (params: Record<string, unknown> = {}) =>
+      api.invoicing.invoicingAddSellingCost(shipment.id, {
+        qty: "1", currency: billingCur, invoice: true,
+        sortOrder: sellRows.length, ...params,
+      } as never),
+    onSuccess: (res) => { unlock(res.sellingCost.id); invalidate(); },
+    onError: showError("Could not add the selling cost"),
+  });
+  const updateSell = useMutation({
+    mutationFn: ({ id, ...params }: { id: string } & Record<string, unknown>) =>
+      api.invoicing.invoicingUpdateSellingCost(shipment.id, id, params),
+    onSuccess: invalidate,
+    onError: showError("Could not save the change"),
+  });
+  const deleteSell = useMutation({
+    mutationFn: (id: string) => api.invoicing.invoicingDeleteSellingCost(shipment.id, id),
+    onSuccess: invalidate,
+    onError: showError("Could not delete the row"),
   });
 
-  const deleteCharge = useMutation({
-    mutationFn: (chargeId: string) => api.invoicing.invoicingDeleteCharge(shipment.id, chargeId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] }),
-  });
+  /* ── Prazdna tabulka ──
+     Mockup startuje s jednim prazdnym radkem. Tady se radek NEZAKLADA sam:
+     pouhe otevreni zalozky by zapisovalo do databaze a prazdne naklady by se
+     pak objevovaly i na strance Invoicing. Misto toho je v prazdne tabulce
+     tlacitko, kterym si uzivatel prvni radek zalozi jednim kliknutim. */
 
+  /* ── Undo jako zasobnik (mockup: undoStack + snapshotCostRow/restoreCostRow) ──
+     Mockup si pamatuje vice smazanych radku a vraci je na PUVODNI pozici. */
+  interface UndoEntry { index: number; values: Record<string, unknown> }
+  const undoBuyStack = useRef<UndoEntry[]>([]);
+  const undoSellStack = useRef<UndoEntry[]>([]);
+  const [undoBuyCount, setUndoBuyCount] = useState(0);
+  const [undoSellCount, setUndoSellCount] = useState(0);
+
+  /** prazdny radek nema smysl vracet (mockup: costRowFilled) */
+  const buyRowFilled = (r: BuyingRow) =>
+    !!(r.category || r.vendor || r.estAmount || r.realAmount || r.invoiceNumber);
+  const sellRowFilled = (r: SellingRow) => !!(r.category || r.customer || r.amount);
+
+  /** costRowFilled z mockupu - podle nej se radek zamyka */
+  const buyLocked = (r: BuyingRow) =>
+    !unlocked.has(r.id) && !!(r.category || num(r.estAmount) || num(r.realAmount));
+  const sellLocked = (r: SellingRow) =>
+    !unlocked.has(r.id) && !!(r.category || num(r.amount));
+
+  /** zamceny radek: pole vypadaji jako text, dvojklik je otevre */
+  const lockedField = (locked: boolean) =>
+    locked
+      ? " !border-transparent !bg-transparent pointer-events-none"
+      : "";
+
+  /**
+   * Snapshot of a row's values for the undo stack. The id is dropped (the
+   * restored row gets a new one) and so are nulls — the request fields are
+   * optional strings, and the columns are nullable anyway, so omitting a null
+   * is equivalent to sending it and avoids a type mismatch on the wire.
+   */
+  const undoValues = (row: BuyingRow | SellingRow): Record<string, unknown> => {
+    const values: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (key === "id" || value === null || value === undefined) continue;
+      values[key] = value;
+    }
+    return values;
+  };
+
+  const removeBuy = (row: BuyingRow, index: number) => {
+    if (buyRowFilled(row)) {
+      undoBuyStack.current.push({ index, values: undoValues(row) });
+      setUndoBuyCount(undoBuyStack.current.length);
+    }
+    deleteBuy.mutate(row.id);
+  };
+
+  /**
+   * Runs a handler that talks to the API directly (not via a mutation) and
+   * surfaces any failure — otherwise a rejected promise from an onClick just
+   * disappears and the button looks like it did nothing.
+   */
+  const guarded = (what: string, run: () => Promise<void>) => () => {
+    run().catch(showError(what));
+  };
+
+  const undoBuy = async () => {
+    const entry = undoBuyStack.current.pop();
+    setUndoBuyCount(undoBuyStack.current.length);
+    if (!entry) return;
+    // vraceni na puvodni pozici: radek dostane sortOrder podle ulozeneho indexu
+    // a nasledujici radky se posunou
+    await Promise.all([
+      api.invoicing.invoicingAddBuyingCost(shipment.id, { ...entry.values, sortOrder: entry.index }),
+      ...buyRows.flatMap((r, i) => i >= entry.index
+        ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, r.id, { sortOrder: i + 1 } as never)]
+        : []),
+    ]);
+    invalidate();
+  };
+
+  const removeSell = (row: SellingRow, index: number) => {
+    if (sellRowFilled(row)) {
+      undoSellStack.current.push({ index, values: undoValues(row) });
+      setUndoSellCount(undoSellStack.current.length);
+    }
+    deleteSell.mutate(row.id);
+  };
+
+  const undoSell = async () => {
+    const entry = undoSellStack.current.pop();
+    setUndoSellCount(undoSellStack.current.length);
+    if (!entry) return;
+    await Promise.all([
+      api.invoicing.invoicingAddSellingCost(shipment.id, { ...entry.values, sortOrder: entry.index } as never),
+      ...sellRows.flatMap((r, i) => i >= entry.index
+        ? [api.invoicing.invoicingUpdateSellingCost(shipment.id, r.id, { sortOrder: i + 1 } as never)]
+        : []),
+    ]);
+    invalidate();
+  };
+
+  /* ── Kopie radku (mockup: tlacitko .dup) ──
+     Nekopiruje se Invoice number ani Received - vazou se ke konkretni fakture.
+     U selling se nekopiruje vazba na zdrojovy radek - kopie je novy nezavisly radek. */
+  const duplicateBuy = async (r: BuyingRow, index: number) => {
+    await api.invoicing.invoicingAddBuyingCost(shipment.id, {
+      category: r.category, vendor: r.vendor,
+      estQty: r.estQty, estAmount: r.estAmount, estCurrency: r.estCurrency,
+      realQty: r.realQty, realAmount: r.realAmount, realCurrency: r.realCurrency,
+      sortOrder: index + 1,
+    });
+    await Promise.all(buyRows.flatMap((row, i) => i > index
+      ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, row.id, { sortOrder: i + 1 } as never)]
+      : []));
+    invalidate();
+  };
+
+  const duplicateSell = async (r: SellingRow, index: number) => {
+    await api.invoicing.invoicingAddSellingCost(shipment.id, {
+      category: r.category, customer: r.customer,
+      qty: r.qty, amount: r.amount, currency: r.currency, invoice: r.invoice,
+      sortOrder: index + 1,
+    });
+    await Promise.all(sellRows.flatMap((row, i) => i > index
+      ? [api.invoicing.invoicingUpdateSellingCost(shipment.id, row.id, { sortOrder: i + 1 } as never)]
+      : []));
+    invalidate();
+  };
+
+  /* ── Zmena meny u Estimated se zrcadli do Real, dokud neni Real vyplneny ── */
+  const changeEstCurrency = (r: BuyingRow, currency: string) => {
+    const mirror = !num(r.realAmount);
+    updateBuy.mutate({ id: r.id, estCurrency: currency, ...(mirror ? { realCurrency: currency } : {}) });
+  };
+
+  /* ── Received se ridi vyplnenim cisla faktury, rucne zaskrtnout nejde ── */
+  const changeInvoiceNumber = (r: BuyingRow, value: string) => {
+    if (value === r.invoiceNumber) return;
+    updateBuy.mutate({ id: r.id, invoiceNumber: value, received: !!value.trim() });
+  };
+
+  /* ── Copy from buying (mockup: copyFromBuying) ──
+     Kopiruje VZDY z Estimated (Qty x Est. Amount v mene estimated) - Real se nikdy
+     nepouziva. Radky jiz zkopirovane driv se preskoci (vazba sourceBuyId). */
+  const copyFromBuying = async () => {
+    const already = new Set(sellRows.map((r) => r.sourceBuyId).filter(Boolean));
+    const rows = buyRows.filter((r) => !already.has(r.id) && (r.category || num(r.estAmount)));
+    if (!rows.length) {
+      message.info(already.size ? "All buying rows are already copied" : "No buying costs to copy");
+      return;
+    }
+    // Jediny prazdny radek se pri kopirovani zahodi, aby nezustaval navic
+    // (mockup: const onlyEmpty = ... ; if (onlyEmpty) sellBody.innerHTML = "").
+    const onlyEmpty =
+      sellRows.length === 1 && !sellRowFilled(sellRows[0]!) ? sellRows[0]! : null;
+
+    const baseOrder = onlyEmpty ? 0 : sellRows.length;
+    await Promise.all([
+      ...rows.map((r, i) =>
+        api.invoicing.invoicingAddSellingCost(shipment.id, {
+          category: r.category,
+          qty: r.estQty || "1",
+          amount: r.estAmount || "",
+          currency: r.estCurrency,
+          sourceBuyId: r.id,
+          sortOrder: baseOrder + i,
+        } as never)),
+      ...(onlyEmpty ? [api.invoicing.invoicingDeleteSellingCost(shipment.id, onlyEmpty.id)] : []),
+    ]);
+    invalidate();
+    message.success(`Copied ${rows.length} row(s) from buying`);
+  };
+
+  /* ── Copy from quote (mockup: openQuoteModal / doQuoteImport) ──
+     Reference se zadava v modalnim okne, ne primo v karte. */
   const importQuoteCosts = async () => {
-    if (!quoteInput.trim()) return;
+    const target = quoteModal;
+    if (!target) return;
+    const ref = quoteInput.trim();
+    if (!ref) { setQuoteErr("Enter the quotation reference."); return; }
+
     setQuoteLoading(true);
-    setQuoteStatus(null);
-    const qn = quoteInput.trim().replace(/-\d+$/, "");
+    setQuoteErr("");
+    const qn = ref.replace(/-\d+$/, "");
     try {
       const quoteData = await api.invoicing.invoicingGet(qn);
       const quoteCosts = quoteData.costs ?? [];
-      if (quoteCosts.length === 0) {
-        setQuoteStatus("No costs found for this quote");
+      if (!quoteCosts.length) {
+        setQuoteErr(`No costs found for quote ${qn}.`);
         setQuoteLoading(false);
         return;
       }
-      let imported = 0;
-      for (const c of quoteCosts) {
-        if (c.realAmount) {
-          await api.invoicing.invoicingUpsertCost(shipment.id, {
-            category: c.category,
-            estAmount: c.realAmount,
-            estCurrency: c.realCurrency || "CZK",
-          });
-          imported++;
-        }
-      }
-      // Carry over the quote's billing settings (currency + ROE) and the quote ref
+      const usable = quoteCosts.filter((c) => c.realAmount || c.estAmount);
+      await Promise.all(usable.map((c, i) => {
+        const amount = (c.realAmount || c.estAmount)!;
+        const currency = (c.realAmount ? c.realCurrency : c.estCurrency) || billingCur;
+        const qty = (c.realAmount ? c.realQty : c.estQty) || "1";
+        return target === "buy"
+          ? api.invoicing.invoicingAddBuyingCost(shipment.id, {
+              category: c.category ?? "", vendor: c.vendor ?? "",
+              estQty: qty, estAmount: amount, estCurrency: currency,
+              realQty: "1", realCurrency: currency,
+              sortOrder: buyRows.length + i,
+            })
+          : api.invoicing.invoicingAddSellingCost(shipment.id, {
+              category: c.category ?? "", qty, amount, currency, invoice: true,
+              sortOrder: sellRows.length + i,
+            } as never);
+      }));
+      const imported = usable.length;
       const qBilling = quoteData.billingSettings;
       await upsertBilling.mutateAsync({
         quoteRef: qn,
         ...(qBilling?.billingCurrency ? { billingCurrency: qBilling.billingCurrency } : {}),
         ...(qBilling?.roe ? { roe: qBilling.roe } : {}),
       });
-
-      // Carry over the quote's per-row billing overrides
-      let importedOverrides = 0;
-      for (const ov of quoteData.billingOverrides ?? []) {
-        if (ov.billingAmount) {
-          await upsertOverride.mutateAsync({ rowKey: ov.rowKey, billingAmount: ov.billingAmount });
-          importedOverrides++;
-        }
-      }
-
-      queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
-      setQuoteStatus(
-        `Imported ${imported} cost(s)${importedOverrides > 0 ? ` + ${importedOverrides} billing override(s)` : ""} from ${qn}`,
-      );
+      invalidate();
+      message.success(`Imported ${imported} cost(s) from ${qn}`);
+      setQuoteModal(null);
     } catch {
-      setQuoteStatus("Quote not found or error");
+      setQuoteErr("Quote not found or error.");
     }
     setQuoteLoading(false);
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-32 text-slate-400">
-        Loading costs...
-      </div>
-    );
-  }
+  /** Currencies on a row (plus the billing currency) that the rate sheet is missing. */
+  const missingFor = (...currencies: string[]) =>
+    [...new Set([...currencies, billingCur].filter((c) => c && c !== "CZK" && !rates[c]))].join(", ");
 
-  const costs = data?.costs ?? [];
-  const charges = data?.additionalCharges ?? [];
-  const billing = data?.billingSettings;
-  const overrides = data?.billingOverrides ?? [];
-  const overrideMap: Record<string, string> = {};
-  for (const ov of overrides) if (ov.billingAmount) overrideMap[ov.rowKey] = ov.billingAmount;
+  /* ── Vypocty (presne dle recalcCosts z mockupu) ── */
+  const t = useMemo(
+    () => computeCosts(buyRows, sellRows, billingCur, rates),
+    [buyRows, sellRows, billingCur, rates],
+  );
 
-  const parseCostNum = (v: string | null | undefined) => { const n = parseFloat(v || ""); return isNaN(n) ? 0 : n; };
-  const fmtNum = (n: number) => n.toLocaleString("en", { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+  // Zadna blokujici obrazovka - karty se vykresli vzdy. Dokud data nedorazi,
+  // jsou tabulky prazdne a nahore bezi tenky prouzek.
 
-  const costRows: CostRow[] = COST_CATEGORIES.map((cat) => {
-    const row = costs.find((c) => c.category === cat.key);
-    return {
-      key: cat.key,
-      label: cat.label,
-      estAmount: row?.estAmount || "",
-      estCurrency: row?.estCurrency || "CZK",
-      realAmount: row?.realAmount || "",
-      realCurrency: row?.realCurrency || "CZK",
-      invoiceNumber: row?.invoiceNumber || "",
-      vendor: row?.vendor || "",
-    };
-  });
-
-  const subtotalEst = costRows.reduce((s, c) => s + parseCostNum(c.estAmount), 0);
-  const subtotalReal = costRows.reduce((s, c) => s + parseCostNum(c.realAmount), 0);
-  const chargesReal = charges.reduce((s, c) => s + parseCostNum(c.realAmount), 0);
-  const subtotalBilling = costRows.reduce((s, c) => s + parseCostNum(overrideMap[c.key] || c.realAmount), 0);
-  const profit = subtotalBilling - (subtotalReal + chargesReal);
-
-  const handleCostBlur = (category: string, field: string, value: string) => {
-    upsertCost.mutate({ category, [field]: value });
-  };
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 p-5">
-      {/* Billing settings bar */}
-      <div className="flex items-center gap-3 mb-4 p-2 px-3 bg-slate-50 rounded-md border border-slate-200 flex-wrap">
-        <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider">Billing</span>
-        <Select
-          size="small"
-          value={billing?.billingCurrency || "CZK"}
-          onChange={(v) => upsertBilling.mutate({ billingCurrency: v })}
-          options={CURRENCIES.map((c) => ({ value: c, label: c }))}
-          className="w-[75px]"
-        />
-        <span className="text-[11px] text-slate-500">ROE:</span>
-        <Input
-          size="small"
-          className="w-[60px]"
-          defaultValue={billing?.roe || "1"}
-          onBlur={(e) => upsertBilling.mutate({ roe: e.target.value })}
-        />
-        <div className="ml-auto flex items-center gap-1.5">
-          <Input
-            size="small"
-            placeholder="CZQ00000001"
-            value={quoteInput}
-            onChange={(e) => { setQuoteInput(e.target.value); setQuoteStatus(null); }}
-            onPressEnter={importQuoteCosts}
-            className="w-[130px]"
-          />
-          <Button size="small" type="primary" onClick={importQuoteCosts} loading={quoteLoading} disabled={!quoteInput.trim()}>
-            Import
-          </Button>
-          {quoteStatus && (
-            <span className={`text-[11px] ${quoteStatus.startsWith("Imported") ? "text-green-600" : "text-amber-500"}`}>
-              {quoteStatus}
-            </span>
-          )}
+    <div>
+      {/* ═══════════ 1. BUYING COSTS ═══════════ */}
+      <SectionCard
+        title="Buying costs"
+        tone="buy"
+        actions={
+          <>
+            <HeadBtn onClick={guarded("Could not restore the row", undoBuy)} disabled={!undoBuyCount} title="Undo the last deleted cost" ariaLabel="Undo the last deleted buying cost">
+              <UndoOutlined />
+            </HeadBtn>
+            <HeadBtn onClick={() => { setQuoteErr(""); setQuoteModal("buy"); }}>
+              Copy from quote
+            </HeadBtn>
+            <HeadBtn onClick={() => addBuy.mutate()}>Add buying cost</HeadBtn>
+          </>
+        }
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "1180px" }}>
+            <thead>
+              {/* seskupene zahlavi Estimated / Real dle mockupu */}
+              <tr>
+                <th colSpan={2} className="border-b border-slate-200" />
+                <th colSpan={3} className={`${TH} text-center bg-[#F5F6FD] text-[#3F4DBF]`}>
+                  Estimated buying costs
+                </th>
+                <th colSpan={5} className={`${TH} text-center bg-[#FBF6EF] text-[#95620B]`}>
+                  Real buying costs
+                </th>
+                <th colSpan={2} className="border-b border-slate-200" />
+              </tr>
+              <tr>
+                <th className={`${TH} text-left w-[16%]`}>Category</th>
+                <th className={`${TH} text-left w-[9%]`}>Vendor</th>
+                <th className={`${TH} text-center w-[5%]`}>Qty</th>
+                <th className={`${TH} text-right w-[9%]`}>Est. Amount</th>
+                <th className={`${TH} text-left w-[6%]`}>Cur</th>
+                <th className={`${TH} text-center w-[5%]`}>Qty</th>
+                <th className={`${TH} text-right w-[9%]`}>Real Cost</th>
+                <th className={`${TH} text-left w-[6%]`}>Cur</th>
+                <th className={`${TH} text-left w-[9%]`}>Invoice number</th>
+                <th className={`${TH} text-center w-[6%]`} title="Supplier invoice received">Received</th>
+                <th className={`${TH} text-right w-[12%]`}>Total in {billingCur}</th>
+                <th className={`${TH} w-[70px]`} />
+              </tr>
+            </thead>
+            <tbody>
+              {buyRows.map((r, rowIndex) => {
+                const locked = buyLocked(r);
+                const fld = lockedField(locked);
+                return (
+                <tr
+                  key={r.id}
+                  className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
+                  onDoubleClick={() => unlock(r.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLElement).blur(); lock(r.id); } }}
+                >
+                  <td className={CELL}>
+                    <Select
+                      value={r.category || undefined}
+                      placeholder="—"
+                      variant="borderless"
+                      className={`w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
+                                 [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
+                                 [&_.ant-select-selection-item]:!text-[13px]${
+                        locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
+                      }`}
+                      options={COST_CATEGORIES.map((v) => ({ value: v, label: v }))}
+                      onChange={(v) => updateBuy.mutate({ id: r.id, category: v })}
+                    />
+                  </td>
+                  <td className={CELL}>
+                    <input
+                      className={`${FIELD}${fld}`}
+                      defaultValue={r.vendor}
+                      onBlur={(e) => e.target.value !== r.vendor && updateBuy.mutate({ id: r.id, vendor: e.target.value })}
+                    />
+                  </td>
+                  {/* Estimated */}
+                  <td className={CELL}>
+                    <input
+                      className={`${FIELD} text-center${fld}`}
+                      defaultValue={r.estQty}
+                      onBlur={(e) => e.target.value !== r.estQty && updateBuy.mutate({ id: r.id, estQty: e.target.value })}
+                    />
+                  </td>
+                  <td className={CELL}>
+                    <input
+                      className={`${FIELD} text-right${fld}`}
+                      defaultValue={r.estAmount}
+                      onBlur={(e) => e.target.value !== r.estAmount && updateBuy.mutate({ id: r.id, estAmount: e.target.value })}
+                    />
+                  </td>
+                  <td className={CELL}>
+                    <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
+                  </td>
+                  {/* Real */}
+                  <td className={CELL}>
+                    <input
+                      className={`${FIELD} text-center${fld}`}
+                      defaultValue={r.realQty}
+                      onBlur={(e) => e.target.value !== r.realQty && updateBuy.mutate({ id: r.id, realQty: e.target.value })}
+                    />
+                  </td>
+                  <td
+                    className={`${CELL} ${
+                      t.buyRowOver[r.id] ? "bg-[#FBE6E4]" : t.buyRowUnder[r.id] ? "bg-[#E1F3E9]" : ""
+                    }`}
+                    title={
+                      t.buyRowOver[r.id] ? "Real Cost is higher than Estimated"
+                        : t.buyRowUnder[r.id] ? "Real Cost is lower than Estimated" : undefined
+                    }
+                  >
+                    <input
+                      className={`${FIELD} text-right${fld} ${t.buyRowUnder[r.id] ? "!text-[#177245] font-bold" : ""}`}
+                      defaultValue={r.realAmount}
+                      onBlur={(e) => e.target.value !== r.realAmount && updateBuy.mutate({ id: r.id, realAmount: e.target.value })}
+                    />
+                  </td>
+                  <td className={CELL}>
+                    <CurrencyPicker value={r.realCurrency} onChange={(v) => updateBuy.mutate({ id: r.id, realCurrency: v })} />
+                  </td>
+                  <td className={CELL}>
+                    <input
+                      className={`${FIELD}${fld}`}
+                      defaultValue={r.invoiceNumber}
+                      onBlur={(e) => changeInvoiceNumber(r, e.target.value)}
+                    />
+                  </td>
+                  <td className={`${CELL} text-center`}>
+                    <Tooltip title="Received is ticked automatically once the invoice number is filled in">
+                      <span>
+                        <Checkbox checked={r.received} disabled tabIndex={-1} />
+                      </span>
+                    </Tooltip>
+                  </td>
+                  <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>
+                    {t.buyRowTotals[r.id] == null ? (
+                      <Tooltip title={`No exchange rate for ${missingFor(r.estCurrency, r.realCurrency)} — this row is left out of the totals`}>
+                        <span className="text-[#95620B] cursor-help">—</span>
+                      </Tooltip>
+                    ) : (
+                      money(t.buyRowTotals[r.id]!)
+                    )}
+                  </td>
+                  <td className={`${CELL} text-center whitespace-nowrap`}>
+                    <Tooltip title="Duplicate row">
+                      <button
+                        onClick={guarded("Could not duplicate the row", () => duplicateBuy(r, rowIndex))}
+                        aria-label="Duplicate buying cost row"
+                        className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
+                                   hover:bg-[#E7EAFC] hover:text-[#4457D6] border-0 bg-transparent cursor-pointer inline-grid"
+                      >
+                        <CopyOutlined />
+                      </button>
+                    </Tooltip>
+                    <Tooltip title="Delete row">
+                      <button
+                        onClick={() => removeBuy(r, rowIndex)}
+                        aria-label="Delete buying cost row"
+                        className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
+                                   hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer inline-grid"
+                      >
+                        <DeleteOutlined />
+                      </button>
+                    </Tooltip>
+                  </td>
+                </tr>
+                );
+              })}
+              {!buyRows.length && (
+                <tr>
+                  <td colSpan={12} className="px-4 py-8 text-center">
+                    <button
+                      onClick={() => addBuy.mutate()}
+                      disabled={addBuy.isPending}
+                      className="text-[13px] text-indigo-600 font-semibold border-0 bg-transparent
+                                 cursor-pointer hover:underline disabled:opacity-50"
+                    >
+                      No buying costs yet — add the first one
+                    </button>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            {/* soucty: pod Est. Amount a Real Cost, mena vzdy pod sloupcem Cur */}
+            <tfoot>
+              <tr className="bg-slate-50 font-bold">
+                <td className="px-[6px] py-2 text-[12px] uppercase tracking-wide text-slate-500" colSpan={3}>
+                  Total buying
+                </td>
+                <td className="px-[6px] py-2 text-right text-[13px] tabular-nums text-slate-900">
+                  {money(t.estTotal)}
+                </td>
+                <td className="px-[6px] py-2 text-[12px] text-slate-500">{billingCur}</td>
+                <td />
+                <td className={`px-[6px] py-2 text-right text-[13px] tabular-nums ${t.realStrictTotal ? "text-slate-900" : "text-slate-300"}`}>
+                  {t.realStrictTotal ? money(t.realStrictTotal) : "—"}
+                </td>
+                <td className="px-[6px] py-2 text-[12px] text-slate-500">{t.realStrictTotal ? billingCur : ""}</td>
+                <td colSpan={4} />
+              </tr>
+            </tfoot>
+          </table>
         </div>
-      </div>
+      </SectionCard>
 
-      {/* Editable costs table */}
-      <table className="w-full border-collapse text-xs mb-4">
-        <thead>
-          <tr className="bg-slate-50 border-b border-slate-200">
-            <th className="text-left p-2 px-3 font-semibold text-slate-500">Category</th>
-            <th className="text-right p-2 font-semibold text-slate-500">Est. Amount</th>
-            <th className="text-center p-2 px-1 font-semibold text-slate-500">Cur</th>
-            <th className="text-right p-2 font-semibold text-slate-500">Real Cost</th>
-            <th className="text-center p-2 px-1 font-semibold text-slate-500">Cur</th>
-            <th className="text-left p-2 font-semibold text-slate-500">Invoice #</th>
-            <th className="text-left p-2 font-semibold text-slate-500">Vendor</th>
-            <th className="text-right p-2 font-semibold text-slate-500">Billing</th>
-          </tr>
-        </thead>
-        <tbody>
-          {costRows.map((row) => (
-            <tr key={row.key} className="border-b border-slate-100">
-              <td className="p-1.5 px-3 text-slate-700">{row.label}</td>
-              <td className="p-1 text-right">
-                <Input size="small" defaultValue={row.estAmount} placeholder="—" className="w-[76px] text-right"
-                  onBlur={(e) => handleCostBlur(row.key, "estAmount", e.target.value)} />
-              </td>
-              <td className="p-1 px-0.5 text-center">
-                <Select size="small" defaultValue={row.estCurrency} className="w-[62px]"
-                  options={CURRENCIES.map((c) => ({ value: c, label: c }))}
-                  onChange={(v) => handleCostBlur(row.key, "estCurrency", v)} />
-              </td>
-              <td className="p-1 text-right">
-                <Input size="small" defaultValue={row.realAmount} placeholder="—" className="w-[76px] text-right"
-                  onBlur={(e) => handleCostBlur(row.key, "realAmount", e.target.value)} />
-              </td>
-              <td className="p-1 px-0.5 text-center">
-                <Select size="small" defaultValue={row.realCurrency} className="w-[62px]"
-                  options={CURRENCIES.map((c) => ({ value: c, label: c }))}
-                  onChange={(v) => handleCostBlur(row.key, "realCurrency", v)} />
-              </td>
-              <td className="p-1">
-                <Input size="small" defaultValue={row.invoiceNumber} placeholder="—" className="w-[85px]"
-                  onBlur={(e) => handleCostBlur(row.key, "invoiceNumber", e.target.value)} />
-              </td>
-              <td className="p-1">
-                <Input size="small" defaultValue={row.vendor} placeholder="—" className="w-[85px]"
-                  onBlur={(e) => handleCostBlur(row.key, "vendor", e.target.value)} />
-              </td>
-              <td className="p-1 text-right">
-                <Input size="small" defaultValue={overrideMap[row.key] || row.realAmount} placeholder="—" className="w-[76px] text-right font-semibold"
-                  onBlur={(e) => upsertOverride.mutate({ rowKey: row.key, billingAmount: e.target.value })} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t-2 border-slate-200 font-bold">
-            <td className="p-2 px-3">Subtotal</td>
-            <td className="p-2 text-right">{fmtNum(subtotalEst)}</td>
-            <td />
-            <td className="p-2 text-right">{fmtNum(subtotalReal)}</td>
-            <td />
-            <td colSpan={2} />
-            <td className="p-2 text-right">{fmtNum(subtotalBilling)}</td>
-          </tr>
-        </tfoot>
-      </table>
-
-      {/* Additional Charges */}
-      <div className="flex items-center justify-between mb-2">
-        <strong className="text-xs">Additional Charges</strong>
-        <Button size="small" onClick={() => addCharge.mutate({})}>+ Add</Button>
-      </div>
-
-      {charges.length > 0 && (
-        <table className="w-full border-collapse text-xs mb-3">
-          <thead>
-            <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="text-left p-1.5 px-2 font-semibold text-slate-500">Description</th>
-              <th className="text-right p-1.5 px-2 font-semibold text-slate-500">Est.</th>
-              <th className="text-center p-1.5 px-1 font-semibold text-slate-500">Cur</th>
-              <th className="text-right p-1.5 px-2 font-semibold text-slate-500">Real</th>
-              <th className="text-center p-1.5 px-1 font-semibold text-slate-500">Cur</th>
-              <th className="text-left p-1.5 px-2 font-semibold text-slate-500">Invoice</th>
-              <th className="text-left p-1.5 px-2 font-semibold text-slate-500">Vendor</th>
-              <th className="w-[30px]" />
-            </tr>
-          </thead>
-          <tbody>
-            {charges.map((ac) => (
-              <tr key={ac.id} className="border-b border-slate-100">
-                <td className="p-1">
-                  <Input size="small" defaultValue={ac.description} placeholder="Description"
-                    onBlur={(e) => updateCharge.mutate({ chargeId: ac.id, description: e.target.value })} />
+      {/* ═══════════ 2. SELLING COSTS ═══════════ */}
+      <SectionCard
+        title="Selling costs"
+        tone="sell"
+        actions={
+          <>
+            <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={!undoSellCount} title="Undo the last deleted cost" ariaLabel="Undo the last deleted selling cost">
+              <UndoOutlined />
+            </HeadBtn>
+            <HeadBtn onClick={() => { setQuoteErr(""); setQuoteModal("sell"); }}>
+              Copy from quote
+            </HeadBtn>
+            <HeadBtn onClick={guarded("Could not copy from buying", copyFromBuying)}>Copy from buying</HeadBtn>
+            <HeadBtn onClick={() => addSell.mutate({})}>Add selling cost</HeadBtn>
+          </>
+        }
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "900px" }}>
+            <thead>
+              <tr>
+                <th className={`${TH} text-left w-[185px]`}>Category</th>
+                <th className={`${TH} text-left w-[28%]`}>Customer</th>
+                <th className={`${TH} text-center w-[10%]`}>Qty</th>
+                <th className={`${TH} text-right w-[13%]`}>Amount</th>
+                <th className={`${TH} text-left w-[9%]`}>Cur</th>
+                <th className={`${TH} text-right w-[14%]`}>Total in {billingCur}</th>
+                <th className={`${TH} text-center w-[7%]`} title="Include in the billing calculation sheet">Invoice</th>
+                <th className={`${TH} w-[70px]`} />
+              </tr>
+            </thead>
+            <tbody>
+              {sellRows.map((r, rowIndex) => {
+                const locked = sellLocked(r);
+                const fld = lockedField(locked);
+                return (
+                <tr
+                  key={r.id}
+                  className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
+                  onDoubleClick={() => unlock(r.id)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLElement).blur(); lock(r.id); } }}
+                >
+                  <td className={CELL}>
+                    <Select
+                      value={r.category || undefined}
+                      placeholder="—"
+                      variant="borderless"
+                      className={`w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
+                                 [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
+                                 [&_.ant-select-selection-item]:!text-[13px]${
+                        locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
+                      }`}
+                      options={COST_CATEGORIES.map((v) => ({ value: v, label: v }))}
+                      onChange={(v) => updateSell.mutate({ id: r.id, category: v })}
+                    />
+                  </td>
+                  <td className={CELL}>
+                    <input
+                      className={`${FIELD}${fld}`}
+                      defaultValue={r.customer}
+                      onBlur={(e) => e.target.value !== r.customer && updateSell.mutate({ id: r.id, customer: e.target.value })}
+                    />
+                  </td>
+                  <td className={CELL}>
+                    <input
+                      className={`${FIELD} text-center${fld}`}
+                      defaultValue={r.qty}
+                      onBlur={(e) => e.target.value !== r.qty && updateSell.mutate({ id: r.id, qty: e.target.value })}
+                    />
+                  </td>
+                  <td className={CELL}>
+                    <input
+                      className={`${FIELD} text-right${fld}`}
+                      defaultValue={r.amount}
+                      onBlur={(e) => e.target.value !== r.amount && updateSell.mutate({ id: r.id, amount: e.target.value })}
+                    />
+                  </td>
+                  <td className={CELL}>
+                    <CurrencyPicker value={r.currency} onChange={(v) => updateSell.mutate({ id: r.id, currency: v })} />
+                  </td>
+                  <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums ${r.invoice ? "text-slate-800" : "text-slate-400 line-through"}`}>
+                    {t.sellRowTotals[r.id] == null ? (
+                      <Tooltip title={`No exchange rate for ${missingFor(r.currency)} — this row is left out of the totals`}>
+                        <span className="text-[#95620B] cursor-help">—</span>
+                      </Tooltip>
+                    ) : (
+                      money(t.sellRowTotals[r.id]!)
+                    )}
+                  </td>
+                  <td className={`${CELL} text-center`}>
+                    <Checkbox
+                      checked={r.invoice}
+                      onChange={(e) => updateSell.mutate({ id: r.id, invoice: e.target.checked })}
+                    />
+                  </td>
+                  <td className={`${CELL} text-center whitespace-nowrap`}>
+                    <Tooltip title="Duplicate row">
+                      <button
+                        onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex))}
+                        aria-label="Duplicate selling cost row"
+                        className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
+                                   hover:bg-[#E7EAFC] hover:text-[#4457D6] border-0 bg-transparent cursor-pointer inline-grid"
+                      >
+                        <CopyOutlined />
+                      </button>
+                    </Tooltip>
+                    <Tooltip title="Delete row">
+                      <button
+                        onClick={() => removeSell(r, rowIndex)}
+                        aria-label="Delete selling cost row"
+                        className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
+                                   hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer inline-grid"
+                      >
+                        <DeleteOutlined />
+                      </button>
+                    </Tooltip>
+                  </td>
+                </tr>
+                );
+              })}
+              {!sellRows.length && (
+                <tr>
+                  <td colSpan={8} className="px-4 py-8 text-center">
+                    <button
+                      onClick={() => addSell.mutate({})}
+                      disabled={addSell.isPending}
+                      className="text-[13px] text-emerald-700 font-semibold border-0 bg-transparent
+                                 cursor-pointer hover:underline disabled:opacity-50"
+                    >
+                      No selling costs yet — add the first one
+                    </button>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr className="bg-slate-50 font-bold">
+                <td className="px-[6px] py-2 text-[12px] uppercase tracking-wide text-slate-500" colSpan={5}>
+                  Total selling
+                  {/* Only rows ticked for invoicing count towards the total and the profit. */}
+                  {t.sellNotInvoicedCount > 0 && (
+                    <span className="ml-2 font-medium normal-case tracking-normal text-[12px] text-slate-400">
+                      ({t.sellNotInvoicedCount} row{t.sellNotInvoicedCount === 1 ? "" : "s"} not
+                      ticked for Invoice — {money(t.sellNotInvoicedTotal)} {billingCur} excluded)
+                    </span>
+                  )}
                 </td>
-                <td className="p-1 text-right">
-                  <Input size="small" defaultValue={ac.estAmount || ""} placeholder="—" className="w-[70px] text-right"
-                    onBlur={(e) => updateCharge.mutate({ chargeId: ac.id, estAmount: e.target.value })} />
-                </td>
-                <td className="p-1 px-0.5">
-                  <Select size="small" defaultValue={ac.estCurrency || "CZK"} className="w-[60px]"
-                    options={CURRENCIES.map((c) => ({ value: c, label: c }))}
-                    onChange={(v) => updateCharge.mutate({ chargeId: ac.id, estCurrency: v })} />
-                </td>
-                <td className="p-1 text-right">
-                  <Input size="small" defaultValue={ac.realAmount || ""} placeholder="—" className="w-[70px] text-right"
-                    onBlur={(e) => updateCharge.mutate({ chargeId: ac.id, realAmount: e.target.value })} />
-                </td>
-                <td className="p-1 px-0.5">
-                  <Select size="small" defaultValue={ac.realCurrency || "CZK"} className="w-[60px]"
-                    options={CURRENCIES.map((c) => ({ value: c, label: c }))}
-                    onChange={(v) => updateCharge.mutate({ chargeId: ac.id, realCurrency: v })} />
-                </td>
-                <td className="p-1">
-                  <Input size="small" defaultValue={ac.invoiceNumber} placeholder="—" className="w-[80px]"
-                    onBlur={(e) => updateCharge.mutate({ chargeId: ac.id, invoiceNumber: e.target.value })} />
-                </td>
-                <td className="p-1">
-                  <Input size="small" defaultValue={ac.vendor} placeholder="—" className="w-[80px]"
-                    onBlur={(e) => updateCharge.mutate({ chargeId: ac.id, vendor: e.target.value })} />
-                </td>
-                <td className="p-1 px-0.5">
-                  <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />}
-                    onClick={() => deleteCharge.mutate(ac.id)} />
+                <td className="px-[6px] py-2 text-right text-[13px] tabular-nums text-slate-900" colSpan={3}>
+                  {money(t.sellTotalCZK)} CZK
+                  {billingCur !== "CZK" && ` · ${money(t.sellTotal)} ${billingCur}`}
                 </td>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+            </tfoot>
+          </table>
+        </div>
+      </SectionCard>
 
-      {charges.length === 0 && (
-        <div className="p-4 text-center border border-dashed border-slate-200 rounded-md text-slate-400 text-xs">
-          No additional charges. Click + Add to create one.
+      {/* ═══════════ 3. KURZY (dle ETA/ETD zasilky) ═══════════
+          Zadne nastaveni - kurz se odvodi sam z tydne, do ktereho spada
+          ETA (import) nebo ETD (export). Zdrojem je stranka Exchange. */}
+      <div className="flex items-center gap-4 flex-wrap bg-white border border-slate-200 rounded-xl px-4 py-3 mb-4">
+        <span className="text-[12px] font-bold tracking-[.06em] uppercase text-slate-500">
+          Exchange rate
+        </span>
+
+        {/* tri kurzy vedle sebe: EUR / CZK / USD */}
+        <div className="flex items-center gap-2">
+          {([
+            ["EUR", rates.EUR],
+            ["CZK", 1],
+            ["USD", rates.USD],
+          ] as [string, number | undefined][]).map(([code, value]) => (
+            <span
+              key={code}
+              className="inline-flex items-center gap-2 border border-slate-200 rounded-md px-3 h-8 bg-white"
+            >
+              <span className="text-[12px] font-bold text-slate-500">{code}</span>
+              <span className="text-[13px] font-semibold text-slate-900 tabular-nums">
+                {value ? value.toFixed(3) : "—"}
+              </span>
+            </span>
+          ))}
+        </div>
+
+        {/* odkud se kurz vzal */}
+        <span className="text-[12.5px] text-slate-500">
+          {ratesQuery.isLoading ? (
+            "Loading rates…"
+          ) : fx.source === "none" ? (
+            <span className="text-[#95620B] font-semibold">
+              No rates entered — <Link href="/exchange" className="underline">add them in Exchange</Link>
+            </span>
+          ) : !rateDate ? (
+            <span className="text-[#95620B] font-semibold">
+              Shipment has no {rateBasis.toUpperCase()} date — using {formatWeekLabel(fx.usedWeek)}
+            </span>
+          ) : fx.source === "older" ? (
+            <span className="text-[#95620B] font-semibold">
+              No rates for {formatWeekLabel(weekKey)} — using {formatWeekLabel(fx.usedWeek)}
+            </span>
+          ) : (
+            <>
+              {formatWeekLabel(fx.usedWeek)} · by {rateBasis.toUpperCase()} {rateDate}
+            </>
+          )}
+        </span>
+      </div>
+
+      {/* Rows in a currency the rate sheet does not cover are left out of every
+          total — say so rather than letting the numbers look complete. */}
+      {t.missingCurrencies.length > 0 && (
+        <div className="flex items-start gap-2 bg-[#FBEED2] border border-[#95620B] rounded-xl px-4 py-3 mb-4">
+          <WarningOutlined className="text-[#95620B] mt-[2px]" />
+          <span className="text-[12.5px] text-[#5A4A20]">
+            <strong>No exchange rate for {t.missingCurrencies.join(", ")}.</strong>{" "}
+            {t.unconvertibleRowCount} row{t.unconvertibleRowCount === 1 ? " is" : "s are"} left out of
+            the totals below.{" "}
+            <Link href="/exchange" className="underline font-semibold">Add the rate in Exchange</Link>
+            {" "}to include {t.unconvertibleRowCount === 1 ? "it" : "them"}.
+          </span>
         </div>
       )}
 
-      {/* Profit summary */}
-      <div className="mt-3 p-2.5 px-3 bg-slate-50 rounded-md flex justify-between items-center">
-        <span className="text-xs font-semibold">Profit</span>
-        <span className={`text-sm font-bold ${profit >= 0 ? "text-green-600" : "text-red-600"}`}>
-          {profit >= 0 ? "+" : ""}{fmtNum(profit)} {billing?.billingCurrency || "CZK"}
-        </span>
+      {/* ═══════════ 4. REPORT ═══════════ */}
+      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setReportOpen((v) => !v)}
+          title="Show / hide report"
+          className="w-full h-[38px] px-4 flex items-center gap-3 bg-[#151B2B] text-white
+                     text-[12.5px] font-bold uppercase tracking-[.05em] border-0 cursor-pointer"
+        >
+          <span>Report</span>
+          <DownOutlined className={`text-[10px] transition-transform ${reportOpen ? "rotate-180" : ""}`} />
+          <span className="ml-auto flex items-center gap-5 normal-case tracking-normal">
+            {[
+              { k: "Buying costs", v: t.hasAny ? money(t.buyCZK) : "—" },
+              { k: "Selling costs", v: t.hasAny ? money(t.sellCZK) : "—" },
+              { k: "Profit", v: t.hasAny ? signed(t.profitCZK) : "—", profit: true },
+            ].map((x) => (
+              <span key={x.k} className="flex items-center gap-2">
+                <span className="text-[11.5px] font-semibold text-white/45">{x.k}</span>
+                <span
+                  className={`text-[13px] font-bold tabular-nums ${
+                    !t.hasAny ? "text-white/45"
+                      : x.profit ? (t.profitCZK >= 0 ? "text-[#4ADE80]" : "text-[#F87171]")
+                        : "text-white"
+                  }`}
+                >
+                  {x.v}
+                </span>
+              </span>
+            ))}
+          </span>
+        </button>
+
+        {reportOpen && (
+          <div className="p-4">
+            {/* Profit tabulka v CZK / USD / EUR */}
+            <table className="w-full max-w-[720px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+              <thead>
+                <tr>
+                  <th className={`${TH} text-left`} />
+                  <th className={`${TH} text-right`}>CZK</th>
+                  <th className={`${TH} text-right`}>USD</th>
+                  <th className={`${TH} text-right`}>EUR</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: "Buying costs", czk: t.buyCZK, signed: false },
+                  { label: "Selling costs", czk: t.sellCZK, signed: false },
+                  { label: "Profit", czk: t.profitCZK, signed: true },
+                ].map((row) => (
+                  <tr key={row.label} className={row.signed ? "font-bold" : ""}>
+                    <td className="px-[15px] py-[10px] text-[13px] text-slate-700 border-b border-slate-100">
+                      {row.label}
+                    </td>
+                    {/* A missing rate must never be substituted with 1 — that would
+                        reprint the CZK figure verbatim under a USD/EUR heading. */}
+                    {[row.czk, rates.USD ? row.czk / rates.USD : null, rates.EUR ? row.czk / rates.EUR : null].map((v, i) => (
+                      <td
+                        key={i}
+                        className={`px-[15px] py-[10px] text-right text-[13px] tabular-nums border-b border-slate-100 whitespace-nowrap ${
+                          !t.hasAny || v === null ? "text-slate-300"
+                            : row.signed ? (t.profitCZK >= 0 ? "text-[#177245] font-bold" : "text-[#C3392B] font-bold")
+                              : "text-slate-900"
+                        }`}
+                      >
+                        {t.hasAny && v !== null ? (row.signed ? signed(v) : money(v)) : "—"}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* R x E: Real - Estimated */}
+            <div className="mt-5">
+              <div className="flex items-center gap-3 mb-2">
+                <span className="text-[12px] font-bold tracking-[.06em] uppercase text-slate-600">
+                  R x E — Real − Estimated
+                </span>
+                <Tooltip title="Difference Real − Estimated on buying costs. A negative value means a saving against the estimate.">
+                  <span
+                    className={`text-[13px] font-bold tabular-nums ${
+                      !t.hasRxe ? "text-slate-300"
+                        : t.rxeTotal > 0.001 ? "text-[#C3392B]"
+                          : t.rxeTotal < -0.001 ? "text-[#177245]" : "text-slate-400"
+                    }`}
+                  >
+                    {t.hasRxe ? `${signed(t.rxeTotal)} ${billingCur}` : "—"}
+                  </span>
+                </Tooltip>
+              </div>
+
+              {t.rxeRows.length > 0 && (
+                <table className="w-full max-w-[720px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+                  <thead>
+                    <tr>
+                      <th className={`${TH} text-left`}>Category</th>
+                      <th className={`${TH} text-left`}>Vendor</th>
+                      <th className={`${TH} text-right`}>R x E</th>
+                      <th className={`${TH} text-right`}>%</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {t.rxeRows.map((x) => (
+                      <tr key={x.id}>
+                        <td className="px-[15px] py-[8px] text-[13px] text-slate-700 border-b border-slate-100">{x.cat}</td>
+                        <td className="px-[15px] py-[8px] text-[13px] text-slate-500 border-b border-slate-100">
+                          {x.vendor || "—"}
+                        </td>
+                        <td
+                          className={`px-[15px] py-[8px] text-right text-[13px] font-semibold tabular-nums border-b border-slate-100 ${
+                            x.delta > 0.001 ? "text-[#C3392B]" : x.delta < -0.001 ? "text-[#177245]" : "text-slate-400"
+                          }`}
+                        >
+                          {signed(x.delta)}
+                        </td>
+                        <td className="px-[15px] py-[8px] text-right text-[12.5px] text-slate-500 tabular-nums border-b border-slate-100">
+                          {x.pct ? `${x.pct > 0 ? "+" : "−"}${Math.abs(x.pct).toFixed(1)} %` : ""}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Copy from quote - modalni okno dle mockupu (#quoteModal) */}
+      <Modal
+        open={quoteModal !== null}
+        onCancel={() => { setQuoteModal(null); setQuoteErr(""); }}
+        onOk={importQuoteCosts}
+        okText="Import"
+        cancelText="Cancel"
+        confirmLoading={quoteLoading}
+        title="Copy from quote"
+        width={430}
+      >
+        <p className="text-[13px] text-slate-600 mb-3.5">
+          {quoteModal === "sell"
+            ? "Enter the quotation reference. All selling costs will be imported from the quote."
+            : "Enter the quotation reference. All buying costs will be imported from the quote."}
+        </p>
+        <Input
+          autoFocus
+          placeholder="QCZ20260815001"
+          value={quoteInput}
+          onChange={(e) => { setQuoteInput(e.target.value); setQuoteErr(""); }}
+          onPressEnter={importQuoteCosts}
+          className="font-mono tracking-[.03em]"
+        />
+        <div className="text-[#C3392B] text-[12.5px] font-semibold min-h-[17px] mt-[7px]">
+          {quoteErr}
+        </div>
+      </Modal>
     </div>
   );
 }

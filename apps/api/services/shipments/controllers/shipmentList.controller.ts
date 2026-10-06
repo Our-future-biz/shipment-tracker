@@ -12,6 +12,8 @@ interface ShipmentListRequest {
   status?: string;
   /** Coarse UI status bucket: active | in-transit | customs | delivered */
   statusBucket?: string;
+  /** Overview tile filter: active | attention | import | export | week | nextweek */
+  tile?: string;
   search?: string;
 }
 
@@ -31,6 +33,7 @@ export const shipmentList = api(
       customerId: req.customerId,
       status: req.status,
       statusBucket: req.statusBucket,
+      tile: req.tile,
       search: req.search,
       limit: Math.min(req.limit ?? 100, 200),
       offset: req.offset ?? 0,

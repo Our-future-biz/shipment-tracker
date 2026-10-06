@@ -59,7 +59,7 @@ export function FollowUpTab() {
   const removeTask = (id: string) => setTasks(tasks.filter((x) => x.id !== id));
 
   const quoteColumns: ColumnsType<SalesQuote> = [
-    { title: "Reference", dataIndex: "quoteNumber", width: 160, render: (v: string) => <span className="font-mono text-xs text-indigo-500">{v}</span> },
+    { title: "Sales Number", dataIndex: "quoteNumber", width: 160, render: (v: string) => <span className="font-mono text-xs text-indigo-500">{v}</span> },
     { title: "Customer", key: "cust", render: (_: unknown, r) => r.data.customerName || <span className="text-slate-300">—</span> },
     {
       title: "Route",
@@ -70,9 +70,9 @@ export function FollowUpTab() {
         </span>
       ),
     },
-    { title: "Service", key: "svc", width: 110, render: (_: unknown, r) => r.data.serviceType || "—" },
+    { title: "Freight Mode", key: "svc", width: 130, render: (_: unknown, r) => r.data.serviceType || "—" },
     {
-      title: "Status",
+      title: "Quote Status",
       key: "status",
       width: 120,
       render: (_: unknown, r) => {
@@ -104,7 +104,7 @@ export function FollowUpTab() {
       },
     },
     {
-      title: "Validity",
+      title: "Quote Validity",
       key: "valid",
       width: 120,
       render: (_: unknown, r) => {
@@ -118,9 +118,9 @@ export function FollowUpTab() {
   const taskColumns: ColumnsType<FollowUpTask> = [
     { title: "Company", dataIndex: "company", render: (v: string) => <span className="font-medium text-slate-700">{v}</span> },
     { title: "Contact", dataIndex: "contact", render: (v: string) => v || <span className="text-slate-300">—</span> },
-    { title: "Type", dataIndex: "type", width: 90, render: (v: string) => <Tag>{v}</Tag> },
-    { title: "Due", dataIndex: "due", width: 120, render: (v: string) => v || <span className="text-slate-300">—</span> },
-    { title: "Status", dataIndex: "status", width: 110, render: (v: string) => <Tag color={STATUS_COLOR[v] ?? "default"}>{v}</Tag> },
+    { title: "Task Type", dataIndex: "type", width: 110, render: (v: string) => <Tag>{v}</Tag> },
+    { title: "Due Date", dataIndex: "due", width: 120, render: (v: string) => v || <span className="text-slate-300">—</span> },
+    { title: "Task Status", dataIndex: "status", width: 120, render: (v: string) => <Tag color={STATUS_COLOR[v] ?? "default"}>{v}</Tag> },
     { title: "Note", dataIndex: "note", render: (v: string) => v || <span className="text-slate-300">—</span> },
     {
       title: "",

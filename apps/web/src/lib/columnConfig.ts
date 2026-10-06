@@ -151,10 +151,12 @@ export const COLUMNS: ColumnDef[] = [
   { key: "insurance", title: "Insurance", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Insurance"], apiField: "insurance" },
 
   // Dates
-  { key: "cargoReadinessDate", title: "Cargo Readyness Date", width: 140, type: "date", apiField: "cargoReadinessDate" },
+  { key: "cargoReadinessDate", title: "Cargo Readiness Date", width: 140, type: "date", apiField: "cargoReadinessDate" },
   { key: "pickupDate", title: "Pickup Date", width: 110, type: "date", apiField: "pickupDate" },
   { key: "pickupTime", title: "Pickup Time", width: 110, type: "date", apiField: "pickupTime" },
   { key: "closingDate", title: "Closing Date", width: 110, type: "date", apiField: "closingDate" },
+  { key: "vgmClosing", title: "VGM Closing", width: 110, type: "date", apiField: "vgmClosing" },
+  { key: "siClosing", title: "SI Closing", width: 110, type: "date", apiField: "siClosing" },
   { key: "estimatedDeparture", title: "Estimated Departure", width: 130, type: "date", apiField: "estimatedDeparture" },
   { key: "estimatedDepartureWeek", title: "Estimated Departure Week", width: 120, type: "computed", readonly: true },
   { key: "estimatedArrival", title: "Estimated Arrival", width: 130, type: "date", apiField: "estimatedArrival" },
@@ -182,8 +184,17 @@ export const COLUMNS: ColumnDef[] = [
   // Written by the release action on the detail page, never edited by hand.
   { key: "houseBolRelease", title: "House BoL Release", width: 200, type: "text", readonly: true, apiField: "houseBolRelease" },
   { key: "customsProcedure", title: "Customs Procedure", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Procedure"], apiField: "customsProcedure" },
+  { key: "mrn", title: "MRN Number", width: 150, type: "text", apiField: "mrn" },
+  // Manual override of the Customs "received" ticks: "" (follow documents) | "yes" | "no".
+  { key: "csRecvInvoice", title: "Invoice Received", width: 130, type: "text", apiField: "csRecvInvoice" },
+  { key: "csRecvPacking", title: "Packing List Received", width: 155, type: "text", apiField: "csRecvPacking" },
   { key: "equipmentDelivery", title: "Equipment Delivery/Pick-Up Address", width: 200, type: "text", apiField: "equipmentDelivery" },
   { key: "equipmentDeliveryDate", title: "Equipment Delivery/Pick-Up Date", width: 180, type: "date", apiField: "equipmentDeliveryDate" },
+  // Equipment & Depot card on the shipment detail page.
+  { key: "releaseReference", title: "Release Reference", width: 150, type: "text", apiField: "releaseReference" },
+  { key: "releaseDepot", title: "Release Depot", width: 170, type: "text", apiField: "releaseDepot" },
+  { key: "redeliveryReference", title: "Redelivery Reference", width: 150, type: "text", apiField: "redeliveryReference" },
+  { key: "redeliveryDepot", title: "Redelivery Depot", width: 170, type: "text", apiField: "redeliveryDepot" },
   { key: "supplierPic", title: "Supplier's PIC", width: 170, type: "text", apiField: "supplierPic" },
   { key: "vgm", title: "VGM", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["VGM"], apiField: "vgm" },
   { key: "shippingInstructions", title: "Shipping Instructions", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Shipping Instructions"], apiField: "shippingInstructions" },

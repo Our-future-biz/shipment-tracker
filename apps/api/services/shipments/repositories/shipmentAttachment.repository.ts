@@ -1,4 +1,4 @@
-import { eq, and, isNull, asc } from "drizzle-orm";
+import { eq, and, isNull, asc, inArray } from "drizzle-orm";
 import { db } from "../db/db";
 import { shipmentAttachmentTable } from "../schemas/shipmentAttachment.schema";
 
@@ -13,6 +13,22 @@ class ShipmentAttachmentRepository {
         isNull(shipmentAttachmentTable.deletedAt),
       ))
       .orderBy(asc(shipmentAttachmentTable.createdAt));
+  }
+
+  /** Document types present on each shipment — powers the Customs "received" ticks. */
+  async documentTypesByShipmentIds(shipmentIds: string[], companyId: string) {
+    if (shipmentIds.length === 0) return [];
+    return db
+      .select({
+        shipmentId: shipmentAttachmentTable.shipmentId,
+        documentType: shipmentAttachmentTable.documentType,
+      })
+      .from(shipmentAttachmentTable)
+      .where(and(
+        eq(shipmentAttachmentTable.companyId, companyId),
+        inArray(shipmentAttachmentTable.shipmentId, shipmentIds),
+        isNull(shipmentAttachmentTable.deletedAt),
+      ));
   }
 
   // Company-agnostic lookup for the PUBLIC raw content endpoint (bare-URL download that
@@ -36,9 +52,29 @@ class ShipmentAttachmentRepository {
     return row ?? null;
   }
 
-  async create(data: { companyId: string; shipmentId: string; fileName: string; fileSize: number; fileType: string; storageKey: string }) {
+  async create(data: { companyId: string; shipmentId: string; fileName: string; fileSize: number; fileType: string; storageKey: string; documentType?: string; uploadedById?: string | null }) {
     const [row] = await db.insert(shipmentAttachmentTable).values(data).returning();
     return row!;
+  }
+
+  /** Partial update of an attachment's classification / customs review. */
+  async update(
+    id: string,
+    companyId: string,
+    data: Partial<{
+      documentType: string;
+      customsStatus: string;
+      customsNote: string;
+      customsReviewedAt: Date | null;
+      customsReviewedById: string | null;
+    }>,
+  ) {
+    const [row] = await db
+      .update(shipmentAttachmentTable)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(shipmentAttachmentTable.id, id), eq(shipmentAttachmentTable.companyId, companyId), isNull(shipmentAttachmentTable.deletedAt)))
+      .returning();
+    return row ?? null;
   }
 
   async delete(id: string, companyId: string) {

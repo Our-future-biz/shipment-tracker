@@ -83,7 +83,7 @@ export const AppShell = ({ children }: AppShellProps) => {
       <AppSidebar />
       <div className="flex flex-col flex-1 min-w-0">
         <TopNav />
-        <main className="flex-1 bg-slate-50">{children}</main>
+        <main className="flex-1 min-w-0 bg-slate-50">{children}</main>
       </div>
     </div>
   );

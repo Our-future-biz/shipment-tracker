@@ -2,12 +2,30 @@ export interface InvoiceCostItem {
   id: string;
   shipmentId: string;
   category: string;
+  estQty: string | null;
   estAmount: string | null;
   estCurrency: string;
+  realQty: string | null;
   realAmount: string | null;
   realCurrency: string;
   invoiceNumber: string;
+  received: boolean;
   vendor: string;
+  sortOrder: number;
+}
+
+/** Selling costs z Costs Breakdownu (mockup: #sellTable) */
+export interface SellingCostItem {
+  id: string;
+  shipmentId: string;
+  category: string;
+  customer: string;
+  qty: string | null;
+  amount: string | null;
+  currency: string;
+  invoice: boolean;
+  sourceBuyId: string | null;
+  sortOrder: number;
 }
 
 export interface AdditionalChargeItem {
@@ -46,4 +64,15 @@ export interface GeneratedInvoiceItem {
   billingCurrency: string;
   totalAmount: string;
   createdAt: string;
+}
+
+/** Kurzovni listek s tydenni platnosti (stranka Exchange) */
+export interface ExchangeRateItem {
+  id: string;
+  week: string;
+  validFrom: string;
+  validTo: string;
+  rateEur: string | null;
+  rateUsd: string | null;
+  note: string;
 }
