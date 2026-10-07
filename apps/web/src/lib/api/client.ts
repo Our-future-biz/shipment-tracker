@@ -1332,11 +1332,7 @@ export namespace controllers {
     }
 
     export interface ClaimCreateRequest {
-        /**
-         * cargo | cost
-         */
-        kind: string
-
+        kind: interfaces.ClaimKind
         cargoState?: string
         note?: string
         supplier?: string
@@ -2276,12 +2272,6 @@ export namespace controllers {
          */
         claim?: string
 
-        claimCargoState?: string
-        claimCargoNote?: string
-        claimCostSupplier?: string
-        claimCostInvoiceNumber?: string
-        claimCostReason?: string
-        claimCostAmount?: string
         createdBy?: string
     }
 
@@ -2649,11 +2639,7 @@ export namespace interfaces {
     export interface ClaimItem {
         id: string
         shipmentId: string
-        /**
-         * cargo = claim on the shipment · cost = claim on a supplier's invoice
-         */
-        kind: string
-
+        kind: ClaimKind
         /**
          * Damaged | Incomplete | Undamaged | Lost (cargo claims)
          */
@@ -2670,6 +2656,11 @@ export namespace interfaces {
 
         createdAt: string
     }
+
+    /**
+     * cargo = claim on the shipment · cost = claim on a supplier's invoice
+     */
+    export type ClaimKind = "cargo" | "cost"
 
     /**
      * A file sent with a chat message.
@@ -3127,23 +3118,9 @@ export namespace interfaces {
         validityStatus: string
         salesPerson: string
         /**
-         * Claim
+         * Yes | No — derived from the shipment's claims.
          */
         claim: string
-
-        /**
-         * Damaged | Incomplete | Undamaged | Lost
-         */
-        claimCargoState: string
-
-        claimCargoNote: string
-        claimCostSupplier: string
-        claimCostInvoiceNumber: string
-        claimCostReason: string
-        /**
-         * Disputed amount, with currency.
-         */
-        claimCostAmount: string
 
         /**
          * Other

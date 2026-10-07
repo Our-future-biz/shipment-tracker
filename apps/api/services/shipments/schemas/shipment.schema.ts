@@ -158,15 +158,8 @@ export const shipmentTable = pgTable(
 
     // — Claim —
     // Yes | No — derived from the shipment's claims (see syncShipmentFlag), not edited by hand.
+    // The claims themselves live in shipment_claim.
     claim: text("claim").notNull().default("No"),
-    // Claim on the shipment: condition of the cargo.
-    claimCargoState: text("claim_cargo_state").notNull().default(""), // Damaged | Incomplete | Undamaged | Lost
-    claimCargoNote: text("claim_cargo_note").notNull().default(""),
-    // Claim on costs: what we dispute with a supplier.
-    claimCostSupplier: text("claim_cost_supplier").notNull().default(""),
-    claimCostInvoiceNumber: text("claim_cost_invoice_number").notNull().default(""),
-    claimCostReason: text("claim_cost_reason").notNull().default(""),
-    claimCostAmount: text("claim_cost_amount").notNull().default(""), // disputed amount with currency
 
     // — Other —
     createdBy: text("created_by").notNull().default(""),

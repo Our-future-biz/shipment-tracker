@@ -5,6 +5,7 @@ import { Popover, Input, Checkbox, Tooltip, Select, Modal } from "antd";
 import { SettingOutlined, CloseOutlined } from "@ant-design/icons";
 import { COLUMNS, FIXED_COLUMN_KEYS, isFixedColumn } from "@/lib/columnConfig";
 import type { ColumnTemplate } from "@/hooks/useColumnTemplates";
+import { useToast } from "@/lib/toast";
 
 // All pickable columns (exclude the dimensions popup, which has no flat value).
 const PICKABLE = COLUMNS.filter((c) => c.type !== "popup");
@@ -29,13 +30,15 @@ export function ColumnPicker({
   onApplyTemplate: (id: string) => void;
   onDeactivate: () => void;
   /** Saves the current columns under a name; an existing template of that name is overwritten. */
-  onSaveTemplate: (name: string) => void;
+  onSaveTemplate: (name: string) => Promise<void>;
   onDeleteTemplate: (id: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [templateName, setTemplateName] = useState("");
   const [open, setOpen] = useState(false);
   const [nameOpen, setNameOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const toast = useToast();
   // Template waiting for the user to confirm its deletion.
   const [toDelete, setToDelete] = useState<{ id: string; name: string } | null>(null);
   const visibleSet = useMemo(() => new Set(visible), [visible]);
@@ -60,11 +63,20 @@ export function ColumnPicker({
     setTemplateName(activeTemplate?.name ?? "");
     setNameOpen(true);
   };
-  const handleSaveTemplate = () => {
+  // The dialog stays open when saving fails, so the name is not lost.
+  const handleSaveTemplate = async () => {
     const name = templateName.trim();
-    if (!name) return;
-    onSaveTemplate(name);
-    setNameOpen(false);
+    if (!name || saving) return;
+    setSaving(true);
+    try {
+      await onSaveTemplate(name);
+      toast.success(`Template "${name}" saved`);
+      setNameOpen(false);
+    } catch {
+      toast.error("Could not save the template");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const content = (
@@ -192,6 +204,7 @@ export function ColumnPicker({
         // Opened from inside the columns popover, so it has to sit above it.
         zIndex={1100}
         destroyOnHidden
+        confirmLoading={saving}
         okButtonProps={{ disabled: !templateName.trim() }}
         onOk={handleSaveTemplate}
         onCancel={() => setNameOpen(false)}

@@ -1,10 +1,11 @@
 import { api } from "encore.dev/api";
+import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { warehouseService } from "../services/warehouse.service";
 
 interface EnsureRefsRequest {
   /** Shipments shown in a warehouse section; each gets its WHCZ reference. */
-  shipmentIds: string[];
+  shipmentIds: string[] & MaxLen<500>;
 }
 
 interface EnsureRefsResponse {

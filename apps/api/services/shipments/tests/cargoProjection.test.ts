@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { civByCurrency, dimensionVolumePerPiece, fmtNum, num, projectCargo, teuForType } from "../services/cargoProjection";
+import {
+  civByCurrency,
+  dimensionVolumePerPiece,
+  fmtNum,
+  isValidContainerNumber,
+  normalizeContainerNumber,
+  num,
+  projectCargo,
+  teuForType,
+} from "../services/cargoProjection";
 import type { CargoDimensionLine, CargoItemLine, ContainerLine } from "../interfaces/interfaces";
 
 const container = (over: Partial<ContainerLine> = {}): ContainerLine => ({
@@ -130,5 +139,24 @@ describe("projectCargo", () => {
     expect(p.totalVolumeM3).toBe("");
     expect(p.containerTypeSummary).toBe("");
     expect(p.civByCurrency).toBe("");
+  });
+});
+
+describe("container numbers", () => {
+  it("normalizes to uppercase without separators", () => {
+    expect(normalizeContainerNumber("msmu 272727-7")).toBe("MSMU2727277");
+  });
+
+  it("accepts 4 letters + 7 digits in any spacing, and an empty row", () => {
+    expect(isValidContainerNumber("MSKU1234567")).toBe(true);
+    expect(isValidContainerNumber("mskU 123456-7")).toBe(true);
+    expect(isValidContainerNumber("")).toBe(true);
+  });
+
+  it("rejects anything else", () => {
+    expect(isValidContainerNumber("TBA")).toBe(false);
+    expect(isValidContainerNumber("MSK1234567")).toBe(false);
+    expect(isValidContainerNumber("MSKU123456")).toBe(false);
+    expect(isValidContainerNumber("MSKU12345678")).toBe(false);
   });
 });

@@ -201,15 +201,8 @@ export interface ShipmentItem {
   salesPerson: string;
 
   // Claim
+  /** Yes | No — derived from the shipment's claims. */
   claim: string;
-  /** Damaged | Incomplete | Undamaged | Lost */
-  claimCargoState: string;
-  claimCargoNote: string;
-  claimCostSupplier: string;
-  claimCostInvoiceNumber: string;
-  claimCostReason: string;
-  /** Disputed amount, with currency. */
-  claimCostAmount: string;
 
   // Other
   createdBy: string;
@@ -256,12 +249,14 @@ export interface CommentItem {
   readByOthers: boolean;
 }
 
+/** cargo = claim on the shipment · cost = claim on a supplier's invoice */
+export type ClaimKind = "cargo" | "cost";
+
 /** One claim of a shipment. */
 export interface ClaimItem {
   id: string;
   shipmentId: string;
-  /** cargo = claim on the shipment · cost = claim on a supplier's invoice */
-  kind: string;
+  kind: ClaimKind;
   /** Damaged | Incomplete | Undamaged | Lost (cargo claims) */
   cargoState: string;
   note: string;

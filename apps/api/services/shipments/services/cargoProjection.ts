@@ -104,3 +104,16 @@ export function projectCargo(
     totalVolumeM3: volume ? fmtNum(volume) : "",
   };
 }
+
+// A container number is 4 letters + 7 digits (ISO 6346). It is stored in one
+// canonical form — uppercase, with no spaces/hyphens/other separators — no matter
+// how it was entered or read (e.g. "MSMU 272727-7" → "MSMU2727277").
+export function normalizeContainerNumber(raw: string): string {
+  return (raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/** Canonical shape: 4 letters + 7 digits. An empty value is allowed (row not filled in yet). */
+export function isValidContainerNumber(raw: string): boolean {
+  const n = normalizeContainerNumber(raw);
+  return n === "" || /^[A-Z]{4}[0-9]{7}$/.test(n);
+}

@@ -3,15 +3,24 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { getFieldValue, useShipments } from "@/hooks/useShipments";
+import { getFieldValue, useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { formatDate } from "@/lib/date";
 import { WarehouseSectionGrid, type WarehouseColumn, type WarehouseRow } from "../_components/WarehouseSectionGrid";
 
-// In Warehouse lists what is coming in: shipments whose ETA Warehouse/HUB falls within the
-// next 30 days, plus the ones whose date has already passed and are still not in.
+// In Warehouse lists what is coming in: open shipments whose ETA Warehouse/HUB falls within
+// 30 days either side of today, so a late arrival stays on the list (in red) for a month.
+// Showing up here creates the shipment's warehouse reference, so the window is bounded on
+// both sides; otherwise every old shipment would get a reference and a warehouse task.
 
 const DAY = 86_400_000;
 const WINDOW_DAYS = 30;
+const OVERDUE_DAYS = 30;
+
+/** Invoiced or in billing: the shipment's journey is over, nothing is coming in. */
+function isFinished(s: ShipmentItem): boolean {
+  const status = (s.status ?? "").toLowerCase();
+  return s.invoicingStatus === "Invoiced" || status.startsWith("billing") || status.startsWith("billed");
+}
 
 /** The grid stores dates as ISO or legacy MM/DD/YY; both parse to a day index. */
 function dayIndex(raw: string): number | null {
@@ -48,8 +57,9 @@ export default function InWarehousePage() {
   const due = useMemo(() => {
     const today = Math.floor(Date.now() / DAY);
     return shipments
+      .filter((s) => !isFinished(s))
       .map((s) => ({ s, day: dayIndex(getFieldValue(s, "etaWarehouse")) }))
-      .filter(({ day }) => day !== null && day <= today + WINDOW_DAYS)
+      .filter(({ day }) => day !== null && day >= today - OVERDUE_DAYS && day <= today + WINDOW_DAYS)
       .sort((a, b) => a.day! - b.day!);
   }, [shipments]);
 
@@ -83,7 +93,7 @@ export default function InWarehousePage() {
   return (
     <WarehouseSectionGrid
       title="In Warehouse"
-      subtitle={`Shipments with an ETA Warehouse within ${WINDOW_DAYS} days, overdue ones included`}
+      subtitle={`Open shipments with an ETA Warehouse in the next ${WINDOW_DAYS} days, or overdue by up to ${OVERDUE_DAYS}`}
       storageKey="warehouse:in"
       columns={COLUMNS}
       rows={rows}

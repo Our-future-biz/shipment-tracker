@@ -1,6 +1,8 @@
-import { auth } from "~encore/clients";
+import { APIError } from "encore.dev/api";
 import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
+import { userNames } from "./userNames";
+import { attachmentService } from "./attachment.service";
 
 class CommentService {
   async list(shipmentId: string, companyId: string, userId: string) {
@@ -50,18 +52,12 @@ class CommentService {
     return comment;
   }
 
-  async delete(id: string, companyId: string) {
-    return shipmentCommentRepository.delete(id, companyId);
-  }
-}
-
-// Display names of everyone in the company, so a message shows who wrote it.
-async function userNames(): Promise<Map<string, string>> {
-  try {
-    const { users } = await auth.usersList();
-    return new Map(users.map((u) => [u.id, u.displayName || u.email]));
-  } catch {
-    return new Map();
+  // Deleting a message takes the files sent with it along (they also show on the Documents tab).
+  async delete(id: string, companyId: string, userId: string) {
+    const deleted = await shipmentCommentRepository.delete(id, companyId, userId);
+    if (!deleted) throw APIError.notFound("Message not found");
+    const fileIds = await shipmentAttachmentRepository.listIdsByCommentId(id, companyId);
+    for (const fileId of fileIds) await attachmentService.delete(fileId, companyId);
   }
 }
 

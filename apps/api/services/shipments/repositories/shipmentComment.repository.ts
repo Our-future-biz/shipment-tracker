@@ -104,11 +104,19 @@ class ShipmentCommentRepository {
       });
   }
 
-  async delete(id: string, companyId: string) {
-    await db
+  /** Only the author can delete a message. Returns whether one was deleted. */
+  async delete(id: string, companyId: string, authorId: string) {
+    const rows = await db
       .update(shipmentCommentTable)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(shipmentCommentTable.id, id), eq(shipmentCommentTable.companyId, companyId), isNull(shipmentCommentTable.deletedAt)));
+      .where(and(
+        eq(shipmentCommentTable.id, id),
+        eq(shipmentCommentTable.companyId, companyId),
+        eq(shipmentCommentTable.authorId, authorId),
+        isNull(shipmentCommentTable.deletedAt),
+      ))
+      .returning({ id: shipmentCommentTable.id });
+    return rows.length > 0;
   }
 }
 

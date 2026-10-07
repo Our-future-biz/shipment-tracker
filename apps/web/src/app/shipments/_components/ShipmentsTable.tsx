@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Badge, AutoComplete, Modal } from "antd";
+import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Badge, AutoComplete, Modal, Button } from "antd";
 import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined, DownloadOutlined, MessageOutlined, WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
@@ -556,8 +556,8 @@ export const ShipmentsTable = ({
       </div>
 
       {/* Filters Row */}
-      <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
-        {/* Actions on the left, search/status/filters/columns/export on the right */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
+        {/* Actions on the left, search/status/filters/columns/export on the right; wraps on narrow screens */}
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onCreateClick}
@@ -754,6 +754,26 @@ export const ShipmentsTable = ({
         </div>
       </div>
 
+      {/* Bulk action bar (shown when rows are selected) */}
+      {selectedKeys.length > 0 && (
+        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-2xl px-4 py-2.5">
+          <span className="text-sm text-indigo-700 font-medium">{selectedKeys.length} selected</span>
+          <Button
+            size="small"
+            icon={<DownloadOutlined />}
+            onClick={() => {
+              const set = new Set(selectedKeys.map(String));
+              exportShipmentsCsv(shipments.filter((s) => set.has(s.id)), visible);
+            }}
+          >
+            Export CSV
+          </Button>
+          <Button size="small" type="text" onClick={() => setSelectedKeys([])}>
+            Clear
+          </Button>
+        </div>
+      )}
+
       {/* Table */}
       <div className="shipments-table bg-white border border-slate-200 rounded-2xl overflow-hidden">
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
@@ -816,7 +836,7 @@ export const ShipmentsTable = ({
         open={!!docsShipment}
         onClose={() => setDocsShipment(null)}
         width={480}
-        destroyOnClose
+        destroyOnHidden
         styles={{ body: { padding: 0 } }}
         title={docsShipment ? `Documents — ${docsShipment.jobNumber ?? docsShipment.id}` : "Documents"}
       >
@@ -874,7 +894,7 @@ export const ShipmentsTable = ({
         open={!!chatShipment}
         onClose={() => setChatShipment(null)}
         width={460}
-        destroyOnClose
+        destroyOnHidden
         styles={{ body: { padding: 0 } }}
         title={chatShipment?.jobNumber ? `Chat — ${chatShipment.jobNumber}` : "Chat"}
       >

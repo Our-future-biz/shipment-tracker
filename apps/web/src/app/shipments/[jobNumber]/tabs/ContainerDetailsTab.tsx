@@ -137,7 +137,7 @@ export function ContainerDetailsTab({
   // is not needed for it to stick.
   const setContainerNumber = (i: number, raw: string) => {
     const canonical = normalizeContainerNumber(raw);
-    const complete = /^[A-Z]{4}[0-9]{7}$/.test(canonical);
+    const complete = canonical !== "" && isValidContainerNumber(canonical);
     const value = complete ? canonical : raw;
     patch(i, { containerNumber: value });
     if (!complete) return;
@@ -179,20 +179,19 @@ export function ContainerDetailsTab({
 
   // Focus leaving the row switches it to read mode (like clicking outside in the
   // reference UI). Clicking plain background gives no relatedTarget, so check where the
-  // focus actually ended up once the browser has moved it.
+  // focus actually ended up once the browser has moved it. Saving is left to each
+  // field's own onBlur, so leaving a row saves once.
   const onRowBlur = (i: number) => (e: React.FocusEvent<HTMLDivElement>) => {
     if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
     const row = e.currentTarget;
     setTimeout(() => {
-      if (row.contains(document.activeElement)) return;
-      persist();
-      closeRow(i);
+      if (!row.contains(document.activeElement)) closeRow(i);
     }, 0);
   };
   const onRowKeyDown = (i: number) => (e: React.KeyboardEvent) => {
     if (e.key !== "Enter") return;
+    // Blurring the field fires its own onBlur, which saves it.
     (e.target as HTMLElement).blur?.();
-    persist();
     closeRow(i);
   };
 

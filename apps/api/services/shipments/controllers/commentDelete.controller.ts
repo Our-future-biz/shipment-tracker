@@ -14,7 +14,8 @@ interface CommentDeleteResponse {
 export const commentDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/shipments/:shipmentId/comments/:commentId" },
   async (req: CommentDeleteRequest): Promise<CommentDeleteResponse> => {
-    await commentService.delete(req.commentId, getAuthData()!.companyID);
+    const { companyID, userID } = getAuthData()!;
+    await commentService.delete(req.commentId, companyID, userID);
     return { ok: true };
   },
 );

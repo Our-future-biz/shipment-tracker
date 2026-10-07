@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, numeric, uuid, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const warehouseTaskTable = pgTable(

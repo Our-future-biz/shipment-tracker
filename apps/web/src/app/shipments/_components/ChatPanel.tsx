@@ -154,7 +154,13 @@ export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
 
   const deleteComment = useMutation({
     mutationFn: (commentId: string) => api.shipments.commentDelete(shipmentId, commentId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["comments", shipmentId] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["comments", shipmentId] });
+      // The message's files go with it, so the document lists change too.
+      queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipmentId] });
+      queryClient.invalidateQueries({ queryKey: ["attachments", shipmentId] });
+    },
+    onError: () => toast.error("Failed to delete message"),
   });
 
   const comments = useMemo(() => data?.comments ?? [], [data]);

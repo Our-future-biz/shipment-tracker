@@ -10,6 +10,7 @@ import { buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "@/app/warehouse/_components/sections/PickupSection";
 import { JobNotes, ActionPushButtons } from "@/app/warehouse/_components/sections/JobExtras";
 
@@ -29,19 +30,7 @@ function computeWM(weightTons?: string | null, volumeCbm?: string | null): strin
   return Math.max(w, v).toFixed(3);
 }
 
-// Card, pill tabs and label/value rows, the same shapes the rest of the app uses.
-function Card({ title, extra, children, bodyClassName = "p-4" }: { title: string; extra?: React.ReactNode; children: React.ReactNode; bodyClassName?: string }) {
-  return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm min-w-0">
-      <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
-        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
-        {extra && <div className="ml-auto flex items-center gap-2">{extra}</div>}
-      </div>
-      <div className={bodyClassName}>{children}</div>
-    </section>
-  );
-}
-
+// Label/value row, the same shape the detail cards use.
 function Row({ label, value }: { label: string; value?: string | null }) {
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
@@ -65,25 +54,7 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
     <div className="flex flex-col gap-5">
       {contextHolder}
 
-      <div className="flex items-center gap-2 flex-wrap">
-        {SUB_TABS.map((t) => {
-          const on = t.key === subTab;
-          return (
-            <button
-              key={t.key}
-              type="button"
-              aria-pressed={on}
-              onClick={() => setSubTab(t.key)}
-              className={[
-                "flex items-center h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
-                on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-              ].join(" ")}
-            >
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+      <PillTabs tabs={SUB_TABS} active={subTab} onChange={setSubTab} />
 
       {subTab === "details" && (
         <>

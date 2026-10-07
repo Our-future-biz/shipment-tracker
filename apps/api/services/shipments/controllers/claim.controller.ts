@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { claimService } from "../services/claim.service";
-import type { ClaimInput, ClaimItem } from "../interfaces/interfaces";
+import type { ClaimInput, ClaimItem, ClaimKind } from "../interfaces/interfaces";
 
 // Claims of a shipment: on the shipment itself ("cargo") and on a supplier's costs ("cost").
 
@@ -9,8 +9,7 @@ const company = () => getAuthData()!.companyID;
 
 interface ClaimCreateRequest extends ClaimInput {
   shipmentId: string;
-  /** cargo | cost */
-  kind: string;
+  kind: ClaimKind;
 }
 interface ClaimUpdateRequest extends ClaimInput {
   shipmentId: string;

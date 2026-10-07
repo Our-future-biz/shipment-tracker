@@ -77,7 +77,7 @@ export function MasterJobDetailModal({
       onCancel={onClose}
       footer={null}
       width={1000}
-      destroyOnClose
+      destroyOnHidden
       title={
         <span className="flex items-center gap-2">
           <span className="font-mono font-semibold text-indigo-500">#{target}</span>

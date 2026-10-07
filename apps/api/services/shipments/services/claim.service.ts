@@ -1,14 +1,15 @@
 import { APIError } from "encore.dev/api";
 import { shipmentClaimRepository } from "../repositories/shipmentClaim.repository";
-import type { ClaimInput, ClaimItem } from "../interfaces/interfaces";
+import { shipmentRepository } from "../repositories/shipment.repository";
+import type { ClaimInput, ClaimItem, ClaimKind } from "../interfaces/interfaces";
 
-export const CLAIM_KINDS = ["cargo", "cost"];
-export const CARGO_STATES = ["Damaged", "Incomplete", "Undamaged", "Lost"];
+const CLAIM_KINDS: ClaimKind[] = ["cargo", "cost"];
+const CARGO_STATES = ["Damaged", "Incomplete", "Undamaged", "Lost"];
 
 const item = (r: Awaited<ReturnType<typeof shipmentClaimRepository.listByShipmentId>>[number]): ClaimItem => ({
   id: r.id,
   shipmentId: r.shipmentId,
-  kind: r.kind,
+  kind: r.kind as ClaimKind,
   cargoState: r.cargoState,
   note: r.note,
   supplier: r.supplier,
@@ -29,9 +30,11 @@ class ClaimService {
     return (await shipmentClaimRepository.listByShipmentId(shipmentId, companyId)).map(item);
   }
 
-  async create(shipmentId: string, companyId: string, kind: string, input: ClaimInput) {
+  async create(shipmentId: string, companyId: string, kind: ClaimKind, input: ClaimInput) {
     if (!CLAIM_KINDS.includes(kind)) throw APIError.invalidArgument(`Claim kind must be one of: ${CLAIM_KINDS.join(", ")}`);
     check(input);
+    // A claim can only be raised on one of the company's own shipments.
+    if (!(await shipmentRepository.getByIdForCompany(shipmentId, companyId))) throw APIError.notFound("Shipment not found");
     const row = await shipmentClaimRepository.create({ companyId, shipmentId, kind, ...input });
     await shipmentClaimRepository.syncShipmentFlag(shipmentId, companyId);
     return item(row);

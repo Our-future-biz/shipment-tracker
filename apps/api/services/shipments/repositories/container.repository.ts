@@ -1,24 +1,10 @@
-import { APIError } from "encore.dev/api";
 import { eq, inArray, asc } from "drizzle-orm";
 import { db } from "../db/db";
 import { containerTable } from "../schemas/container.schema";
 import { cargoItemTable } from "../schemas/cargoItem.schema";
 import { cargoDimensionTable } from "../schemas/cargoDimension.schema";
-import { teuForType } from "../services/cargoProjection";
+import { normalizeContainerNumber, teuForType } from "../services/cargoProjection";
 import type { ContainerLine } from "../interfaces/interfaces";
-
-// A container number is 4 letters + 7 digits (ISO 6346). It is stored in one
-// canonical form — uppercase, with no spaces/hyphens/other separators — no matter
-// how it was entered or read (e.g. "MSMU 272727-7" → "MSMU2727277").
-export function normalizeContainerNumber(raw: string): string {
-  return (raw ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
-}
-
-/** Canonical shape: 4 letters + 7 digits. An empty value is allowed (row not filled in yet). */
-export function isValidContainerNumber(raw: string): boolean {
-  const n = normalizeContainerNumber(raw);
-  return n === "" || /^[A-Z]{4}[0-9]{7}$/.test(n);
-}
 
 class ContainerRepository {
   async listByShipmentId(shipmentId: string) {
@@ -45,10 +31,6 @@ class ContainerRepository {
   // like the create wizard or document extraction don't echo ids). Existing rows
   // no line claims are deleted together with their cargo lines.
   async syncForShipment(shipmentId: string, companyId: string, lines: ContainerLine[]) {
-    const bad = lines.map((l) => l.containerNumber).find((n) => !isValidContainerNumber(n));
-    if (bad !== undefined) {
-      throw APIError.invalidArgument(`Container number "${bad}" must be 4 letters followed by 7 digits (e.g. MSKU1234567)`);
-    }
     const existing = await this.listByShipmentId(shipmentId);
     const existingIds = new Set(existing.map((r) => r.id));
     const claimed = new Set<string>();

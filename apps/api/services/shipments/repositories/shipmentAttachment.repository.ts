@@ -51,6 +51,19 @@ class ShipmentAttachmentRepository {
       .orderBy(asc(shipmentAttachmentTable.createdAt));
   }
 
+  /** Ids of the files sent with one chat message. */
+  async listIdsByCommentId(commentId: string, companyId: string) {
+    const rows = await db
+      .select({ id: shipmentAttachmentTable.id })
+      .from(shipmentAttachmentTable)
+      .where(and(
+        eq(shipmentAttachmentTable.companyId, companyId),
+        eq(shipmentAttachmentTable.commentId, commentId),
+        isNull(shipmentAttachmentTable.deletedAt),
+      ));
+    return rows.map((r) => r.id);
+  }
+
   /**
    * Ties already-uploaded files to the chat message they were sent with. Scoped
    * to the shipment and to files not yet sent, so a message can neither claim

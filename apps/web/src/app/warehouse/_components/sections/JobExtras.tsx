@@ -5,19 +5,7 @@ import { Input, Button, Space, Tag, Modal, Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
-
-// White card with the app's indigo section header.
-function Card({ title, extra, children }: { title: string; extra?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm min-w-0">
-      <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
-        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
-        {extra && <div className="ml-auto flex items-center gap-2">{extra}</div>}
-      </div>
-      <div className="p-4">{children}</div>
-    </section>
-  );
-}
+import { SectionCard as Card } from "@/components/SectionCard";
 
 interface JobSectionData {
   notes?: string;
@@ -122,7 +110,7 @@ export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; me
           <Button key="cancel" onClick={() => setModalState(null)}>Cancel</Button>,
           <Button key="send" type="primary" onClick={handleSend} loading={isSaving}>Send</Button>,
         ]}
-        destroyOnClose
+        destroyOnHidden
       >
         <div className="mb-4">
           <Upload.Dragger name="file" multiple beforeUpload={() => false} onChange={(info) => modalState && setModalState({ ...modalState, fileList: info.fileList })}>

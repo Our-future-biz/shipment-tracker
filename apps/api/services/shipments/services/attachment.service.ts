@@ -1,27 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { auth } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { attachmentBucket } from "../storage/attachmentBucket";
+import { userNames } from "./userNames";
 
 /** An attachment row plus the display names its user ids resolve to. */
 type AttachmentRow = Awaited<ReturnType<typeof shipmentAttachmentRepository.getById>>;
 
 class AttachmentService {
-  /**
-   * Display names for the uploader / customs reviewer. Users live in the auth
-   * service, which this database cannot join against, so they are resolved in
-   * one call and mapped in memory. An unresolvable user must not fail the read —
-   * the name just falls back to "Unknown".
-   */
-  private async userNames(): Promise<Map<string, string>> {
-    try {
-      const { users } = await auth.usersList();
-      return new Map(users.map((u) => [u.id, u.displayName || u.email || ""]));
-    } catch {
-      return new Map();
-    }
-  }
-
   private withNames<T extends NonNullable<AttachmentRow>>(row: T, names: Map<string, string>) {
     return {
       ...row,
@@ -35,7 +20,7 @@ class AttachmentService {
   async list(shipmentId: string, companyId: string) {
     const [rows, names] = await Promise.all([
       shipmentAttachmentRepository.listByShipmentId(shipmentId, companyId),
-      this.userNames(),
+      userNames(),
     ]);
     return rows.map((r) => this.withNames(r, names));
   }
@@ -62,7 +47,7 @@ class AttachmentService {
       companyId, shipmentId, fileName, fileSize, fileType, storageKey, documentType,
       uploadedById: uploadedById ?? null,
     });
-    return this.withNames(row, await this.userNames());
+    return this.withNames(row, await userNames());
   }
 
   // Public path (no token): relies on the caller checking shipmentId matches the URL.
@@ -82,7 +67,7 @@ class AttachmentService {
   /** Set the business document type (Invoice, Packing list, …). */
   async classify(id: string, companyId: string, documentType: string) {
     const row = await shipmentAttachmentRepository.update(id, companyId, { documentType });
-    return row ? this.withNames(row, await this.userNames()) : null;
+    return row ? this.withNames(row, await userNames()) : null;
   }
 
   /**
@@ -97,7 +82,7 @@ class AttachmentService {
       customsReviewedAt: clear ? null : new Date(),
       customsReviewedById: clear ? null : userId,
     });
-    return row ? this.withNames(row, await this.userNames()) : null;
+    return row ? this.withNames(row, await userNames()) : null;
   }
 
   async delete(id: string, companyId: string) {

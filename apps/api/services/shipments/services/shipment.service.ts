@@ -1,12 +1,13 @@
+import { APIError } from "encore.dev/api";
 import { auth, customers, quotes } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
-import { containerRepository, normalizeContainerNumber } from "../repositories/container.repository";
+import { containerRepository } from "../repositories/container.repository";
 import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
-import { projectCargo } from "./cargoProjection";
+import { isValidContainerNumber, normalizeContainerNumber, projectCargo } from "./cargoProjection";
 import { actionStamp, exportBolDefaults, isCreditApproval, startingStateDefaults } from "./fieldDefaults";
 import type { ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
@@ -97,6 +98,14 @@ function enrich(shipment: ShipmentRecord, containers: ContainerLine[], cargoItem
     totalGrossWeightKg: p.totalGrossWeightKg,
     totalVolumeM3: p.totalVolumeM3,
   };
+}
+
+// Checked before anything is written, so a bad number never leaves a half-saved shipment.
+function assertValidContainerNumbers(containers: ContainerLine[] | undefined) {
+  const bad = containers?.map((c) => c.containerNumber).find((n) => !isValidContainerNumber(n));
+  if (bad !== undefined) {
+    throw APIError.invalidArgument(`Container number "${bad}" must be 4 letters followed by 7 digits (e.g. MSKU1234567)`);
+  }
 }
 
 // Cargo lines may only point at containers of their own shipment; anything else
@@ -284,6 +293,7 @@ class ShipmentService {
 
   async create(companyId: string, data: Omit<NewShipmentRecord, "companyId"> & DetailRows) {
     const { containers, cargoItems, cargoDimensions, ...rest } = data;
+    assertValidContainerNumbers(containers);
     const shipmentData = sanitizeTypedFields(rest as Record<string, unknown>);
     Object.assign(
       shipmentData,
@@ -323,6 +333,7 @@ class ShipmentService {
     if (!existing) return null;
 
     const { containers, cargoItems, cargoDimensions, ...rest } = data;
+    assertValidContainerNumbers(containers);
     const shipmentData = sanitizeTypedFields(rest as Record<string, unknown>);
 
     // Seed the export BoL types against the values this update leaves behind, so

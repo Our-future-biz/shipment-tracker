@@ -1,7 +1,7 @@
 node_modules/
 dist/
 .next/
-out/
+apps/web/out/
 .env
 .env.local
 .DS_Store

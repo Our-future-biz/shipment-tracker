@@ -89,6 +89,41 @@ const DIM_COLS = "grid grid-cols-[0.7fr_0.8fr_0.8fr_0.8fr_1fr_1fr_1.1fr_1.2fr_32
 // Wider gaps and roomier number columns so the header labels no longer collide.
 const DESC_COLS = "grid grid-cols-[2fr_1fr_0.7fr_1.1fr_1.1fr_1.2fr_0.8fr_32px] gap-3 items-center";
 
+/**
+ * Which rows of a table are open for editing. A row closes when focus leaves it or on
+ * Enter; saving is left to each field's own onBlur, so leaving a row saves exactly once.
+ */
+function useOpenRows() {
+  const [rows, setRows] = useState<Set<number>>(() => new Set());
+  const open = (idx: number) => setRows((o) => (o.has(idx) ? o : new Set(o).add(idx)));
+  const close = (idx: number) =>
+    setRows((o) => {
+      if (!o.has(idx)) return o;
+      const next = new Set(o);
+      next.delete(idx);
+      return next;
+    });
+  return {
+    isOpen: (idx: number) => rows.has(idx),
+    open,
+    reset: () => setRows(new Set()),
+    // Clicking plain background gives no relatedTarget, so check where focus really went.
+    onRowBlur: (idx: number) => (e: React.FocusEvent<HTMLDivElement>) => {
+      if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
+      const row = e.currentTarget;
+      setTimeout(() => {
+        if (!row.contains(document.activeElement)) close(idx);
+      }, 0);
+    },
+    onRowKeyDown: (idx: number) => (e: React.KeyboardEvent) => {
+      if (e.key !== "Enter") return;
+      // Blurring the field fires its own onBlur, which saves it.
+      (e.target as HTMLElement).blur?.();
+      close(idx);
+    },
+  };
+}
+
 export function CargoDetailsTab({
   shipment,
   onChange,
@@ -115,12 +150,16 @@ export function CargoDetailsTab({
   itemsRef.current = items;
   dimsRef.current = dims;
   const panelRefs = useRef(new Map<string, HTMLDivElement>());
+  const openItems = useOpenRows();
+  const openDims = useOpenRows();
 
   // Reset local edit state when navigating to a different shipment.
   useEffect(() => {
     setItems(shipment.cargoItems ?? []);
     setDims(shipment.cargoDimensions ?? []);
     setCollapsed(new Set());
+    openItems.reset();
+    openDims.reset();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shipment.id]);
 
@@ -154,60 +193,21 @@ export function CargoDetailsTab({
   }, [focusContainerId]);
 
   const persistItems = () => onChange({ cargoItems: itemsRef.current.filter((l) => !itemIsEmpty(l)) });
-
-  // Cargo description rows behave like the container rows: a filled row collapses to a
-  // read-only line when focus leaves it, and a double-click opens it again.
-  const [openItems, setOpenItems] = useState<Set<number>>(() => new Set());
-  const itemIsOpen = (idx: number) => openItems.has(idx) || itemIsEmpty(items[idx] ?? ({} as CargoItemLine));
-  const openItem = (idx: number) => setOpenItems((o) => new Set(o).add(idx));
-  const closeItem = (idx: number) =>
-    setOpenItems((o) => {
-      if (!o.has(idx)) return o;
-      const next = new Set(o);
-      next.delete(idx);
-      return next;
-    });
-  // Clicking plain background gives no relatedTarget, so check where focus really went.
-  const onItemBlur = (idx: number) => (e: React.FocusEvent<HTMLDivElement>) => {
-    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
-    const row = e.currentTarget;
-    setTimeout(() => {
-      if (row.contains(document.activeElement)) return;
-      persistItems();
-      closeItem(idx);
-    }, 0);
-  };
   const persistDims = () => onChange({ cargoDimensions: dimsRef.current.filter((l) => !dimIsEmpty(l)) });
+
+  // Both tables behave like the container rows: a filled row collapses to a read-only
+  // line when focus leaves it, and a double-click opens it again. An empty row stays open.
+  const itemIsOpen = (idx: number) => openItems.isOpen(idx) || itemIsEmpty(items[idx] ?? ({} as CargoItemLine));
+  const dimIsOpen = (idx: number) => openDims.isOpen(idx) || dimIsEmpty(dims[idx] ?? ({} as CargoDimensionLine));
 
   const patchItem = (idx: number, p: Partial<CargoItemLine>) => {
     // Typing keeps the row open, so it cannot collapse mid-word.
-    setOpenItems((o) => (o.has(idx) ? o : new Set(o).add(idx)));
+    openItems.open(idx);
     setItems((r) => r.map((l, j) => (j === idx ? { ...l, ...p } : l)));
   };
   const patchDim = (idx: number, p: Partial<CargoDimensionLine>) => {
-    setOpenDims((o) => (o.has(idx) ? o : new Set(o).add(idx)));
+    openDims.open(idx);
     setDims((r) => r.map((l, j) => (j === idx ? { ...l, ...p } : l)));
-  };
-
-  // Dimension rows collapse and reopen like the cargo description rows.
-  const [openDims, setOpenDims] = useState<Set<number>>(() => new Set());
-  const dimIsOpen = (idx: number) => openDims.has(idx) || dimIsEmpty(dims[idx] ?? ({} as CargoDimensionLine));
-  const openDim = (idx: number) => setOpenDims((o) => new Set(o).add(idx));
-  const closeDim = (idx: number) =>
-    setOpenDims((o) => {
-      if (!o.has(idx)) return o;
-      const next = new Set(o);
-      next.delete(idx);
-      return next;
-    });
-  const onDimBlur = (idx: number) => (e: React.FocusEvent<HTMLDivElement>) => {
-    if (e.relatedTarget && e.currentTarget.contains(e.relatedTarget as Node)) return;
-    const row = e.currentTarget;
-    setTimeout(() => {
-      if (row.contains(document.activeElement)) return;
-      persistDims();
-      closeDim(idx);
-    }, 0);
   };
 
   const addItem = (panelKey: string) =>
@@ -215,13 +215,15 @@ export function CargoDetailsTab({
   const addDim = (panelKey: string) =>
     setDims((r) => [...r, emptyDim(panelKey === NONE ? null : panelKey)]);
 
-  // Removing a panel's last line just clears it (reference-UI behavior).
+  // Removing a panel's last line just clears it (reference-UI behavior). Open rows are
+  // tracked by index, which shifts on removal, so every row goes back to read mode.
   const removeItem = (idx: number, panelSize: number) => {
     const next =
       panelSize > 1
         ? itemsRef.current.filter((_, j) => j !== idx)
         : itemsRef.current.map((l, j) => (j === idx ? emptyItem(l.containerId ?? null) : l));
     setItems(next);
+    openItems.reset();
     onChange({ cargoItems: next.filter((l) => !itemIsEmpty(l)) });
   };
   const removeDim = (idx: number, panelSize: number) => {
@@ -230,6 +232,7 @@ export function CargoDetailsTab({
         ? dimsRef.current.filter((_, j) => j !== idx)
         : dimsRef.current.map((l, j) => (j === idx ? emptyDim(l.containerId ?? null) : l));
     setDims(next);
+    openDims.reset();
     onChange({ cargoDimensions: next.filter((l) => !dimIsEmpty(l)) });
   };
 
@@ -349,7 +352,7 @@ export function CargoDetailsTab({
                               <div
                                 key={idx}
                                 className={`${DIM_COLS} px-1 py-1.5 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
-                                onDoubleClick={() => openDim(idx)}
+                                onDoubleClick={() => openDims.open(idx)}
                                 title="Double-click to edit"
                               >
                                 <span className="text-center tabular-nums font-medium text-slate-900">{l.pieces || "—"}</span>
@@ -368,13 +371,8 @@ export function CargoDetailsTab({
                             <div
                               key={idx}
                               className={`${DIM_COLS} px-1 py-1 border-b border-slate-100`}
-                              onBlur={onDimBlur(idx)}
-                              onKeyDown={(e) => {
-                                if (e.key !== "Enter") return;
-                                (e.target as HTMLElement).blur?.();
-                                persistDims();
-                                closeDim(idx);
-                              }}
+                              onBlur={openDims.onRowBlur(idx)}
+                              onKeyDown={openDims.onRowKeyDown(idx)}
                             >
                               <Input size="small" className="text-center" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: e.target.value })} onBlur={persistDims} />
                               <Input size="small" className="text-center" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: e.target.value })} onBlur={persistDims} />
@@ -454,7 +452,7 @@ export function CargoDetailsTab({
                             <div
                               key={idx}
                               className={`${DESC_COLS} px-1 py-1.5 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
-                              onDoubleClick={() => openItem(idx)}
+                              onDoubleClick={() => openItems.open(idx)}
                               title="Double-click to edit"
                             >
                               <span className="font-medium text-slate-900 truncate">{l.cargoDescription || "—"}</span>
@@ -470,13 +468,8 @@ export function CargoDetailsTab({
                           <div
                             key={idx}
                             className={`${DESC_COLS} px-1 py-1 border-b border-slate-100`}
-                            onBlur={onItemBlur(idx)}
-                            onKeyDown={(e) => {
-                              if (e.key !== "Enter") return;
-                              (e.target as HTMLElement).blur?.();
-                              persistItems();
-                              closeItem(idx);
-                            }}
+                            onBlur={openItems.onRowBlur(idx)}
+                            onKeyDown={openItems.onRowKeyDown(idx)}
                           >
                             <Input size="small" value={l.cargoDescription} placeholder="PLASTIC PARTS OF SPEAKER" onChange={(e) => patchItem(idx, { cargoDescription: e.target.value })} onBlur={persistItems} />
                             {/* HS code is a tariff number — digits only (separators are dropped). */}

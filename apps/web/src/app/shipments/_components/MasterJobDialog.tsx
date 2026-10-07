@@ -95,7 +95,7 @@ export const MasterJobDialog = ({ open, onClose, shipments, onLink, initialSelec
       open={open}
       onCancel={handleClose}
       width={540}
-      destroyOnClose
+      destroyOnHidden
       footer={
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <span style={{ fontSize: 12, color: "#64748b" }}>{selected.size} shipment{selected.size !== 1 ? "s" : ""} selected</span>

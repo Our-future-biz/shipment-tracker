@@ -14,7 +14,7 @@ class WarehouseService {
   async ensureForShipments(companyId: string, shipmentIds: string[], now = new Date()) {
     const prefix = `WHCZ${now.getFullYear()}`;
     const out: { shipmentId: string; reference: string }[] = [];
-    for (const shipmentId of shipmentIds) {
+    for (const shipmentId of new Set(shipmentIds)) {
       const task = await warehouseTaskRepository.ensureForShipment(companyId, shipmentId, prefix);
       out.push({ shipmentId, reference: task.taskId });
     }

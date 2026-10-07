@@ -150,17 +150,8 @@ export function WarehouseSectionGrid({
         </div>
 
         {/* Toolbar */}
-        <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
-          <button
-            onClick={() => {
-              // Creating a position is wired up once these sections hold data.
-            }}
-            className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
-          >
-            <PlusOutlined />
-            New Position
-          </button>
-
+        {/* No "New Position" button yet: positions cannot be created until these sections hold data. */}
+        <div className="flex items-center justify-end gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
           <div className="flex items-center gap-3 shrink-0">
             <Input
               placeholder="Search positions..."

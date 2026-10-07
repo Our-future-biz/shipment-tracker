@@ -171,7 +171,7 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
         ))}
       </div>
 
-      <Modal open={!!preview} title={preview?.name} onCancel={closePreview} footer={null} width="80vw" styles={{ body: { padding: 0, height: "78vh" } }} destroyOnClose>
+      <Modal open={!!preview} title={preview?.name} onCancel={closePreview} footer={null} width="80vw" styles={{ body: { padding: 0, height: "78vh" } }} destroyOnHidden>
         {preview &&
           (preview.type.startsWith("image/") ? (
             <div className="h-full overflow-auto bg-slate-100 flex items-center justify-center">

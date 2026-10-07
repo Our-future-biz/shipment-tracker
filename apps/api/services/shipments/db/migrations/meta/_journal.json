@@ -232,6 +232,13 @@
       "when": 1791311419237,
       "tag": "0032_kind_living_lightning",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791404624179,
+      "tag": "0033_chilly_lady_vermin",
+      "breakpoints": true
     }
   ]
 }

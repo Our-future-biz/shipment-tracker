@@ -148,12 +148,6 @@ interface ShipmentUpdateRequest {
 
   // Other
   claim?: string;
-  claimCargoState?: string;
-  claimCargoNote?: string;
-  claimCostSupplier?: string;
-  claimCostInvoiceNumber?: string;
-  claimCostReason?: string;
-  claimCostAmount?: string;
   createdBy?: string;
 }
 

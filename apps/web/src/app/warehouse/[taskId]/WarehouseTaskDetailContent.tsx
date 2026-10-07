@@ -9,23 +9,13 @@ import { useWarehouse } from "@/hooks/useWarehouse";
 import { TaskMeta, StandaloneDimensions } from "../_components/WarehouseTaskDetail";
 import { PickupSection } from "../_components/sections/PickupSection";
 import { JobNotes, ActionPushButtons } from "../_components/sections/JobExtras";
+import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 
 // Same sub-tabs and cards as the Warehouse tab of a shipment.
 const TABS = [
   { key: "details", label: "Task Details" },
   { key: "pickup", label: "Pick-up" },
 ];
-
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="bg-white border border-slate-200 rounded-xl shadow-sm min-w-0">
-      <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
-        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
-      </div>
-      <div className="p-4">{children}</div>
-    </section>
-  );
-}
 
 export function WarehouseTaskDetailContent() {
   const { taskId } = useParams<{ taskId: string }>();
@@ -84,25 +74,7 @@ export function WarehouseTaskDetailContent() {
 
       {/* ── Body ── */}
       <div className="p-6 flex flex-col gap-5">
-        <div className="flex items-center gap-2 flex-wrap">
-          {TABS.map((tab) => {
-            const on = activeTab === tab.key;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setActiveTab(tab.key)}
-                className={[
-                  "flex items-center h-8 px-3 rounded-lg border text-[13px] font-medium transition-colors cursor-pointer",
-                  on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-                ].join(" ")}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
+        <PillTabs tabs={TABS} active={activeTab} onChange={setActiveTab} />
 
         {activeTab === "details" && (
           <>

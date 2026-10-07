@@ -92,19 +92,19 @@ export abstract class BaseRepository<TTable extends TableWithDefaults> {
   }
 
   async update(id: string, data: Partial<InferInsertModel<TTable>>): Promise<InferSelectModel<TTable> | null> {
-    const [row] = await this.db.update(this.table)
+    const rows = (await this.db.update(this.table)
       .set({ ...data, updatedAt: new Date() } as never)
       .where(and(eq(this.table.id, id), isNull(this.table.deletedAt)))
-      .returning();
-    return (row as InferSelectModel<TTable>) ?? null;
+      .returning()) as InferSelectModel<TTable>[];
+    return rows[0] ?? null;
   }
 
   async softDelete(id: string): Promise<InferSelectModel<TTable> | null> {
-    const [row] = await this.db.update(this.table)
+    const rows = (await this.db.update(this.table)
       .set({ deletedAt: new Date(), updatedAt: new Date() } as never)
       .where(and(eq(this.table.id, id), isNull(this.table.deletedAt)))
-      .returning();
-    return (row as InferSelectModel<TTable>) ?? null;
+      .returning()) as InferSelectModel<TTable>[];
+    return rows[0] ?? null;
   }
 }
 
@@ -157,18 +157,18 @@ export abstract class TenantRepository<TTable extends TenantTable> extends BaseR
     companyId: string,
     data: Partial<InferInsertModel<TTable>>,
   ): Promise<InferSelectModel<TTable> | null> {
-    const [row] = await this.db.update(this.table)
+    const rows = (await this.db.update(this.table)
       .set({ ...data, updatedAt: new Date() } as never)
       .where(and(eq(this.table.id, id), eq(this.table.companyId, companyId), isNull(this.table.deletedAt)))
-      .returning();
-    return (row as InferSelectModel<TTable>) ?? null;
+      .returning()) as InferSelectModel<TTable>[];
+    return rows[0] ?? null;
   }
 
   async softDeleteForCompany(id: string, companyId: string): Promise<InferSelectModel<TTable> | null> {
-    const [row] = await this.db.update(this.table)
+    const rows = (await this.db.update(this.table)
       .set({ deletedAt: new Date(), updatedAt: new Date() } as never)
       .where(and(eq(this.table.id, id), eq(this.table.companyId, companyId), isNull(this.table.deletedAt)))
-      .returning();
-    return (row as InferSelectModel<TTable>) ?? null;
+      .returning()) as InferSelectModel<TTable>[];
+    return rows[0] ?? null;
   }
 }

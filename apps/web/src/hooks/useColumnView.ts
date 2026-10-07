@@ -9,7 +9,7 @@ import { useColumnTemplates } from "./useColumnTemplates";
 // per-user default. Edits (reorder / show-hide) route to whichever is active.
 export function useColumnView(userId: string | undefined, token: string | null) {
   const prefs = useColumnPrefs(userId);
-  const { templates, templatesLoaded, saveTemplate, createTemplate, deleteTemplate } = useColumnTemplates(userId, token);
+  const { templates, templatesLoaded, createTemplate, deleteTemplate } = useColumnTemplates(userId, token);
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
   // Unsaved column edits made while a template is active. null = show the
   // template as-is. Buffering here means "Save as new" won't also mutate the
@@ -82,21 +82,12 @@ export function useColumnView(userId: string | undefined, token: string | null) 
     return a.length !== b.length || a.some((k, i) => k !== b[i]);
   }, [activeTemplate, workingColumns]);
 
-  // Persist the working buffer to the currently active template.
-  const saveActiveTemplate = useCallback(() => {
-    if (activeTemplate && workingColumns) {
-      saveTemplate(activeTemplate.name, withFixedColumns(workingColumns));
-      setWorkingColumns(null);
-    }
-  }, [activeTemplate, workingColumns, saveTemplate]);
-
   const saveAsTemplate = useCallback(
     async (name: string) => {
       const created = await createTemplate(name, visible);
-      if (created) {
-        setWorkingColumns(null);
-        persistActive(created.id);
-      }
+      if (!created) throw new Error("Template not saved");
+      setWorkingColumns(null);
+      persistActive(created.id);
     },
     [createTemplate, visible, persistActive],
   );
@@ -125,22 +116,14 @@ export function useColumnView(userId: string | undefined, token: string | null) 
     [deleteTemplate, activeTemplateId, persistActive],
   );
 
-  const reset = useCallback(() => {
-    setWorkingColumns(null);
-    persistActive(null);
-    prefs.reset();
-  }, [persistActive, prefs]);
-
   return {
     visible,
     setVisible,
-    reset,
     templates,
     activeTemplateId,
     isDirty,
     applyTemplate,
     deactivate,
-    saveActiveTemplate,
     saveAsTemplate,
     deleteTemplate: removeTemplate,
   };
