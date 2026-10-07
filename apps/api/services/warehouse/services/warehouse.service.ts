@@ -10,6 +10,17 @@ class WarehouseService {
     return warehouseTaskRepository.listByShipmentId(shipmentId, companyId);
   }
 
+  /** Warehouse references are WHCZ + the calendar year + a per-company sequence. */
+  async ensureForShipments(companyId: string, shipmentIds: string[], now = new Date()) {
+    const prefix = `WHCZ${now.getFullYear()}`;
+    const out: { shipmentId: string; reference: string }[] = [];
+    for (const shipmentId of shipmentIds) {
+      const task = await warehouseTaskRepository.ensureForShipment(companyId, shipmentId, prefix);
+      out.push({ shipmentId, reference: task.taskId });
+    }
+    return out;
+  }
+
   async create(companyId: string, taskId: string, shipmentId?: string) {
     return warehouseTaskRepository.create({ companyId, taskId, shipmentId });
   }

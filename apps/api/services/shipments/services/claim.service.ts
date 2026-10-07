@@ -32,18 +32,22 @@ class ClaimService {
   async create(shipmentId: string, companyId: string, kind: string, input: ClaimInput) {
     if (!CLAIM_KINDS.includes(kind)) throw APIError.invalidArgument(`Claim kind must be one of: ${CLAIM_KINDS.join(", ")}`);
     check(input);
-    return item(await shipmentClaimRepository.create({ companyId, shipmentId, kind, ...input }));
+    const row = await shipmentClaimRepository.create({ companyId, shipmentId, kind, ...input });
+    await shipmentClaimRepository.syncShipmentFlag(shipmentId, companyId);
+    return item(row);
   }
 
   async update(id: string, companyId: string, input: ClaimInput) {
     check(input);
     const row = await shipmentClaimRepository.update(id, companyId, input);
     if (!row) throw APIError.notFound("Claim not found");
+    await shipmentClaimRepository.syncShipmentFlag(row.shipmentId, companyId);
     return item(row);
   }
 
   async delete(id: string, companyId: string) {
-    await shipmentClaimRepository.delete(id, companyId);
+    const shipmentId = await shipmentClaimRepository.delete(id, companyId);
+    if (shipmentId) await shipmentClaimRepository.syncShipmentFlag(shipmentId, companyId);
   }
 }
 

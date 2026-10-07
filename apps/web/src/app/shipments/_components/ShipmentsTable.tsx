@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Button, Badge } from "antd";
-import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined, DownloadOutlined, MessageOutlined } from "@ant-design/icons";
+import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Badge, AutoComplete, Modal } from "antd";
+import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined, DownloadOutlined, MessageOutlined, WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import {
@@ -23,9 +23,11 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { getFieldValue, buildRowData, useShipments, type ShipmentItem } from "@/hooks/useShipments";
-import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
+import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
+import { useFilterTemplates } from "@/hooks/useFilterTemplates";
+import { useToast } from "@/lib/toast";
 import { ColumnPicker } from "./ColumnPicker";
 import { OverviewTiles, type TileId } from "./OverviewTiles";
 import { MasterJobDetailModal } from "./MasterJobDetailModal";
@@ -64,7 +66,8 @@ interface ShipmentsTableProps {
   isLoading: boolean;
   onCreateClick: () => void;
   onDelete: (shipment: ShipmentItem) => void;
-  onAddMasterJob: () => void;
+  /** Opens the Master Job dialog; the rows ticked in the table come pre-selected. */
+  onAddMasterJob: (selectedShipmentIds: string[]) => void;
 }
 
 type ColFilter = { key: string; value: string };
@@ -111,6 +114,8 @@ function exportShipmentsCsv(rows: ShipmentItem[], visibleKeys: string[]): void {
   URL.revokeObjectURL(url);
 }
 
+const MAX_RECENT_SEARCHES = 5;
+
 export const ShipmentsTable = ({
   shipments,
   isLoading,
@@ -124,7 +129,7 @@ export const ShipmentsTable = ({
   const searchParams = useSearchParams();
   const { user, token } = useAuth();
   const { updateField, updateShipment } = useShipments();
-  const { visible, setVisible, reset, templates, activeTemplateId, isDirty, applyTemplate, deactivate, saveActiveTemplate, saveAsTemplate, deleteTemplate } =
+  const { visible, setVisible, templates, activeTemplateId, isDirty, applyTemplate, deactivate, saveAsTemplate, deleteTemplate } =
     useColumnView(user?.id, token);
   // Search text, kept in sync with the URL ?q= param (also driven by the global top-nav search)
   const urlQuery = searchParams.get("q") ?? "";
@@ -135,13 +140,44 @@ export const ShipmentsTable = ({
 
   const onSearchChange = (value: string) => {
     setSearch(value);
-    persist({ q: value });
     const params = new URLSearchParams(searchParams.toString());
     if (value) params.set("q", value);
     else params.delete("q");
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
+
+  // The last few searches, offered when the search box is clicked into. A search counts
+  // once it is finished: Enter, leaving the box, or leaving the page.
+  const recentKey = `shipments:recent-searches:${user?.id ?? "anon"}`;
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(recentKey) ?? "[]");
+      setRecentSearches(Array.isArray(stored) ? stored.filter((v) => typeof v === "string").slice(0, MAX_RECENT_SEARCHES) : []);
+    } catch {
+      setRecentSearches([]);
+    }
+  }, [recentKey]);
+  const rememberSearch = (value: string) => {
+    const text = value.trim();
+    if (!text) return;
+    try {
+      const stored: unknown = JSON.parse(localStorage.getItem(recentKey) ?? "[]");
+      const prev = Array.isArray(stored) ? stored.filter((v): v is string => typeof v === "string") : [];
+      const next = [text, ...prev.filter((v) => v.toLowerCase() !== text.toLowerCase())].slice(0, MAX_RECENT_SEARCHES);
+      localStorage.setItem(recentKey, JSON.stringify(next));
+      setRecentSearches(next);
+    } catch {
+      // Storage unavailable — there is just no history to offer.
+    }
+  };
+  const rememberRef = useRef({ rememberSearch, search });
+  rememberRef.current = { rememberSearch, search };
+  useEffect(() => () => rememberRef.current.rememberSearch(rememberRef.current.search), []);
+  const recentOptions = recentSearches
+    .filter((v) => v.toLowerCase() !== search.trim().toLowerCase() && v.toLowerCase().includes(search.trim().toLowerCase()))
+    .map((v) => ({ value: v }));
 
   // Status bucket is URL-backed (?status=) like the search, so ShipmentsView can read it
   // and push it to the server-side query.
@@ -170,7 +206,19 @@ export const ShipmentsTable = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [mczModal, setMczModal] = useState<string | null>(null);
   const [docsShipment, setDocsShipment] = useState<ShipmentItem | null>(null);
-  const [chatShipment, setChatShipment] = useState<ShipmentItem | null>(null);
+  const [chatShipment, setChatShipment] = useState<Pick<ShipmentItem, "id" | "jobNumber"> | null>(null);
+  // ?chat=<shipmentId> (from a mention notification) opens that shipment's chat, then
+  // drops out of the URL so the drawer can be closed and the same link used again.
+  const chatParam = searchParams.get("chat");
+  useEffect(() => {
+    if (!chatParam || isLoading) return;
+    const hit = shipments.find((s) => s.id === chatParam);
+    setChatShipment(hit ?? { id: chatParam, jobNumber: "" });
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("chat");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [chatParam, isLoading, shipments, searchParams, router, pathname]);
   // Unread chat messages per shipment, for the red badge on the chat icon.
   const { data: unreadData } = useQuery({
     queryKey: ["shipment-comments", "unread"],
@@ -193,10 +241,12 @@ export const ShipmentsTable = ({
   // leaving for another section and coming back lands on a bare /shipments.
   // Remember the last set per user and restore it on arrival, so filtering
   // survives navigation until it is cleared or changed by hand.
+  // The search text is deliberately not remembered: it only applies while it is
+  // being typed, and leaving the page clears it.
   const storageKey = `shipments:list-filters:${user?.id ?? "anon"}`;
-  const persist = (next: { q?: string; status?: string; filters?: ColFilter[] }) => {
+  const persist = (next: { status?: string; filters?: ColFilter[] }) => {
     try {
-      localStorage.setItem(storageKey, JSON.stringify({ q: search, status: statusFilter, filters, ...next }));
+      localStorage.setItem(storageKey, JSON.stringify({ status: statusFilter, filters, ...next }));
     } catch {
       // Storage unavailable (private mode / quota) — filters just won't survive navigation.
     }
@@ -206,7 +256,7 @@ export const ShipmentsTable = ({
   useEffect(() => {
     if (restored.current) return;
     restored.current = true;
-    let stored: { q?: string; status?: string; filters?: ColFilter[] } | null = null;
+    let stored: { status?: string; filters?: ColFilter[] } | null = null;
     try {
       stored = JSON.parse(localStorage.getItem(storageKey) ?? "null");
     } catch {
@@ -218,10 +268,6 @@ export const ShipmentsTable = ({
     // only the parts it leaves out are restored.
     const params = new URLSearchParams(searchParams.toString());
     let changed = false;
-    if (!params.get("q") && stored.q) {
-      params.set("q", stored.q);
-      changed = true;
-    }
     if (!params.get("status") && stored.status && stored.status !== "all") {
       params.set("status", stored.status);
       changed = true;
@@ -261,6 +307,34 @@ export const ShipmentsTable = ({
   const removeFilter = (i: number) => applyFilters(filters.filter((_, idx) => idx !== i));
 
   const activeFilters = useMemo(() => filters.filter((f) => f.key && f.value.trim()), [filters]);
+
+  // Filter templates: named sets of column filters to switch between.
+  const toast = useToast();
+  const { templates: filterTemplates, saveTemplate: saveFilterTemplate, deleteTemplate: deleteFilterTemplate, isSaving: filterTemplateSaving } =
+    useFilterTemplates();
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [templateNameOpen, setTemplateNameOpen] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  // Template waiting for the user to confirm its deletion.
+  const [filterTemplateToDelete, setFilterTemplateToDelete] = useState<{ id: string; name: string } | null>(null);
+  // The template whose filters are exactly the ones applied now, if any.
+  const filterSignature = (list: ColFilter[]) => JSON.stringify(list.filter((f) => f.key && f.value.trim()).map((f) => [f.key, f.value.trim()]));
+  const activeFilterTemplate = filterTemplates.find((t) => t.filters.length > 0 && filterSignature(t.filters) === filterSignature(filters));
+  const openTemplateName = () => {
+    setTemplateName(activeFilterTemplate?.name ?? "");
+    setTemplateNameOpen(true);
+  };
+  const submitTemplateName = async () => {
+    const name = templateName.trim();
+    if (!name || filterTemplateSaving) return;
+    try {
+      await saveFilterTemplate(name, activeFilters);
+      toast.success(`Template "${name}" saved`);
+      setTemplateNameOpen(false);
+    } catch {
+      toast.error("Could not save the template");
+    }
+  };
 
   const filterColumnOptions = useMemo(
     () => COLUMNS.filter((c) => c.type !== "popup").map((c) => ({ value: c.key, label: c.title })),
@@ -392,8 +466,10 @@ export const ShipmentsTable = ({
     cols.push({
       key: "__docs",
       title: "",
-      width: 46,
+      width: 30,
       fixed: "right",
+      // Paddings tuned so both icons sit centred with 10px left, between and right.
+      onCell: () => ({ style: { paddingLeft: 6, paddingRight: 2 } }),
       render: (_: unknown, record: ShipmentItem) => (
         <Tooltip title="Documents">
           <button
@@ -409,8 +485,11 @@ export const ShipmentsTable = ({
     cols.push({
       key: "__chat",
       title: "",
-      width: 52,
+      // 4px narrower than the icon columns around it, so the gap to the warning
+      // triangle on the right matches the gap to the documents icon on the left.
+      width: 24,
       fixed: "right",
+      onCell: () => ({ style: { paddingLeft: 0, paddingRight: 2 } }),
       render: (_: unknown, record: ShipmentItem) => {
         const unread = unreadBy.get(record.id) ?? 0;
         return (
@@ -423,6 +502,27 @@ export const ShipmentsTable = ({
                 <MessageOutlined />
               </button>
             </Badge>
+          </Tooltip>
+        );
+      },
+    });
+
+    // Warning triangle: yellow by default, orange / red as ETD or ETA gets close while the
+    // shipment has not reached its "ready" status (rules in getShipmentUrgency).
+    cols.push({
+      key: "__alert",
+      title: "",
+      width: 28,
+      fixed: "right",
+      onCell: () => ({ style: { paddingLeft: 0, paddingRight: 6 } }),
+      render: (_: unknown, record: ShipmentItem) => {
+        const { level, reason } = getShipmentUrgency(buildRowData(record));
+        const tone = level === "critical" ? "text-red-500" : level === "warning" ? "text-orange-500" : "text-yellow-400";
+        return (
+          <Tooltip title={reason || "No deadline warning"}>
+            <span role="img" aria-label={reason || "No deadline warning"} className={`inline-flex p-1 ${tone}`}>
+              <WarningFilled />
+            </span>
           </Tooltip>
         );
       },
@@ -467,21 +567,32 @@ export const ShipmentsTable = ({
             New Shipment
           </button>
           <button
-            onClick={onAddMasterJob}
+            onClick={() => {
+              onAddMasterJob(selectedKeys.map(String));
+              // The dialog takes the selection over from here.
+              setSelectedKeys([]);
+            }}
             className="flex items-center gap-1.5 shrink-0 rounded-lg border border-slate-300 bg-white px-3 h-8 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors"
           >
             Add to Master Job
           </button>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <Input
-            placeholder="Search shipments..."
-            prefix={<SearchOutlined className="text-slate-400" />}
+          <AutoComplete
             value={search}
-            onChange={(e) => onSearchChange(e.target.value)}
-            allowClear
+            onChange={(value) => onSearchChange(value ?? "")}
+            onSelect={(value) => rememberSearch(value)}
+            onBlur={() => rememberSearch(search)}
+            options={recentOptions.length > 0 ? [{ label: "Recent searches", options: recentOptions }] : []}
             className="w-60"
-          />
+          >
+            <Input
+              placeholder="Search shipments..."
+              prefix={<SearchOutlined className="text-slate-400" />}
+              onPressEnter={() => rememberSearch(search)}
+              allowClear
+            />
+          </AutoComplete>
           <div className="w-px h-6 bg-slate-200 shrink-0" />
           <Select
             value={statusFilter}
@@ -492,18 +603,58 @@ export const ShipmentsTable = ({
           <Popover
             trigger="click"
             placement="bottomRight"
+            open={filtersOpen}
+            // The name and delete dialogs live outside the popover; clicking in them must not close the filters.
+            onOpenChange={(next) => {
+              if (!templateNameOpen && !filterTemplateToDelete) setFiltersOpen(next);
+            }}
             content={
               <div className="w-[430px] -m-1">
-                <div className="flex items-center justify-between px-1 pb-2.5 mb-2.5 border-b border-slate-100">
-                  <span className="text-[13px] font-semibold text-slate-800">Filter by column</span>
-                  {filters.length > 0 && (
-                    <button
-                      onClick={() => applyFilters([])}
-                      className="text-xs font-medium text-slate-400 hover:text-red-500 bg-transparent border-none cursor-pointer p-0"
-                    >
-                      Clear all
-                    </button>
-                  )}
+                <div className="flex items-center gap-3 px-1 pb-2.5 mb-2.5 border-b border-slate-100">
+                  <span className="text-[13px] font-semibold text-slate-800 shrink-0">Filter by column</span>
+                  <Select
+                    size="small"
+                    placeholder="Templates"
+                    aria-label="Filter templates"
+                    className="flex-1 min-w-0"
+                    value={activeFilterTemplate?.id}
+                    onChange={(id) => {
+                      const t = filterTemplates.find((x) => x.id === id);
+                      if (t) applyFilters(t.filters);
+                    }}
+                    options={filterTemplates.map((t) => ({ value: t.id, label: t.name }))}
+                    notFoundContent={<span className="text-xs text-slate-400">No templates yet — set filters and press Save.</span>}
+                    optionRender={(option) => (
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="truncate">{option.label}</span>
+                        <button
+                          type="button"
+                          aria-label={`Delete template ${String(option.label)}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFilterTemplateToDelete({ id: String(option.value), name: String(option.label) });
+                          }}
+                          className="shrink-0 flex items-center justify-center w-5 h-5 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 bg-transparent border-none cursor-pointer"
+                        >
+                          <CloseOutlined className="text-[10px]" />
+                        </button>
+                      </span>
+                    )}
+                  />
+                  <button
+                    onClick={openTemplateName}
+                    disabled={activeFilters.length === 0}
+                    className="shrink-0 text-xs font-medium text-indigo-600 hover:text-indigo-700 disabled:text-slate-300 disabled:cursor-not-allowed bg-transparent border-none cursor-pointer p-0"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={() => applyFilters([])}
+                    disabled={filters.length === 0}
+                    className="shrink-0 text-xs font-medium text-slate-400 hover:text-red-500 disabled:text-slate-300 disabled:cursor-not-allowed bg-transparent border-none cursor-pointer p-0"
+                  >
+                    Clear all
+                  </button>
                 </div>
                 {filters.length === 0 ? (
                   <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-lg">
@@ -584,13 +735,11 @@ export const ShipmentsTable = ({
           <ColumnPicker
             visible={visible}
             onChange={setVisible}
-            onReset={reset}
             templates={templates}
             activeTemplateId={activeTemplateId}
             isDirty={isDirty}
             onApplyTemplate={applyTemplate}
             onDeactivate={deactivate}
-            onSaveActive={saveActiveTemplate}
             onSaveTemplate={saveAsTemplate}
             onDeleteTemplate={deleteTemplate}
           />
@@ -604,26 +753,6 @@ export const ShipmentsTable = ({
           </button>
         </div>
       </div>
-
-      {/* Bulk action bar (shown when rows are selected) */}
-      {selectedKeys.length > 0 && (
-        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-2xl px-4 py-2.5">
-          <span className="text-sm text-indigo-700 font-medium">{selectedKeys.length} selected</span>
-          <Button
-            size="small"
-            icon={<DownloadOutlined />}
-            onClick={() => {
-              const set = new Set(selectedKeys.map(String));
-              exportShipmentsCsv(shipments.filter((s) => set.has(s.id)), visible);
-            }}
-          >
-            Export CSV
-          </Button>
-          <Button size="small" type="text" onClick={() => setSelectedKeys([])}>
-            Clear
-          </Button>
-        </div>
-      )}
 
       {/* Table */}
       <div className="shipments-table bg-white border border-slate-200 rounded-2xl overflow-hidden">
@@ -694,14 +823,60 @@ export const ShipmentsTable = ({
         {docsShipment && <DocumentsPanel shipmentId={docsShipment.id} />}
       </Drawer>
 
+      <Modal
+        open={templateNameOpen}
+        title="Save filter template"
+        okText="Save"
+        cancelText="Cancel"
+        width={380}
+        centered
+        // Opened from inside the filters popover, so it has to sit above it.
+        zIndex={1100}
+        destroyOnHidden
+        confirmLoading={filterTemplateSaving}
+        okButtonProps={{ disabled: !templateName.trim() }}
+        onOk={submitTemplateName}
+        onCancel={() => setTemplateNameOpen(false)}
+      >
+        <Input
+          autoFocus
+          placeholder="Template name"
+          maxLength={60}
+          value={templateName}
+          onChange={(e) => setTemplateName(e.target.value)}
+          onPressEnter={submitTemplateName}
+        />
+        {filterTemplates.some((t) => t.name.toLowerCase() === templateName.trim().toLowerCase()) && (
+          <p className="mt-2 mb-0 text-xs text-amber-600">A template with this name exists — saving will overwrite it.</p>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!filterTemplateToDelete}
+        title="Delete template"
+        okText="Delete"
+        cancelText="Cancel"
+        okButtonProps={{ danger: true }}
+        width={380}
+        centered
+        zIndex={1100}
+        onOk={() => {
+          if (filterTemplateToDelete) deleteFilterTemplate(filterTemplateToDelete.id);
+          setFilterTemplateToDelete(null);
+        }}
+        onCancel={() => setFilterTemplateToDelete(null)}
+      >
+        Do you really want to delete the filter template <strong>{filterTemplateToDelete?.name}</strong>? This cannot be undone.
+      </Modal>
+
       {/* Chat — the shipment's internal conversation; opening it marks it read. */}
       <Drawer
         open={!!chatShipment}
         onClose={() => setChatShipment(null)}
-        width={380}
+        width={460}
         destroyOnClose
         styles={{ body: { padding: 0 } }}
-        title={chatShipment ? `Chat — ${chatShipment.jobNumber ?? chatShipment.id}` : "Chat"}
+        title={chatShipment?.jobNumber ? `Chat — ${chatShipment.jobNumber}` : "Chat"}
       >
         {chatShipment && <ChatPanel shipmentId={chatShipment.id} />}
       </Drawer>

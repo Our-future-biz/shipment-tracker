@@ -631,7 +631,7 @@ const COMPLIANCE_FIELDS: FieldDef[] = [
   { key: "ams", label: "AMS (if any)" },
   { key: "isf", label: "ISF (if any)" },
   { key: "bolDraft", label: "BoL Draft" },
-  { key: "claim", label: "Claim" },
+  { key: "claim", label: "Claim", ro: true },
 ];
 const SWITCH_BOL_FIELDS: FieldDef[] = [
   { key: "switchBol", label: "Switch BOL" },
@@ -1084,6 +1084,7 @@ export function ShipmentDetailContent() {
                     { key: "estimatedArrival", label: "ETA Estimated" },
                     { key: "estimatedArrivalWeek", label: "Est. Arrival Week", ro: true },
                     { key: "shipmentsDate", label: "Shipments Date", ro: true },
+                    { key: "shipmentsYear", label: "Year", ro: true },
                     { key: "shippingLine", label: "Shipping line / Coloader" },
                     { key: "containerNumber", label: "Container Number", ro: true },
                     { key: "sealNumber", label: "Seal Number", ro: true },

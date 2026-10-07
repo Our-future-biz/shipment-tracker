@@ -13,6 +13,8 @@ export const shipmentAttachmentTable = pgTable(
     storageKey: text("storage_key").notNull().default(""),
     /** Who uploaded the file. Null on rows created before this was recorded. */
     uploadedById: uuid("uploaded_by_id"),
+    /** Chat message the file was sent with; null for files added on the Documents tab. */
+    commentId: uuid("comment_id"),
     /** Business document type: Invoice, Packing list, Bill of Lading, … ("" = not classified yet). */
     documentType: text("document_type").notNull().default(""),
     /** Customs review: "" (pending) | approved | declined. */
@@ -26,6 +28,7 @@ export const shipmentAttachmentTable = pgTable(
     ...defaultTableIndexes("shipment_attachment", table),
     tenantIndex("shipment_attachment", table),
     index("shipment_attachment_shipment_id_idx").on(table.shipmentId),
+    index("shipment_attachment_comment_id_idx").on(table.commentId),
   ],
 );
 

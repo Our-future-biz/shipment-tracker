@@ -31,10 +31,11 @@ interface Props {
 }
 
 export function OverviewTiles({ active, onSelect }: Props) {
-  const { counts, isLoading } = useShipmentTileCounts();
+  const { counts, isLoading, isError } = useShipmentTileCounts();
 
   const valueFor = (id: TileId): string => {
-    if (!counts) return isLoading ? "…" : "0";
+    // A failed request must not masquerade as "no shipments".
+    if (!counts) return isLoading ? "…" : isError ? "–" : "0";
     const map: Record<TileId, number> = {
       active: counts.active,
       attention: counts.attention,

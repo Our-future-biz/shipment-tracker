@@ -32,6 +32,8 @@ export const ShipmentsView = () => {
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [masterJobOpen, setMasterJobOpen] = useState(false);
+  // Shipments ticked in the table when "Add to Master Job" was pressed.
+  const [masterJobPreselected, setMasterJobPreselected] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<ShipmentItem | null>(null);
 
   const handleDelete = async () => {
@@ -63,13 +65,17 @@ export const ShipmentsView = () => {
         isLoading={isLoading}
         onCreateClick={() => setCreateOpen(true)}
         onDelete={(shipment) => setDeleteTarget(shipment)}
-        onAddMasterJob={() => setMasterJobOpen(true)}
+        onAddMasterJob={(ids) => {
+          setMasterJobPreselected(ids);
+          setMasterJobOpen(true);
+        }}
       />
 
       <MasterJobDialog
         open={masterJobOpen}
         onClose={() => setMasterJobOpen(false)}
         shipments={shipments}
+        initialSelectedIds={masterJobPreselected}
         onLink={handleLinkMasterJob}
       />
 

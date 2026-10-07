@@ -7,6 +7,7 @@ export const DEFAULT_SHIPMENT_COLUMNS = [
   "jobNumber",
   "masterJob",
   "shipmentsDate",
+  "shipmentsYear",
   "department",
   "personInCharge",
   "holidayCover",

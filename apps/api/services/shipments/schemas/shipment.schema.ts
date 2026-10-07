@@ -157,7 +157,8 @@ export const shipmentTable = pgTable(
     salesPerson: text("sales_person").notNull().default(""),
 
     // — Claim —
-    claim: text("claim").notNull().default(""),
+    // Yes | No — derived from the shipment's claims (see syncShipmentFlag), not edited by hand.
+    claim: text("claim").notNull().default("No"),
     // Claim on the shipment: condition of the cargo.
     claimCargoState: text("claim_cargo_state").notNull().default(""), // Damaged | Incomplete | Undamaged | Lost
     claimCargoNote: text("claim_cargo_note").notNull().default(""),

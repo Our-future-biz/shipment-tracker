@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { commentService } from "../services/comment.service";
-import type { CommentUnreadItem } from "../interfaces/interfaces";
+import type { CommentUnreadItem, CommentMentionItem } from "../interfaces/interfaces";
 
 interface CommentUnreadResponse {
   /** Only shipments that have something unread for this user. */
@@ -14,6 +14,16 @@ export const commentUnread = api(
   async (): Promise<CommentUnreadResponse> => {
     const { companyID, userID } = getAuthData()!;
     return { unread: await commentService.unreadCounts(companyID, userID) };
+  },
+);
+
+// Chat messages that tag this user and that they have not seen yet — the notification bell.
+export const commentMentions = api(
+  { expose: true, auth: true, method: "GET", path: "/shipment-comments/mentions" },
+  async (): Promise<{ mentions: CommentMentionItem[] }> => {
+    const { companyID, userID } = getAuthData()!;
+    const mentions = await commentService.unreadMentions(companyID, userID);
+    return { mentions: mentions as unknown as CommentMentionItem[] };
   },
 );
 

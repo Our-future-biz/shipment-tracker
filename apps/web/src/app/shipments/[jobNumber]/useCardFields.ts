@@ -12,11 +12,16 @@ import { api } from "@/lib/api";
  * uzivatel vybere, co ma byt v karte videt (secSum / secSumToggle).
  * Zde se volba uklada na uzivatele do databaze, takze plati i na jinem pocitaci.
  *
- * Ulozeny tvar: { "<id karty>": ["klic pole", ...] }
+ * Ulozeny tvar: { "<id karty>": ["klic pole", ...], "<id karty>#known": [...] }
  * Karta bez zaznamu ukazuje vsechna sva pole.
+ *
+ * "#known" jsou vsechna pole, ktera karta mela v dobe ulozeni vyberu. Pole,
+ * ktere do karty pribude pozdeji, v nem neni, a proto se ukaze samo - jinak by
+ * zustalo skryte kazdemu, kdo si kartu nekdy upravil.
  */
 
 const PREF_KEY = "detail-card-fields";
+const knownKey = (cardId: string) => `${cardId}#known`;
 
 type CardFieldMap = Record<string, string[]>;
 
@@ -61,8 +66,10 @@ export function useCardFields() {
     (cardId: string, allKeys: string[]): string[] => {
       const chosen = map[cardId];
       if (!Array.isArray(chosen)) return allKeys;
+      const known = map[knownKey(cardId)];
+      const isNew = (k: string) => Array.isArray(known) && !known.includes(k);
       // poradi se ridi kartou, ne poradim vyberu
-      return allKeys.filter((k) => chosen.includes(k));
+      return allKeys.filter((k) => chosen.includes(k) || isNew(k));
     },
     [map],
   );
@@ -70,13 +77,13 @@ export function useCardFields() {
   /** Prepne jedno pole. */
   const toggleField = useCallback(
     (cardId: string, key: string, allKeys: string[]) => {
-      const current = Array.isArray(map[cardId]) ? map[cardId]! : allKeys;
+      const current = visibleKeys(cardId, allKeys);
       const next = current.includes(key)
         ? current.filter((k) => k !== key)
         : [...current, key];
-      save.mutate({ ...map, [cardId]: next });
+      save.mutate({ ...map, [cardId]: next, [knownKey(cardId)]: allKeys });
     },
-    [map, save],
+    [map, save, visibleKeys],
   );
 
   /** Vrati kartu do vychoziho stavu (vsechna pole). */
@@ -84,6 +91,7 @@ export function useCardFields() {
     (cardId: string) => {
       const next = { ...map };
       delete next[cardId];
+      delete next[knownKey(cardId)];
       save.mutate(next);
     },
     [map, save],

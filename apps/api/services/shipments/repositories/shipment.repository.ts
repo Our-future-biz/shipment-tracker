@@ -23,6 +23,9 @@ const RELEVANT_ETA = sql`CASE WHEN lower(${shipmentTable.tradeDirection}) = 'exp
  * write-once, so a `completed = false` row is never written — testing for one
  * would match nothing. Instead compare how many tasks have been ticked against
  * how many the shipment's direction defines (see taskCatalog.ts).
+ *
+ * The counts are bound as parameters, which Postgres types as text inside a
+ * CASE — hence the ::int casts, without which `bigint < text` fails the query.
  */
 const HAS_OPEN_TASK = sql`(
   SELECT COUNT(*) FROM shipment_task t
@@ -30,7 +33,7 @@ const HAS_OPEN_TASK = sql`(
     AND t.completed = true
     AND t.deleted_at IS NULL
 ) < CASE WHEN lower(${shipmentTable.tradeDirection}) = 'export'
-         THEN ${EXPORT_TASK_COUNT} ELSE ${IMPORT_TASK_COUNT} END`;
+         THEN ${EXPORT_TASK_COUNT}::int ELSE ${IMPORT_TASK_COUNT}::int END`;
 
 const TILE_PREDICATES = {
   active: sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`,

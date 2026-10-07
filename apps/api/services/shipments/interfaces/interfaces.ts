@@ -224,6 +224,25 @@ export interface MasterJobItem {
   createdAt: string;
 }
 
+/** A chat message that tags the reader and that they have not opened yet. */
+export interface CommentMentionItem {
+  /** Id of the message. */
+  id: string;
+  shipmentId: string;
+  jobNumber: string;
+  authorName: string;
+  message: string;
+  createdAt: string;
+}
+
+/** A file sent with a chat message. */
+export interface CommentAttachment {
+  id: string;
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+}
+
 export interface CommentItem {
   id: string;
   shipmentId: string;
@@ -232,6 +251,9 @@ export interface CommentItem {
   authorName: string;
   message: string;
   createdAt: string;
+  attachments: CommentAttachment[];
+  /** On the reader's own messages: a colleague has opened the chat since it was sent. */
+  readByOthers: boolean;
 }
 
 /** One claim of a shipment. */

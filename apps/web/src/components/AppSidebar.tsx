@@ -48,7 +48,16 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/invoicing", label: "Invoicing", icon: <DollarOutlined /> },
   { path: "/exchange", label: "Exchange", icon: <SwapOutlined /> },
   { path: "/customs", label: "Customs", icon: <SafetyCertificateOutlined /> },
-  { path: "/warehouse", label: "Warehouse", icon: <InboxOutlined /> },
+  {
+    path: "/warehouse",
+    label: "Warehouse",
+    icon: <InboxOutlined />,
+    children: [
+      { path: "/warehouse/in", label: "In Warehouse" },
+      { path: "/warehouse/out", label: "Out Warehouse" },
+      { path: "/warehouse/stock", label: "Stock" },
+    ],
+  },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
   // Company admins/managers manage their own users; superadmins manage all companies.

@@ -5,6 +5,7 @@ import { LogoutOutlined, SearchOutlined, UserOutlined } from "@ant-design/icons"
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { MentionBell } from "./MentionBell";
 
 export function TopNav() {
   const { user, logout } = useAuth();
@@ -69,6 +70,8 @@ export function TopNav() {
       <div className="flex items-center gap-3 ml-auto">
         {/* Date */}
         <span className="text-[13px] text-slate-500">{today}</span>
+
+        <MentionBell />
 
         {/* User menu */}
         <Dropdown menu={{ items: userMenuItems }} trigger={["click"]} placement="bottomRight">

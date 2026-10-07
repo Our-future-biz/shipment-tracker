@@ -1,4 +1,4 @@
-import { eq, and, isNull, asc, inArray } from "drizzle-orm";
+import { eq, and, isNull, isNotNull, asc, inArray } from "drizzle-orm";
 import { db } from "../db/db";
 import { shipmentAttachmentTable } from "../schemas/shipmentAttachment.schema";
 
@@ -27,6 +27,45 @@ class ShipmentAttachmentRepository {
       .where(and(
         eq(shipmentAttachmentTable.companyId, companyId),
         inArray(shipmentAttachmentTable.shipmentId, shipmentIds),
+        isNull(shipmentAttachmentTable.deletedAt),
+      ));
+  }
+
+  /** Files sent through the shipment's chat, oldest first. */
+  async listChatFilesByShipmentId(shipmentId: string, companyId: string) {
+    return db
+      .select({
+        id: shipmentAttachmentTable.id,
+        commentId: shipmentAttachmentTable.commentId,
+        fileName: shipmentAttachmentTable.fileName,
+        fileSize: shipmentAttachmentTable.fileSize,
+        fileType: shipmentAttachmentTable.fileType,
+      })
+      .from(shipmentAttachmentTable)
+      .where(and(
+        eq(shipmentAttachmentTable.companyId, companyId),
+        eq(shipmentAttachmentTable.shipmentId, shipmentId),
+        isNotNull(shipmentAttachmentTable.commentId),
+        isNull(shipmentAttachmentTable.deletedAt),
+      ))
+      .orderBy(asc(shipmentAttachmentTable.createdAt));
+  }
+
+  /**
+   * Ties already-uploaded files to the chat message they were sent with. Scoped
+   * to the shipment and to files not yet sent, so a message can neither claim
+   * another shipment's file nor steal one from an earlier message.
+   */
+  async linkToComment(ids: string[], commentId: string, shipmentId: string, companyId: string) {
+    if (ids.length === 0) return;
+    await db
+      .update(shipmentAttachmentTable)
+      .set({ commentId, updatedAt: new Date() })
+      .where(and(
+        eq(shipmentAttachmentTable.companyId, companyId),
+        eq(shipmentAttachmentTable.shipmentId, shipmentId),
+        inArray(shipmentAttachmentTable.id, ids),
+        isNull(shipmentAttachmentTable.commentId),
         isNull(shipmentAttachmentTable.deletedAt),
       ));
   }

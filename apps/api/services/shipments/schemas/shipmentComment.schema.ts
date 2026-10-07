@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgTable, text, uuid, index } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
@@ -9,6 +10,8 @@ export const shipmentCommentTable = pgTable(
     shipmentId: uuid("shipment_id").notNull(),
     authorId: uuid("author_id").notNull(),
     message: text("message").notNull(),
+    /** Colleagues tagged with @ in the message; each gets a notification until they open the chat. */
+    mentionedUserIds: uuid("mentioned_user_ids").array().notNull().default(sql`'{}'::uuid[]`),
   },
   (table) => [
     ...defaultTableIndexes("shipment_comment", table),

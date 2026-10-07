@@ -33,7 +33,11 @@ export function ClaimsTab({ shipment }: { shipment: ShipmentItem }) {
     queryFn: () => api.shipments.claimList(shipment.id),
   });
   const claims = data?.claims ?? [];
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["shipment-claims", shipment.id] });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["shipment-claims", shipment.id] });
+    // The shipment's Claim field (Yes/No) follows the claims.
+    queryClient.invalidateQueries({ queryKey: ["shipments"] });
+  };
   const onError = (what: string) => () => messageApi.error(what);
 
   const create = useMutation({

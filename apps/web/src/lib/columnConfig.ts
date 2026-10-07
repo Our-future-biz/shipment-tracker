@@ -91,18 +91,19 @@ export const DATE_COLUMNS = new Set([
 export const COMPUTED_COLUMNS = new Set([
   "teu", "totalWeightTons", "totalVolumeCbm", "freightTon", "surface", "profit",
   "estimatedDepartureWeek", "estimatedArrivalWeek", "actualDepartureWeek", "actualArrivalWeek",
-  "shipmentsDate",
+  "shipmentsDate", "shipmentsYear",
 ]);
 
 // ─── Column Definitions (Full Sheet) ──────────────────────────────────
 
 export const COLUMNS: ColumnDef[] = [
-  // Locked columns (always first two)
+  // Internal Reference is locked (always first); Master job is an ordinary column
   { key: "jobNumber", title: "Internal Reference", width: 140, type: "text", fixed: true, readonly: true, apiField: "jobNumber" },
-  { key: "masterJob", title: "Master job", width: 140, type: "text", fixed: true, readonly: true, apiField: "masterJobMczNumber" },
+  { key: "masterJob", title: "Master job", width: 140, type: "text", readonly: true, apiField: "masterJobMczNumber" },
 
   // Meta
   { key: "shipmentsDate", title: "Shipments Date", width: 120, type: "computed", readonly: true },
+  { key: "shipmentsYear", title: "Year", width: 80, type: "computed", readonly: true },
   { key: "department", title: "Department", width: 170, type: "dropdown", options: DROPDOWN_OPTIONS["Department"], apiField: "department" },
   { key: "personInCharge", title: "Person In Charge", width: 180, type: "text", apiField: "personInCharge" },
   { key: "holidayCover", title: "Holiday Cover", width: 140, type: "text", apiField: "holidayCover" },
@@ -253,7 +254,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "validityStatus", title: "Validity Status", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Validity Status"], apiField: "validityStatus" },
 
   // Misc
-  { key: "claim", title: "Claim", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Claim"], apiField: "claim" },
+  // Read-only: the backend sets it from the Claim tab (Yes while a claim is filled in).
+  { key: "claim", title: "Claim", width: 100, type: "dropdown", options: DROPDOWN_OPTIONS["Claim"], apiField: "claim", readonly: true },
   { key: "claimCargoState", title: "Claim — Cargo State", width: 150, type: "dropdown", options: DROPDOWN_OPTIONS["Claim Cargo State"], apiField: "claimCargoState" },
   { key: "claimCargoNote", title: "Claim — Cargo Note", width: 220, type: "text", apiField: "claimCargoNote" },
   { key: "claimCostSupplier", title: "Claim — Supplier", width: 180, type: "text", apiField: "claimCostSupplier" },
@@ -266,7 +268,7 @@ export const COLUMNS: ColumnDef[] = [
 // Column key lookup for quick access
 export const COLUMN_MAP = new Map(COLUMNS.map((col) => [col.key, col]));
 
-// Columns that can never be hidden or removed (Internal Reference, Master job).
+// Columns that can never be hidden or removed (Internal Reference).
 // Kept first, in config order, regardless of the user's selection/templates.
 export const FIXED_COLUMN_KEYS = COLUMNS.filter((c) => c.fixed).map((c) => c.key);
 const FIXED_KEY_SET = new Set(FIXED_COLUMN_KEYS);
@@ -323,6 +325,47 @@ function isDateInPast(dateStr: string): boolean {
   const d = parseDateMMDDYY(dateStr);
   if (!d) return false;
   return d.getTime() < Date.now();
+}
+
+/**
+ * How close a shipment is to its date without having reached the status that
+ * says it is ready — drives the exclamation mark next to the chat icon.
+ *
+ *   Export: ETD in ≤ 7 days → warning, ≤ 4 days → critical,
+ *           unless status is "All Done - Waiting To Be Shipped".
+ *   Import: ETA in ≤ 14 days → warning, ≤ 8 days → critical,
+ *           unless status is "Booked For Further Transport".
+ *
+ * A date already in the past counts as "≤" too, so an overdue shipment stays critical.
+ */
+export type ShipmentUrgency = "none" | "warning" | "critical";
+
+const URGENCY_RULES = {
+  export: { dateKey: "estimatedDeparture", dateLabel: "ETD", warningDays: 7, criticalDays: 4, readyStatus: "All Done - Waiting To Be Shipped" },
+  import: { dateKey: "estimatedArrival", dateLabel: "ETA", warningDays: 14, criticalDays: 8, readyStatus: "Booked For Further Transport" },
+} as const;
+
+// Statuses carry decoration ("All Done - Waiting To Be Shipped [EXP]"), so compare letters only.
+const lettersOnly = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
+
+export function getShipmentUrgency(rowData: Record<string, string>): { level: ShipmentUrgency; reason: string } {
+  const dir = (rowData["tradeDirection"] || "").trim().toLowerCase();
+  const rule = dir === "export" || dir === "import" ? URGENCY_RULES[dir] : null;
+  if (!rule) return { level: "none", reason: "" };
+  if (lettersOnly(rowData["status"] || "").includes(lettersOnly(rule.readyStatus))) return { level: "none", reason: "" };
+  const date = parseDateMMDDYY(rowData[rule.dateKey] || "");
+  if (!date) return { level: "none", reason: "" };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((date.getTime() - today.getTime()) / 86_400_000);
+  if (days > rule.warningDays) return { level: "none", reason: "" };
+
+  const when = days < 0 ? `was ${-days} day${days === -1 ? "" : "s"} ago` : days === 0 ? "is today" : `is in ${days} day${days === 1 ? "" : "s"}`;
+  return {
+    level: days <= rule.criticalDays ? "critical" : "warning",
+    reason: `${rule.dateLabel} ${when} and the status is not yet "${rule.readyStatus}"`,
+  };
 }
 
 export function getRowConditionalStyle(rowData: Record<string, string>): CellStyle | null {
@@ -576,8 +619,9 @@ export function getComputedValue(key: string, rowData: Record<string, string>): 
       const buy = parseFloat(buying) || 0;
       return (sell - buy).toFixed(2);
     }
-    case "shipmentsDate": {
-      // Derived month: Export → ETD Estimated, Import → ETA Estimated.
+    case "shipmentsDate":
+    case "shipmentsYear": {
+      // Derived month / year: Export → ETD Estimated, Import → ETA Estimated.
       const dir = (rowData["tradeDirection"] || "").trim().toLowerCase();
       const src = dir === "export"
         ? rowData["estimatedDeparture"]
@@ -586,6 +630,7 @@ export function getComputedValue(key: string, rowData: Record<string, string>): 
           : "";
       const d = parseDateMMDDYY(src || "");
       if (!d) return "";
+      if (key === "shipmentsYear") return String(d.getFullYear());
       return DROPDOWN_OPTIONS["Shipments Date"]?.[d.getMonth()] ?? "";
     }
     case "estimatedDepartureWeek":

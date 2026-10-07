@@ -852,6 +852,7 @@ export namespace shipments {
             this.commentDelete = this.commentDelete.bind(this)
             this.commentList = this.commentList.bind(this)
             this.commentMarkRead = this.commentMarkRead.bind(this)
+            this.commentMentions = this.commentMentions.bind(this)
             this.commentUnread = this.commentUnread.bind(this)
             this.shipmentCreate = this.shipmentCreate.bind(this)
             this.shipmentDashboard = this.shipmentDashboard.bind(this)
@@ -977,6 +978,19 @@ export namespace shipments {
             const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/comments/read`)
             return await resp.json() as {
     ok: boolean
+}
+        }
+
+        /**
+         * Chat messages that tag this user and that they have not seen yet — the notification bell.
+         */
+        public async commentMentions(): Promise<{
+    mentions: interfaces.CommentMentionItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipment-comments/mentions`)
+            return await resp.json() as {
+    mentions: interfaces.CommentMentionItem[]
 }
         }
 
@@ -1116,6 +1130,7 @@ export namespace warehouse {
             this.baseClient = baseClient
             this.warehouseCreate = this.warehouseCreate.bind(this)
             this.warehouseDelete = this.warehouseDelete.bind(this)
+            this.warehouseEnsureRefs = this.warehouseEnsureRefs.bind(this)
             this.warehouseList = this.warehouseList.bind(this)
             this.warehouseSectionGet = this.warehouseSectionGet.bind(this)
             this.warehouseSectionUpsert = this.warehouseSectionUpsert.bind(this)
@@ -1132,6 +1147,16 @@ export namespace warehouse {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse/${encodeURIComponent(taskId)}`)
             return await resp.json() as controllers.WarehouseDeleteResponse
+        }
+
+        /**
+         * A shipment gets its warehouse reference the moment it shows up in the warehouse;
+         * calling this again returns the reference it already has.
+         */
+        public async warehouseEnsureRefs(params: controllers.EnsureRefsRequest): Promise<controllers.EnsureRefsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-refs`, JSON.stringify(params))
+            return await resp.json() as controllers.EnsureRefsResponse
         }
 
         public async warehouseList(params: controllers.WarehouseListRequest): Promise<controllers.WarehouseListResponse> {
@@ -1340,7 +1365,20 @@ export namespace controllers {
     }
 
     export interface CommentCreateRequest {
+        /**
+         * May be empty when the message only carries files.
+         */
         message: string
+
+        /**
+         * Files uploaded beforehand (attachmentCreate) that this message sends.
+         */
+        attachmentIds?: string[]
+
+        /**
+         * Colleagues tagged with @ in the message; they get a notification.
+         */
+        mentionedUserIds?: string[]
     }
 
     export interface CommentCreateResponse {
@@ -1587,6 +1625,20 @@ export namespace controllers {
 
     export interface DocumentListResponse {
         data: interfaces.DocumentItem[]
+    }
+
+    export interface EnsureRefsRequest {
+        /**
+         * Shipments shown in a warehouse section; each gets its WHCZ reference.
+         */
+        shipmentIds: string[]
+    }
+
+    export interface EnsureRefsResponse {
+        refs: {
+            shipmentId: string
+            reference: string
+        }[]
     }
 
     export interface ExtractDocumentRequest {
@@ -2619,6 +2671,16 @@ export namespace interfaces {
         createdAt: string
     }
 
+    /**
+     * A file sent with a chat message.
+     */
+    export interface CommentAttachment {
+        id: string
+        fileName: string
+        fileSize: number
+        fileType: string
+    }
+
     export interface CommentItem {
         id: string
         shipmentId: string
@@ -2628,6 +2690,27 @@ export namespace interfaces {
          */
         authorName: string
 
+        message: string
+        createdAt: string
+        attachments: CommentAttachment[]
+        /**
+         * On the reader's own messages: a colleague has opened the chat since it was sent.
+         */
+        readByOthers: boolean
+    }
+
+    /**
+     * A chat message that tags the reader and that they have not opened yet.
+     */
+    export interface CommentMentionItem {
+        /**
+         * Id of the message.
+         */
+        id: string
+
+        shipmentId: string
+        jobNumber: string
+        authorName: string
         message: string
         createdAt: string
     }

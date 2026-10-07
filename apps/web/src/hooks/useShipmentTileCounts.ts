@@ -16,5 +16,5 @@ export const useShipmentTileCounts = () => {
     staleTime: 60_000,
   });
 
-  return { counts: query.data, isLoading: query.isLoading };
+  return { counts: query.data, isLoading: query.isLoading, isError: query.isError };
 };
