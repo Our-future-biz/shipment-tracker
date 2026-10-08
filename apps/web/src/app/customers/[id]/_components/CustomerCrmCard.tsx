@@ -82,10 +82,11 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
     );
   };
 
-  // Clearing a Select reports undefined; the terms are stored as an empty string.
-  const handlePaymentTermChange = (field: PaymentTermField, value: string | undefined) => {
+  // A customer always has payment terms — PREPAYMENT from the moment it is created — so they can
+  // be changed to another option but not emptied.
+  const handlePaymentTermChange = (field: PaymentTermField, value: string) => {
     const patch: CustomerPatch = {};
-    patch[field] = value ?? "";
+    patch[field] = value;
     save(patch);
   };
 
@@ -145,11 +146,10 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
               <Select
                 {...SELECT_PROPS}
                 aria-label={`${label} payment terms`}
-                allowClear
                 placeholder="—"
                 value={shown[field] || undefined}
                 options={PAYMENT_TERM_OPTIONS}
-                onChange={(value?: string) => handlePaymentTermChange(field, value)}
+                onChange={(value: string) => handlePaymentTermChange(field, value)}
               />
             </div>
           </CustomerInfoRow>

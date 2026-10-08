@@ -19,14 +19,24 @@ const NO_SHIPMENTS: ShipmentItem[] = [];
 
 async function fetchCustomerShipments(customerId: string) {
   const shipments: ShipmentItem[] = [];
+  const seen = new Set<string>();
+  let offset = 0;
   let total = 0;
   do {
-    const page = await api.shipments.shipmentList({ customerId, limit: PAGE_SIZE, offset: shipments.length });
-    shipments.push(...page.data);
+    const page = await api.shipments.shipmentList({ customerId, limit: PAGE_SIZE, offset });
     total = page.pagination.total;
+    // A shipment created between two requests shifts every row down by one, so a page can start
+    // with a row the previous one ended on: keep each shipment once.
+    for (const shipment of page.data) {
+      if (seen.has(shipment.id)) continue;
+      seen.add(shipment.id);
+      shipments.push(shipment);
+    }
+    // The offset follows what the server returned, not what was kept, so the loop always advances.
+    offset += page.data.length;
     // An empty page means the total moved under us; stop rather than ask forever.
     if (page.data.length === 0) break;
-  } while (shipments.length < total && shipments.length < CUSTOMER_SHIPMENTS_LIMIT);
+  } while (offset < total && shipments.length < CUSTOMER_SHIPMENTS_LIMIT);
   return { shipments, total };
 }
 

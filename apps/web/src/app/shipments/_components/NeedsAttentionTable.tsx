@@ -6,27 +6,13 @@ import { Modal, Table, Tag } from "antd";
 import { WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { StatusBadge } from "@/components/StatusBadge";
-import { COLUMN_MAP } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
+import { deadlineDayColor, deadlineDayLabel, deadlineLabel } from "@/lib/shipmentDeadlines";
 import { useShipmentsNeedingAttention } from "@/hooks/useShipmentsNeedingAttention";
 import type { ShipmentDueItem } from "@/hooks/useShipmentsNeedingAttention";
 
 // A card lists only its soonest few; the count shows the total and the link opens them all.
 const VISIBLE_ROWS = 3;
-
-// AMS and ISF are not dates on the shipment: they are due 4 days before departure.
-const COMPUTED_DEADLINE_LABELS: Record<string, string> = {
-  amsDeadline: "AMS (4 days before ETD)",
-  isfDeadline: "ISF (4 days before ETD)",
-};
-const deadlineLabel = (field: string) => COMPUTED_DEADLINE_LABELS[field] ?? COLUMN_MAP.get(field)?.title ?? field;
-
-const dayLabel = (daysLeft: number) => {
-  if (daysLeft < 0) return `overdue ${-daysLeft} day${daysLeft === -1 ? "" : "s"}`;
-  return ["today", "tomorrow"][daysLeft] ?? `in ${daysLeft} days`;
-};
-// Everything within 24 hours (overdue, today, tomorrow) is urgent red; the 48-hour window is orange.
-const dayColor = (daysLeft: number) => (daysLeft <= 1 ? "red" : "orange");
 
 type CardKey = "within24h" | "within48h";
 
@@ -64,8 +50,8 @@ const deadlinesColumn = {
   render: (_: unknown, r: ShipmentDueItem) => (
     <div className="flex flex-wrap gap-1.5">
       {r.deadlines.map((d) => (
-        <Tag key={d.field} color={dayColor(d.daysLeft)} className="m-0">
-          {deadlineLabel(d.field)}: {dayLabel(d.daysLeft)} ({formatDate(d.date)})
+        <Tag key={d.field} color={deadlineDayColor(d.daysLeft)} className="m-0">
+          {deadlineLabel(d.field)}: {deadlineDayLabel(d.daysLeft)} ({formatDate(d.date)})
         </Tag>
       ))}
     </div>

@@ -13,9 +13,10 @@ import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { computeTotals, fmt, validityInfo } from "@/app/sales/_lib/salesQuote";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
-import { QUOTE_STATUS_MAP, QUOTE_STATUSES } from "@/app/sales/_lib/types";
+import { QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
 import { CustomerKpiTile, KPI_GRID_CLASS } from "../_components/CustomerKpiTile";
+import { DEFAULT_QUOTE_CURRENCY, quoteBucket, quoteHref, sellingByCurrency } from "../../_lib/customerQuotes";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
 
 interface QuotesTabProps {
@@ -28,24 +29,6 @@ const FILTER_TABS = [
   { key: "won", label: "Won" },
   { key: "lost", label: "Lost" },
 ];
-
-// "Open" means what the Sales pipeline shows as still in play: every lifecycle status that is
-// neither decided (won / lost) nor expired. Sales exports the statuses but no open list, so the
-// open ones are derived from its list instead of being copied here.
-const CLOSED_STATUSES = ["won", "lost", "expired"];
-const OPEN_STATUSES = new Set(QUOTE_STATUSES.filter((s) => !CLOSED_STATUSES.includes(s.key)).map((s) => s.key));
-
-// The bucket a quote counts in: "open" for every open status, otherwise the status itself
-// ("won", "lost", "expired"). An expired quote matches no quick filter and shows under "All" only.
-function quoteBucket(quote: SalesQuote): string {
-  const status = quote.data.quoteStatus ?? "";
-  return OPEN_STATUSES.has(status) ? "open" : status;
-}
-
-// A quote whose currency was never changed stores none; Sales shows such a quote in EUR.
-const DEFAULT_QUOTE_CURRENCY = "EUR";
-
-const quoteHref = (quoteNumber: string) => `/sales/quote/${quoteNumber}`;
 
 // Customers only carry sales quotes (the QCZ… lifecycle quotes from the Sales module).
 // They are created in Sales; here they are listed, opened and can be deleted.
@@ -67,17 +50,7 @@ export function QuotesTab({ customerId }: QuotesTabProps) {
     // Same definition as the Sales report: won out of the decided (won + lost) quotes.
     const decided = won + lost;
 
-    // Quotes are priced in their own currency, so won revenue is summed per currency, never across.
-    const wonByCurrency = new Map<string, number>();
-    for (const quote of rows) {
-      if (quoteBucket(quote) !== "won") continue;
-      const currency = quote.data.currency || DEFAULT_QUOTE_CURRENCY;
-      wonByCurrency.set(currency, (wonByCurrency.get(currency) ?? 0) + computeTotals(quote.data).selling);
-    }
-    const wonRevenue = [...wonByCurrency]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([currency, amount]) => fmt(amount, currency))
-      .join(" · ");
+    const wonRevenue = sellingByCurrency(rows.filter((q) => quoteBucket(q) === "won"));
 
     return {
       open: count("open"),

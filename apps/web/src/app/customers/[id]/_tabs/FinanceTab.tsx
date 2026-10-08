@@ -6,7 +6,7 @@ import { PillTabs } from "@/components/SectionCard";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomer } from "@/hooks/useCustomers";
 import { summarizeInvoices } from "../../_lib/customerInvoices";
-import { fmtMoney } from "../../_lib/customerMoney";
+import { fmtMoney, roundCents } from "../../_lib/customerMoney";
 import { CustomerAgingCard, invoiceCountLabel } from "../_components/CustomerAgingCard";
 import { CustomerCreditCard, utilizationTone } from "../_components/CustomerCreditCard";
 import { CustomerInvoicesCard } from "../_components/CustomerInvoicesCard";
@@ -54,7 +54,7 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
   const summary = summarizeInvoices(invoices);
   // A limit of 0 means none was set: there is nothing to be "available" or "used" then.
   const hasLimit = creditLimit > 0;
-  const available = creditLimit - summary.outstanding;
+  const available = roundCents(creditLimit - summary.outstanding);
   const utilization = hasLimit ? Math.round((summary.outstanding / creditLimit) * 100) : null;
 
   return (

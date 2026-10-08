@@ -8,9 +8,17 @@ export function num(value: string | number | null | undefined): number {
 
 // "12,345 EUR"; cents are shown only when the amount has them, and then always as two digits ("1,234.50 EUR").
 export function fmtMoney(n: number | null | undefined, currency = "EUR"): string {
-  const v = typeof n === "number" ? n : 0;
-  const hasCents = Math.round(v * 100) % 100 !== 0;
-  return `${v.toLocaleString("en-US", { minimumFractionDigits: hasCents ? 2 : 0, maximumFractionDigits: 2 })} ${currency}`;
+  // Whole cents first: sums of amounts carry float residue (500.20000000000005), which must not
+  // decide whether cents are shown nor print as "-0".
+  const cents = typeof n === "number" && Number.isFinite(n) ? Math.round(n * 100) : 0;
+  const value = cents / 100 || 0;
+  const hasCents = cents % 100 !== 0;
+  return `${value.toLocaleString("en-US", { minimumFractionDigits: hasCents ? 2 : 0, maximumFractionDigits: 2 })} ${currency}`;
+}
+
+// A difference of two amounts, rounded to cents so float residue never reads as "below zero".
+export function roundCents(amount: number): number {
+  return Math.round(amount * 100) / 100 || 0;
 }
 
 // Amounts are typed with a decimal comma ("1234,56") but shown with comma thousands ("12,345"), so a

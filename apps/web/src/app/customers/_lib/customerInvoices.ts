@@ -35,7 +35,8 @@ export function daysOverdue(invoice: InvoiceItem, now = Date.now()): number {
   if (isPaid(invoice) || !ISO_DATE.test(invoice.dueDate)) return 0;
   const due = dayjs(invoice.dueDate.slice(0, 10));
   if (!due.isValid()) return 0;
-  return Math.max(0, dayjs(now).startOf("day").diff(due, "day"));
+  // Rounded, not truncated: across a DST change two local midnights are 23 or 25 hours apart.
+  return Math.max(0, Math.round(dayjs(now).startOf("day").diff(due, "day", true)));
 }
 
 export function isOverdue(invoice: InvoiceItem, now = Date.now()): boolean {

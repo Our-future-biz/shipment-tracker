@@ -1,20 +1,11 @@
 "use client";
 
 import { Tag } from "antd";
-import dayjs from "dayjs";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
 import { formatDateTime } from "@/lib/date";
 import { NOTE_TYPE_COLORS } from "../../_lib/constants";
-
-// "Today" / "Yesterday" / "N days ago", counted in calendar days so a note from late last night is not "Today".
-function daysAgoLabel(iso: string): string {
-  const days = dayjs().startOf("day").diff(dayjs(iso).startOf("day"), "day");
-  if (Number.isNaN(days)) return "";
-  if (days <= 0) return "Today";
-  if (days === 1) return "Yesterday";
-  return `${days} days ago`;
-}
+import { daysSince, relativeDayLabel } from "../../_lib/customerDates";
 
 interface CustomerLastInteractionCardProps {
   customerId: string;
@@ -26,6 +17,7 @@ export function CustomerLastInteractionCard({ customerId, onSelectTab }: Custome
   const { notes, isLoading } = useCustomerNotes(customerId);
   // The API returns notes newest first.
   const lastNote = notes[0];
+  const lastNoteDays = daysSince(lastNote?.createdAt);
 
   return (
     <SectionCard
@@ -46,7 +38,7 @@ export function CustomerLastInteractionCard({ customerId, onSelectTab }: Custome
             <Tag color={NOTE_TYPE_COLORS[lastNote.type] ?? "default"} className="!m-0">
               {lastNote.type}
             </Tag>
-            <span title={formatDateTime(lastNote.createdAt)}>{daysAgoLabel(lastNote.createdAt)}</span>
+            {lastNoteDays !== null && <span title={formatDateTime(lastNote.createdAt)}>{relativeDayLabel(lastNoteDays)}</span>}
             {lastNote.author && <span>· {lastNote.author}</span>}
           </div>
           <p className="m-0 text-slate-700 line-clamp-3 [overflow-wrap:anywhere]">{lastNote.content}</p>

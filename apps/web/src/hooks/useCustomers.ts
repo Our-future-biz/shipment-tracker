@@ -63,10 +63,22 @@ export const useCustomers = (params: CustomerQueryParams = {}) => {
 export const useCustomer = (id: string | null) => {
   const queryClient = useQueryClient();
 
+  const deleteMutation = useMutation({
+    mutationFn: () => api.customers.customerDelete(id as string),
+    onSuccess: () => {
+      // Drop everything cached about the record: a failed refetch keeps the last good data, so
+      // Back or a link from one of its shipments would otherwise show the deleted customer as live.
+      for (const key of CUSTOMER_RECORD_KEYS) queryClient.removeQueries({ queryKey: [key, id] });
+      return queryClient.invalidateQueries({ queryKey: ["customers"] });
+    },
+  });
+
   const query = useQuery({
     queryKey: ["customer", id],
     queryFn: () => api.customers.customerGet(id as string),
-    enabled: !!id,
+    // After this instance deleted the record its cache entry is gone; do not request it again
+    // (a guaranteed 404) while the page navigates away.
+    enabled: !!id && !deleteMutation.isSuccess,
   });
 
   const invalidate = () => {
@@ -92,16 +104,6 @@ export const useCustomer = (id: string | null) => {
   const deleteLogoMutation = useMutation({
     mutationFn: () => api.customers.logoDelete(id as string),
     onSuccess: invalidate,
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: () => api.customers.customerDelete(id as string),
-    onSuccess: () => {
-      // Drop everything cached about the record: a failed refetch keeps the last good data, so
-      // Back or a link from one of its shipments would otherwise show the deleted customer as live.
-      for (const key of CUSTOMER_RECORD_KEYS) queryClient.removeQueries({ queryKey: [key, id] });
-      return queryClient.invalidateQueries({ queryKey: ["customers"] });
-    },
   });
 
   return {
