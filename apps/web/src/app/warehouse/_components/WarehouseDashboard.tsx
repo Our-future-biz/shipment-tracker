@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
@@ -11,11 +11,14 @@ import { COLUMN_MAP, DATE_COLUMNS } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ColumnPicker } from "@/app/shipments/_components/ColumnPicker";
+import { DimensionsModal } from "@/app/shipments/_components/DimensionsModal";
+import { useToast } from "@/lib/toast";
 import { WAREHOUSE_DEFAULT_COLUMNS, WAREHOUSE_LEAD_COLUMN, WAREHOUSE_RULES, WAREHOUSE_SECTIONS, type WarehouseSection } from "./warehouseRules";
 
 // The Warehouse overview: In Warehouse, Stock and Out Warehouse one under another, each
-// with its count and the shipments it holds right now. Read-only; the moves (Naskladnit,
-// Vyskladnit) are made on the section's own page, which the heading opens.
+// with its count and the shipments it holds right now. Read-only apart from the Dimensions
+// dialog; the moves (Naskladnit, Vyskladnit) are made on the section's own page, which the
+// heading opens.
 // Which shipment columns the three lists show is the user's choice (the cog); the columns
 // and their named templates are this page's own, apart from Shipments and the sections.
 
@@ -29,7 +32,7 @@ const EMPTY: Record<WarehouseSection, string> = {
   out: "Nothing has left the warehouse yet.",
 };
 
-function columnsFor(section: WarehouseSection, chosen: string[]): ColumnsType<ShipmentItem> {
+function columnsFor(section: WarehouseSection, chosen: string[], openDimensions: (shipmentId: string) => void): ColumnsType<ShipmentItem> {
   const lead = WAREHOUSE_LEAD_COLUMN[section];
   const keys = lead ? [lead, ...chosen.filter((k) => k !== lead)] : chosen;
   return keys.flatMap((key) => {
@@ -48,6 +51,16 @@ function columnsFor(section: WarehouseSection, chosen: string[]): ColumnsType<Sh
               </Link>
             );
           }
+          if (key === "dimensionsSummary") {
+            return (
+              <button
+                onClick={() => openDimensions(s.id)}
+                className="text-indigo-500 hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
+              >
+                Click for Preview
+              </button>
+            );
+          }
           const raw = getFieldValue(s, key);
           const value = DATE_COLUMNS.has(key) ? formatDate(raw) || raw : raw;
           if (!value) return <span className="text-slate-300">{"—"}</span>;
@@ -60,7 +73,9 @@ function columnsFor(section: WarehouseSection, chosen: string[]): ColumnsType<Sh
 
 export function WarehouseDashboard() {
   const { user, token } = useAuth();
-  const { shipments, isLoading } = useShipments();
+  const { shipments, isLoading, updateShipment } = useShipments();
+  const toast = useToast();
+  const [dimsShipmentId, setDimsShipmentId] = useState<string | null>(null);
   const { visible, setVisible, templates, activeTemplateId, isDirty, applyTemplate, deactivate, saveAsTemplate, deleteTemplate } =
     useColumnView(user?.id, token, COLUMN_VIEW);
   const bySection = useMemo(
@@ -103,7 +118,7 @@ export function WarehouseDashboard() {
             </div>
             <Table<ShipmentItem>
               dataSource={bySection[section]}
-              columns={columnsFor(section, visible)}
+              columns={columnsFor(section, visible, setDimsShipmentId)}
               rowKey="id"
               size="small"
               loading={isLoading}
@@ -113,6 +128,17 @@ export function WarehouseDashboard() {
             />
           </section>
         ))}
+
+        <DimensionsModal
+          shipment={shipments.find((s) => s.id === dimsShipmentId) ?? null}
+          onClose={() => setDimsShipmentId(null)}
+          onSave={(shipment, cargoDimensions) =>
+            updateShipment({ id: shipment.id, data: { cargoDimensions } }).catch((e) => {
+              toast.error("Could not save the dimensions");
+              throw e;
+            })
+          }
+        />
       </div>
     </div>
   );

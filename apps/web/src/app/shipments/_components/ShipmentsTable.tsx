@@ -33,6 +33,7 @@ import { ColumnPicker } from "./ColumnPicker";
 import { OverviewTiles, type TileId } from "./OverviewTiles";
 import { MasterJobDetailModal } from "./MasterJobDetailModal";
 import { DocumentsPanel } from "./DocumentsPanel";
+import { DimensionsModal } from "./DimensionsModal";
 import { ChatPanel } from "./ChatPanel";
 import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { CustomerCell } from "./CustomerCell";
@@ -234,6 +235,8 @@ export const ShipmentsTable = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [mczModal, setMczModal] = useState<string | null>(null);
   const [docsShipment, setDocsShipment] = useState<ShipmentItem | null>(null);
+  // Shipment whose Dimensions dialog is open, by id so the dialog sees fresh rows.
+  const [dimsShipmentId, setDimsShipmentId] = useState<string | null>(null);
   const [chatShipment, setChatShipment] = useState<Pick<ShipmentItem, "id" | "jobNumber"> | null>(null);
   // ?chat=<shipmentId> (from a mention notification) opens that shipment's chat, then
   // drops out of the URL so the drawer can be closed and the same link used again.
@@ -451,6 +454,18 @@ export const ShipmentsTable = ({
             </button>
           ) : (
             <span className="text-slate-300">{"\u2014"}</span>
+          );
+        }
+        // Dimensions \u2192 a link to the dimension lines, shown and edited in a dialog.
+        if (col.key === "dimensionsSummary") {
+          return (
+            <button
+              onClick={(e) => { e.stopPropagation(); setDimsShipmentId(record.id); }}
+              className="text-indigo-500 hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
+              style={textStyle}
+            >
+              Click for Preview
+            </button>
           );
         }
         // Party columns \u2014 linked to the customer database (search from 3 characters).
@@ -883,6 +898,17 @@ export const ShipmentsTable = ({
       {mczModal && (
         <MasterJobDetailModal mcz={mczModal} open={!!mczModal} onClose={() => setMczModal(null)} />
       )}
+
+      <DimensionsModal
+        shipment={shipments.find((s) => s.id === dimsShipmentId) ?? null}
+        onClose={() => setDimsShipmentId(null)}
+        onSave={(shipment, cargoDimensions) =>
+          updateShipment({ id: shipment.id, data: { cargoDimensions } }).catch((e) => {
+            toast.error("Could not save the dimensions");
+            throw e;
+          })
+        }
+      />
 
       <Drawer
         open={!!docsShipment}
