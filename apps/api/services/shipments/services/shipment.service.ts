@@ -131,6 +131,8 @@ const DATE_FIELDS = new Set([
   "vgmClosing",
   "siClosing",
   "etaWarehouse",
+  "warehouseReceivedDate",
+  "warehouseReleasedDate",
   "plannedDeliveryDate",
   "shipmentsDate",
   "equipmentDeliveryDate",
@@ -355,6 +357,16 @@ class ShipmentService {
       }),
     );
 
+    // The plate number belongs to the truck (TCZ…), not to one shipment on it. A shipment
+    // put on a truck takes that truck's plate, one taken off loses it, and a plate typed
+    // on any shipment of a truck is written to the others once this update is saved.
+    const truck = after("warehouseTruck") || "";
+    const plateTyped = "plateNumber" in shipmentData;
+    if (!plateTyped && truck !== existing.warehouseTruck) {
+      const truckPlate = truck ? await shipmentRepository.truckPlate(companyId, truck) : "";
+      if (truckPlate || !truck) shipmentData.plateNumber = truckPlate;
+    }
+
     // Approving the credit check records who did it and when. An explicit
     // approvedBy in the same request wins — the stamp only fills the field the
     // approval itself would leave untouched.
@@ -391,6 +403,9 @@ class ShipmentService {
 
     if (Object.keys(shipmentData).length > 0) {
       await shipmentRepository.updateForCompany(id, companyId, shipmentData as never);
+    }
+    if (truck && plateTyped) {
+      await shipmentRepository.setTruckPlate(companyId, truck, (shipmentData.plateNumber as string | null) ?? "");
     }
 
     // Recalc for the new customer, and for the old one when the link moved.

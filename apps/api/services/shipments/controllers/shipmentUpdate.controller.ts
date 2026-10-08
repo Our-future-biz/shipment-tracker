@@ -91,6 +91,11 @@ interface ShipmentUpdateRequest {
   redeliveryReference?: string;
   redeliveryDepot?: string;
   etaWarehouse?: string;
+  warehouseReceivedDate?: string;
+  warehouseReleasedDate?: string;
+  warehouseReference?: string;
+  warehouseTruck?: string;
+  plateNumber?: string;
   plannedDeliveryDate?: string;
   plannedDeliveryTime?: string;
 

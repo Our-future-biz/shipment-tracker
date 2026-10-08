@@ -2,21 +2,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { withFixedColumns } from "@/lib/columnConfig";
-import { useColumnPrefs } from "./useColumnPrefs";
+import { useColumnPrefs, type ColumnViewScope } from "./useColumnPrefs";
 import { useColumnTemplates } from "./useColumnTemplates";
 
 // Coordinates the live column view: a template (when one is "active") or the
 // per-user default. Edits (reorder / show-hide) route to whichever is active.
-export function useColumnView(userId: string | undefined, token: string | null) {
-  const prefs = useColumnPrefs(userId);
-  const { templates, templatesLoaded, createTemplate, deleteTemplate } = useColumnTemplates(userId, token);
+// `view` gives another screen its own columns, active template and list of named templates.
+export function useColumnView(userId: string | undefined, token: string | null, view?: ColumnViewScope) {
+  const prefs = useColumnPrefs(userId, view);
+  const { templates, templatesLoaded, createTemplate, deleteTemplate } = useColumnTemplates(userId, token, view?.scope);
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
   // Unsaved column edits made while a template is active. null = show the
   // template as-is. Buffering here means "Save as new" won't also mutate the
   // currently active template.
   const [workingColumns, setWorkingColumns] = useState<string[] | null>(null);
 
-  const activeKey = userId ? `shipmentActiveTemplate:${userId}` : null;
+  const scope = view?.scope;
+  const activeKey = userId ? (scope ? `${scope}:activeTemplate:${userId}` : `shipmentActiveTemplate:${userId}`) : null;
 
   useEffect(() => {
     if (!activeKey) {

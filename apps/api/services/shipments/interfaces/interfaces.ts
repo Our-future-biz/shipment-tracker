@@ -128,6 +128,11 @@ export interface ShipmentItem {
   vgmClosing: string | null;
   siClosing: string | null;
   etaWarehouse: string | null;
+  warehouseReceivedDate: string | null;
+  warehouseReleasedDate: string | null;
+  warehouseReference: string;
+  warehouseTruck: string;
+  plateNumber: string;
   plannedDeliveryDate: string | null;
   plannedDeliveryTime: string;
 

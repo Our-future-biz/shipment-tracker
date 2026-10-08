@@ -46,16 +46,33 @@ class WarehouseTaskRepository {
         .limit(1);
       if (again[0]) return again[0];
 
-      const used = await tx
-        .select({ taskId: warehouseTaskTable.taskId })
-        .from(warehouseTaskTable)
-        .where(and(eq(warehouseTaskTable.companyId, companyId), like(warehouseTaskTable.taskId, `${prefix}%`)));
-      const highest = used.reduce((max, r) => Math.max(max, parseInt(r.taskId.slice(prefix.length), 10) || 0), 0);
-      const taskId = `${prefix}${String(highest + 1).padStart(3, "0")}`;
-
+      const taskId = await this.nextRef(tx, companyId, prefix);
       const [row] = await tx.insert(warehouseTaskTable).values({ companyId, shipmentId, taskId }).returning();
       return row!;
     });
+  }
+
+  /**
+   * A new truck leaving the warehouse: a row of its own holding the next reference of the
+   * `prefix` sequence (TCZ2026001), numbered the same way as the shipments' references.
+   */
+  async createTruck(companyId: string, prefix: string) {
+    return db.transaction(async (tx) => {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`warehouse-ref:${companyId}`}))`);
+      const taskId = await this.nextRef(tx, companyId, prefix);
+      const [row] = await tx.insert(warehouseTaskTable).values({ companyId, taskId, type: "Truck" }).returning();
+      return row!;
+    });
+  }
+
+  /** The next free reference of a prefix; call it holding the company's reference lock. */
+  private async nextRef(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], companyId: string, prefix: string) {
+    const used = await tx
+      .select({ taskId: warehouseTaskTable.taskId })
+      .from(warehouseTaskTable)
+      .where(and(eq(warehouseTaskTable.companyId, companyId), like(warehouseTaskTable.taskId, `${prefix}%`)));
+    const highest = used.reduce((max, r) => Math.max(max, parseInt(r.taskId.slice(prefix.length), 10) || 0), 0);
+    return `${prefix}${String(highest + 1).padStart(3, "0")}`;
   }
 
   async create(data: { companyId: string; taskId: string; shipmentId?: string; type?: string; priority?: string; status?: string }) {

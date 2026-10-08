@@ -12,14 +12,15 @@ export interface ColumnTemplate {
 
 // Named, per-user column templates persisted server-side (auth service).
 // Identity is derived server-side from the JWT — we send it as a Bearer token.
-export function useColumnTemplates(userId: string | undefined, token: string | null) {
+// Each screen has its own list: `scope` names the screen, left out it is the Shipments grid.
+export function useColumnTemplates(userId: string | undefined, token: string | null, scope?: string) {
   const queryClient = useQueryClient();
   const authorization = token ? `Bearer ${token}` : "";
-  const queryKey = ["columnTemplates", userId];
+  const queryKey = ["columnTemplates", userId, scope ?? "shipments"];
 
   const query = useQuery({
     queryKey,
-    queryFn: () => api.auth.columnTemplatesList({ authorization }),
+    queryFn: () => api.auth.columnTemplatesList({ authorization, scope }),
     enabled: !!token,
   });
 
@@ -31,7 +32,7 @@ export function useColumnTemplates(userId: string | undefined, token: string | n
 
   const upsert = useMutation({
     mutationFn: (params: { name: string; columns: string[] }) =>
-      api.auth.columnTemplatesUpsert({ authorization, name: params.name, columns: params.columns }),
+      api.auth.columnTemplatesUpsert({ authorization, scope, name: params.name, columns: params.columns }),
     // Optimistic so drag/toggle edits to the active template reflect instantly.
     onMutate: async (params) => {
       await queryClient.cancelQueries({ queryKey });

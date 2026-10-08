@@ -586,6 +586,7 @@ const KEY_DATES_R: FieldDef[] = [
 const EQUIP_DEPOT_L: FieldDef[] = [
   { key: "releaseReference", label: "Release Reference" },
   { key: "releaseDepot", label: "Release Depot" },
+  { key: "plateNumber", label: "Plate Number" },
 ];
 const EQUIP_DEPOT_R: FieldDef[] = [
   { key: "redeliveryReference", label: "Redelivery Reference" },

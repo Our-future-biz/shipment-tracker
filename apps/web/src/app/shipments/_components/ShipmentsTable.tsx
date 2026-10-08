@@ -26,6 +26,7 @@ import { getFieldValue, buildRowData, useShipments, type ShipmentItem } from "@/
 import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
+import { DEFAULT_SHIPMENT_COLUMNS } from "@/hooks/useColumnPrefs";
 import { useFilterTemplates } from "@/hooks/useFilterTemplates";
 import { useToast } from "@/lib/toast";
 import { ColumnPicker } from "./ColumnPicker";
@@ -61,13 +62,29 @@ const DraggableHeaderCell = ({ id, style, ...rest }: HeaderCellProps) => {
 
 // --- Props ---
 
-interface ShipmentsTableProps {
+export interface ShipmentsTableProps {
   shipments: ShipmentItem[];
   isLoading: boolean;
-  onCreateClick: () => void;
-  onDelete: (shipment: ShipmentItem) => void;
-  /** Opens the Master Job dialog; the rows ticked in the table come pre-selected. */
-  onAddMasterJob: (selectedShipmentIds: string[]) => void;
+  /** Left out, there is no New Shipment button. */
+  onCreateClick?: () => void;
+  onDelete?: (shipment: ShipmentItem) => void;
+  /** Opens the Master Job dialog; the rows ticked in the table come pre-selected. Left out, there is no button. */
+  onAddMasterJob?: (selectedShipmentIds: string[]) => void;
+  /**
+   * Set when the table is shown as a view of the shipments on another page (e.g. Warehouse):
+   * the page gets this title instead of "Shipments", no overview tiles, and keeps its own
+   * columns, filters and their templates under `key`, starting from `defaultColumns` (a
+   * stable array). Only the rows are the shipments' own. `leadColumn` is always shown, as
+   * the very first column, ahead of Internal Reference.
+   * `detailHref` is where a reference leads instead of the shipment detail, ":id" standing
+   * for the shipment's id.
+   */
+  view?: { key: string; title: string; detailHref?: string; defaultColumns?: string[]; leadColumn?: string };
+  /**
+   * Buttons in place of New Shipment, each acting on the ticked rows; the selection is
+   * cleared after. Primary (with a plus) unless `secondary`, which is for stepping back.
+   */
+  selectionActions?: { label: string; secondary?: boolean; onClick: (selectedShipmentIds: string[]) => void }[];
 }
 
 type ColFilter = { key: string; value: string };
@@ -123,14 +140,25 @@ export const ShipmentsTable = ({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   onDelete,
   onAddMasterJob,
+  view,
+  selectionActions,
 }: ShipmentsTableProps) => {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, token } = useAuth();
   const { updateField, updateShipment } = useShipments();
-  const { visible, setVisible, templates, activeTemplateId, isDirty, applyTemplate, deactivate, saveAsTemplate, deleteTemplate } =
-    useColumnView(user?.id, token);
+  const viewKey = view?.key;
+  const viewDefaults = view?.defaultColumns;
+  const columnScope = useMemo(
+    () => (viewKey ? { scope: viewKey, defaults: viewDefaults ?? DEFAULT_SHIPMENT_COLUMNS } : undefined),
+    [viewKey, viewDefaults],
+  );
+  const { visible: chosen, setVisible, templates, activeTemplateId, isDirty, applyTemplate, deactivate, saveAsTemplate, deleteTemplate } =
+    useColumnView(user?.id, token, columnScope);
+  // The view's lead column goes in front of whatever the user chose and cannot be dropped.
+  const leadColumn = view?.leadColumn;
+  const visible = useMemo(() => (leadColumn ? [leadColumn, ...chosen.filter((k) => k !== leadColumn)] : chosen), [chosen, leadColumn]);
   // Search text, kept in sync with the URL ?q= param (also driven by the global top-nav search)
   const urlQuery = searchParams.get("q") ?? "";
   const [search, setSearch] = useState(urlQuery);
@@ -243,7 +271,8 @@ export const ShipmentsTable = ({
   // survives navigation until it is cleared or changed by hand.
   // The search text is deliberately not remembered: it only applies while it is
   // being typed, and leaving the page clears it.
-  const storageKey = `shipments:list-filters:${user?.id ?? "anon"}`;
+  const detailHref = view?.detailHref ?? "/shipments/:id";
+  const storageKey = `${view?.key ?? "shipments"}:list-filters:${user?.id ?? "anon"}`;
   const persist = (next: { status?: string; filters?: ColFilter[] }) => {
     try {
       localStorage.setItem(storageKey, JSON.stringify({ status: statusFilter, filters, ...next }));
@@ -311,7 +340,7 @@ export const ShipmentsTable = ({
   // Filter templates: named sets of column filters to switch between.
   const toast = useToast();
   const { templates: filterTemplates, saveTemplate: saveFilterTemplate, deleteTemplate: deleteFilterTemplate, isSaving: filterTemplateSaving } =
-    useFilterTemplates();
+    useFilterTemplates(viewKey);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [templateNameOpen, setTemplateNameOpen] = useState(false);
   const [templateName, setTemplateName] = useState("");
@@ -382,7 +411,7 @@ export const ShipmentsTable = ({
       width: col.width,
       ellipsis: true,
       // Internal Reference + Master job stay frozen on the left while the rest scrolls.
-      fixed: isFixedColumn(col.key) ? ("left" as const) : undefined,
+      fixed: isFixedColumn(col.key) || col.key === leadColumn ? ("left" as const) : undefined,
       onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
       // Per-column conditional background tint (applies on every row).
       onCell: (record: ShipmentItem) => {
@@ -402,7 +431,7 @@ export const ShipmentsTable = ({
         if (col.key === "jobNumber") {
           return (
             <span
-              onClick={() => router.push(`/shipments/${record.id}`)}
+              onClick={() => router.push(detailHref.replace(":id", record.id))}
               className="font-mono font-bold hover:underline cursor-pointer"
               style={{ color: cellStyle?.color ?? "#6366f1", fontWeight: cellStyle?.fontWeight ?? 700 }}
             >
@@ -529,7 +558,7 @@ export const ShipmentsTable = ({
     });
 
     return cols;
-  }, [visible, rowInfo, router, updateField, updateShipment, unreadBy]);
+  }, [visible, leadColumn, rowInfo, router, updateField, updateShipment, unreadBy, detailHref]);
 
   // Client-side pagination (custom bottom bar so the size selector sits on the left).
   const totalRows = filtered.length;
@@ -550,34 +579,55 @@ export const ShipmentsTable = ({
       {/* Header */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Shipments</h1>
+          <h1 className="text-2xl font-bold text-slate-900">{view?.title ?? "Shipments"}</h1>
         </div>
-        <OverviewTiles active={activeTile} onSelect={setActiveTile} />
+        {!view && <OverviewTiles active={activeTile} onSelect={setActiveTile} />}
       </div>
 
       {/* Filters Row */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
         {/* Actions on the left, search/status/filters/columns/export on the right; wraps on narrow screens */}
         <div className="flex items-center gap-3 min-w-0">
-          <button
-            onClick={onCreateClick}
-            className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
-          >
-            <PlusOutlined />
-            New Shipment
-          </button>
-          <button
-            onClick={() => {
-              onAddMasterJob(selectedKeys.map(String));
-              // The dialog takes the selection over from here.
-              setSelectedKeys([]);
-            }}
-            className="flex items-center gap-1.5 shrink-0 rounded-lg border border-slate-300 bg-white px-3 h-8 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-          >
-            Add to Master Job
-          </button>
+          {onCreateClick && (
+            <button
+              onClick={onCreateClick}
+              className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
+            >
+              <PlusOutlined />
+              New Shipment
+            </button>
+          )}
+          {selectionActions?.map((action) => (
+            <button
+              key={action.label}
+              onClick={() => {
+                action.onClick(selectedKeys.map(String));
+                setSelectedKeys([]);
+              }}
+              className={`flex items-center gap-1.5 shrink-0 rounded-lg px-3 h-8 text-[13px] transition-colors ${
+                action.secondary
+                  ? "border border-slate-300 bg-white font-medium text-slate-700 hover:bg-slate-50"
+                  : "bg-indigo-600 font-semibold text-white hover:bg-indigo-700"
+              }`}
+            >
+              {!action.secondary && <PlusOutlined />}
+              {action.label}
+            </button>
+          ))}
+          {onAddMasterJob && (
+            <button
+              onClick={() => {
+                onAddMasterJob(selectedKeys.map(String));
+                // The dialog takes the selection over from here.
+                setSelectedKeys([]);
+              }}
+              className="flex items-center gap-1.5 shrink-0 rounded-lg border border-slate-300 bg-white px-3 h-8 text-[13px] font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            >
+              Add to Master Job
+            </button>
+          )}
         </div>
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-3 shrink-0 ml-auto">
           <AutoComplete
             value={search}
             onChange={(value) => onSearchChange(value ?? "")}

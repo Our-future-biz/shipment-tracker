@@ -15,20 +15,31 @@ export const DEFAULT_SHIPMENT_COLUMNS = [
   "customerPic",
 ];
 
-export function useColumnPrefs(userId: string | undefined) {
-  const storageKey = userId ? `shipmentColumns:${userId}` : null;
-  const [visible, setVisible] = useState<string[]>(DEFAULT_SHIPMENT_COLUMNS);
+/**
+ * A column view other than the Shipments grid's own (e.g. the Warehouse overview): it keeps
+ * its columns and active template under `scope` and starts from `defaults`, which must be
+ * a stable array.
+ */
+export interface ColumnViewScope {
+  scope: string;
+  defaults: string[];
+}
+
+export function useColumnPrefs(userId: string | undefined, view?: ColumnViewScope) {
+  const storageKey = userId ? (view ? `${view.scope}:columns:${userId}` : `shipmentColumns:${userId}`) : null;
+  const defaults = view?.defaults ?? DEFAULT_SHIPMENT_COLUMNS;
+  const [visible, setVisible] = useState<string[]>(defaults);
 
   useEffect(() => {
     if (!storageKey) return;
     try {
       const raw = localStorage.getItem(storageKey);
       const parsed = raw ? JSON.parse(raw) : null;
-      setVisible(Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_SHIPMENT_COLUMNS);
+      setVisible(Array.isArray(parsed) && parsed.length > 0 ? parsed : defaults);
     } catch {
-      setVisible(DEFAULT_SHIPMENT_COLUMNS);
+      setVisible(defaults);
     }
-  }, [storageKey]);
+  }, [storageKey, defaults]);
 
   const save = useCallback(
     (keys: string[]) => {
@@ -44,7 +55,7 @@ export function useColumnPrefs(userId: string | undefined) {
     [storageKey],
   );
 
-  const reset = useCallback(() => save(DEFAULT_SHIPMENT_COLUMNS), [save]);
+  const reset = useCallback(() => save(defaults), [save, defaults]);
 
   return { visible, save, reset };
 }

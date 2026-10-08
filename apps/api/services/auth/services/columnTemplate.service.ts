@@ -1,12 +1,12 @@
 import { columnTemplateRepository } from "../repositories/columnTemplate.repository";
 
 class ColumnTemplateService {
-  listByUser(userId: string) {
-    return columnTemplateRepository.listByUser(userId);
+  listByUser(userId: string, scope: string) {
+    return columnTemplateRepository.listByUser(userId, scope);
   }
 
-  upsert(userId: string, name: string, columns: string[]) {
-    return columnTemplateRepository.upsert(userId, name, columns);
+  upsert(userId: string, scope: string, name: string, columns: string[]) {
+    return columnTemplateRepository.upsert(userId, scope, name, columns);
   }
 
   delete(userId: string, id: string) {

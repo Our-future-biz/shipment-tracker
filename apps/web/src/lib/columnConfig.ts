@@ -81,7 +81,7 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
 export const DATE_COLUMNS = new Set([
   "cargoReadinessDate", "pickupDate", "pickupTime", "closingDate",
   "estimatedDeparture", "estimatedArrival", "actualDeparture", "actualArrival",
-  "etaWarehouse", "plannedDeliveryDate", "plannedDeliveryTime",
+  "etaWarehouse", "warehouseReceivedDate", "warehouseReleasedDate", "plannedDeliveryDate", "plannedDeliveryTime",
   "quoteValidity", "equipmentDeliveryDate",
 ]);
 
@@ -167,6 +167,11 @@ export const COLUMNS: ColumnDef[] = [
   { key: "actualArrival", title: "Actual Arrival", width: 130, type: "date", apiField: "actualArrival" },
   { key: "actualArrivalWeek", title: "Actual Arrival Week", width: 120, type: "computed", readonly: true },
   { key: "etaWarehouse", title: "ETA Warehouse/HUB", width: 140, type: "date", apiField: "etaWarehouse" },
+  { key: "warehouseReceivedDate", title: "Warehouse Received", width: 150, type: "date", apiField: "warehouseReceivedDate" },
+  { key: "warehouseReference", title: "Warehouse Reference", width: 160, type: "text", readonly: true, apiField: "warehouseReference" },
+  { key: "warehouseTruck", title: "Truck Reference", width: 150, type: "text", readonly: true, apiField: "warehouseTruck" },
+  { key: "plateNumber", title: "Plate Number", width: 140, type: "text", apiField: "plateNumber" },
+  { key: "warehouseReleasedDate", title: "Warehouse Released", width: 150, type: "date", apiField: "warehouseReleasedDate" },
   { key: "plannedDeliveryDate", title: "Planned Delivery Date", width: 140, type: "date", apiField: "plannedDeliveryDate" },
   { key: "plannedDeliveryTime", title: "Planned Delivery Time", width: 140, type: "date", apiField: "plannedDeliveryTime" },
   { key: "cargoOrigin", title: "Cargo Origin", width: 130, type: "text", apiField: "cargoOrigin" },

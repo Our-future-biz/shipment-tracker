@@ -239,6 +239,13 @@
       "when": 1791404624179,
       "tag": "0033_chilly_lady_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791444950342,
+      "tag": "0034_shipment_warehouse_fields",
+      "breakpoints": true
     }
   ]
 }

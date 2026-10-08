@@ -165,8 +165,12 @@ export namespace auth {
                 authorization: params.authorization,
             })
 
+            const query = makeRecord<string, string | string[]>({
+                scope: params.scope,
+            })
+
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/column-templates`, undefined, {headers})
+            const resp = await this.baseClient.callTypedAPI("GET", `/column-templates`, undefined, {headers, query})
             return await resp.json() as controllers.ListColumnTemplatesResponse
         }
 
@@ -180,6 +184,7 @@ export namespace auth {
             const body: Record<string, any> = {
                 columns: params.columns,
                 name:    params.name,
+                scope:   params.scope,
             }
 
             // Now make the actual call to the API
@@ -1134,6 +1139,7 @@ export namespace warehouse {
             this.warehouseList = this.warehouseList.bind(this)
             this.warehouseSectionGet = this.warehouseSectionGet.bind(this)
             this.warehouseSectionUpsert = this.warehouseSectionUpsert.bind(this)
+            this.warehouseTruckCreate = this.warehouseTruckCreate.bind(this)
             this.warehouseUpdate = this.warehouseUpdate.bind(this)
         }
 
@@ -1180,6 +1186,16 @@ export namespace warehouse {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
             return await resp.json() as controllers.WarehouseSectionUpsertResponse
+        }
+
+        /**
+         * Shipments released from Stock leave on a truck. A new truck gets the next TCZ reference;
+         * the shipments put on it carry that reference.
+         */
+        public async warehouseTruckCreate(): Promise<controllers.TruckCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-trucks`)
+            return await resp.json() as controllers.TruckCreateResponse
         }
 
         public async warehouseUpdate(taskId: string, params: controllers.WarehouseUpdateRequest): Promise<controllers.WarehouseUpdateResponse> {
@@ -1719,6 +1735,7 @@ export namespace controllers {
 
     export interface ListColumnTemplatesRequest {
         authorization: string
+        scope?: string
     }
 
     export interface ListColumnTemplatesResponse {
@@ -2201,6 +2218,11 @@ export namespace controllers {
         redeliveryReference?: string
         redeliveryDepot?: string
         etaWarehouse?: string
+        warehouseReceivedDate?: string
+        warehouseReleasedDate?: string
+        warehouseReference?: string
+        warehouseTruck?: string
+        plateNumber?: string
         plannedDeliveryDate?: string
         plannedDeliveryTime?: string
         /**
@@ -2322,6 +2344,10 @@ export namespace controllers {
         terms: interfaces.TermsConditionItem
     }
 
+    export interface TruckCreateResponse {
+        reference: string
+    }
+
     export interface UnlinkMasterJobResponse {
         shipment: interfaces.ShipmentItem
     }
@@ -2401,6 +2427,7 @@ export namespace controllers {
 
     export interface UpsertColumnTemplateRequest {
         authorization: string
+        scope?: string
         name: string
         columns: string[]
     }
@@ -3023,6 +3050,11 @@ export namespace interfaces {
         vgmClosing: string | null
         siClosing: string | null
         etaWarehouse: string | null
+        warehouseReceivedDate: string | null
+        warehouseReleasedDate: string | null
+        warehouseReference: string
+        warehouseTruck: string
+        plateNumber: string
         plannedDeliveryDate: string | null
         plannedDeliveryTime: string
         /**

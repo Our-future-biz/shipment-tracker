@@ -1,4 +1,4 @@
-import { api, APIError, Header } from "encore.dev/api";
+import { api, APIError, Header, Query } from "encore.dev/api";
 import { columnTemplateService } from "../services/columnTemplate.service";
 import { authService } from "../services/auth.service";
 
@@ -23,8 +23,12 @@ async function requireUserId(authorization: string | undefined): Promise<string>
   return userId;
 }
 
+// Templates belong to the screen they were saved on; without a scope it is the Shipments grid.
+const DEFAULT_SCOPE = "shipments";
+
 interface ListColumnTemplatesRequest {
   authorization: Header<"Authorization">;
+  scope?: Query<string>;
 }
 
 interface ListColumnTemplatesResponse {
@@ -35,13 +39,14 @@ export const columnTemplatesList = api(
   { expose: true, auth: false, method: "GET", path: "/column-templates" },
   async (req: ListColumnTemplatesRequest): Promise<ListColumnTemplatesResponse> => {
     const userId = await requireUserId(req.authorization);
-    const templates = await columnTemplateService.listByUser(userId);
+    const templates = await columnTemplateService.listByUser(userId, req.scope?.trim() || DEFAULT_SCOPE);
     return { templates: templates as unknown as ColumnTemplateItem[] };
   },
 );
 
 interface UpsertColumnTemplateRequest {
   authorization: Header<"Authorization">;
+  scope?: string;
   name: string;
   columns: string[];
 }
@@ -58,7 +63,7 @@ export const columnTemplatesUpsert = api(
     if (!name) {
       throw APIError.invalidArgument("name is required");
     }
-    const template = await columnTemplateService.upsert(userId, name, req.columns ?? []);
+    const template = await columnTemplateService.upsert(userId, req.scope?.trim() || DEFAULT_SCOPE, name, req.columns ?? []);
     return { template: template as unknown as ColumnTemplateItem };
   },
 );

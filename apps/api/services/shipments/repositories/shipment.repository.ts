@@ -217,6 +217,31 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     };
   }
 
+  /** The plate number of a truck (TCZ…): the one its shipments carry, "" if none has it yet. */
+  async truckPlate(companyId: string, truck: string): Promise<string> {
+    const [row] = await this.db
+      .select({ plateNumber: shipmentTable.plateNumber })
+      .from(shipmentTable)
+      .where(
+        and(
+          eq(shipmentTable.companyId, companyId),
+          eq(shipmentTable.warehouseTruck, truck),
+          sql`${shipmentTable.plateNumber} <> ''`,
+          isNull(shipmentTable.deletedAt),
+        ),
+      )
+      .limit(1);
+    return row?.plateNumber ?? "";
+  }
+
+  /** Writes a truck's plate number to every shipment on that truck. */
+  async setTruckPlate(companyId: string, truck: string, plateNumber: string) {
+    await this.db
+      .update(shipmentTable)
+      .set({ plateNumber, updatedAt: new Date() })
+      .where(and(eq(shipmentTable.companyId, companyId), eq(shipmentTable.warehouseTruck, truck), isNull(shipmentTable.deletedAt)));
+  }
+
   // Company-scoped full scan for the dashboard aggregates.
   async listAllForCompany(companyId: string, limit = 5000) {
     return this.db

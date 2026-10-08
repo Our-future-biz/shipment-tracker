@@ -11,8 +11,8 @@ import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
-import { PickupSection } from "@/app/warehouse/_components/sections/PickupSection";
-import { JobNotes, ActionPushButtons } from "@/app/warehouse/_components/sections/JobExtras";
+import { PickupSection } from "./warehouse/PickupSection";
+import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
 
 interface JobSectionData {
   inform_operations_sent?: string;
@@ -70,6 +70,7 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
                 <Row label="Weight (tons)" value={shipment.totalWeightTons} />
                 <Row label="Volume (CBM)" value={shipment.totalVolumeCbm} />
                 <Row label="W/M" value={computeWM(shipment.totalWeightTons, shipment.totalVolumeCbm)} />
+                <Row label="Plate number" value={shipment.plateNumber} />
               </div>
             </div>
           </Card>

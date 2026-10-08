@@ -10,15 +10,15 @@ export interface FilterTemplate {
   filters: { key: string; value: string }[];
 }
 
-const PREF_KEY = "shipment-filter-templates";
-const QUERY_KEY = ["user-prefs", PREF_KEY];
-
 /**
- * Named sets of the Shipments "Filter by column" filters, saved per user in the
- * database (user preferences), so they follow the user to another computer.
+ * Named sets of the "Filter by column" filters, saved per user in the database (user
+ * preferences), so they follow the user to another computer. Each screen has its own
+ * list: `scope` names the screen, left out it is the Shipments grid.
  */
-export function useFilterTemplates() {
+export function useFilterTemplates(scope?: string) {
   const queryClient = useQueryClient();
+  const PREF_KEY = scope ? `${scope}:filter-templates` : "shipment-filter-templates";
+  const QUERY_KEY = useMemo(() => ["user-prefs", PREF_KEY], [PREF_KEY]);
 
   const { data } = useQuery({
     queryKey: QUERY_KEY,

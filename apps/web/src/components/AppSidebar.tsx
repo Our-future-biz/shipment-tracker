@@ -35,6 +35,8 @@ interface NavItem {
   label: string;
   icon: ReactNode;
   children?: NavChild[];
+  // A group with a page of its own: clicking it opens that page, the arrow folds the submenu.
+  ownPage?: boolean;
   // If set, the item only shows for these roles.
   roles?: string[];
 }
@@ -52,10 +54,11 @@ const NAV_ITEMS: NavItem[] = [
     path: "/warehouse",
     label: "Warehouse",
     icon: <InboxOutlined />,
+    ownPage: true,
     children: [
       { path: "/warehouse/in", label: "In Warehouse" },
-      { path: "/warehouse/out", label: "Out Warehouse" },
       { path: "/warehouse/stock", label: "Stock" },
+      { path: "/warehouse/out", label: "Out Warehouse" },
     ],
   },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
@@ -115,6 +118,8 @@ export function AppSidebar() {
     const children = item.children ?? [];
     const groupActive = pathname === item.path || pathname.startsWith(item.path + "/");
     const open = !!openGroups[item.path];
+    const onOwnPage = !!item.ownPage && pathname.replace(/\/$/, "") === item.path;
+    const toggleGroup = () => setOpenGroups((g) => ({ ...g, [item.path]: !g[item.path] }));
 
     // Collapsed: submenu shown as a right-side flyout.
     if (collapsed) {
@@ -133,6 +138,7 @@ export function AppSidebar() {
           }}
         >
           <div
+            onClick={item.ownPage ? () => router.push(item.path) : undefined}
             className={`flex items-center justify-center px-2 py-3 rounded-xl text-[14px] cursor-pointer mb-0.5 transition-all duration-150 ${
               groupActive ? "bg-indigo-500 text-white font-medium" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
             }`}
@@ -146,14 +152,25 @@ export function AppSidebar() {
     return (
       <div key={item.path}>
         <div
-          onClick={() => setOpenGroups((g) => ({ ...g, [item.path]: !g[item.path] }))}
+          onClick={() => {
+            if (!item.ownPage) return toggleGroup();
+            setOpenGroups((g) => ({ ...g, [item.path]: true }));
+            router.push(item.path);
+          }}
           className={`flex items-center gap-3 rounded-xl text-[14px] cursor-pointer mb-0.5 px-4 py-3 transition-all duration-150 ${
-            groupActive && !open ? "text-indigo-600 font-medium bg-indigo-50" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+            onOwnPage
+              ? "bg-indigo-500 text-white font-medium"
+              : groupActive && !open
+                ? "text-indigo-600 font-medium bg-indigo-50"
+                : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
           }`}
         >
           <span className="text-base shrink-0">{item.icon}</span>
           <span className="whitespace-nowrap overflow-hidden flex-1">{item.label}</span>
-          <DownOutlined className={`text-[10px] transition-transform duration-150 ${open ? "" : "-rotate-90"}`} />
+          <DownOutlined
+            onClick={(e) => { e.stopPropagation(); toggleGroup(); }}
+            className={`text-[10px] transition-transform duration-150 ${item.ownPage ? "p-1.5 -m-1.5" : ""} ${open ? "" : "-rotate-90"}`}
+          />
         </div>
         {open && (
           <div className="ml-4 pl-3 border-l border-slate-100 mb-1 space-y-0.5">

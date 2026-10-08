@@ -12,7 +12,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 // Search/status live in the URL (?q= / ?status=), written by the table's toolbar and read
 // here to drive the server-side query — so filtering covers the whole company dataset
 // instead of only the rows already in the browser.
-function useDebounced<T>(value: T, delay: number): T {
+export function useDebounced<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
     const t = setTimeout(() => setDebounced(value), delay);

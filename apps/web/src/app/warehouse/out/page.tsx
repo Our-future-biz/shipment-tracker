@@ -1,7 +1,20 @@
 "use client";
 
-import { WarehouseSectionGrid } from "../_components/WarehouseSectionGrid";
+import { WarehouseShipmentsView } from "../_components/WarehouseShipmentsView";
+import { useWarehouseMove } from "../_components/useWarehouseMove";
 
 export default function OutWarehousePage() {
-  return <WarehouseSectionGrid title="Out Warehouse" storageKey="warehouse:out" emptyText="Nothing is going out of the warehouse yet." />;
+  // One sent here by mistake can be returned: to In Warehouse, which starts it over, or one
+  // step back to Stock, which keeps the date it was received.
+  const backToIn = useWarehouseMove({ warehouseReceivedDate: "clear", warehouseReleasedDate: "clear" }, "In Warehouse", { clearTruck: true });
+  const backToStock = useWarehouseMove({ warehouseReleasedDate: "clear" }, "Stock", { clearTruck: true });
+  return (
+    <WarehouseShipmentsView
+      section="out"
+      selectionActions={[
+        { label: "Vrátit do In Warehouse", secondary: true, onClick: backToIn },
+        { label: "Vrátit do Stock", secondary: true, onClick: backToStock },
+      ]}
+    />
+  );
 }

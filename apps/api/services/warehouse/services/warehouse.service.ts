@@ -21,6 +21,12 @@ class WarehouseService {
     return out;
   }
 
+  /** Truck references are TCZ + the calendar year + a per-company sequence. */
+  async createTruck(companyId: string, now = new Date()) {
+    const truck = await warehouseTaskRepository.createTruck(companyId, `TCZ${now.getFullYear()}`);
+    return truck.taskId;
+  }
+
   async create(companyId: string, taskId: string, shipmentId?: string) {
     return warehouseTaskRepository.create({ companyId, taskId, shipmentId });
   }

@@ -3,22 +3,25 @@ import { db } from "../db/db";
 import { columnTemplateTable } from "../schemas/columnTemplate.schema";
 
 class ColumnTemplateRepository {
-  async listByUser(userId: string) {
+  async listByUser(userId: string, scope: string) {
     return db
       .select()
       .from(columnTemplateTable)
-      .where(and(eq(columnTemplateTable.userId, userId), isNull(columnTemplateTable.deletedAt)))
+      .where(
+        and(eq(columnTemplateTable.userId, userId), eq(columnTemplateTable.scope, scope), isNull(columnTemplateTable.deletedAt)),
+      )
       .orderBy(asc(columnTemplateTable.name));
   }
 
-  // Insert, or overwrite the existing template with the same (userId, name).
-  async upsert(userId: string, name: string, columns: string[]) {
+  // Insert, or overwrite the existing template with the same (userId, scope, name).
+  async upsert(userId: string, scope: string, name: string, columns: string[]) {
     const [existing] = await db
       .select()
       .from(columnTemplateTable)
       .where(
         and(
           eq(columnTemplateTable.userId, userId),
+          eq(columnTemplateTable.scope, scope),
           eq(columnTemplateTable.name, name),
           isNull(columnTemplateTable.deletedAt),
         ),
@@ -34,7 +37,7 @@ class ColumnTemplateRepository {
       return row!;
     }
 
-    const [row] = await db.insert(columnTemplateTable).values({ userId, name, columns }).returning();
+    const [row] = await db.insert(columnTemplateTable).values({ userId, scope, name, columns }).returning();
     return row!;
   }
 

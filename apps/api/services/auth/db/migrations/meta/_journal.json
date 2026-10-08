@@ -36,6 +36,13 @@
       "when": 1786383181477,
       "tag": "0004_uneven_maginty",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791443043557,
+      "tag": "0005_column_template_scope",
+      "breakpoints": true
     }
   ]
 }
