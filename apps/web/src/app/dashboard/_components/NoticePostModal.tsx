@@ -43,6 +43,9 @@ export function NoticePostModal({ target, viewer, onClose, onCreate, onUpdate, o
   // Documents picked in this dialog, uploaded on save; and stored ones marked for removal.
   const [newFiles, setNewFiles] = useState<File[]>([]);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
+  // A new post that saved but whose documents did not: a retry must not post it twice.
+  const createdId = useRef<string | null>(null);
+  const removedDone = useRef(new Set<string>());
 
   const editing = target && "post" in target ? target.post : null;
 
@@ -65,6 +68,8 @@ export function NoticePostModal({ target, viewer, onClose, onCreate, onUpdate, o
   const handleClose = () => {
     setNewFiles([]);
     setRemovedIds([]);
+    createdId.current = null;
+    removedDone.current.clear();
     onClose();
   };
 
@@ -81,15 +86,27 @@ export function NoticePostModal({ target, viewer, onClose, onCreate, onUpdate, o
     const v = await form.validateFields();
     setSaving(true);
     try {
-      let id = editing?.id;
+      let id = editing?.id ?? createdId.current;
       if (editing) {
         await onUpdate({ id: editing.id, input: { severity: v.severity, title: v.title, body: v.body ?? "" } });
-      } else {
+      } else if (!id) {
         id = (await onCreate(v)).id;
+        createdId.current = id;
       }
-      await Promise.all(removedIds.map((attachmentId) => onRemoveAttachment(attachmentId)));
-      // One at a time: each document is its own request with its own size limit.
-      for (const file of newFiles) await onAddAttachment({ id: id!, file });
+      await Promise.all(
+        removedIds
+          .filter((attachmentId) => !removedDone.current.has(attachmentId))
+          .map(async (attachmentId) => {
+            await onRemoveAttachment(attachmentId);
+            removedDone.current.add(attachmentId);
+          }),
+      );
+      // One at a time: each document is its own request with its own size limit; uploaded
+      // ones leave the queue so a retry only sends what is still missing.
+      for (const file of newFiles) {
+        await onAddAttachment({ id: id!, file });
+        setNewFiles((files) => files.filter((f) => f !== file));
+      }
       toast.success(editing ? "Notice updated" : "Notice posted");
       handleClose();
     } catch {

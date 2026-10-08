@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { announcementAttachmentTable } from "../schemas/announcement.schema";
@@ -8,8 +8,9 @@ class AnnouncementAttachmentRepository extends TenantRepository<typeof announcem
     super(db as never, announcementAttachmentTable, "announcement_attachment");
   }
 
-  // Every live attachment in the company, without the bytes — the noticeboard lists them per post.
-  async listMeta(companyId: string) {
+  // The live attachments of the given posts, without the bytes — the noticeboard lists them per post.
+  async listMeta(companyId: string, announcementIds: string[]) {
+    if (announcementIds.length === 0) return [];
     return this.db
       .select({
         id: announcementAttachmentTable.id,
@@ -19,7 +20,13 @@ class AnnouncementAttachmentRepository extends TenantRepository<typeof announcem
         fileSize: announcementAttachmentTable.fileSize,
       })
       .from(announcementAttachmentTable)
-      .where(and(eq(announcementAttachmentTable.companyId, companyId), isNull(announcementAttachmentTable.deletedAt)))
+      .where(
+        and(
+          eq(announcementAttachmentTable.companyId, companyId),
+          inArray(announcementAttachmentTable.announcementId, announcementIds),
+          isNull(announcementAttachmentTable.deletedAt),
+        ),
+      )
       .orderBy(asc(announcementAttachmentTable.createdAt));
   }
 }

@@ -90,16 +90,17 @@ class AnnouncementService {
   async list(actor: Actor): Promise<{ viewer: NoticeboardViewer; announcements: AnnouncementInfo[] }> {
     const viewer = await this.#viewer(actor);
     const admin = isAdminLevel(actor.role);
-    const [rows, attachments] = await Promise.all([
-      announcementRepository.listForAudience(actor.companyID, {
-        all: admin,
-        userId: actor.userID,
-        departmentId: viewer.departmentId,
-        branchId: viewer.branchId,
-        country: viewer.country,
-      }),
-      announcementAttachmentRepository.listMeta(actor.companyID),
-    ]);
+    const rows = await announcementRepository.listForAudience(actor.companyID, {
+      all: admin,
+      userId: actor.userID,
+      departmentId: viewer.departmentId,
+      branchId: viewer.branchId,
+      country: viewer.country,
+    });
+    const attachments = await announcementAttachmentRepository.listMeta(
+      actor.companyID,
+      rows.map((r) => r.id),
+    );
     const attachmentsByPost = new Map<string, AnnouncementAttachmentInfo[]>();
     for (const { announcementId, ...file } of attachments) {
       attachmentsByPost.set(announcementId, [...(attachmentsByPost.get(announcementId) ?? []), file]);
@@ -169,17 +170,17 @@ class AnnouncementService {
     return !!(await announcementAttachmentRepository.softDeleteForCompany(attachmentId, actor.companyID));
   }
 
-  // Scoped by company so a raw attachment id from another company can't be read.
+  // Only readers of the post get its documents, so a raw attachment id from another
+  // company, another board or a deleted post can't be read.
   async attachmentContent(actor: Actor, attachmentId: string): Promise<AnnouncementAttachmentContent | null> {
     const attachment = await announcementAttachmentRepository.getByIdForCompany(attachmentId, actor.companyID);
-    if (!attachment) return null;
+    if (!attachment || !(await this.#visible(actor, attachment.announcementId))) return null;
     return { fileName: attachment.fileName, fileType: attachment.fileType, fileData: attachment.fileData };
   }
 
   // The reader has opened this post.
   async markRead(actor: Actor, id: string): Promise<boolean> {
-    const existing = await announcementRepository.getByIdForCompany(id, actor.companyID);
-    if (!existing) return false;
+    if (!(await this.#visible(actor, id))) return false;
     await announcementRepository.markRead(id, actor.userID);
     return true;
   }
@@ -187,6 +188,24 @@ class AnnouncementService {
   async delete(actor: Actor, id: string): Promise<boolean> {
     if (!(await this.#editable(actor, id))) return false;
     return !!(await announcementRepository.softDeleteForCompany(id, actor.companyID));
+  }
+
+  // Whether the post is live and on a board the reader sees — the same rule as list().
+  async #visible(actor: Actor, id: string): Promise<boolean> {
+    const post = await announcementRepository.getByIdForCompany(id, actor.companyID);
+    if (!post) return false;
+    if (isAdminLevel(actor.role) || post.scope === "company" || post.authorId === actor.userID) return true;
+    const viewer = await this.#viewer(actor);
+    switch (post.scope as AnnouncementScope) {
+      case "department":
+        return !!viewer.departmentId && post.departmentId === viewer.departmentId;
+      case "branch":
+        return !!viewer.branchId && post.branchId === viewer.branchId;
+      case "country":
+        return !!viewer.country && post.country?.toLowerCase() === viewer.country.toLowerCase();
+      default:
+        return false;
+    }
   }
 
   // Authors manage their own posts; company admins manage every post.
