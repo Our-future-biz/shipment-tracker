@@ -31,8 +31,7 @@ type WarehouseDate = "warehouseReceivedDate" | "warehouseReleasedDate";
  * Moves the ticked shipments to `movedTo` by setting each given date to today ("today")
  * or emptying it ("clear"). With `assignReference` each shipment is also given its
  * warehouse reference first; if that fails nothing is moved. `clearTruck` takes the
- * shipments off their truck; a `truck` passed to the move itself puts them on one, with
- * `plateNumber` as that truck's plate when one is given.
+ * shipments off their truck; a `truck` passed to the move itself puts them on one.
  * The move resolves to whether it went through.
  */
 export function useWarehouseMove(
@@ -43,7 +42,7 @@ export function useWarehouseMove(
   const { updateShipment } = useShipments();
   const toast = useToast();
 
-  return async (ids: string[], truck?: string, plateNumber?: string): Promise<boolean> => {
+  return async (ids: string[], truck?: string): Promise<boolean> => {
     if (ids.length === 0) {
       toast.error(NOTHING_TICKED);
       return false;
@@ -56,7 +55,6 @@ export function useWarehouseMove(
       );
       if (clearTruck) data.warehouseTruck = "";
       if (truck) data.warehouseTruck = truck;
-      if (truck && plateNumber) data.plateNumber = plateNumber;
       const refs = assignReference ? (await api.warehouse.warehouseEnsureRefs({ shipmentIds: ids })).refs : [];
       const referenceOf = new Map(refs.map((r) => [r.shipmentId, r.reference]));
       await Promise.all(

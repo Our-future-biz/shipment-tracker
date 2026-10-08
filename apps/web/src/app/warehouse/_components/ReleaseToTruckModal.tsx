@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Input, Modal, Radio, Select } from "antd";
+import { Modal, Radio, Select } from "antd";
 import { useShipments } from "@/hooks/useShipments";
 
 // Asked when shipments are released from Stock (Vyskladnit): do they leave on a new truck
 // or on one that is already being loaded? A new truck gets the next TCZ reference when the
-// release is confirmed, and its plate number if it is known already; the trucks on offer
-// are the ones shipments in Out Warehouse are on.
+// release is confirmed; the trucks on offer are the ones shipments in Out Warehouse are on.
+// The plate number is not asked for here; it is filled in on the truck's shipments.
 export function ReleaseToTruckModal({
   shipmentIds,
   onClose,
@@ -16,16 +16,12 @@ export function ReleaseToTruckModal({
   /** The ticked shipments; null keeps the dialog closed. */
   shipmentIds: string[] | null;
   onClose: () => void;
-  /**
-   * Releases the shipments on the truck (null: a new one, with the plate number if one was
-   * typed); resolves to whether it went through.
-   */
-  onRelease: (shipmentIds: string[], truck: string | null, plateNumber?: string) => Promise<boolean>;
+  /** Releases the shipments on the truck (null: a new one); resolves to whether it went through. */
+  onRelease: (shipmentIds: string[], truck: string | null) => Promise<boolean>;
 }) {
   const { shipments } = useShipments();
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [existing, setExisting] = useState<string>();
-  const [plate, setPlate] = useState("");
   const [releasing, setReleasing] = useState(false);
   // A second click before the first release has finished must not create a second truck.
   const busy = useRef(false);
@@ -47,7 +43,6 @@ export function ReleaseToTruckModal({
     if (!open) return;
     setMode("new");
     setExisting(undefined);
-    setPlate("");
   }, [open]);
 
   const count = shipmentIds?.length ?? 0;
@@ -57,7 +52,7 @@ export function ReleaseToTruckModal({
     if (!shipmentIds || !ready || busy.current) return;
     busy.current = true;
     setReleasing(true);
-    const done = mode === "new" ? await onRelease(shipmentIds, null, plate.trim().toUpperCase()) : await onRelease(shipmentIds, existing!);
+    const done = await onRelease(shipmentIds, mode === "new" ? null : existing!);
     busy.current = false;
     setReleasing(false);
     if (done) onClose();
@@ -83,18 +78,7 @@ export function ReleaseToTruckModal({
       <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)} className="flex flex-col gap-3 w-full">
         <div>
           <Radio value="new">New truck</Radio>
-          {mode === "new" && (
-            <div className="mt-2 ml-6">
-              <Input
-                placeholder="Plate number (optional)"
-                maxLength={20}
-                value={plate}
-                onChange={(e) => setPlate(e.target.value)}
-                onPressEnter={release}
-              />
-              <p className="mt-1.5 mb-0 text-xs text-slate-400">A new truck reference (TCZ) is created on release.</p>
-            </div>
-          )}
+          {mode === "new" && <p className="mt-1 mb-0 ml-6 text-xs text-slate-400">A new truck reference (TCZ) is created on release.</p>}
         </div>
         <div>
           <Radio value="existing" disabled={trucks.length === 0}>
