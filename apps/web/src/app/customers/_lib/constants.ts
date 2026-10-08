@@ -10,8 +10,6 @@ export const DOCUMENT_TYPES = ["Contract", "NDA", "Power of attorney", "Customs"
 
 export const NOTE_TYPES = ["Note", "Email", "Call", "Follow-up", "Visit"] as const;
 
-export const INVOICE_STATUSES = ["Open", "Overdue", "Paid"] as const;
-
 export const CURRENCIES = ["EUR", "USD", "CZK", "GBP", "CHF"] as const;
 
 export interface CustomerTab {

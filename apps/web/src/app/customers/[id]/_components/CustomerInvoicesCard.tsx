@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Button, Table, Tag } from "antd";
-import { CheckOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { CheckOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { SectionCard } from "@/components/SectionCard";
@@ -14,7 +14,6 @@ import { INVOICE_STATUS_COLORS } from "../../_lib/constants";
 import { daysOverdue, effectiveStatus, isPaid } from "../../_lib/customerInvoices";
 import { fmtMoney } from "../../_lib/customerMoney";
 import { CustomerCountChip } from "./CustomerCountChip";
-import { CustomerInvoiceDialog } from "./CustomerInvoiceDialog";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
 
 interface CustomerInvoicesCardProps {
@@ -22,11 +21,10 @@ interface CustomerInvoicesCardProps {
   currency: string;
 }
 
-// The one list of the customer's invoices: add, mark as paid, delete.
+// The one list of the customer's invoices: mark as paid, delete. Invoices are not created here.
 export function CustomerInvoicesCard({ customerId, currency }: CustomerInvoicesCardProps) {
   const toast = useToast();
   const { invoices, isLoading, isError, updateInvoice, deleteInvoice } = useCustomerInvoices(customerId);
-  const [addOpen, setAddOpen] = useState(false);
   const [payingId, setPayingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<InvoiceItem | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -125,14 +123,7 @@ export function CustomerInvoicesCard({ customerId, currency }: CustomerInvoicesC
       <SectionCard
         title="Invoices"
         bodyClassName="p-2"
-        extra={
-          <>
-            <CustomerCountChip count={invoices.length} />
-            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
-              Add Invoice
-            </Button>
-          </>
-        }
+        extra={<CustomerCountChip count={invoices.length} />}
       >
         <Table<InvoiceItem>
           size="small"
@@ -146,7 +137,6 @@ export function CustomerInvoicesCard({ customerId, currency }: CustomerInvoicesC
         />
       </SectionCard>
 
-      <CustomerInvoiceDialog customerId={customerId} currency={currency} open={addOpen} onClose={() => setAddOpen(false)} />
 
       <ConfirmModal
         open={!!deleteTarget}
