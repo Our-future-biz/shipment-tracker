@@ -1,0 +1,1 @@
+ALTER TABLE "app_user" ADD COLUMN "notices_seen_at" timestamp with time zone;

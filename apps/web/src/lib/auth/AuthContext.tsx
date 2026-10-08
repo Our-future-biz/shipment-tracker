@@ -11,6 +11,8 @@ export interface AuthUser {
   email: string;
   displayName: string;
   role: string;
+  departmentId: string | null;
+  branchId: string | null;
 }
 
 interface AuthContextValue {

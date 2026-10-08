@@ -27,6 +27,8 @@ interface CompanyUserCreateRequest {
   password: string;
   displayName?: string;
   role?: string;
+  departmentId?: string | null;
+  branchId?: string | null;
 }
 interface CompanyUserCreateResponse {
   user: AuthUserInfo;
@@ -48,6 +50,8 @@ interface CompanyUserUpdateRequest {
   displayName?: string;
   role?: string;
   password?: string;
+  departmentId?: string | null;
+  branchId?: string | null;
 }
 interface CompanyUserUpdateResponse {
   user: AuthUserInfo;

@@ -9,6 +9,8 @@ export interface ManagedUser {
   email: string;
   displayName: string;
   role: string;
+  departmentId: string | null;
+  branchId: string | null;
 }
 
 export interface CompanyRow {
@@ -23,12 +25,16 @@ export interface NewUserInput {
   password: string;
   displayName?: string;
   role?: string;
+  departmentId?: string | null;
+  branchId?: string | null;
 }
 
 export interface UpdateUserInput {
   displayName?: string;
   role?: string;
   password?: string;
+  departmentId?: string | null;
+  branchId?: string | null;
 }
 
 // Company admin/manager managing their OWN company's users (company is implicit from token).

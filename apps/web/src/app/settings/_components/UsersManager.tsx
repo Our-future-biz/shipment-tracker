@@ -7,6 +7,7 @@ import type { ColumnsType } from "antd/es/table";
 import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import type { ManagedUser, NewUserInput, UpdateUserInput } from "@/hooks/useUserAdmin";
+import type { Department, Branch } from "@/hooks/useOrgUnits";
 
 const ROLE_COLOR: Record<string, string> = { superadmin: "magenta", admin: "geekblue", manager: "gold", user: "default" };
 
@@ -15,6 +16,7 @@ export function UsersManager({
   isLoading,
   allowedRoles,
   currentUserId,
+  orgUnits,
   createUser,
   updateUser,
   deleteUser,
@@ -23,6 +25,8 @@ export function UsersManager({
   isLoading: boolean;
   allowedRoles: string[]; // roles this actor may assign
   currentUserId: string;
+  // The company's departments and branches; when given, users can be assigned to them.
+  orgUnits?: { departments: Department[]; branches: Branch[] };
   createUser: (input: NewUserInput) => Promise<unknown>;
   updateUser: (args: { id: string; input: UpdateUserInput }) => Promise<unknown>;
   deleteUser: (id: string) => Promise<unknown>;
@@ -36,12 +40,30 @@ export function UsersManager({
   const [editForm] = Form.useForm();
 
   const roleOptions = allowedRoles.map((r) => ({ value: r, label: r }));
+  const departmentOptions = (orgUnits?.departments ?? []).map((d) => ({ value: d.id, label: d.name }));
+  const branchOptions = (orgUnits?.branches ?? []).map((b) => ({ value: b.id, label: `${b.name} (${b.country})` }));
+  const unitName = (options: { value: string; label: string }[], id: string | null) =>
+    options.find((o) => o.value === id)?.label ?? <span className="text-slate-300">—</span>;
+
+  const orgUnitFields = orgUnits && (
+    <>
+      <Form.Item name="departmentId" label="Department">
+        <Select options={departmentOptions} allowClear placeholder="Not assigned" />
+      </Form.Item>
+      <Form.Item name="branchId" label="Branch">
+        <Select options={branchOptions} allowClear placeholder="Not assigned" />
+      </Form.Item>
+    </>
+  );
+  // A cleared select yields undefined; the API needs an explicit null to unassign.
+  const placement = (v: { departmentId?: string; branchId?: string }) =>
+    orgUnits ? { departmentId: v.departmentId ?? null, branchId: v.branchId ?? null } : {};
 
   const submitAdd = async () => {
     const v = await addForm.validateFields();
     setSaving(true);
     try {
-      await createUser({ email: v.email, password: v.password, displayName: v.displayName ?? "", role: v.role });
+      await createUser({ email: v.email, password: v.password, displayName: v.displayName ?? "", role: v.role, ...placement(v) });
       toast.success("User created");
       addForm.resetFields();
       setAddOpen(false);
@@ -57,7 +79,10 @@ export function UsersManager({
     const v = await editForm.validateFields();
     setSaving(true);
     try {
-      const input: UpdateUserInput = { displayName: v.displayName, role: v.role };
+      const input: UpdateUserInput = { displayName: v.displayName, ...placement(v) };
+      // Send the role only when it changes: the API refuses a role "change" on your own
+      // account and on superadmins, even to the same value.
+      if (v.role !== editTarget.role) input.role = v.role;
       if (v.password) input.password = v.password;
       await updateUser({ id: editTarget.id, input });
       toast.success("User updated");
@@ -73,6 +98,12 @@ export function UsersManager({
     { title: "Name", dataIndex: "displayName", render: (v: string) => v || <span className="text-slate-300">—</span> },
     { title: "Email", dataIndex: "email", render: (v: string) => <span className="font-mono text-xs">{v}</span> },
     { title: "Role", dataIndex: "role", width: 130, render: (v: string) => <Tag color={ROLE_COLOR[v] ?? "default"}>{v}</Tag> },
+    ...(orgUnits
+      ? [
+          { title: "Department", dataIndex: "departmentId", render: (v: string | null) => unitName(departmentOptions, v) },
+          { title: "Branch", dataIndex: "branchId", render: (v: string | null) => unitName(branchOptions, v) },
+        ]
+      : []),
     {
       title: "",
       key: "actions",
@@ -85,7 +116,13 @@ export function UsersManager({
             icon={<EditOutlined />}
             onClick={() => {
               setEditTarget(r);
-              editForm.setFieldsValue({ displayName: r.displayName, role: r.role, password: "" });
+              editForm.setFieldsValue({
+                displayName: r.displayName,
+                role: r.role,
+                password: "",
+                departmentId: r.departmentId ?? undefined,
+                branchId: r.branchId ?? undefined,
+              });
             }}
           />
           <Button
@@ -135,6 +172,7 @@ export function UsersManager({
           <Form.Item name="role" label="Role">
             <Select options={roleOptions} />
           </Form.Item>
+          {orgUnitFields}
         </Form>
       </Modal>
 
@@ -146,6 +184,7 @@ export function UsersManager({
           <Form.Item name="role" label="Role">
             <Select options={roleOptions} disabled={editTarget?.id === currentUserId} />
           </Form.Item>
+          {orgUnitFields}
           <Form.Item name="password" label="New password (leave blank to keep)" rules={[{ min: 8, message: "At least 8 characters" }]}>
             <Input.Password placeholder="••••••••" />
           </Form.Item>

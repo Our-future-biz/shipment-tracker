@@ -114,8 +114,20 @@ export namespace auth {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.announcementAttachmentContent = this.announcementAttachmentContent.bind(this)
+            this.announcementAttachmentCreate = this.announcementAttachmentCreate.bind(this)
+            this.announcementAttachmentDelete = this.announcementAttachmentDelete.bind(this)
+            this.announcementCreate = this.announcementCreate.bind(this)
+            this.announcementDelete = this.announcementDelete.bind(this)
+            this.announcementList = this.announcementList.bind(this)
+            this.announcementMarkRead = this.announcementMarkRead.bind(this)
+            this.announcementUpdate = this.announcementUpdate.bind(this)
             this.authLogin = this.authLogin.bind(this)
             this.authMe = this.authMe.bind(this)
+            this.branchCreate = this.branchCreate.bind(this)
+            this.branchDelete = this.branchDelete.bind(this)
+            this.branchList = this.branchList.bind(this)
+            this.branchUpdate = this.branchUpdate.bind(this)
             this.columnTemplatesDelete = this.columnTemplatesDelete.bind(this)
             this.columnTemplatesList = this.columnTemplatesList.bind(this)
             this.columnTemplatesUpsert = this.columnTemplatesUpsert.bind(this)
@@ -125,10 +137,68 @@ export namespace auth {
             this.companyUserDelete = this.companyUserDelete.bind(this)
             this.companyUserUpdate = this.companyUserUpdate.bind(this)
             this.companyUsersList = this.companyUsersList.bind(this)
+            this.departmentCreate = this.departmentCreate.bind(this)
+            this.departmentDelete = this.departmentDelete.bind(this)
+            this.departmentList = this.departmentList.bind(this)
+            this.departmentUpdate = this.departmentUpdate.bind(this)
             this.userCreate = this.userCreate.bind(this)
             this.userDelete = this.userDelete.bind(this)
             this.userUpdate = this.userUpdate.bind(this)
             this.usersList = this.usersList.bind(this)
+        }
+
+        public async announcementAttachmentContent(id: string): Promise<services.AnnouncementAttachmentContent> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/announcement-attachments/${encodeURIComponent(id)}/content`)
+            return await resp.json() as services.AnnouncementAttachmentContent
+        }
+
+        /**
+         * One document per call, so a post with several files never exceeds the body limit.
+         */
+        public async announcementAttachmentCreate(id: string, params: controllers.AnnouncementAttachmentCreateRequest): Promise<controllers.AnnouncementAttachmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/auth/announcements/${encodeURIComponent(id)}/attachments`, JSON.stringify(params))
+            return await resp.json() as controllers.AnnouncementAttachmentResponse
+        }
+
+        public async announcementAttachmentDelete(id: string): Promise<controllers.OkResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/auth/announcement-attachments/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.OkResponse
+        }
+
+        public async announcementCreate(params: controllers.AnnouncementCreateRequest): Promise<controllers.AnnouncementCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/auth/announcements`, JSON.stringify(params))
+            return await resp.json() as controllers.AnnouncementCreateResponse
+        }
+
+        public async announcementDelete(id: string): Promise<controllers.OkResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/auth/announcements/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.OkResponse
+        }
+
+        public async announcementList(): Promise<controllers.AnnouncementListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/announcements`)
+            return await resp.json() as controllers.AnnouncementListResponse
+        }
+
+        /**
+         * The reader has opened this post; it stops counting as unread for them.
+         */
+        public async announcementMarkRead(id: string): Promise<controllers.OkResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/auth/announcements/${encodeURIComponent(id)}/read`)
+            return await resp.json() as controllers.OkResponse
+        }
+
+        public async announcementUpdate(id: string, params: controllers.AnnouncementUpdateRequest): Promise<controllers.OkResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/auth/announcements/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.OkResponse
         }
 
         public async authLogin(params: controllers.AuthLoginRequest): Promise<controllers.AuthLoginResponse> {
@@ -146,6 +216,30 @@ export namespace auth {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/auth/me`, undefined, {headers})
             return await resp.json() as controllers.AuthMeResponse
+        }
+
+        public async branchCreate(params: controllers.BranchCreateRequest): Promise<controllers.BranchResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/auth/branches`, JSON.stringify(params))
+            return await resp.json() as controllers.BranchResponse
+        }
+
+        public async branchDelete(id: string): Promise<controllers.OkResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/auth/branches/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.OkResponse
+        }
+
+        public async branchList(): Promise<controllers.BranchListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/branches`)
+            return await resp.json() as controllers.BranchListResponse
+        }
+
+        public async branchUpdate(id: string, params: controllers.BranchUpdateRequest): Promise<controllers.BranchResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/auth/branches/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.BranchResponse
         }
 
         public async columnTemplatesDelete(id: string, params: controllers.DeleteColumnTemplateRequest): Promise<controllers.DeleteColumnTemplateResponse> {
@@ -232,6 +326,30 @@ export namespace auth {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/companies/${encodeURIComponent(companyId)}/users`)
             return await resp.json() as controllers.CompanyUsersListResponse
+        }
+
+        public async departmentCreate(params: controllers.DepartmentCreateRequest): Promise<controllers.DepartmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/auth/departments`, JSON.stringify(params))
+            return await resp.json() as controllers.DepartmentResponse
+        }
+
+        public async departmentDelete(id: string): Promise<controllers.OkResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/auth/departments/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.OkResponse
+        }
+
+        public async departmentList(): Promise<controllers.DepartmentListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/departments`)
+            return await resp.json() as controllers.DepartmentListResponse
+        }
+
+        public async departmentUpdate(id: string, params: controllers.DepartmentUpdateRequest): Promise<controllers.DepartmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/auth/departments/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.DepartmentResponse
         }
 
         /**
@@ -1260,6 +1378,46 @@ export namespace controllers {
         sellingCost: interfaces.SellingCostItem
     }
 
+    export interface AnnouncementAttachmentCreateRequest {
+        fileName: string
+        fileType?: string
+        fileSize?: number
+        fileData: string
+    }
+
+    export interface AnnouncementAttachmentResponse {
+        attachment: services.AnnouncementAttachmentInfo
+    }
+
+    export interface AnnouncementCreateRequest {
+        scope: string
+        /**
+         * The addressee matching the scope; ignored for "company".
+         */
+        departmentId?: string
+
+        branchId?: string
+        country?: string
+        severity?: string
+        title: string
+        body?: string
+    }
+
+    export interface AnnouncementCreateResponse {
+        id: string
+    }
+
+    export interface AnnouncementListResponse {
+        viewer: services.NoticeboardViewer
+        announcements: services.AnnouncementInfo[]
+    }
+
+    export interface AnnouncementUpdateRequest {
+        severity?: string
+        title?: string
+        body?: string
+    }
+
     /**
      * Assign a business document type (Invoice, Packing list, …) to an uploaded file.
      */
@@ -1346,6 +1504,24 @@ export namespace controllers {
     export interface AutomationTriggerResponse {
         actions: string[]
         logs: interfaces.AutomationLogItem[]
+    }
+
+    export interface BranchCreateRequest {
+        name: string
+        country: string
+    }
+
+    export interface BranchListResponse {
+        branches: services.BranchInfo[]
+    }
+
+    export interface BranchResponse {
+        branch: services.BranchInfo
+    }
+
+    export interface BranchUpdateRequest {
+        name: string
+        country: string
     }
 
     export interface ClaimCreateRequest {
@@ -1435,6 +1611,8 @@ export namespace controllers {
         password: string
         displayName?: string
         role?: string
+        departmentId?: string | null
+        branchId?: string | null
     }
 
     export interface CompanyUserCreateResponse {
@@ -1449,6 +1627,8 @@ export namespace controllers {
         displayName?: string
         role?: string
         password?: string
+        departmentId?: string | null
+        branchId?: string | null
     }
 
     export interface CompanyUserUpdateResponse {
@@ -1611,6 +1791,22 @@ export namespace controllers {
 
     export interface DeleteSellingResponse {
         ok: boolean
+    }
+
+    export interface DepartmentCreateRequest {
+        name: string
+    }
+
+    export interface DepartmentListResponse {
+        departments: services.DepartmentInfo[]
+    }
+
+    export interface DepartmentResponse {
+        department: services.DepartmentInfo
+    }
+
+    export interface DepartmentUpdateRequest {
+        name: string
     }
 
     export interface DocumentContentResponse {
@@ -1783,6 +1979,14 @@ export namespace controllers {
 
     export interface NoteListResponse {
         data: interfaces.NoteItem[]
+    }
+
+    export interface OkResponse {
+        ok: boolean
+    }
+
+    export interface OkResponse {
+        ok: boolean
     }
 
     export interface PipelineExtractHblRequest {
@@ -2461,6 +2665,8 @@ export namespace controllers {
         password: string
         displayName?: string
         role?: string
+        departmentId?: string | null
+        branchId?: string | null
     }
 
     export interface UserCreateResponse {
@@ -2493,6 +2699,12 @@ export namespace controllers {
         displayName?: string
         role?: string
         password?: string
+        /**
+         * null unassigns.
+         */
+        departmentId?: string | null
+
+        branchId?: string | null
     }
 
     export interface UserUpdateResponse {
@@ -3215,12 +3427,57 @@ export namespace interfaces {
 }
 
 export namespace services {
+    export interface AnnouncementAttachmentContent {
+        fileName: string
+        fileType: string
+        fileData: string
+    }
+
+    export interface AnnouncementAttachmentInfo {
+        id: string
+        fileName: string
+        fileType: string
+        fileSize: number
+    }
+
+    export interface AnnouncementInfo {
+        id: string
+        scope: string
+        /**
+         * Who the post is addressed to within its board, e.g. the department name; empty for "company".
+         */
+        target: string
+
+        severity: string
+        title: string
+        body: string
+        authorId: string
+        authorName: string
+        createdAt: string
+        updatedAt: string
+        canEdit: boolean
+        /**
+         * Posted by someone else and not opened by the reader yet.
+         */
+        unread: boolean
+
+        attachments: AnnouncementAttachmentInfo[]
+    }
+
     export interface AuthUserInfo {
         id: string
         companyId: string
         email: string
         displayName: string
         role: string
+        departmentId: string | null
+        branchId: string | null
+    }
+
+    export interface BranchInfo {
+        id: string
+        name: string
+        country: string
     }
 
     export interface CompanyInfo {
@@ -3228,6 +3485,22 @@ export namespace services {
         name: string
         slug: string
         createdAt: string
+    }
+
+    export interface DepartmentInfo {
+        id: string
+        name: string
+    }
+
+    /**
+     * Where the reader sits, so the UI can caption each board and preselect targets.
+     */
+    export interface NoticeboardViewer {
+        departmentId: string | null
+        departmentName: string | null
+        branchId: string | null
+        branchName: string | null
+        country: string | null
     }
 }
 

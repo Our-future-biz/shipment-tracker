@@ -1,47 +1,117 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
-import { KpiCard } from "./KpiCard";
-import { NeedsAttentionCard } from "./NeedsAttentionCard";
-import { UpcomingCard } from "./UpcomingCard";
-import { RecentShipmentsTable } from "./RecentShipmentsTable";
-import { useShipments } from "@/hooks/useShipments";
-import { isActiveStatus } from "@/lib/enums";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { useToast } from "@/lib/toast";
+import { useNoticeboard } from "@/hooks/useNoticeboard";
+import type { Announcement } from "@/hooks/useNoticeboard";
+import { BOARDS } from "../_lib/boards";
+import { NoticeBoardCard } from "./NoticeBoardCard";
+import { NoticeDetailModal } from "./NoticeDetailModal";
+import { NoticePostModal } from "./NoticePostModal";
+import type { NoticePostTarget } from "./NoticePostModal";
+
+const POSTING_ROLES = ["superadmin", "admin", "manager"];
 
 export function DashboardView() {
-  const { shipments, isLoading } = useShipments();
+  const toast = useToast();
+  const { user } = useAuth();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const {
+    announcements,
+    viewer,
+    isLoading,
+    createAnnouncement,
+    updateAnnouncement,
+    deleteAnnouncement,
+    addAttachment,
+    removeAttachment,
+    markRead,
+  } = useNoticeboard();
+  const [openPost, setOpenPost] = useState<Announcement | null>(null);
+  const [postTarget, setPostTarget] = useState<NoticePostTarget | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Announcement | null>(null);
 
-  const kpis = useMemo(() => {
-    const active = shipments.filter((s) => isActiveStatus(s.status));
-    return {
-      active: active.length,
-      total: shipments.length,
-      imports: shipments.filter((s) => s.tradeDirection === "Import").length,
-      exports: shipments.filter((s) => s.tradeDirection === "Export").length,
-    };
-  }, [shipments]);
+  // ?notice=<id> (from the notification bell) opens that notice, then drops out of the
+  // URL so the dialog can be closed and the same link used again.
+  const noticeParam = searchParams.get("notice");
+  useEffect(() => {
+    if (!noticeParam || isLoading) return;
+    setOpenPost(announcements.find((a) => a.id === noticeParam) ?? null);
+    router.replace(pathname, { scroll: false });
+  }, [noticeParam, isLoading, announcements, router, pathname]);
 
-  if (isLoading) {
-    return <div className="flex justify-center p-20"><span className="text-slate-400">Loading...</span></div>;
-  }
+  // A notice counts as read once it has been opened and closed again.
+  const handleCloseDetail = () => {
+    if (openPost?.unread) markRead(openPost.id);
+    setOpenPost(null);
+  };
+
+  const canPost = !!user && POSTING_ROLES.includes(user.role);
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await deleteAnnouncement(deleteTarget.id);
+      toast.success("Notice deleted");
+    } catch {
+      toast.error("Failed to delete the notice");
+    }
+    setDeleteTarget(null);
+  };
 
   return (
     <div className="bg-slate-50 min-h-full p-6">
       <div className="max-w-[1400px] mx-auto">
-      <PageHeader title="Dashboard" />
-      <div className="grid grid-cols-4 gap-3.5 mb-5">
-        <KpiCard label="Active Shipments" value={kpis.active} />
-        <KpiCard label="Total Shipments" value={kpis.total} />
-        <KpiCard label="Imports" value={kpis.imports} valueColor="#3b82f6" />
-        <KpiCard label="Exports" value={kpis.exports} valueColor="#f59e0b" />
+        <PageHeader title="Dashboard" />
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3.5">
+          {BOARDS.map((board) => {
+            const posts = announcements.filter((a) => a.scope === board.scope);
+            const ownTarget = viewer ? board.ownTarget(viewer) : null;
+            return (
+              <NoticeBoardCard
+                key={board.scope}
+                title={board.title}
+                caption={ownTarget ?? undefined}
+                posts={posts}
+                isLoading={isLoading}
+                emptyText={ownTarget === null && !isLoading ? board.unassignedText : "No notices."}
+                showTarget={posts.some((p) => p.target !== (ownTarget ?? ""))}
+                canPost={canPost}
+                onPost={() => setPostTarget({ scope: board.scope })}
+                onOpen={setOpenPost}
+                onEdit={(post) => setPostTarget({ post })}
+                onDelete={setDeleteTarget}
+              />
+            );
+          })}
+        </div>
       </div>
-      <div className="grid grid-cols-2 gap-3.5 mb-5">
-        <NeedsAttentionCard shipments={shipments} />
-        <UpcomingCard shipments={shipments} />
-      </div>
-      <RecentShipmentsTable shipments={shipments} />
-      </div>
+
+      <NoticeDetailModal post={openPost} onClose={handleCloseDetail} />
+      <NoticePostModal
+        target={postTarget}
+        viewer={viewer}
+        onClose={() => setPostTarget(null)}
+        onCreate={createAnnouncement}
+        onUpdate={updateAnnouncement}
+        onAddAttachment={addAttachment}
+        onRemoveAttachment={removeAttachment}
+      />
+      <ConfirmModal
+        open={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        title="Delete notice"
+        description={`Delete "${deleteTarget?.title}"? It disappears from the board for everyone.`}
+        confirmLabel="Delete"
+        danger
+      />
     </div>
   );
 }

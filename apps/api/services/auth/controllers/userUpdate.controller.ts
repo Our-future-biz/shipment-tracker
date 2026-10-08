@@ -8,6 +8,9 @@ interface UserUpdateRequest {
   displayName?: string;
   role?: string;
   password?: string;
+  // null unassigns.
+  departmentId?: string | null;
+  branchId?: string | null;
 }
 
 interface UserUpdateResponse {

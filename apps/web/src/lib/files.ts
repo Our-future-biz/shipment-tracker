@@ -10,6 +10,31 @@ export function fileToBase64(file: File): Promise<string> {
   });
 }
 
+// Read a File as a full base64 data URL (`data:<type>;base64,...`).
+export function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+// Save a data URL to the user's disk under the given name.
+export function downloadDataUrl(dataUrl: string, fileName: string) {
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = fileName;
+  a.click();
+}
+
+// "1.4 MB" style size for file lists.
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 // URL for viewing (inline) or downloading a stored attachment's bytes.
 export function attachmentContentUrl(shipmentId: string, attachmentId: string, download = false): string {
   return `${API_BASE}/shipments/${shipmentId}/attachments/${attachmentId}/content${download ? "?download=1" : ""}`;

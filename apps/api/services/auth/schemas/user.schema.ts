@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, uuid, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantIndex } from "../../../lib/db/defaults";
 import { companyTable } from "./company.schema";
+import { departmentTable, branchTable } from "./orgUnit.schema";
 
 export const userTable = pgTable(
   "app_user",
@@ -13,6 +14,9 @@ export const userTable = pgTable(
     passwordHash: text("password_hash").notNull(),
     displayName: text("display_name").notNull().default(""),
     role: text("role").notNull().default("user"),
+    // Where the user sits in the company; both optional. Decides which noticeboards they see.
+    departmentId: uuid("department_id").references(() => departmentTable.id),
+    branchId: uuid("branch_id").references(() => branchTable.id),
   },
   (table) => [
     ...defaultTableIndexes("app_user", table),

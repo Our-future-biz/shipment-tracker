@@ -4,6 +4,8 @@ import pg from "pg";
 import * as companySchema from "../schemas/company.schema";
 import * as userSchema from "../schemas/user.schema";
 import * as columnTemplateSchema from "../schemas/columnTemplate.schema";
+import * as orgUnitSchema from "../schemas/orgUnit.schema";
+import * as announcementSchema from "../schemas/announcement.schema";
 
 const { Pool } = pg;
 
@@ -15,4 +17,4 @@ const pool = new Pool({
   connectionString: DB.connectionString,
 });
 
-export const db = drizzle(pool, { schema: { ...companySchema, ...userSchema, ...columnTemplateSchema } });
+export const db = drizzle(pool, { schema: { ...companySchema, ...userSchema, ...columnTemplateSchema, ...orgUnitSchema, ...announcementSchema } });

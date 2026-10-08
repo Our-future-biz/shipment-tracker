@@ -43,6 +43,34 @@
       "when": 1791443043557,
       "tag": "0005_column_template_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791462588360,
+      "tag": "0006_noticeboard",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791463596283,
+      "tag": "0007_notices_seen_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791464249553,
+      "tag": "0008_announcement_read",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791465011808,
+      "tag": "0009_announcement_attachment",
+      "breakpoints": true
     }
   ]
 }

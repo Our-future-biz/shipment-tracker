@@ -2,11 +2,14 @@
 
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useCompanyUsers } from "@/hooks/useUserAdmin";
+import { useDepartments, useBranches } from "@/hooks/useOrgUnits";
 import { UsersManager } from "../_components/UsersManager";
 
 export default function CompanyUsersPage() {
   const { user } = useAuth();
   const cu = useCompanyUsers();
+  const { departments } = useDepartments();
+  const { branches } = useBranches();
 
   const canManage = user?.role === "admin" || user?.role === "manager";
   if (!canManage) {
@@ -17,7 +20,7 @@ export default function CompanyUsersPage() {
   const allowedRoles = user?.role === "admin" ? ["admin", "manager", "user"] : ["user"];
 
   return (
-    <div className="p-6 max-w-4xl">
+    <div className="p-6 max-w-5xl">
       <h1 className="text-xl font-semibold text-slate-800 mb-1">Users</h1>
       <p className="text-sm text-slate-500 mb-4">Manage the people who can access your company&apos;s workspace.</p>
       <UsersManager
@@ -25,6 +28,7 @@ export default function CompanyUsersPage() {
         isLoading={cu.isLoading}
         allowedRoles={allowedRoles}
         currentUserId={user?.id ?? ""}
+        orgUnits={{ departments, branches }}
         createUser={cu.createUser}
         updateUser={cu.updateUser}
         deleteUser={cu.deleteUser}

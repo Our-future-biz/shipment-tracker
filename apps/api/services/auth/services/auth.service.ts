@@ -5,6 +5,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { isCompanyRole, isAdminLevel } from "../../../lib/rbac";
 import { userRepository } from "../repositories/user.repository";
 import { companyRepository } from "../repositories/company.repository";
+import { departmentRepository, branchRepository } from "../repositories/orgUnit.repository";
 
 // The signing key comes from the Encore secret store (set via `encore secret set JWT_SECRET`).
 // A local-dev fallback keeps `encore run` working without a configured secret, but production
@@ -26,6 +27,14 @@ export interface AuthUserInfo {
   email: string;
   displayName: string;
   role: string;
+  departmentId: string | null;
+  branchId: string | null;
+}
+
+// Org placement of a user; null clears it, undefined leaves it untouched.
+interface OrgPlacement {
+  departmentId?: string | null;
+  branchId?: string | null;
 }
 
 class AuthService {
@@ -53,7 +62,7 @@ class AuthService {
   async createUser(
     companyId: string,
     actor: { role: string },
-    input: { email: string; password: string; displayName?: string; role?: string },
+    input: { email: string; password: string; displayName?: string; role?: string } & OrgPlacement,
   ): Promise<AuthUserInfo> {
     const email = input.email.toLowerCase().trim();
     if (!email || !input.password) {
@@ -70,8 +79,10 @@ class AuthService {
     if (await userRepository.findByEmail(email)) {
       throw APIError.alreadyExists("A user with this email already exists");
     }
+    const placement = await this.#checkPlacement(companyId, input);
     const passwordHash = await hash(input.password);
     const created = await userRepository.create({
+      ...placement,
       companyId,
       email,
       passwordHash,
@@ -90,7 +101,7 @@ class AuthService {
     id: string,
     companyId: string,
     actor: { userID: string; role: string },
-    patch: { displayName?: string; role?: string; password?: string },
+    patch: { displayName?: string; role?: string; password?: string } & OrgPlacement,
   ): Promise<AuthUserInfo | null> {
     if (patch.role !== undefined) {
       if (!isAdminLevel(actor.role)) throw APIError.permissionDenied("Only admins can change roles");
@@ -102,7 +113,7 @@ class AuthService {
     if (!isAdminLevel(actor.role) && target.role !== "user") {
       throw APIError.permissionDenied("Managers can only modify standard users");
     }
-    const changes: Record<string, unknown> = {};
+    const changes: Record<string, unknown> = { ...(await this.#checkPlacement(companyId, patch)) };
     if (patch.displayName !== undefined) changes.displayName = patch.displayName;
     if (patch.role !== undefined) changes.role = patch.role;
     if (patch.password) changes.passwordHash = await hash(patch.password);
@@ -171,8 +182,42 @@ class AuthService {
     }
   }
 
-  #toInfo(u: { id: string; companyId: string; email: string; displayName: string; role: string }): AuthUserInfo {
-    return { id: u.id, companyId: u.companyId, email: u.email, displayName: u.displayName, role: u.role };
+  // A user can only be placed in a department/branch of their own company.
+  async #checkPlacement(companyId: string, input: OrgPlacement): Promise<OrgPlacement> {
+    const placement: OrgPlacement = {};
+    if (input.departmentId !== undefined) {
+      if (input.departmentId && !(await departmentRepository.getByIdForCompany(input.departmentId, companyId))) {
+        throw APIError.invalidArgument("Unknown department");
+      }
+      placement.departmentId = input.departmentId || null;
+    }
+    if (input.branchId !== undefined) {
+      if (input.branchId && !(await branchRepository.getByIdForCompany(input.branchId, companyId))) {
+        throw APIError.invalidArgument("Unknown branch");
+      }
+      placement.branchId = input.branchId || null;
+    }
+    return placement;
+  }
+
+  #toInfo(u: {
+    id: string;
+    companyId: string;
+    email: string;
+    displayName: string;
+    role: string;
+    departmentId: string | null;
+    branchId: string | null;
+  }): AuthUserInfo {
+    return {
+      id: u.id,
+      companyId: u.companyId,
+      email: u.email,
+      displayName: u.displayName,
+      role: u.role,
+      departmentId: u.departmentId,
+      branchId: u.branchId,
+    };
   }
 
   async #createToken(userId: string, companyId: string, role: string): Promise<string> {
