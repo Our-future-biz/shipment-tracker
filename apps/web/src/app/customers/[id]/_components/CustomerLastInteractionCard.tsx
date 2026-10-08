@@ -14,10 +14,14 @@ interface CustomerLastInteractionCardProps {
 
 // Teaser of the newest entry of the Communication tab.
 export function CustomerLastInteractionCard({ customerId, onSelectTab }: CustomerLastInteractionCardProps) {
-  const { notes, isLoading } = useCustomerNotes(customerId);
+  const { notes, isLoading, isError } = useCustomerNotes(customerId);
   // The API returns notes newest first.
   const lastNote = notes[0];
   const lastNoteDays = daysSince(lastNote?.createdAt);
+
+  let emptyText = "No interactions logged yet.";
+  if (isLoading) emptyText = "Loading…";
+  if (isError) emptyText = "Could not load interactions.";
 
   return (
     <SectionCard
@@ -44,7 +48,7 @@ export function CustomerLastInteractionCard({ customerId, onSelectTab }: Custome
           <p className="m-0 text-slate-700 line-clamp-3 [overflow-wrap:anywhere]">{lastNote.content}</p>
         </div>
       ) : (
-        <p className="m-0 text-[13px] text-slate-400">{isLoading ? "Loading…" : "No interactions logged yet."}</p>
+        <p className="m-0 text-[13px] text-slate-400">{emptyText}</p>
       )}
     </SectionCard>
   );

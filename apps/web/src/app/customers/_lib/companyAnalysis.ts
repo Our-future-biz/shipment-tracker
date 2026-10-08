@@ -78,10 +78,10 @@ export function getNaceInfo(codes: string[]): { primary: NaceHit | null; seconda
   return { primary: results[0] ?? null, secondary: results.slice(1) };
 }
 
-export function calcCompanyAge(regDate: string): { years: number; label: string } {
+export function calcCompanyAge(regDate: string, now = Date.now()): { years: number; label: string } {
   const registered = regDate ? new Date(regDate).getTime() : NaN;
   if (Number.isNaN(registered)) return { years: 0, label: "—" };
-  const years = Math.floor((Date.now() - registered) / (1000 * 60 * 60 * 24 * 365.25));
+  const years = Math.floor((now - registered) / (1000 * 60 * 60 * 24 * 365.25));
   if (years <= 0) return { years, label: "< 1 year" };
   return { years, label: years === 1 ? "1 year" : `${years} years` };
 }
@@ -96,9 +96,9 @@ export function isRegistryActive(companyStatus: string): boolean {
 }
 
 // A company registered less than two years ago.
-export function isNewCompany(regDate: string): boolean {
+export function isNewCompany(regDate: string, now = Date.now()): boolean {
   if (!regDate || Number.isNaN(new Date(regDate).getTime())) return false;
-  return calcCompanyAge(regDate).years < 2;
+  return calcCompanyAge(regDate, now).years < 2;
 }
 
 export function calcRisk(

@@ -31,6 +31,8 @@ export const useCustomerNotes = (customerId: string) => {
   return {
     notes: query.data?.data ?? [],
     isLoading: query.isLoading,
+    // True only when the request failed and there is nothing to show.
+    isError: query.isLoadingError,
     createNote: createMutation.mutateAsync,
     deleteNote: deleteMutation.mutateAsync,
   };
