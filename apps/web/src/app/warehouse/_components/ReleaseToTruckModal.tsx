@@ -19,7 +19,7 @@ export function ReleaseToTruckModal({
   /** Releases the shipments on the truck (null: a new one); resolves to whether it went through. */
   onRelease: (shipmentIds: string[], truck: string | null) => Promise<boolean>;
 }) {
-  const { shipments } = useShipments();
+  const { shipments } = useShipments({ warehouse: "out" });
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [existing, setExisting] = useState<string>();
   const [releasing, setReleasing] = useState(false);

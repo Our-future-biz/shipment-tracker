@@ -15,7 +15,7 @@ export function WarehouseShipmentContent() {
   const { shipmentId } = useParams<{ shipmentId: string }>();
   const from = useSearchParams().get("from") ?? "";
   const section: WarehouseSection = from in WAREHOUSE_SECTIONS ? (from as WarehouseSection) : "in";
-  const { shipments, isLoading } = useShipments();
+  const { shipments, isLoading } = useShipments({ warehouse: section });
   const shipment = shipments.find((s) => s.id === shipmentId);
   const back = (
     <Link href={`/warehouse/${section}`} className="inline-flex items-center gap-1.5 text-[13px] text-indigo-500 hover:text-indigo-600">

@@ -1054,6 +1054,7 @@ export namespace shipments {
                 status:        params.status,
                 statusBucket:  params.statusBucket,
                 tile:          params.tile,
+                warehouse:     params.warehouse,
             })
 
             // Now make the actual call to the API
@@ -2092,6 +2093,11 @@ export namespace controllers {
          * Overview tile filter: active | attention | import | export | week | nextweek
          */
         tile?: string
+
+        /**
+         * Warehouse page filter: in | stock | out
+         */
+        warehouse?: string
 
         search?: string
     }

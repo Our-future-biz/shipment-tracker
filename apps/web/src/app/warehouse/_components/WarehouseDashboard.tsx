@@ -73,14 +73,24 @@ function columnsFor(section: WarehouseSection, chosen: string[], openDimensions:
 
 export function WarehouseDashboard() {
   const { user, token } = useAuth();
-  const { shipments, isLoading, updateShipment } = useShipments();
+  // Each section is its own server-side query, so none is cut short by the page size of
+  // the shipments list.
+  const inQuery = useShipments({ warehouse: "in" });
+  const stockQuery = useShipments({ warehouse: "stock" });
+  const outQuery = useShipments({ warehouse: "out" });
+  const isLoading = inQuery.isLoading || stockQuery.isLoading || outQuery.isLoading;
+  const { updateShipment } = inQuery;
   const toast = useToast();
   const [dimsShipmentId, setDimsShipmentId] = useState<string | null>(null);
   const { visible, setVisible, templates, activeTemplateId, isDirty, applyTemplate, deactivate, saveAsTemplate, deleteTemplate } =
     useColumnView(user?.id, token, COLUMN_VIEW);
-  const bySection = useMemo(
-    () => Object.fromEntries(ORDER.map((k) => [k, shipments.filter(WAREHOUSE_RULES[k])])) as Record<WarehouseSection, ShipmentItem[]>,
-    [shipments],
+  const bySection = useMemo<Record<WarehouseSection, ShipmentItem[]>>(
+    () => ({
+      in: inQuery.shipments.filter(WAREHOUSE_RULES.in),
+      stock: stockQuery.shipments.filter(WAREHOUSE_RULES.stock),
+      out: outQuery.shipments.filter(WAREHOUSE_RULES.out),
+    }),
+    [inQuery.shipments, stockQuery.shipments, outQuery.shipments],
   );
 
   return (
@@ -130,7 +140,7 @@ export function WarehouseDashboard() {
         ))}
 
         <DimensionsModal
-          shipment={shipments.find((s) => s.id === dimsShipmentId) ?? null}
+          shipment={ORDER.flatMap((k) => bySection[k]).find((s) => s.id === dimsShipmentId) ?? null}
           onClose={() => setDimsShipmentId(null)}
           onSave={(shipment, cargoDimensions) =>
             updateShipment({ id: shipment.id, data: { cargoDimensions } }).catch((e) => {

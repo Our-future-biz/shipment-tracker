@@ -14,6 +14,8 @@ interface ShipmentListRequest {
   statusBucket?: string;
   /** Overview tile filter: active | attention | import | export | week | nextweek */
   tile?: string;
+  /** Warehouse page filter: in | stock | out */
+  warehouse?: string;
   search?: string;
 }
 
@@ -34,6 +36,7 @@ export const shipmentList = api(
       status: req.status,
       statusBucket: req.statusBucket,
       tile: req.tile,
+      warehouse: req.warehouse,
       search: req.search,
       limit: Math.min(req.limit ?? 100, 200),
       offset: req.offset ?? 0,

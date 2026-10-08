@@ -4,13 +4,14 @@ import { useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useShipments } from "@/hooks/useShipments";
 import { ShipmentsTable, type ShipmentsTableProps } from "@/app/shipments/_components/ShipmentsTable";
-import { useDebounced } from "@/app/shipments/_components/ShipmentsView";
+import { useDebounced } from "@/hooks/useDebounced";
 import { WAREHOUSE_DEFAULT_COLUMNS, WAREHOUSE_LEAD_COLUMN, WAREHOUSE_RULES, WAREHOUSE_SECTIONS, type WarehouseSection } from "./warehouseRules";
 
 // A Warehouse page (In / Out Warehouse, Stock) as a view of the shipments: the Shipments
 // table itself over the same live rows. Nothing is copied, so an edit made here is an edit
 // of the shipment. Shipments are not created or grouped into master jobs from here.
-// The page lists the shipments its section's rule picks (warehouseRules).
+// The server lists the shipments at the section's step; the same rule (warehouseRules) is
+// applied to the cached rows too, so a shipment just moved leaves the page at once.
 // A reference opens the shipment's warehouse view (/warehouse/<id>), not the shipment itself.
 export function WarehouseShipmentsView({
   section,
@@ -23,7 +24,7 @@ export function WarehouseShipmentsView({
   const searchParams = useSearchParams();
   const search = useDebounced(searchParams.get("q") ?? "", 300);
   const statusBucket = searchParams.get("status") ?? "all";
-  const { shipments: all, isLoading } = useShipments({ search, statusBucket });
+  const { shipments: all, isLoading } = useShipments({ search, statusBucket, warehouse: section });
   const shipments = useMemo(() => all.filter(WAREHOUSE_RULES[section]), [all, section]);
 
   return (

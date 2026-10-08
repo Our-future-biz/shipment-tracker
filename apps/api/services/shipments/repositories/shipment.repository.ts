@@ -51,6 +51,23 @@ const TILE_PREDICATES = {
 
 export type TileId = keyof typeof TILE_PREDICATES;
 
+/**
+ * Which shipments each Warehouse page lists, by the two dates a shipment carries:
+ * In Warehouse → (received) → Stock → (released) → Out Warehouse. In Warehouse holds the
+ * ones not yet received whose ETA Warehouse/HUB is less than 7 days away (or passed).
+ * The web app applies the same rules (warehouseRules.ts) to its cached rows.
+ */
+const WAREHOUSE_PREDICATES = {
+  in: sql`${shipmentTable.warehouseReceivedDate} IS NULL
+    AND ${shipmentTable.warehouseReleasedDate} IS NULL
+    AND ${shipmentTable.etaWarehouse} IS NOT NULL
+    AND ${shipmentTable.etaWarehouse} < CURRENT_DATE + 7`,
+  stock: sql`${shipmentTable.warehouseReceivedDate} IS NOT NULL AND ${shipmentTable.warehouseReleasedDate} IS NULL`,
+  out: sql`${shipmentTable.warehouseReleasedDate} IS NOT NULL`,
+} as const;
+
+export type WarehouseSectionId = keyof typeof WAREHOUSE_PREDICATES;
+
 export interface ShipmentListFilters {
   /** Overview tile filter: active | attention | import | export | week | nextweek */
   tile?: string;
@@ -58,6 +75,8 @@ export interface ShipmentListFilters {
   status?: string;
   /** UI status bucket — a coarse grouping over the many free-text status values. */
   statusBucket?: string;
+  /** Warehouse page: in | stock | out */
+  warehouse?: string;
   search?: string;
   limit: number;
   offset: number;
@@ -160,6 +179,10 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     }
     if (f.tile && f.tile !== "all") {
       const predicate = TILE_PREDICATES[f.tile as TileId];
+      if (predicate) clauses.push(predicate);
+    }
+    if (f.warehouse) {
+      const predicate = WAREHOUSE_PREDICATES[f.warehouse as WarehouseSectionId];
       if (predicate) clauses.push(predicate);
     }
     if (f.search) {

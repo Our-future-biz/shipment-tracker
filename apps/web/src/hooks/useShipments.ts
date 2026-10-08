@@ -52,6 +52,8 @@ export interface ShipmentQueryParams {
   statusBucket?: string;
   /** Overview tile filter, matched server-side. */
   tile?: string;
+  /** Warehouse page (in | stock | out), matched server-side. */
+  warehouse?: string;
 }
 
 export const useShipments = (params: ShipmentQueryParams = {}) => {
@@ -60,12 +62,13 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
   const search = params.search?.trim() || undefined;
   const statusBucket = params.statusBucket && params.statusBucket !== "all" ? params.statusBucket : undefined;
   const tile = params.tile && params.tile !== "all" ? params.tile : undefined;
+  const warehouse = params.warehouse || undefined;
 
   // Search and status are applied server-side (scoped to the company), so they cover the
   // whole dataset rather than only the rows already loaded in the browser.
   const query = useQuery({
-    queryKey: ["shipments", search ?? "", statusBucket ?? "", tile ?? ""],
-    queryFn: () => api.shipments.shipmentList({ limit: 200, search, statusBucket, tile }),
+    queryKey: ["shipments", search ?? "", statusBucket ?? "", tile ?? "", warehouse ?? ""],
+    queryFn: () => api.shipments.shipmentList({ limit: 200, search, statusBucket, tile, warehouse }),
     placeholderData: (prev) => prev,
   });
 
