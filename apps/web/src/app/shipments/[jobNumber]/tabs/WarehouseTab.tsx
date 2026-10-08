@@ -6,7 +6,7 @@ import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { buildRowData, type ShipmentItem } from "@/hooks/useShipments";
+import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
@@ -71,6 +71,7 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
                 <Row label="Volume (CBM)" value={shipment.totalVolumeCbm} />
                 <Row label="W/M" value={computeWM(shipment.totalWeightTons, shipment.totalVolumeCbm)} />
                 <Row label="Plate number" value={shipment.plateNumber} />
+                <Row label="Dimensions" value={getFieldValue(shipment, "dimensionsSummary")} />
               </div>
             </div>
           </Card>

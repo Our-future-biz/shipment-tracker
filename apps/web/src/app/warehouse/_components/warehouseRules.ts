@@ -11,7 +11,7 @@ export const WAREHOUSE_SECTIONS = { in: "In Warehouse", stock: "Stock", out: "Ou
 export type WarehouseSection = keyof typeof WAREHOUSE_SECTIONS;
 
 /** The columns a warehouse list starts with, until the user picks their own. */
-export const WAREHOUSE_DEFAULT_COLUMNS = ["jobNumber", "warehouseReference", "customer", "etaWarehouse", "warehouseReceivedDate", "warehouseReleasedDate", "warehouseTruck", "plateNumber", "status"];
+export const WAREHOUSE_DEFAULT_COLUMNS = ["jobNumber", "warehouseReference", "customer", "etaWarehouse", "warehouseReceivedDate", "warehouseReleasedDate", "warehouseTruck", "plateNumber", "dimensionsSummary", "status"];
 
 /**
  * The reference a section goes by, shown as the first column with Internal Reference next

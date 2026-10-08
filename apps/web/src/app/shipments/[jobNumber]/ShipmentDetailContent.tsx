@@ -664,6 +664,7 @@ const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "totalTeu", label: "Total TEU", ro: true },
   { key: "totalGrossWeightKg", label: "Total gross weight (kg)", ro: true },
   { key: "totalVolumeM3", label: "Total volume (m³)", ro: true },
+  { key: "dimensionsSummary", label: "Dimensions", ro: true },
   { key: "insurance", label: "Insurance" },
   { key: "creditCheck", label: "Credit check" },
   { key: "approvedBy", label: "Approved by" },

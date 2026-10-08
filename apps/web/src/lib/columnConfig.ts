@@ -90,7 +90,7 @@ export const DATE_COLUMNS = new Set([
 export const COMPUTED_COLUMNS = new Set([
   "teu", "totalWeightTons", "totalVolumeCbm", "freightTon", "surface", "profit",
   "estimatedDepartureWeek", "estimatedArrivalWeek", "actualDepartureWeek", "actualArrivalWeek",
-  "shipmentsDate", "shipmentsYear",
+  "shipmentsDate", "shipmentsYear", "dimensionsSummary",
 ]);
 
 // ─── Column Definitions (Full Sheet) ──────────────────────────────────
@@ -238,6 +238,8 @@ export const COLUMNS: ColumnDef[] = [
   // Data carrier for the dimension-derived computed columns (popup type is
   // hidden from every table/picker). Dimension rows live in cargo_dimension.
   { key: "dimensions", title: "Dimensions", width: 180, type: "popup", apiField: "cargoDimensions" },
+  // The dimension lines written out (2× 120×80×100 cm), one after another.
+  { key: "dimensionsSummary", title: "Dimensions", width: 220, type: "computed", readonly: true },
   // Read-only projections computed by the backend from containers + cargo lines
   { key: "containerTypeSummary", title: "Container Type", width: 150, type: "text", readonly: true, apiField: "containerTypeSummary" },
   { key: "totalTeu", title: "Total TEU", width: 90, type: "text", readonly: true, apiField: "totalTeu" },
@@ -551,6 +553,21 @@ export function computeDimensionTotals(dimensions: unknown): {
   }
 }
 
+/** The dimension lines as text: pieces × L×W×H in cm, lines separated by commas. */
+export function summarizeDimensions(dimensions: unknown): string {
+  if (!dimensions) return "";
+  try {
+    const rows: DimensionRow[] = Array.isArray(dimensions) ? dimensions : JSON.parse(String(dimensions));
+    const num = (v: string) => String(parseFloat(v || "0") || 0);
+    return rows
+      .filter((r) => [r.lengthCm, r.widthCm, r.heightCm].some((v) => parseFloat(v || "0") > 0))
+      .map((r) => `${num(r.pieces) === "0" ? "1" : num(r.pieces)}\u00d7 ${num(r.lengthCm)}\u00d7${num(r.widthCm)}\u00d7${num(r.heightCm)} cm`)
+      .join(", ");
+  } catch {
+    return "";
+  }
+}
+
 // ISO-8601 week number (weeks start Monday; week 1 contains the year's first Thursday).
 export function getISOWeek(date: Date): number {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -606,6 +623,8 @@ export function getComputedValue(key: string, rowData: Record<string, string>): 
     case "surface": {
       return dims.surface > 0 ? dims.surface.toFixed(2) : "";
     }
+    case "dimensionsSummary":
+      return summarizeDimensions(rowData["dimensions"] || "");
     case "profit": {
       const selling = rowData["selling"] || "";
       const buying = rowData["buying"] || "";
