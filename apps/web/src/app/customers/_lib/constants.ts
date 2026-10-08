@@ -10,25 +10,14 @@ export const DOCUMENT_TYPES = ["Contract", "NDA", "Power of attorney", "Customs"
 
 export const NOTE_TYPES = ["Note", "Email", "Call", "Follow-up", "Visit"] as const;
 
-export const INVOICE_STATUSES = ["Open", "Overdue", "Paid"] as const;
-
-export const TRANSPORT_MODES = ["AIR", "SEA", "ROAD", "RAIL"] as const;
-export const SHIPMENT_DIRECTIONS = ["IMPORT", "EXPORT"] as const;
+export const CURRENCIES = ["EUR", "USD", "CZK", "GBP", "CHF"] as const;
 
 export interface CustomerTab {
   key: string;
   label: string;
 }
 
-// The POC's Customer-database sidebar becomes per-route tabs.
-export const CUSTOMER_LIST_TABS: CustomerTab[] = [
-  { key: "all", label: "All Customers" },
-  { key: "active", label: "Active" },
-  { key: "prospects", label: "Prospects" },
-  { key: "key", label: "Key Accounts" },
-  { key: "risk", label: "At Risk" },
-];
-
+// The one tab strip of the customer detail (?tab=); every list about a customer lives in exactly one of them.
 export const CUSTOMER_DETAIL_TABS: CustomerTab[] = [
   { key: "overview", label: "Overview" },
   { key: "contacts", label: "Contacts" },
@@ -39,38 +28,70 @@ export const CUSTOMER_DETAIL_TABS: CustomerTab[] = [
   { key: "communication", label: "Communication" },
 ];
 
-const LABEL_STYLES: Record<string, { bg: string; text: string }> = {
-  "KEY ACCOUNT": { bg: "#fef9c3", text: "#a16207" },
-  STANDARD: { bg: "#f1f5f9", text: "#64748b" },
-  "TARGET CUSTOMER": { bg: "#f3e8ff", text: "#7e22ce" },
-  PROSPECT: { bg: "#dbeafe", text: "#1d4ed8" },
-  RISK: { bg: "#fee2e2", text: "#dc2626" },
+// Keys of the former standalone section pages, so an old ?tab= value lands on the tab that absorbed it.
+export const CUSTOMER_TAB_ALIASES: Record<string, string> = {
+  financial: "finance",
+  credit: "finance",
+  // Payment terms are edited in the CRM card on the Overview tab.
+  payment: "overview",
 };
 
-const DEFAULT_LABEL_STYLE = { bg: "#f1f5f9", text: "#64748b" };
+// Account type (label) badge colours, as Tailwind background + text classes.
+const LABEL_CLASSES: Record<string, string> = {
+  "KEY ACCOUNT": "bg-yellow-100 text-yellow-700",
+  STANDARD: "bg-slate-100 text-slate-500",
+  "TARGET CUSTOMER": "bg-purple-100 text-purple-700",
+  PROSPECT: "bg-blue-100 text-blue-700",
+  RISK: "bg-red-100 text-red-600",
+};
 
-export function labelStyle(label: string): { bg: string; text: string } {
-  return LABEL_STYLES[label] ?? DEFAULT_LABEL_STYLE;
+export function labelClass(label: string): string {
+  return LABEL_CLASSES[label] ?? "bg-slate-100 text-slate-500";
 }
 
 const STATUS_DOT: Record<string, string> = {
-  Active: "#16a34a",
-  Prospect: "#2563eb",
-  Inactive: "#94a3b8",
+  Active: "bg-green-600",
+  Prospect: "bg-blue-600",
+  Inactive: "bg-slate-400",
 };
 
-export function statusDotColor(status: string): string {
-  return STATUS_DOT[status] ?? "#94a3b8";
+export function statusDotClass(status: string): string {
+  return STATUS_DOT[status] ?? "bg-slate-400";
 }
 
-export const CURRENCIES = ["EUR", "USD", "CZK", "GBP", "CHF"] as const;
+// antd Tag colours for the categorical values of the section; unknown values fall back to "default".
+export const CONTACT_ROLE_COLORS: Record<string, string> = {
+  Sales: "blue",
+  Operations: "green",
+  Finance: "gold",
+};
 
-export function fmtMoney(n: number | null | undefined, currency = "EUR"): string {
-  const v = typeof n === "number" ? n : 0;
-  return `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${currency}`;
-}
+export const DOCUMENT_TYPE_COLORS: Record<string, string> = {
+  Contract: "blue",
+  NDA: "purple",
+  "Power of attorney": "gold",
+  Customs: "green",
+};
 
-export function marginPct(revenue: number, profit: number): number {
-  if (!revenue) return 0;
-  return Math.round((profit / revenue) * 100);
-}
+export const INVOICE_STATUS_COLORS: Record<string, string> = {
+  Open: "blue",
+  Overdue: "red",
+  Paid: "green",
+};
+
+export const NOTE_TYPE_COLORS: Record<string, string> = {
+  Email: "blue",
+  Call: "green",
+  "Follow-up": "gold",
+  Visit: "purple",
+};
+
+// Recharts palette of the customer finance charts.
+export const CHART_COLORS = {
+  revenue: "#6366f1",
+  cost: "#f97316",
+  profit: "#16a34a",
+  red: "#dc2626",
+  amber: "#d97706",
+  green: "#16a34a",
+};

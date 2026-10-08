@@ -7,6 +7,8 @@ interface QuoteListRequest {
   limit?: number;
   offset?: number;
   sortDirection?: "asc" | "desc";
+  /** Only the quotes made for this customer (the customer page's Quotes tab). */
+  customerId?: string;
 }
 
 interface QuoteListResponse {

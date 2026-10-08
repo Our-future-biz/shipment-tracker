@@ -1,8 +1,8 @@
 import { and, eq, or, ilike, isNull, like, desc, asc, count, sql } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { shipmentTable } from "../schemas/shipment.schema";
-import { IMPORT_TASK_COUNT, EXPORT_TASK_COUNT } from "../taskCatalog";
 
 /**
  * Predicates behind the Shipments overview tiles. Shared by the list filter and
@@ -11,42 +11,86 @@ import { IMPORT_TASK_COUNT, EXPORT_TASK_COUNT } from "../taskCatalog";
  * trade_direction is free text and has been written as both "Import" and
  * "IMPORT" over time, so every comparison against it is case-insensitive.
  */
+// The business's calendar day. The database runs in UTC, where CURRENT_DATE would still
+// be yesterday for the first hours of a Prague morning.
+const TODAY = sql`(now() AT TIME ZONE 'Europe/Prague')::date`;
+
 // Relevant date: export -> departure, otherwise arrival.
 const RELEVANT_ETA = sql`CASE WHEN lower(${shipmentTable.tradeDirection}) = 'export'
        THEN ${shipmentTable.estimatedDeparture}
        ELSE ${shipmentTable.estimatedArrival} END`;
 
 /**
- * Outstanding workflow tasks.
+ * What a shipment has to be ready for — the dates behind "Needs Attention".
  *
- * A shipment_task row only exists once someone ticks that task, and ticking is
- * write-once, so a `completed = false` row is never written — testing for one
- * would match nothing. Instead compare how many tasks have been ticked against
- * how many the shipment's direction defines (see taskCatalog.ts).
+ * Plain dates count while they are still ahead. The four compliance items carry a
+ * status, so they count only while that status says the work is open, and they stay
+ * on the list after their date has passed (`keepsOverdue`) until someone confirms them
+ * or the shipment departs:
+ *   VGM / SI   — by their closing date, unless Confirmed (VGM also: Not Applicable);
+ *   AMS / ISF  — when Pending, they must be filed 4 days before departure.
  *
- * The counts are bound as parameters, which Postgres types as text inside a
- * CASE — hence the ::int casts, without which `bigint < text` fails the query.
+ * Statuses are free text with decoration ("Confirmed (Green)"), hence the LIKE matches.
  */
-const HAS_OPEN_TASK = sql`(
-  SELECT COUNT(*) FROM shipment_task t
-  WHERE t.shipment_id = ${shipmentTable.id}
-    AND t.completed = true
-    AND t.deleted_at IS NULL
-) < CASE WHEN lower(${shipmentTable.tradeDirection}) = 'export'
-         THEN ${EXPORT_TASK_COUNT}::int ELSE ${IMPORT_TASK_COUNT}::int END`;
+const statusHas = (column: PgColumn, fragment: string) => sql`lower(${column}) LIKE ${`%${fragment}%`}`;
+const FILED_BEFORE_DEPARTURE = sql`${shipmentTable.estimatedDeparture} - 4`;
+
+const DEADLINE_DEFS = {
+  cargoReadinessDate: { date: sql`${shipmentTable.cargoReadinessDate}`, keepsOverdue: false },
+  closingDate: { date: sql`${shipmentTable.closingDate}`, keepsOverdue: false },
+  estimatedDeparture: { date: sql`${shipmentTable.estimatedDeparture}`, keepsOverdue: false },
+  estimatedArrival: { date: sql`${shipmentTable.estimatedArrival}`, keepsOverdue: false },
+  etaWarehouse: { date: sql`${shipmentTable.etaWarehouse}`, keepsOverdue: false },
+  plannedDeliveryDate: { date: sql`${shipmentTable.plannedDeliveryDate}`, keepsOverdue: false },
+  vgmClosing: {
+    date: sql`CASE WHEN NOT (${statusHas(shipmentTable.vgm, "confirmed")} OR ${statusHas(shipmentTable.vgm, "not applicable")})
+      THEN ${shipmentTable.vgmClosing} END`,
+    keepsOverdue: true,
+  },
+  siClosing: {
+    date: sql`CASE WHEN NOT ${statusHas(shipmentTable.shippingInstructions, "confirmed")} THEN ${shipmentTable.siClosing} END`,
+    keepsOverdue: true,
+  },
+  amsDeadline: {
+    date: sql`CASE WHEN ${statusHas(shipmentTable.ams, "pending")} THEN ${FILED_BEFORE_DEPARTURE} END`,
+    keepsOverdue: true,
+  },
+  isfDeadline: {
+    date: sql`CASE WHEN ${statusHas(shipmentTable.isf, "pending")} THEN ${FILED_BEFORE_DEPARTURE} END`,
+    keepsOverdue: true,
+  },
+};
+type DeadlineDef = (typeof DEADLINE_DEFS)[keyof typeof DEADLINE_DEFS];
+const DEADLINES = Object.values(DEADLINE_DEFS);
+
+/** Deadline fields that stay due after their date has passed, until their status is confirmed. */
+export const OVERDUE_DEADLINE_FIELDS: ReadonlySet<string> = new Set(
+  Object.entries(DEADLINE_DEFS).filter(([, d]) => d.keepsOverdue).map(([field]) => field),
+);
+
+// An overdue compliance item stays due only until the vessel sails; after that it can no
+// longer be acted on, and without this bound every old unconfirmed shipment would sit
+// on the list forever.
+const NOT_DEPARTED = sql`(${shipmentTable.estimatedDeparture} IS NULL OR ${shipmentTable.estimatedDeparture} >= ${TODAY})`;
+
+// Due within `days` days from today, today included (1 = today or tomorrow).
+const isDueWithin = ({ date, keepsOverdue }: DeadlineDef, days: number) =>
+  keepsOverdue
+    ? sql`((${date}) >= ${TODAY} OR ${NOT_DEPARTED}) AND (${date}) <= ${TODAY} + ${days}::int`
+    : sql`(${date}) BETWEEN ${TODAY} AND ${TODAY} + ${days}::int`;
+const anyDueWithin = (days: number) => sql`(${sql.join(DEADLINES.map((d) => isDueWithin(d, days)), sql` OR `)})`;
+
+const ACTIVE = sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`;
 
 const TILE_PREDICATES = {
-  active: sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`,
-  attention: sql`${RELEVANT_ETA} IS NOT NULL
-    AND ${RELEVANT_ETA} >= CURRENT_DATE
-    AND ${RELEVANT_ETA} <= CURRENT_DATE + 3
-    AND ${HAS_OPEN_TASK}`,
+  active: ACTIVE,
+  attention: sql`${ACTIVE} AND ${anyDueWithin(1)}`,
   import: sql`lower(${shipmentTable.tradeDirection}) = 'import'`,
   export: sql`lower(${shipmentTable.tradeDirection}) = 'export'`,
   week: sql`${RELEVANT_ETA} IS NOT NULL
-    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', CURRENT_DATE)`,
+    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', ${TODAY})`,
   nextweek: sql`${RELEVANT_ETA} IS NOT NULL
-    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', CURRENT_DATE + 7)`,
+    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', ${TODAY} + 7)`,
 } as const;
 
 export type TileId = keyof typeof TILE_PREDICATES;
@@ -61,7 +105,7 @@ const WAREHOUSE_PREDICATES = {
   in: sql`${shipmentTable.warehouseReceivedDate} IS NULL
     AND ${shipmentTable.warehouseReleasedDate} IS NULL
     AND ${shipmentTable.etaWarehouse} IS NOT NULL
-    AND ${shipmentTable.etaWarehouse} < CURRENT_DATE + 7`,
+    AND ${shipmentTable.etaWarehouse} < ${TODAY} + 7`,
   stock: sql`${shipmentTable.warehouseReceivedDate} IS NOT NULL AND ${shipmentTable.warehouseReleasedDate} IS NULL`,
   out: sql`${shipmentTable.warehouseReleasedDate} IS NOT NULL`,
 } as const;
@@ -201,7 +245,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     const direction = f.sortDirection === "asc" ? asc : desc;
 
     const [rows, [{ value: total }]] = await Promise.all([
-      this.db.select().from(shipmentTable).where(where).orderBy(direction(shipmentTable.createdAt)).limit(f.limit).offset(f.offset),
+      this.db.select().from(shipmentTable).where(where).orderBy(direction(shipmentTable.createdAt), direction(shipmentTable.id)).limit(f.limit).offset(f.offset),
       this.db.select({ value: count() }).from(shipmentTable).where(where),
     ]);
     return { data: rows, total: Number(total) };
@@ -212,8 +256,9 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
    * Counts for the Shipments overview tiles, computed in SQL over the whole
    * company dataset (not just the current page).
    *
-   * "attention" mirrors the mockup: a relevant ETA within 3 days AND at least
-   * one open task. Import uses estimatedArrival, export uses estimatedDeparture.
+   * "attention" is an active shipment with any deadline today or tomorrow, or an
+   * overdue compliance item — the same
+   * rows the 24-hour Needs Attention table lists.
    */
   async tileCounts(companyId: string) {
     const base = and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt));
@@ -238,6 +283,47 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       week: Number(row?.week ?? 0),
       nextWeek: Number(row?.nextWeek ?? 0),
     };
+  }
+
+  /**
+   * Active shipments with a deadline within `days` days from today (or an overdue
+   * compliance item), soonest deadline first, over the whole company dataset. `today` is the database's date, so the caller
+   * can tell how far off each returned date is.
+   */
+  async dueWithinDays(companyId: string, days: number) {
+    // LEAST ignores NULLs; a date outside the window is nulled so it cannot win the ordering.
+    const soonest = sql`LEAST(${sql.join(DEADLINES.map((d) => sql`CASE WHEN ${isDueWithin(d, days)} THEN (${d.date}) END`), sql`, `)})`;
+    // Each deadline's date, or NULL when it does not apply (no date, its work is confirmed,
+    // or it is overdue on a shipment that has already departed).
+    const dates = Object.fromEntries(
+      Object.entries(DEADLINE_DEFS).map(([field, d]) => [
+        field,
+        d.keepsOverdue
+          ? sql<string | null>`(CASE WHEN (${d.date}) >= ${TODAY} OR ${NOT_DEPARTED} THEN (${d.date}) END)::text`
+          : sql<string | null>`(${d.date})::text`,
+      ]),
+    ) as Record<keyof typeof DEADLINE_DEFS, ReturnType<typeof sql<string | null>>>;
+
+    return this.db
+      .select({
+        id: shipmentTable.id,
+        jobNumber: shipmentTable.jobNumber,
+        customerId: shipmentTable.customerId,
+        customer: shipmentTable.customer,
+        tradeDirection: shipmentTable.tradeDirection,
+        status: shipmentTable.status,
+        ...dates,
+        today: sql<string>`(${TODAY})::text`,
+      })
+      .from(shipmentTable)
+      .where(and(
+        eq(shipmentTable.companyId, companyId),
+        isNull(shipmentTable.deletedAt),
+        ACTIVE,
+        anyDueWithin(days),
+      ))
+      .orderBy(soonest, shipmentTable.jobNumber)
+      .limit(200);
   }
 
   /** The plate number of a truck (TCZ…): the one its shipments carry, "" if none has it yet. */

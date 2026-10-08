@@ -4,9 +4,12 @@ import { quoteRefSequenceRepository } from "../repositories/quoteRefSequence.rep
 import type { PaginationRequest } from "../../../lib/db/interface";
 
 class QuoteService {
-  async list(companyId: string, request: PaginationRequest) {
+  async list(companyId: string, request: PaginationRequest & { customerId?: string }) {
     const limit = Math.min(request.limit ?? 100, 1000);
-    const rows = await quoteRepository.listForCompany(companyId, limit + (request.offset ?? 0));
+    const fetchLimit = limit + (request.offset ?? 0);
+    const rows = request.customerId
+      ? await quoteRepository.listForCustomer(companyId, request.customerId, fetchLimit)
+      : await quoteRepository.listForCompany(companyId, fetchLimit);
     // listForCompany returns newest-first; apply offset/limit window here.
     const offset = request.offset ?? 0;
     const data = rows.slice(offset, offset + limit);

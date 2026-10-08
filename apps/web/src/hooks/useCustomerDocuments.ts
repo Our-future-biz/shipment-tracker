@@ -31,6 +31,8 @@ export const useCustomerDocuments = (customerId: string) => {
   return {
     documents: query.data?.data ?? [],
     isLoading: query.isLoading,
+    // True only when the request failed and there is nothing to show.
+    isError: query.isLoadingError,
     createDocument: createMutation.mutateAsync,
     deleteDocument: deleteMutation.mutateAsync,
   };

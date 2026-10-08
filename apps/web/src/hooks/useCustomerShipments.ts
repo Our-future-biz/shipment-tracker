@@ -2,9 +2,43 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { controllers, interfaces } from "@/lib/api/client";
+import type { interfaces } from "@/lib/api/client";
+import { NEEDS_ATTENTION_KEY } from "@/hooks/useShipmentsNeedingAttention";
 
 export type ShipmentItem = interfaces.ShipmentItem;
+
+// The API returns at most 200 shipments per request, newest first.
+const PAGE_SIZE = 200;
+
+// The most shipments the customer page loads. Beyond this the lists and charts cover only the
+// newest ones (and say so); the header totals always come from the server-side rollup.
+export const CUSTOMER_SHIPMENTS_LIMIT = 1000;
+
+// One shared empty list, so consumers memoising on `shipments` do not recompute while loading.
+const NO_SHIPMENTS: ShipmentItem[] = [];
+
+async function fetchCustomerShipments(customerId: string) {
+  const shipments: ShipmentItem[] = [];
+  const seen = new Set<string>();
+  let offset = 0;
+  let total = 0;
+  do {
+    const page = await api.shipments.shipmentList({ customerId, limit: PAGE_SIZE, offset });
+    total = page.pagination.total;
+    // A shipment created between two requests shifts every row down by one, so a page can start
+    // with a row the previous one ended on: keep each shipment once.
+    for (const shipment of page.data) {
+      if (seen.has(shipment.id)) continue;
+      seen.add(shipment.id);
+      shipments.push(shipment);
+    }
+    // The offset follows what the server returned, not what was kept, so the loop always advances.
+    offset += page.data.length;
+    // An empty page means the total moved under us; stop rather than ask forever.
+    if (page.data.length === 0) break;
+  } while (offset < total && shipments.length < CUSTOMER_SHIPMENTS_LIMIT);
+  return { shipments, total };
+}
 
 // The CRM "Shipments" tab reuses the shipments service, filtered by customerId.
 export const useCustomerShipments = (customerId: string) => {
@@ -13,39 +47,35 @@ export const useCustomerShipments = (customerId: string) => {
 
   const query = useQuery({
     queryKey: key,
-    queryFn: () => api.shipments.shipmentList({ customerId, limit: 200 }),
+    queryFn: () => fetchCustomerShipments(customerId),
     enabled: !!customerId,
-  });
-
-  // Shipment writes also recompute the customer's stored rollups server-side,
-  // so the customer queries must refresh together with the shipment list.
-  const invalidate = () => {
-    queryClient.invalidateQueries({ queryKey: key });
-    queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
-    queryClient.invalidateQueries({ queryKey: ["customers"] });
-  };
-
-  const createMutation = useMutation({
-    mutationFn: (params: controllers.ShipmentCreateRequest) => api.shipments.shipmentCreate(params),
-    onSuccess: invalidate,
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, params }: { id: string; params: controllers.ShipmentUpdateRequest }) =>
-      api.shipments.shipmentUpdate(id, params),
-    onSuccess: invalidate,
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.shipments.shipmentDelete(id),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      // Deleting a shipment also recomputes the customer's stored rollups server-side,
+      // so the customer queries must refresh together with the shipment list.
+      queryClient.invalidateQueries({ queryKey: key });
+      queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      // The delete is company-wide, so the Shipments module must drop the row as well.
+      queryClient.invalidateQueries({ queryKey: ["shipments"] });
+      queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
+      queryClient.invalidateQueries({ queryKey: ["shipment-tile-counts"] });
+    },
   });
 
+  const shipments = query.data?.shipments ?? NO_SHIPMENTS;
+
   return {
-    shipments: query.data?.data ?? [],
+    shipments,
+    // True when the customer has more shipments than were loaded.
+    isCapped: (query.data?.total ?? 0) > shipments.length,
     isLoading: query.isLoading,
-    createShipment: createMutation.mutateAsync,
-    updateShipment: updateMutation.mutateAsync,
+    // True only when the request failed and there is nothing to show.
+    isError: query.isLoadingError,
     deleteShipment: deleteMutation.mutateAsync,
+    isDeleting: deleteMutation.isPending,
   };
 };

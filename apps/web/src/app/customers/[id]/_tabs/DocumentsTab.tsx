@@ -1,83 +1,86 @@
 "use client";
 
 import { useState } from "react";
-import { Table, Button, Modal, Input, Select, Tag, Upload } from "antd";
-import { PlusOutlined, DeleteOutlined, UploadOutlined } from "@ant-design/icons";
+import { Button, Table, Tag } from "antd";
+import { DeleteOutlined, DownloadOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
-import { useCustomerDocuments, type DocumentItem } from "@/hooks/useCustomerDocuments";
-import { api } from "@/lib/api";
-import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { DOCUMENT_TYPES } from "../../_lib/constants";
+import { PillTabs, SectionCard } from "@/components/SectionCard";
+import { useCustomerDocuments } from "@/hooks/useCustomerDocuments";
+import type { DocumentItem } from "@/hooks/useCustomerDocuments";
+import { api } from "@/lib/api";
+import { formatDate } from "@/lib/date";
+import { downloadDataUrl, formatFileSize } from "@/lib/files";
+import { useToast } from "@/lib/toast";
+import { DOCUMENT_TYPES, DOCUMENT_TYPE_COLORS } from "../../_lib/constants";
+import { CustomerCountChip } from "../_components/CustomerCountChip";
+import { CustomerDocumentDialog } from "../_components/CustomerDocumentDialog";
+import type { CustomerDocumentInput } from "../_components/CustomerDocumentDialog";
+import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
 
-function formatSize(bytes: number): string {
-  if (!bytes) return "—";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+interface DocumentsTabProps {
+  customerId: string;
 }
 
-export function DocumentsTab({ customerId }: { customerId: string }) {
-  const { documents, isLoading, createDocument, deleteDocument } = useCustomerDocuments(customerId);
+const ALL_TYPES = "all";
+
+export function DocumentsTab({ customerId }: DocumentsTabProps) {
   const toast = useToast();
+  const { documents, isLoading, createDocument, deleteDocument } = useCustomerDocuments(customerId);
+  const [typeFilter, setTypeFilter] = useState(ALL_TYPES);
+  const [page, setPage] = useState(1);
   const [addOpen, setAddOpen] = useState(false);
+  const [downloadingIds, setDownloadingIds] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<DocumentItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  const [name, setName] = useState("");
-  const [type, setType] = useState("Other");
-  const [fileName, setFileName] = useState("");
-  const [fileType, setFileType] = useState("");
-  const [fileSize, setFileSize] = useState(0);
-  const [fileData, setFileData] = useState("");
+  const countOfType = (type: string) => documents.filter((d) => d.type === type).length;
+  const typeTabs = [
+    { key: ALL_TYPES, label: `All (${documents.length})` },
+    ...DOCUMENT_TYPES.map((type) => ({ key: type, label: `${type} (${countOfType(type)})` })),
+  ];
+  const visibleDocuments = typeFilter === ALL_TYPES ? documents : documents.filter((d) => d.type === typeFilter);
 
-  const resetForm = () => {
-    setName("");
-    setType("Other");
-    setFileName("");
-    setFileType("");
-    setFileSize(0);
-    setFileData("");
+  const handleTypeFilterChange = (key: string) => {
+    setTypeFilter(key);
+    setPage(1);
   };
 
-  const download = async (record: DocumentItem) => {
+  const handleCreate = async (input: CustomerDocumentInput) => {
+    await createDocument(input);
+    // A filter on another type would hide the document that was just added.
+    if (typeFilter !== ALL_TYPES && typeFilter !== input.type) handleTypeFilterChange(ALL_TYPES);
+  };
+
+  const handleDownload = async (doc: DocumentItem) => {
+    if (downloadingIds.includes(doc.id)) return;
+    setDownloadingIds((ids) => [...ids, doc.id]);
     try {
-      const res = await api.customers.documentContent(record.id);
-      const a = document.createElement("a");
-      a.href = res.fileData;
-      a.download = res.fileName || record.name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      // The list carries no file content; it is fetched only when a document is opened.
+      const content = await api.customers.documentContent(doc.id);
+      if (!content.fileData) {
+        toast.error("This document has no file attached");
+        return;
+      }
+      downloadDataUrl(content.fileData, content.fileName || doc.fileName || doc.name);
     } catch {
-      toast.error("Download failed");
+      toast.error("Failed to download the document");
+    } finally {
+      setDownloadingIds((ids) => ids.filter((id) => id !== doc.id));
     }
   };
 
-  const handleFile = (file: File) => {
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("File must be 10MB or smaller");
-      return Upload.LIST_IGNORE;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      setFileData(reader.result as string);
-      setFileName(file.name);
-      setFileType(file.type);
-      setFileSize(file.size);
-      setName((prev) => prev || file.name);
-    };
-    reader.readAsDataURL(file);
-    return false;
-  };
-
-  const submit = async () => {
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await createDocument({ name, type, fileName, fileType, fileSize, fileData });
-      toast.success("Document added");
-      resetForm();
-      setAddOpen(false);
+      await deleteDocument(deleteTarget.id);
+      toast.success("Document deleted");
+      setDeleteTarget(null);
     } catch {
-      toast.error("Failed to add document");
+      toast.error("Failed to delete the document");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -85,122 +88,89 @@ export function DocumentsTab({ customerId }: { customerId: string }) {
     {
       title: "Name",
       dataIndex: "name",
-      render: (v: string, record: DocumentItem) => (
-        <span
-          className="text-indigo-500 font-medium cursor-pointer"
-          onClick={() => download(record)}
+      render: (v: string, r) => (
+        <button
+          type="button"
+          title="Download"
+          onClick={() => handleDownload(r)}
+          className="p-0 border-none bg-transparent text-left text-indigo-600 hover:underline cursor-pointer"
         >
           {v}
-        </span>
+        </button>
       ),
     },
     {
       title: "Type",
       dataIndex: "type",
-      render: (v: string) => <Tag>{v}</Tag>,
+      render: (v: string) => (
+        <Tag color={DOCUMENT_TYPE_COLORS[v] ?? "default"} className="!m-0">
+          {v}
+        </Tag>
+      ),
     },
-    {
-      title: "File",
-      dataIndex: "fileName",
-      render: (v: string) => v || <span className="text-slate-300">—</span>,
-    },
-    {
-      title: "Size",
-      dataIndex: "fileSize",
-      render: (v: number) => formatSize(v),
-    },
-    {
-      title: "Uploaded",
-      dataIndex: "createdAt",
-      render: (v: string) => (v ? new Date(v).toLocaleDateString("en-GB") : <span className="text-slate-300">—</span>),
-    },
+    { title: "File", dataIndex: "fileName", render: (v: string) => v || EMPTY_CELL },
+    { title: "Size", dataIndex: "fileSize", render: (v: number) => (v ? formatFileSize(v) : EMPTY_CELL) },
+    { title: "Uploaded", dataIndex: "createdAt", render: (v: string) => formatDate(v) || EMPTY_CELL },
     {
       title: "",
       key: "actions",
-      width: 50,
-      render: (_: unknown, record: DocumentItem) => (
-        <Button
-          type="text"
-          size="small"
-          danger
-          icon={<DeleteOutlined />}
-          onClick={() => setDeleteTarget(record)}
-        />
+      width: 80,
+      render: (_: unknown, r) => (
+        <div className="flex justify-end gap-1">
+          <Button
+            type="text"
+            size="small"
+            icon={<DownloadOutlined />}
+            aria-label={`Download ${r.name}`}
+            loading={downloadingIds.includes(r.id)}
+            onClick={() => handleDownload(r)}
+          />
+          <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Delete ${r.name}`} onClick={() => setDeleteTarget(r)} />
+        </div>
       ),
     },
   ];
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">Documents</span>
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
-          Add Document
-        </Button>
-      </div>
-
-      <Table<DocumentItem>
-        size="small"
-        rowKey="id"
-        loading={isLoading}
-        dataSource={documents}
-        columns={columns}
-        pagination={false}
-        locale={{ emptyText: "No documents yet" }}
-      />
-
-      <Modal
-        open={addOpen}
-        onCancel={() => {
-          resetForm();
-          setAddOpen(false);
-        }}
-        onOk={submit}
-        title="Add Document"
-        okText="Add"
-        okButtonProps={{ disabled: !name }}
-        destroyOnHidden
+    <div className="space-y-5">
+      <SectionCard
+        title="Documents"
+        bodyClassName="p-2"
+        extra={
+          <>
+            <CustomerCountChip count={documents.length} />
+            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
+              Add Document
+            </Button>
+          </>
+        }
       >
-        <div className="flex flex-col gap-3 pt-2">
-          <div>
-            <div className="text-sm text-slate-600 mb-1">File</div>
-            <Upload beforeUpload={handleFile} maxCount={1} showUploadList={false}>
-              <Button icon={<UploadOutlined />}>Select file</Button>
-            </Upload>
-            {fileName && (
-              <div className="text-xs text-slate-500 mt-1">
-                {fileName} · {formatSize(fileSize)}
-              </div>
-            )}
-          </div>
-          <div>
-            <div className="text-sm text-slate-600 mb-1">Name</div>
-            <Input value={name} onChange={(e) => setName(e.target.value)} />
-          </div>
-          <div>
-            <div className="text-sm text-slate-600 mb-1">Type</div>
-            <Select
-              className="w-full"
-              value={type}
-              onChange={setType}
-              options={DOCUMENT_TYPES.map((t) => ({ value: t, label: t }))}
-            />
-          </div>
+        <div className="flex flex-wrap items-center gap-3 px-2 pb-3">
+          <PillTabs tabs={typeTabs} active={typeFilter} onChange={handleTypeFilterChange} />
         </div>
-      </Modal>
+        <Table<DocumentItem>
+          size="small"
+          rowKey="id"
+          loading={isLoading}
+          dataSource={visibleDocuments}
+          columns={columns}
+          scroll={{ x: "max-content" }}
+          pagination={{ ...TABLE_PAGINATION, current: page, onChange: setPage }}
+          locale={{ emptyText: typeFilter === ALL_TYPES ? "No documents yet" : "No documents of this type" }}
+        />
+      </SectionCard>
+
+      <CustomerDocumentDialog open={addOpen} onClose={() => setAddOpen(false)} onCreate={handleCreate} />
 
       <ConfirmModal
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
-        onConfirm={async () => {
-          if (deleteTarget) await deleteDocument(deleteTarget.id);
-          setDeleteTarget(null);
-          toast.success("Document removed");
-        }}
-        title="Remove document"
-        description={`Remove ${deleteTarget?.name}?`}
-        confirmLabel="Remove"
+        onConfirm={handleDelete}
+        title="Delete document"
+        description={`Delete ${deleteTarget?.name ?? "this document"}? This cannot be undone.`}
+        confirmLabel="Delete"
         danger
+        loading={deleting}
       />
     </div>
   );

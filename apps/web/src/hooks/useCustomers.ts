@@ -14,6 +14,20 @@ export interface CustomerQueryParams {
   country?: string;
 }
 
+// Query keys that hold one customer's record and its lists (see the useCustomer* hooks).
+const CUSTOMER_RECORD_KEYS = [
+  "customer",
+  "customer-contacts",
+  "customer-notes",
+  "customer-documents",
+  "customer-invoices",
+  "customer-shipments",
+  "customer-quotes",
+];
+
+// One shared empty list, so "nothing loaded" does not look like new data on every render.
+const NO_CUSTOMERS: CustomerItem[] = [];
+
 export const useCustomers = (params: CustomerQueryParams = {}) => {
   const queryClient = useQueryClient();
 
@@ -28,44 +42,43 @@ export const useCustomers = (params: CustomerQueryParams = {}) => {
     placeholderData: (prev) => prev,
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["customers"] });
-
   const createMutation = useMutation({
     mutationFn: (ico: string) => api.customers.customerCreate({ ico }),
-    onSuccess: invalidate,
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({ id, params }: { id: string; params: controllers.CustomerUpdateRequest }) =>
-      api.customers.customerUpdate(id, params),
-    onSuccess: (res) => {
-      invalidate();
-      queryClient.invalidateQueries({ queryKey: ["customer", res.customer.id] });
+    // Not awaited: creating a customer must not wait for the whole list to download again.
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
     },
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.customers.customerDelete(id),
-    onSuccess: invalidate,
-  });
-
   return {
-    customers: query.data?.data ?? [],
-    isLoading: query.isLoading,
+    customers: query.data?.data ?? NO_CUSTOMERS,
+    // True during every request, including a filter change where the previous rows stay on screen (placeholderData).
+    isFetching: query.isFetching,
+    isError: query.isError,
     createCustomer: createMutation.mutateAsync,
     isCreating: createMutation.isPending,
-    updateCustomer: updateMutation.mutateAsync,
-    deleteCustomer: deleteMutation.mutateAsync,
   };
 };
 
 export const useCustomer = (id: string | null) => {
   const queryClient = useQueryClient();
 
+  const deleteMutation = useMutation({
+    mutationFn: () => api.customers.customerDelete(id as string),
+    onSuccess: () => {
+      // Drop everything cached about the record: a failed refetch keeps the last good data, so
+      // Back or a link from one of its shipments would otherwise show the deleted customer as live.
+      for (const key of CUSTOMER_RECORD_KEYS) queryClient.removeQueries({ queryKey: [key, id] });
+      return queryClient.invalidateQueries({ queryKey: ["customers"] });
+    },
+  });
+
   const query = useQuery({
     queryKey: ["customer", id],
     queryFn: () => api.customers.customerGet(id as string),
-    enabled: !!id,
+    // After this instance deleted the record its cache entry is gone; do not request it again
+    // (a guaranteed 404) while the page navigates away.
+    enabled: !!id && !deleteMutation.isSuccess,
   });
 
   const invalidate = () => {
@@ -93,14 +106,12 @@ export const useCustomer = (id: string | null) => {
     onSuccess: invalidate,
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: () => api.customers.customerDelete(id as string),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
-  });
-
   return {
     customer: query.data?.customer ?? null,
     isLoading: query.isLoading,
+    // A failed load (not a missing record) — the page offers a retry instead of "not found".
+    isLoadError: query.isError && !query.data && (query.error as { status?: number } | null)?.status !== 404,
+    refetch: query.refetch,
     updateCustomer: updateMutation.mutateAsync,
     deleteCustomer: deleteMutation.mutateAsync,
     fetchLogo: fetchLogoMutation.mutateAsync,

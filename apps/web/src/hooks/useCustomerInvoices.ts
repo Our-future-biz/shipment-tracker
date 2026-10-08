@@ -18,11 +18,6 @@ export const useCustomerInvoices = (customerId: string) => {
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: key });
 
-  const createMutation = useMutation({
-    mutationFn: (params: controllers.InvoiceCreateRequest) => api.customers.invoiceCreate(customerId, params),
-    onSuccess: invalidate,
-  });
-
   const updateMutation = useMutation({
     mutationFn: ({ id, params }: { id: string; params: controllers.InvoiceUpdateRequest }) =>
       api.customers.invoiceUpdate(id, params),
@@ -37,7 +32,10 @@ export const useCustomerInvoices = (customerId: string) => {
   return {
     invoices: query.data?.data ?? [],
     isLoading: query.isLoading,
-    createInvoice: createMutation.mutateAsync,
+    // True only when the request failed and there is nothing to show; a failed background
+    // refresh keeps the invoices already loaded.
+    isError: query.isLoadingError,
+    refetch: query.refetch,
     updateInvoice: updateMutation.mutateAsync,
     deleteInvoice: deleteMutation.mutateAsync,
   };

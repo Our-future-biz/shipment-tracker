@@ -32,6 +32,9 @@ interface CustomerPatch {
   lastActivityDate?: string;
 }
 
+// Must match the "PREPAYMENT" option of the web app's payment-terms selects (customers/_lib/constants.ts).
+const NEW_CUSTOMER_PAYMENT_TERMS = "PREPAYMENT";
+
 class CustomerService {
   async list(companyId: string, filters: CustomerListFilters = {}) {
     return customerRepository.listFiltered(companyId, filters);
@@ -65,6 +68,10 @@ class CustomerService {
       lastRegistryUpdate: new Date().toISOString().split("T")[0],
       status: "Prospect",
       label: "PROSPECT",
+      // A new customer pays in advance until payment terms are agreed and set on its page.
+      paymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
+      freightPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
+      dutyPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
     } as never);
   }
 

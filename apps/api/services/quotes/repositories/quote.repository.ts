@@ -1,4 +1,4 @@
-import { and, eq, isNull, like } from "drizzle-orm";
+import { and, desc, eq, isNull, like, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { quoteTable } from "../schemas/quote.schema";
@@ -21,6 +21,20 @@ class QuoteRepository extends TenantRepository<typeof quoteTable> {
       .from(quoteTable)
       .where(and(eq(quoteTable.companyId, companyId), like(quoteTable.quoteNumber, `${prefix}%`)));
     return rows.map((r) => r.quoteNumber);
+  }
+
+  // The customer a quote is for lives inside its JSON data (data.customerId), newest first.
+  async listForCustomer(companyId: string, customerId: string, limit: number) {
+    return this.db
+      .select()
+      .from(quoteTable)
+      .where(and(
+        eq(quoteTable.companyId, companyId),
+        isNull(quoteTable.deletedAt),
+        sql`${quoteTable.data}->>'customerId' = ${customerId}`,
+      ))
+      .orderBy(desc(quoteTable.createdAt))
+      .limit(limit);
   }
 
   async updateData(quoteNumber: string, companyId: string, data: unknown) {

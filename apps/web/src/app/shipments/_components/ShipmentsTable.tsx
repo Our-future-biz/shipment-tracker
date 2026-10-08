@@ -31,6 +31,7 @@ import { useFilterTemplates } from "@/hooks/useFilterTemplates";
 import { useToast } from "@/lib/toast";
 import { ColumnPicker } from "./ColumnPicker";
 import { OverviewTiles, type TileId } from "./OverviewTiles";
+import { NeedsAttentionTable } from "./NeedsAttentionTable";
 import { MasterJobDetailModal } from "./MasterJobDetailModal";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { DimensionsModal } from "./DimensionsModal";
@@ -600,6 +601,8 @@ export const ShipmentsTable = ({
         </div>
         {!view && <OverviewTiles active={activeTile} onSelect={setActiveTile} />}
       </div>
+
+      {!view && <NeedsAttentionTable />}
 
       {/* Filters Row */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">

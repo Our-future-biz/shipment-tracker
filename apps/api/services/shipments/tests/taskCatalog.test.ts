@@ -5,9 +5,8 @@ import { describe, it, expect } from "vitest";
 import { IMPORT_TASK_KEYS, EXPORT_TASK_KEYS } from "../taskCatalog";
 
 /**
- * The "Needs Attention" tile counts completed tasks against the number of tasks
- * the shipment's direction defines, so the backend's key list has to match the
- * frontend's. This test is the guard against the two drifting apart.
+ * The backend's task key lists have to match the frontend's task definitions.
+ * This test is the guard against the two drifting apart.
  */
 
 const FRONTEND_TASK_DEFINITIONS = resolve(

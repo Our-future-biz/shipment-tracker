@@ -18,7 +18,9 @@ interface DocumentCreateResponse {
 }
 
 export const documentCreate = api(
-  { expose: true, auth: true, method: "POST", path: "/customers/:customerId/documents" },
+  // 20 MiB — the web app accepts files up to 10 MB and sends them as a base64 data URL (~33% larger),
+  // which does not fit Encore's 2 MiB default.
+  { expose: true, auth: true, method: "POST", path: "/customers/:customerId/documents", bodyLimit: 20 * 1024 * 1024 },
   async (req: DocumentCreateRequest): Promise<DocumentCreateResponse> => {
     if (!req.name) {
       throw APIError.invalidArgument("name is required");

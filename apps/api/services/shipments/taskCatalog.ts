@@ -46,6 +46,3 @@ export const EXPORT_TASK_KEYS = [
   "exp_billed",
   "exp_bl_provided",
 ] as const;
-
-export const IMPORT_TASK_COUNT = IMPORT_TASK_KEYS.length;
-export const EXPORT_TASK_COUNT = EXPORT_TASK_KEYS.length;

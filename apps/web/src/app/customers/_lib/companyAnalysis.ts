@@ -78,10 +78,27 @@ export function getNaceInfo(codes: string[]): { primary: NaceHit | null; seconda
   return { primary: results[0] ?? null, secondary: results.slice(1) };
 }
 
-export function calcCompanyAge(regDate: string): { years: number; label: string } {
-  if (!regDate) return { years: 0, label: "—" };
-  const years = Math.floor((Date.now() - new Date(regDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25));
-  return { years, label: years <= 0 ? "< 1 year" : `${years} years` };
+export function calcCompanyAge(regDate: string, now = Date.now()): { years: number; label: string } {
+  const registered = regDate ? new Date(regDate).getTime() : NaN;
+  if (Number.isNaN(registered)) return { years: 0, label: "—" };
+  const years = Math.floor((now - registered) / (1000 * 60 * 60 * 24 * 365.25));
+  if (years <= 0) return { years, label: "< 1 year" };
+  return { years, label: years === 1 ? "1 year" : `${years} years` };
+}
+
+// The registry's company status. An empty value means "not known" and is treated as fine;
+// "inactive" must not pass just because it contains "active".
+export function isRegistryActive(companyStatus: string): boolean {
+  const status = companyStatus.trim().toLowerCase();
+  if (!status) return true;
+  if (status.includes("inactive") || status.includes("neaktiv")) return false;
+  return status.includes("active") || status.includes("aktiv");
+}
+
+// A company registered less than two years ago.
+export function isNewCompany(regDate: string, now = Date.now()): boolean {
+  if (!regDate || Number.isNaN(new Date(regDate).getTime())) return false;
+  return calcCompanyAge(regDate, now).years < 2;
 }
 
 export function calcRisk(
@@ -91,12 +108,11 @@ export function calcRisk(
 ): { level: RiskLevel; reasons: string[] } {
   const reasons: string[] = [];
   let level: RiskLevel = "Low";
-  const { years } = calcCompanyAge(regDate);
-  if (status && !status.toLowerCase().includes("active")) {
+  if (!isRegistryActive(status)) {
     reasons.push("Registry status: " + status);
     level = "High";
   }
-  if (years < 2 && regDate) {
+  if (isNewCompany(regDate)) {
     reasons.push("New company (< 2 years)");
     if (level === "Low") level = "Medium";
   }
@@ -109,8 +125,9 @@ export function calcRisk(
   return { level, reasons };
 }
 
-export const RISK_COLOR: Record<RiskLevel, { bg: string; text: string }> = {
-  Low: { bg: "#dcfce7", text: "#16a34a" },
-  Medium: { bg: "#fef3c7", text: "#d97706" },
-  High: { bg: "#fee2e2", text: "#dc2626" },
+// Tailwind background + text classes of the risk-level pill.
+export const RISK_CLASS: Record<RiskLevel, string> = {
+  Low: "bg-green-100 text-green-600",
+  Medium: "bg-amber-100 text-amber-600",
+  High: "bg-red-100 text-red-600",
 };

@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { NEEDS_ATTENTION_KEY } from "./useShipmentsNeedingAttention";
 import { api } from "@/lib/api";
 import { COLUMNS, COLUMN_MAP, getComputedValue, COMPUTED_COLUMNS } from "@/lib/columnConfig";
 import type { interfaces, controllers } from "@/lib/api/client";
@@ -72,9 +73,29 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     placeholderData: (prev) => prev,
   });
 
+  // Shipment writes recompute the linked customer's rollups server-side and change the rows of
+  // the customer page, so its caches must not keep serving the old copy.
+  // Any shipment write can also move it onto or off the Needs Attention cards and tiles.
+  const invalidateDerivedViews = () => {
+    queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
+    queryClient.invalidateQueries({ queryKey: ["shipment-tile-counts"] });
+  };
+
+  const invalidateCustomerViews = () => {
+    queryClient.invalidateQueries({ queryKey: ["customer"] });
+    queryClient.invalidateQueries({ queryKey: ["customer-shipments"] });
+    // Only marked stale: the shipment page keeps the customers list mounted (CustomerLinkField)
+    // and it must not be downloaded again on every cell edit.
+    queryClient.invalidateQueries({ queryKey: ["customers"], refetchType: "none" });
+  };
+
   const createMutation = useMutation({
     mutationFn: (params: controllers.ShipmentCreateRequest) => api.shipments.shipmentCreate(params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+    onSuccess: () => {
+      invalidateCustomerViews();
+      invalidateDerivedViews();
+      return queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    },
   });
 
   const updateMutation = useMutation({
@@ -103,12 +124,21 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     onError: (_err, _vars, ctx) => {
       ctx?.prev?.forEach(([key, value]) => queryClient.setQueryData(key, value));
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["shipments"] });
+      // An edited date can put the shipment on, or take it off, the Needs Attention list.
+      invalidateDerivedViews();
+      invalidateCustomerViews();
+    },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.shipments.shipmentDelete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+    onSuccess: () => {
+      invalidateCustomerViews();
+      invalidateDerivedViews();
+      return queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    },
   });
 
   const linkMasterJobMutation = useMutation({

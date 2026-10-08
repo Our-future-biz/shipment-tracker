@@ -74,7 +74,8 @@ export function validityInfo(data: SalesQuoteData): { date: string | null; expir
   if (!data.sentAt || !data.validityDays) return { date: null, expired: false };
   const sent = new Date(data.sentAt);
   const due = new Date(sent.getTime() + data.validityDays * 86400000);
-  const date = due.toISOString().slice(0, 10);
+  // The day on the viewer's calendar: toISOString() would give the UTC day, one early for a quote sent after midnight in CET.
+  const date = `${due.getFullYear()}-${String(due.getMonth() + 1).padStart(2, "0")}-${String(due.getDate()).padStart(2, "0")}`;
   return { date, expired: due.getTime() < Date.now() };
 }
 

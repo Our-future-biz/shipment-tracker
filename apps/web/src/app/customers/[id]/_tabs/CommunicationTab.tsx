@@ -1,127 +1,156 @@
 "use client";
 
-import { useState } from "react";
-import { Button, Modal, Form, Input, Select, Tag, Spin } from "antd";
-import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
-import { useCustomerNotes, type NoteItem } from "@/hooks/useCustomerNotes";
-import { useToast } from "@/lib/toast";
+import { useMemo, useState } from "react";
+import { Button, Spin, Tag } from "antd";
+import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { NOTE_TYPES } from "../../_lib/constants";
+import { PillTabs, SectionCard } from "@/components/SectionCard";
+import { useCustomerNotes } from "@/hooks/useCustomerNotes";
+import type { NoteItem } from "@/hooks/useCustomerNotes";
+import { formatDateTime } from "@/lib/date";
+import { useToast } from "@/lib/toast";
+import { NOTE_TYPES, NOTE_TYPE_COLORS } from "../../_lib/constants";
+import { CustomerCountChip } from "../_components/CustomerCountChip";
+import { CustomerNoteDialog } from "../_components/CustomerNoteDialog";
+import type { CustomerNoteFormValues } from "../_components/CustomerNoteDialog";
 
-function typeColor(type: string): string {
-  switch (type) {
-    case "Email":
-      return "blue";
-    case "Call":
-      return "green";
-    case "Follow-up":
-      return "gold";
-    case "Visit":
-      return "purple";
-    default:
-      return "default";
-  }
-}
+const ALL_TYPES = "all";
 
 export function CommunicationTab({ customerId }: { customerId: string }) {
   const { notes, isLoading, createNote, deleteNote } = useCustomerNotes(customerId);
   const toast = useToast();
+  const [typeFilter, setTypeFilter] = useState<string>(ALL_TYPES);
   const [addOpen, setAddOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<NoteItem | null>(null);
-  const [form] = Form.useForm();
+  const [deleting, setDeleting] = useState(false);
 
-  const submit = async () => {
-    const values = await form.validateFields();
+  const countByType = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const note of notes) counts[note.type] = (counts[note.type] ?? 0) + 1;
+    return counts;
+  }, [notes]);
+
+  const filterTabs = [
+    { key: ALL_TYPES, label: `All (${notes.length})` },
+    ...NOTE_TYPES.map((type) => ({ key: type, label: `${type} (${countByType[type] ?? 0})` })),
+  ];
+
+  const visibleNotes = typeFilter === ALL_TYPES ? notes : notes.filter((note) => note.type === typeFilter);
+
+  const handleOpenAdd = () => setAddOpen(true);
+
+  const handleCloseAdd = () => setAddOpen(false);
+
+  const handleAdd = async (values: CustomerNoteFormValues) => {
+    setSaving(true);
     try {
       await createNote(values);
       toast.success("Entry added");
-      form.resetFields();
       setAddOpen(false);
+      // A filter on another type would hide the entry that was just added.
+      if (typeFilter !== ALL_TYPES && typeFilter !== values.type) setTypeFilter(ALL_TYPES);
     } catch {
       toast.error("Failed to add entry");
+    } finally {
+      setSaving(false);
     }
   };
 
-  return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">Communication</span>
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
-          Add Entry
-        </Button>
-      </div>
+  const handleCloseDelete = () => setDeleteTarget(null);
 
-      {isLoading ? (
-        <div className="flex justify-center py-8">
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await deleteNote(deleteTarget.id);
+      toast.success("Entry deleted");
+      setDeleteTarget(null);
+    } catch {
+      toast.error("Failed to delete entry");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const renderFeed = () => {
+    if (isLoading) {
+      return (
+        <div className="flex justify-center py-10">
           <Spin />
         </div>
-      ) : notes.length === 0 ? (
-        <div className="text-slate-400 text-sm text-center py-8">No activity yet</div>
-      ) : (
-        <div className="space-y-3">
-          {notes.map((note) => (
-            <div key={note.id} className="border border-slate-100 rounded-xl p-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Tag color={typeColor(note.type)} className="m-0">
-                    {note.type}
-                  </Tag>
-                  <span className="text-xs text-slate-500">{note.author || "—"}</span>
-                  <span className="text-xs text-slate-400">
-                    {new Date(note.createdAt).toLocaleString("en-GB")}
-                  </span>
-                </div>
+      );
+    }
+
+    if (visibleNotes.length === 0) {
+      return (
+        <div className="py-8 text-center text-[13px] text-slate-400">{notes.length === 0 ? "No activity yet" : "No entries of this type"}</div>
+      );
+    }
+
+    return (
+      <ul aria-label="Communication entries" className="list-none m-0 p-0 space-y-2">
+        {visibleNotes.map((note) => {
+          const createdAt = formatDateTime(note.createdAt);
+          return (
+            <li key={note.id} className="border border-slate-200 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2">
+                <Tag color={NOTE_TYPE_COLORS[note.type] ?? "default"} className="!m-0">
+                  {note.type}
+                </Tag>
+                {note.author ? (
+                  <span className="min-w-0 truncate text-xs font-medium text-slate-600">{note.author}</span>
+                ) : (
+                  <span className="text-slate-300">—</span>
+                )}
+                <span className="ml-auto shrink-0 text-xs text-slate-400 tabular-nums">{createdAt}</span>
                 <Button
                   type="text"
                   size="small"
                   danger
                   icon={<DeleteOutlined />}
+                  aria-label={`Delete ${note.type} entry from ${createdAt}`}
                   onClick={() => setDeleteTarget(note)}
                 />
               </div>
-              <div className="text-sm text-slate-700 mt-1.5 whitespace-pre-wrap">{note.content}</div>
-            </div>
-          ))}
-        </div>
-      )}
+              <div className="mt-1 text-[13px] text-slate-700 whitespace-pre-wrap [overflow-wrap:anywhere]">{note.content}</div>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  };
 
-      <Modal
-        open={addOpen}
-        onCancel={() => setAddOpen(false)}
-        onOk={submit}
-        title="Add Entry"
-        okText="Add"
-        destroyOnHidden
+  return (
+    <div className="space-y-5">
+      <SectionCard
+        title="Communication"
+        extra={
+          <>
+            <CustomerCountChip count={notes.length} />
+            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={handleOpenAdd}>
+              Add Entry
+            </Button>
+          </>
+        }
       >
-        <Form form={form} layout="vertical" initialValues={{ type: "Note" }} className="pt-2">
-          <Form.Item name="type" label="Type">
-            <Select options={NOTE_TYPES.map((t) => ({ value: t, label: t }))} />
-          </Form.Item>
-          <Form.Item name="author" label="Author">
-            <Input />
-          </Form.Item>
-          <Form.Item
-            name="content"
-            label="Content"
-            rules={[{ required: true, message: "Content is required" }]}
-          >
-            <Input.TextArea rows={4} />
-          </Form.Item>
-        </Form>
-      </Modal>
+        <div className="pb-3">
+          <PillTabs tabs={filterTabs} active={typeFilter} onChange={setTypeFilter} />
+        </div>
+        {renderFeed()}
+      </SectionCard>
+
+      <CustomerNoteDialog open={addOpen} saving={saving} onCancel={handleCloseAdd} onSubmit={handleAdd} />
 
       <ConfirmModal
         open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={async () => {
-          if (deleteTarget) await deleteNote(deleteTarget.id);
-          setDeleteTarget(null);
-          toast.success("Entry removed");
-        }}
+        onClose={handleCloseDelete}
+        onConfirm={handleDelete}
         title="Delete entry"
-        description="Delete this entry?"
+        description="Delete this entry from the customer's communication history?"
         confirmLabel="Delete"
         danger
+        loading={deleting}
       />
     </div>
   );
