@@ -2,7 +2,6 @@ import { and, eq, or, ilike, isNull, like, desc, asc, count, sql } from "drizzle
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { shipmentTable } from "../schemas/shipment.schema";
-import { IMPORT_TASK_COUNT, EXPORT_TASK_COUNT } from "../taskCatalog";
 
 /**
  * Predicates behind the Shipments overview tiles. Shared by the list filter and
@@ -16,31 +15,27 @@ const RELEVANT_ETA = sql`CASE WHEN lower(${shipmentTable.tradeDirection}) = 'exp
        THEN ${shipmentTable.estimatedDeparture}
        ELSE ${shipmentTable.estimatedArrival} END`;
 
-/**
- * Outstanding workflow tasks.
- *
- * A shipment_task row only exists once someone ticks that task, and ticking is
- * write-once, so a `completed = false` row is never written — testing for one
- * would match nothing. Instead compare how many tasks have been ticked against
- * how many the shipment's direction defines (see taskCatalog.ts).
- *
- * The counts are bound as parameters, which Postgres types as text inside a
- * CASE — hence the ::int casts, without which `bigint < text` fails the query.
- */
-const HAS_OPEN_TASK = sql`(
-  SELECT COUNT(*) FROM shipment_task t
-  WHERE t.shipment_id = ${shipmentTable.id}
-    AND t.completed = true
-    AND t.deleted_at IS NULL
-) < CASE WHEN lower(${shipmentTable.tradeDirection}) = 'export'
-         THEN ${EXPORT_TASK_COUNT}::int ELSE ${IMPORT_TASK_COUNT}::int END`;
+// The dates a shipment has to be ready for; any of them falling today or tomorrow means
+// the shipment needs attention — it has to be finished within 24 hours.
+const DEADLINE_COLUMNS = {
+  cargoReadinessDate: shipmentTable.cargoReadinessDate,
+  closingDate: shipmentTable.closingDate,
+  estimatedDeparture: shipmentTable.estimatedDeparture,
+  estimatedArrival: shipmentTable.estimatedArrival,
+  etaWarehouse: shipmentTable.etaWarehouse,
+  plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
+};
+const DEADLINES = Object.values(DEADLINE_COLUMNS);
+// Due within `days` days from today, today included (1 = today or tomorrow).
+const isDueWithin = (column: (typeof DEADLINES)[number], days: number) =>
+  sql`${column} BETWEEN CURRENT_DATE AND CURRENT_DATE + ${days}::int`;
+const anyDueWithin = (days: number) => sql`(${sql.join(DEADLINES.map((d) => isDueWithin(d, days)), sql` OR `)})`;
+
+const ACTIVE = sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`;
 
 const TILE_PREDICATES = {
-  active: sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`,
-  attention: sql`${RELEVANT_ETA} IS NOT NULL
-    AND ${RELEVANT_ETA} >= CURRENT_DATE
-    AND ${RELEVANT_ETA} <= CURRENT_DATE + 3
-    AND ${HAS_OPEN_TASK}`,
+  active: ACTIVE,
+  attention: sql`${ACTIVE} AND ${anyDueWithin(1)}`,
   import: sql`lower(${shipmentTable.tradeDirection}) = 'import'`,
   export: sql`lower(${shipmentTable.tradeDirection}) = 'export'`,
   week: sql`${RELEVANT_ETA} IS NOT NULL
@@ -50,6 +45,8 @@ const TILE_PREDICATES = {
 } as const;
 
 export type TileId = keyof typeof TILE_PREDICATES;
+
+
 
 export interface ShipmentListFilters {
   /** Overview tile filter: active | attention | import | export | week | nextweek */
@@ -189,8 +186,8 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
    * Counts for the Shipments overview tiles, computed in SQL over the whole
    * company dataset (not just the current page).
    *
-   * "attention" mirrors the mockup: a relevant ETA within 3 days AND at least
-   * one open task. Import uses estimatedArrival, export uses estimatedDeparture.
+   * "attention" is an active shipment with any deadline today or tomorrow — the same
+   * rows the 24-hour Needs Attention table lists.
    */
   async tileCounts(companyId: string) {
     const base = and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt));
@@ -215,6 +212,36 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       week: Number(row?.week ?? 0),
       nextWeek: Number(row?.nextWeek ?? 0),
     };
+  }
+
+  /**
+   * Active shipments with a deadline within `days` days from today, soonest deadline
+   * first, over the whole company dataset. `today` is the database's date, so the caller
+   * can tell how far off each returned date is.
+   */
+  async dueWithinDays(companyId: string, days: number) {
+    // LEAST ignores NULLs; a date outside the window is nulled so it cannot win the ordering.
+    const soonest = sql`LEAST(${sql.join(DEADLINES.map((d) => sql`CASE WHEN ${isDueWithin(d, days)} THEN ${d} END`), sql`, `)})`;
+
+    return this.db
+      .select({
+        id: shipmentTable.id,
+        jobNumber: shipmentTable.jobNumber,
+        customer: shipmentTable.customer,
+        tradeDirection: shipmentTable.tradeDirection,
+        status: shipmentTable.status,
+        ...DEADLINE_COLUMNS,
+        today: sql<string>`CURRENT_DATE::text`,
+      })
+      .from(shipmentTable)
+      .where(and(
+        eq(shipmentTable.companyId, companyId),
+        isNull(shipmentTable.deletedAt),
+        ACTIVE,
+        anyDueWithin(days),
+      ))
+      .orderBy(soonest, shipmentTable.jobNumber)
+      .limit(200);
   }
 
   /** The plate number of a truck (TCZ…): the one its shipments carry, "" if none has it yet. */

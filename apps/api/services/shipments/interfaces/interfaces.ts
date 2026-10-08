@@ -326,3 +326,24 @@ export interface AuditItem {
   newValue: string | null;
   changedAt: string;
 }
+
+/** One date a shipment has to be ready for, falling within the next two days. */
+export interface ShipmentDeadline {
+  /** Shipment field the date comes from, e.g. "closingDate". */
+  field: string;
+  /** ISO date, "YYYY-MM-DD". */
+  date: string;
+  /** Whole days from today: 0 today, 1 tomorrow, 2 the day after. */
+  daysLeft: number;
+}
+
+/** A shipment on a "Needs Attention" list: something on it is due within the list's window. */
+export interface ShipmentDueItem {
+  id: string;
+  jobNumber: string;
+  customer: string;
+  tradeDirection: string;
+  status: string;
+  /** The dates that are due in that window, soonest first. */
+  deadlines: ShipmentDeadline[];
+}

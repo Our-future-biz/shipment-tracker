@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { NEEDS_ATTENTION_KEY } from "./useShipmentsNeedingAttention";
 import { api } from "@/lib/api";
 import { COLUMNS, COLUMN_MAP, getComputedValue, COMPUTED_COLUMNS } from "@/lib/columnConfig";
 import type { interfaces, controllers } from "@/lib/api/client";
@@ -100,7 +101,11 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     onError: (_err, _vars, ctx) => {
       ctx?.prev?.forEach(([key, value]) => queryClient.setQueryData(key, value));
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["shipments"] });
+      // An edited date can put the shipment on, or take it off, the Needs Attention list.
+      queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
+    },
   });
 
   const deleteMutation = useMutation({

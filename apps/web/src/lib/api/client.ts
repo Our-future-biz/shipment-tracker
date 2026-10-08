@@ -983,6 +983,7 @@ export namespace shipments {
             this.shipmentGet = this.shipmentGet.bind(this)
             this.shipmentLinkMasterJob = this.shipmentLinkMasterJob.bind(this)
             this.shipmentList = this.shipmentList.bind(this)
+            this.shipmentNeedsAttention = this.shipmentNeedsAttention.bind(this)
             this.shipmentNextJobNumber = this.shipmentNextJobNumber.bind(this)
             this.shipmentReleaseHouseBol = this.shipmentReleaseHouseBol.bind(this)
             this.shipmentTileCounts = this.shipmentTileCounts.bind(this)
@@ -1177,6 +1178,15 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments`, undefined, {query})
             return await resp.json() as controllers.ShipmentListResponse
+        }
+
+        /**
+         * Active shipments with a deadline in the next 24 / 48 hours, over the whole company dataset.
+         */
+        public async shipmentNeedsAttention(): Promise<controllers.ShipmentNeedsAttentionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/needs-attention`)
+            return await resp.json() as controllers.ShipmentNeedsAttentionResponse
         }
 
         /**
@@ -2309,6 +2319,11 @@ export namespace controllers {
         data: interfaces.ShipmentItem[]
     }
 
+    export interface ShipmentNeedsAttentionResponse {
+        within24h: interfaces.ShipmentDueItem[]
+        within48h: interfaces.ShipmentDueItem[]
+    }
+
     /**
      * Counts behind the Shipments overview tiles, over the whole company dataset.
      */
@@ -3157,6 +3172,41 @@ export namespace interfaces {
         invoice: boolean
         sourceBuyId: string | null
         sortOrder: number
+    }
+
+    /**
+     * One date a shipment has to be ready for, falling within the next two days.
+     */
+    export interface ShipmentDeadline {
+        /**
+         * Shipment field the date comes from, e.g. "closingDate".
+         */
+        field: string
+
+        /**
+         * ISO date, "YYYY-MM-DD".
+         */
+        date: string
+
+        /**
+         * Whole days from today: 0 today, 1 tomorrow, 2 the day after.
+         */
+        daysLeft: number
+    }
+
+    /**
+     * A shipment on a "Needs Attention" list: something on it is due within the list's window.
+     */
+    export interface ShipmentDueItem {
+        id: string
+        jobNumber: string
+        customer: string
+        tradeDirection: string
+        status: string
+        /**
+         * The dates that are due in that window, soonest first.
+         */
+        deadlines: ShipmentDeadline[]
     }
 
     export interface ShipmentItem {

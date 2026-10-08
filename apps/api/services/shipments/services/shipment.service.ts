@@ -14,7 +14,7 @@ import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.sche
 import type { ContainerRecord } from "../schemas/container.schema";
 import type { CargoItemRecord } from "../schemas/cargoItem.schema";
 import type { CargoDimensionRecord } from "../schemas/cargoDimension.schema";
-import type { ContainerLine, CargoItemLine, CargoDimensionLine } from "../interfaces/interfaces";
+import type { ContainerLine, CargoItemLine, CargoDimensionLine, ShipmentDueItem } from "../interfaces/interfaces";
 
 // Extra detail rows accepted alongside the shipment's own fields on create/update.
 interface DetailRows {
@@ -149,6 +149,11 @@ function sanitizeTypedFields<T extends Record<string, unknown>>(data: T): T {
   return out as T;
 }
 
+// Whole days from one ISO date ("YYYY-MM-DD") to another.
+function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
+}
+
 class ShipmentService {
   // The customer's stored rollups (totalRevenue/totalProfit/totalShipments/
   // lastActivityDate) live in the customers service, which cannot query this
@@ -274,6 +279,23 @@ class ShipmentService {
 
   async tileCounts(companyId: string) {
     return shipmentRepository.tileCounts(companyId);
+  }
+
+  // Active shipments with a deadline coming up, split by how soon: within 24 hours
+  // (today or tomorrow) and within 48 hours (the day after). A shipment with dates in
+  // both windows is listed in both, each time with just that window's dates.
+  async needsAttention(companyId: string): Promise<{ within24h: ShipmentDueItem[]; within48h: ShipmentDueItem[] }> {
+    const rows = await shipmentRepository.dueWithinDays(companyId, 2);
+    const window = (minDays: number, maxDays: number) =>
+      rows.flatMap(({ id, jobNumber, customer, tradeDirection, status, today, ...dates }) => {
+        const deadlines = Object.entries(dates)
+          .flatMap(([field, date]) => (date ? [{ field, date, daysLeft: daysBetween(today, date) }] : []))
+          // A row also carries its other dates, earlier and later; keep this window's.
+          .filter((d) => d.daysLeft >= minDays && d.daysLeft <= maxDays)
+          .sort((a, b) => a.daysLeft - b.daysLeft);
+        return deadlines.length ? [{ id, jobNumber, customer, tradeDirection, status, deadlines }] : [];
+      });
+    return { within24h: window(0, 1), within48h: window(2, 2) };
   }
 
   async getById(id: string, companyId: string) {
