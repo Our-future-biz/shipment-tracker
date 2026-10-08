@@ -20,6 +20,7 @@ import {
   UsergroupAddOutlined,
   ApartmentOutlined,
   SwapOutlined,
+  BankOutlined,
 } from "@ant-design/icons";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -65,6 +66,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
   // Company admins/managers manage their own users; superadmins manage all companies.
   { path: "/settings/users", label: "Users", icon: <UsergroupAddOutlined />, roles: ["admin", "manager"] },
+  { path: "/settings/organization", label: "Organization", icon: <BankOutlined />, roles: ["admin", "superadmin"] },
   { path: "/platform/companies", label: "Platform", icon: <ApartmentOutlined />, roles: ["superadmin"] },
 ];
 

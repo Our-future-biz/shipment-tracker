@@ -5,6 +5,7 @@ import { Button } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { usePlatformCompanies, usePlatformCompanyUsers } from "@/hooks/useUserAdmin";
+import { useDepartments, useBranches } from "@/hooks/useOrgUnits";
 import { UsersManager } from "../../../settings/_components/UsersManager";
 
 export default function PlatformCompanyUsersPage() {
@@ -13,6 +14,10 @@ export default function PlatformCompanyUsersPage() {
   const { companyId } = useParams<{ companyId: string }>();
   const { companies } = usePlatformCompanies();
   const cu = usePlatformCompanyUsers(companyId);
+  // Departments and branches are only readable for the signed-in user's own company.
+  const isOwnCompany = companyId === user?.companyId;
+  const { departments } = useDepartments();
+  const { branches } = useBranches();
 
   if (user?.role !== "superadmin") {
     return <div className="p-6 text-sm text-slate-500">This area is restricted to platform administrators.</div>;
@@ -32,6 +37,7 @@ export default function PlatformCompanyUsersPage() {
         isLoading={cu.isLoading}
         allowedRoles={["admin", "manager", "user"]}
         currentUserId={user?.id ?? ""}
+        orgUnits={isOwnCompany ? { departments, branches } : undefined}
         createUser={cu.createUser}
         updateUser={cu.updateUser}
         deleteUser={cu.deleteUser}

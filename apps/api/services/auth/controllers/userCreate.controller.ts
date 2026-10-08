@@ -8,6 +8,8 @@ interface UserCreateRequest {
   password: string;
   displayName?: string;
   role?: string; // admin | manager | user
+  departmentId?: string | null;
+  branchId?: string | null;
 }
 
 interface UserCreateResponse {

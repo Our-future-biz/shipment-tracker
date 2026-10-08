@@ -46,6 +46,21 @@ class UserRepository extends BaseRepository<typeof userTable> {
     return row ?? null;
   }
 
+  // A removed department/branch must not stay assigned to anyone.
+  async clearDepartment(companyId: string, departmentId: string) {
+    await this.db
+      .update(userTable)
+      .set({ departmentId: null, updatedAt: new Date() })
+      .where(and(eq(userTable.companyId, companyId), eq(userTable.departmentId, departmentId)));
+  }
+
+  async clearBranch(companyId: string, branchId: string) {
+    await this.db
+      .update(userTable)
+      .set({ branchId: null, updatedAt: new Date() })
+      .where(and(eq(userTable.companyId, companyId), eq(userTable.branchId, branchId)));
+  }
+
   async softDeleteInCompany(id: string, companyId: string) {
     const [row] = await this.db
       .update(userTable)
