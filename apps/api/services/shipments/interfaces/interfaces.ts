@@ -329,11 +329,11 @@ export interface AuditItem {
 
 /** One date a shipment has to be ready for, falling within the next two days. */
 export interface ShipmentDeadline {
-  /** Shipment field the date comes from, e.g. "closingDate". */
+  /** What is due: a shipment date field ("closingDate", "vgmClosing") or "amsDeadline" / "isfDeadline". */
   field: string;
   /** ISO date, "YYYY-MM-DD". */
   date: string;
-  /** Whole days from today: 0 today, 1 tomorrow, 2 the day after. */
+  /** Whole days from today: 0 today, 1 tomorrow, 2 the day after; negative when overdue. */
   daysLeft: number;
 }
 

@@ -1,4 +1,5 @@
 import { and, eq, or, ilike, isNull, like, desc, asc, count, sql } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { shipmentTable } from "../schemas/shipment.schema";
@@ -15,20 +16,58 @@ const RELEVANT_ETA = sql`CASE WHEN lower(${shipmentTable.tradeDirection}) = 'exp
        THEN ${shipmentTable.estimatedDeparture}
        ELSE ${shipmentTable.estimatedArrival} END`;
 
-// The dates a shipment has to be ready for; any of them falling today or tomorrow means
-// the shipment needs attention — it has to be finished within 24 hours.
-const DEADLINE_COLUMNS = {
-  cargoReadinessDate: shipmentTable.cargoReadinessDate,
-  closingDate: shipmentTable.closingDate,
-  estimatedDeparture: shipmentTable.estimatedDeparture,
-  estimatedArrival: shipmentTable.estimatedArrival,
-  etaWarehouse: shipmentTable.etaWarehouse,
-  plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
+/**
+ * What a shipment has to be ready for — the dates behind "Needs Attention".
+ *
+ * Plain dates count while they are still ahead. The four compliance items carry a
+ * status, so they count only while that status says the work is open, and they stay
+ * on the list after their date has passed (`keepsOverdue`) until someone confirms them:
+ *   VGM / SI   — by their closing date, unless Confirmed (VGM also: Not Applicable);
+ *   AMS / ISF  — when Pending, they must be filed 4 days before departure.
+ *
+ * Statuses are free text with decoration ("Confirmed (Green)"), hence the LIKE matches.
+ */
+const statusHas = (column: PgColumn, fragment: string) => sql`lower(${column}) LIKE ${`%${fragment}%`}`;
+const FILED_BEFORE_DEPARTURE = sql`${shipmentTable.estimatedDeparture} - 4`;
+
+const DEADLINE_DEFS = {
+  cargoReadinessDate: { date: sql`${shipmentTable.cargoReadinessDate}`, keepsOverdue: false },
+  closingDate: { date: sql`${shipmentTable.closingDate}`, keepsOverdue: false },
+  estimatedDeparture: { date: sql`${shipmentTable.estimatedDeparture}`, keepsOverdue: false },
+  estimatedArrival: { date: sql`${shipmentTable.estimatedArrival}`, keepsOverdue: false },
+  etaWarehouse: { date: sql`${shipmentTable.etaWarehouse}`, keepsOverdue: false },
+  plannedDeliveryDate: { date: sql`${shipmentTable.plannedDeliveryDate}`, keepsOverdue: false },
+  vgmClosing: {
+    date: sql`CASE WHEN NOT (${statusHas(shipmentTable.vgm, "confirmed")} OR ${statusHas(shipmentTable.vgm, "not applicable")})
+      THEN ${shipmentTable.vgmClosing} END`,
+    keepsOverdue: true,
+  },
+  siClosing: {
+    date: sql`CASE WHEN NOT ${statusHas(shipmentTable.shippingInstructions, "confirmed")} THEN ${shipmentTable.siClosing} END`,
+    keepsOverdue: true,
+  },
+  amsDeadline: {
+    date: sql`CASE WHEN ${statusHas(shipmentTable.ams, "pending")} THEN ${FILED_BEFORE_DEPARTURE} END`,
+    keepsOverdue: true,
+  },
+  isfDeadline: {
+    date: sql`CASE WHEN ${statusHas(shipmentTable.isf, "pending")} THEN ${FILED_BEFORE_DEPARTURE} END`,
+    keepsOverdue: true,
+  },
 };
-const DEADLINES = Object.values(DEADLINE_COLUMNS);
+type DeadlineDef = (typeof DEADLINE_DEFS)[keyof typeof DEADLINE_DEFS];
+const DEADLINES = Object.values(DEADLINE_DEFS);
+
+/** Deadline fields that stay due after their date has passed, until their status is confirmed. */
+export const OVERDUE_DEADLINE_FIELDS: ReadonlySet<string> = new Set(
+  Object.entries(DEADLINE_DEFS).filter(([, d]) => d.keepsOverdue).map(([field]) => field),
+);
+
 // Due within `days` days from today, today included (1 = today or tomorrow).
-const isDueWithin = (column: (typeof DEADLINES)[number], days: number) =>
-  sql`${column} BETWEEN CURRENT_DATE AND CURRENT_DATE + ${days}::int`;
+const isDueWithin = ({ date, keepsOverdue }: DeadlineDef, days: number) =>
+  keepsOverdue
+    ? sql`(${date}) <= CURRENT_DATE + ${days}::int`
+    : sql`(${date}) BETWEEN CURRENT_DATE AND CURRENT_DATE + ${days}::int`;
 const anyDueWithin = (days: number) => sql`(${sql.join(DEADLINES.map((d) => isDueWithin(d, days)), sql` OR `)})`;
 
 const ACTIVE = sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`;
@@ -186,7 +225,8 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
    * Counts for the Shipments overview tiles, computed in SQL over the whole
    * company dataset (not just the current page).
    *
-   * "attention" is an active shipment with any deadline today or tomorrow — the same
+   * "attention" is an active shipment with any deadline today or tomorrow, or an
+   * overdue compliance item — the same
    * rows the 24-hour Needs Attention table lists.
    */
   async tileCounts(companyId: string) {
@@ -215,13 +255,17 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   }
 
   /**
-   * Active shipments with a deadline within `days` days from today, soonest deadline
-   * first, over the whole company dataset. `today` is the database's date, so the caller
+   * Active shipments with a deadline within `days` days from today (or an overdue
+   * compliance item), soonest deadline first, over the whole company dataset. `today` is the database's date, so the caller
    * can tell how far off each returned date is.
    */
   async dueWithinDays(companyId: string, days: number) {
     // LEAST ignores NULLs; a date outside the window is nulled so it cannot win the ordering.
-    const soonest = sql`LEAST(${sql.join(DEADLINES.map((d) => sql`CASE WHEN ${isDueWithin(d, days)} THEN ${d} END`), sql`, `)})`;
+    const soonest = sql`LEAST(${sql.join(DEADLINES.map((d) => sql`CASE WHEN ${isDueWithin(d, days)} THEN (${d.date}) END`), sql`, `)})`;
+    // Each deadline's date, or NULL when it does not apply (no date, or its work is confirmed).
+    const dates = Object.fromEntries(
+      Object.entries(DEADLINE_DEFS).map(([field, d]) => [field, sql<string | null>`(${d.date})::text`]),
+    ) as Record<keyof typeof DEADLINE_DEFS, ReturnType<typeof sql<string | null>>>;
 
     return this.db
       .select({
@@ -230,7 +274,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         customer: shipmentTable.customer,
         tradeDirection: shipmentTable.tradeDirection,
         status: shipmentTable.status,
-        ...DEADLINE_COLUMNS,
+        ...dates,
         today: sql<string>`CURRENT_DATE::text`,
       })
       .from(shipmentTable)

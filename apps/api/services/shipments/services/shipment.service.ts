@@ -1,7 +1,7 @@
 import { APIError } from "encore.dev/api";
 import { auth, customers, quotes } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
-import { shipmentRepository } from "../repositories/shipment.repository";
+import { shipmentRepository, OVERDUE_DEADLINE_FIELDS } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
 import { containerRepository } from "../repositories/container.repository";
@@ -282,8 +282,9 @@ class ShipmentService {
   }
 
   // Active shipments with a deadline coming up, split by how soon: within 24 hours
-  // (today or tomorrow) and within 48 hours (the day after). A shipment with dates in
-  // both windows is listed in both, each time with just that window's dates.
+  // (today or tomorrow, plus unconfirmed compliance items already overdue) and within
+  // 48 hours (the day after). A shipment with dates in both windows is listed in both,
+  // each time with just that window's dates.
   async needsAttention(companyId: string): Promise<{ within24h: ShipmentDueItem[]; within48h: ShipmentDueItem[] }> {
     const rows = await shipmentRepository.dueWithinDays(companyId, 2);
     const window = (minDays: number, maxDays: number) =>
@@ -291,7 +292,8 @@ class ShipmentService {
         const deadlines = Object.entries(dates)
           .flatMap(([field, date]) => (date ? [{ field, date, daysLeft: daysBetween(today, date) }] : []))
           // A row also carries its other dates, earlier and later; keep this window's.
-          .filter((d) => d.daysLeft >= minDays && d.daysLeft <= maxDays)
+          // Overdue items belong to the most urgent window.
+          .filter((d) => d.daysLeft <= maxDays && (d.daysLeft >= minDays || (minDays === 0 && OVERDUE_DEADLINE_FIELDS.has(d.field))))
           .sort((a, b) => a.daysLeft - b.daysLeft);
         return deadlines.length ? [{ id, jobNumber, customer, tradeDirection, status, deadlines }] : [];
       });
