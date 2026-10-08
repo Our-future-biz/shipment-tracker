@@ -223,9 +223,8 @@ export const ShipmentsTable = ({
 
   // Overview tile is URL-backed (?tile=) like search/status, and narrows the same
   // server-side query — so a tile combines with search and column filters.
-  // "attention48" has no tile: it is set from the 48-hour Needs Attention card.
-  const activeTile = (searchParams.get("tile") as TileId | "attention48" | null) ?? null;
-  const setActiveTile = (value: TileId | "attention48" | null) => {
+  const activeTile = (searchParams.get("tile") as TileId | null) ?? null;
+  const setActiveTile = (value: TileId | null) => {
     const params = new URLSearchParams(searchParams.toString());
     if (value) params.set("tile", value);
     else params.delete("tile");
@@ -600,10 +599,10 @@ export const ShipmentsTable = ({
         <div>
           <h1 className="text-2xl font-bold text-slate-900">{view?.title ?? "Shipments"}</h1>
         </div>
-        {!view && <OverviewTiles active={activeTile === "attention48" ? null : activeTile} onSelect={setActiveTile} />}
+        {!view && <OverviewTiles active={activeTile} onSelect={setActiveTile} />}
       </div>
 
-      {!view && <NeedsAttentionTable activeFilter={activeTile} onShowInGrid={setActiveTile} />}
+      {!view && <NeedsAttentionTable />}
 
       {/* Filters Row */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
