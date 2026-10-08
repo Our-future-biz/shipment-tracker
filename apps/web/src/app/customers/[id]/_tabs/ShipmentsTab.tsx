@@ -1,14 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Table, Button, Modal, Form, Input, InputNumber, Select, Tag } from "antd";
-import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
+import { Table, Button, Tag } from "antd";
+import { DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useCustomerShipments, type ShipmentItem } from "@/hooks/useCustomerShipments";
 import { useCustomer } from "@/hooks/useCustomers";
 import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { TRANSPORT_MODES, SHIPMENT_DIRECTIONS, fmtMoney } from "../../_lib/constants";
+import { fmtMoney } from "../../_lib/constants";
 
 const MODE_COLOR: Record<string, string> = { AIR: "blue", SEA: "cyan", ROAD: "orange", RAIL: "purple" };
 
@@ -18,38 +18,10 @@ const num = (v: string | null | undefined) => {
 };
 
 export function ShipmentsTab({ customerId }: { customerId: string }) {
-  const { shipments, isLoading, createShipment, deleteShipment } = useCustomerShipments(customerId);
+  const { shipments, isLoading, deleteShipment } = useCustomerShipments(customerId);
   const { customer } = useCustomer(customerId);
   const toast = useToast();
-  const [addOpen, setAddOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ShipmentItem | null>(null);
-  const [form] = Form.useForm();
-
-  const submit = async () => {
-    const v = await form.validateFields();
-    try {
-      await createShipment({
-        jobNumber: v.jobNumber,
-        customerId,
-        customer: customer?.companyName ?? "",
-        freightMode: v.freightMode,
-        tradeDirection: v.tradeDirection,
-        status: v.status || "In Progress",
-        pol: v.pol ?? "",
-        pod: v.pod ?? "",
-        estimatedDeparture: v.estimatedDeparture || undefined,
-        estimatedArrival: v.estimatedArrival || undefined,
-        selling: v.selling != null ? String(v.selling) : "",
-        buying: v.buying != null ? String(v.buying) : "",
-      });
-      toast.success("Shipment added");
-      form.resetFields();
-      setAddOpen(false);
-    } catch {
-      toast.error("Failed to add shipment (job number must be unique)");
-    }
-  };
-
   const columns: ColumnsType<ShipmentItem> = [
     { title: "Job", dataIndex: "jobNumber", width: 130, render: (v: string) => <span className="font-mono text-xs text-indigo-500">{v}</span> },
     {
@@ -99,12 +71,7 @@ export function ShipmentsTab({ customerId }: { customerId: string }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">Shipments</span>
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
-          Add Shipment
-        </Button>
-      </div>
+      <div className="mb-3 text-sm font-semibold text-slate-800">Shipments</div>
 
       <Table<ShipmentItem>
         size="small"
@@ -116,46 +83,6 @@ export function ShipmentsTab({ customerId }: { customerId: string }) {
         scroll={{ x: "max-content" }}
         locale={{ emptyText: "No shipments for this customer yet" }}
       />
-
-      <Modal open={addOpen} onCancel={() => setAddOpen(false)} onOk={submit} title="Add Shipment" okText="Add" width={560} destroyOnHidden>
-        <Form
-          form={form}
-          layout="vertical"
-          initialValues={{ freightMode: "SEA", tradeDirection: "IMPORT", status: "In Progress" }}
-          className="pt-2 grid grid-cols-2 gap-x-4"
-        >
-          <Form.Item name="jobNumber" label="Job number" rules={[{ required: true, message: "Job number is required" }]}>
-            <Input className="font-mono" />
-          </Form.Item>
-          <Form.Item name="status" label="Status">
-            <Input />
-          </Form.Item>
-          <Form.Item name="freightMode" label="Mode">
-            <Select options={TRANSPORT_MODES.map((m) => ({ value: m, label: m }))} />
-          </Form.Item>
-          <Form.Item name="tradeDirection" label="Direction">
-            <Select options={SHIPMENT_DIRECTIONS.map((d) => ({ value: d, label: d }))} />
-          </Form.Item>
-          <Form.Item name="pol" label="POL (origin)">
-            <Input />
-          </Form.Item>
-          <Form.Item name="pod" label="POD (destination)">
-            <Input />
-          </Form.Item>
-          <Form.Item name="estimatedDeparture" label="ETD">
-            <Input placeholder="YYYY-MM-DD" />
-          </Form.Item>
-          <Form.Item name="estimatedArrival" label="ETA">
-            <Input placeholder="YYYY-MM-DD" />
-          </Form.Item>
-          <Form.Item name="selling" label="Revenue">
-            <InputNumber className="w-full" min={0} />
-          </Form.Item>
-          <Form.Item name="buying" label="Cost">
-            <InputNumber className="w-full" min={0} />
-          </Form.Item>
-        </Form>
-      </Modal>
 
       <ConfirmModal
         open={!!deleteTarget}

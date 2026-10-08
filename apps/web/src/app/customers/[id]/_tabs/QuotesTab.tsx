@@ -3,22 +3,19 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Table, Button } from "antd";
-import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
+import { DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
-import { useCustomer } from "@/hooks/useCustomers";
 import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { computeTotals, validityInfo, fmt, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
 
 // Customers only carry sales quotes (the QCZ… lifecycle quotes from the Sales
-// module); creating one here opens the full quote workflow prefilled with this
-// customer.
+// module). They are created in Sales; here they are listed and opened.
 export function QuotesTab({ customerId }: { customerId: string }) {
   const router = useRouter();
-  const { salesQuotes, isLoading, createQuote, isCreating, deleteQuote } = useSalesQuotes();
-  const { customer } = useCustomer(customerId);
+  const { salesQuotes, isLoading, deleteQuote } = useSalesQuotes();
   const toast = useToast();
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
@@ -26,21 +23,6 @@ export function QuotesTab({ customerId }: { customerId: string }) {
     () => salesQuotes.filter((q) => q.data.customerId === customerId),
     [salesQuotes, customerId],
   );
-
-  const newQuote = async () => {
-    if (!customer) return;
-    try {
-      const ref = await createQuote({
-        customerId,
-        customerName: customer.companyName,
-        customerLabel: customer.label,
-      });
-      toast.success(`Quote ${ref} created`);
-      router.push(`/sales/quote/${ref}`);
-    } catch {
-      toast.error("Failed to create quote");
-    }
-  };
 
   const columns: ColumnsType<SalesQuote> = [
     { title: "Reference", dataIndex: "quoteNumber", width: 170, render: (v: string) => <span className="font-mono text-xs text-indigo-500">{v}</span> },
@@ -115,12 +97,7 @@ export function QuotesTab({ customerId }: { customerId: string }) {
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">Quotes</span>
-        <Button type="primary" size="small" icon={<PlusOutlined />} loading={isCreating} onClick={newQuote}>
-          New Quote
-        </Button>
-      </div>
+      <div className="mb-3 text-sm font-semibold text-slate-800">Quotes</div>
 
       <Table<SalesQuote>
         size="small"
