@@ -547,11 +547,11 @@ export const ShipmentsTable = ({
       fixed: "right",
       onCell: () => ({ style: { paddingLeft: 0, paddingRight: 6 } }),
       render: (_: unknown, record: ShipmentItem) => {
-        const { level, reason } = getShipmentUrgency(buildRowData(record));
+        const { level, reason, readyStatus } = getShipmentUrgency(buildRowData(record));
         const tone = level === "critical" ? "text-red-500" : level === "warning" ? "text-orange-500" : "text-yellow-400";
         return (
-          <Tooltip title={reason || "No deadline warning"}>
-            <span role="img" aria-label={reason || "No deadline warning"} className={`inline-flex p-1 ${tone}`}>
+          <Tooltip title={reason ? <>{reason} <strong>{readyStatus}</strong></> : "No deadline warning"}>
+            <span role="img" aria-label={reason ? `${reason} ${readyStatus}` : "No deadline warning"} className={`inline-flex p-1 ${tone}`}>
               <WarningFilled />
             </span>
           </Tooltip>

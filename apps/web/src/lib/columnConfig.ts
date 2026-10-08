@@ -346,23 +346,27 @@ const URGENCY_RULES = {
 // Statuses carry decoration ("All Done - Waiting To Be Shipped [EXP]"), so compare letters only.
 const lettersOnly = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
 
-export function getShipmentUrgency(rowData: Record<string, string>): { level: ShipmentUrgency; reason: string } {
+const NO_URGENCY = { level: "none", reason: "", readyStatus: "" } as const;
+
+export function getShipmentUrgency(rowData: Record<string, string>): { level: ShipmentUrgency; reason: string; readyStatus: string } {
   const dir = (rowData["tradeDirection"] || "").trim().toLowerCase();
   const rule = dir === "export" || dir === "import" ? URGENCY_RULES[dir] : null;
-  if (!rule) return { level: "none", reason: "" };
-  if (lettersOnly(rowData["status"] || "").includes(lettersOnly(rule.readyStatus))) return { level: "none", reason: "" };
+  if (!rule) return NO_URGENCY;
+  if (lettersOnly(rowData["status"] || "").includes(lettersOnly(rule.readyStatus))) return NO_URGENCY;
   const date = parseDateMMDDYY(rowData[rule.dateKey] || "");
-  if (!date) return { level: "none", reason: "" };
+  if (!date) return NO_URGENCY;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const days = Math.round((date.getTime() - today.getTime()) / 86_400_000);
-  if (days > rule.warningDays) return { level: "none", reason: "" };
+  if (days > rule.warningDays) return NO_URGENCY;
 
   const when = days < 0 ? `was ${-days} day${days === -1 ? "" : "s"} ago` : days === 0 ? "is today" : `is in ${days} day${days === 1 ? "" : "s"}`;
   return {
     level: days <= rule.criticalDays ? "critical" : "warning",
-    reason: `${rule.dateLabel} ${when} and the status is not yet "${rule.readyStatus}"`,
+    // The sentence up to the colon; the tooltip appends readyStatus in bold.
+    reason: `${rule.dateLabel} ${when} and the status is not yet:`,
+    readyStatus: rule.readyStatus,
   };
 }
 
