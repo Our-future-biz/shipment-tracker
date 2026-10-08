@@ -518,12 +518,14 @@ export const ShipmentsTable = ({
       // triangle on the right matches the gap to the documents icon on the left.
       width: 24,
       fixed: "right",
-      onCell: () => ({ style: { paddingLeft: 0, paddingRight: 2 } }),
+      // The unread badge hangs over the right edge of this narrow cell; the raised z-index
+      // keeps it above the opaque fixed cell of the warning triangle next to it.
+      onCell: () => ({ style: { paddingLeft: 0, paddingRight: 2, zIndex: 3 } }),
       render: (_: unknown, record: ShipmentItem) => {
         const unread = unreadBy.get(record.id) ?? 0;
         return (
           <Tooltip title={unread ? `Chat — ${unread} unread` : "Chat"}>
-            <Badge count={unread} size="small" color="#ef4444" offset={[2, -2]}>
+            <Badge count={unread} size="small" color="#ef4444" offset={[0, 2]}>
               <button
                 onClick={(e) => { e.stopPropagation(); setChatShipment(record); }}
                 className={`bg-transparent border-none cursor-pointer p-1 ${unread ? "text-red-500 hover:text-red-600" : "text-slate-400 hover:text-indigo-500"}`}
