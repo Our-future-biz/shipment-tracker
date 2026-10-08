@@ -1,5 +1,4 @@
 import dayjs from "dayjs";
-import { validityInfo } from "@/app/sales/_lib/salesQuote";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import type { DocumentItem } from "@/hooks/useCustomerDocuments";
 import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
@@ -12,7 +11,7 @@ import { getNaceInfo, isNewCompany, isRegistryActive, parseNaceCodes } from "./c
 import { daysSince } from "./customerDates";
 import { daysOverdue, summarizeInvoices } from "./customerInvoices";
 import { fmtMoney, roundCents } from "./customerMoney";
-import { quoteBucket, quoteHref } from "./customerQuotes";
+import { quoteBucket, quoteHref, safeValidityInfo } from "./customerQuotes";
 
 // What on a customer needs somebody's attention right now, for the "Needs attention" list of the Overview.
 // One pure function over data the page has already loaded, so the rules can be read and tested in one place.
@@ -47,8 +46,6 @@ export interface AttentionItem {
 export interface AttentionInput {
   customer: CustomerItem;
   invoices: InvoiceItem[];
-  // Ids of this customer's shipments: the two "due" lists below cover the whole company.
-  shipmentIds: ReadonlySet<string>;
   dueWithin24h: ShipmentDueItem[];
   dueWithin48h: ShipmentDueItem[];
   quotes: SalesQuote[];
@@ -63,12 +60,13 @@ const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ?
 // A shipment with dates in both windows is on both lists, so the window is part of the key.
 function shipmentItems(
   due: ShipmentDueItem[],
-  shipmentIds: ReadonlySet<string>,
+  customerId: string,
   severity: AttentionSeverity,
   window: string,
 ): AttentionItem[] {
   return due
-    .filter((shipment) => shipmentIds.has(shipment.id))
+    // The two "due" lists cover the whole company; keep this customer's shipments.
+    .filter((shipment) => shipment.customerId === customerId)
     .map((shipment) => ({
       key: `shipment-${window}-${shipment.id}`,
       severity,
@@ -78,14 +76,9 @@ function shipmentItems(
     }));
 }
 
-// The day a quote's validity ends ("YYYY-MM-DD"), or null when it is not known. validityInfo throws on a
-// quote whose stored send date is unreadable; one such quote must not take the whole list down with it.
+// The day a quote's validity ends ("YYYY-MM-DD"), or null when it is not known.
 function quoteValidityDate(quote: SalesQuote): string | null {
-  try {
-    return validityInfo(quote.data).date;
-  } catch {
-    return null;
-  }
+  return safeValidityInfo(quote).date;
 }
 
 // Whole calendar days from today to a date on the viewer's clock — negative once the date has passed —
@@ -161,7 +154,7 @@ const documentTypeKey = (type: string) => type.trim().toLowerCase();
 // Everything that needs attention, most serious first: all critical items, then all warnings,
 // each group in a fixed order of rules.
 export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
-  const { customer, invoices, shipmentIds, dueWithin24h, dueWithin48h, quotes, documents, notes, now = Date.now() } = input;
+  const { customer, invoices, dueWithin24h, dueWithin48h, quotes, documents, notes, now = Date.now() } = input;
   const { creditLimit, currency } = customer;
   const items: AttentionItem[] = [];
 
@@ -203,10 +196,10 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
     });
   }
 
-  items.push(...shipmentItems(dueWithin24h, shipmentIds, "critical", "24h"));
+  items.push(...shipmentItems(dueWithin24h, customer.id, "critical", "24h"));
 
   // Warnings.
-  items.push(...shipmentItems(dueWithin48h, shipmentIds, "warning", "48h"));
+  items.push(...shipmentItems(dueWithin48h, customer.id, "warning", "48h"));
   items.push(...quoteItems(quotes, now));
 
   const typesOnFile = new Set(documents.map((document) => documentTypeKey(document.type)));

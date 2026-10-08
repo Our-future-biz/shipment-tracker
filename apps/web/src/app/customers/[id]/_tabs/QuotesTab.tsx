@@ -11,12 +11,12 @@ import { PillTabs, SectionCard } from "@/components/SectionCard";
 import { useCustomerQuotes } from "@/hooks/useCustomerQuotes";
 import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
-import { computeTotals, fmt, validityInfo } from "@/app/sales/_lib/salesQuote";
+import { computeTotals, fmt } from "@/app/sales/_lib/salesQuote";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
 import { CustomerKpiTile, KPI_GRID_CLASS } from "../_components/CustomerKpiTile";
-import { DEFAULT_QUOTE_CURRENCY, quoteBucket, quoteHref, sellingByCurrency } from "../../_lib/customerQuotes";
+import { DEFAULT_QUOTE_CURRENCY, quoteBucket, quoteHref, sellingByCurrency, safeValidityInfo, QUOTE_STATUS_CLASS } from "../../_lib/customerQuotes";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
 
 interface QuotesTabProps {
@@ -107,7 +107,7 @@ export function QuotesTab({ customerId }: QuotesTabProps) {
         const s = QUOTE_STATUS_MAP[r.data.quoteStatus ?? ""];
         if (!s) return EMPTY_CELL;
         return (
-          <span className="rounded-xl text-[11px] font-medium px-2.5 py-0.5" style={{ backgroundColor: s.color.bg, color: s.color.text }}>
+          <span className={`rounded-xl text-[11px] font-medium px-2.5 py-0.5 ${QUOTE_STATUS_CLASS[r.data.quoteStatus ?? ""] ?? "bg-slate-100 text-slate-500"}`}>
             {s.label}
           </span>
         );
@@ -132,7 +132,7 @@ export function QuotesTab({ customerId }: QuotesTabProps) {
       key: "valid",
       width: 150,
       render: (_: unknown, r) => {
-        const validity = validityInfo(r.data);
+        const validity = safeValidityInfo(r);
         if (!validity.date) return EMPTY_CELL;
         return (
           <span className={validity.expired ? "text-red-600" : "text-slate-600"}>

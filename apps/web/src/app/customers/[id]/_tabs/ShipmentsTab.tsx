@@ -98,7 +98,7 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       toast.success("Order deleted");
       setDeleteTarget(null);
     } catch {
-      toast.error("Failed to archive order");
+      toast.error("Failed to delete order");
     }
   };
 

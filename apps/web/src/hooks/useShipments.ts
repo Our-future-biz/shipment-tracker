@@ -72,6 +72,12 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
 
   // Shipment writes recompute the linked customer's rollups server-side and change the rows of
   // the customer page, so its caches must not keep serving the old copy.
+  // Any shipment write can also move it onto or off the Needs Attention cards and tiles.
+  const invalidateDerivedViews = () => {
+    queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
+    queryClient.invalidateQueries({ queryKey: ["shipment-tile-counts"] });
+  };
+
   const invalidateCustomerViews = () => {
     queryClient.invalidateQueries({ queryKey: ["customer"] });
     queryClient.invalidateQueries({ queryKey: ["customer-shipments"] });
@@ -84,6 +90,7 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     mutationFn: (params: controllers.ShipmentCreateRequest) => api.shipments.shipmentCreate(params),
     onSuccess: () => {
       invalidateCustomerViews();
+      invalidateDerivedViews();
       return queryClient.invalidateQueries({ queryKey: ["shipments"] });
     },
   });
@@ -117,7 +124,7 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["shipments"] });
       // An edited date can put the shipment on, or take it off, the Needs Attention list.
-      queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
+      invalidateDerivedViews();
       invalidateCustomerViews();
     },
   });
@@ -126,6 +133,7 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     mutationFn: (id: string) => api.shipments.shipmentDelete(id),
     onSuccess: () => {
       invalidateCustomerViews();
+      invalidateDerivedViews();
       return queryClient.invalidateQueries({ queryKey: ["shipments"] });
     },
   });

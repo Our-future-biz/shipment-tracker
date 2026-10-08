@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import type { ChangeEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -74,7 +74,12 @@ export function CustomersView() {
 
   // The box shows each keystroke at once; the request waits until typing pauses.
   const [search, setSearch] = useState(urlQuery);
+  // The last ?q= this box wrote. URL updates land after the keystrokes that caused them, so only a
+  // change from elsewhere (Back, a link) may overwrite the box — never the echo of an older keystroke.
+  const writtenQuery = useRef(urlQuery);
   useEffect(() => {
+    if (urlQuery === writtenQuery.current) return;
+    writtenQuery.current = urlQuery;
     setSearch(urlQuery);
   }, [urlQuery]);
   const debouncedSearch = useDebounced(urlQuery, 300).trim();
@@ -116,6 +121,7 @@ export function CustomersView() {
 
   const handleSearchChange = (e: ChangeEvent<HTMLInputElement>) => {
     setSearch(e.target.value);
+    writtenQuery.current = e.target.value;
     replaceParams({ q: e.target.value });
   };
 

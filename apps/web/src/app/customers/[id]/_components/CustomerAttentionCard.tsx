@@ -7,7 +7,6 @@ import { useCustomerDocuments } from "@/hooks/useCustomerDocuments";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
 import { useCustomerQuotes } from "@/hooks/useCustomerQuotes";
-import { useCustomerShipments } from "@/hooks/useCustomerShipments";
 import { useCustomer } from "@/hooks/useCustomers";
 import { useShipmentsNeedingAttention } from "@/hooks/useShipmentsNeedingAttention";
 import { buildCustomerAttention } from "../../_lib/customerAttention";
@@ -67,7 +66,6 @@ interface CustomerAttentionCardProps {
 export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAttentionCardProps) {
   const { customer, isLoading: customerLoading } = useCustomer(customerId);
   const { invoices, isLoading: invoicesLoading } = useCustomerInvoices(customerId);
-  const { shipments, isLoading: shipmentsLoading } = useCustomerShipments(customerId);
   const { quotes, isLoading: quotesLoading } = useCustomerQuotes(customerId);
   const { documents, isLoading: documentsLoading, isError: documentsError } = useCustomerDocuments(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
@@ -81,17 +79,14 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
 
   // Until every source is in, the list would appear half-built and then grow or reorder under the reader.
   const customerSourcesLoading =
-    customerLoading || invoicesLoading || shipmentsLoading || quotesLoading || documentsLoading || notesLoading;
+    customerLoading || invoicesLoading || quotesLoading || documentsLoading || notesLoading;
   const isLoading = customerSourcesLoading || (dueLoading && !dueSettled);
-
-  const shipmentIds = useMemo(() => new Set(shipments.map((shipment) => shipment.id)), [shipments]);
 
   const items = useMemo(() => {
     if (isLoading || !customer) return [];
     const built = buildCustomerAttention({
       customer,
       invoices,
-      shipmentIds,
       dueWithin24h: within24h,
       dueWithin48h: within48h,
       quotes,
@@ -101,7 +96,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
     // For documents and notes an empty list is itself a finding, but a list that could not be loaded is
     // not an empty one: its "nothing on file" row would be untrue.
     return built.filter((item) => !(documentsError && item.key === "documents-missing") && !(notesError && item.key === "no-interaction"));
-  }, [isLoading, customer, invoices, shipmentIds, within24h, within48h, quotes, documents, notes, documentsError, notesError]);
+  }, [isLoading, customer, invoices, within24h, within48h, quotes, documents, notes, documentsError, notesError]);
 
   if (items.length === 0) return null;
 

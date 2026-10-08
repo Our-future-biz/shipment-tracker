@@ -10,7 +10,7 @@ import {
   getNaceInfo,
   isNewCompany,
   parseNaceCodes,
-  RISK_COLOR,
+  RISK_CLASS,
 } from "../../_lib/companyAnalysis";
 import { CustomerInfoRow } from "./CustomerInfoRow";
 
@@ -26,7 +26,6 @@ export function CustomerCompanyAnalysisCard({ customer }: CustomerCompanyAnalysi
   const naceInfo = getNaceInfo(parseNaceCodes(customer.nace));
   const { primary } = naceInfo;
   const risk = calcRisk(customer.companyStatus, customer.registrationDate, naceInfo);
-  const riskColor = RISK_COLOR[risk.level];
   const age = calcCompanyAge(customer.registrationDate);
   // Without a usable registration date neither the age nor the stability derived from it is known.
   const ageKnown = !!customer.registrationDate && !Number.isNaN(new Date(customer.registrationDate).getTime());
@@ -75,8 +74,7 @@ export function CustomerCompanyAnalysisCard({ customer }: CustomerCompanyAnalysi
           <CustomerInfoRow label="Stability">{ageKnown ? calcStability(age.years) : null}</CustomerInfoRow>
           <CustomerInfoRow label="Risk level">
             <span
-              className="inline-flex rounded-xl text-[11px] font-medium px-2.5 py-0.5 leading-[18px]"
-              style={{ backgroundColor: riskColor.bg, color: riskColor.text }}
+              className={`inline-flex rounded-xl text-[11px] font-medium px-2.5 py-0.5 leading-[18px] ${RISK_CLASS[risk.level]}`}
             >
               {risk.level}
             </span>

@@ -32,32 +32,31 @@ export const CUSTOMER_DETAIL_TABS: CustomerTab[] = [
 export const CUSTOMER_TAB_ALIASES: Record<string, string> = {
   financial: "finance",
   credit: "finance",
-  payment: "finance",
+  // Payment terms are edited in the CRM card on the Overview tab.
+  payment: "overview",
 };
 
-// Account type (label) badge colours.
-const LABEL_STYLES: Record<string, { bg: string; text: string }> = {
-  "KEY ACCOUNT": { bg: "#fef9c3", text: "#a16207" },
-  STANDARD: { bg: "#f1f5f9", text: "#64748b" },
-  "TARGET CUSTOMER": { bg: "#f3e8ff", text: "#7e22ce" },
-  PROSPECT: { bg: "#dbeafe", text: "#1d4ed8" },
-  RISK: { bg: "#fee2e2", text: "#dc2626" },
+// Account type (label) badge colours, as Tailwind background + text classes.
+const LABEL_CLASSES: Record<string, string> = {
+  "KEY ACCOUNT": "bg-yellow-100 text-yellow-700",
+  STANDARD: "bg-slate-100 text-slate-500",
+  "TARGET CUSTOMER": "bg-purple-100 text-purple-700",
+  PROSPECT: "bg-blue-100 text-blue-700",
+  RISK: "bg-red-100 text-red-600",
 };
 
-const DEFAULT_LABEL_STYLE = { bg: "#f1f5f9", text: "#64748b" };
-
-export function labelStyle(label: string): { bg: string; text: string } {
-  return LABEL_STYLES[label] ?? DEFAULT_LABEL_STYLE;
+export function labelClass(label: string): string {
+  return LABEL_CLASSES[label] ?? "bg-slate-100 text-slate-500";
 }
 
 const STATUS_DOT: Record<string, string> = {
-  Active: "#16a34a",
-  Prospect: "#2563eb",
-  Inactive: "#94a3b8",
+  Active: "bg-green-600",
+  Prospect: "bg-blue-600",
+  Inactive: "bg-slate-400",
 };
 
-export function statusDotColor(status: string): string {
-  return STATUS_DOT[status] ?? "#94a3b8";
+export function statusDotClass(status: string): string {
+  return STATUS_DOT[status] ?? "bg-slate-400";
 }
 
 // antd Tag colours for the categorical values of the section; unknown values fall back to "default".

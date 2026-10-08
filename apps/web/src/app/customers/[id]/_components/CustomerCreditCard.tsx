@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
-import { Button, InputNumber } from "antd";
+import { Button, InputNumber, Progress } from "antd";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomer } from "@/hooks/useCustomers";
 import type { CustomerItem } from "@/hooks/useCustomers";
@@ -20,10 +20,11 @@ export function utilizationTone(pct: number | null): KpiTone | undefined {
   return undefined;
 }
 
-const BAR_CLASS: Record<KpiTone, string> = {
-  red: "bg-red-500",
-  amber: "bg-amber-500",
-  green: "bg-green-500",
+// Tailwind's red-500 / amber-500 / green-500; antd's Progress takes its colour as a value.
+export const BAR_COLOR: Record<KpiTone, string> = {
+  red: "#ef4444",
+  amber: "#f59e0b",
+  green: "#22c55e",
 };
 
 const LABEL_CLASS = "text-[11px] font-bold text-slate-500 uppercase tracking-wide";
@@ -59,7 +60,7 @@ export function CustomerCreditCard({ customer, outstanding, utilization }: Custo
   // An emptied field means "no limit", which is stored as 0.
   const nextLimit = draft ?? 0;
   const dirty = nextLimit !== savedLimit;
-  const fillPct = Math.min(100, utilization ?? 0);
+  const fillPct = Math.max(0, Math.min(100, utilization ?? 0));
 
   const handleSave = async () => {
     if (!dirty || saving) return;
@@ -86,20 +87,15 @@ export function CustomerCreditCard({ customer, outstanding, utilization }: Custo
               {utilization === null ? "—" : `${utilization}%`}
             </span>
           </div>
-          <div
-            role="progressbar"
+          <Progress
             aria-label="Credit utilization"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={fillPct}
             aria-valuetext={utilization === null ? "No credit limit set" : `${utilization}%`}
-            className="h-2.5 rounded-full bg-slate-100 overflow-hidden"
-          >
-            <div
-              className={`h-full rounded-full transition-[width] duration-300 ${BAR_CLASS[utilizationTone(utilization) ?? "green"]}`}
-              style={{ width: `${fillPct}%` }}
-            />
-          </div>
+            percent={fillPct}
+            showInfo={false}
+            size={{ height: 10 }}
+            strokeColor={BAR_COLOR[utilizationTone(utilization) ?? "green"]}
+            className="m-0"
+          />
           <div className="mt-1.5 text-xs text-slate-500">
             {utilization === null
               ? "Set a credit limit to track how much of it is in use."

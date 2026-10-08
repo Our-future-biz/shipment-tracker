@@ -1,21 +1,16 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { Progress } from "antd";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomer } from "@/hooks/useCustomers";
 import { summarizeInvoices } from "../../_lib/customerInvoices";
 import { fmtMoney, roundCents } from "../../_lib/customerMoney";
-import { utilizationTone } from "./CustomerCreditCard";
+import { BAR_COLOR, utilizationTone } from "./CustomerCreditCard";
 import type { KpiTone } from "./CustomerKpiTile";
 
 // The colours of the Finance tab: its credit bar and the figure of its Utilization tile.
-const BAR_CLASS: Record<KpiTone, string> = {
-  red: "bg-red-500",
-  amber: "bg-amber-500",
-  green: "bg-green-500",
-};
-
 const FIGURE_CLASS: Record<KpiTone, string> = {
   red: "text-red-600",
   amber: "text-amber-600",
@@ -57,17 +52,15 @@ export function CustomerCreditSummaryCard({ customerId, onSelectTab }: CustomerC
     const excess = roundCents(outstanding - creditLimit);
     content = (
       <div>
-        <div
-          role="progressbar"
+        <Progress
           aria-label="Credit utilization"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={fillPct}
           aria-valuetext={`${utilization}%`}
-          className="h-2 rounded-full bg-slate-100 overflow-hidden"
-        >
-          <div className={`h-full rounded-full ${BAR_CLASS[tone ?? "green"]}`} style={{ width: `${fillPct}%` }} />
-        </div>
+          percent={fillPct}
+          showInfo={false}
+          size={{ height: 8 }}
+          strokeColor={BAR_COLOR[tone ?? "green"]}
+          className="m-0"
+        />
         <div className={`mt-2 text-[13px] font-bold ${tone ? FIGURE_CLASS[tone] : "text-slate-800"}`}>{`${utilization}% used`}</div>
         <div className="text-xs text-slate-500">{`${fmtMoney(outstanding, currency)} of ${fmtMoney(creditLimit, currency)}`}</div>
         {excess > 0 && <div className="mt-1 text-xs font-medium text-red-600">{`Over the limit by ${fmtMoney(excess, currency)}`}</div>}

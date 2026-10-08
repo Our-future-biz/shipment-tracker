@@ -288,14 +288,14 @@ class ShipmentService {
   async needsAttention(companyId: string): Promise<{ within24h: ShipmentDueItem[]; within48h: ShipmentDueItem[] }> {
     const rows = await shipmentRepository.dueWithinDays(companyId, 2);
     const window = (minDays: number, maxDays: number) =>
-      rows.flatMap(({ id, jobNumber, customer, tradeDirection, status, today, ...dates }) => {
+      rows.flatMap(({ id, jobNumber, customerId, customer, tradeDirection, status, today, ...dates }) => {
         const deadlines = Object.entries(dates)
           .flatMap(([field, date]) => (date ? [{ field, date, daysLeft: daysBetween(today, date) }] : []))
           // A row also carries its other dates, earlier and later; keep this window's.
           // Overdue items belong to the most urgent window.
           .filter((d) => d.daysLeft <= maxDays && (d.daysLeft >= minDays || (minDays === 0 && OVERDUE_DEADLINE_FIELDS.has(d.field))))
           .sort((a, b) => a.daysLeft - b.daysLeft);
-        return deadlines.length ? [{ id, jobNumber, customer, tradeDirection, status, deadlines }] : [];
+        return deadlines.length ? [{ id, jobNumber, customerId, customer, tradeDirection, status, deadlines }] : [];
       });
     return { within24h: window(0, 1), within48h: window(2, 2) };
   }

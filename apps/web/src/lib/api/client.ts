@@ -3205,6 +3205,11 @@ export namespace interfaces {
     export interface ShipmentDueItem {
         id: string
         jobNumber: string
+        /**
+         * The linked customer record, so a customer page can pick its own shipments from the list.
+         */
+        customerId: string | null
+
         customer: string
         tradeDirection: string
         status: string

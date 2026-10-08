@@ -98,12 +98,12 @@ export function NeedsAttentionTable() {
           <WarningFilled className={urgent ? tone.icon : "text-slate-300"} />
           <span className="text-[13px] font-bold uppercase tracking-wider text-slate-800">Needs Attention</span>
           <span
-            aria-label={`${shipments.length} shipments`}
+            aria-label={lists.isError ? "Count unavailable" : `${shipments.length} shipments`}
             className={`min-w-6 h-6 px-1.5 rounded-full flex items-center justify-center bg-white text-[13px] font-bold tabular-nums ${
               urgent ? tone.link : "text-slate-500"
             }`}
           >
-            {shipments.length}
+            {lists.isError ? "–" : shipments.length}
           </span>
           <span className="text-[13px] text-slate-600">within {window}</span>
         </div>
@@ -113,7 +113,13 @@ export function NeedsAttentionTable() {
           rowKey="id"
           showHeader={false}
           loading={lists.isLoading}
-          locale={{ emptyText: showAllLink }}
+          locale={{
+            emptyText: lists.isError ? (
+              <span className="text-[13px] text-red-500">Could not load the deadlines.</span>
+            ) : (
+              <span className="text-[13px] text-slate-400">Nothing due within {window}.</span>
+            ),
+          }}
           footer={urgent ? () => showAllLink : undefined}
           dataSource={shipments.slice(0, VISIBLE_ROWS)}
           columns={CARD_COLUMNS}

@@ -26,5 +26,7 @@ export const useShipmentsNeedingAttention = () => {
     within24h: query.data?.within24h ?? [],
     within48h: query.data?.within48h ?? [],
     isLoading: query.isLoading,
+    // A failed load must not read as "nothing due".
+    isError: query.isError && !query.data,
   };
 };

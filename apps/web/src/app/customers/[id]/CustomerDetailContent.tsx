@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Spin } from "antd";
+import { Button, Spin } from "antd";
 import { useCustomer } from "@/hooks/useCustomers";
 import { CUSTOMER_DETAIL_TABS, CUSTOMER_TAB_ALIASES } from "../_lib/constants";
 import { useCustomerListHref } from "../_lib/customerListHref";
@@ -23,7 +23,7 @@ export function CustomerDetailContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { customer, isLoading } = useCustomer(id);
+  const { customer, isLoading, isLoadError, refetch } = useCustomer(id);
   const listHref = useCustomerListHref();
 
   // The active tab lives in the URL (?tab=) so it survives a reload and can be linked to.
@@ -45,6 +45,17 @@ export function CustomerDetailContent() {
     return (
       <div className="flex justify-center p-20">
         <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!customer && isLoadError) {
+    return (
+      <div className="p-10 text-center text-slate-500">
+        Could not load the customer.{" "}
+        <Button size="small" onClick={() => refetch()}>
+          Retry
+        </Button>
       </div>
     );
   }

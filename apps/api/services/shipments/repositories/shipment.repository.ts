@@ -11,6 +11,10 @@ import { shipmentTable } from "../schemas/shipment.schema";
  * trade_direction is free text and has been written as both "Import" and
  * "IMPORT" over time, so every comparison against it is case-insensitive.
  */
+// The business's calendar day. The database runs in UTC, where CURRENT_DATE would still
+// be yesterday for the first hours of a Prague morning.
+const TODAY = sql`(now() AT TIME ZONE 'Europe/Prague')::date`;
+
 // Relevant date: export -> departure, otherwise arrival.
 const RELEVANT_ETA = sql`CASE WHEN lower(${shipmentTable.tradeDirection}) = 'export'
        THEN ${shipmentTable.estimatedDeparture}
@@ -21,7 +25,8 @@ const RELEVANT_ETA = sql`CASE WHEN lower(${shipmentTable.tradeDirection}) = 'exp
  *
  * Plain dates count while they are still ahead. The four compliance items carry a
  * status, so they count only while that status says the work is open, and they stay
- * on the list after their date has passed (`keepsOverdue`) until someone confirms them:
+ * on the list after their date has passed (`keepsOverdue`) until someone confirms them
+ * or the shipment departs:
  *   VGM / SI   — by their closing date, unless Confirmed (VGM also: Not Applicable);
  *   AMS / ISF  — when Pending, they must be filed 4 days before departure.
  *
@@ -63,11 +68,16 @@ export const OVERDUE_DEADLINE_FIELDS: ReadonlySet<string> = new Set(
   Object.entries(DEADLINE_DEFS).filter(([, d]) => d.keepsOverdue).map(([field]) => field),
 );
 
+// An overdue compliance item stays due only until the vessel sails; after that it can no
+// longer be acted on, and without this bound every old unconfirmed shipment would sit
+// on the list forever.
+const NOT_DEPARTED = sql`(${shipmentTable.estimatedDeparture} IS NULL OR ${shipmentTable.estimatedDeparture} >= ${TODAY})`;
+
 // Due within `days` days from today, today included (1 = today or tomorrow).
 const isDueWithin = ({ date, keepsOverdue }: DeadlineDef, days: number) =>
   keepsOverdue
-    ? sql`(${date}) <= CURRENT_DATE + ${days}::int`
-    : sql`(${date}) BETWEEN CURRENT_DATE AND CURRENT_DATE + ${days}::int`;
+    ? sql`((${date}) >= ${TODAY} OR ${NOT_DEPARTED}) AND (${date}) <= ${TODAY} + ${days}::int`
+    : sql`(${date}) BETWEEN ${TODAY} AND ${TODAY} + ${days}::int`;
 const anyDueWithin = (days: number) => sql`(${sql.join(DEADLINES.map((d) => isDueWithin(d, days)), sql` OR `)})`;
 
 const ACTIVE = sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`;
@@ -78,9 +88,9 @@ const TILE_PREDICATES = {
   import: sql`lower(${shipmentTable.tradeDirection}) = 'import'`,
   export: sql`lower(${shipmentTable.tradeDirection}) = 'export'`,
   week: sql`${RELEVANT_ETA} IS NOT NULL
-    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', CURRENT_DATE)`,
+    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', ${TODAY})`,
   nextweek: sql`${RELEVANT_ETA} IS NOT NULL
-    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', CURRENT_DATE + 7)`,
+    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', ${TODAY} + 7)`,
 } as const;
 
 export type TileId = keyof typeof TILE_PREDICATES;
@@ -214,7 +224,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     const direction = f.sortDirection === "asc" ? asc : desc;
 
     const [rows, [{ value: total }]] = await Promise.all([
-      this.db.select().from(shipmentTable).where(where).orderBy(direction(shipmentTable.createdAt)).limit(f.limit).offset(f.offset),
+      this.db.select().from(shipmentTable).where(where).orderBy(direction(shipmentTable.createdAt), direction(shipmentTable.id)).limit(f.limit).offset(f.offset),
       this.db.select({ value: count() }).from(shipmentTable).where(where),
     ]);
     return { data: rows, total: Number(total) };
@@ -262,20 +272,27 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   async dueWithinDays(companyId: string, days: number) {
     // LEAST ignores NULLs; a date outside the window is nulled so it cannot win the ordering.
     const soonest = sql`LEAST(${sql.join(DEADLINES.map((d) => sql`CASE WHEN ${isDueWithin(d, days)} THEN (${d.date}) END`), sql`, `)})`;
-    // Each deadline's date, or NULL when it does not apply (no date, or its work is confirmed).
+    // Each deadline's date, or NULL when it does not apply (no date, its work is confirmed,
+    // or it is overdue on a shipment that has already departed).
     const dates = Object.fromEntries(
-      Object.entries(DEADLINE_DEFS).map(([field, d]) => [field, sql<string | null>`(${d.date})::text`]),
+      Object.entries(DEADLINE_DEFS).map(([field, d]) => [
+        field,
+        d.keepsOverdue
+          ? sql<string | null>`(CASE WHEN (${d.date}) >= ${TODAY} OR ${NOT_DEPARTED} THEN (${d.date}) END)::text`
+          : sql<string | null>`(${d.date})::text`,
+      ]),
     ) as Record<keyof typeof DEADLINE_DEFS, ReturnType<typeof sql<string | null>>>;
 
     return this.db
       .select({
         id: shipmentTable.id,
         jobNumber: shipmentTable.jobNumber,
+        customerId: shipmentTable.customerId,
         customer: shipmentTable.customer,
         tradeDirection: shipmentTable.tradeDirection,
         status: shipmentTable.status,
         ...dates,
-        today: sql<string>`CURRENT_DATE::text`,
+        today: sql<string>`(${TODAY})::text`,
       })
       .from(shipmentTable)
       .where(and(

@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import dayjs from "dayjs";
 import type { ReactNode } from "react";
 import { Spin } from "antd";
 import { RightOutlined } from "@ant-design/icons";
@@ -28,7 +29,8 @@ interface MonthBucket {
 // A shipment counts into the month of its ETA; without a usable ETA, into the month it was created.
 function shipmentMonth(shipment: ShipmentItem): string {
   const eta = shipment.estimatedArrival ?? "";
-  return (ISO_MONTH.test(eta) ? eta : shipment.createdAt).slice(0, 7);
+  // createdAt is a UTC timestamp; its month is the one on the viewer's calendar.
+  return ISO_MONTH.test(eta) ? eta.slice(0, 7) : dayjs(shipment.createdAt).format("YYYY-MM");
 }
 
 function bucketByMonth(shipments: ShipmentItem[]): MonthBucket[] {

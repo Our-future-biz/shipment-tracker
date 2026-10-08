@@ -125,8 +125,9 @@ export function calcRisk(
   return { level, reasons };
 }
 
-export const RISK_COLOR: Record<RiskLevel, { bg: string; text: string }> = {
-  Low: { bg: "#dcfce7", text: "#16a34a" },
-  Medium: { bg: "#fef3c7", text: "#d97706" },
-  High: { bg: "#fee2e2", text: "#dc2626" },
+// Tailwind background + text classes of the risk-level pill.
+export const RISK_CLASS: Record<RiskLevel, string> = {
+  Low: "bg-green-100 text-green-600",
+  Medium: "bg-amber-100 text-amber-600",
+  High: "bg-red-100 text-red-600",
 };

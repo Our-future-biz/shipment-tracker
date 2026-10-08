@@ -62,6 +62,7 @@ export const useCustomerShipments = (customerId: string) => {
       // The delete is company-wide, so the Shipments module must drop the row as well.
       queryClient.invalidateQueries({ queryKey: ["shipments"] });
       queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
+      queryClient.invalidateQueries({ queryKey: ["shipment-tile-counts"] });
     },
   });
 

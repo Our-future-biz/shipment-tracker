@@ -109,6 +109,9 @@ export const useCustomer = (id: string | null) => {
   return {
     customer: query.data?.customer ?? null,
     isLoading: query.isLoading,
+    // A failed load (not a missing record) — the page offers a retry instead of "not found".
+    isLoadError: query.isError && !query.data && (query.error as { status?: number } | null)?.status !== 404,
+    refetch: query.refetch,
     updateCustomer: updateMutation.mutateAsync,
     deleteCustomer: deleteMutation.mutateAsync,
     fetchLogo: fetchLogoMutation.mutateAsync,

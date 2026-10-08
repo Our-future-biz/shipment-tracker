@@ -137,7 +137,6 @@ export function CustomerInvoicesCard({ customerId, currency }: CustomerInvoicesC
         />
       </SectionCard>
 
-
       <ConfirmModal
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
