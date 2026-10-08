@@ -79,9 +79,26 @@ export function getNaceInfo(codes: string[]): { primary: NaceHit | null; seconda
 }
 
 export function calcCompanyAge(regDate: string): { years: number; label: string } {
-  if (!regDate) return { years: 0, label: "—" };
-  const years = Math.floor((Date.now() - new Date(regDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25));
-  return { years, label: years <= 0 ? "< 1 year" : `${years} years` };
+  const registered = regDate ? new Date(regDate).getTime() : NaN;
+  if (Number.isNaN(registered)) return { years: 0, label: "—" };
+  const years = Math.floor((Date.now() - registered) / (1000 * 60 * 60 * 24 * 365.25));
+  if (years <= 0) return { years, label: "< 1 year" };
+  return { years, label: years === 1 ? "1 year" : `${years} years` };
+}
+
+// The registry's company status. An empty value means "not known" and is treated as fine;
+// "inactive" must not pass just because it contains "active".
+export function isRegistryActive(companyStatus: string): boolean {
+  const status = companyStatus.trim().toLowerCase();
+  if (!status) return true;
+  if (status.includes("inactive") || status.includes("neaktiv")) return false;
+  return status.includes("active") || status.includes("aktiv");
+}
+
+// A company registered less than two years ago.
+export function isNewCompany(regDate: string): boolean {
+  if (!regDate || Number.isNaN(new Date(regDate).getTime())) return false;
+  return calcCompanyAge(regDate).years < 2;
 }
 
 export function calcRisk(
@@ -91,12 +108,11 @@ export function calcRisk(
 ): { level: RiskLevel; reasons: string[] } {
   const reasons: string[] = [];
   let level: RiskLevel = "Low";
-  const { years } = calcCompanyAge(regDate);
-  if (status && !status.toLowerCase().includes("active")) {
+  if (!isRegistryActive(status)) {
     reasons.push("Registry status: " + status);
     level = "High";
   }
-  if (years < 2 && regDate) {
+  if (isNewCompany(regDate)) {
     reasons.push("New company (< 2 years)");
     if (level === "Low") level = "Medium";
   }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useDebounced } from "@/hooks/useDebounced";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useToast } from "@/lib/toast";
 import { ShipmentsTable } from "./ShipmentsTable";
@@ -12,15 +13,6 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 // Search/status live in the URL (?q= / ?status=), written by the table's toolbar and read
 // here to drive the server-side query — so filtering covers the whole company dataset
 // instead of only the rows already in the browser.
-export function useDebounced<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debounced;
-}
-
 export const ShipmentsView = () => {
   const searchParams = useSearchParams();
   const search = useDebounced(searchParams.get("q") ?? "", 300);

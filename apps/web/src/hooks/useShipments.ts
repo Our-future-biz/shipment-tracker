@@ -70,9 +70,22 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     placeholderData: (prev) => prev,
   });
 
+  // Shipment writes recompute the linked customer's rollups server-side and change the rows of
+  // the customer page, so its caches must not keep serving the old copy.
+  const invalidateCustomerViews = () => {
+    queryClient.invalidateQueries({ queryKey: ["customer"] });
+    queryClient.invalidateQueries({ queryKey: ["customer-shipments"] });
+    // Only marked stale: the shipment page keeps the customers list mounted (CustomerLinkField)
+    // and it must not be downloaded again on every cell edit.
+    queryClient.invalidateQueries({ queryKey: ["customers"], refetchType: "none" });
+  };
+
   const createMutation = useMutation({
     mutationFn: (params: controllers.ShipmentCreateRequest) => api.shipments.shipmentCreate(params),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+    onSuccess: () => {
+      invalidateCustomerViews();
+      return queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    },
   });
 
   const updateMutation = useMutation({
@@ -105,12 +118,16 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
       queryClient.invalidateQueries({ queryKey: ["shipments"] });
       // An edited date can put the shipment on, or take it off, the Needs Attention list.
       queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
+      invalidateCustomerViews();
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => api.shipments.shipmentDelete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
+    onSuccess: () => {
+      invalidateCustomerViews();
+      return queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    },
   });
 
   const linkMasterJobMutation = useMutation({

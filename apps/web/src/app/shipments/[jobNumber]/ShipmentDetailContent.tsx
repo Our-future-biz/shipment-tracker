@@ -23,6 +23,7 @@ import {
 import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
+import { statusTagColor } from "@/lib/shipmentStatus";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { useCardFields } from "./useCardFields";
 import { useUsers } from "@/hooks/useUsers";
@@ -73,16 +74,6 @@ const SHIPMENT_STAGES = [
   "Customs clearance",
   "Delivered",
 ];
-
-function statusTagColor(status: string): string {
-  const s = status.toLowerCase();
-  if (s.includes("deliver") || s.includes("billed")) return "green";
-  if (s.includes("custom")) return "gold";
-  if (s.includes("transit") || s.includes("shipped") || s.includes("transport")) return "blue";
-  if (s.includes("cargo") || s.includes("ready")) return "cyan";
-  if (s.includes("book") || s.includes("confirm") || s.includes("pending")) return "geekblue";
-  return "default";
-}
 
 /* ── Stepper component (driven by completed tasks) ── */
 function ShipmentStepper({ shipment }: { shipment: ShipmentItem }) {

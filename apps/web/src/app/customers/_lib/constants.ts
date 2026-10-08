@@ -12,23 +12,14 @@ export const NOTE_TYPES = ["Note", "Email", "Call", "Follow-up", "Visit"] as con
 
 export const INVOICE_STATUSES = ["Open", "Overdue", "Paid"] as const;
 
-export const TRANSPORT_MODES = ["AIR", "SEA", "ROAD", "RAIL"] as const;
-export const SHIPMENT_DIRECTIONS = ["IMPORT", "EXPORT"] as const;
+export const CURRENCIES = ["EUR", "USD", "CZK", "GBP", "CHF"] as const;
 
 export interface CustomerTab {
   key: string;
   label: string;
 }
 
-// The POC's Customer-database sidebar becomes per-route tabs.
-export const CUSTOMER_LIST_TABS: CustomerTab[] = [
-  { key: "all", label: "All Customers" },
-  { key: "active", label: "Active" },
-  { key: "prospects", label: "Prospects" },
-  { key: "key", label: "Key Accounts" },
-  { key: "risk", label: "At Risk" },
-];
-
+// The one tab strip of the customer detail (?tab=); every list about a customer lives in exactly one of them.
 export const CUSTOMER_DETAIL_TABS: CustomerTab[] = [
   { key: "overview", label: "Overview" },
   { key: "contacts", label: "Contacts" },
@@ -39,6 +30,14 @@ export const CUSTOMER_DETAIL_TABS: CustomerTab[] = [
   { key: "communication", label: "Communication" },
 ];
 
+// Keys of the former standalone section pages, so an old ?tab= value lands on the tab that absorbed it.
+export const CUSTOMER_TAB_ALIASES: Record<string, string> = {
+  financial: "finance",
+  credit: "finance",
+  payment: "finance",
+};
+
+// Account type (label) badge colours.
 const LABEL_STYLES: Record<string, { bg: string; text: string }> = {
   "KEY ACCOUNT": { bg: "#fef9c3", text: "#a16207" },
   STANDARD: { bg: "#f1f5f9", text: "#64748b" },
@@ -63,14 +62,39 @@ export function statusDotColor(status: string): string {
   return STATUS_DOT[status] ?? "#94a3b8";
 }
 
-export const CURRENCIES = ["EUR", "USD", "CZK", "GBP", "CHF"] as const;
+// antd Tag colours for the categorical values of the section; unknown values fall back to "default".
+export const CONTACT_ROLE_COLORS: Record<string, string> = {
+  Sales: "blue",
+  Operations: "green",
+  Finance: "gold",
+};
 
-export function fmtMoney(n: number | null | undefined, currency = "EUR"): string {
-  const v = typeof n === "number" ? n : 0;
-  return `${v.toLocaleString("en-US", { maximumFractionDigits: 0 })} ${currency}`;
-}
+export const DOCUMENT_TYPE_COLORS: Record<string, string> = {
+  Contract: "blue",
+  NDA: "purple",
+  "Power of attorney": "gold",
+  Customs: "green",
+};
 
-export function marginPct(revenue: number, profit: number): number {
-  if (!revenue) return 0;
-  return Math.round((profit / revenue) * 100);
-}
+export const INVOICE_STATUS_COLORS: Record<string, string> = {
+  Open: "blue",
+  Overdue: "red",
+  Paid: "green",
+};
+
+export const NOTE_TYPE_COLORS: Record<string, string> = {
+  Email: "blue",
+  Call: "green",
+  "Follow-up": "gold",
+  Visit: "purple",
+};
+
+// Recharts palette of the customer finance charts.
+export const CHART_COLORS = {
+  revenue: "#6366f1",
+  cost: "#f97316",
+  profit: "#16a34a",
+  red: "#dc2626",
+  amber: "#d97706",
+  green: "#16a34a",
+};

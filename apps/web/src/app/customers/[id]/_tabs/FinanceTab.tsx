@@ -1,186 +1,120 @@
 "use client";
 
-import { useState } from "react";
-import { Table, Button, Modal, Form, Input, InputNumber, Select } from "antd";
-import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
-import type { ColumnsType } from "antd/es/table";
-import { useCustomerInvoices, type InvoiceItem } from "@/hooks/useCustomerInvoices";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Alert, Button, Spin } from "antd";
+import { PillTabs } from "@/components/SectionCard";
+import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomer } from "@/hooks/useCustomers";
-import { useToast } from "@/lib/toast";
-import { ConfirmModal } from "@/components/ConfirmModal";
-import { StatusBadge } from "@/components/StatusBadge";
-import { fmtMoney, INVOICE_STATUSES } from "../../_lib/constants";
+import { summarizeInvoices } from "../../_lib/customerInvoices";
+import { fmtMoney } from "../../_lib/customerMoney";
+import { CustomerAgingCard, invoiceCountLabel } from "../_components/CustomerAgingCard";
+import { CustomerCreditCard, utilizationTone } from "../_components/CustomerCreditCard";
+import { CustomerInvoicesCard } from "../_components/CustomerInvoicesCard";
+import { CustomerKpiTile, KPI_GRID_CLASS } from "../_components/CustomerKpiTile";
+import { CustomerProfitabilityView } from "../_components/CustomerProfitabilityView";
+import { EMPTY_CELL } from "../../_lib/customerTable";
 
-export function FinanceTab({ customerId }: { customerId: string }) {
-  const { invoices, isLoading, createInvoice, updateInvoice, deleteInvoice } = useCustomerInvoices(customerId);
+const DEFAULT_VIEW = "invoices";
+
+const FINANCE_VIEWS = [
+  { key: DEFAULT_VIEW, label: "Invoices & credit" },
+  { key: "profitability", label: "Profitability" },
+];
+
+interface FinanceTabProps {
+  customerId: string;
+  onSelectTab: (key: string) => void;
+}
+
+// Everything about the customer's money that the header totals do not already say:
+// invoices and credit in one view, profitability over time in the other.
+export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { customer } = useCustomer(customerId);
-  const toast = useToast();
-  const [addOpen, setAddOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<InvoiceItem | null>(null);
-  const [form] = Form.useForm();
+  const { invoices, isLoading, isError, refetch } = useCustomerInvoices(customerId);
 
-  const openTotal = invoices
-    .filter((i) => i.status === "Open")
-    .reduce((sum, i) => sum + (i.amount ?? 0), 0);
-  const overdueTotal = invoices
-    .filter((i) => i.status === "Overdue")
-    .reduce((sum, i) => sum + (i.amount ?? 0), 0);
+  // The sub-view lives in the URL (?view=) next to ?tab=, so it survives a reload and can be linked to.
+  const rawView = searchParams.get("view") ?? DEFAULT_VIEW;
+  const view = FINANCE_VIEWS.some((v) => v.key === rawView) ? rawView : DEFAULT_VIEW;
 
-  const submit = async () => {
-    const values = await form.validateFields();
-    try {
-      await createInvoice(values);
-      toast.success("Invoice added");
-      form.resetFields();
-      setAddOpen(false);
-    } catch {
-      toast.error("Failed to add invoice");
-    }
+  const handleSelectView = (key: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (key === DEFAULT_VIEW) params.delete("view");
+    else params.set("view", key);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
-  const markPaid = async (record: InvoiceItem) => {
-    try {
-      await updateInvoice({ id: record.id, params: { status: "Paid" } });
-      toast.success("Marked paid");
-    } catch {
-      toast.error("Failed to update invoice");
-    }
-  };
+  if (!customer) return null;
 
-  const dash = <span className="text-slate-300">—</span>;
-
-  const columns: ColumnsType<InvoiceItem> = [
-    {
-      title: "Invoice #",
-      dataIndex: "invoiceNumber",
-      render: (v: string) => <span className="font-mono text-xs text-indigo-500">{v}</span>,
-    },
-    {
-      title: "Status",
-      dataIndex: "status",
-      render: (_: unknown, record: InvoiceItem) => <StatusBadge status={record.status} />,
-    },
-    {
-      title: "Amount",
-      dataIndex: "amount",
-      align: "right",
-      render: (_: unknown, record: InvoiceItem) => fmtMoney(record.amount, customer?.currency),
-    },
-    {
-      title: "Issued",
-      dataIndex: "issuedAt",
-      render: (v: string) => v || dash,
-    },
-    {
-      title: "Due",
-      dataIndex: "dueDate",
-      render: (v: string) => v || dash,
-    },
-    {
-      title: "",
-      key: "actions",
-      width: 120,
-      render: (_: unknown, record: InvoiceItem) => (
-        <div className="flex items-center justify-end gap-1">
-          {record.status !== "Paid" && (
-            <Button type="text" size="small" onClick={() => markPaid(record)}>
-              Mark paid
-            </Button>
-          )}
-          <Button
-            type="text"
-            size="small"
-            danger
-            icon={<DeleteOutlined />}
-            onClick={() => setDeleteTarget(record)}
-          />
-        </div>
-      ),
-    },
-  ];
+  const { creditLimit, currency } = customer;
+  // One summary feeds the tiles, the bar and the aging buckets, so they cannot disagree with each other.
+  const summary = summarizeInvoices(invoices);
+  // A limit of 0 means none was set: there is nothing to be "available" or "used" then.
+  const hasLimit = creditLimit > 0;
+  const available = creditLimit - summary.outstanding;
+  const utilization = hasLimit ? Math.round((summary.outstanding / creditLimit) * 100) : null;
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-4">
-      <div className="grid grid-cols-4 gap-3 mb-4">
-        <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wide">Open Invoices</div>
-          <div className="text-lg font-bold text-slate-800 mt-0.5">{fmtMoney(openTotal, customer?.currency)}</div>
-        </div>
-        <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wide">Overdue</div>
-          <div className="text-lg font-bold text-slate-800 mt-0.5">{fmtMoney(overdueTotal, customer?.currency)}</div>
-        </div>
-        <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wide">Credit Limit</div>
-          <div className="text-lg font-bold text-slate-800 mt-0.5">{fmtMoney(customer?.creditLimit ?? 0, customer?.currency)}</div>
-        </div>
-        <div className="bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5">
-          <div className="text-[11px] text-slate-400 uppercase tracking-wide">Total Turnover</div>
-          <div className="text-lg font-bold text-slate-800 mt-0.5">{fmtMoney(customer?.totalRevenue ?? 0, customer?.currency)}</div>
-        </div>
-      </div>
+    <div className="space-y-5">
+      <PillTabs tabs={FINANCE_VIEWS} active={view} onChange={handleSelectView} />
 
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">Invoices</span>
-        <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>
-          Add Invoice
-        </Button>
-      </div>
+      {view === "profitability" ? (
+        <CustomerProfitabilityView customer={customer} onSelectTab={onSelectTab} />
+      ) : (
+        <>
+          {/* Every figure in this block is derived from the invoices, so it waits for them as one —
+              and without them it shows an error, not a customer with nothing outstanding. */}
+          {isError ? (
+            <Alert
+              type="error"
+              showIcon
+              message="Could not load invoices."
+              action={
+                <Button size="small" onClick={() => refetch()}>
+                  Retry
+                </Button>
+              }
+            />
+          ) : (
+            <Spin spinning={isLoading}>
+              <div className="space-y-5">
+                <div className={KPI_GRID_CLASS}>
+                  <CustomerKpiTile label="Outstanding" value={fmtMoney(summary.outstanding, currency)} />
+                  <CustomerKpiTile
+                    label="Available"
+                    value={hasLimit ? fmtMoney(available, currency) : EMPTY_CELL}
+                    tone={hasLimit && available < 0 ? "red" : undefined}
+                  />
+                  <CustomerKpiTile
+                    label="Utilization"
+                    value={utilization === null ? EMPTY_CELL : `${utilization}%`}
+                    tone={utilizationTone(utilization)}
+                  />
+                  <CustomerKpiTile
+                    label="Open"
+                    value={fmtMoney(summary.openAmount, currency)}
+                    hint={invoiceCountLabel(summary.openCount)}
+                  />
+                  <CustomerKpiTile
+                    label="Overdue"
+                    value={fmtMoney(summary.overdueAmount, currency)}
+                    hint={invoiceCountLabel(summary.overdueCount)}
+                    tone={summary.overdueAmount > 0 ? "red" : undefined}
+                  />
+                </div>
 
-      <Table<InvoiceItem>
-        size="small"
-        rowKey="id"
-        loading={isLoading}
-        dataSource={invoices}
-        columns={columns}
-        pagination={false}
-        locale={{ emptyText: "No invoices yet" }}
-      />
+                <CustomerCreditCard customer={customer} outstanding={summary.outstanding} utilization={utilization} />
+                <CustomerAgingCard aging={summary.aging} currency={currency} />
+              </div>
+            </Spin>
+          )}
 
-      <Modal
-        open={addOpen}
-        onCancel={() => setAddOpen(false)}
-        onOk={submit}
-        title="Add Invoice"
-        okText="Add"
-        destroyOnHidden
-      >
-        <Form form={form} layout="vertical" initialValues={{ status: "Open", amount: 0 }} className="pt-2">
-          <Form.Item
-            name="invoiceNumber"
-            label="Invoice #"
-            rules={[{ required: true, message: "Invoice number is required" }]}
-          >
-            <Input />
-          </Form.Item>
-          <Form.Item name="amount" label="Amount">
-            <InputNumber className="w-full" min={0} />
-          </Form.Item>
-          <Form.Item name="status" label="Status">
-            <Select options={INVOICE_STATUSES.map((s) => ({ value: s, label: s }))} />
-          </Form.Item>
-          <Form.Item name="issuedAt" label="Issued">
-            <Input placeholder="YYYY-MM-DD" />
-          </Form.Item>
-          <Form.Item name="dueDate" label="Due">
-            <Input placeholder="YYYY-MM-DD" />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      <ConfirmModal
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={async () => {
-          if (deleteTarget) await deleteInvoice(deleteTarget.id);
-          setDeleteTarget(null);
-          toast.success("Invoice removed");
-        }}
-        title="Remove invoice"
-        description={`Remove ${deleteTarget?.invoiceNumber}?`}
-        confirmLabel="Remove"
-        danger
-      />
+          <CustomerInvoicesCard customerId={customerId} currency={currency} />
+        </>
+      )}
     </div>
   );
 }

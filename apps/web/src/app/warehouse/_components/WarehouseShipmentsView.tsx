@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useShipments } from "@/hooks/useShipments";
 import { ShipmentsTable, type ShipmentsTableProps } from "@/app/shipments/_components/ShipmentsTable";
-import { useDebounced } from "@/app/shipments/_components/ShipmentsView";
+import { useDebounced } from "@/hooks/useDebounced";
 import { WAREHOUSE_DEFAULT_COLUMNS, WAREHOUSE_LEAD_COLUMN, WAREHOUSE_RULES, WAREHOUSE_SECTIONS, type WarehouseSection } from "./warehouseRules";
 
 // A Warehouse page (In / Out Warehouse, Stock) as a view of the shipments: the Shipments

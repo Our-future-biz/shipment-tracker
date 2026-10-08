@@ -870,6 +870,7 @@ export namespace quotes {
         public async quoteList(params: controllers.QuoteListRequest): Promise<controllers.QuoteListResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
+                customerId:    params.customerId,
                 limit:         params.limit === undefined ? undefined : String(params.limit),
                 offset:        params.offset === undefined ? undefined : String(params.offset),
                 sortDirection: params.sortDirection === undefined ? undefined : String(params.sortDirection),
@@ -2079,6 +2080,10 @@ export namespace controllers {
         limit?: number
         offset?: number
         sortDirection?: "asc" | "desc"
+        /**
+         * Only the quotes made for this customer (the customer page's Quotes tab).
+         */
+        customerId?: string
     }
 
     export interface QuoteListResponse {

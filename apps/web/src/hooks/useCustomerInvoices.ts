@@ -37,6 +37,10 @@ export const useCustomerInvoices = (customerId: string) => {
   return {
     invoices: query.data?.data ?? [],
     isLoading: query.isLoading,
+    // True only when the request failed and there is nothing to show; a failed background
+    // refresh keeps the invoices already loaded.
+    isError: query.isLoadingError,
+    refetch: query.refetch,
     createInvoice: createMutation.mutateAsync,
     updateInvoice: updateMutation.mutateAsync,
     deleteInvoice: deleteMutation.mutateAsync,

@@ -15,7 +15,11 @@ export const useSalesQuotes = (opts?: { refetchInterval?: number }) => {
     refetchInterval: opts?.refetchInterval,
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["quotes"] });
+  const invalidate = () => {
+    // The customer page keeps its own, customer-filtered copy of the quotes.
+    queryClient.invalidateQueries({ queryKey: ["customer-quotes"] });
+    return queryClient.invalidateQueries({ queryKey: ["quotes"] });
+  };
 
   const salesQuotes: SalesQuote[] = useMemo(
     () => (query.data?.data ?? []).filter(isSalesQuote).map(toSalesQuote),
@@ -77,6 +81,7 @@ export const useSalesQuote = (quoteNumber: string | null) => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["quote", quoteNumber] });
       queryClient.invalidateQueries({ queryKey: ["quotes"] });
+      queryClient.invalidateQueries({ queryKey: ["customer-quotes"] });
     },
   });
 
