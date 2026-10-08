@@ -36,6 +36,8 @@ const ACTIVE = sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`
 const TILE_PREDICATES = {
   active: ACTIVE,
   attention: sql`${ACTIVE} AND ${anyDueWithin(1)}`,
+  // Not a tile of its own: the grid filter behind the 48-hour Needs Attention card.
+  attention48: sql`${ACTIVE} AND (${sql.join(DEADLINES.map((d) => sql`${d} = CURRENT_DATE + 2`), sql` OR `)})`,
   import: sql`lower(${shipmentTable.tradeDirection}) = 'import'`,
   export: sql`lower(${shipmentTable.tradeDirection}) = 'export'`,
   week: sql`${RELEVANT_ETA} IS NOT NULL
@@ -49,7 +51,7 @@ export type TileId = keyof typeof TILE_PREDICATES;
 
 
 export interface ShipmentListFilters {
-  /** Overview tile filter: active | attention | import | export | week | nextweek */
+  /** Overview tile filter: active | attention | attention48 | import | export | week | nextweek */
   tile?: string;
   customerId?: string;
   status?: string;
