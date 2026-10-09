@@ -29,7 +29,11 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
   });
   const files = (data?.attachments ?? []).filter((a) => a.fileName.toLowerCase().includes(search.trim().toLowerCase()));
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipmentId] });
+  // The list rows carry the shipment's document types (the Customs "received" ticks follow them).
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    return queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipmentId] });
+  };
 
   const remove = useMutation({
     mutationFn: (id: string) => api.shipments.attachmentDelete(shipmentId, id),

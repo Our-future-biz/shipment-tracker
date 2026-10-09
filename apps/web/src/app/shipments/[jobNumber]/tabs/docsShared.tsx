@@ -48,16 +48,19 @@ export function ExtBadge({ fileName }: { fileName: string }) {
   );
 }
 
-/** .file z mockupu - ikona pripony + nazev + velikost */
+/**
+ * .file z mockupu - ikona pripony + nazev + velikost.
+ * Dva radky s pevnou vyskou (32px + 16px), stejne jako ostatni bunky radku v Customs.
+ */
 export function FileCell({ fileName, fileSize }: { fileName: string; fileSize: number }) {
   return (
     <div className="flex items-center gap-3 min-w-0">
       <ExtBadge fileName={fileName} />
       <span className="min-w-0">
-        <span className="block font-semibold text-[#4457D6] truncate" title={fileName}>
+        <span className="block text-[14px] leading-8 font-semibold text-[#4457D6] truncate" title={fileName}>
           {fileName}
         </span>
-        <span className="text-[12px] text-[#8B94A7] font-medium">{formatFileSize(fileSize)}</span>
+        <span className="block text-[12px] leading-4 text-[#8B94A7] font-medium tabular-nums">{formatFileSize(fileSize)}</span>
       </span>
     </div>
   );

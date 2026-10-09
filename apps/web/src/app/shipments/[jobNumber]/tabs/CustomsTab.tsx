@@ -42,6 +42,24 @@ const CUSTOMS_RIGHT = [
   { key: "commercialInvoiceValue", label: "Commercial Invoice(s) Value", ro: true },
 ];
 
+// Columns of the documents table. The layout is fixed, so a long file name or reviewer
+// name is cut short instead of pushing the other columns around; File takes the width
+// that is left.
+const DOC_COLUMNS: { label: string; width?: number }[] = [
+  { label: "File" },
+  { label: "Document type", width: 190 },
+  { label: "Uploaded by", width: 170 },
+  { label: "Customs review", width: 250 },
+  { label: "", width: 84 },
+];
+
+// Every cell of a document row is laid out on the same two lines (32px + 16px, see also
+// FileCell), so names, the status and its buttons share one line across the columns and
+// sizes, dates and the reviewer share the other.
+const DOC_CELL = "py-[13px] border-b border-[#E4E7F0]";
+const DOC_BUTTON =
+  "inline-flex items-center h-8 gap-[7px] text-[12.5px] font-semibold px-[10px] rounded-[7px] border border-[#D3D8E5] bg-white text-[#151B2B] cursor-pointer transition-colors";
+
 export function CustomsTab({
   shipment,
   onCommit,
@@ -115,7 +133,7 @@ export function CustomsTab({
           {/* .right */}
           <div className="ml-auto flex items-center gap-[10px] flex-wrap">
             {/* .count-note */}
-            <span className="text-[13px] text-[#5A6478] font-semibold">
+            <span className="text-[13px] text-[#5A6478] font-semibold whitespace-nowrap">
               {docPlural(documents.length)}
               {documents.length > 0 &&
                 ` · ${documents.filter((d) => d.customsStatus === "approved").length} approved · ${documents.filter((d) => d.customsStatus === "declined").length} declined`}
@@ -123,32 +141,32 @@ export function CustomsTab({
             {/* .search */}
             <Input
               placeholder="Search by file name"
-              prefix={<SearchOutlined className="text-[#8B94A7] text-[15px]" />}
+              prefix={<SearchOutlined className="!text-[#8B94A7] text-[15px]" />}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               allowClear
-              className="min-w-[210px] w-[210px] [&.ant-input-affix-wrapper]:!border-[#D3D8E5] [&.ant-input-affix-wrapper]:!rounded-lg [&.ant-input-affix-wrapper]:!py-[7px] [&.ant-input-affix-wrapper]:!px-[11px] [&_input]:!text-[13px]"
+              className="flex-none !w-[210px] [&.ant-input-affix-wrapper]:!border-[#D3D8E5] [&.ant-input-affix-wrapper]:!rounded-lg [&.ant-input-affix-wrapper]:!py-[7px] [&.ant-input-affix-wrapper]:!px-[11px] [&_input]:!text-[13px]"
             />
           </div>
         </div>
 
         {/* .tablewrap */}
         <div className="overflow-x-auto">
-          <table className="w-full border-collapse min-w-[760px]">
+          {/* min-w = the fixed columns (694px) + 220px left for File */}
+          <table className="w-full table-fixed border-collapse min-w-[914px] [&_tbody_tr:last-child_td]:border-b-0">
+            <colgroup>
+              {DOC_COLUMNS.map((c, i) => (
+                <col key={i} style={{ width: c.width }} />
+              ))}
+            </colgroup>
             <thead>
               <tr>
-                {[
-                  { label: "File", cls: "min-w-[260px]" },
-                  { label: "Document type", cls: "w-[190px]" },
-                  { label: "Uploaded by", cls: "w-[170px]" },
-                  { label: "Customs review", cls: "w-[250px]" },
-                  { label: "", cls: "w-[84px]" },
-                ].map((h, i) => (
+                {DOC_COLUMNS.map((c, i) => (
                   <th
                     key={i}
-                    className={`text-left text-[11px] font-extrabold tracking-[.07em] uppercase text-[#4E5769] px-[18px] py-[12px] border-b border-[#E4E7F0] bg-white ${h.cls}`}
+                    className="text-left text-[11px] font-extrabold tracking-[.07em] uppercase text-[#4E5769] px-[18px] py-[12px] border-b border-[#E4E7F0] bg-white whitespace-nowrap"
                   >
-                    {h.label}
+                    {c.label}
                   </th>
                 ))}
               </tr>
@@ -158,94 +176,109 @@ export function CustomsTab({
                 <Fragment key={d.id}>
                   <tr className="group transition-colors hover:bg-[#FAFBFD]">
                     {/* File */}
-                    <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
+                    <td className={`px-[18px] align-top ${DOC_CELL}`}>
                       <FileCell fileName={d.fileName} fileSize={d.fileSize} />
                     </td>
 
                     {/* Document type - .type-static, v Customs jen ke cteni */}
-                    <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
+                    <td className={`px-[18px] align-top ${DOC_CELL}`}>
                       {d.documentType ? (
-                        <span className="text-[13.5px] font-semibold text-[#5A6478]">{d.documentType}</span>
+                        <span className="block truncate text-[13.5px] leading-8 font-semibold text-[#5A6478]" title={d.documentType}>
+                          {d.documentType}
+                        </span>
                       ) : (
                         <Tooltip title="Set the type in the Documents tab">
-                          <span className="text-[13.5px] font-semibold text-[#8B94A7]">—</span>
+                          <span className="text-[13.5px] leading-8 font-semibold text-[#8B94A7]">—</span>
                         </Tooltip>
                       )}
                     </td>
 
                     {/* Uploaded by - .val */}
-                    <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
-                      <span className="text-[13.5px] font-semibold text-[#C3392B] whitespace-nowrap">
-                        {d.uploadedByName || "Unknown"}
-                        <small className="block text-[12px] font-medium text-[#8B94A7]">
+                    <td className={`px-[18px] align-top ${DOC_CELL}`}>
+                      <span className="block text-[13.5px] font-semibold text-[#C3392B]">
+                        <span className="block truncate leading-8" title={d.uploadedByName || "Unknown"}>
+                          {d.uploadedByName || "Unknown"}
+                        </span>
+                        <small className="block text-[12px] leading-4 font-medium text-[#8B94A7] whitespace-nowrap tabular-nums">
                           {d.createdAt ? formatDateTime(d.createdAt) : ""}
                         </small>
                       </span>
                     </td>
 
-                    {/* Customs review - .rev */}
-                    <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
-                      {d.customsStatus === "approved" || d.customsStatus === "declined" ? (
-                        /* jiz posouzeno: stitek + kdo/kdy + tlacitko Change */
-                        <div className="flex items-center gap-2 flex-nowrap">
-                          <div className="flex flex-col items-start gap-[2px] min-w-0">
-                            <CustomsPill status={d.customsStatus} />
+                    {/* Customs review - .rev. Two slots: the status (pill or Approve) and the
+                        action next to it (Change or Decline), so both start at the same
+                        place in every row whatever the name under the pill. */}
+                    <td className={`px-[18px] align-top ${DOC_CELL}`}>
+                      <div className="grid grid-cols-[108px_minmax(0,1fr)] items-center justify-items-start gap-x-2">
+                        {d.customsStatus === "approved" || d.customsStatus === "declined" ? (
+                          /* jiz posouzeno: stitek + tlacitko Change, pod nimi kdo/kdy */
+                          <>
+                            <span className="flex h-8 items-center">
+                              <CustomsPill status={d.customsStatus} />
+                            </span>
+                            <button
+                              onClick={() => review.mutate({ id: d.id, status: "" })}
+                              className={`${DOC_BUTTON} hover:bg-[#F6F7FB] hover:border-[#8B94A7]`}
+                            >
+                              Change
+                            </button>
                             {d.customsReviewedAt && (
-                              <small className="text-[11px] text-[#8B94A7] whitespace-nowrap">
-                                {d.customsReviewedByName || "Customs"} · {formatDateTime(d.customsReviewedAt)}
+                              <small
+                                className="col-span-2 flex w-full min-w-0 text-[11px] leading-4 text-[#8B94A7] whitespace-nowrap tabular-nums"
+                                title={`${d.customsReviewedByName || "Customs"} · ${formatDateTime(d.customsReviewedAt)}`}
+                              >
+                                <span className="truncate">{d.customsReviewedByName || "Customs"}</span>
+                                <span className="flex-none">&nbsp;· {formatDateTime(d.customsReviewedAt)}</span>
                               </small>
                             )}
-                          </div>
-                          <button
-                            onClick={() => review.mutate({ id: d.id, status: "" })}
-                            className="flex-none text-[12.5px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-[#D3D8E5] bg-white text-[#151B2B] cursor-pointer hover:bg-[#F6F7FB] hover:border-[#8B94A7] transition-colors"
-                          >
-                            Change
-                          </button>
-                        </div>
-                      ) : (
-                        /* jeste neposouzeno: Approve / Decline */
-                        <div className="flex items-center gap-2 flex-nowrap">
-                          <button
-                            onClick={() => review.mutate({ id: d.id, status: "approved" })}
-                            className="inline-flex items-center gap-[7px] flex-none text-[12.5px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-[#D3D8E5] bg-white text-[#151B2B] cursor-pointer hover:border-[#177245] hover:text-[#177245] hover:bg-[#E1F3E9] transition-colors"
-                          >
-                            <CheckOutlined className="text-[15px]" />
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => {
-                              setDeclining(d.id);
-                              setNote("");
-                            }}
-                            className="inline-flex items-center gap-[7px] flex-none text-[12.5px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-[#D3D8E5] bg-white text-[#151B2B] cursor-pointer hover:border-[#C3392B] hover:text-[#C3392B] hover:bg-[#FBE6E4] transition-colors"
-                          >
-                            <CloseOutlined className="text-[15px]" />
-                            Decline
-                          </button>
-                        </div>
-                      )}
+                          </>
+                        ) : (
+                          /* jeste neposouzeno: Approve / Decline */
+                          <>
+                            <button
+                              onClick={() => review.mutate({ id: d.id, status: "approved" })}
+                              className={`${DOC_BUTTON} justify-center w-full hover:border-[#177245] hover:text-[#177245] hover:bg-[#E1F3E9]`}
+                            >
+                              <CheckOutlined className="text-[15px]" />
+                              Approve
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                // Decline takes the place of Change once the review is reset, so the
+                                // second click of a double-click on Change would land here.
+                                if (e.detail > 1) return;
+                                setDeclining(d.id);
+                                setNote("");
+                              }}
+                              className={`${DOC_BUTTON} hover:border-[#C3392B] hover:text-[#C3392B] hover:bg-[#FBE6E4]`}
+                            >
+                              <CloseOutlined className="text-[15px]" />
+                              Decline
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
 
                     {/* .acts - nahled a stazeni */}
-                    <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
+                    <td className={`pl-0 pr-[18px] align-middle ${DOC_CELL}`}>
                       <div className="flex gap-[2px] justify-end opacity-60 group-hover:opacity-100 transition-opacity">
                         <Tooltip title="Preview">
                           <a
                             href={attachmentContentUrl(shipment.id, d.id)}
                             target="_blank"
                             rel="noreferrer"
-                            className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#E7EAFC] hover:text-[#4457D6]"
+                            className="w-[30px] h-[30px] rounded-[7px] grid place-items-center !text-[#5A6478] hover:!bg-[#E7EAFC] hover:!text-[#4457D6]"
                           >
-                            <EyeOutlined />
+                            <EyeOutlined className="text-[16px]" />
                           </a>
                         </Tooltip>
                         <Tooltip title="Download">
                           <a
                             href={attachmentContentUrl(shipment.id, d.id, true)}
-                            className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#E7EAFC] hover:text-[#4457D6]"
+                            className="w-[30px] h-[30px] rounded-[7px] grid place-items-center !text-[#5A6478] hover:!bg-[#E7EAFC] hover:!text-[#4457D6]"
                           >
-                            <DownloadOutlined />
+                            <DownloadOutlined className="text-[16px]" />
                           </a>
                         </Tooltip>
                       </div>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Badge, AutoComplete, Modal, Button } from "antd";
+import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Badge, AutoComplete, Modal, Button, Checkbox } from "antd";
 import { SearchOutlined, PlusOutlined, FileTextOutlined, FilterOutlined, CloseOutlined, DownloadOutlined, MessageOutlined, WarningFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
@@ -29,6 +29,7 @@ import { useColumnView } from "@/hooks/useColumnView";
 import { DEFAULT_SHIPMENT_COLUMNS } from "@/hooks/useColumnPrefs";
 import { useFilterTemplates } from "@/hooks/useFilterTemplates";
 import { useToast } from "@/lib/toast";
+import { RECEIVED_TICKS, isReceivedTick, receivedFollowsDocuments, receivedValue, toggledReceivedOverride } from "@/lib/customsReceived";
 import { ColumnPicker } from "./ColumnPicker";
 import { OverviewTiles, type TileId } from "./OverviewTiles";
 import { NeedsAttentionTable } from "./NeedsAttentionTable";
@@ -79,9 +80,10 @@ export interface ShipmentsTableProps {
    * stable array). Only the rows are the shipments' own. `leadColumn` is always shown, as
    * the very first column, ahead of Internal Reference.
    * `detailHref` is where a reference leads instead of the shipment detail, ":id" standing
-   * for the shipment's id.
+   * for the shipment's id. `readonlyColumns` (a stable array) are shown as plain text here
+   * even though they can be edited in Shipments.
    */
-  view?: { key: string; title: string; detailHref?: string; defaultColumns?: string[]; leadColumn?: string };
+  view?: { key: string; title: string; detailHref?: string; defaultColumns?: string[]; leadColumn?: string; readonlyColumns?: string[] };
   /**
    * Buttons in place of New Shipment, each acting on the ticked rows; the selection is
    * cleared after. Primary (with a plus) unless `secondary`, which is for stepping back.
@@ -110,6 +112,13 @@ const STATUS_OPTIONS = [
 
 const PAGE_SIZE_OPTIONS = [50, 100, 150, 200];
 
+// A cell as text, for filtering and export: the Customs "received" ticks read Yes / No
+// (what the tick shows), every other column its own value.
+function cellText(shipment: ShipmentItem, key: string): string {
+  if (isReceivedTick(key)) return receivedValue(shipment, key) ? "Yes" : "No";
+  return getFieldValue(shipment, key);
+}
+
 // Export the given shipments to a CSV of the currently visible columns (respects
 // the column view + order). Mirrors the sales quote-history export.
 function exportShipmentsCsv(rows: ShipmentItem[], visibleKeys: string[]): void {
@@ -117,7 +126,7 @@ function exportShipmentsCsv(rows: ShipmentItem[], visibleKeys: string[]): void {
     .map((k) => COLUMN_MAP.get(k))
     .filter((c): c is NonNullable<typeof c> => !!c && c.type !== "popup");
   const headers = cols.map((c) => c.title);
-  const body = rows.map((s) => cols.map((c) => getFieldValue(s, c.key)));
+  const body = rows.map((s) => cols.map((c) => cellText(s, c.key)));
   const csv = [headers, ...body]
     .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
     .join("\n");
@@ -160,6 +169,7 @@ export const ShipmentsTable = ({
     useColumnView(user?.id, token, columnScope);
   // The view's lead column goes in front of whatever the user chose and cannot be dropped.
   const leadColumn = view?.leadColumn;
+  const viewReadonly = view?.readonlyColumns;
   const visible = useMemo(() => (leadColumn ? [leadColumn, ...chosen.filter((k) => k !== leadColumn)] : chosen), [chosen, leadColumn]);
   // Search text, kept in sync with the URL ?q= param (also driven by the global top-nav search)
   const urlQuery = searchParams.get("q") ?? "";
@@ -390,7 +400,7 @@ export const ShipmentsTable = ({
   const filtered = useMemo(() => {
     if (activeFilters.length === 0) return shipments;
     return shipments.filter((s) =>
-      activeFilters.every((f) => getFieldValue(s, f.key).toLowerCase().includes(f.value.toLowerCase().trim())),
+      activeFilters.every((f) => cellText(s, f.key).toLowerCase().includes(f.value.toLowerCase().trim())),
     );
   }, [shipments, activeFilters]);
 
@@ -414,6 +424,7 @@ export const ShipmentsTable = ({
       title: col.title,
       width: col.width,
       ellipsis: true,
+      align: isReceivedTick(col.key) ? ("center" as const) : undefined,
       // Internal Reference + Master job stay frozen on the left while the rest scrolls.
       fixed: isFixedColumn(col.key) || col.key === leadColumn ? ("left" as const) : undefined,
       onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
@@ -488,8 +499,26 @@ export const ShipmentsTable = ({
             />
           );
         }
+        // Customs "received" ticks \u2014 follow the shipment's documents until set by hand.
+        if (isReceivedTick(col.key)) {
+          const field = col.key;
+          return (
+            <Tooltip
+              title={
+                receivedFollowsDocuments(record, field)
+                  ? `Follows the ${RECEIVED_TICKS[field]} document in the shipment \u2014 tick to set it manually`
+                  : "Set manually"
+              }
+            >
+              <Checkbox
+                checked={receivedValue(record, field)}
+                onChange={() => updateField(record.id, field, toggledReceivedOverride(record, field))}
+              />
+            </Tooltip>
+          );
+        }
         // Read-only columns (computed, createdBy\u2026) \u2014 plain text.
-        if (col.readonly) {
+        if (col.readonly || viewReadonly?.includes(col.key)) {
           return val ? <span className="text-slate-600" style={textStyle}>{val}</span> : <span className="text-slate-300">{"\u2014"}</span>;
         }
         // Everything else \u2014 inline editable (double-click). Text/dropdown/date per column config.
@@ -576,7 +605,7 @@ export const ShipmentsTable = ({
     });
 
     return cols;
-  }, [visible, leadColumn, rowInfo, router, updateField, updateShipment, unreadBy, detailHref]);
+  }, [visible, leadColumn, viewReadonly, rowInfo, router, updateField, updateShipment, unreadBy, detailHref]);
 
   // Client-side pagination (custom bottom bar so the size selector sits on the left).
   const totalRows = filtered.length;
