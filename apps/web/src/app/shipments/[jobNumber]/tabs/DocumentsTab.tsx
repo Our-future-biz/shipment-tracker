@@ -25,6 +25,7 @@ import {
   REQUIRED_DOCUMENT_TYPES,
   OPTIONAL_DOCUMENT_TYPES,
   guessDocumentType,
+  isCustomsDocumentType,
 } from "@/lib/documentTypes";
 
 interface AttachmentFile {
@@ -467,7 +468,12 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                     </td>
                     <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
                       <div className="flex flex-col gap-[3px] items-start">
-                        <CustomsPill status={file.customsStatus} />
+                        {/* Only invoices and packing lists go to customs for review. */}
+                        {isCustomsDocumentType(file.documentType) ? (
+                          <CustomsPill status={file.customsStatus} />
+                        ) : (
+                          <span className="text-[13.5px] font-semibold text-[#8B94A7]">—</span>
+                        )}
                         {file.customsStatus === "declined" && file.customsNote && (
                           <span className="text-[12px] text-[#5A6478] max-w-[210px]">
                             “{file.customsNote}”

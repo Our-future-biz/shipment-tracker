@@ -20,6 +20,7 @@ import { formatDateTime } from "@/lib/date";
 import { attachmentContentUrl } from "@/lib/files";
 import { FileCell, CustomsPill, docPlural } from "./docsShared";
 import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
+import { isCustomsDocumentType } from "@/lib/documentTypes";
 
 // Field layout mirrors CUSTOMS_L / CUSTOMS_R from the approved mockup. Read-only
 // fields are derived elsewhere (containers, cargo lines) and must not be edited here.
@@ -208,7 +209,8 @@ export function CustomsTab({
   // Memoised so the `?? []` fallback does not hand the memos below a new array
   // (and therefore a new dependency) on every render.
   const documents = useMemo(
-    () => attachmentsQuery.data?.attachments ?? [],
+    // Customs only sees the invoices and packing lists; the rest stays in the Documents tab.
+    () => (attachmentsQuery.data?.attachments ?? []).filter((d) => isCustomsDocumentType(d.documentType)),
     [attachmentsQuery.data?.attachments],
   );
   const filtered = useMemo(() => {
@@ -465,7 +467,7 @@ export function CustomsTab({
           {filtered.length === 0 && (
             <div className="px-[18px] py-9 text-center text-[#8B94A7] text-[13.5px]">
               {documents.length === 0
-                ? "No documents yet — files added in the Documents tab show up here for clearance."
+                ? "No documents yet — files marked Invoice or Packing list in the Documents tab show up here for clearance."
                 : `No file matches “${search}”.`}
             </div>
           )}
@@ -473,7 +475,7 @@ export function CustomsTab({
 
         {/* .cs-foot */}
         <div className="px-[18px] py-[11px] border-t border-[#E4E7F0] bg-[#FAFBFD] text-[12.5px] text-[#8B94A7] font-medium">
-          Document types are set in the Documents tab — customs can only approve or decline.
+          Only Invoice and Packing list documents are shown. Types are set in the Documents tab — customs can only approve or decline.
         </div>
       </div>
     </div>

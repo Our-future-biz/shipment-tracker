@@ -44,5 +44,10 @@ export function guessDocumentType(fileName: string): string {
   return "";
 }
 
+/** The documents customs works with: only these show up in the Customs section for review. */
+export const CUSTOMS_DOCUMENT_TYPES: readonly string[] = ["Invoice", "Packing list"];
+
+export const isCustomsDocumentType = (documentType: string) => CUSTOMS_DOCUMENT_TYPES.includes(documentType);
+
 /** Customs review status of one document. */
 export type CustomsReviewStatus = "" | "approved" | "declined";
