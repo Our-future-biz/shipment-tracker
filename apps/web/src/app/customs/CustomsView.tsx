@@ -82,6 +82,7 @@ export function CustomsView() {
               </div>
               {openShipment ? (
                 <CustomsTab
+                  canReview
                   shipment={openShipment}
                   onCommit={(fieldKey, value) => updateField(openShipment.id, fieldKey, value)}
                 />

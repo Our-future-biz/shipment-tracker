@@ -176,9 +176,15 @@ function CustomsPriorityRow({
 export function CustomsTab({
   shipment,
   onCommit,
+  canReview = false,
 }: {
   shipment: ShipmentItem;
   onCommit: CommitFn;
+  /**
+   * Documents are approved, declined and changed only in the Customs section. In the
+   * shipment's own Customs tab the review is shown, without the buttons.
+   */
+  canReview?: boolean;
 }) {
   const [search, setSearch] = useState("");
   const { updateShipment } = useShipments();
@@ -345,12 +351,16 @@ export function CustomsTab({
                             <span className="flex h-8 items-center">
                               <CustomsPill status={d.customsStatus} />
                             </span>
-                            <button
-                              onClick={() => review.mutate({ id: d.id, status: "" })}
-                              className={`${DOC_BUTTON} hover:bg-[#F6F7FB] hover:border-[#8B94A7]`}
-                            >
-                              Change
-                            </button>
+                            {canReview ? (
+                              <button
+                                onClick={() => review.mutate({ id: d.id, status: "" })}
+                                className={`${DOC_BUTTON} hover:bg-[#F6F7FB] hover:border-[#8B94A7]`}
+                              >
+                                Change
+                              </button>
+                            ) : (
+                              <span />
+                            )}
                             {d.customsReviewedAt && (
                               <small
                                 className="col-span-2 flex w-full min-w-0 text-[11px] leading-4 text-[#8B94A7] whitespace-nowrap tabular-nums"
@@ -361,6 +371,10 @@ export function CustomsTab({
                               </small>
                             )}
                           </>
+                        ) : !canReview ? (
+                          <span className="col-span-2 flex h-8 items-center">
+                            <CustomsPill status="" />
+                          </span>
                         ) : (
                           /* jeste neposouzeno: Approve / Decline */
                           <>
@@ -475,7 +489,8 @@ export function CustomsTab({
 
         {/* .cs-foot */}
         <div className="px-[18px] py-[11px] border-t border-[#E4E7F0] bg-[#FAFBFD] text-[12.5px] text-[#8B94A7] font-medium">
-          Only Invoice and Packing list documents are shown. Types are set in the Documents tab — customs can only approve or decline.
+          Only Invoice and Packing list documents are shown. Types are set in the Documents tab
+          {canReview ? " — customs can only approve or decline." : "; they are approved or declined in the Customs section."}
         </div>
       </div>
     </div>

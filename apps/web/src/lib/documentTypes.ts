@@ -44,6 +44,23 @@ export function guessDocumentType(fileName: string): string {
   return "";
 }
 
+/**
+ * The Documents tab lists a shipment's files in three tables, by document type. Commercial
+ * is only ever invoices and packing lists; a type that is in none of the tables (Other, or
+ * not set yet) is listed with the shipping documents.
+ */
+export const DOCUMENT_GROUPS = [
+  { title: "Commercial Documents", types: ["Invoice", "Packing list"] },
+  { title: "Shipping Documents", types: ["Bill of Lading", "Booking confirmation", "CMR / POD", "Insurance"] },
+  { title: "Customs Documents", types: ["Customs document", "Certificate of origin"] },
+] as const;
+
+const FALLBACK_DOCUMENT_GROUP = DOCUMENT_GROUPS[1];
+
+export function documentGroupOf(documentType: string): (typeof DOCUMENT_GROUPS)[number] {
+  return DOCUMENT_GROUPS.find((g) => (g.types as readonly string[]).includes(documentType)) ?? FALLBACK_DOCUMENT_GROUP;
+}
+
 /** The documents customs works with: only these show up in the Customs section for review. */
 export const CUSTOMS_DOCUMENT_TYPES: readonly string[] = ["Invoice", "Packing list"];
 

@@ -26,6 +26,8 @@ import {
   OPTIONAL_DOCUMENT_TYPES,
   guessDocumentType,
   isCustomsDocumentType,
+  DOCUMENT_GROUPS,
+  documentGroupOf,
 } from "@/lib/documentTypes";
 
 interface AttachmentFile {
@@ -386,144 +388,162 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
           </div>
         </Card>
 
-        <Card
-          icon={<FileTextOutlined />}
-          title="Documents"
-          right={
-            <>
-              <span className="text-[13px] text-[#5A6478] font-semibold">
-                {attachments.length} {attachments.length === 1 ? "file" : "files"}
-              </span>
-              <span className="flex items-center gap-2 border border-[#D3D8E5] bg-white rounded-lg px-[11px] py-[7px] text-[13px] min-w-[210px]">
-                <SearchOutlined className="text-[#8B94A7]" />
-                <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search by file name"
-                  className="border-0 bg-transparent outline-none w-full text-[#151B2B]"
-                />
-              </span>
-            </>
-          }
-        >
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse min-w-[760px]">
-              <thead>
-                <tr>
-                  {[
-                    ["File", "min-w-[260px]"],
-                    ["Document type", "w-[200px]"],
-                    ["Uploaded by", "w-[160px]"],
-                    ["Customs", "w-[190px]"],
-                    ["", "w-[110px]"],
-                  ].map(([label, w]) => (
-                    <th
-                      key={label || "acts"}
-                      className={`text-left text-[11px] font-extrabold tracking-[.07em] uppercase text-[#4E5769] px-[18px] py-3 border-b border-[#E4E7F0] bg-white ${w}`}
-                    >
-                      {label}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((file) => (
-                  <tr key={file.id} className="hover:bg-[#FAFBFD] transition-colors group">
-                    <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <ExtBadge fileName={file.fileName} />
-                        <span className="min-w-0">
-                          <a
-                            href={contentUrl(file.id)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="font-semibold text-[#4457D6] truncate block"
-                          >
-                            {file.fileName}
-                          </a>
-                          <span className="text-[12px] text-[#8B94A7] font-medium">
-                            {formatFileSize(file.fileSize)}
-                          </span>
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
-                      <Select
-                        size="small"
-                        value={file.documentType || undefined}
-                        placeholder="Select type"
-                        options={DOCUMENT_TYPES.map((t) => ({ value: t, label: t }))}
-                        onChange={(v) => classify.mutate({ id: file.id, documentType: v })}
-                        className="w-full max-w-[190px]"
-                        status={file.documentType ? undefined : "warning"}
-                      />
-                    </td>
-                    <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
-                      <span className="text-[13.5px] font-semibold text-[#C3392B] whitespace-nowrap">
-                        {file.uploadedByName || "Unknown"}
-                        <small className="block text-[12px] font-medium text-[#8B94A7]">
-                          {formatDate(file.createdAt)}
-                        </small>
-                      </span>
-                    </td>
-                    <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
-                      <div className="flex flex-col gap-[3px] items-start">
-                        {/* Only invoices and packing lists go to customs for review. */}
-                        {isCustomsDocumentType(file.documentType) ? (
-                          <CustomsPill status={file.customsStatus} />
-                        ) : (
-                          <span className="text-[13.5px] font-semibold text-[#8B94A7]">—</span>
-                        )}
-                        {file.customsStatus === "declined" && file.customsNote && (
-                          <span className="text-[12px] text-[#5A6478] max-w-[210px]">
-                            “{file.customsNote}”
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
-                      <div className="flex gap-[2px] justify-end opacity-60 group-hover:opacity-100 transition-opacity">
-                        <Tooltip title="Preview">
-                          <a
-                            href={contentUrl(file.id)}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#E7EAFC] hover:text-[#4457D6]"
-                          >
-                            <EyeOutlined />
-                          </a>
-                        </Tooltip>
-                        <Tooltip title="Download">
-                          <a
-                            href={contentUrl(file.id, true)}
-                            className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#E7EAFC] hover:text-[#4457D6]"
-                          >
-                            <DownloadOutlined />
-                          </a>
-                        </Tooltip>
-                        <Tooltip title="Delete">
-                          <button
-                            onClick={() => deleteAttachment.mutate(file.id)}
-                            className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer"
-                          >
-                            <DeleteOutlined />
-                          </button>
-                        </Tooltip>
-                      </div>
-                    </td>
+        {DOCUMENT_GROUPS.map((group, index) => {
+          const inGroup = (a: AttachmentFile) => documentGroupOf(a.documentType) === group;
+          const all = attachments.filter(inGroup);
+          const rows = filtered.filter(inGroup);
+          const first = index === 0;
+          return (
+          <Card
+            key={group.title}
+            icon={<FileTextOutlined />}
+            title={group.title}
+            right={
+              <>
+                <span className="text-[13px] text-[#5A6478] font-semibold">
+                  {all.length} {all.length === 1 ? "file" : "files"}
+                </span>
+                {/* One search for all three lists, kept in the first card. */}
+                {first && (
+                <span className="flex items-center gap-2 border border-[#D3D8E5] bg-white rounded-lg px-[11px] py-[7px] text-[13px] min-w-[210px]">
+                  <SearchOutlined className="text-[#8B94A7]" />
+                  <input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search by file name"
+                    className="border-0 bg-transparent outline-none w-full text-[#151B2B]"
+                  />
+                </span>
+                )}
+              </>
+            }
+          >
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse min-w-[760px]">
+                <thead>
+                  <tr>
+                    {[
+                      ["File", "min-w-[260px]"],
+                      ["Document type", "w-[200px]"],
+                      ["Uploaded by", "w-[160px]"],
+                      ["Customs", "w-[190px]"],
+                      ["", "w-[110px]"],
+                    ].map(([label, w]) => (
+                      <th
+                        key={label || "acts"}
+                        className={`text-left text-[11px] font-extrabold tracking-[.07em] uppercase text-[#4E5769] px-[18px] py-3 border-b border-[#E4E7F0] bg-white ${w}`}
+                      >
+                        {label}
+                      </th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            {filtered.length === 0 && (
-              <div className="px-[18px] py-9 text-center text-[#8B94A7] text-[13.5px]">
-                {attachments.length === 0
-                  ? "No documents yet. Drag a file into the area above."
-                  : `No file matches “${search}”.`}
-              </div>
-            )}
-          </div>
-        </Card>
+                </thead>
+                <tbody>
+                  {rows.map((file) => (
+                    <tr key={file.id} className="hover:bg-[#FAFBFD] transition-colors group">
+                      <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <ExtBadge fileName={file.fileName} />
+                          <span className="min-w-0">
+                            <a
+                              href={contentUrl(file.id)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="font-semibold text-[#4457D6] truncate block"
+                            >
+                              {file.fileName}
+                            </a>
+                            <span className="text-[12px] text-[#8B94A7] font-medium">
+                              {formatFileSize(file.fileSize)}
+                            </span>
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
+                        {/* The type is chosen when the file is added and stays as it is. Only a file
+                            that came in without one (e.g. from the list's documents drawer) can
+                            still be given its type here, once. */}
+                        {file.documentType ? (
+                          <span className="text-[13.5px] font-semibold text-[#5A6478]">{file.documentType}</span>
+                        ) : (
+                          <Select
+                            size="small"
+                            placeholder="Select type"
+                            options={DOCUMENT_TYPES.map((t) => ({ value: t, label: t }))}
+                            onChange={(v) => classify.mutate({ id: file.id, documentType: v })}
+                            className="w-full max-w-[190px]"
+                            status="warning"
+                          />
+                        )}
+                      </td>
+                      <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
+                        <span className="text-[13.5px] font-semibold text-[#C3392B] whitespace-nowrap">
+                          {file.uploadedByName || "Unknown"}
+                          <small className="block text-[12px] font-medium text-[#8B94A7]">
+                            {formatDate(file.createdAt)}
+                          </small>
+                        </span>
+                      </td>
+                      <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
+                        <div className="flex flex-col gap-[3px] items-start">
+                          {/* Only invoices and packing lists go to customs for review. */}
+                          {isCustomsDocumentType(file.documentType) ? (
+                            <CustomsPill status={file.customsStatus} />
+                          ) : (
+                            <span className="text-[13.5px] font-semibold text-[#8B94A7]">—</span>
+                          )}
+                          {file.customsStatus === "declined" && file.customsNote && (
+                            <span className="text-[12px] text-[#5A6478] max-w-[210px]">
+                              “{file.customsNote}”
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
+                        <div className="flex gap-[2px] justify-end opacity-60 group-hover:opacity-100 transition-opacity">
+                          <Tooltip title="Preview">
+                            <a
+                              href={contentUrl(file.id)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#E7EAFC] hover:text-[#4457D6]"
+                            >
+                              <EyeOutlined />
+                            </a>
+                          </Tooltip>
+                          <Tooltip title="Download">
+                            <a
+                              href={contentUrl(file.id, true)}
+                              className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#E7EAFC] hover:text-[#4457D6]"
+                            >
+                              <DownloadOutlined />
+                            </a>
+                          </Tooltip>
+                          <Tooltip title="Delete">
+                            <button
+                              onClick={() => deleteAttachment.mutate(file.id)}
+                              className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer"
+                            >
+                              <DeleteOutlined />
+                            </button>
+                          </Tooltip>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {rows.length === 0 && (
+                <div className="px-[18px] py-9 text-center text-[#8B94A7] text-[13.5px]">
+                  {all.length === 0
+                    ? `No ${group.title.toLowerCase()} yet. Drag a file into the area above.`
+                    : `No file matches “${search}”.`}
+                </div>
+              )}
+            </div>
+          </Card>
+          );
+        })}
       </div>
 
       {/* Right column: required-documents checklist */}
