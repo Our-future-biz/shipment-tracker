@@ -1,0 +1,1 @@
+ALTER TABLE "shipment" ADD COLUMN "customs_deadline" text DEFAULT '' NOT NULL;

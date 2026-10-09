@@ -246,6 +246,20 @@
       "when": 1791444950342,
       "tag": "0034_shipment_warehouse_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791546550541,
+      "tag": "0035_shipment_customs_priority",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791546974723,
+      "tag": "0036_shipment_customs_deadline",
+      "breakpoints": true
     }
   ]
 }

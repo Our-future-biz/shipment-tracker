@@ -419,6 +419,7 @@ export function DetailCard({
   shipment,
   onCommit,
   styleFor,
+  renderBefore,
   renderAfter,
   children,
 }: {
@@ -430,7 +431,8 @@ export function DetailCard({
   shipment: ShipmentItem;
   onCommit: CommitFn;
   styleFor?: StyleFor;
-  // Extra rows to place directly below a given field, keyed by its field key.
+  // Extra rows to place directly above / below a given field, keyed by its field key.
+  renderBefore?: Record<string, React.ReactNode>;
   renderAfter?: Record<string, React.ReactNode>;
   children?: React.ReactNode;
 }) {
@@ -456,6 +458,7 @@ export function DetailCard({
           <div key={i}>
             {col.filter((f) => !shown || shown.has(f.key)).map((f) => (
               <React.Fragment key={f.key}>
+                {renderBefore?.[f.key]}
                 {f.ro ? (
                   <RoRow label={f.label} value={getFieldValue(shipment, f.key)} />
                 ) : (

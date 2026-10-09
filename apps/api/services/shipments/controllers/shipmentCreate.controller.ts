@@ -95,6 +95,8 @@ interface ShipmentCreateRequest {
   approvedBy?: string;
   bookingConfirmation?: string;
   customsProcedure?: string;
+  customsPriority?: string;
+  customsDeadline?: string;
   equipmentDelivery?: string;
   equipmentDeliveryDate?: string;
   supplierPic?: string;

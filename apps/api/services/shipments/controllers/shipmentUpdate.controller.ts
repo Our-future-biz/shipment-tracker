@@ -105,6 +105,8 @@ interface ShipmentUpdateRequest {
   approvedBy?: string;
   bookingConfirmation?: string;
   customsProcedure?: string;
+  customsPriority?: string;
+  customsDeadline?: string;
   mrn?: string;
   csRecvInvoice?: string;
   csRecvPacking?: string;

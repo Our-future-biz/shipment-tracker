@@ -145,6 +145,8 @@ function sanitizeTypedFields<T extends Record<string, unknown>>(data: T): T {
     if (out[key] !== "") continue;
     if (DATE_FIELDS.has(key)) out[key] = null;
     else if (MONEY_FIELDS.has(key)) out[key] = "0";
+    // Customs Priority is never blank: a shipment is Standard until someone marks it Urgent.
+    else if (key === "customsPriority") out[key] = "Standard";
   }
   return out as T;
 }

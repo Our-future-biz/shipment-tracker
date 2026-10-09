@@ -142,6 +142,10 @@ export interface ShipmentItem {
   approvedBy: string;
   bookingConfirmation: string;
   customsProcedure: string;
+  /** Standard | Urgent. */
+  customsPriority: string;
+  /** Deadline of an Urgent shipment, "YYYY-MM-DD HH:mm"; "" for Standard. */
+  customsDeadline: string;
   /** Customs Movement Reference Number. */
   mrn: string;
   /** Manual override of the Customs "received" ticks: "" | "yes" | "no". */

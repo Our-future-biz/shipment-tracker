@@ -66,6 +66,7 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Container's Type (3)": ["GP", "HC", "RF", "HR", "OT", "HOT", "FR"],
   "Container's Type (4)": ["GP", "HC", "RF", "HR", "OT", "HOT", "FR"],
   "Customs Procedure": ["SCP", "JSD", "T1", "C-Goods"],
+  "Customs Priority": ["Standard", "Urgent"],
   "Shipping Instructions": ["Not Queried", "Not Received", "Confirmed"],
   "VGM": ["Pending (Red)", "Confirmed (Green)", "Customer", "Not Applicable"],
   "AMS (if any)": ["Pending (Red)", "Confirmed (Green)", "Not Applicable"],
@@ -127,6 +128,9 @@ export const COLUMNS: ColumnDef[] = [
 
   // Status block
   { key: "customsStatus", title: "Customs Status", width: 210, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Status"], apiField: "customsStatus" },
+  // Read-only in the lists: switching to Urgent asks for a deadline, which happens in the Customs detail.
+  { key: "customsPriority", title: "Customs Priority", width: 230, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Priority"], apiField: "customsPriority", readonly: true },
+  { key: "customsDeadline", title: "Customs Deadline", width: 160, type: "text", readonly: true, apiField: "customsDeadline" },
   { key: "status", title: "Shipment Status", width: 320, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
   { key: "freeComments", title: "Free Comments", width: 200, type: "text", apiField: "freeComments" },
   { key: "freightMode", title: "Freight Mode", width: 130, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Mode"], apiField: "freightMode" },
@@ -455,6 +459,12 @@ export function getCellConditionalStyle(
     if (value === "Waiting For Commercial Paperwork") return { backgroundColor: "rgba(244, 63, 94, 0.12)" };
     if (value === "Paperwork Verification Pending" || value === "Under Customs Clearance") return { backgroundColor: "rgba(234, 179, 8, 0.12)" };
     if (value === "Paperwork Verified" || value === "Customs Cleared/Released") return { backgroundColor: "rgba(34, 197, 94, 0.12)" };
+  }
+
+  // Customs Priority — Standard (green), Urgent (red)
+  if (key === "customsPriority") {
+    if (value === "Standard") return { backgroundColor: "rgba(34, 197, 94, 0.12)" };
+    if (value === "Urgent") return { backgroundColor: "rgba(244, 63, 94, 0.15)" };
   }
 
   // Required-fill fields: red when blank, green when filled

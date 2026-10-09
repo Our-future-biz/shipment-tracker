@@ -2221,6 +2221,8 @@ export namespace controllers {
         approvedBy?: string
         bookingConfirmation?: string
         customsProcedure?: string
+        customsPriority?: string
+        customsDeadline?: string
         equipmentDelivery?: string
         equipmentDeliveryDate?: string
         supplierPic?: string
@@ -2464,6 +2466,8 @@ export namespace controllers {
         approvedBy?: string
         bookingConfirmation?: string
         customsProcedure?: string
+        customsPriority?: string
+        customsDeadline?: string
         mrn?: string
         csRecvInvoice?: string
         csRecvPacking?: string
@@ -3344,6 +3348,16 @@ export namespace interfaces {
         approvedBy: string
         bookingConfirmation: string
         customsProcedure: string
+        /**
+         * Standard | Urgent.
+         */
+        customsPriority: string
+
+        /**
+         * Deadline of an Urgent shipment, "YYYY-MM-DD HH:mm"; "" for Standard.
+         */
+        customsDeadline: string
+
         /**
          * Customs Movement Reference Number.
          */

@@ -29,6 +29,7 @@ import { useColumnView } from "@/hooks/useColumnView";
 import { DEFAULT_SHIPMENT_COLUMNS } from "@/hooks/useColumnPrefs";
 import { useFilterTemplates } from "@/hooks/useFilterTemplates";
 import { useToast } from "@/lib/toast";
+import { formatDateTime } from "@/lib/date";
 import { RECEIVED_TICKS, isReceivedTick, receivedFollowsDocuments, receivedValue, toggledReceivedOverride } from "@/lib/customsReceived";
 import { ColumnPicker } from "./ColumnPicker";
 import { OverviewTiles, type TileId } from "./OverviewTiles";
@@ -116,6 +117,10 @@ const PAGE_SIZE_OPTIONS = [50, 100, 150, 200];
 // (what the tick shows), every other column its own value.
 function cellText(shipment: ShipmentItem, key: string): string {
   if (isReceivedTick(key)) return receivedValue(shipment, key) ? "Yes" : "No";
+  // An Urgent priority carries its deadline: "Urgent — 12.10.2026 14:00".
+  if (key === "customsPriority" && shipment.customsPriority === "Urgent" && shipment.customsDeadline) {
+    return `Urgent \u2014 ${formatDateTime(shipment.customsDeadline)}`;
+  }
   return getFieldValue(shipment, key);
 }
 
@@ -518,6 +523,9 @@ export const ShipmentsTable = ({
           );
         }
         // Read-only columns (computed, createdBy\u2026) \u2014 plain text.
+        if (col.key === "customsPriority") {
+          return <span className="text-slate-600" style={textStyle}>{cellText(record, col.key)}</span>;
+        }
         if (col.readonly || viewReadonly?.includes(col.key)) {
           return val ? <span className="text-slate-600" style={textStyle}>{val}</span> : <span className="text-slate-300">{"\u2014"}</span>;
         }

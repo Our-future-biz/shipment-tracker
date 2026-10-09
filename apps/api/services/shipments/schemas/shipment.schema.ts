@@ -116,6 +116,10 @@ export const shipmentTable = pgTable(
     approvedBy: text("approved_by").notNull().default(""),
     bookingConfirmation: text("booking_confirmation").notNull().default(""),
     customsProcedure: text("customs_procedure").notNull().default(""),
+    /** How soon customs has to clear the shipment: Standard | Urgent. */
+    customsPriority: text("customs_priority").notNull().default("Standard"),
+    /** When an Urgent shipment has to be cleared, local wall time "YYYY-MM-DD HH:mm"; "" for Standard. */
+    customsDeadline: text("customs_deadline").notNull().default(""),
     /** Movement Reference Number issued by customs. */
     mrn: text("mrn").notNull().default(""),
     /**

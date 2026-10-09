@@ -2,7 +2,8 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Input, Tooltip, message } from "antd";
+import { DatePicker, Input, Modal, Select, TimePicker, Tooltip, message } from "antd";
+import dayjs, { type Dayjs } from "dayjs";
 import {
   SafetyCertificateOutlined,
   FileTextOutlined,
@@ -13,16 +14,18 @@ import {
   DownloadOutlined,
 } from "@ant-design/icons";
 import { api } from "@/lib/api";
-import { type ShipmentItem } from "@/hooks/useShipments";
+import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { DetailCard, makeStyleFor, type CommitFn } from "../ShipmentDetailContent";
 import { formatDateTime } from "@/lib/date";
 import { attachmentContentUrl } from "@/lib/files";
 import { FileCell, CustomsPill, docPlural } from "./docsShared";
+import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 
 // Field layout mirrors CUSTOMS_L / CUSTOMS_R from the approved mockup. Read-only
 // fields are derived elsewhere (containers, cargo lines) and must not be edited here.
 const CUSTOMS_LEFT = [
   { key: "customsStatus", label: "Customs Status" },
+  { key: "customsProcedure", label: "Customs Procedure" },
   { key: "jobNumber", label: "Internal Reference", ro: true },
   { key: "typeOfPackages", label: "Type Of Packages", ro: true },
   { key: "pcs", label: "Colli", ro: true },
@@ -31,8 +34,8 @@ const CUSTOMS_LEFT = [
   { key: "totalWeightTons", label: "Total Weight In Tons", ro: true },
 ];
 
+// Customs Priority is rendered as the first row of this column (see CustomsPriorityRow).
 const CUSTOMS_RIGHT = [
-  { key: "customsProcedure", label: "Customs Procedure" },
   { key: "mrn", label: "MRN Number" },
   { key: "totalVolumeCbm", label: "Total Volume In CBM", ro: true },
   { key: "containerNumber", label: "Container Number", ro: true },
@@ -60,6 +63,115 @@ const DOC_CELL = "py-[13px] border-b border-[#E4E7F0]";
 const DOC_BUTTON =
   "inline-flex items-center h-8 gap-[7px] text-[12.5px] font-semibold px-[10px] rounded-[7px] border border-[#D3D8E5] bg-white text-[#151B2B] cursor-pointer transition-colors";
 
+const PRIORITY_DOT: Record<string, string> = { Standard: "#22c55e", Urgent: "#ef4444" };
+
+const priorityLabel = (value: string) => (
+  <span className="inline-flex items-center gap-2 font-medium text-slate-900">
+    <span className="w-2.5 h-2.5 rounded-full flex-none" style={{ background: PRIORITY_DOT[value] ?? "#cbd5e1" }} />
+    {value}
+  </span>
+);
+
+const DEADLINE_FORMAT = "YYYY-MM-DD HH:mm";
+
+// Customs Priority shows its coloured dot all the time, so an urgent shipment stands out;
+// like the other fields it is changed after a double-click. Switching to Urgent asks for the
+// deadline first and only takes effect once it is confirmed. Sits at the top of the right column.
+function CustomsPriorityRow({
+  value,
+  deadline,
+  onChange,
+}: {
+  value: string;
+  deadline: string;
+  onChange: (priority: string, deadline: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  // Deadline being picked in the dialog; null while the dialog is closed.
+  const [asking, setAsking] = useState<{ date: Dayjs | null; time: Dayjs | null } | null>(null);
+  const complete = !!asking?.date && !!asking.time;
+  const current = value || "Standard";
+  return (
+    <div className="flex items-center gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Customs Priority</span>
+      {editing ? (
+        <Select
+          size="small"
+          autoFocus
+          defaultOpen
+          aria-label="Customs Priority"
+          defaultValue={current}
+          onSelect={(next) => {
+            setEditing(false);
+            if (next === "Urgent") {
+              const known = deadline ? dayjs(deadline) : null;
+              setAsking({ date: known, time: known });
+            }
+            else if (next !== current) onChange(next, "");
+          }}
+          onBlur={() => setEditing(false)}
+          options={(DROPDOWN_OPTIONS["Customs Priority"] ?? []).map((o) => ({ value: o, label: priorityLabel(o) }))}
+          className="flex-1 min-w-[140px]"
+        />
+      ) : (
+        <div
+          className="flex-1 min-w-0 cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100"
+          title="Double-click to edit"
+          onDoubleClick={() => setEditing(true)}
+        >
+          {priorityLabel(current)}
+          {current === "Urgent" && deadline && (
+            <span className="font-medium text-slate-900"> — {formatDateTime(deadline)}</span>
+          )}
+        </div>
+      )}
+
+      <Modal
+        open={!!asking}
+        title="Urgent — customs deadline"
+        okText="Confirm"
+        cancelText="Cancel"
+        width={380}
+        // Near the top of the window, so the calendar and the time list have room to open
+        // below their fields instead of flipping up over the dialog.
+        style={{ top: 72 }}
+        destroyOnHidden
+        okButtonProps={{ disabled: !complete }}
+        onOk={() => {
+          if (!asking?.date || !asking.time) return;
+          const at = asking.date.hour(asking.time.hour()).minute(asking.time.minute());
+          onChange("Urgent", at.format(DEADLINE_FORMAT));
+          setAsking(null);
+        }}
+        onCancel={() => setAsking(null)}
+      >
+        <p className="mt-0 mb-2 text-[13px] text-slate-600">By when does customs have to clear this shipment?</p>
+        <div className="flex gap-2">
+          <DatePicker
+            format="DD.MM.YYYY"
+            placeholder="Date"
+            aria-label="Customs deadline date"
+            value={asking?.date ?? null}
+            onChange={(date) => setAsking((a) => (a ? { ...a, date } : a))}
+            placement="bottomLeft"
+            className="flex-1"
+          />
+          <TimePicker
+            format="HH:mm"
+            placeholder="Time"
+            aria-label="Customs deadline time"
+            value={asking?.time ?? null}
+            onChange={(time) => setAsking((a) => (a ? { ...a, time } : a))}
+            needConfirm
+            placement="bottomLeft"
+            className="w-[120px]"
+          />
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
 export function CustomsTab({
   shipment,
   onCommit,
@@ -68,6 +180,7 @@ export function CustomsTab({
   onCommit: CommitFn;
 }) {
   const [search, setSearch] = useState("");
+  const { updateShipment } = useShipments();
   const styleFor = useMemo(() => makeStyleFor(shipment), [shipment]);
 
   const attachmentsQuery = useQuery({
@@ -113,6 +226,20 @@ export function CustomsTab({
         shipment={shipment}
         onCommit={onCommit}
         styleFor={styleFor}
+        renderBefore={{
+          mrn: (
+            <CustomsPriorityRow
+              value={shipment.customsPriority}
+              deadline={shipment.customsDeadline}
+              // Priority and deadline are saved together, so there is never an Urgent without one.
+              onChange={(customsPriority, customsDeadline) =>
+                updateShipment({ id: shipment.id, data: { customsPriority, customsDeadline } }).catch(() =>
+                  message.error("Could not save the priority"),
+                )
+              }
+            />
+          ),
+        }}
       />
 
       {/*

@@ -14,6 +14,8 @@ import { CustomsTab } from "@/app/shipments/[jobNumber]/tabs/CustomsTab";
 const CUSTOMS_DEFAULT_COLUMNS = [
   "jobNumber",
   "customsStatus",
+  "customsPriority",
+  "customsDeadline",
   "customsProcedure",
   "mrn",
   "csRecvInvoice",

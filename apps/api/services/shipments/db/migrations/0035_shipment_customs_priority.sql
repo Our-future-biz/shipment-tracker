@@ -1,0 +1,1 @@
+ALTER TABLE "shipment" ADD COLUMN "customs_priority" text DEFAULT 'Standard' NOT NULL;
