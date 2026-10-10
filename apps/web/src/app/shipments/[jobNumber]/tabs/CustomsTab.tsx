@@ -20,11 +20,14 @@ import { formatDateTime } from "@/lib/date";
 import { attachmentContentUrl } from "@/lib/files";
 import { FileCell, CustomsPill, docPlural } from "./docsShared";
 import { CustomerLinkField } from "../_components/CustomerLinkField";
+import { EditableCell } from "../_components/EditableCell";
 import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 import { DOCUMENT_GROUPS, documentGroupOf, isReviewedDocumentType } from "@/lib/documentTypes";
 
 // Statuses the server derives from the paperwork; while one of them shows, the field is locked.
 const PAPERWORK_STATUSES = ["Waiting For Commercial Paperwork", "Paperwork Verification Pending"];
+// Once the paperwork is verified, the only values the server accepts.
+const MANUAL_STATUSES = ["Paperwork Verified", "Under Customs Clearance", "Customs Cleared/Released"];
 
 
 // Field layout mirrors CUSTOMS_L / CUSTOMS_R from the approved mockup. Read-only
@@ -88,12 +91,12 @@ const CUSTOMS_RIGHT = [
 // name is cut short instead of pushing the other columns around; File takes the width
 // that is left.
 const REVIEW_COLUMN = "Customs review";
-const DOC_COLUMNS: { label: string; width?: number }[] = [
+const DOC_COLUMNS: { label: string; widthClass?: string }[] = [
   { label: "File" },
-  { label: "Document type", width: 190 },
-  { label: "Uploaded by", width: 170 },
-  { label: REVIEW_COLUMN, width: 250 },
-  { label: "", width: 84 },
+  { label: "Document type", widthClass: "w-[190px]" },
+  { label: "Uploaded by", widthClass: "w-[170px]" },
+  { label: REVIEW_COLUMN, widthClass: "w-[250px]" },
+  { label: "", widthClass: "w-[84px]" },
 ];
 
 // Every cell of a document row is laid out on the same two lines (32px + 16px, see also
@@ -103,17 +106,35 @@ const DOC_CELL = "py-[13px] border-b border-[#E4E7F0]";
 const DOC_BUTTON =
   "inline-flex items-center h-8 gap-[7px] text-[12.5px] font-semibold px-[10px] rounded-[7px] border border-[#D3D8E5] bg-white text-[#151B2B] cursor-pointer transition-colors";
 
-const PRIORITY_DOT: Record<string, string> = { Standard: "#22c55e", Urgent: "#ef4444" };
+const PRIORITY_DOT: Record<string, string> = { Standard: "bg-green-500", Urgent: "bg-red-500" };
 
 const priorityLabel = (value: string) => (
   <span className="inline-flex items-center gap-2 font-medium text-slate-900">
-    <span className="w-2.5 h-2.5 rounded-full flex-none" style={{ background: PRIORITY_DOT[value] ?? "#cbd5e1" }} />
+    <span className={`w-2.5 h-2.5 rounded-full flex-none ${PRIORITY_DOT[value] ?? "bg-slate-300"}`} />
     {value}
   </span>
 );
 
 // Customs Status while it follows the paperwork: the same conditional colours as the editable
 // field (and as the Shipments list), only without the double-click.
+// Customs Status once the paperwork is verified: editable, offering only the steps from there on.
+function ManualStatusRow({ value, style, onCommit }: { value: string; style?: React.CSSProperties; onCommit: CommitFn }) {
+  return (
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Customs Status</span>
+      <EditableCell
+        className="flex-1 min-w-0"
+        fieldKey="customsStatus"
+        value={value}
+        options={MANUAL_STATUSES}
+        onCommit={onCommit}
+        displayClassName="text-slate-900 font-medium"
+        displayStyle={style}
+      />
+    </div>
+  );
+}
+
 function LockedStatusRow({ value, style }: { value: string; style?: React.CSSProperties }) {
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
@@ -189,7 +210,7 @@ function CustomsPriorityRow({
         width={380}
         // Near the top of the window, so the calendar and the time list have room to open
         // below their fields instead of flipping up over the dialog.
-        style={{ top: 72 }}
+        className="!top-[72px]"
         destroyOnHidden
         okButtonProps={{ disabled: !complete }}
         onOk={() => {
@@ -257,9 +278,10 @@ export function CustomsTab({
   // list are uploaded, pending until they are approved, then verified. Only from there on is
   // it changed by hand.
   const paperworkIn = !PAPERWORK_STATUSES.includes(shipment.customsStatus);
-  // While locked, the status is drawn by LockedStatusRow (same colours, no editing).
+  // The status is drawn by its own row: LockedStatusRow while it follows the paperwork (same
+  // colours, no editing), ManualStatusRow with only the allowed steps after that.
   const rightColumn = (canReview ? CUSTOMS_RIGHT.filter((f) => !CUSTOMS_OVERVIEW_HIDDEN.includes(f.key)) : CUSTOMS_RIGHT).filter(
-    (f) => f.key !== "customsStatus" || paperworkIn,
+    (f) => f.key !== "customsStatus",
   );
 
   const attachmentsQuery = useQuery({
@@ -331,7 +353,11 @@ export function CustomsTab({
         renderBefore={{
           customsProcedure: (
             <>
-            {!paperworkIn && <LockedStatusRow value={shipment.customsStatus} style={styleFor("customsStatus", shipment.customsStatus)} />}
+            {paperworkIn ? (
+              <ManualStatusRow value={shipment.customsStatus} style={styleFor("customsStatus", shipment.customsStatus)} onCommit={onCommit} />
+            ) : (
+              <LockedStatusRow value={shipment.customsStatus} style={styleFor("customsStatus", shipment.customsStatus)} />
+            )}
             <CustomsPriorityRow
               value={shipment.customsPriority}
               deadline={shipment.customsDeadline}
@@ -403,7 +429,7 @@ export function CustomsTab({
               <table className="w-full table-fixed border-collapse min-w-[914px] [&_tbody_tr:last-child_td]:border-b-0">
                 <colgroup>
                   {columns.map((c, i) => (
-                    <col key={i} style={{ width: c.width }} />
+                    <col key={i} className={c.widthClass} />
                   ))}
                 </colgroup>
                 <thead>

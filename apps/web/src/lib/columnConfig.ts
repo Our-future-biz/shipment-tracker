@@ -129,7 +129,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "destination", title: "Destination", width: 130, type: "text", apiField: "destination" },
 
   // Status block
-  { key: "customsStatus", title: "Customs Status", width: 210, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Status"], apiField: "customsStatus" },
+  // Read-only in the lists: it follows the paperwork, and only the steps after it are set, in the Customs detail.
+  { key: "customsStatus", title: "Customs Status", width: 210, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Status"], apiField: "customsStatus", readonly: true },
   // Read-only in the lists: switching to Urgent asks for a deadline, which happens in the Customs detail.
   { key: "customsPriority", title: "Customs Priority", width: 150, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Priority"], apiField: "customsPriority", readonly: true },
   { key: "customsDeadline", title: "Customs Deadline", width: 160, type: "text", readonly: true, apiField: "customsDeadline" },

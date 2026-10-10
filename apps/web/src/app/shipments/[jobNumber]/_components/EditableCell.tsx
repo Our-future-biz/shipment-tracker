@@ -38,6 +38,8 @@ interface EditableCellProps {
   className?: string;
   /** Inline style for the value text in display mode (e.g. conditional-format colors). */
   displayStyle?: React.CSSProperties;
+  /** The choices of a dropdown, when only some of the column's options are allowed here. */
+  options?: string[];
 }
 
 export function EditableCell({
@@ -50,6 +52,7 @@ export function EditableCell({
   emptyClassName,
   className,
   displayStyle,
+  options: allowedOptions,
 }: EditableCellProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -62,7 +65,7 @@ export function EditableCell({
   const digitsOnly = fieldKey === "hsCode";
   const clean = (v: string) => (digitsOnly ? v.replace(/\D/g, "") : v);
   const isDate = col?.type === "date";
-  const options = col?.options ?? [];
+  const options = allowedOptions ?? col?.options ?? [];
   const original = value ?? "";
 
   const startEditing = () => {

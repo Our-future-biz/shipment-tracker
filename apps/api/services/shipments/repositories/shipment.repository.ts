@@ -112,6 +112,21 @@ const WAREHOUSE_PREDICATES = {
 
 export type WarehouseSectionId = keyof typeof WAREHOUSE_PREDICATES;
 
+/**
+ * Customs page filters. "urgent": an Urgent shipment whose deadline (a Prague wall time,
+ * "YYYY-MM-DD HH:mm") falls within the next 24 hours or has passed, and that customs has
+ * not released yet. A malformed deadline is skipped rather than failing the query.
+ */
+const CUSTOMS_DEADLINE_AT = sql`CASE WHEN ${shipmentTable.customsDeadline} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}$'
+  THEN to_timestamp(${shipmentTable.customsDeadline}, 'YYYY-MM-DD HH24:MI')::timestamp END`;
+const CUSTOMS_PREDICATES = {
+  urgent: sql`${shipmentTable.customsPriority} = 'Urgent'
+    AND ${shipmentTable.customsStatus} <> 'Customs Cleared/Released'
+    AND ${CUSTOMS_DEADLINE_AT} < (now() AT TIME ZONE 'Europe/Prague') + interval '24 hours'`,
+} as const;
+
+export type CustomsFilterId = keyof typeof CUSTOMS_PREDICATES;
+
 export interface ShipmentListFilters {
   /** Overview tile filter: active | attention | import | export | week | nextweek */
   tile?: string;
@@ -121,6 +136,8 @@ export interface ShipmentListFilters {
   statusBucket?: string;
   /** Warehouse page: in | stock | out */
   warehouse?: string;
+  /** Customs page: urgent */
+  customs?: string;
   search?: string;
   limit: number;
   offset: number;
@@ -227,6 +244,10 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     }
     if (f.warehouse) {
       const predicate = WAREHOUSE_PREDICATES[f.warehouse as WarehouseSectionId];
+      if (predicate) clauses.push(predicate);
+    }
+    if (f.customs) {
+      const predicate = CUSTOMS_PREDICATES[f.customs as CustomsFilterId];
       if (predicate) clauses.push(predicate);
     }
     if (f.search) {

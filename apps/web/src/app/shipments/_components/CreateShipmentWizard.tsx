@@ -134,7 +134,6 @@ export const CreateShipmentWizard = ({
       freightMode: "Sea Freight",
       department: "Operation Department",
       status: "Booking Confirmation Pending [IMP]",
-      customsStatus: "Waiting For Commercial Paperwork",
       personInCharge: user?.email || "",
       createdBy: `${now} — ${user?.email || "System"}`,
     };

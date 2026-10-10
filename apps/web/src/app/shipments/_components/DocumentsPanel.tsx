@@ -41,7 +41,8 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
     onError: () => messageApi.error("Could not delete the document"),
   });
 
-  // The document type is guessed from the file name; it can be changed in the Documents tab.
+  // The document type is guessed from the file name; it can be corrected in the Documents tab
+  // until customs has reviewed the document.
   const upload = async (list: FileList | File[] | null) => {
     const picked = Array.from(list ?? []);
     if (picked.length === 0) return;

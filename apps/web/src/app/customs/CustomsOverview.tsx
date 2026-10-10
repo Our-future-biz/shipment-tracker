@@ -1,6 +1,5 @@
 "use client";
 
-import dayjs from "dayjs";
 import Link from "next/link";
 import { ContainerOutlined, EnvironmentOutlined, InboxOutlined, SwapOutlined } from "@ant-design/icons";
 import { PartyContactLink } from "@/app/shipments/[jobNumber]/_components/PartyContactLink";
@@ -8,6 +7,8 @@ import { DetailCard } from "@/app/shipments/[jobNumber]/ShipmentDetailContent";
 import { type ShipmentItem } from "@/hooks/useShipments";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { CUSTOMS_DOCUMENT_TYPES } from "@/lib/documentTypes";
+import { customsDeadlineAt } from "@/lib/customsDeadline";
+import { RECEIVED_TICKS } from "@/lib/customsReceived";
 import { CUSTOMS_CONTAINERS_ID } from "@/app/shipments/[jobNumber]/tabs/CustomsTab";
 
 // What a customs officer needs from the shipment itself, read-only: everything here is
@@ -117,10 +118,17 @@ function LinesTable({ head, rows, empty }: { head: string[]; rows: string[][]; e
 /** The top strip: what is to be cleared and by when. */
 export function CustomsSummary({ shipment }: { shipment: ShipmentItem }) {
   const urgent = shipment.customsPriority === "Urgent";
-  // A deadline that has passed is shown in red.
-  const overdue = urgent && !!shipment.customsDeadline && dayjs(shipment.customsDeadline).isBefore(dayjs());
+  // A deadline that has passed is shown in red until customs has released the shipment.
+  const deadlineAt = customsDeadlineAt(shipment.customsDeadline);
+  const overdue =
+    urgent && shipment.customsStatus !== "Customs Cleared/Released" && !!deadlineAt && deadlineAt.isBefore(Date.now());
   const received = shipment.documentTypes ?? [];
   const missing = CUSTOMS_DOCUMENT_TYPES.filter((t) => !received.includes(t));
+  // The tile follows the uploads: a paper copy ticked as received by hand still has to be
+  // uploaded before customs can review it, and the note says so.
+  const tickedOnPaper = (type: string) =>
+    Object.entries(RECEIVED_TICKS).some(([field, ticked]) => ticked === type && shipment[field as keyof ShipmentItem] === "yes");
+  const missingNote = missing.map((t) => (tickedOnPaper(t) ? `${t} (on paper, to upload)` : t)).join(", ");
 
   return (
     <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
@@ -145,7 +153,7 @@ export function CustomsSummary({ shipment }: { shipment: ShipmentItem }) {
         label="Documents"
         value={missing.length === 0 ? "Received" : "Missing"}
         tone={missing.length === 0 ? "green" : "red"}
-        note={missing.join(", ")}
+        note={missingNote}
       />
     </div>
   );

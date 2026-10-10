@@ -1167,6 +1167,7 @@ export namespace shipments {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 customerId:    params.customerId,
+                customs:       params.customs,
                 limit:         params.limit === undefined ? undefined : String(params.limit),
                 offset:        params.offset === undefined ? undefined : String(params.offset),
                 search:        params.search,
@@ -2321,6 +2322,11 @@ export namespace controllers {
          * Warehouse page filter: in | stock | out
          */
         warehouse?: string
+
+        /**
+         * Customs page filter: urgent
+         */
+        customs?: string
 
         search?: string
     }

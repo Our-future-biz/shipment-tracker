@@ -1,4 +1,4 @@
-import { APIError } from "encore.dev/api";
+import { APIError, ErrCode } from "encore.dev/api";
 import { auth, customers, quotes } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { shipmentRepository, OVERDUE_DEADLINE_FIELDS } from "../repositories/shipment.repository";
@@ -164,12 +164,51 @@ const AFTER_VERIFIED = ["Under Customs Clearance", "Customs Cleared/Released"];
 
 /**
  * Where the commercial paperwork stands: waiting until both an invoice and a packing list
- * are uploaded, pending while any of them is not approved, verified once all are.
+ * are uploaded; verified once each has an approved document and none of them is still
+ * waiting for review; pending in between. A declined document stays on record without
+ * blocking — the approved replacement counts. Only uploads count: a paper copy ticked as
+ * received by hand still has to be uploaded to be reviewed.
  */
 function paperworkStatus(documents: ShipmentDocument[]): string {
-  const paperwork = documents.filter((d) => COMMERCIAL_PAPERWORK.includes(d.documentType));
-  if (!COMMERCIAL_PAPERWORK.every((t) => paperwork.some((d) => d.documentType === t))) return WAITING_FOR_PAPERWORK;
-  return paperwork.every((d) => d.customsStatus === "approved") ? PAPERWORK_VERIFIED : PAPERWORK_PENDING;
+  const ofType = (type: string) => documents.filter((d) => d.documentType === type);
+  if (!COMMERCIAL_PAPERWORK.every((t) => ofType(t).length > 0)) return WAITING_FOR_PAPERWORK;
+  const verified = COMMERCIAL_PAPERWORK.every((t) => {
+    const docs = ofType(t);
+    return docs.some((d) => d.customsStatus === "approved") && !docs.some((d) => !d.customsStatus);
+  });
+  return verified ? PAPERWORK_VERIFIED : PAPERWORK_PENDING;
+}
+
+const CUSTOMS_PRIORITIES = ["Standard", "Urgent"];
+const CUSTOMS_DEADLINE = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2})$/;
+
+/** A "YYYY-MM-DD HH:mm" wall time that is a real date and time. */
+function isCustomsDeadline(value: string): boolean {
+  const m = CUSTOMS_DEADLINE.exec(value);
+  if (!m) return false;
+  const [y, mo, d, h, mi] = m.slice(1).map(Number);
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  return date.getUTCMonth() === mo - 1 && date.getUTCDate() === d && h < 24 && mi < 60;
+}
+
+/**
+ * Checks the customs priority and deadline a write leaves behind (`after` reads the value
+ * the shipment will have) and clears the deadline of a Standard shipment.
+ */
+function normalizeCustomsPriority(data: Record<string, unknown>, after: (key: string) => string): void {
+  if (!("customsPriority" in data) && !("customsDeadline" in data)) return;
+  const priority = after("customsPriority") || "Standard";
+  if (!CUSTOMS_PRIORITIES.includes(priority)) {
+    throw APIError.invalidArgument(`customsPriority must be one of: ${CUSTOMS_PRIORITIES.join(", ")}`);
+  }
+  if (priority === "Standard") {
+    data.customsDeadline = "";
+    return;
+  }
+  const deadline = after("customsDeadline") ?? "";
+  if (deadline && !isCustomsDeadline(deadline)) {
+    throw APIError.invalidArgument('customsDeadline must be a date and time as "YYYY-MM-DD HH:mm"');
+  }
 }
 
 /**
@@ -353,6 +392,28 @@ class ShipmentService {
     };
   }
 
+  /**
+   * The Principal Party is a customer of the caller's company: an unknown id is refused, a
+   * blank one unlinks it, and the stored name is the customer's own.
+   */
+  private async resolvePrincipalParty(data: Record<string, unknown>) {
+    if (!("principalPartyId" in data)) return;
+    const id = data.principalPartyId as string | null | undefined;
+    if (!id) {
+      data.principalPartyId = null;
+      return;
+    }
+    try {
+      const { customer } = await customers.customerGet({ id });
+      data.principalParty = customer.companyName;
+    } catch (err) {
+      if (err instanceof APIError && err.code === ErrCode.NotFound) {
+        throw APIError.invalidArgument("Unknown principal party");
+      }
+      throw err;
+    }
+  }
+
   /** The classified documents uploaded to one shipment, with their customs review. */
   private async documentsOf(id: string, companyId: string): Promise<ShipmentDocument[]> {
     const rows = await shipmentAttachmentRepository.documentTypesByShipmentIds([id], companyId);
@@ -363,6 +424,10 @@ class ShipmentService {
     const { containers, cargoItems, cargoDimensions, ...rest } = data;
     assertValidContainerNumbers(containers);
     const shipmentData = sanitizeTypedFields(rest as Record<string, unknown>);
+    // A new shipment has no paperwork yet, so its customs status starts where the paperwork does.
+    delete shipmentData.customsStatus;
+    normalizeCustomsPriority(shipmentData, (key) => shipmentData[key] as string);
+    await this.resolvePrincipalParty(shipmentData);
     Object.assign(
       shipmentData,
       exportBolDefaults(shipmentData.tradeDirection as string, {
@@ -406,17 +471,27 @@ class ShipmentService {
 
     // Up to "Paperwork Verified" the customs status follows the paperwork; only the steps
     // after it are set by hand, and only once the paperwork is approved.
+    // A write of the status the shipment already shows changes nothing; any other value
+    // that is not one of those manual steps is refused rather than silently dropped.
     if ("customsStatus" in shipmentData) {
-      const verified = paperworkStatus(await this.documentsOf(id, companyId)) === PAPERWORK_VERIFIED;
-      const manual = [PAPERWORK_VERIFIED, ...AFTER_VERIFIED].includes(shipmentData.customsStatus as string);
-      if (!verified || !manual) delete shipmentData.customsStatus;
+      const documents = await this.documentsOf(id, companyId);
+      const wanted = shipmentData.customsStatus as string;
+      if (wanted === customsStatusFor(existing.customsStatus, documents)) {
+        delete shipmentData.customsStatus;
+      } else if (paperworkStatus(documents) !== PAPERWORK_VERIFIED) {
+        throw APIError.failedPrecondition("The customs status follows the paperwork until the invoice and packing list are approved");
+      } else if (![PAPERWORK_VERIFIED, ...AFTER_VERIFIED].includes(wanted)) {
+        throw APIError.invalidArgument(`customsStatus can only be set to: ${[PAPERWORK_VERIFIED, ...AFTER_VERIFIED].join(", ")}`);
+      }
     }
+    await this.resolvePrincipalParty(shipmentData);
 
     // Seed the export BoL types against the values this update leaves behind, so
     // switching a shipment to Export fills them in — and so an export shipment
     // that never had them (e.g. created before this rule) picks them up. Added
     // before the audit loop below, so the change is recorded like any other.
     const after = (key: string) => (key in shipmentData ? shipmentData[key] : (existing as Record<string, unknown>)[key]) as string;
+    normalizeCustomsPriority(shipmentData, after);
     Object.assign(
       shipmentData,
       exportBolDefaults(after("tradeDirection"), {

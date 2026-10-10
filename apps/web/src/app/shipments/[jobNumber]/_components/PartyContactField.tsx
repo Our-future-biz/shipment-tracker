@@ -108,7 +108,7 @@ export function PartyContactField({ label, fieldKey, value, customerId, onCommit
               type="button"
               onClick={startEdit}
               aria-label={`Edit ${label}`}
-              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-500 transition-opacity shrink-0"
+              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 text-slate-400 hover:text-indigo-500 transition-opacity shrink-0"
             >
               <EditOutlined className="text-[11px]" />
             </button>

@@ -413,8 +413,13 @@ export const ShipmentsTable = ({
   // Search and the status bucket are applied server-side (see ShipmentsView), so only the
   // per-column filters are refined here, over the rows the server returned.
   const filtered = useMemo(() => {
+    // A blank cell counts as the column's first option (for Customs Priority that is
+    // "Standard", the server default), so no row drops out of every quick-filter option.
+    const quickDefault = quickColumn ? (COLUMN_MAP.get(quickColumn)?.options?.[0] ?? "") : "";
     const quickRows =
-      quickColumn && quick !== "all" ? shipments.filter((s) => getFieldValue(s, quickColumn) === quick) : shipments;
+      quickColumn && quick !== "all"
+        ? shipments.filter((s) => (getFieldValue(s, quickColumn) || quickDefault) === quick)
+        : shipments;
     if (activeFilters.length === 0) return quickRows;
     return quickRows.filter((s) =>
       activeFilters.every((f) => cellText(s, f.key).toLowerCase().includes(f.value.toLowerCase().trim())),

@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { App } from "antd";
 import { NEEDS_ATTENTION_KEY } from "./useShipmentsNeedingAttention";
 import { api } from "@/lib/api";
 import { COLUMNS, COLUMN_MAP, getComputedValue, COMPUTED_COLUMNS } from "@/lib/columnConfig";
@@ -55,22 +56,29 @@ export interface ShipmentQueryParams {
   tile?: string;
   /** Warehouse page (in | stock | out), matched server-side. */
   warehouse?: string;
+  /** Customs page filter (urgent), matched server-side. */
+  customs?: string;
+  /** Refresh every this many ms — for lists that depend on the clock. */
+  refetchInterval?: number;
 }
 
 export const useShipments = (params: ShipmentQueryParams = {}) => {
   const queryClient = useQueryClient();
+  const { message } = App.useApp();
 
   const search = params.search?.trim() || undefined;
   const statusBucket = params.statusBucket && params.statusBucket !== "all" ? params.statusBucket : undefined;
   const tile = params.tile && params.tile !== "all" ? params.tile : undefined;
   const warehouse = params.warehouse || undefined;
+  const customs = params.customs || undefined;
 
   // Search and status are applied server-side (scoped to the company), so they cover the
   // whole dataset rather than only the rows already loaded in the browser.
   const query = useQuery({
-    queryKey: ["shipments", search ?? "", statusBucket ?? "", tile ?? "", warehouse ?? ""],
-    queryFn: () => api.shipments.shipmentList({ limit: 200, search, statusBucket, tile, warehouse }),
+    queryKey: ["shipments", search ?? "", statusBucket ?? "", tile ?? "", warehouse ?? "", customs ?? ""],
+    queryFn: () => api.shipments.shipmentList({ limit: 200, search, statusBucket, tile, warehouse, customs }),
     placeholderData: (prev) => prev,
+    refetchInterval: params.refetchInterval,
   });
 
   // Shipment writes recompute the linked customer's rollups server-side and change the rows of
@@ -107,7 +115,8 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
       await queryClient.cancelQueries({ queryKey: ["shipments"] });
       const prev = queryClient.getQueriesData<{ data: ShipmentItem[] }>({ queryKey: ["shipments"] });
       queryClient.setQueriesData<{ data: ShipmentItem[] }>({ queryKey: ["shipments"] }, (old) => {
-        if (!old) return old;
+        // Other queries under ["shipments"] (a single shipment, a count) have no row list to patch.
+        if (!old?.data) return old;
         return {
           ...old,
           data: old.data.map((s) => {
@@ -168,7 +177,11 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
       const oldValue = shipment ? getFieldValue(shipment, fieldKey) : "";
 
       if (col.apiField) {
-        updateMutation.mutate({ id: shipmentId, data: { [col.apiField]: value } as controllers.ShipmentUpdateRequest });
+        updateMutation.mutate(
+          { id: shipmentId, data: { [col.apiField]: value } as controllers.ShipmentUpdateRequest },
+          // The edit is rolled back on failure; say why (e.g. a customs status the paperwork does not allow yet).
+          { onError: (err) => message.error(err instanceof Error && err.message ? err.message : `Could not save ${col.title}`) },
+        );
       }
 
       // Fire automation trigger for watched fields
@@ -184,7 +197,7 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
         }).catch(() => { /* fire and forget */ });
       }
     },
-    [updateMutation, shipments],
+    [updateMutation, shipments, message],
   );
 
   return {

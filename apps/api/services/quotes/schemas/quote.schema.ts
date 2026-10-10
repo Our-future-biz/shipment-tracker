@@ -1,4 +1,3 @@
-import { sql } from "drizzle-orm";
 import { pgTable, text, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 

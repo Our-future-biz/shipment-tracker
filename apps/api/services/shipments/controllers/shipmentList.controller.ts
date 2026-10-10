@@ -16,6 +16,8 @@ interface ShipmentListRequest {
   tile?: string;
   /** Warehouse page filter: in | stock | out */
   warehouse?: string;
+  /** Customs page filter: urgent */
+  customs?: string;
   search?: string;
 }
 
@@ -37,6 +39,7 @@ export const shipmentList = api(
       statusBucket: req.statusBucket,
       tile: req.tile,
       warehouse: req.warehouse,
+      customs: req.customs,
       search: req.search,
       limit: Math.min(req.limit ?? 100, 200),
       offset: req.offset ?? 0,

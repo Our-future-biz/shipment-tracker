@@ -14,6 +14,10 @@ export const DOCUMENT_TYPES = [
   "Other",
 ] as const;
 
+/** Whether a stored type is one of DOCUMENT_TYPES (legacy values and empty ones are not). */
+export const isKnownDocumentType = (documentType: string) =>
+  (DOCUMENT_TYPES as readonly string[]).includes(documentType);
+
 /** Documents a shipment is expected to have — missing ones are flagged. */
 export const REQUIRED_DOCUMENT_TYPES = [
   "Invoice",

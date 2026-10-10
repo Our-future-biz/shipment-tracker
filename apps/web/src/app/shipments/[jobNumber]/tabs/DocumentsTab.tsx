@@ -26,6 +26,7 @@ import {
   OPTIONAL_DOCUMENT_TYPES,
   guessDocumentType,
   isReviewedDocumentType,
+  isKnownDocumentType,
   DOCUMENT_GROUPS,
   documentGroupOf,
 } from "@/lib/documentTypes";
@@ -466,19 +467,23 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                         </div>
                       </td>
                       <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
-                        {/* The type is chosen when the file is added and stays as it is. Only a file
-                            that came in without one (e.g. from the list's documents drawer) can
-                            still be given its type here, once. */}
-                        {file.documentType ? (
+                        {/* The type stays editable until customs has reviewed the file, so a wrong
+                            guess (or a legacy / missing type) can still be corrected. Once approved
+                            or declined it is fixed. The Select follows the saved value, so a failed
+                            save snaps back. */}
+                        {file.customsStatus && isKnownDocumentType(file.documentType) ? (
                           <span className="text-[13.5px] font-semibold text-[#5A6478]">{file.documentType}</span>
                         ) : (
                           <Select
                             size="small"
-                            placeholder="Select type"
+                            value={isKnownDocumentType(file.documentType) ? file.documentType : undefined}
+                            placeholder={file.documentType || "Select type"}
                             options={DOCUMENT_TYPES.map((t) => ({ value: t, label: t }))}
                             onChange={(v) => classify.mutate({ id: file.id, documentType: v })}
+                            disabled={classify.isPending && classify.variables?.id === file.id}
+                            loading={classify.isPending && classify.variables?.id === file.id}
                             className="w-full max-w-[190px]"
-                            status="warning"
+                            status={isKnownDocumentType(file.documentType) ? undefined : "warning"}
                           />
                         )}
                       </td>
@@ -492,8 +497,9 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                       </td>
                       <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
                         <div className="flex flex-col gap-[3px] items-start">
-                          {/* Commercial and customs documents go to customs for review; shipping ones do not. */}
-                          {isReviewedDocumentType(file.documentType) ? (
+                          {/* Commercial and customs documents go to customs for review; shipping ones do not. A file
+                              that was reviewed under another type still shows its verdict (and note). */}
+                          {isReviewedDocumentType(file.documentType) || file.customsStatus ? (
                             <CustomsPill status={file.customsStatus} />
                           ) : (
                             <span className="text-[13.5px] font-semibold text-[#8B94A7]">—</span>

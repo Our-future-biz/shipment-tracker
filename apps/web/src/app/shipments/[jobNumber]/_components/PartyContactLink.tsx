@@ -16,7 +16,7 @@ const DASH = <span className="text-slate-300">—</span>;
 export function PartyContactLink({ name, customerId }: { name: string; customerId: string }) {
   const [open, setOpen] = useState(false);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["customer-contacts", customerId],
     queryFn: () => api.customers.contactList(customerId),
     enabled: open,
@@ -77,7 +77,11 @@ export function PartyContactLink({ name, customerId }: { name: string; customerI
                 </tbody>
               </table>
             </div>
-            {!contact && (
+            {isError ? (
+              <p className="mt-3 mb-0 text-xs text-red-600">
+                The customer&apos;s contacts could not be loaded, so only the name is shown.
+              </p>
+            ) : !contact && (
               <p className="mt-3 mb-0 text-xs text-slate-500">
                 This contact is not saved among the customer&apos;s contacts, so only the name is known.
               </p>

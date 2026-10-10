@@ -2,10 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Spin } from "antd";
-import dayjs from "dayjs";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "@/lib/api";
+import { useShipments } from "@/hooks/useShipments";
 import { useDebounced } from "@/hooks/useDebounced";
 import { ShipmentsTable } from "@/app/shipments/_components/ShipmentsTable";
 import { CustomsSummary, CustomsShipmentInfo } from "./CustomsOverview";
@@ -41,18 +42,8 @@ const CUSTOMS_READONLY_COLUMNS = ["commercialInvoiceValue"];
 // Customs filters its list by priority where Shipments has the shipment status.
 const CUSTOMS_QUICK_FILTER = { column: "customsPriority", allLabel: "All Priorities" };
 
-/**
- * An urgent shipment whose deadline falls within the next 24 hours or has already passed
- * and that customs has not released yet.
- */
-function isUrgentSoon(s: ShipmentItem): boolean {
-  return (
-    s.customsPriority === "Urgent" &&
-    !!s.customsDeadline &&
-    s.customsStatus !== "Customs Cleared/Released" &&
-    dayjs(s.customsDeadline).isBefore(dayjs().add(24, "hour"))
-  );
-}
+// "Urgents in next 24hrs" moves with the clock, so what depends on it is refreshed this often.
+const URGENT_REFRESH_MS = 60_000;
 
 // Tabs of a shipment opened in Customs.
 const CUSTOMS_DETAIL_TABS = [
@@ -68,22 +59,37 @@ export function CustomsView() {
   const searchParams = useSearchParams();
   const search = useDebounced(searchParams.get("q") ?? "", 300);
   const openId = searchParams.get("open");
-  const { shipments, isLoading, updateField } = useShipments({ search });
+  // Clicking the count narrows the list to those shipments (?urgent=1); clicking again clears it.
+  // The filter runs on the server over every shipment: an Urgent one with a Prague deadline
+  // within the next 24 hours or passed, not yet released by customs.
+  const urgentOnly = searchParams.get("urgent") === "1";
+  const { shipments, isLoading, updateField } = useShipments({
+    search,
+    customs: urgentOnly ? "urgent" : undefined,
+    refetchInterval: urgentOnly ? URGENT_REFRESH_MS : undefined,
+  });
 
-  const openShipment = openId ? shipments.find((x) => x.id === openId) : null;
+  // The list holds the newest 200; a shipment opened by link may be older, so it is fetched on its own.
+  const listed = openId ? shipments.find((x) => x.id === openId) : undefined;
+  const openQuery = useQuery({
+    queryKey: ["shipments", "one", openId],
+    queryFn: () => api.shipments.shipmentGet(openId as string),
+    enabled: !!openId && !isLoading && !listed,
+  });
+  const openShipment = listed ?? openQuery.data?.shipment ?? null;
   const [detailTab, setDetailTab] = useState<(typeof CUSTOMS_DETAIL_TABS)[number]["key"]>("details");
   // Every shipment opens on its first tab.
   useEffect(() => setDetailTab("details"), [openId]);
 
-  // Commercial Invoice Value shows the per-currency total of the cargo lines whenever they
-  // carry values (the same rule as the Customs tab); the shipment's own field is the fallback.
-  // Urgent shipments whose deadline falls within the next 24 hours or has already passed and
-  // that customs has not released yet. Counted over all shipments, whatever the list is
-  // searched or filtered by.
-  const { shipments: allShipments } = useShipments();
-  const urgentSoon = useMemo(() => allShipments.filter(isUrgentSoon).length, [allShipments]);
-  // Clicking the count narrows the list to those shipments (?urgent=1); clicking again clears it.
-  const urgentOnly = searchParams.get("urgent") === "1";
+  // The count of those shipments, over all of them whatever the list is searched by. Kept under
+  // ["shipments"] so every shipment write refreshes it, and re-counted as the clock moves.
+  const urgentCount = useQuery({
+    queryKey: ["shipments", "customs-urgent-count"],
+    queryFn: () => api.shipments.shipmentList({ customs: "urgent", limit: 1 }),
+    refetchInterval: URGENT_REFRESH_MS,
+  });
+  const urgentSoon = urgentCount.data?.pagination.total ?? 0;
+
   const toggleUrgentOnly = () => {
     const params = new URLSearchParams(searchParams.toString());
     if (urgentOnly) params.delete("urgent");
@@ -92,12 +98,19 @@ export function CustomsView() {
     router.replace(qs ? `/customs?${qs}` : "/customs", { scroll: false });
   };
 
+  // Back to the list as it was left: its search and filters stay, only the opened shipment goes.
+  const backToList = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("open");
+    const qs = params.toString();
+    router.push(qs ? `/customs?${qs}` : "/customs");
+  };
+
+  // Commercial Invoice Value shows the per-currency total of the cargo lines whenever they
+  // carry values (the same rule as the Customs tab); the shipment's own field is the fallback.
   const rows = useMemo(
-    () =>
-      (urgentOnly ? shipments.filter(isUrgentSoon) : shipments).map((s) =>
-        s.civByCurrency ? { ...s, commercialInvoiceValue: s.civByCurrency } : s,
-      ),
-    [shipments, urgentOnly],
+    () => shipments.map((s) => (s.civByCurrency ? { ...s, commercialInvoiceValue: s.civByCurrency } : s)),
+    [shipments],
   );
 
   return (
@@ -109,7 +122,7 @@ export function CustomsView() {
               <div className="flex items-center gap-3.5 mb-4">
                 <button
                   type="button"
-                  onClick={() => router.push("/customs")}
+                  onClick={backToList}
                   className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-[#d8dce6] bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-[#f4f5f9] hover:text-[#46506b] transition-colors"
                 >
                   <ArrowLeftOutlined /> Customs
@@ -151,7 +164,7 @@ export function CustomsView() {
                   />
                   {detailTab === "details" && <CustomsShipmentInfo shipment={openShipment} />}
                 </div>
-              ) : isLoading ? (
+              ) : isLoading || openQuery.isFetching ? (
                 <div className="flex items-center justify-center py-20">
                   <Spin />
                 </div>

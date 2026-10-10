@@ -1080,7 +1080,8 @@ export function ShipmentDetailContent() {
                   ];
                   const right: FieldDef[] = [
                     { key: "status", label: "Shipment Status" },
-                    { key: "customsStatus", label: "Customs Status" },
+                    // Follows the paperwork; its manual steps are set in the Customs tab.
+                    { key: "customsStatus", label: "Customs Status", ro: true },
                     { key: "invoicingStatus", label: "Invoicing Status" },
                     { key: "pol", label: "POL" },
                     { key: "estimatedDeparture", label: "ETD Estimated" },
