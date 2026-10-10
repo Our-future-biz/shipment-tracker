@@ -50,6 +50,8 @@ interface ShipmentUpdateRequest {
   customerId?: string | null;
   shipperId?: string | null;
   consigneeId?: string | null;
+  principalPartyId?: string | null;
+  principalParty?: string;
   customer?: string;
   customerPic?: string;
   customerReference?: string;

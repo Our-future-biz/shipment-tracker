@@ -260,6 +260,13 @@
       "when": 1791546974723,
       "tag": "0036_shipment_customs_deadline",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1791633276137,
+      "tag": "0037_shipment_principal_party",
+      "breakpoints": true
     }
   ]
 }

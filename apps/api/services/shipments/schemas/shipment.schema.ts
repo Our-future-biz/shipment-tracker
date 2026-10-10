@@ -61,6 +61,9 @@ export const shipmentTable = pgTable(
     customerId: uuid("customer_id"),
     shipperId: uuid("shipper_id"),
     consigneeId: uuid("consignee_id"),
+    /** The party customs clears the shipment for; linked to a CRM customer like the others. */
+    principalPartyId: uuid("principal_party_id"),
+    principalParty: text("principal_party").notNull().default(""),
     customer: text("customer").notNull().default(""),
     customerPic: text("customer_pic").notNull().default(""),
     customerReference: text("customer_reference").notNull().default(""),

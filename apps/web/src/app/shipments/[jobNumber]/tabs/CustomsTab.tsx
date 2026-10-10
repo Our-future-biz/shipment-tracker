@@ -4,7 +4,6 @@ import { Fragment, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DatePicker, Input, Modal, Select, TimePicker, Tooltip, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
-import Link from "next/link";
 import {
   SafetyCertificateOutlined,
   FileTextOutlined,
@@ -20,6 +19,7 @@ import { DetailCard, makeStyleFor, type CommitFn } from "../ShipmentDetailConten
 import { formatDateTime } from "@/lib/date";
 import { attachmentContentUrl } from "@/lib/files";
 import { FileCell, CustomsPill, docPlural } from "./docsShared";
+import { CustomerLinkField } from "../_components/CustomerLinkField";
 import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 import { DOCUMENT_GROUPS, documentGroupOf, isReviewedDocumentType } from "@/lib/documentTypes";
 
@@ -38,27 +38,6 @@ const CUSTOMS_LEFT = [
   { key: "cargoDescription", label: "Cargo Description", ro: true },
   { key: "hsCode", label: "HS Code", ro: true },
 ];
-
-// In the Customs section the card also names the customer, right under the reference: the
-// same link to the customer's page as in the shipment, but not editable here.
-function CustomerRow({ name, customerId }: { name: string; customerId?: string | null }) {
-  return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Customer</span>
-      <div className="flex-1 min-w-0">
-        {!name ? (
-          <span className="text-slate-300">—</span>
-        ) : customerId ? (
-          <Link href={`/customers/${customerId}`} className="text-indigo-600 hover:underline font-medium truncate">
-            {name}
-          </Link>
-        ) : (
-          <span className="text-slate-900 font-medium truncate">{name}</span>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // Left out of the card in the Customs section: Container Number is a link there instead
 // (ContainerNumberRow), and the seal is listed with its container in the Containers card.
@@ -327,7 +306,22 @@ export function CustomsTab({
         renderAfter={
           canReview
             ? {
-                jobNumber: <CustomerRow name={shipment.customer} customerId={shipment.customerId} />,
+                jobNumber: (
+                  <>
+                    {/* The party customs clears for: picked from the customer database, like the
+                        parties in the shipment; saved together with its link. */}
+                    <CustomerLinkField
+                      label="Principal Party"
+                      name={shipment.principalParty}
+                      customerId={shipment.principalPartyId}
+                      onChange={(principalParty, principalPartyId) =>
+                        updateShipment({ id: shipment.id, data: { principalParty, principalPartyId } }).catch(() =>
+                          message.error("Could not save the principal party"),
+                        )
+                      }
+                    />
+                  </>
+                ),
               }
             : undefined
         }

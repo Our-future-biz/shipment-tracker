@@ -95,6 +95,9 @@ export interface ShipmentItem {
   customerId: string | null;
   shipperId: string | null;
   consigneeId: string | null;
+  /** The party customs clears the shipment for. */
+  principalPartyId: string | null;
+  principalParty: string;
   customer: string;
   customerPic: string;
   customerReference: string;

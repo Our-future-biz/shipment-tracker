@@ -47,6 +47,8 @@ interface ShipmentCreateRequest {
   customerId?: string;
   shipperId?: string;
   consigneeId?: string;
+  principalPartyId?: string;
+  principalParty?: string;
   customer?: string;
   customerPic?: string;
   customerReference?: string;

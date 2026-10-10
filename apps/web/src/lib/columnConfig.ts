@@ -110,6 +110,8 @@ export const COLUMNS: ColumnDef[] = [
 
   // Customer block
   { key: "customer", title: "Customer", width: 180, type: "text", apiField: "customer" },
+  // Chosen in the Customs detail (a company from the customer database).
+  { key: "principalParty", title: "Principal Party", width: 180, type: "text", readonly: true, apiField: "principalParty" },
   { key: "customerPic", title: "Customer's PIC", width: 170, type: "text", apiField: "customerPic" },
   { key: "customerReference", title: "Customer Reference", width: 170, type: "text", apiField: "customerReference" },
 

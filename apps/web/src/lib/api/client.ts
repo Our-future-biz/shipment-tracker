@@ -2161,6 +2161,8 @@ export namespace controllers {
 
         shipperId?: string
         consigneeId?: string
+        principalPartyId?: string
+        principalParty?: string
         customer?: string
         customerPic?: string
         customerReference?: string
@@ -2399,6 +2401,8 @@ export namespace controllers {
 
         shipperId?: string | null
         consigneeId?: string | null
+        principalPartyId?: string | null
+        principalParty?: string
         customer?: string
         customerPic?: string
         customerReference?: string
@@ -3289,6 +3293,12 @@ export namespace interfaces {
 
         shipperId: string | null
         consigneeId: string | null
+        /**
+         * The party customs clears the shipment for.
+         */
+        principalPartyId: string | null
+
+        principalParty: string
         customer: string
         customerPic: string
         customerReference: string
