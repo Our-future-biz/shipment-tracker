@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Spin } from "antd";
+import dayjs from "dayjs";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useShipments } from "@/hooks/useShipments";
+import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useDebounced } from "@/hooks/useDebounced";
 import { ShipmentsTable } from "@/app/shipments/_components/ShipmentsTable";
 import { CustomsSummary, CustomsShipmentInfo } from "./CustomsOverview";
@@ -37,6 +38,22 @@ const CUSTOMS_DEFAULT_COLUMNS = [
 // Commercial Invoice Value is what the cargo lines add up to, so it is not typed in here.
 const CUSTOMS_READONLY_COLUMNS = ["commercialInvoiceValue"];
 
+// Customs filters its list by priority where Shipments has the shipment status.
+const CUSTOMS_QUICK_FILTER = { column: "customsPriority", allLabel: "All Priorities" };
+
+/**
+ * An urgent shipment whose deadline falls within the next 24 hours or has already passed
+ * and that customs has not released yet.
+ */
+function isUrgentSoon(s: ShipmentItem): boolean {
+  return (
+    s.customsPriority === "Urgent" &&
+    !!s.customsDeadline &&
+    s.customsStatus !== "Customs Cleared/Released" &&
+    dayjs(s.customsDeadline).isBefore(dayjs().add(24, "hour"))
+  );
+}
+
 // Tabs of a shipment opened in Customs.
 const CUSTOMS_DETAIL_TABS = [
   { key: "details", label: "Shipment Details" },
@@ -50,9 +67,8 @@ export function CustomsView() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const search = useDebounced(searchParams.get("q") ?? "", 300);
-  const statusBucket = searchParams.get("status") ?? "all";
   const openId = searchParams.get("open");
-  const { shipments, isLoading, updateField } = useShipments({ search, statusBucket });
+  const { shipments, isLoading, updateField } = useShipments({ search });
 
   const openShipment = openId ? shipments.find((x) => x.id === openId) : null;
   const [detailTab, setDetailTab] = useState<(typeof CUSTOMS_DETAIL_TABS)[number]["key"]>("details");
@@ -61,9 +77,27 @@ export function CustomsView() {
 
   // Commercial Invoice Value shows the per-currency total of the cargo lines whenever they
   // carry values (the same rule as the Customs tab); the shipment's own field is the fallback.
+  // Urgent shipments whose deadline falls within the next 24 hours or has already passed and
+  // that customs has not released yet. Counted over all shipments, whatever the list is
+  // searched or filtered by.
+  const { shipments: allShipments } = useShipments();
+  const urgentSoon = useMemo(() => allShipments.filter(isUrgentSoon).length, [allShipments]);
+  // Clicking the count narrows the list to those shipments (?urgent=1); clicking again clears it.
+  const urgentOnly = searchParams.get("urgent") === "1";
+  const toggleUrgentOnly = () => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (urgentOnly) params.delete("urgent");
+    else params.set("urgent", "1");
+    const qs = params.toString();
+    router.replace(qs ? `/customs?${qs}` : "/customs", { scroll: false });
+  };
+
   const rows = useMemo(
-    () => shipments.map((s) => (s.civByCurrency ? { ...s, commercialInvoiceValue: s.civByCurrency } : s)),
-    [shipments],
+    () =>
+      (urgentOnly ? shipments.filter(isUrgentSoon) : shipments).map((s) =>
+        s.civByCurrency ? { ...s, commercialInvoiceValue: s.civByCurrency } : s,
+      ),
+    [shipments, urgentOnly],
   );
 
   return (
@@ -130,7 +164,29 @@ export function CustomsView() {
           <ShipmentsTable
             shipments={rows}
             isLoading={isLoading}
-            view={{ key: "customs", title: "Customs", detailHref: "/customs?open=:id", defaultColumns: CUSTOMS_DEFAULT_COLUMNS, readonlyColumns: CUSTOMS_READONLY_COLUMNS }}
+            toolbarLead={
+              <button
+                type="button"
+                onClick={toggleUrgentOnly}
+                aria-pressed={urgentOnly}
+                title={urgentOnly ? "Show all shipments" : "Show only these shipments"}
+                className={`flex items-center gap-2 h-9 pl-3 pr-1.5 rounded-lg border text-[13px] font-bold uppercase tracking-wide cursor-pointer transition-colors ${
+                  urgentOnly
+                    ? "border-red-600 bg-red-50 text-red-700"
+                    : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+                }`}
+              >
+                Urgents in next 24hrs
+                <span
+                  className={`inline-flex items-center justify-center min-w-7 h-7 px-2 rounded-full text-[13px] font-bold ${
+                    urgentSoon > 0 ? "bg-red-600 text-white" : "bg-slate-100 text-slate-500"
+                  }`}
+                >
+                  {urgentSoon}
+                </span>
+              </button>
+            }
+            view={{ key: "customs", title: "Customs", detailHref: "/customs?open=:id", defaultColumns: CUSTOMS_DEFAULT_COLUMNS, readonlyColumns: CUSTOMS_READONLY_COLUMNS, quickFilter: CUSTOMS_QUICK_FILTER }}
           />
         )}
       </div>

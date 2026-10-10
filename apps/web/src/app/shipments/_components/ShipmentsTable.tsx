@@ -81,14 +81,17 @@ export interface ShipmentsTableProps {
    * the very first column, ahead of Internal Reference.
    * `detailHref` is where a reference leads instead of the shipment detail, ":id" standing
    * for the shipment's id. `readonlyColumns` (a stable array) are shown as plain text here
-   * even though they can be edited in Shipments.
+   * even though they can be edited in Shipments. `quickFilter` puts a filter by that
+   * column's own options (kept in ?quick=) in the place of the shipment status one.
    */
-  view?: { key: string; title: string; detailHref?: string; defaultColumns?: string[]; leadColumn?: string; readonlyColumns?: string[] };
+  view?: { key: string; title: string; detailHref?: string; defaultColumns?: string[]; leadColumn?: string; readonlyColumns?: string[]; quickFilter?: { column: string; allLabel: string } };
   /**
    * Buttons in place of New Shipment, each acting on the ticked rows; the selection is
    * cleared after. Primary (with a plus) unless `secondary`, which is for stepping back.
    */
   selectionActions?: { label: string; secondary?: boolean; onClick: (selectedShipmentIds: string[]) => void }[];
+  /** Shown at the left end of the toolbar, before any buttons (e.g. a count the page keeps). */
+  toolbarLead?: React.ReactNode;
 }
 
 type ColFilter = { key: string; value: string };
@@ -153,6 +156,7 @@ export const ShipmentsTable = ({
   onAddMasterJob,
   view,
   selectionActions,
+  toolbarLead,
 }: ShipmentsTableProps) => {
   const router = useRouter();
   const pathname = usePathname();
@@ -238,6 +242,17 @@ export const ShipmentsTable = ({
     const params = new URLSearchParams(searchParams.toString());
     if (value) params.set("tile", value);
     else params.delete("tile");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
+
+  // The view's quick filter (?quick=), applied here over the rows the page was given.
+  const quickColumn = view?.quickFilter?.column;
+  const quick = searchParams.get("quick") ?? "all";
+  const setQuick = (value: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (value && value !== "all") params.set("quick", value);
+    else params.delete("quick");
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
@@ -398,11 +413,13 @@ export const ShipmentsTable = ({
   // Search and the status bucket are applied server-side (see ShipmentsView), so only the
   // per-column filters are refined here, over the rows the server returned.
   const filtered = useMemo(() => {
-    if (activeFilters.length === 0) return shipments;
-    return shipments.filter((s) =>
+    const quickRows =
+      quickColumn && quick !== "all" ? shipments.filter((s) => getFieldValue(s, quickColumn) === quick) : shipments;
+    if (activeFilters.length === 0) return quickRows;
+    return quickRows.filter((s) =>
       activeFilters.every((f) => cellText(s, f.key).toLowerCase().includes(f.value.toLowerCase().trim())),
     );
-  }, [shipments, activeFilters]);
+  }, [shipments, activeFilters, quickColumn, quick]);
 
   // Precompute per-row data + whole-row conditional tint once (used by every cell).
   const rowInfo = useMemo(() => {
@@ -619,7 +636,7 @@ export const ShipmentsTable = ({
   // Reset to the first page whenever the result set or page size changes.
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, statusFilter, activeFilters, pageSize]);
+  }, [search, statusFilter, quick, activeFilters, pageSize]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -637,6 +654,7 @@ export const ShipmentsTable = ({
       <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
         {/* Actions on the left, search/status/filters/columns/export on the right; wraps on narrow screens */}
         <div className="flex items-center gap-3 min-w-0">
+          {toolbarLead}
           {onCreateClick && (
             <button
               onClick={onCreateClick}
@@ -693,12 +711,25 @@ export const ShipmentsTable = ({
             />
           </AutoComplete>
           <div className="w-px h-6 bg-slate-200 shrink-0" />
-          <Select
-            value={statusFilter}
-            onChange={setStatusFilter}
-            options={STATUS_OPTIONS}
-            className="w-44"
-          />
+          {quickColumn ? (
+            <Select
+              value={quick}
+              onChange={setQuick}
+              aria-label={COLUMN_MAP.get(quickColumn)?.title}
+              options={[
+                { value: "all", label: view?.quickFilter?.allLabel ?? "All" },
+                ...(COLUMN_MAP.get(quickColumn)?.options ?? []).map((o) => ({ value: o, label: o })),
+              ]}
+              className="w-44"
+            />
+          ) : (
+            <Select
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={STATUS_OPTIONS}
+              className="w-44"
+            />
+          )}
           <Popover
             trigger="click"
             placement="bottomRight"
