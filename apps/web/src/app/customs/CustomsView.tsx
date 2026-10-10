@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Spin } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useShipments } from "@/hooks/useShipments";
 import { useDebounced } from "@/hooks/useDebounced";
 import { ShipmentsTable } from "@/app/shipments/_components/ShipmentsTable";
+import { CustomsSummary, CustomsShipmentInfo } from "./CustomsOverview";
 import { CustomsTab } from "@/app/shipments/[jobNumber]/tabs/CustomsTab";
 
 // The columns Customs starts from (CUSTOMS_GRID in the approved mockup); from there the
@@ -36,6 +37,12 @@ const CUSTOMS_DEFAULT_COLUMNS = [
 // Commercial Invoice Value is what the cargo lines add up to, so it is not typed in here.
 const CUSTOMS_READONLY_COLUMNS = ["commercialInvoiceValue"];
 
+// Tabs of a shipment opened in Customs.
+const CUSTOMS_DETAIL_TABS = [
+  { key: "details", label: "Shipment Details" },
+  { key: "documents", label: "Documents" },
+] as const;
+
 // Customs as a view of the shipments: the Shipments table itself over the same live rows,
 // with its own columns, filters and their templates. A reference opens the shipment inside
 // Customs (?open=<id>) — the same interface as the Customs tab in the shipment detail.
@@ -48,6 +55,9 @@ export function CustomsView() {
   const { shipments, isLoading, updateField } = useShipments({ search, statusBucket });
 
   const openShipment = openId ? shipments.find((x) => x.id === openId) : null;
+  const [detailTab, setDetailTab] = useState<(typeof CUSTOMS_DETAIL_TABS)[number]["key"]>("details");
+  // Every shipment opens on its first tab.
+  useEffect(() => setDetailTab("details"), [openId]);
 
   // Commercial Invoice Value shows the per-currency total of the cargo lines whenever they
   // carry values (the same rule as the Customs tab); the shipment's own field is the fallback.
@@ -80,12 +90,34 @@ export function CustomsView() {
                   <span className="text-[13px] font-semibold text-slate-600">{openShipment.customer}</span>
                 )}
               </div>
+              {openShipment && (
+                <div className="flex gap-0 mb-4 border-b border-slate-200">
+                  {CUSTOMS_DETAIL_TABS.map((tab) => (
+                    <div
+                      key={tab.key}
+                      onClick={() => setDetailTab(tab.key)}
+                      className={`px-4 py-2.5 text-sm cursor-pointer transition-all duration-150 border-b-2 -mb-px ${
+                        detailTab === tab.key
+                          ? "font-semibold text-indigo-500 border-indigo-500"
+                          : "font-normal text-slate-400 border-transparent hover:text-slate-600"
+                      }`}
+                    >
+                      {tab.label}
+                    </div>
+                  ))}
+                </div>
+              )}
               {openShipment ? (
-                <CustomsTab
-                  canReview
-                  shipment={openShipment}
-                  onCommit={(fieldKey, value) => updateField(openShipment.id, fieldKey, value)}
-                />
+                <div className="flex flex-col gap-3">
+                  {detailTab === "details" && <CustomsSummary shipment={openShipment} />}
+                  <CustomsTab
+                    canReview
+                    section={detailTab}
+                    shipment={openShipment}
+                    onCommit={(fieldKey, value) => updateField(openShipment.id, fieldKey, value)}
+                  />
+                  {detailTab === "details" && <CustomsShipmentInfo shipment={openShipment} />}
+                </div>
               ) : isLoading ? (
                 <div className="flex items-center justify-center py-20">
                   <Spin />

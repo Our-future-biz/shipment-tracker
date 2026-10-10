@@ -178,6 +178,7 @@ export function CustomsTab({
   shipment,
   onCommit,
   canReview = false,
+  section,
 }: {
   shipment: ShipmentItem;
   onCommit: CommitFn;
@@ -186,6 +187,8 @@ export function CustomsTab({
    * shipment's own Customs tab the review is shown, without the buttons.
    */
   canReview?: boolean;
+  /** Shows only that part (the Customs section has them on separate tabs); left out, both. */
+  section?: "details" | "documents";
 }) {
   const [search, setSearch] = useState("");
   const { updateShipment } = useShipments();
@@ -224,6 +227,7 @@ export function CustomsTab({
 
   return (
     <div className="flex flex-col gap-3">
+      {section !== "documents" && (
       <DetailCard
         icon={<SafetyCertificateOutlined />}
         title="Customs"
@@ -246,12 +250,13 @@ export function CustomsTab({
           ),
         }}
       />
+      )}
 
       {/*
         customsDocsCardHtml() z mockupu: .docs2.cx > .card
         Barvy dle promennych .docs2 (--line #E4E7F0, --card-head #EDEFFC, atd.)
       */}
-      {DOCUMENT_GROUPS.map((group, index) => {
+      {section !== "details" && DOCUMENT_GROUPS.map((group, index) => {
         const inGroup = (d: { documentType: string }) => documentGroupOf(d.documentType) === group;
         const documents = attachments.filter(inGroup);
         const filtered = matching.filter(inGroup);
