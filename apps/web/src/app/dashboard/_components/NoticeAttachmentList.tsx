@@ -1,7 +1,7 @@
 "use client";
 
 import { Button, Tooltip } from "antd";
-import { PaperClipOutlined, DeleteOutlined, DownloadOutlined, EyeOutlined } from "@ant-design/icons";
+import { PaperClipOutlined, DownloadOutlined, EyeOutlined } from "@ant-design/icons";
 import { formatFileSize } from "@/lib/files";
 
 export interface NoticeAttachmentRow {
@@ -18,13 +18,12 @@ interface NoticeAttachmentListProps {
   onOpen?: (key: string) => void;
   // The eye button; omitted where a preview is not offered at all.
   onPreview?: (key: string) => void;
-  onRemove?: (key: string) => void;
   // Files being fetched right now, so their buttons show progress.
   downloadingKeys?: string[];
   previewingKey?: string | null;
 }
 
-export function NoticeAttachmentList({ files, onOpen, onPreview, onRemove, downloadingKeys, previewingKey }: NoticeAttachmentListProps) {
+export function NoticeAttachmentList({ files, onOpen, onPreview, downloadingKeys, previewingKey }: NoticeAttachmentListProps) {
   if (files.length === 0) return null;
 
   return (
@@ -47,7 +46,7 @@ export function NoticeAttachmentList({ files, onOpen, onPreview, onRemove, downl
             </span>
           )}
           <span className="ml-auto shrink-0 text-xs text-slate-400">{formatFileSize(f.fileSize)}</span>
-          {(onPreview || onOpen || onRemove) && (
+          {(onPreview || onOpen) && (
             <span className="shrink-0 flex items-center">
               {/* Kept on every row so the buttons line up; disabled where the browser cannot show the file. */}
               {onPreview && (
@@ -73,11 +72,6 @@ export function NoticeAttachmentList({ files, onOpen, onPreview, onRemove, downl
                     loading={downloadingKeys?.includes(f.key)}
                     onClick={() => onOpen(f.key)}
                   />
-                </Tooltip>
-              )}
-              {onRemove && (
-                <Tooltip title="Remove">
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Remove ${f.fileName}`} onClick={() => onRemove(f.key)} />
                 </Tooltip>
               )}
             </span>
