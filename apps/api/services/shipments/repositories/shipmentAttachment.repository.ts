@@ -15,13 +15,17 @@ class ShipmentAttachmentRepository {
       .orderBy(asc(shipmentAttachmentTable.createdAt));
   }
 
-  /** Document types present on each shipment — powers the Customs "received" ticks. */
+  /**
+   * Document types present on each shipment, with their customs review — powers the Customs
+   * "received" ticks and the customs status that follows the paperwork.
+   */
   async documentTypesByShipmentIds(shipmentIds: string[], companyId: string) {
     if (shipmentIds.length === 0) return [];
     return db
       .select({
         shipmentId: shipmentAttachmentTable.shipmentId,
         documentType: shipmentAttachmentTable.documentType,
+        customsStatus: shipmentAttachmentTable.customsStatus,
       })
       .from(shipmentAttachmentTable)
       .where(and(

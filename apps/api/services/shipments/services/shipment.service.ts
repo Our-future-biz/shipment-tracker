@@ -151,6 +151,36 @@ function sanitizeTypedFields<T extends Record<string, unknown>>(data: T): T {
   return out as T;
 }
 
+/** A classified document of a shipment and its customs review ("" | approved | declined). */
+type ShipmentDocument = { documentType: string; customsStatus: string };
+
+/** The paperwork customs needs before it can start work on a shipment. */
+const COMMERCIAL_PAPERWORK = ["Invoice", "Packing list"];
+const WAITING_FOR_PAPERWORK = "Waiting For Commercial Paperwork";
+const PAPERWORK_PENDING = "Paperwork Verification Pending";
+const PAPERWORK_VERIFIED = "Paperwork Verified";
+/** The steps after the paperwork, set by hand. */
+const AFTER_VERIFIED = ["Under Customs Clearance", "Customs Cleared/Released"];
+
+/**
+ * Where the commercial paperwork stands: waiting until both an invoice and a packing list
+ * are uploaded, pending while any of them is not approved, verified once all are.
+ */
+function paperworkStatus(documents: ShipmentDocument[]): string {
+  const paperwork = documents.filter((d) => COMMERCIAL_PAPERWORK.includes(d.documentType));
+  if (!COMMERCIAL_PAPERWORK.every((t) => paperwork.some((d) => d.documentType === t))) return WAITING_FOR_PAPERWORK;
+  return paperwork.every((d) => d.customsStatus === "approved") ? PAPERWORK_VERIFIED : PAPERWORK_PENDING;
+}
+
+/**
+ * The customs status a shipment shows. It follows the paperwork up to "Paperwork Verified";
+ * a later step that was set by hand shows only while the paperwork stays verified.
+ */
+function customsStatusFor(stored: string, documents: ShipmentDocument[]): string {
+  const paperwork = paperworkStatus(documents);
+  return paperwork === PAPERWORK_VERIFIED && AFTER_VERIFIED.includes(stored) ? stored : paperwork;
+}
+
 // Whole days from one ISO date ("YYYY-MM-DD") to another.
 function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
@@ -254,12 +284,12 @@ class ShipmentService {
     // Document types per shipment — the Customs screen shows a tick when the
     // required document is present.
     const docRows = await shipmentAttachmentRepository.documentTypesByShipmentIds(shipmentIds, companyId);
-    const docTypesByShipment = new Map<string, string[]>();
+    const docsByShipment = new Map<string, ShipmentDocument[]>();
     for (const r of docRows) {
       if (!r.documentType) continue;
-      const list = docTypesByShipment.get(r.shipmentId) ?? [];
-      list.push(r.documentType);
-      docTypesByShipment.set(r.shipmentId, list);
+      const list = docsByShipment.get(r.shipmentId) ?? [];
+      list.push(r);
+      docsByShipment.set(r.shipmentId, list);
     }
 
     const enriched = result.data.map((s) => ({
@@ -270,7 +300,8 @@ class ShipmentService {
         dimensionsByShipment.get(s.id) ?? [],
       ),
       masterJobMczNumber: s.masterJobId ? mczMap.get(s.masterJobId) || null : null,
-      documentTypes: docTypesByShipment.get(s.id) ?? [],
+      documentTypes: (docsByShipment.get(s.id) ?? []).map((d) => d.documentType),
+      customsStatus: customsStatusFor(s.customsStatus, docsByShipment.get(s.id) ?? []),
     }));
 
     return {
@@ -313,10 +344,19 @@ class ShipmentService {
     const containers = (await containerRepository.listByShipmentId(id)).map(toContainerLine);
     const cargoItems = (await cargoItemRepository.listByShipmentId(id)).map(toCargoItemLine);
     const cargoDimensions = (await cargoDimensionRepository.listByShipmentId(id)).map(toCargoDimensionLine);
+    const documents = await this.documentsOf(id, companyId);
     return {
       ...enrich(shipment, containers, cargoItems, cargoDimensions),
       masterJobMczNumber,
+      documentTypes: documents.map((d) => d.documentType),
+      customsStatus: customsStatusFor(shipment.customsStatus, documents),
     };
+  }
+
+  /** The classified documents uploaded to one shipment, with their customs review. */
+  private async documentsOf(id: string, companyId: string): Promise<ShipmentDocument[]> {
+    const rows = await shipmentAttachmentRepository.documentTypesByShipmentIds([id], companyId);
+    return rows.filter((r) => r.documentType);
   }
 
   async create(companyId: string, data: Omit<NewShipmentRecord, "companyId"> & DetailRows) {
@@ -363,6 +403,14 @@ class ShipmentService {
     const { containers, cargoItems, cargoDimensions, ...rest } = data;
     assertValidContainerNumbers(containers);
     const shipmentData = sanitizeTypedFields(rest as Record<string, unknown>);
+
+    // Up to "Paperwork Verified" the customs status follows the paperwork; only the steps
+    // after it are set by hand, and only once the paperwork is approved.
+    if ("customsStatus" in shipmentData) {
+      const verified = paperworkStatus(await this.documentsOf(id, companyId)) === PAPERWORK_VERIFIED;
+      const manual = [PAPERWORK_VERIFIED, ...AFTER_VERIFIED].includes(shipmentData.customsStatus as string);
+      if (!verified || !manual) delete shipmentData.customsStatus;
+    }
 
     // Seed the export BoL types against the values this update leaves behind, so
     // switching a shipment to Export fills them in — and so an export shipment

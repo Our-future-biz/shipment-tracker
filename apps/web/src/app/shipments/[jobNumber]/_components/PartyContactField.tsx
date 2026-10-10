@@ -2,6 +2,8 @@
 
 import { useRef, useState } from "react";
 import { AutoComplete } from "antd";
+import { PartyContactLink } from "./PartyContactLink";
+import { EditOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
@@ -97,6 +99,20 @@ export function PartyContactField({ label, fieldKey, value, customerId, onCommit
               if (e.key === "Escape") setEditing(false);
             }}
           />
+        ) : value && customerId ? (
+          // A contact of a linked party opens the whole contact (role, e-mail, phone);
+          // the pencil changes it, like on the party's own row.
+          <div className="group flex items-center gap-1.5">
+            <PartyContactLink name={value} customerId={customerId} />
+            <button
+              type="button"
+              onClick={startEdit}
+              aria-label={`Edit ${label}`}
+              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-indigo-500 transition-opacity shrink-0"
+            >
+              <EditOutlined className="text-[11px]" />
+            </button>
+          </div>
         ) : (
           <span
             className="cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors block truncate"

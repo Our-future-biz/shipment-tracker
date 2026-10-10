@@ -21,17 +21,20 @@ import { formatDateTime } from "@/lib/date";
 import { attachmentContentUrl } from "@/lib/files";
 import { FileCell, CustomsPill, docPlural } from "./docsShared";
 import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
-import { DOCUMENT_GROUPS, documentGroupOf, isCustomsDocumentType } from "@/lib/documentTypes";
+import { DOCUMENT_GROUPS, documentGroupOf, isReviewedDocumentType } from "@/lib/documentTypes";
+
+// Statuses the server derives from the paperwork; while one of them shows, the field is locked.
+const PAPERWORK_STATUSES = ["Waiting For Commercial Paperwork", "Paperwork Verification Pending"];
 
 
 // Field layout mirrors CUSTOMS_L / CUSTOMS_R from the approved mockup. Read-only
 // fields are derived elsewhere (containers, cargo lines) and must not be edited here.
 const CUSTOMS_LEFT = [
-  { key: "customsStatus", label: "Customs Status" },
   { key: "jobNumber", label: "Internal Reference", ro: true },
   { key: "pcs", label: "Colli", ro: true },
   { key: "typeOfPackages", label: "Type Of Packages", ro: true },
   { key: "totalWeightTons", label: "Total Weight In Tons", ro: true },
+  { key: "totalVolumeCbm", label: "Total Volume In CBM", ro: true },
   { key: "cargoDescription", label: "Cargo Description", ro: true },
   { key: "hsCode", label: "HS Code", ro: true },
 ];
@@ -92,9 +95,9 @@ function ContainerNumberRow({ value }: { value: string }) {
 
 // Customs Priority is rendered as the first row of this column (see CustomsPriorityRow).
 const CUSTOMS_RIGHT = [
+  { key: "customsStatus", label: "Customs Status" },
   { key: "customsProcedure", label: "Customs Procedure" },
   { key: "mrn", label: "MRN Number" },
-  { key: "totalVolumeCbm", label: "Total Volume In CBM", ro: true },
   { key: "containerNumber", label: "Container Number", ro: true },
   { key: "sealNumber", label: "Seal Number", ro: true },
   { key: "containerTypeSummary", label: "Container Type", ro: true },
@@ -105,11 +108,12 @@ const CUSTOMS_RIGHT = [
 // Columns of the documents table. The layout is fixed, so a long file name or reviewer
 // name is cut short instead of pushing the other columns around; File takes the width
 // that is left.
+const REVIEW_COLUMN = "Customs review";
 const DOC_COLUMNS: { label: string; width?: number }[] = [
   { label: "File" },
   { label: "Document type", width: 190 },
   { label: "Uploaded by", width: 170 },
-  { label: "Customs review", width: 250 },
+  { label: REVIEW_COLUMN, width: 250 },
   { label: "", width: 84 },
 ];
 
@@ -128,6 +132,21 @@ const priorityLabel = (value: string) => (
     {value}
   </span>
 );
+
+// Customs Status while it follows the paperwork: the same conditional colours as the editable
+// field (and as the Shipments list), only without the double-click.
+function LockedStatusRow({ value, style }: { value: string; style?: React.CSSProperties }) {
+  return (
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Customs Status</span>
+      <span className="flex-1 min-w-0" title="Follows the invoice and the packing list">
+        <span className="text-slate-900 font-medium" style={style}>
+          {value}
+        </span>
+      </span>
+    </div>
+  );
+}
 
 const DEADLINE_FORMAT = "YYYY-MM-DD HH:mm";
 
@@ -247,7 +266,22 @@ export function CustomsTab({
 }) {
   const [search, setSearch] = useState("");
   const { updateShipment } = useShipments();
-  const styleFor = useMemo(() => makeStyleFor(shipment), [shipment]);
+  // Commercial Invoice(s) Value is the total of the cargo lines per currency whenever they
+  // carry values; the shipment's own field is only the fallback.
+  const cardShipment = useMemo(
+    () => (shipment.civByCurrency ? { ...shipment, commercialInvoiceValue: shipment.civByCurrency } : shipment),
+    [shipment],
+  );
+  const styleFor = useMemo(() => makeStyleFor(cardShipment), [cardShipment]);
+
+  // The server sets the status from the paperwork: waiting until the invoice and the packing
+  // list are uploaded, pending until they are approved, then verified. Only from there on is
+  // it changed by hand.
+  const paperworkIn = !PAPERWORK_STATUSES.includes(shipment.customsStatus);
+  // While locked, the status is drawn by LockedStatusRow (same colours, no editing).
+  const rightColumn = (canReview ? CUSTOMS_RIGHT.filter((f) => !CUSTOMS_OVERVIEW_HIDDEN.includes(f.key)) : CUSTOMS_RIGHT).filter(
+    (f) => f.key !== "customsStatus" || paperworkIn,
+  );
 
   const attachmentsQuery = useQuery({
     queryKey: ["shipment-attachments", shipment.id],
@@ -265,6 +299,8 @@ export function CustomsTab({
       api.shipments.attachmentReview(shipment.id, id, { status, note: reason ?? "" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
+      // Approving or declining the paperwork moves the shipment's customs status.
+      queryClient.invalidateQueries({ queryKey: ["shipments"] });
       setDeclining(null);
       setNote("");
     },
@@ -287,20 +323,21 @@ export function CustomsTab({
         icon={<SafetyCertificateOutlined />}
         // The Customs section calls its card Customs Overview; in the shipment it is the Customs tab's card.
         title={canReview ? "Customs Overview" : "Customs"}
-        columns={[CUSTOMS_LEFT, canReview ? CUSTOMS_RIGHT.filter((f) => !CUSTOMS_OVERVIEW_HIDDEN.includes(f.key)) : CUSTOMS_RIGHT]}
+        columns={[CUSTOMS_LEFT, rightColumn]}
         renderAfter={
           canReview
             ? {
                 jobNumber: <CustomerRow name={shipment.customer} customerId={shipment.customerId} />,
-                totalVolumeCbm: <ContainerNumberRow value={shipment.containerNumber} />,
               }
             : undefined
         }
-        shipment={shipment}
+        shipment={cardShipment}
         onCommit={onCommit}
         styleFor={styleFor}
         renderBefore={{
           customsProcedure: (
+            <>
+            {!paperworkIn && <LockedStatusRow value={shipment.customsStatus} style={styleFor("customsStatus", shipment.customsStatus)} />}
             <CustomsPriorityRow
               value={shipment.customsPriority}
               deadline={shipment.customsDeadline}
@@ -311,7 +348,10 @@ export function CustomsTab({
                 )
               }
             />
+            </>
           ),
+          // In the Customs section the container number is a link, in the place of the plain field.
+          ...(canReview ? { containerTypeSummary: <ContainerNumberRow value={shipment.containerNumber} /> } : {}),
         }}
       />
       )}
@@ -324,8 +364,10 @@ export function CustomsTab({
         const inGroup = (d: { documentType: string }) => documentGroupOf(d.documentType) === group;
         const documents = attachments.filter(inGroup);
         const filtered = matching.filter(inGroup);
-        // Only the commercial documents (invoices, packing lists) are approved or declined.
-        const reviewed = group.types.some(isCustomsDocumentType);
+        // The commercial and the customs documents are approved or declined; shipping ones are not.
+        const reviewed = group.types.some(isReviewedDocumentType);
+        // A table that is not reviewed has no Customs review column at all.
+        const columns = reviewed ? DOC_COLUMNS : DOC_COLUMNS.filter((c) => c.label !== REVIEW_COLUMN);
         return (
           <div key={group.title} className="bg-white border border-[#E4E7F0] rounded-[11px] overflow-hidden shadow-[0_1px_2px_rgba(21,27,43,.05)]">
             {/* .card-head */}
@@ -366,13 +408,13 @@ export function CustomsTab({
               {/* min-w = the fixed columns (694px) + 220px left for File */}
               <table className="w-full table-fixed border-collapse min-w-[914px] [&_tbody_tr:last-child_td]:border-b-0">
                 <colgroup>
-                  {DOC_COLUMNS.map((c, i) => (
+                  {columns.map((c, i) => (
                     <col key={i} style={{ width: c.width }} />
                   ))}
                 </colgroup>
                 <thead>
                   <tr>
-                    {DOC_COLUMNS.map((c, i) => (
+                    {columns.map((c, i) => (
                       <th
                         key={i}
                         className="text-left text-[11px] font-extrabold tracking-[.07em] uppercase text-[#4E5769] px-[18px] py-[12px] border-b border-[#E4E7F0] bg-white whitespace-nowrap"
@@ -419,10 +461,8 @@ export function CustomsTab({
                         {/* Customs review - .rev. Two slots: the status (pill or Approve) and the
                             action next to it (Change or Decline), so both start at the same
                             place in every row whatever the name under the pill. */}
+                        {reviewed && (
                         <td className={`px-[18px] align-top ${DOC_CELL}`}>
-                          {!reviewed ? (
-                            <span className="block text-[13.5px] leading-8 font-semibold text-[#8B94A7]">—</span>
-                          ) : (
                           <div className="grid grid-cols-[108px_minmax(0,1fr)] items-center justify-items-start gap-x-2">
                             {d.customsStatus === "approved" || d.customsStatus === "declined" ? (
                               /* jiz posouzeno: stitek + tlacitko Change, pod nimi kdo/kdy */
@@ -480,8 +520,8 @@ export function CustomsTab({
                               </>
                             )}
                           </div>
-                          )}
                         </td>
+                        )}
 
                         {/* .acts - nahled a stazeni */}
                         <td className={`pl-0 pr-[18px] align-middle ${DOC_CELL}`}>
@@ -511,7 +551,7 @@ export function CustomsTab({
                       {/* tr.cs-note - duvod zamitnuti v rozbalenem radku pod dokumentem */}
                       {(declining === d.id || (d.customsStatus === "declined" && d.customsNote)) && (
                         <tr className="cs-note">
-                          <td colSpan={5} className="px-[18px] pb-[14px] pt-0 border-b border-[#E4E7F0] bg-[#FAFBFD]">
+                          <td colSpan={columns.length} className="px-[18px] pb-[14px] pt-0 border-b border-[#E4E7F0] bg-[#FAFBFD]">
                             <label className="block text-[11px] font-extrabold tracking-[.07em] uppercase text-[#C3392B] mb-[5px]">
                               Reason for decline
                               <span className="block text-[11px] font-medium tracking-normal normal-case text-[#8B94A7] mt-[2px]">

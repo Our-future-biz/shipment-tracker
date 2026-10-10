@@ -61,10 +61,15 @@ export function documentGroupOf(documentType: string): (typeof DOCUMENT_GROUPS)[
   return DOCUMENT_GROUPS.find((g) => (g.types as readonly string[]).includes(documentType)) ?? FALLBACK_DOCUMENT_GROUP;
 }
 
-/** The documents customs works with: only these show up in the Customs section for review. */
+/** The commercial paperwork customs needs before it can start: an invoice and a packing list. */
 export const CUSTOMS_DOCUMENT_TYPES: readonly string[] = ["Invoice", "Packing list"];
 
-export const isCustomsDocumentType = (documentType: string) => CUSTOMS_DOCUMENT_TYPES.includes(documentType);
+/**
+ * Documents customs approves or declines: everything in the Commercial and the Customs
+ * Documents tables. Shipping documents are only shown, never reviewed.
+ */
+export const isReviewedDocumentType = (documentType: string) =>
+  ([...DOCUMENT_GROUPS[0].types, ...DOCUMENT_GROUPS[2].types] as string[]).includes(documentType);
 
 /** Customs review status of one document. */
 export type CustomsReviewStatus = "" | "approved" | "declined";

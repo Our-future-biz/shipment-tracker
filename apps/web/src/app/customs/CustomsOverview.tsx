@@ -3,6 +3,7 @@
 import dayjs from "dayjs";
 import Link from "next/link";
 import { ContainerOutlined, EnvironmentOutlined, InboxOutlined, SwapOutlined } from "@ant-design/icons";
+import { PartyContactLink } from "@/app/shipments/[jobNumber]/_components/PartyContactLink";
 import { DetailCard } from "@/app/shipments/[jobNumber]/ShipmentDetailContent";
 import { type ShipmentItem } from "@/hooks/useShipments";
 import { formatDate, formatDateTime } from "@/lib/date";
@@ -15,25 +16,31 @@ const ro = (key: string, label: string) => ({ key, label, ro: true });
 
 const ROUTE = [
   ro("pol", "POL"),
-  ro("pod", "POD"),
-  ro("destination", "Destination"),
+  ro("origin", "Origin"),
   ro("shippingLine", "Shipping line / Coloader"),
   ro("vessel", "Vessel"),
   ro("voyage", "Voyage"),
 ];
 
 const REFERENCES = [
-  ro("masterBolNumber", "Master BoL Number"),
+  ro("pod", "POD"),
+  ro("destination", "Destination"),
   ro("houseBolNumber", "House BoL Number"),
-  ro("incotermOrigin", "Incoterm Origin"),
-  ro("incotermDestination", "Incoterm Destination"),
   ro("insurance", "Insurance"),
-  ro("cargoOrigin", "Cargo Origin"),
-  ro("countryCode", "Country Code"),
-  ro("personInCharge", "Person In Charge"),
 ];
 
 const noCommit = () => {};
+
+/**
+ * The one incoterm customs works with: the origin incoterm for an import, the destination
+ * incoterm for an export. A shipment without a direction shows whichever is filled in.
+ */
+function customsIncoterm(shipment: ShipmentItem): string {
+  const direction = (shipment.tradeDirection || "").toLowerCase();
+  if (direction === "import") return shipment.incotermOrigin;
+  if (direction === "export") return shipment.incotermDestination;
+  return shipment.incotermOrigin || shipment.incotermDestination;
+}
 
 function InfoRow({ label, children }: { label: string; children?: React.ReactNode }) {
   return (
@@ -56,18 +63,6 @@ function PartyName({ name, customerId }: { name: string; customerId?: string | n
   );
 }
 
-/** "in 1 day 4 h" / "3 h overdue" for an Urgent shipment's deadline. */
-function deadlineDistance(deadline: string): { text: string; overdue: boolean } | null {
-  const at = dayjs(deadline);
-  if (!deadline || !at.isValid()) return null;
-  const minutes = at.diff(dayjs(), "minute");
-  const abs = Math.abs(minutes);
-  const days = Math.floor(abs / 1440);
-  const hours = Math.floor((abs % 1440) / 60);
-  const span = days > 0 ? `${days} day${days === 1 ? "" : "s"} ${hours} h` : hours > 0 ? `${hours} h` : `${abs} min`;
-  return minutes < 0 ? { text: `${span} overdue`, overdue: true } : { text: `in ${span}`, overdue: false };
-}
-
 function Tile({ label, value, note, tone }: { label: string; value: React.ReactNode; note?: React.ReactNode; tone?: "red" | "green" }) {
   return (
     <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm min-w-0">
@@ -84,9 +79,11 @@ function Tile({ label, value, note, tone }: { label: string; value: React.ReactN
   );
 }
 
-const TH = "text-left text-[11px] font-bold text-slate-500 uppercase tracking-wide px-2 py-1.5 border-b border-slate-200";
+const TH = "text-[11px] font-bold text-slate-500 uppercase tracking-wide px-2 py-1.5 border-b border-slate-200";
 const TD = "px-2 py-1.5 border-b border-slate-100 text-xs text-slate-900 font-medium";
 
+// The first column (what the line is) reads from the left; the figures after it are centred
+// under their headings, like the cargo table in the shipment.
 function LinesTable({ head, rows, empty }: { head: string[]; rows: string[][]; empty: string }) {
   if (rows.length === 0) return <div className="py-3 text-xs text-slate-400">{empty}</div>;
   return (
@@ -94,8 +91,8 @@ function LinesTable({ head, rows, empty }: { head: string[]; rows: string[][]; e
       <table className="w-full border-collapse">
         <thead>
           <tr>
-            {head.map((h) => (
-              <th key={h} className={TH}>
+            {head.map((h, i) => (
+              <th key={h} className={`${TH} ${i === 0 ? "text-left" : "text-center"}`}>
                 {h}
               </th>
             ))}
@@ -105,7 +102,7 @@ function LinesTable({ head, rows, empty }: { head: string[]; rows: string[][]; e
           {rows.map((r, i) => (
             <tr key={i}>
               {r.map((cell, j) => (
-                <td key={j} className={TD}>
+                <td key={j} className={`${TD} ${j === 0 ? "text-left" : "text-center"}`}>
                   {cell || <span className="text-slate-300">—</span>}
                 </td>
               ))}
@@ -120,7 +117,8 @@ function LinesTable({ head, rows, empty }: { head: string[]; rows: string[][]; e
 /** The top strip: what is to be cleared and by when. */
 export function CustomsSummary({ shipment }: { shipment: ShipmentItem }) {
   const urgent = shipment.customsPriority === "Urgent";
-  const distance = urgent ? deadlineDistance(shipment.customsDeadline) : null;
+  // A deadline that has passed is shown in red.
+  const overdue = urgent && !!shipment.customsDeadline && dayjs(shipment.customsDeadline).isBefore(dayjs());
   const received = shipment.documentTypes ?? [];
   const missing = CUSTOMS_DOCUMENT_TYPES.filter((t) => !received.includes(t));
 
@@ -134,9 +132,7 @@ export function CustomsSummary({ shipment }: { shipment: ShipmentItem }) {
       <Tile
         label="Deadline"
         value={urgent ? formatDateTime(shipment.customsDeadline) : ""}
-        note={
-          distance && <span className={distance.overdue ? "text-red-600 font-semibold" : undefined}>{distance.text}</span>
-        }
+        tone={overdue ? "red" : undefined}
       />
       <Tile label="Direction" value={shipment.tradeDirection} />
       <Tile
@@ -149,7 +145,7 @@ export function CustomsSummary({ shipment }: { shipment: ShipmentItem }) {
         label="Documents"
         value={missing.length === 0 ? "Received" : "Missing"}
         tone={missing.length === 0 ? "green" : "red"}
-        note={(missing.length === 0 ? CUSTOMS_DOCUMENT_TYPES : missing).join(", ")}
+        note={missing.join(", ")}
       />
     </div>
   );
@@ -176,6 +172,14 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
 
   return (
     <>
+      <DetailCard
+        icon={<SwapOutlined />}
+        title="Transport"
+        columns={[ROUTE, REFERENCES]}
+        shipment={shipment}
+        onCommit={noCommit}
+        renderAfter={{ houseBolNumber: <InfoRow label="Incoterm">{customsIncoterm(shipment)}</InfoRow> }}
+      />
       {/* The same card as in the shipment (party as a link to its customer page, contact, address), read-only. */}
       <DetailCard icon={<EnvironmentOutlined />} title="Commercial Parties" columns={[[]]} shipment={shipment} onCommit={noCommit}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
@@ -183,14 +187,26 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
             <InfoRow label="Shipper">
               <PartyName name={shipment.shipper} customerId={shipment.shipperId} />
             </InfoRow>
-            <InfoRow label="Contact">{shipment.shipperContact}</InfoRow>
+            <InfoRow label="Contact">
+              {shipment.shipperContact && shipment.shipperId ? (
+                <PartyContactLink name={shipment.shipperContact} customerId={shipment.shipperId} />
+              ) : (
+                shipment.shipperContact
+              )}
+            </InfoRow>
             <InfoRow label="Pick-up Address">{shipment.pickupAddress}</InfoRow>
           </div>
           <div>
             <InfoRow label="Consignee">
               <PartyName name={shipment.consignee} customerId={shipment.consigneeId} />
             </InfoRow>
-            <InfoRow label="Contact">{shipment.consigneeContact}</InfoRow>
+            <InfoRow label="Contact">
+              {shipment.consigneeContact && shipment.consigneeId ? (
+                <PartyContactLink name={shipment.consigneeContact} customerId={shipment.consigneeId} />
+              ) : (
+                shipment.consigneeContact
+              )}
+            </InfoRow>
             <InfoRow label="Delivery Address">{shipment.deliveryAddress}</InfoRow>
           </div>
         </div>
@@ -212,7 +228,6 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
         />
       </DetailCard>
       </div>
-      <DetailCard icon={<SwapOutlined />} title="Transport" columns={[ROUTE, REFERENCES]} shipment={shipment} onCommit={noCommit} />
     </>
   );
 }

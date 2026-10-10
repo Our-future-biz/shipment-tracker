@@ -25,7 +25,7 @@ import {
   REQUIRED_DOCUMENT_TYPES,
   OPTIONAL_DOCUMENT_TYPES,
   guessDocumentType,
-  isCustomsDocumentType,
+  isReviewedDocumentType,
   DOCUMENT_GROUPS,
   documentGroupOf,
 } from "@/lib/documentTypes";
@@ -144,6 +144,12 @@ interface PendingFile {
 
 export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   const queryClient = useQueryClient();
+  // A document added, removed or classified also changes the shipment itself: its customs
+  // status follows the invoice and the packing list, and so do the "received" ticks.
+  const refreshDocuments = () => {
+    queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    return queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
+  };
   const [search, setSearch] = useState("");
 
   // Files are classified BEFORE they are uploaded — nothing reaches the list
@@ -178,7 +184,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
 
   const deleteAttachment = useMutation({
     mutationFn: (attachmentId: string) => api.shipments.attachmentDelete(shipment.id, attachmentId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] }),
+    onSuccess: refreshDocuments,
   });
 
   // Uploads the whole classified queue in one go ("Add to list" in the mockup).
@@ -203,7 +209,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
         failed.push(`${p.name}: ${err instanceof Error ? err.message : "unknown error"}`);
       }
     }
-    await queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
+    await refreshDocuments();
     setSaving(false);
 
     if (failed.length === 0) {
@@ -222,7 +228,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
   const classify = useMutation({
     mutationFn: ({ id, documentType }: { id: string; documentType: string }) =>
       api.shipments.attachmentClassify(shipment.id, id, { documentType }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] }),
+    onSuccess: refreshDocuments,
     onError: () => message.error("Could not save the document type"),
   });
 
@@ -486,8 +492,8 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                       </td>
                       <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
                         <div className="flex flex-col gap-[3px] items-start">
-                          {/* Only invoices and packing lists go to customs for review. */}
-                          {isCustomsDocumentType(file.documentType) ? (
+                          {/* Commercial and customs documents go to customs for review; shipping ones do not. */}
+                          {isReviewedDocumentType(file.documentType) ? (
                             <CustomsPill status={file.customsStatus} />
                           ) : (
                             <span className="text-[13.5px] font-semibold text-[#8B94A7]">—</span>
