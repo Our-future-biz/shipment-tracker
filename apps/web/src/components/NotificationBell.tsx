@@ -19,6 +19,9 @@ const boardLabel = (scope: string, target: string) => {
   return target ? `${board} · ${target}` : board;
 };
 
+// How far back the "All" view of the panel goes.
+const RECENT_NOTICES = 20;
+
 const NOTICE_TOAST_TYPE: Record<string, "info" | "warning" | "error"> = { info: "info", warning: "warning", critical: "error" };
 
 // What the signed-in user has not looked at yet: noticeboard posts from colleagues and
@@ -35,7 +38,11 @@ export function NotificationBell() {
   const mentions = mentionData?.mentions ?? [];
   const { announcements, viewer, hasLoaded: noticesLoaded } = useNoticeboard();
   const [open, setOpen] = useState(false);
+  // "Unread" is what still needs attention; "All" keeps the recent notices in reach after
+  // they have been opened. Mentions exist here only while unread.
+  const [view, setView] = useState<"unread" | "all">("unread");
   const notices = announcements.filter((a) => a.unread);
+  const listed = view === "unread" ? notices : announcements.slice(0, RECENT_NOTICES);
 
   // Announce only what arrives while the app is open, not the backlog found on load.
   const seenMentions = useRef<Set<string> | null>(null);
@@ -86,16 +93,38 @@ export function NotificationBell() {
 
   const panel = (
     <div className="w-80 max-h-96 overflow-y-auto rounded-lg bg-white shadow-lg border border-slate-200">
-      <div className="px-4 py-2.5 border-b border-slate-200 text-[13px] font-semibold text-slate-700">Notifications</div>
-      {total === 0 && <p className="px-4 py-6 text-center text-xs text-slate-400">Nothing new.</p>}
-      {notices.length > 0 && <div className={headingClass}>Noticeboard</div>}
-      {notices.map((a) => (
+      <div className="sticky top-0 z-10 flex items-center justify-between gap-2 px-4 py-2 border-b border-slate-200 bg-white">
+        <span className="text-[13px] font-semibold text-slate-700">Notifications</span>
+        <span className="flex rounded-md bg-slate-100 p-0.5">
+          {(["unread", "all"] as const).map((v) => (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={view === v}
+              onClick={() => setView(v)}
+              className={`px-2.5 py-0.5 rounded border-none text-[12px] font-medium cursor-pointer ${
+                view === v ? "bg-white text-slate-800 shadow-sm" : "bg-transparent text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              {v === "unread" ? `Unread${total ? ` (${total})` : ""}` : "All"}
+            </button>
+          ))}
+        </span>
+      </div>
+      {listed.length + mentions.length === 0 && (
+        <p className="px-4 py-6 text-center text-xs text-slate-400">{view === "unread" ? "Nothing new." : "No notifications yet."}</p>
+      )}
+      {listed.length > 0 && <div className={headingClass}>Noticeboard</div>}
+      {listed.map((a) => (
         <button key={a.id} type="button" onClick={() => go(`/dashboard?notice=${a.id}`)} className={rowClass}>
-          <span className="flex items-center justify-between gap-2">
-            <span className="text-[13px] font-semibold text-slate-800 truncate">{a.title}</span>
+          <span className="flex items-center gap-2">
+            {a.unread && <span role="img" aria-label="Unread" className="shrink-0 w-2 h-2 rounded-full bg-red-500" />}
+            <span className={`min-w-0 flex-1 text-[13px] truncate ${a.unread ? "font-semibold text-slate-800" : "font-medium text-slate-500"}`}>
+              {a.title}
+            </span>
             <NoticeSeverityTag severity={a.severity} />
           </span>
-          {a.body && <span className="text-[12px] text-slate-600 line-clamp-2">{a.body}</span>}
+          {a.body && <span className={`text-[12px] line-clamp-2 ${a.unread ? "text-slate-600" : "text-slate-400"}`}>{a.body}</span>}
           <span className="block text-[11px] text-slate-400 mt-0.5">
             {a.authorName} · {boardLabel(a.scope, a.target)} · {formatTime(a.createdAt)}
           </span>
