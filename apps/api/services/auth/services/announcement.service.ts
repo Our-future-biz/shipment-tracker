@@ -105,6 +105,25 @@ function checkBody(value: string | undefined): string {
   return body;
 }
 
+// Whether a post on its board is addressed to someone sitting where `viewer` does.
+function isAddressedTo(
+  post: { scope: string; departmentId: string | null; branchId: string | null; country: string | null },
+  viewer: { departmentId: string | null; branchId: string | null; country: string | null },
+): boolean {
+  switch (post.scope as AnnouncementScope) {
+    case "company":
+      return true;
+    case "department":
+      return !!viewer.departmentId && post.departmentId === viewer.departmentId;
+    case "branch":
+      return !!viewer.branchId && post.branchId === viewer.branchId;
+    case "country":
+      return !!viewer.country && post.country?.toLowerCase() === viewer.country.toLowerCase();
+    default:
+      return false;
+  }
+}
+
 function checkSeverity(severity: string): string {
   if (!(ANNOUNCEMENT_SEVERITIES as readonly string[]).includes(severity)) {
     throw APIError.invalidArgument("severity must be info, warning or critical");
@@ -145,7 +164,9 @@ class AnnouncementService {
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
       canEdit: admin || (canPost && r.authorId === actor.userID),
-      unread: r.authorId !== actor.userID && !r.readAt,
+      // Admins see every board, but a post counts as unread only for the people it is addressed
+      // to — the same audience its read receipts count.
+      unread: r.authorId !== actor.userID && !r.readAt && isAddressedTo(r, viewer),
       attachments: attachmentsByPost.get(r.id) ?? [],
     }));
     return { viewer, announcements };

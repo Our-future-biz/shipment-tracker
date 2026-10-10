@@ -42,21 +42,43 @@ const SEVERITY_PILL: Record<string, { idle: string; chosen: string }> = {
   critical: { idle: "bg-red-50 text-red-600", chosen: "border-red-400" },
 };
 
-// A form control: antd's Form.Item supplies value and onChange.
-function PriorityPills({ value, onChange, disabled }: { value?: string; onChange?: (value: string) => void; disabled?: boolean }) {
+// A form control: antd's Form.Item supplies value and onChange. A radio group to assistive
+// technology and the keyboard: one tab stop (the chosen pill), arrows move the choice.
+function PriorityPills({ id, value, onChange, disabled }: { id?: string; value?: string; onChange?: (value: string) => void; disabled?: boolean }) {
+  const pills = useRef<(HTMLButtonElement | null)[]>([]);
+  const chosenIndex = Math.max(0, SEVERITIES.findIndex((s) => s.value === value));
+  const move = (from: number, step: number) => {
+    const next = (from + step + SEVERITIES.length) % SEVERITIES.length;
+    const severity = SEVERITIES[next];
+    if (severity) onChange?.(severity.value);
+    pills.current[next]?.focus();
+  };
   return (
-    <div role="radiogroup" className="flex flex-wrap gap-2">
-      {SEVERITIES.map((s) => {
+    <div id={id} role="radiogroup" aria-label="Priority" className="flex flex-wrap gap-2">
+      {SEVERITIES.map((s, i) => {
         const chosen = s.value === value;
         const pill = SEVERITY_PILL[s.value];
         return (
           <button
             key={s.value}
+            ref={(el) => {
+              pills.current[i] = el;
+            }}
             type="button"
             role="radio"
             aria-checked={chosen}
+            tabIndex={i === chosenIndex ? 0 : -1}
             disabled={disabled}
             onClick={() => onChange?.(s.value)}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                e.preventDefault();
+                move(i, 1);
+              } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                e.preventDefault();
+                move(i, -1);
+              }
+            }}
             className={`h-8 px-3.5 rounded-lg border text-[13px] font-medium cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${pill?.idle ?? ""} ${
               chosen ? (pill?.chosen ?? "") : "border-transparent opacity-80 hover:opacity-100"
             }`}
@@ -163,7 +185,12 @@ export function NoticePostModal({ target, viewer, onClose, onCreate, onUpdate, o
         removedIds
           .filter((attachmentId) => !removedDone.current.has(attachmentId))
           .map(async (attachmentId) => {
-            await onRemoveAttachment(attachmentId);
+            try {
+              await onRemoveAttachment(attachmentId);
+            } catch (err) {
+              // Already gone (removed in another tab, say) is what was wanted; anything else is a failure.
+              if ((err as { status?: number }).status !== 404) throw err;
+            }
             removedDone.current.add(attachmentId);
           }),
       );

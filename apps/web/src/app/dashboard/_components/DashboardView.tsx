@@ -71,7 +71,19 @@ export function DashboardView() {
     toast.info("This notice has been deleted");
   }, [openId, hasLoaded, openPost, toast]);
 
-  // A notice counts as read once it has been opened and closed again.
+  // A notice counts as read once it has been opened and closed again — or left open while the
+  // reader goes elsewhere (Back, a sidebar link), which never closes the dialog.
+  const openUnread = useRef<string | null>(null);
+  openUnread.current = openPost?.unread ? openPost.id : null;
+  const markReadRef = useRef(markRead);
+  markReadRef.current = markRead;
+  useEffect(
+    () => () => {
+      if (openUnread.current) markReadRef.current(openUnread.current);
+    },
+    [],
+  );
+
   const handleCloseDetail = () => {
     if (openPost?.unread) markRead(openPost.id);
     setOpenId(null);

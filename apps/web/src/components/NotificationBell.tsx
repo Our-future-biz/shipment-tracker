@@ -58,20 +58,21 @@ export function NotificationBell() {
     }
   }, [mentionData, toast]);
 
-  // The newest notice this tab has accounted for; null until the list first arrives. Only
-  // notices posted after it are announced, so a list that failed to load at first does not
-  // replay its history as "new". Nor does a board the reader has just been added to: a
-  // change of their department, branch or country starts from a new baseline.
-  const noticesSince = useRef<string | null>(null);
+  // The notices this tab has accounted for; null until the list first arrives. Only ones not
+  // seen before are announced — by id, so a notice whose timestamp is older than one already
+  // received still counts. A list that failed to load at first does not replay its history as
+  // "new", nor does a board the reader has just been added to: a change of their department,
+  // branch or country starts from a new baseline.
+  const seenNotices = useRef<Set<string> | null>(null);
   const audience = viewer ? `${viewer.departmentId}|${viewer.branchId}|${viewer.country}` : "";
   const lastAudience = useRef<string | null>(null);
   useEffect(() => {
     if (!noticesLoaded) return;
-    const since = noticesSince.current;
-    const baseline = since === null || lastAudience.current !== audience;
+    const seen = seenNotices.current;
+    const baseline = seen === null || lastAudience.current !== audience;
     lastAudience.current = audience;
-    const fresh = baseline ? [] : announcements.filter((a) => a.unread && a.createdAt > since);
-    noticesSince.current = announcements.reduce((newest, a) => (a.createdAt > newest ? a.createdAt : newest), since ?? "");
+    const fresh = baseline ? [] : announcements.filter((a) => a.unread && !seen.has(a.id));
+    seenNotices.current = new Set([...(baseline ? [] : seen), ...announcements.map((a) => a.id)]);
     for (const a of fresh) {
       toast.notify({
         title: `New notice: ${a.title}`,

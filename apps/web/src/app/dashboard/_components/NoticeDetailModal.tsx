@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Dropdown, Modal } from "antd";
+import { Button, Dropdown, Modal, Progress } from "antd";
 import { useQuery } from "@tanstack/react-query";
 import { DeleteOutlined, EditOutlined, EllipsisOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
@@ -62,11 +62,13 @@ export function NoticeDetailModal({ post, onClose, onEdit, onDelete }: NoticeDet
 
   // Whoever manages the notice sees how far it has got. Keyed under the noticeboard so it
   // refreshes with the list (every poll, and whenever someone's read is recorded here).
-  const receiptsFor = post?.canEdit ? post.id : null;
+  // Keyed on the notice still drawn during the close animation, so the section does not blink
+  // out; only fetched while the dialog is open.
+  const receiptsFor = shown?.canEdit ? shown.id : null;
   const { data: receipts } = useQuery({
     queryKey: ["noticeboard", "read-receipts", receiptsFor],
     queryFn: () => api.auth.announcementReadReceipts(receiptsFor!),
-    enabled: !!receiptsFor,
+    enabled: !!post && !!receiptsFor,
     refetchInterval: 15000,
   });
 
@@ -193,12 +195,15 @@ export function NoticeDetailModal({ post, onClose, onEdit, onDelete }: NoticeDet
               <h3 className="mt-0 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Read by {receipts.read.length} of {receipts.read.length + receipts.unread.length}
               </h3>
-              <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                <div
-                  className={`h-full rounded-full ${receipts.unread.length === 0 ? "bg-emerald-500" : "bg-indigo-500"}`}
-                  style={{ width: `${(receipts.read.length / (receipts.read.length + receipts.unread.length)) * 100}%` }}
-                />
-              </div>
+              <Progress
+                aria-label="Read by"
+                percent={Math.round((receipts.read.length / (receipts.read.length + receipts.unread.length)) * 100)}
+                showInfo={false}
+                size={{ height: 6 }}
+                // Tailwind's emerald-500 / indigo-500.
+                strokeColor={receipts.unread.length === 0 ? "#10b981" : "#6366f1"}
+                className="m-0"
+              />
               {receipts.unread.length === 0 ? (
                 <p className="mt-2 mb-0 text-[13px] text-emerald-700">Everyone it is addressed to has read it.</p>
               ) : (
@@ -229,7 +234,7 @@ export function NoticeDetailModal({ post, onClose, onEdit, onDelete }: NoticeDet
           )}
         </article>
       )}
-      <Modal open={!!preview} title={preview?.name} onCancel={closePreview} footer={null} width="80vw" styles={{ body: { padding: 0, height: "78vh" } }} destroyOnHidden>
+      <Modal open={!!preview} title={preview?.name} onCancel={closePreview} footer={null} width="80vw" classNames={{ body: "!p-0 h-[78vh]" }} destroyOnHidden>
         {preview &&
           (preview.type.startsWith("image/") ? (
             <div className="h-full overflow-auto bg-slate-100 flex items-center justify-center">

@@ -45,6 +45,8 @@ class AnnouncementRepository extends TenantRepository<typeof announcementTable> 
       .select({
         id: announcementTable.id,
         scope: announcementTable.scope,
+        departmentId: announcementTable.departmentId,
+        branchId: announcementTable.branchId,
         country: announcementTable.country,
         severity: announcementTable.severity,
         title: announcementTable.title,
