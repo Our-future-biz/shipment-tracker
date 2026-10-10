@@ -129,7 +129,7 @@ export const COLUMNS: ColumnDef[] = [
   // Status block
   { key: "customsStatus", title: "Customs Status", width: 210, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Status"], apiField: "customsStatus" },
   // Read-only in the lists: switching to Urgent asks for a deadline, which happens in the Customs detail.
-  { key: "customsPriority", title: "Customs Priority", width: 230, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Priority"], apiField: "customsPriority", readonly: true },
+  { key: "customsPriority", title: "Customs Priority", width: 150, type: "dropdown", options: DROPDOWN_OPTIONS["Customs Priority"], apiField: "customsPriority", readonly: true },
   { key: "customsDeadline", title: "Customs Deadline", width: 160, type: "text", readonly: true, apiField: "customsDeadline" },
   { key: "status", title: "Shipment Status", width: 320, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
   { key: "freeComments", title: "Free Comments", width: 200, type: "text", apiField: "freeComments" },
@@ -461,10 +461,10 @@ export function getCellConditionalStyle(
     if (value === "Paperwork Verified" || value === "Customs Cleared/Released") return { backgroundColor: "rgba(34, 197, 94, 0.12)" };
   }
 
-  // Customs Priority — Standard (green), Urgent (red)
+  // Customs Priority — Standard (green), Urgent (red, in bold red text)
   if (key === "customsPriority") {
     if (value === "Standard") return { backgroundColor: "rgba(34, 197, 94, 0.12)" };
-    if (value === "Urgent") return { backgroundColor: "rgba(244, 63, 94, 0.15)" };
+    if (value === "Urgent") return { backgroundColor: "rgba(244, 63, 94, 0.15)", color: "#dc2626", fontWeight: 700 };
   }
 
   // Required-fill fields: red when blank, green when filled
