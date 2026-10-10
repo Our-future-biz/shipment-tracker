@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DatePicker, Input, Modal, Select, TimePicker, Tooltip, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
+import Link from "next/link";
 import {
   SafetyCertificateOutlined,
   FileTextOutlined,
@@ -27,17 +28,71 @@ import { DOCUMENT_GROUPS, documentGroupOf, isCustomsDocumentType } from "@/lib/d
 // fields are derived elsewhere (containers, cargo lines) and must not be edited here.
 const CUSTOMS_LEFT = [
   { key: "customsStatus", label: "Customs Status" },
-  { key: "customsProcedure", label: "Customs Procedure" },
   { key: "jobNumber", label: "Internal Reference", ro: true },
-  { key: "typeOfPackages", label: "Type Of Packages", ro: true },
   { key: "pcs", label: "Colli", ro: true },
+  { key: "typeOfPackages", label: "Type Of Packages", ro: true },
+  { key: "totalWeightTons", label: "Total Weight In Tons", ro: true },
   { key: "cargoDescription", label: "Cargo Description", ro: true },
   { key: "hsCode", label: "HS Code", ro: true },
-  { key: "totalWeightTons", label: "Total Weight In Tons", ro: true },
 ];
+
+// In the Customs section the card also names the customer, right under the reference: the
+// same link to the customer's page as in the shipment, but not editable here.
+function CustomerRow({ name, customerId }: { name: string; customerId?: string | null }) {
+  return (
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Customer</span>
+      <div className="flex-1 min-w-0">
+        {!name ? (
+          <span className="text-slate-300">—</span>
+        ) : customerId ? (
+          <Link href={`/customers/${customerId}`} className="text-indigo-600 hover:underline font-medium truncate">
+            {name}
+          </Link>
+        ) : (
+          <span className="text-slate-900 font-medium truncate">{name}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Left out of the card in the Customs section: Container Number is a link there instead
+// (ContainerNumberRow), and the seal is listed with its container in the Containers card.
+const CUSTOMS_OVERVIEW_HIDDEN = ["containerNumber", "sealNumber"];
+
+/** Id of the Containers card on the Customs section's page; Container Number links to it. */
+export const CUSTOMS_CONTAINERS_ID = "customs-containers";
+
+// In the Customs section the container number is a link down to the Containers card, where
+// each container is listed with its seal, type, packages, weight and volume.
+function ContainerNumberRow({ value }: { value: string }) {
+  return (
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Container Number</span>
+      <div className="flex-1 min-w-0">
+        {value ? (
+          <a
+            href={`#${CUSTOMS_CONTAINERS_ID}`}
+            onClick={(e) => {
+              e.preventDefault();
+              document.getElementById(CUSTOMS_CONTAINERS_ID)?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+            className="text-indigo-600 hover:underline font-medium"
+          >
+            {value}
+          </a>
+        ) : (
+          <span className="text-slate-300">—</span>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // Customs Priority is rendered as the first row of this column (see CustomsPriorityRow).
 const CUSTOMS_RIGHT = [
+  { key: "customsProcedure", label: "Customs Procedure" },
   { key: "mrn", label: "MRN Number" },
   { key: "totalVolumeCbm", label: "Total Volume In CBM", ro: true },
   { key: "containerNumber", label: "Container Number", ro: true },
@@ -232,12 +287,20 @@ export function CustomsTab({
         icon={<SafetyCertificateOutlined />}
         // The Customs section calls its card Customs Overview; in the shipment it is the Customs tab's card.
         title={canReview ? "Customs Overview" : "Customs"}
-        columns={[CUSTOMS_LEFT, CUSTOMS_RIGHT]}
+        columns={[CUSTOMS_LEFT, canReview ? CUSTOMS_RIGHT.filter((f) => !CUSTOMS_OVERVIEW_HIDDEN.includes(f.key)) : CUSTOMS_RIGHT]}
+        renderAfter={
+          canReview
+            ? {
+                jobNumber: <CustomerRow name={shipment.customer} customerId={shipment.customerId} />,
+                totalVolumeCbm: <ContainerNumberRow value={shipment.containerNumber} />,
+              }
+            : undefined
+        }
         shipment={shipment}
         onCommit={onCommit}
         styleFor={styleFor}
         renderBefore={{
-          mrn: (
+          customsProcedure: (
             <CustomsPriorityRow
               value={shipment.customsPriority}
               deadline={shipment.customsDeadline}

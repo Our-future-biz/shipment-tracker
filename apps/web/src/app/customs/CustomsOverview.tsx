@@ -1,52 +1,60 @@
 "use client";
 
 import dayjs from "dayjs";
-import { ContainerOutlined, InboxOutlined, SwapOutlined, TeamOutlined } from "@ant-design/icons";
+import Link from "next/link";
+import { ContainerOutlined, EnvironmentOutlined, InboxOutlined, SwapOutlined } from "@ant-design/icons";
 import { DetailCard } from "@/app/shipments/[jobNumber]/ShipmentDetailContent";
 import { type ShipmentItem } from "@/hooks/useShipments";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { CUSTOMS_DOCUMENT_TYPES } from "@/lib/documentTypes";
+import { CUSTOMS_CONTAINERS_ID } from "@/app/shipments/[jobNumber]/tabs/CustomsTab";
 
 // What a customs officer needs from the shipment itself, read-only: everything here is
 // kept in Shipments and only shown in Customs.
 const ro = (key: string, label: string) => ({ key, label, ro: true });
 
-const PARTIES = [
-  ro("customer", "Customer"),
-  ro("customerPic", "Customer's PIC"),
-  ro("shipper", "Shipper"),
-  ro("consignee", "Consignee"),
-  ro("personInCharge", "Person In Charge"),
-];
-
-const TERMS = [
-  ro("incotermOrigin", "Incoterm Origin"),
-  ro("incotermDestination", "Incoterm Destination"),
-  ro("insurance", "Insurance"),
-  ro("cargoOrigin", "Cargo Origin"),
-  ro("countryCode", "Country Code"),
-];
-
 const ROUTE = [
   ro("pol", "POL"),
   ro("pod", "POD"),
   ro("destination", "Destination"),
-  ro("deliveryAddress", "Delivery Address"),
   ro("shippingLine", "Shipping line / Coloader"),
   ro("vessel", "Vessel"),
   ro("voyage", "Voyage"),
 ];
 
 const REFERENCES = [
-  ro("status", "Shipment Status"),
-  ro("bookingNumber", "Booking Number"),
   ro("masterBolNumber", "Master BoL Number"),
-  ro("masterBolType", "Master BoL Type"),
   ro("houseBolNumber", "House BoL Number"),
-  ro("houseBolType", "House BoL Type"),
+  ro("incotermOrigin", "Incoterm Origin"),
+  ro("incotermDestination", "Incoterm Destination"),
+  ro("insurance", "Insurance"),
+  ro("cargoOrigin", "Cargo Origin"),
+  ro("countryCode", "Country Code"),
+  ro("personInCharge", "Person In Charge"),
 ];
 
 const noCommit = () => {};
+
+function InfoRow({ label, children }: { label: string; children?: React.ReactNode }) {
+  return (
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</span>
+      <div className="flex-1 min-w-0 text-slate-900 font-medium">{children || <span className="text-slate-300">—</span>}</div>
+    </div>
+  );
+}
+
+/** A party's name, linked to its customer page when the shipment has it linked. */
+function PartyName({ name, customerId }: { name: string; customerId?: string | null }) {
+  if (!name) return null;
+  return customerId ? (
+    <Link href={`/customers/${customerId}`} className="text-indigo-600 hover:underline font-medium">
+      {name}
+    </Link>
+  ) : (
+    <>{name}</>
+  );
+}
 
 /** "in 1 day 4 h" / "3 h overdue" for an Urgent shipment's deadline. */
 function deadlineDistance(deadline: string): { text: string; overdue: boolean } | null {
@@ -118,7 +126,6 @@ export function CustomsSummary({ shipment }: { shipment: ShipmentItem }) {
 
   return (
     <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-      <Tile label="Direction" value={shipment.tradeDirection} note={shipment.freightMode} />
       <Tile
         label="Priority"
         value={shipment.customsPriority || "Standard"}
@@ -131,6 +138,7 @@ export function CustomsSummary({ shipment }: { shipment: ShipmentItem }) {
           distance && <span className={distance.overdue ? "text-red-600 font-semibold" : undefined}>{distance.text}</span>
         }
       />
+      <Tile label="Direction" value={shipment.tradeDirection} />
       <Tile
         label="ETA Warehouse/HUB"
         value={formatDate(shipment.etaWarehouse)}
@@ -168,6 +176,25 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
 
   return (
     <>
+      {/* The same card as in the shipment (party as a link to its customer page, contact, address), read-only. */}
+      <DetailCard icon={<EnvironmentOutlined />} title="Commercial Parties" columns={[[]]} shipment={shipment} onCommit={noCommit}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+          <div>
+            <InfoRow label="Shipper">
+              <PartyName name={shipment.shipper} customerId={shipment.shipperId} />
+            </InfoRow>
+            <InfoRow label="Contact">{shipment.shipperContact}</InfoRow>
+            <InfoRow label="Pick-up Address">{shipment.pickupAddress}</InfoRow>
+          </div>
+          <div>
+            <InfoRow label="Consignee">
+              <PartyName name={shipment.consignee} customerId={shipment.consigneeId} />
+            </InfoRow>
+            <InfoRow label="Contact">{shipment.consigneeContact}</InfoRow>
+            <InfoRow label="Delivery Address">{shipment.deliveryAddress}</InfoRow>
+          </div>
+        </div>
+      </DetailCard>
       <DetailCard icon={<InboxOutlined />} title="Cargo" columns={[[]]} shipment={shipment} onCommit={noCommit}>
         <LinesTable
           head={["Cargo Description", "HS Code", "Pieces", "Package Type", "Gross Weight (kg)", "Invoice Value"]}
@@ -175,6 +202,8 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
           empty="No cargo lines yet — they are entered in the shipment's Cargo Details."
         />
       </DetailCard>
+      {/* Container Number in the Customs Overview card links down to this card. */}
+      <div id={CUSTOMS_CONTAINERS_ID} className="scroll-mt-4">
       <DetailCard icon={<ContainerOutlined />} title="Containers" columns={[[]]} shipment={shipment} onCommit={noCommit}>
         <LinesTable
           head={["Container Number", "Seal Number", "Type", "Packages", "Gross Weight (kg)", "Volume (m³)"]}
@@ -182,7 +211,7 @@ export function CustomsShipmentInfo({ shipment }: { shipment: ShipmentItem }) {
           empty="No containers yet — they are entered in the shipment's Container Details."
         />
       </DetailCard>
-      <DetailCard icon={<TeamOutlined />} title="Parties & Terms" columns={[PARTIES, TERMS]} shipment={shipment} onCommit={noCommit} />
+      </div>
       <DetailCard icon={<SwapOutlined />} title="Transport" columns={[ROUTE, REFERENCES]} shipment={shipment} onCommit={noCommit} />
     </>
   );
