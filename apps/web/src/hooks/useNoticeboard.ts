@@ -46,7 +46,10 @@ export const useNoticeboard = () => {
   return {
     announcements: query.data?.announcements ?? NO_ANNOUNCEMENTS,
     viewer: query.data?.viewer,
-    isLoading: query.isLoading,
+    // The list has arrived at least once; a failed first request leaves this false.
+    hasLoaded: query.data !== undefined,
+    // Nothing to show because the request failed (a failed refresh keeps the old list).
+    isError: query.isError && query.data === undefined,
     createAnnouncement: create.mutateAsync,
     updateAnnouncement: update.mutateAsync,
     deleteAnnouncement: remove.mutateAsync,

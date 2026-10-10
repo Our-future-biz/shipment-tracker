@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { PageHeader } from "@/components/PageHeader";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -25,7 +25,8 @@ export function DashboardView() {
   const {
     announcements,
     viewer,
-    isLoading,
+    hasLoaded,
+    isError,
     createAnnouncement,
     updateAnnouncement,
     deleteAnnouncement,
@@ -33,43 +34,76 @@ export function DashboardView() {
     removeAttachment,
     markRead,
   } = useNoticeboard();
-  const [openPost, setOpenPost] = useState<Announcement | null>(null);
-  const [postTarget, setPostTarget] = useState<NoticePostTarget | null>(null);
+  // The open notice is looked up in the live list, so the dialog follows edits made
+  // elsewhere and closes when the notice is deleted.
+  const [openId, setOpenId] = useState<string | null>(null);
+  const openPost = (openId && announcements.find((a) => a.id === openId)) || null;
+  // The post dialog gets a new key for every opening, which gives it a fresh form.
+  const [postDialog, setPostDialog] = useState<{ key: number; target: NoticePostTarget | null }>({ key: 0, target: null });
+  // The notice stays set while the confirmation animates out, so its text does not change.
   const [deleteTarget, setDeleteTarget] = useState<Announcement | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  // Blocks a second click that lands before the button has re-rendered as busy.
+  const deleteRunning = useRef(false);
 
   // ?notice=<id> (from the notification bell) opens that notice, then drops out of the
   // URL so the dialog can be closed and the same link used again.
   const noticeParam = searchParams.get("notice");
+  const handledParam = useRef<string | null>(null);
   useEffect(() => {
-    if (!noticeParam || isLoading) return;
-    setOpenPost(announcements.find((a) => a.id === noticeParam) ?? null);
+    if (!noticeParam) {
+      handledParam.current = null;
+      return;
+    }
+    // Once per link: the list refreshes while the URL is still being rewritten.
+    if (!hasLoaded || handledParam.current === noticeParam) return;
+    handledParam.current = noticeParam;
+    if (announcements.some((a) => a.id === noticeParam)) setOpenId(noticeParam);
+    else toast.info("This notice is no longer available");
     router.replace(pathname, { scroll: false });
-  }, [noticeParam, isLoading, announcements, router, pathname]);
+  }, [noticeParam, hasLoaded, announcements, router, pathname, toast]);
+
+  // Someone deleted the notice the reader has open.
+  useEffect(() => {
+    if (!openId || !hasLoaded || openPost) return;
+    setOpenId(null);
+    toast.info("This notice has been deleted");
+  }, [openId, hasLoaded, openPost, toast]);
 
   // A notice counts as read once it has been opened and closed again.
   const handleCloseDetail = () => {
     if (openPost?.unread) markRead(openPost.id);
-    setOpenPost(null);
+    setOpenId(null);
   };
 
   const canPost = !!user && POSTING_ROLES.includes(user.role);
+  // Until the list has arrived or failed — including while the request is held back offline.
+  const isLoading = !hasLoaded && !isError;
+
+  const openPostDialog = (target: NoticePostTarget) => setPostDialog((d) => ({ key: d.key + 1, target }));
 
   const handleDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || deleteRunning.current) return;
+    deleteRunning.current = true;
+    setDeleting(true);
     try {
       await deleteAnnouncement(deleteTarget.id);
       toast.success("Notice deleted");
     } catch {
       toast.error("Failed to delete the notice");
+    } finally {
+      deleteRunning.current = false;
+      setDeleting(false);
+      setDeleteOpen(false);
     }
-    setDeleteTarget(null);
   };
 
   return (
     <div className="bg-slate-50 min-h-full p-6">
       <div className="max-w-[1400px] mx-auto">
         <PageHeader title="Dashboard" />
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-3.5">
+        <div className="grid grid-cols-1 xl:grid-cols-2 items-start gap-3.5">
           {BOARDS.map((board) => {
             const posts = announcements.filter((a) => a.scope === board.scope);
             const ownTarget = viewer ? board.ownTarget(viewer) : null;
@@ -80,13 +114,16 @@ export function DashboardView() {
                 caption={ownTarget ?? undefined}
                 posts={posts}
                 isLoading={isLoading}
-                emptyText={ownTarget === null && !isLoading ? board.unassignedText : "No notices."}
+                emptyText={isError ? "Could not load notices." : viewer && ownTarget === null ? board.unassignedText : "No notices."}
                 showTarget={posts.some((p) => p.target !== (ownTarget ?? ""))}
                 canPost={canPost}
-                onPost={() => setPostTarget({ scope: board.scope })}
-                onOpen={setOpenPost}
-                onEdit={(post) => setPostTarget({ post })}
-                onDelete={setDeleteTarget}
+                onPost={() => openPostDialog({ scope: board.scope })}
+                onOpen={(post) => setOpenId(post.id)}
+                onEdit={(post) => openPostDialog({ post })}
+                onDelete={(post) => {
+                  setDeleteTarget(post);
+                  setDeleteOpen(true);
+                }}
               />
             );
           })}
@@ -95,18 +132,22 @@ export function DashboardView() {
 
       <NoticeDetailModal post={openPost} onClose={handleCloseDetail} />
       <NoticePostModal
-        target={postTarget}
+        key={postDialog.key}
+        target={postDialog.target}
         viewer={viewer}
-        onClose={() => setPostTarget(null)}
+        onClose={() => setPostDialog((d) => ({ ...d, target: null }))}
         onCreate={createAnnouncement}
         onUpdate={updateAnnouncement}
         onAddAttachment={addAttachment}
         onRemoveAttachment={removeAttachment}
       />
       <ConfirmModal
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
+        open={deleteOpen}
+        onClose={() => {
+          if (!deleting) setDeleteOpen(false);
+        }}
         onConfirm={handleDelete}
+        loading={deleting}
         title="Delete notice"
         description={`Delete "${deleteTarget?.title}"? It disappears from the board for everyone.`}
         confirmLabel="Delete"

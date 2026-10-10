@@ -40,7 +40,7 @@ export function ConfirmModal({
         >
           {danger ? "\u26A0\uFE0F" : "\u2139\uFE0F"}
         </div>
-        <div>
+        <div className="min-w-0 [overflow-wrap:anywhere]">
           <div className="text-[15px] font-semibold text-slate-800 mb-1">
             {title}
           </div>

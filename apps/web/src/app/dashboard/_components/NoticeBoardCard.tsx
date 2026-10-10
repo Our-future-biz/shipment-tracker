@@ -1,7 +1,7 @@
 "use client";
 
-import { Table, Button } from "antd";
-import { PlusOutlined, EditOutlined, DeleteOutlined, PaperClipOutlined } from "@ant-design/icons";
+import { Table, Button, Dropdown } from "antd";
+import { PlusOutlined, EditOutlined, DeleteOutlined, EllipsisOutlined, PaperClipOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { SectionCard } from "@/components/SectionCard";
 import { formatDateTime } from "@/lib/date";
@@ -37,34 +37,42 @@ export function NoticeBoardCard({
   onEdit,
   onDelete,
 }: NoticeBoardCardProps) {
+  // A feed rather than a grid: the priority tag, then the notice taking all the remaining
+  // width (who posted it, when and for whom sit under the title), then a quiet menu.
   const columns: ColumnsType<Announcement> = [
-    { title: "Priority", dataIndex: "severity", width: 96, render: (v: string) => <NoticeSeverityTag severity={v} /> },
+    { title: "Priority", dataIndex: "severity", width: 88, render: (v: string) => <NoticeSeverityTag severity={v} /> },
     {
       title: "Notice",
       dataIndex: "title",
       render: (v: string, r) => (
-        <div className="min-w-0 flex items-center gap-2 [overflow-wrap:anywhere] text-[18px] leading-tight font-semibold text-slate-800">
-          {/* Shown until the reader has opened the notice. */}
-          {r.unread && <span role="img" aria-label="Unread" title="Unread" className="shrink-0 w-2 h-2 rounded-full bg-red-500" />}
-          {v}
-          {r.attachments.length > 0 && (
-            <span className="shrink-0 flex items-center gap-0.5 text-xs font-normal text-slate-400" title="Documents attached">
-              <PaperClipOutlined />
-              {r.attachments.length}
-            </span>
-          )}
-        </div>
-      ),
-    },
-    ...(showTarget ? [{ title: "For", dataIndex: "target", width: 130 }] : []),
-    {
-      title: "Posted",
-      dataIndex: "createdAt",
-      width: 150,
-      render: (v: string, r) => (
-        <div className="text-xs">
-          <div className="text-slate-700">{r.authorName}</div>
-          <div className="text-slate-400">{formatDateTime(v)}</div>
+        <div className="relative">
+          {/* Shown until the reader has opened the notice; it hangs in the gutter so every title starts on the same line. */}
+          {r.unread && <span role="img" aria-label="Unread" title="Unread" className="absolute -left-3.5 top-[7px] w-2 h-2 rounded-full bg-red-500" />}
+          <div className="min-w-0">
+            {/* A real button, so the notice can be opened from the keyboard; the click itself is the row's. */}
+            <button
+              type="button"
+              className="block w-full p-0 border-none bg-transparent text-left cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-500"
+            >
+              <span className="text-[15px] leading-tight font-semibold text-slate-800 [overflow-wrap:anywhere] line-clamp-2">{v}</span>
+            </button>
+            <div className="mt-0.5 flex items-center gap-x-1.5 text-xs text-slate-500">
+              {showTarget && r.target && (
+                <span title={r.target} className="min-w-0 max-w-[45%] truncate rounded bg-slate-100 px-1.5 text-slate-600">
+                  {r.target}
+                </span>
+              )}
+              {/* A long name gives way; the date always stays readable. */}
+              <span className="min-w-0 truncate">{r.authorName}</span>
+              <span className="shrink-0">· {formatDateTime(r.createdAt)}</span>
+              {r.attachments.length > 0 && (
+                <span className="shrink-0 flex items-center gap-0.5 text-slate-400" title="Documents attached">
+                  <PaperClipOutlined />
+                  {r.attachments.length}
+                </span>
+              )}
+            </div>
+          </div>
         </div>
       ),
     },
@@ -73,13 +81,29 @@ export function NoticeBoardCard({
           {
             title: "",
             key: "actions",
-            width: 72,
+            width: 44,
             render: (_: unknown, r: Announcement) =>
               r.canEdit && (
-                // Row clicks open the notice; the buttons must not.
-                <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
-                  <Button type="text" size="small" icon={<EditOutlined />} aria-label={`Edit ${r.title}`} onClick={() => onEdit(r)} />
-                  <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Delete ${r.title}`} onClick={() => onDelete(r)} />
+                // Row clicks open the notice; the menu and its items must not (their clicks bubble through here).
+                <div className="flex justify-end" onClick={(e) => e.stopPropagation()}>
+                  <Dropdown
+                    trigger={["click"]}
+                    placement="bottomRight"
+                    menu={{
+                      items: [
+                        { key: "edit", label: "Edit", icon: <EditOutlined />, onClick: () => onEdit(r) },
+                        { key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true, onClick: () => onDelete(r) },
+                      ],
+                    }}
+                  >
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<EllipsisOutlined className="!text-[20px]" />}
+                      aria-label={`Actions for ${r.title}`}
+                      className="!text-slate-600 hover:!text-slate-900"
+                    />
+                  </Dropdown>
                 </div>
               ),
           },
@@ -93,18 +117,25 @@ export function NoticeBoardCard({
       bodyClassName="p-2"
       extra={
         canPost && (
-          <Button type="primary" size="small" icon={<PlusOutlined />} aria-label={`Post to ${title}`} title="Post a notice" onClick={onPost} />
+          <Button type="primary" size="small" icon={<PlusOutlined />} aria-label={`Post Notice to ${title}`} onClick={onPost}>
+            Post Notice
+          </Button>
         )
       }
     >
       <Table<Announcement>
         size="small"
         rowKey="id"
+        tableLayout="fixed"
+        // The tag and the notice explain themselves; column headings would only make it a table again.
+        showHeader={false}
+        className="[&_.ant-table-cell]:!py-1.5"
         loading={isLoading}
         dataSource={posts}
         columns={columns}
-        pagination={{ pageSize: 5, hideOnSinglePage: true, size: "small" }}
-        locale={{ emptyText }}
+        pagination={{ pageSize: 8, hideOnSinglePage: true, size: "small", showSizeChanger: false }}
+        // A blank area for the spinner during the first load, instead of "No notices.".
+        locale={{ emptyText: isLoading ? <div className="h-16" /> : emptyText }}
         rowClassName="cursor-pointer"
         onRow={(r) => ({ onClick: () => onOpen(r) })}
       />

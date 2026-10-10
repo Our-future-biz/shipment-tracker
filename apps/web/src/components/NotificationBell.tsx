@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Badge, Dropdown } from "antd";
 import { BellOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
@@ -33,7 +33,8 @@ export function NotificationBell() {
     refetchInterval: 15000,
   });
   const mentions = mentionData?.mentions ?? [];
-  const { announcements, isLoading: noticesLoading } = useNoticeboard();
+  const { announcements, viewer, hasLoaded: noticesLoaded } = useNoticeboard();
+  const [open, setOpen] = useState(false);
   const notices = announcements.filter((a) => a.unread);
 
   // Announce only what arrives while the app is open, not the backlog found on load.
@@ -50,11 +51,20 @@ export function NotificationBell() {
     }
   }, [mentionData, toast]);
 
-  const seenNotices = useRef<Set<string> | null>(null);
+  // The newest notice this tab has accounted for; null until the list first arrives. Only
+  // notices posted after it are announced, so a list that failed to load at first does not
+  // replay its history as "new". Nor does a board the reader has just been added to: a
+  // change of their department, branch or country starts from a new baseline.
+  const noticesSince = useRef<string | null>(null);
+  const audience = viewer ? `${viewer.departmentId}|${viewer.branchId}|${viewer.country}` : "";
+  const lastAudience = useRef<string | null>(null);
   useEffect(() => {
-    if (noticesLoading) return;
-    const fresh = seenNotices.current ? announcements.filter((a) => a.unread && !seenNotices.current!.has(a.id)) : [];
-    seenNotices.current = new Set(announcements.map((a) => a.id));
+    if (!noticesLoaded) return;
+    const since = noticesSince.current;
+    const baseline = since === null || lastAudience.current !== audience;
+    lastAudience.current = audience;
+    const fresh = baseline ? [] : announcements.filter((a) => a.unread && a.createdAt > since);
+    noticesSince.current = announcements.reduce((newest, a) => (a.createdAt > newest ? a.createdAt : newest), since ?? "");
     for (const a of fresh) {
       toast.notify({
         title: `New notice: ${a.title}`,
@@ -62,10 +72,16 @@ export function NotificationBell() {
         type: NOTICE_TOAST_TYPE[a.severity] ?? "info",
       });
     }
-  }, [announcements, noticesLoading, toast]);
+  }, [announcements, audience, noticesLoaded, toast]);
+
+  // The panel is not an antd menu, so it does not close itself when a row is chosen.
+  const go = (href: string) => {
+    setOpen(false);
+    router.push(href);
+  };
 
   const total = mentions.length + notices.length;
-  const rowClass = "block w-full text-left px-4 py-2.5 border-none border-b border-slate-100 bg-white hover:bg-slate-50 cursor-pointer";
+  const rowClass = "block w-full text-left px-4 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 cursor-pointer";
   const headingClass = "px-4 py-2 border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500";
 
   const panel = (
@@ -74,12 +90,12 @@ export function NotificationBell() {
       {total === 0 && <p className="px-4 py-6 text-center text-xs text-slate-400">Nothing new.</p>}
       {notices.length > 0 && <div className={headingClass}>Noticeboard</div>}
       {notices.map((a) => (
-        <button key={a.id} type="button" onClick={() => router.push(`/dashboard?notice=${a.id}`)} className={rowClass}>
+        <button key={a.id} type="button" onClick={() => go(`/dashboard?notice=${a.id}`)} className={rowClass}>
           <span className="flex items-center justify-between gap-2">
             <span className="text-[13px] font-semibold text-slate-800 truncate">{a.title}</span>
             <NoticeSeverityTag severity={a.severity} />
           </span>
-          {a.body && <span className="block text-[12px] text-slate-600 line-clamp-2">{a.body}</span>}
+          {a.body && <span className="text-[12px] text-slate-600 line-clamp-2">{a.body}</span>}
           <span className="block text-[11px] text-slate-400 mt-0.5">
             {a.authorName} · {boardLabel(a.scope, a.target)} · {formatTime(a.createdAt)}
           </span>
@@ -87,12 +103,12 @@ export function NotificationBell() {
       ))}
       {mentions.length > 0 && <div className={headingClass}>Mentions</div>}
       {mentions.map((m) => (
-        <button key={m.id} type="button" onClick={() => router.push(`/shipments?chat=${m.shipmentId}`)} className={rowClass}>
+        <button key={m.id} type="button" onClick={() => go(`/shipments?chat=${m.shipmentId}`)} className={rowClass}>
           <span className="flex items-baseline justify-between gap-2">
             <span className="text-[13px] font-semibold text-slate-800 truncate">{m.authorName || "Unknown"}</span>
             <span className="shrink-0 text-[11px] font-mono text-slate-500">{m.jobNumber}</span>
           </span>
-          <span className="block text-[12px] text-slate-600 line-clamp-2">{m.message}</span>
+          <span className="text-[12px] text-slate-600 line-clamp-2">{m.message}</span>
           <span className="block text-[11px] text-slate-400 mt-0.5">{formatTime(m.createdAt)}</span>
         </button>
       ))}
@@ -100,7 +116,7 @@ export function NotificationBell() {
   );
 
   return (
-    <Dropdown trigger={["click"]} placement="bottomRight" popupRender={() => panel}>
+    <Dropdown open={open} onOpenChange={setOpen} trigger={["click"]} placement="bottomRight" popupRender={() => panel}>
       <button
         type="button"
         aria-label={total ? `Notifications — ${total} unread` : "Notifications"}

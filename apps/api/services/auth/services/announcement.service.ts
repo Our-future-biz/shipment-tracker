@@ -4,11 +4,18 @@ import { announcementRepository } from "../repositories/announcement.repository"
 import { announcementAttachmentRepository } from "../repositories/announcementAttachment.repository";
 import { departmentRepository, branchRepository } from "../repositories/orgUnit.repository";
 import { userRepository } from "../repositories/user.repository";
+import { MAX_ATTACHMENT_BYTES, parseAttachmentDataUrl } from "../attachmentDataUrl";
 
 export const ANNOUNCEMENT_SCOPES = ["company", "department", "branch", "country"] as const;
 export type AnnouncementScope = (typeof ANNOUNCEMENT_SCOPES)[number];
 
 export const ANNOUNCEMENT_SEVERITIES = ["info", "warning", "critical"] as const;
+
+// The same limits the post dialog enforces; the whole list is polled, so text stays bounded.
+const MAX_TITLE_LENGTH = 200;
+const MAX_BODY_LENGTH = 20000;
+const MAX_FILE_NAME_LENGTH = 255;
+const MAX_COUNTRY_LENGTH = 100;
 
 export interface AnnouncementAttachmentInfo {
   id: string;
@@ -79,6 +86,19 @@ interface AnnouncementPatch {
   body?: string;
 }
 
+function checkTitle(value: string | undefined): string {
+  const title = value?.trim();
+  if (!title) throw APIError.invalidArgument("title is required");
+  if (title.length > MAX_TITLE_LENGTH) throw APIError.invalidArgument(`title can be at most ${MAX_TITLE_LENGTH} characters`);
+  return title;
+}
+
+function checkBody(value: string | undefined): string {
+  const body = value?.trim() ?? "";
+  if (body.length > MAX_BODY_LENGTH) throw APIError.invalidArgument(`details can be at most ${MAX_BODY_LENGTH} characters`);
+  return body;
+}
+
 function checkSeverity(severity: string): string {
   if (!(ANNOUNCEMENT_SEVERITIES as readonly string[]).includes(severity)) {
     throw APIError.invalidArgument("severity must be info, warning or critical");
@@ -90,6 +110,8 @@ class AnnouncementService {
   async list(actor: Actor): Promise<{ viewer: NoticeboardViewer; announcements: AnnouncementInfo[] }> {
     const viewer = await this.#viewer(actor);
     const admin = isAdminLevel(actor.role);
+    // Mirrors the role gate on the write endpoints, so the buttons only show where they work.
+    const canPost = admin || actor.role === "manager";
     const rows = await announcementRepository.listForAudience(actor.companyID, {
       all: admin,
       userId: actor.userID,
@@ -116,7 +138,7 @@ class AnnouncementService {
       authorName: r.authorName || r.authorEmail,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
-      canEdit: admin || r.authorId === actor.userID,
+      canEdit: admin || (canPost && r.authorId === actor.userID),
       unread: r.authorId !== actor.userID && !r.readAt,
       attachments: attachmentsByPost.get(r.id) ?? [],
     }));
@@ -124,14 +146,14 @@ class AnnouncementService {
   }
 
   async create(actor: Actor, input: AnnouncementInput): Promise<{ id: string }> {
-    const title = input.title?.trim();
-    if (!title) throw APIError.invalidArgument("title is required");
+    const title = checkTitle(input.title);
+    const body = checkBody(input.body);
     const target = await this.#resolveTarget(actor.companyID, input);
     const row = await announcementRepository.createForCompany(actor.companyID, {
       ...target,
       severity: checkSeverity(input.severity ?? "info"),
       title,
-      body: input.body?.trim() ?? "",
+      body,
       authorId: actor.userID,
     } as never);
     return { id: row.id };
@@ -140,12 +162,8 @@ class AnnouncementService {
   async update(actor: Actor, id: string, patch: AnnouncementPatch): Promise<boolean> {
     if (!(await this.#editable(actor, id))) return false;
     const changes: AnnouncementPatch = {};
-    if (patch.title !== undefined) {
-      const title = patch.title.trim();
-      if (!title) throw APIError.invalidArgument("title is required");
-      changes.title = title;
-    }
-    if (patch.body !== undefined) changes.body = patch.body.trim();
+    if (patch.title !== undefined) changes.title = checkTitle(patch.title);
+    if (patch.body !== undefined) changes.body = checkBody(patch.body);
     if (patch.severity !== undefined) changes.severity = checkSeverity(patch.severity);
     return !!(await announcementRepository.updateForCompany(id, actor.companyID, changes));
   }
@@ -154,11 +172,17 @@ class AnnouncementService {
     if (!(await this.#editable(actor, id))) return null;
     const fileName = input.fileName?.trim();
     if (!fileName || !input.fileData) throw APIError.invalidArgument("fileName and fileData are required");
+    if (fileName.length > MAX_FILE_NAME_LENGTH) throw APIError.invalidArgument("fileName is too long");
+    // The type and size come from the content itself, not from what the client claims.
+    const content = parseAttachmentDataUrl(input.fileData);
+    if (!content) throw APIError.invalidArgument("fileData must be a base64 data URL");
+    if (content.fileSize === 0) throw APIError.invalidArgument("The document is empty");
+    if (content.fileSize > MAX_ATTACHMENT_BYTES) throw APIError.invalidArgument("The document is larger than 10 MB");
     const row = await announcementAttachmentRepository.createForCompany(actor.companyID, {
       announcementId: id,
       fileName,
-      fileType: input.fileType ?? "",
-      fileSize: input.fileSize ?? 0,
+      fileType: content.fileType,
+      fileSize: content.fileSize,
       fileData: input.fileData,
     } as never);
     return { id: row.id, fileName: row.fileName, fileType: row.fileType, fileSize: row.fileSize };
@@ -237,6 +261,7 @@ class AnnouncementService {
       case "country": {
         const country = input.country?.trim();
         if (!country) throw APIError.invalidArgument("Choose a country");
+        if (country.length > MAX_COUNTRY_LENGTH) throw APIError.invalidArgument("country is too long");
         return { ...empty, scope: "country", country };
       }
       default:
