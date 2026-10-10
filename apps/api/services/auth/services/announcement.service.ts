@@ -4,11 +4,18 @@ import { announcementRepository } from "../repositories/announcement.repository"
 import { announcementAttachmentRepository } from "../repositories/announcementAttachment.repository";
 import { departmentRepository, branchRepository } from "../repositories/orgUnit.repository";
 import { userRepository } from "../repositories/user.repository";
+import { MAX_ATTACHMENT_BYTES, parseAttachmentDataUrl } from "../attachmentDataUrl";
 
 export const ANNOUNCEMENT_SCOPES = ["company", "department", "branch", "country"] as const;
 export type AnnouncementScope = (typeof ANNOUNCEMENT_SCOPES)[number];
 
 export const ANNOUNCEMENT_SEVERITIES = ["info", "warning", "critical"] as const;
+
+// The same limits the post dialog enforces; the whole list is polled, so text stays bounded.
+const MAX_TITLE_LENGTH = 200;
+const MAX_BODY_LENGTH = 20000;
+const MAX_FILE_NAME_LENGTH = 255;
+const MAX_COUNTRY_LENGTH = 100;
 
 export interface AnnouncementAttachmentInfo {
   id: string;
@@ -48,6 +55,12 @@ export interface AnnouncementInfo {
   attachments: AnnouncementAttachmentInfo[];
 }
 
+// Who a post is addressed to and how far it has got: its audience split by whether they opened it.
+export interface AnnouncementReadReceipts {
+  read: { name: string; readAt: string }[];
+  unread: { name: string }[];
+}
+
 // Where the reader sits, so the UI can caption each board and preselect targets.
 export interface NoticeboardViewer {
   departmentId: string | null;
@@ -79,6 +92,38 @@ interface AnnouncementPatch {
   body?: string;
 }
 
+function checkTitle(value: string | undefined): string {
+  const title = value?.trim();
+  if (!title) throw APIError.invalidArgument("title is required");
+  if (title.length > MAX_TITLE_LENGTH) throw APIError.invalidArgument(`title can be at most ${MAX_TITLE_LENGTH} characters`);
+  return title;
+}
+
+function checkBody(value: string | undefined): string {
+  const body = value?.trim() ?? "";
+  if (body.length > MAX_BODY_LENGTH) throw APIError.invalidArgument(`details can be at most ${MAX_BODY_LENGTH} characters`);
+  return body;
+}
+
+// Whether a post on its board is addressed to someone sitting where `viewer` does.
+function isAddressedTo(
+  post: { scope: string; departmentId: string | null; branchId: string | null; country: string | null },
+  viewer: { departmentId: string | null; branchId: string | null; country: string | null },
+): boolean {
+  switch (post.scope as AnnouncementScope) {
+    case "company":
+      return true;
+    case "department":
+      return !!viewer.departmentId && post.departmentId === viewer.departmentId;
+    case "branch":
+      return !!viewer.branchId && post.branchId === viewer.branchId;
+    case "country":
+      return !!viewer.country && post.country?.toLowerCase() === viewer.country.toLowerCase();
+    default:
+      return false;
+  }
+}
+
 function checkSeverity(severity: string): string {
   if (!(ANNOUNCEMENT_SEVERITIES as readonly string[]).includes(severity)) {
     throw APIError.invalidArgument("severity must be info, warning or critical");
@@ -90,6 +135,8 @@ class AnnouncementService {
   async list(actor: Actor): Promise<{ viewer: NoticeboardViewer; announcements: AnnouncementInfo[] }> {
     const viewer = await this.#viewer(actor);
     const admin = isAdminLevel(actor.role);
+    // Mirrors the role gate on the write endpoints, so the buttons only show where they work.
+    const canPost = admin || actor.role === "manager";
     const rows = await announcementRepository.listForAudience(actor.companyID, {
       all: admin,
       userId: actor.userID,
@@ -116,22 +163,24 @@ class AnnouncementService {
       authorName: r.authorName || r.authorEmail,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
-      canEdit: admin || r.authorId === actor.userID,
-      unread: r.authorId !== actor.userID && !r.readAt,
+      canEdit: admin || (canPost && r.authorId === actor.userID),
+      // Admins see every board, but a post counts as unread only for the people it is addressed
+      // to — the same audience its read receipts count.
+      unread: r.authorId !== actor.userID && !r.readAt && isAddressedTo(r, viewer),
       attachments: attachmentsByPost.get(r.id) ?? [],
     }));
     return { viewer, announcements };
   }
 
   async create(actor: Actor, input: AnnouncementInput): Promise<{ id: string }> {
-    const title = input.title?.trim();
-    if (!title) throw APIError.invalidArgument("title is required");
+    const title = checkTitle(input.title);
+    const body = checkBody(input.body);
     const target = await this.#resolveTarget(actor.companyID, input);
     const row = await announcementRepository.createForCompany(actor.companyID, {
       ...target,
       severity: checkSeverity(input.severity ?? "info"),
       title,
-      body: input.body?.trim() ?? "",
+      body,
       authorId: actor.userID,
     } as never);
     return { id: row.id };
@@ -140,12 +189,8 @@ class AnnouncementService {
   async update(actor: Actor, id: string, patch: AnnouncementPatch): Promise<boolean> {
     if (!(await this.#editable(actor, id))) return false;
     const changes: AnnouncementPatch = {};
-    if (patch.title !== undefined) {
-      const title = patch.title.trim();
-      if (!title) throw APIError.invalidArgument("title is required");
-      changes.title = title;
-    }
-    if (patch.body !== undefined) changes.body = patch.body.trim();
+    if (patch.title !== undefined) changes.title = checkTitle(patch.title);
+    if (patch.body !== undefined) changes.body = checkBody(patch.body);
     if (patch.severity !== undefined) changes.severity = checkSeverity(patch.severity);
     return !!(await announcementRepository.updateForCompany(id, actor.companyID, changes));
   }
@@ -154,11 +199,17 @@ class AnnouncementService {
     if (!(await this.#editable(actor, id))) return null;
     const fileName = input.fileName?.trim();
     if (!fileName || !input.fileData) throw APIError.invalidArgument("fileName and fileData are required");
+    if (fileName.length > MAX_FILE_NAME_LENGTH) throw APIError.invalidArgument("fileName is too long");
+    // The type and size come from the content itself, not from what the client claims.
+    const content = parseAttachmentDataUrl(input.fileData);
+    if (!content) throw APIError.invalidArgument("fileData must be a base64 data URL");
+    if (content.fileSize === 0) throw APIError.invalidArgument("The document is empty");
+    if (content.fileSize > MAX_ATTACHMENT_BYTES) throw APIError.invalidArgument("The document is larger than 10 MB");
     const row = await announcementAttachmentRepository.createForCompany(actor.companyID, {
       announcementId: id,
       fileName,
-      fileType: input.fileType ?? "",
-      fileSize: input.fileSize ?? 0,
+      fileType: content.fileType,
+      fileSize: content.fileSize,
       fileData: input.fileData,
     } as never);
     return { id: row.id, fileName: row.fileName, fileType: row.fileType, fileSize: row.fileSize };
@@ -183,6 +234,45 @@ class AnnouncementService {
     if (!(await this.#visible(actor, id))) return false;
     await announcementRepository.markRead(id, actor.userID);
     return true;
+  }
+
+  // For whoever manages the post: which of the people it is addressed to have opened it.
+  // The audience is the board's members (everyone for the company board), without the
+  // author; admins who merely moderate another department's board are not counted.
+  async readReceipts(actor: Actor, id: string): Promise<AnnouncementReadReceipts | null> {
+    if (!(await this.#editable(actor, id))) return null;
+    const post = (await announcementRepository.getByIdForCompany(id, actor.companyID))!;
+    const [users, branches, reads] = await Promise.all([
+      userRepository.listByCompany(actor.companyID),
+      post.scope === "country" ? branchRepository.listForCompany(actor.companyID) : [],
+      announcementRepository.listReads(id),
+    ]);
+    const countryBranches = new Set(
+      branches.filter((b) => b.country.toLowerCase() === post.country?.toLowerCase()).map((b) => b.id),
+    );
+    const addressed = (u: (typeof users)[number]) => {
+      switch (post.scope as AnnouncementScope) {
+        case "company":
+          return true;
+        case "department":
+          return u.departmentId === post.departmentId;
+        case "branch":
+          return u.branchId === post.branchId;
+        case "country":
+          return !!u.branchId && countryBranches.has(u.branchId);
+        default:
+          return false;
+      }
+    };
+    const readAt = new Map(reads.map((r) => [r.userId, r.readAt]));
+    const audience = users
+      .filter((u) => u.id !== post.authorId && addressed(u))
+      .map((u) => ({ name: u.displayName || u.email, readAt: readAt.get(u.id) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      read: audience.filter((u) => u.readAt).map((u) => ({ name: u.name, readAt: u.readAt!.toISOString() })),
+      unread: audience.filter((u) => !u.readAt).map((u) => ({ name: u.name })),
+    };
   }
 
   async delete(actor: Actor, id: string): Promise<boolean> {
@@ -237,6 +327,7 @@ class AnnouncementService {
       case "country": {
         const country = input.country?.trim();
         if (!country) throw APIError.invalidArgument("Choose a country");
+        if (country.length > MAX_COUNTRY_LENGTH) throw APIError.invalidArgument("country is too long");
         return { ...empty, scope: "country", country };
       }
       default:

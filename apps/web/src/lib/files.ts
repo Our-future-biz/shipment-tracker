@@ -22,6 +22,8 @@ export function fileToDataUrl(file: File): Promise<string> {
 
 // Save a data URL to the user's disk under the given name.
 export function downloadDataUrl(dataUrl: string, fileName: string) {
+  // Stored content is untrusted: any other kind of URL would be opened (or run) instead of saved.
+  if (!dataUrl.startsWith("data:")) throw new Error("Not a data URL");
   const a = document.createElement("a");
   a.href = dataUrl;
   a.download = fileName;

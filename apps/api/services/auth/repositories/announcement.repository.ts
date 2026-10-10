@@ -45,6 +45,8 @@ class AnnouncementRepository extends TenantRepository<typeof announcementTable> 
       .select({
         id: announcementTable.id,
         scope: announcementTable.scope,
+        departmentId: announcementTable.departmentId,
+        branchId: announcementTable.branchId,
         country: announcementTable.country,
         severity: announcementTable.severity,
         title: announcementTable.title,
@@ -69,6 +71,14 @@ class AnnouncementRepository extends TenantRepository<typeof announcementTable> 
       .where(and(...conditions))
       .orderBy(desc(announcementTable.createdAt))
       .limit(limit);
+  }
+
+  // Who has opened the post, and when.
+  async listReads(announcementId: string) {
+    return this.db
+      .select({ userId: announcementReadTable.userId, readAt: announcementReadTable.readAt })
+      .from(announcementReadTable)
+      .where(eq(announcementReadTable.announcementId, announcementId));
   }
 
   async markRead(announcementId: string, userId: string) {

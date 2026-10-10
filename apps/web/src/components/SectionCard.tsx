@@ -17,8 +17,10 @@ export function SectionCard({
   return (
     <section className="bg-white border border-slate-200 rounded-xl shadow-sm min-w-0">
       <div className="px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
-        <h3 className="text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0">{title}</h3>
-        {extra && <div className="ml-auto flex items-center gap-2">{extra}</div>}
+        <h3 className="min-w-0 truncate text-[13px] font-bold text-slate-800 uppercase tracking-wider m-0" title={title}>
+          {title}
+        </h3>
+        {extra && <div className="ml-auto shrink-0 flex items-center gap-2">{extra}</div>}
       </div>
       <div className={bodyClassName}>{children}</div>
     </section>

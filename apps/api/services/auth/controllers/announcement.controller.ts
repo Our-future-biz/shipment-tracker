@@ -5,6 +5,7 @@ import type {
   AnnouncementInfo,
   AnnouncementAttachmentInfo,
   AnnouncementAttachmentContent,
+  AnnouncementReadReceipts,
   NoticeboardViewer,
 } from "../services/announcement.service";
 
@@ -35,6 +36,17 @@ export const announcementMarkRead = api(
       throw APIError.notFound("Post not found");
     }
     return { ok: true };
+  },
+);
+
+// Who of the post's audience has opened it — for its author and for admins.
+export const announcementReadReceipts = api(
+  { expose: true, auth: true, method: "GET", path: "/auth/announcements/:id/read-receipts" },
+  async (req: AnnouncementMarkReadRequest): Promise<AnnouncementReadReceipts> => {
+    const actor = requireRole("superadmin", "admin", "manager");
+    const receipts = await announcementService.readReceipts(actor, req.id);
+    if (!receipts) throw APIError.notFound("Post not found");
+    return receipts;
   },
 );
 
