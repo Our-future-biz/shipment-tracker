@@ -2,23 +2,13 @@
 
 import { useRef, useState } from "react";
 import { Modal, Form, Input, Select, Button } from "antd";
-import {
-  BankOutlined,
-  CloseOutlined,
-  FileExcelOutlined,
-  FileImageOutlined,
-  FileOutlined,
-  FilePdfOutlined,
-  FileWordOutlined,
-  LockOutlined,
-  PaperClipOutlined,
-  TeamOutlined,
-} from "@ant-design/icons";
+import { BankOutlined, CloseOutlined, LockOutlined, PaperClipOutlined, TeamOutlined } from "@ant-design/icons";
 import { formatFileSize } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import { useDepartments } from "@/hooks/useOrgUnits";
 import type { Announcement, NewAnnouncementInput, NoticeboardViewer, UpdateAnnouncementInput } from "@/hooks/useNoticeboard";
 import { BOARDS, SEVERITIES } from "../_lib/boards";
+import { fileIcon } from "./NoticeAttachmentList";
 import type { BoardScope } from "../_lib/boards";
 
 // A new post for a board, or an existing post being edited.
@@ -77,15 +67,6 @@ function PriorityPills({ value, onChange, disabled }: { value?: string; onChange
       })}
     </div>
   );
-}
-
-function fileIcon(fileName: string, fileType: string) {
-  const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
-  if (fileType === "application/pdf" || ext === "pdf") return <FilePdfOutlined className="!text-red-500" />;
-  if (fileType.startsWith("image/")) return <FileImageOutlined className="!text-sky-500" />;
-  if (["xls", "xlsx", "csv"].includes(ext)) return <FileExcelOutlined className="!text-emerald-600" />;
-  if (["doc", "docx"].includes(ext)) return <FileWordOutlined className="!text-blue-600" />;
-  return <FileOutlined className="!text-slate-400" />;
 }
 
 function DocumentRow({ fileName, fileType, fileSize, disabled, onRemove }: { fileName: string; fileType: string; fileSize: number; disabled: boolean; onRemove: () => void }) {

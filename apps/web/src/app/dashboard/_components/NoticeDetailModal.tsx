@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Modal } from "antd";
+import { Button, Dropdown, Modal } from "antd";
+import { DeleteOutlined, EditOutlined, EllipsisOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/date";
 import { downloadDataUrl } from "@/lib/files";
@@ -14,6 +15,9 @@ import { NoticeSeverityTag } from "./NoticeSeverityTag";
 interface NoticeDetailModalProps {
   post: Announcement | null;
   onClose: () => void;
+  // Offered from the menu in the heading to those who may change the notice.
+  onEdit: (post: Announcement) => void;
+  onDelete: (post: Announcement) => void;
 }
 
 // What the browser renders itself. The preview is typed from this list, never from the
@@ -22,7 +26,7 @@ interface NoticeDetailModalProps {
 // a tab of its own could run script here — SVG files are download-only.
 const PREVIEW_TYPES = ["application/pdf", "image/png", "image/jpeg", "image/gif", "image/webp", "image/bmp", "image/avif"];
 
-export function NoticeDetailModal({ post, onClose }: NoticeDetailModalProps) {
+export function NoticeDetailModal({ post, onClose, onEdit, onDelete }: NoticeDetailModalProps) {
   const toast = useToast();
   // Kept while the dialog animates out, so it does not go blank first.
   const [shown, setShown] = useState(post);
@@ -96,8 +100,14 @@ export function NoticeDetailModal({ post, onClose }: NoticeDetailModalProps) {
 
   const closePreview = () => setPreview(null);
 
-  const board = BOARDS.find((b) => b.scope === shown?.scope)?.title ?? "";
-  const addressee = [board, shown?.target].filter(Boolean).join(" · ");
+  // The department's own name says more than "Department"; the company board has none.
+  const addressee = shown?.target || (BOARDS.find((b) => b.scope === shown?.scope)?.title ?? "");
+  const initials = (shown?.authorName ?? "")
+    .split(/\s+/)
+    .map((w) => w[0] ?? "")
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   return (
     <Modal
@@ -109,14 +119,34 @@ export function NoticeDetailModal({ post, onClose }: NoticeDetailModalProps) {
       // The heading names the dialog for screen readers.
       title={
         shown && (
-          <div className="pr-8 pb-4 border-b border-slate-200 font-normal">
-            <div className="flex items-center gap-2 text-xs text-slate-500">
+          <div className="pb-4 border-b border-slate-200 font-normal">
+            <div className="flex items-center gap-2.5 pr-8">
               <NoticeSeverityTag severity={shown.severity} />
-              <span className="min-w-0 truncate">{addressee}</span>
+              <span className="min-w-0 flex-1 truncate border-l border-slate-200 pl-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                {addressee}
+              </span>
+              {shown.canEdit && (
+                <Dropdown
+                  trigger={["click"]}
+                  placement="bottomRight"
+                  menu={{
+                    items: [
+                      { key: "edit", label: "Edit notice", icon: <EditOutlined />, onClick: () => onEdit(shown) },
+                      { key: "delete", label: "Delete notice", icon: <DeleteOutlined />, danger: true, onClick: () => onDelete(shown) },
+                    ],
+                  }}
+                >
+                  <Button type="text" size="small" icon={<EllipsisOutlined className="!text-[20px]" />} aria-label="Notice actions" className="!text-slate-600 hover:!text-slate-900" />
+                </Dropdown>
+              )}
             </div>
-            <h2 className="mt-2 mb-1 text-[22px] leading-tight font-bold text-slate-800 [overflow-wrap:anywhere]">{shown.title}</h2>
-            <div className="text-xs text-slate-500 [overflow-wrap:anywhere]">
-              Posted by {shown.authorName} · {formatDateTime(shown.createdAt)}
+            <h2 className="mt-3 mb-2 text-[22px] leading-tight font-bold text-slate-800 [overflow-wrap:anywhere]">{shown.title}</h2>
+            <div className="flex items-center gap-2 text-[13px] text-slate-500">
+              <span aria-hidden className="shrink-0 flex items-center justify-center w-6 h-6 rounded-full bg-indigo-100 text-[10px] font-semibold text-indigo-700">
+                {initials}
+              </span>
+              <span className="min-w-0 truncate">{shown.authorName}</span>
+              <span className="shrink-0">· {formatDateTime(shown.createdAt)}</span>
             </div>
           </div>
         )
@@ -130,12 +160,13 @@ export function NoticeDetailModal({ post, onClose }: NoticeDetailModalProps) {
           {shown.attachments.length > 0 && (
             <section className="mt-5 pt-4 border-t border-slate-200">
               <h3 className="mt-0 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Documents ({shown.attachments.length})
+                Attachments ({shown.attachments.length})
               </h3>
               <NoticeAttachmentList
                 files={shown.attachments.map((a) => ({
                   key: a.id,
                   fileName: a.fileName,
+                  fileType: a.fileType,
                   fileSize: a.fileSize,
                   previewable: PREVIEW_TYPES.includes(a.fileType),
                 }))}

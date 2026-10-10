@@ -130,7 +130,20 @@ export function DashboardView() {
         </div>
       </div>
 
-      <NoticeDetailModal post={openPost} onClose={handleCloseDetail} />
+      {/* Editing or deleting from the detail closes it first; the next dialog takes over. */}
+      <NoticeDetailModal
+        post={openPost}
+        onClose={handleCloseDetail}
+        onEdit={(post) => {
+          handleCloseDetail();
+          openPostDialog({ post });
+        }}
+        onDelete={(post) => {
+          handleCloseDetail();
+          setDeleteTarget(post);
+          setDeleteOpen(true);
+        }}
+      />
       <NoticePostModal
         key={postDialog.key}
         target={postDialog.target}
