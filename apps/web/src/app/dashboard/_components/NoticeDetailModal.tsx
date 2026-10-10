@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button, Dropdown, Modal } from "antd";
+import { useQuery } from "@tanstack/react-query";
 import { DeleteOutlined, EditOutlined, EllipsisOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/date";
@@ -58,6 +59,16 @@ export function NoticeDetailModal({ post, onClose, onEdit, onDelete }: NoticeDet
     if (!preview) return;
     return () => URL.revokeObjectURL(preview.url);
   }, [preview]);
+
+  // Whoever manages the notice sees how far it has got. Keyed under the noticeboard so it
+  // refreshes with the list (every poll, and whenever someone's read is recorded here).
+  const receiptsFor = post?.canEdit ? post.id : null;
+  const { data: receipts } = useQuery({
+    queryKey: ["noticeboard", "read-receipts", receiptsFor],
+    queryFn: () => api.auth.announcementReadReceipts(receiptsFor!),
+    enabled: !!receiptsFor,
+    refetchInterval: 15000,
+  });
 
   // Stored content is untrusted: only a data URL may be fetched or handed to the browser.
   const loadContent = async (attachmentId: string) => {
@@ -175,6 +186,45 @@ export function NoticeDetailModal({ post, onClose, onEdit, onDelete }: NoticeDet
                 downloadingKeys={downloading}
                 previewingKey={previewing}
               />
+            </section>
+          )}
+          {shown.canEdit && receipts && receipts.read.length + receipts.unread.length > 0 && (
+            <section className="mt-5 pt-4 border-t border-slate-200">
+              <h3 className="mt-0 mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Read by {receipts.read.length} of {receipts.read.length + receipts.unread.length}
+              </h3>
+              <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${receipts.unread.length === 0 ? "bg-emerald-500" : "bg-indigo-500"}`}
+                  style={{ width: `${(receipts.read.length / (receipts.read.length + receipts.unread.length)) * 100}%` }}
+                />
+              </div>
+              {receipts.unread.length === 0 ? (
+                <p className="mt-2 mb-0 text-[13px] text-emerald-700">Everyone it is addressed to has read it.</p>
+              ) : (
+                <div className="mt-2.5 flex items-baseline gap-2">
+                  <span className="shrink-0 w-16 text-xs text-slate-500">Not yet</span>
+                  <ul className="m-0 p-0 list-none flex flex-wrap gap-1.5">
+                    {receipts.unread.map((u, i) => (
+                      <li key={i} className="rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 [overflow-wrap:anywhere]">
+                        {u.name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {receipts.read.length > 0 && (
+                <div className="mt-2 flex items-baseline gap-2">
+                  <span className="shrink-0 w-16 text-xs text-slate-500">Read</span>
+                  <ul className="m-0 p-0 list-none flex flex-wrap gap-1.5">
+                    {receipts.read.map((u, i) => (
+                      <li key={i} title={`Read ${formatDateTime(u.readAt)}`} className="rounded-md bg-slate-100 px-2 py-0.5 text-xs text-slate-600 [overflow-wrap:anywhere]">
+                        {u.name}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </section>
           )}
         </article>

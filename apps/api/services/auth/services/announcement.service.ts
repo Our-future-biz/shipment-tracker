@@ -55,6 +55,12 @@ export interface AnnouncementInfo {
   attachments: AnnouncementAttachmentInfo[];
 }
 
+// Who a post is addressed to and how far it has got: its audience split by whether they opened it.
+export interface AnnouncementReadReceipts {
+  read: { name: string; readAt: string }[];
+  unread: { name: string }[];
+}
+
 // Where the reader sits, so the UI can caption each board and preselect targets.
 export interface NoticeboardViewer {
   departmentId: string | null;
@@ -207,6 +213,45 @@ class AnnouncementService {
     if (!(await this.#visible(actor, id))) return false;
     await announcementRepository.markRead(id, actor.userID);
     return true;
+  }
+
+  // For whoever manages the post: which of the people it is addressed to have opened it.
+  // The audience is the board's members (everyone for the company board), without the
+  // author; admins who merely moderate another department's board are not counted.
+  async readReceipts(actor: Actor, id: string): Promise<AnnouncementReadReceipts | null> {
+    if (!(await this.#editable(actor, id))) return null;
+    const post = (await announcementRepository.getByIdForCompany(id, actor.companyID))!;
+    const [users, branches, reads] = await Promise.all([
+      userRepository.listByCompany(actor.companyID),
+      post.scope === "country" ? branchRepository.listForCompany(actor.companyID) : [],
+      announcementRepository.listReads(id),
+    ]);
+    const countryBranches = new Set(
+      branches.filter((b) => b.country.toLowerCase() === post.country?.toLowerCase()).map((b) => b.id),
+    );
+    const addressed = (u: (typeof users)[number]) => {
+      switch (post.scope as AnnouncementScope) {
+        case "company":
+          return true;
+        case "department":
+          return u.departmentId === post.departmentId;
+        case "branch":
+          return u.branchId === post.branchId;
+        case "country":
+          return !!u.branchId && countryBranches.has(u.branchId);
+        default:
+          return false;
+      }
+    };
+    const readAt = new Map(reads.map((r) => [r.userId, r.readAt]));
+    const audience = users
+      .filter((u) => u.id !== post.authorId && addressed(u))
+      .map((u) => ({ name: u.displayName || u.email, readAt: readAt.get(u.id) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    return {
+      read: audience.filter((u) => u.readAt).map((u) => ({ name: u.name, readAt: u.readAt!.toISOString() })),
+      unread: audience.filter((u) => !u.readAt).map((u) => ({ name: u.name })),
+    };
   }
 
   async delete(actor: Actor, id: string): Promise<boolean> {

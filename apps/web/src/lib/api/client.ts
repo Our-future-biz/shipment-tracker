@@ -121,6 +121,7 @@ export namespace auth {
             this.announcementDelete = this.announcementDelete.bind(this)
             this.announcementList = this.announcementList.bind(this)
             this.announcementMarkRead = this.announcementMarkRead.bind(this)
+            this.announcementReadReceipts = this.announcementReadReceipts.bind(this)
             this.announcementUpdate = this.announcementUpdate.bind(this)
             this.authLogin = this.authLogin.bind(this)
             this.authMe = this.authMe.bind(this)
@@ -193,6 +194,15 @@ export namespace auth {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/auth/announcements/${encodeURIComponent(id)}/read`)
             return await resp.json() as controllers.OkResponse
+        }
+
+        /**
+         * Who of the post's audience has opened it — for its author and for admins.
+         */
+        public async announcementReadReceipts(id: string): Promise<services.AnnouncementReadReceipts> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/announcements/${encodeURIComponent(id)}/read-receipts`)
+            return await resp.json() as services.AnnouncementReadReceipts
         }
 
         public async announcementUpdate(id: string, params: controllers.AnnouncementUpdateRequest): Promise<controllers.OkResponse> {
@@ -3522,6 +3532,19 @@ export namespace services {
         unread: boolean
 
         attachments: AnnouncementAttachmentInfo[]
+    }
+
+    /**
+     * Who a post is addressed to and how far it has got: its audience split by whether they opened it.
+     */
+    export interface AnnouncementReadReceipts {
+        read: {
+            name: string
+            readAt: string
+        }[]
+        unread: {
+            name: string
+        }[]
     }
 
     export interface AuthUserInfo {

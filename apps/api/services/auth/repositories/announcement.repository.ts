@@ -71,6 +71,14 @@ class AnnouncementRepository extends TenantRepository<typeof announcementTable> 
       .limit(limit);
   }
 
+  // Who has opened the post, and when.
+  async listReads(announcementId: string) {
+    return this.db
+      .select({ userId: announcementReadTable.userId, readAt: announcementReadTable.readAt })
+      .from(announcementReadTable)
+      .where(eq(announcementReadTable.announcementId, announcementId));
+  }
+
   async markRead(announcementId: string, userId: string) {
     await this.db.insert(announcementReadTable).values({ announcementId, userId }).onConflictDoNothing();
   }
