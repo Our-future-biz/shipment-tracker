@@ -115,38 +115,33 @@ export function CustomsSummary({ shipment }: { shipment: ShipmentItem }) {
   const distance = urgent ? deadlineDistance(shipment.customsDeadline) : null;
   const received = shipment.documentTypes ?? [];
   const missing = CUSTOMS_DOCUMENT_TYPES.filter((t) => !received.includes(t));
-  const isExport = (shipment.tradeDirection || "").toLowerCase() === "export";
 
   return (
-    <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
+    <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
       <Tile label="Direction" value={shipment.tradeDirection} note={shipment.freightMode} />
       <Tile
         label="Priority"
         value={shipment.customsPriority || "Standard"}
-        tone={urgent ? "red" : undefined}
+        tone={urgent ? "red" : "green"}
+      />
+      <Tile
+        label="Deadline"
+        value={urgent ? formatDateTime(shipment.customsDeadline) : ""}
         note={
-          urgent && shipment.customsDeadline ? (
-            <span className={distance?.overdue ? "text-red-600 font-semibold" : undefined}>
-              {formatDateTime(shipment.customsDeadline)}
-              {distance ? ` · ${distance.text}` : ""}
-            </span>
-          ) : undefined
+          distance && <span className={distance.overdue ? "text-red-600 font-semibold" : undefined}>{distance.text}</span>
         }
       />
       <Tile
-        label={isExport ? "Departure (ETD)" : "Arrival (ETA)"}
-        value={formatDate(isExport ? shipment.estimatedDeparture : shipment.estimatedArrival)}
-        note={
-          isExport
-            ? shipment.closingDate && `Closing ${formatDate(shipment.closingDate)}`
-            : shipment.actualArrival && `Arrived ${formatDate(shipment.actualArrival)}`
-        }
+        label="ETA Warehouse/HUB"
+        value={formatDate(shipment.etaWarehouse)}
+        note={shipment.warehouseReceivedDate && `Received ${formatDate(shipment.warehouseReceivedDate)}`}
       />
-      <Tile label="Load" value={shipment.loadType} note={shipment.containerTypeSummary} />
+      <Tile label="Load Type" value={shipment.loadType} />
       <Tile
-        label="Commercial documents"
-        value={missing.length === 0 ? "Invoice and Packing list received" : `Missing: ${missing.join(", ")}`}
+        label="Documents"
+        value={missing.length === 0 ? "Received" : "Missing"}
         tone={missing.length === 0 ? "green" : "red"}
+        note={(missing.length === 0 ? CUSTOMS_DOCUMENT_TYPES : missing).join(", ")}
       />
     </div>
   );

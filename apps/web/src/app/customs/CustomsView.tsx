@@ -71,13 +71,12 @@ export function CustomsView() {
       <div className="max-w-[1400px] mx-auto">
         {openId ? (
           <div className="flex flex-col gap-5">
-            <h1 className="text-2xl font-bold text-slate-900">Customs</h1>
             <div>
               <div className="flex items-center gap-3.5 mb-4">
                 <button
                   type="button"
                   onClick={() => router.push("/customs")}
-                  className="inline-flex items-center gap-1.5 h-7 px-3 rounded-lg border border-[#d8dce6] bg-white text-slate-600 text-[12.5px] font-semibold cursor-pointer hover:bg-[#f4f5f9] hover:text-[#46506b] transition-colors"
+                  className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-[#d8dce6] bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-[#f4f5f9] hover:text-[#46506b] transition-colors"
                 >
                   <ArrowLeftOutlined /> Customs
                 </button>

@@ -8,6 +8,7 @@ import dayjs from "dayjs";
 import { api } from "@/lib/api";
 import {
   CopyOutlined,
+  ArrowLeftOutlined,
   DownOutlined,
   EnvironmentOutlined,
   InfoCircleOutlined,
@@ -955,6 +956,14 @@ export function ShipmentDetailContent() {
         {/* Title row */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
+            {/* Back to the list, the same button a shipment opened in Customs has. */}
+            <button
+              type="button"
+              onClick={() => router.push("/shipments")}
+              className="inline-flex items-center gap-2 h-10 px-4 mr-1.5 rounded-lg border border-[#d8dce6] bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-[#f4f5f9] hover:text-[#46506b] transition-colors"
+            >
+              <ArrowLeftOutlined /> Shipments
+            </button>
             <h1 className="text-[22px] font-bold text-slate-800 m-0">
               {shipment.jobNumber ?? shipment.id}
             </h1>

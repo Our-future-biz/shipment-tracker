@@ -230,7 +230,8 @@ export function CustomsTab({
       {section !== "documents" && (
       <DetailCard
         icon={<SafetyCertificateOutlined />}
-        title="Customs"
+        // The Customs section calls its card Customs Overview; in the shipment it is the Customs tab's card.
+        title={canReview ? "Customs Overview" : "Customs"}
         columns={[CUSTOMS_LEFT, CUSTOMS_RIGHT]}
         shipment={shipment}
         onCommit={onCommit}
