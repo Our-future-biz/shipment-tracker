@@ -6,8 +6,11 @@ import { containerRepository } from "../repositories/container.repository";
 import { shipmentService } from "./shipment.service";
 import { isValidContainerNumber, normalizeContainerNumber } from "./cargoProjection";
 import {
+  FULL_LOAD,
+  containersFromHouses,
   formatMczNumber,
   houseContainerLines,
+  isLoadTypeChange,
   legacyContainerGroups,
   syncedShipmentData,
   type MasterContainer,
@@ -86,6 +89,10 @@ class MasterJobService {
       masterJobContainerRepository.listByMasterJobId(id),
     ]);
     const houseContainers = await containerRepository.listByShipmentIds(houses.map((h) => h.id));
+    // A Full Load master job shows its houses' containers live; any other load
+    // type keeps its own list, assigned out to the houses.
+    const masterContainers =
+      row.loadType === FULL_LOAD ? containersFromHouses(houseContainers) : containers.map(toMasterContainerLine);
     const shipments: MasterJobShipmentItem[] = houses
       .sort((a, b) => a.jobNumber.localeCompare(b.jobNumber))
       .map((h) => ({
@@ -103,7 +110,7 @@ class MasterJobService {
       }));
     return {
       masterJob: toItem(row, houses.length),
-      containers: containers.map(toMasterContainerLine),
+      containers: masterContainers,
       shipments,
     };
   }
@@ -117,7 +124,10 @@ class MasterJobService {
   }
 
   async update(id: string, companyId: string, data: MasterJobUpdate, userId: string): Promise<MasterJobItem> {
-    await this.require(id, companyId);
+    const existing = await this.require(id, companyId);
+    if (isLoadTypeChange(existing.loadType, data.loadType ?? undefined)) {
+      throw APIError.failedPrecondition(`Load Type is already ${existing.loadType} and can't be changed`);
+    }
     const clean: Record<string, unknown> = { ...data };
     for (const key of Object.keys(clean)) {
       if (clean[key] === "" && DATE_FIELDS.has(key)) clean[key] = null;
@@ -137,7 +147,7 @@ class MasterJobService {
   }
 
   async setContainers(id: string, companyId: string, lines: MasterJobContainerLine[], userId: string) {
-    await this.require(id, companyId);
+    const row = await this.require(id, companyId);
     const numbers = lines.map((l) => normalizeContainerNumber(l.containerNumber));
     const bad = lines.find((l, i) => !numbers[i] || !isValidContainerNumber(l.containerNumber));
     if (bad) {
@@ -153,7 +163,12 @@ class MasterJobService {
     const houseIds = new Set(houses.map((h) => h.id));
     const cleaned = lines.map((l) => ({ ...l, shipmentIds: l.shipmentIds.filter((s) => houseIds.has(s)) }));
 
-    const previous = await masterJobContainerRepository.listByMasterJobId(id);
+    // What the houses carried before this save: on a Full Load that is the houses'
+    // own containers, otherwise the master job's stored list.
+    const previous: MasterContainer[] =
+      row.loadType === FULL_LOAD
+        ? containersFromHouses(await containerRepository.listByShipmentIds([...houseIds]))
+        : (await masterJobContainerRepository.listByMasterJobId(id)).map(toMasterContainerLine);
     await masterJobContainerRepository.replaceForMasterJob(id, companyId, cleaned);
 
     // Containers removed from the master job stay "known" with no assignment, so
@@ -161,7 +176,7 @@ class MasterJobService {
     const kept = new Set(numbers);
     const removed: MasterContainer[] = previous
       .filter((p) => !kept.has(normalizeContainerNumber(p.containerNumber)))
-      .map((p) => ({ ...toMasterContainerLine(p), shipmentIds: [] }));
+      .map((p) => ({ ...p, shipmentIds: [] }));
     for (const house of houses) {
       await this.applyToHouse(house.id, companyId, userId, {}, [...cleaned, ...removed]);
     }
@@ -208,8 +223,10 @@ class MasterJobService {
     if (!shipment?.masterJobId) return;
     const row = await masterJobRepository.getByIdForCompany(shipment.masterJobId, companyId);
     if (!row) return;
-    const containers = await masterJobContainerRepository.listByMasterJobId(row.id);
-    await this.applyToHouse(shipmentId, companyId, userId, syncedShipmentData(row), containers.map(toMasterContainerLine));
+    // On a Full Load the house is where containers come from, so its own list stays as it is.
+    const containers =
+      row.loadType === FULL_LOAD ? [] : (await masterJobContainerRepository.listByMasterJobId(row.id)).map(toMasterContainerLine);
+    await this.applyToHouse(shipmentId, companyId, userId, syncedShipmentData(row), containers);
   }
 
   // One shipmentService.update per house, so the audit log and the shipment's

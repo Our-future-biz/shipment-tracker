@@ -140,3 +140,41 @@ export function legacyContainerGroups(types: string[]): Record<string, string> {
   }
   return out;
 }
+
+/** The load type whose containers come from the linked shipments instead of the master job. */
+export const FULL_LOAD = "Full Load";
+
+export interface HouseContainerRow {
+  shipmentId: string;
+  containerNumber: string;
+  sealNumber: string;
+  type: string;
+}
+
+/**
+ * A Full Load master job's containers, read live from its houses: one line per
+ * container number, assigned to every house that carries it. Seal and type come
+ * from the first house that has them filled in. Rows without a number can't be
+ * told apart, so they are left out.
+ */
+export function containersFromHouses(rows: HouseContainerRow[]): MasterContainer[] {
+  const byNumber = new Map<string, MasterContainer>();
+  for (const r of rows) {
+    const key = normalizeContainerNumber(r.containerNumber);
+    if (!key) continue;
+    const line = byNumber.get(key);
+    if (!line) {
+      byNumber.set(key, { containerNumber: key, sealNumber: r.sealNumber, type: r.type, shipmentIds: [r.shipmentId] });
+      continue;
+    }
+    if (!line.shipmentIds.includes(r.shipmentId)) line.shipmentIds.push(r.shipmentId);
+    if (!line.sealNumber) line.sealNumber = r.sealNumber;
+    if (!line.type) line.type = r.type;
+  }
+  return [...byNumber.values()];
+}
+
+/** Load Type is chosen once: it can be set while empty, never switched afterwards. */
+export function isLoadTypeChange(current: string, next: string | undefined): boolean {
+  return next !== undefined && current.trim() !== "" && next !== current;
+}

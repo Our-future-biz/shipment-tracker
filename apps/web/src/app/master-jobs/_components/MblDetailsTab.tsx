@@ -1,7 +1,7 @@
 "use client";
 
-import { App } from "antd";
-import { EnvironmentOutlined, FileTextOutlined, InboxOutlined } from "@ant-design/icons";
+import { App, Tooltip } from "antd";
+import { EnvironmentOutlined, FileTextOutlined, InboxOutlined, LockOutlined, SyncOutlined } from "@ant-design/icons";
 import { CustomerLinkField } from "@/app/shipments/[jobNumber]/_components/CustomerLinkField";
 import { getComputedValue } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
@@ -10,6 +10,29 @@ import type { MasterJobContainerLine, MasterJobItem, MasterJobShipmentItem, Mast
 import { FieldRow, IncotermRow, MasterJobCard, ReadOnlyRow, jumpTo } from "./MasterJobFields";
 import { MasterJobContainers } from "./MasterJobContainers";
 import { MasterJobShipments } from "./MasterJobShipments";
+
+// A Full Load master job reads its containers from the linked shipments.
+const FULL_LOAD = "Full Load";
+
+// Load Type is chosen once; the server refuses switching it, so the row stops being editable.
+function LockedLoadType({ value }: { value: string }) {
+  return (
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+        Load Type
+        <Tooltip title="Copied to every linked shipment">
+          <SyncOutlined className="ml-1.5 text-[10px] text-indigo-400" aria-label="Copied to linked shipments" />
+        </Tooltip>
+      </span>
+      <span className="flex-1 min-w-0 flex items-center gap-1.5 text-slate-900 font-medium">
+        {value}
+        <Tooltip title="Load Type can't be changed once it is set">
+          <LockOutlined className="text-[11px] text-slate-400" aria-label="Locked" />
+        </Tooltip>
+      </span>
+    </div>
+  );
+}
 
 interface MblDetailsTabProps {
   masterJob: MasterJobItem;
@@ -106,7 +129,9 @@ export function MblDetailsTab({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
           <div>
             <FieldRow label="Freight Mode" fieldKey="freightMode" value={mj.freightMode} onCommit={handleCommit} />
-            <FieldRow label="Load Type" fieldKey="loadType" value={mj.loadType} onCommit={handleCommit} synced />
+            {mj.loadType ? <LockedLoadType value={mj.loadType} /> : (
+              <FieldRow label="Load Type" fieldKey="loadType" value={mj.loadType} onCommit={handleCommit} synced />
+            )}
             <IncotermRow label="Incoterm Origin" fieldKey="incotermOrigin" value={mj.incotermOrigin} onCommit={handleCommit} />
             <IncotermRow label="Incoterm Destination" fieldKey="incotermDestination" value={mj.incotermDestination} onCommit={handleCommit} />
             <FieldRow label="Trade Direction" fieldKey="tradeDirection" value={mj.tradeDirection} onCommit={handleCommit} />
@@ -171,7 +196,7 @@ export function MblDetailsTab({
         </div>
       </MasterJobCard>
 
-      <MasterJobContainers id={MJ_ANCHORS.containers} containers={containers} shipments={shipments} onSave={onSaveContainers} />
+      <MasterJobContainers id={MJ_ANCHORS.containers} fromShipments={mj.loadType === FULL_LOAD} containers={containers} shipments={shipments} onSave={onSaveContainers} />
 
       <MasterJobCard id={MJ_ANCHORS.shipments} icon={<InboxOutlined />} title={`Linked shipments (${shipments.length})`}>
         <MasterJobShipments

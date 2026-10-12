@@ -10,6 +10,8 @@ import { MasterJobCard } from "./MasterJobFields";
 interface MasterJobContainersProps {
   /** Anchor for the summary tile that jumps here. */
   id?: string;
+  /** Full Load: the list is read live from the linked shipments' own containers. */
+  fromShipments?: boolean;
   containers: MasterJobContainerLine[];
   shipments: MasterJobShipmentItem[];
   onSave: (containers: MasterJobContainerLine[]) => Promise<unknown>;
@@ -22,7 +24,7 @@ const TH = "px-2 py-2 text-left text-[11px] font-bold text-slate-500 uppercase t
 // The containers on the master BL, each assigned to the houses whose cargo it
 // carries. Edited as one list and saved together; a save copies every house's
 // assigned containers onto that house.
-export function MasterJobContainers({ id, containers, shipments, onSave }: MasterJobContainersProps) {
+export function MasterJobContainers({ id, fromShipments, containers, shipments, onSave }: MasterJobContainersProps) {
   const { message } = App.useApp();
   const [draft, setDraft] = useState<MasterJobContainerLine[]>(containers);
   const [saving, setSaving] = useState(false);
@@ -66,8 +68,15 @@ export function MasterJobContainers({ id, containers, shipments, onSave }: Maste
         </>
       }
     >
+      {fromShipments && (
+        <div className="mb-3 px-3 py-2 rounded-lg bg-indigo-50 text-[12px] text-indigo-700">
+          Full Load: these are the containers of the linked shipments. Changes saved here are written back to them.
+        </div>
+      )}
       {draft.length === 0 ? (
-        <div className="py-4 text-center text-xs text-slate-400">No containers on this master job yet.</div>
+        <div className="py-4 text-center text-xs text-slate-400">
+          {fromShipments ? "The linked shipments have no containers yet." : "No containers on this master job yet."}
+        </div>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
