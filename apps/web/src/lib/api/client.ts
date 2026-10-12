@@ -36,6 +36,7 @@ export default class Client {
     public readonly automation: automation.ServiceClient
     public readonly customers: customers.ServiceClient
     public readonly extraction: extraction.ServiceClient
+    public readonly holidays: holidays.ServiceClient
     public readonly invoicing: invoicing.ServiceClient
     public readonly quotes: quotes.ServiceClient
     public readonly sales: sales.ServiceClient
@@ -59,6 +60,7 @@ export default class Client {
         this.automation = new automation.ServiceClient(base)
         this.customers = new customers.ServiceClient(base)
         this.extraction = new extraction.ServiceClient(base)
+        this.holidays = new holidays.ServiceClient(base)
         this.invoicing = new invoicing.ServiceClient(base)
         this.quotes = new quotes.ServiceClient(base)
         this.sales = new sales.ServiceClient(base)
@@ -663,6 +665,48 @@ export namespace extraction {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/extraction/pipeline/prepare`, JSON.stringify(params))
             return await resp.json() as interfaces.PrepareResult
+        }
+    }
+}
+
+export namespace holidays {
+
+    export class ServiceClient {
+        private baseClient: BaseClient
+
+        constructor(baseClient: BaseClient) {
+            this.baseClient = baseClient
+            this.holidayDelete = this.holidayDelete.bind(this)
+            this.holidayImport = this.holidayImport.bind(this)
+            this.holidayList = this.holidayList.bind(this)
+            this.holidayRead = this.holidayRead.bind(this)
+        }
+
+        public async holidayDelete(id: string): Promise<controllers.HolidayDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/holidays/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.HolidayDeleteResponse
+        }
+
+        public async holidayImport(params: controllers.HolidayImportRequest): Promise<controllers.HolidayImportResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/holidays/import`, JSON.stringify(params))
+            return await resp.json() as controllers.HolidayImportResponse
+        }
+
+        public async holidayList(): Promise<controllers.HolidayListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/holidays`)
+            return await resp.json() as controllers.HolidayListResponse
+        }
+
+        /**
+         * Reads holidays out of an uploaded file for review; nothing is saved yet.
+         */
+        public async holidayRead(params: controllers.HolidayReadRequest): Promise<controllers.HolidayReadResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/holidays/read`, JSON.stringify(params))
+            return await resp.json() as controllers.HolidayReadResponse
         }
     }
 }
@@ -1903,6 +1947,39 @@ export namespace controllers {
         invoice: interfaces.GeneratedInvoiceItem
     }
 
+    export interface HolidayDeleteResponse {
+        ok: boolean
+    }
+
+    export interface HolidayImportRequest {
+        rows: interfaces.HolidayRowInput[]
+        source: string
+    }
+
+    export interface HolidayImportResponse {
+        added: number
+        skipped: number
+    }
+
+    export interface HolidayListResponse {
+        holidays: interfaces.HolidayItem[]
+    }
+
+    export interface HolidayReadRequest {
+        fileBase64: string
+        fileName: string
+    }
+
+    export interface HolidayReadResponse {
+        rows: interfaces.HolidayRowInput[]
+        /**
+         * "spreadsheet" when the file's columns matched and were read directly, "ai" otherwise.
+         */
+        method: string
+
+        warning?: string
+    }
+
     export interface InvoiceCreateRequest {
         invoiceNumber: string
         amount?: number
@@ -2193,10 +2270,10 @@ export namespace controllers {
          * Status / mode
          */
         freeComments?: string
+
         freightPayableAt?: string
         hub?: string
         cfs?: string
-
         freightMode?: string
         /**
          * Agent
@@ -2446,10 +2523,10 @@ export namespace controllers {
          * Status / mode
          */
         freeComments?: string
+
         freightPayableAt?: string
         hub?: string
         cfs?: string
-
         freightMode?: string
         /**
          * Agent
@@ -3150,6 +3227,33 @@ export namespace interfaces {
         createdAt: string
     }
 
+    export interface HolidayItem {
+        id: string
+        source: string
+        createdAt: string
+        country: string
+        countryCode: string
+        nationalHoliday: string
+        nationalStart: string
+        nationalEnd: string
+        regionalHoliday: string
+        regionalStart: string
+        regionalEnd: string
+        regions: string
+    }
+
+    export interface HolidayRowInput {
+        country: string
+        countryCode: string
+        nationalHoliday: string
+        nationalStart: string
+        nationalEnd: string
+        regionalHoliday: string
+        regionalStart: string
+        regionalEnd: string
+        regions: string
+    }
+
     export interface InvoiceCostItem {
         id: string
         shipmentId: string
@@ -3359,10 +3463,10 @@ export namespace interfaces {
          * Status / mode
          */
         freeComments: string
+
         freightPayableAt: string
         hub: string
         cfs: string
-
         freightMode: string
         /**
          * Agent

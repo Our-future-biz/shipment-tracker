@@ -21,6 +21,7 @@ import {
   ApartmentOutlined,
   SwapOutlined,
   BankOutlined,
+  CalendarOutlined,
 } from "@ant-design/icons";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -64,6 +65,13 @@ const NAV_ITEMS: NavItem[] = [
   },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
+  {
+    path: "/calendar",
+    label: "Calendar",
+    icon: <CalendarOutlined />,
+    ownPage: true,
+    children: [{ path: "/calendar/public-holidays", label: "Public Holidays" }],
+  },
   // Company admins/managers manage their own users; superadmins manage all companies.
   { path: "/settings/users", label: "Users", icon: <UsergroupAddOutlined />, roles: ["admin", "manager"] },
   { path: "/settings/organization", label: "Organization", icon: <BankOutlined />, roles: ["admin", "superadmin"] },
