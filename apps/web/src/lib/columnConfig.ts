@@ -55,6 +55,7 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Incoterm Destination": ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DPU", "DAP", "DDP"],
   "Insurance": ["Yes", "Pending", "No"],
   "Credit Check": ["Green", "Yellow", "Red"],
+  "Freight Payable At": ["Origin", "Destination"],
   "Validity Status": ["Ok", "Check"],
   "Switch BoL": ["YES", "NO"],
   "House BoL Type": ["OBL", "SWB", "Telex", "OHBL ok", "Direct MBL"],
@@ -130,6 +131,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "customsDeadline", title: "Customs Deadline", width: 160, type: "text", readonly: true, apiField: "customsDeadline" },
   { key: "status", title: "Shipment Status", width: 320, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
   { key: "freeComments", title: "Free Comments", width: 200, type: "text", apiField: "freeComments" },
+  { key: "freightPayableAt", title: "Freight Payable At", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Payable At"], apiField: "freightPayableAt" },
   { key: "freightMode", title: "Freight Mode", width: 130, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Mode"], apiField: "freightMode" },
 
   // References

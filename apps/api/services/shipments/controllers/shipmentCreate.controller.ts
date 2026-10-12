@@ -65,6 +65,7 @@ interface ShipmentCreateRequest {
 
   // Status / mode
   freeComments?: string;
+  freightPayableAt?: string;
   freightMode?: string;
 
   // Agent

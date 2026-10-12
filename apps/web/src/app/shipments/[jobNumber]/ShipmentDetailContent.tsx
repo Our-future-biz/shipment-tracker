@@ -1129,6 +1129,7 @@ export function ShipmentDetailContent() {
                     { key: "salesPerson", label: "Sales Person", ro: true },
                     { key: "incoterm", label: "Incoterm Origin/Destination", ro: true },
                     { key: "freeComments", label: "Free Comments" },
+                    { key: "freightPayableAt", label: "Freight Payable At" },
                   ];
                   const right: FieldDef[] = [
                     { key: "status", label: "Shipment Status" },

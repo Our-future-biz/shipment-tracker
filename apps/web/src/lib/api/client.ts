@@ -2193,6 +2193,7 @@ export namespace controllers {
          * Status / mode
          */
         freeComments?: string
+        freightPayableAt?: string
 
         freightMode?: string
         /**
@@ -2443,6 +2444,7 @@ export namespace controllers {
          * Status / mode
          */
         freeComments?: string
+        freightPayableAt?: string
 
         freightMode?: string
         /**
@@ -3353,6 +3355,7 @@ export namespace interfaces {
          * Status / mode
          */
         freeComments: string
+        freightPayableAt: string
 
         freightMode: string
         /**
