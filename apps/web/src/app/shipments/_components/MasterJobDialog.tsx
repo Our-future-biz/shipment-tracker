@@ -5,7 +5,7 @@ import { Modal, Button, Input, Checkbox, Tag, Radio, Space } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { type ShipmentItem } from "@/hooks/useShipments";
 import { useMasterJobs } from "@/hooks/useMasterJobs";
-import { nextMczNumber } from "@/app/documents/_lib/extraction";
+import { nextMczNumber } from "@/lib/mcz";
 
 interface MasterJobDialogProps {
   open: boolean;

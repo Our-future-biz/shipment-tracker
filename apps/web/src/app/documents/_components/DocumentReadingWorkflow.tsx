@@ -23,6 +23,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { fileToBase64 } from "@/lib/files";
+import { FULL_LOAD } from "@/lib/enums";
+import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
@@ -36,13 +38,11 @@ import {
   COST_CATEGORY_OPTIONS,
   createdByStamp,
   type Destination,
-  existingMczNumbers,
   type ExtractedField,
   type InputMode,
   INVOICE_FIELD_LABELS,
   type InvoiceExtracted,
   nextCzNumber,
-  nextMczNumber,
   normalizeCurrency,
   normalizeExtracted,
   parseContainerNumbers,
@@ -101,6 +101,7 @@ function recordToFields(record: Record<string, string>): ExtractedField[] {
 
 export function DocumentReadingWorkflow() {
   const toast = useToast();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const { shipments, createShipment, updateShipment, linkMasterJob } = useShipments();
   const { quotes, updateQuote } = useQuotes();
@@ -151,7 +152,6 @@ export function DocumentReadingWorkflow() {
   // with the batch's first shipment.
   const [mblTicked, setMblTicked] = useState<Record<string, boolean>>({});
   const [mblFiled, setMblFiled] = useState(false);
-  const queryClient = useQueryClient();
   const [masterShipments, setMasterShipments] = useState<Record<string, string>[]>([]);
   const [masterIdx, setMasterIdx] = useState(0);
   const [masterFields, setMasterFields] = useState<ExtractedField[]>([]);
@@ -236,7 +236,7 @@ export function DocumentReadingWorkflow() {
   const masterFilesTooLarge = masterFilesSize > MASTER_FILES_MAX_BYTES;
 
   const canExtract = (() => {
-    const hasInput = destination === "masterjob" || inputMode === "file" ? !!fileBase64 : textInput.trim().length >= 10;
+    const hasInput = inputMode === "file" ? !!fileBase64 : textInput.trim().length >= 10;
     if (destination === "invoicing") return hasInput && !!invoiceTargetShipmentId;
     if (destination === "quote") return hasInput && !!quoteNumber;
     if (destination === "customs") return hasInput && !!customsShipmentId;
@@ -395,7 +395,6 @@ export function DocumentReadingWorkflow() {
     }
   };
 
-  // ─── Commit: quote ───────────────────────────────────────────────
   // ─── Commit: customs ─────────────────────────────────────────────
   const commitCustoms = async () => {
     const approved = fieldsToLabelValues(fields);
@@ -415,10 +414,11 @@ export function DocumentReadingWorkflow() {
       setCommittedJobNumber(target?.jobNumber || "");
       setStep("committed");
     } catch {
-      toast.error("Failed to save the MRN Number.");
+      toast.error("Failed to write the customs data to the shipment.");
     }
   };
 
+  // ─── Commit: quote ───────────────────────────────────────────────
   const commitQuote = async () => {
     const approved = fieldsToLabelValues(fields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
@@ -529,7 +529,7 @@ export function DocumentReadingWorkflow() {
       if (added.length > 0) {
         const current = await api.shipments.masterJobGet(masterJobId);
         // A Full Load master job reads its containers from the shipments.
-        if (current.masterJob.loadType !== "Full Load") {
+        if (current.masterJob.loadType !== FULL_LOAD) {
           const known = new Set(current.containers.map((c) => c.containerNumber));
           const fresh = added.filter((c) => !known.has(c.containerNumber));
           if (fresh.length > 0) {
@@ -1141,7 +1141,7 @@ function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadType
   };
   const tickedCount = rows.filter(([label]) => ticked[label]).length;
   // A Full Load master job reads its containers from its shipments, so MBL containers aren't added.
-  const fullLoad = (masterJob?.loadType || (ticked["Load Type"] ? info["Load Type"] : "")) === "Full Load";
+  const fullLoad = (masterJob?.loadType || (ticked["Load Type"] ? info["Load Type"] : "")) === FULL_LOAD;
 
   return (
     <div className="mb-3 border border-slate-200 rounded-lg overflow-hidden">

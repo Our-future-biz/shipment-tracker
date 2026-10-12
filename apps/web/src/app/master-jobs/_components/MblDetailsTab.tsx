@@ -1,29 +1,22 @@
 "use client";
 
 import { App, Tooltip } from "antd";
-import { BuildOutlined, EnvironmentOutlined, FileTextOutlined, InboxOutlined, LockOutlined, SyncOutlined } from "@ant-design/icons";
+import { BuildOutlined, EnvironmentOutlined, FileTextOutlined, InboxOutlined, LockOutlined } from "@ant-design/icons";
 import { CustomerLinkField } from "@/app/shipments/[jobNumber]/_components/CustomerLinkField";
 import { getComputedValue } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { teuForType } from "@/lib/cargo";
+import { FULL_LOAD } from "@/lib/enums";
 import type { MasterJobContainerLine, MasterJobItem, MasterJobShipmentItem, MasterJobUpdate } from "@/hooks/useMasterJobs";
-import { FieldRow, IncotermRow, MasterJobCard, ReadOnlyRow, jumpTo } from "./MasterJobFields";
+import { FieldRow, IncotermRow, Label, MasterJobCard, ROW, ReadOnlyRow, jumpTo } from "./MasterJobFields";
 import { MasterJobContainers } from "./MasterJobContainers";
 import { MasterJobShipments } from "./MasterJobShipments";
-
-// A Full Load master job reads its containers from the linked shipments.
-const FULL_LOAD = "Full Load";
 
 // Load Type is chosen once; the server refuses switching it, so the row stops being editable.
 function LockedLoadType({ value }: { value: string }) {
   return (
-    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-      <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-        Load Type
-        <Tooltip title="Copied to every linked shipment">
-          <SyncOutlined className="ml-1.5 text-[10px] text-indigo-400" aria-label="Copied to linked shipments" />
-        </Tooltip>
-      </span>
+    <div className={ROW}>
+      <Label label="Load Type" synced />
       <span className="flex-1 min-w-0 flex items-center gap-1.5 text-slate-900 font-medium">
         {value}
         <Tooltip title="Load Type can't be changed once it is set">

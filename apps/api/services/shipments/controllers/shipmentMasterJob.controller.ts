@@ -13,6 +13,7 @@ interface LinkMasterJobResponse {
   shipment: ShipmentItem;
 }
 
+// A shipment joining a master job takes over its MBL details.
 export const shipmentLinkMasterJob = api(
   { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/master-job" },
   async (req: LinkMasterJobRequest): Promise<LinkMasterJobResponse> => {
@@ -20,9 +21,7 @@ export const shipmentLinkMasterJob = api(
       throw APIError.invalidArgument("mczNumber is required");
     }
     const auth = getAuthData()!;
-    await shipmentService.linkMasterJob(req.shipmentId, auth.companyID, req.mczNumber);
-    // A shipment joining a master job takes over its MBL details.
-    await masterJobService.syncShipment(req.shipmentId, auth.companyID, auth.userID);
+    await masterJobService.attachShipment(req.shipmentId, auth.companyID, req.mczNumber, auth.userID);
     const shipment = await shipmentService.getById(req.shipmentId, auth.companyID);
     return { shipment: shipment as unknown as ShipmentItem };
   },
@@ -39,7 +38,9 @@ interface UnlinkMasterJobResponse {
 export const shipmentUnlinkMasterJob = api(
   { expose: true, auth: true, method: "DELETE", path: "/shipments/:shipmentId/master-job" },
   async (req: UnlinkMasterJobRequest): Promise<UnlinkMasterJobResponse> => {
-    const shipment = await shipmentService.unlinkMasterJob(req.shipmentId, getAuthData()!.companyID);
+    const companyId = getAuthData()!.companyID;
+    await masterJobService.detachShipment(req.shipmentId, companyId);
+    const shipment = await shipmentService.getById(req.shipmentId, companyId);
     return { shipment: shipment as unknown as ShipmentItem };
   },
 );

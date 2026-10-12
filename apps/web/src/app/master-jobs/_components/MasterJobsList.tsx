@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button, DatePicker, Input, Select } from "antd";
@@ -35,6 +35,11 @@ export function MasterJobsList({ masterJobs, isLoading, creating, onCreate }: Ma
   const dir = get("dir");
   const line = get("line");
   const [etdFrom, etdTo] = get("etd").split(",");
+  // The box keeps what is typed (spaces included); it follows the URL when that changes
+  // from outside, e.g. "Clear filters" or back/forward.
+  const urlQuery = get("q");
+  const [query, setQuery] = useState(urlQuery);
+  useEffect(() => setQuery(urlQuery), [urlQuery]);
 
   const setFilter = (key: FilterKey, value: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -138,8 +143,11 @@ export function MasterJobsList({ masterJobs, isLoading, creating, onCreate }: Ma
           className="w-[300px]"
           prefix={<SearchOutlined className="text-slate-400" />}
           placeholder="Search MCZ, MBL, booking, vessel…"
-          defaultValue={get("q")}
-          onChange={(e) => setFilter("q", e.target.value)}
+          value={query}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setFilter("q", e.target.value);
+          }}
         />
         <Select
           allowClear

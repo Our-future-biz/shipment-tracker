@@ -12,7 +12,7 @@ import { INCOTERM_NAMES, incotermLabel } from "@/lib/incoterms";
 
 export type MasterJobCommit = (fieldKey: string, value: string) => void;
 
-const ROW = "flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0";
+export const ROW = "flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0";
 const LABEL = "w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide";
 
 interface CardProps {
@@ -49,7 +49,7 @@ interface FieldRowProps {
   id?: string;
 }
 
-function Label({ label, synced }: { label: string; synced?: boolean }) {
+export function Label({ label, synced }: { label: string; synced?: boolean }) {
   return (
     <span className={LABEL}>
       {label}

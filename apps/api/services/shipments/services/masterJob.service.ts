@@ -41,13 +41,17 @@ const DATE_FIELDS = new Set([
   "warehouseReceivedDate",
 ]);
 
-function toItem(row: MasterJobRecord, shipmentCount: number): MasterJobItem {
-  const { companyId: _companyId, deletedAt: _deletedAt, ...fields } = row;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+function toItem(
+  { companyId: _companyId, deletedAt: _deletedAt, ...fields }: MasterJobRecord,
+  shipmentCount: number,
+): MasterJobItem {
   return {
     ...fields,
     shipmentCount,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
+    createdAt: fields.createdAt.toISOString(),
+    updatedAt: fields.updatedAt.toISOString(),
   };
 }
 
@@ -90,9 +94,13 @@ class MasterJobService {
     ]);
     const houseContainers = await containerRepository.listByShipmentIds(houses.map((h) => h.id));
     // A Full Load master job shows its houses' containers live; any other load
-    // type keeps its own list, assigned out to the houses.
+    // type keeps its own list, assigned out to the houses. An assignment to a
+    // shipment that has since left the master job or was archived is not shown.
+    const houseIds = new Set(houses.map((h) => h.id));
     const masterContainers =
-      row.loadType === FULL_LOAD ? containersFromHouses(houseContainers) : containers.map(toMasterContainerLine);
+      row.loadType === FULL_LOAD
+        ? containersFromHouses(houseContainers)
+        : containers.map((c) => ({ ...toMasterContainerLine(c), shipmentIds: c.shipmentIds.filter((s) => houseIds.has(s)) }));
     const shipments: MasterJobShipmentItem[] = houses
       .sort((a, b) => a.jobNumber.localeCompare(b.jobNumber))
       .map((h) => ({
@@ -130,7 +138,12 @@ class MasterJobService {
     }
     const clean: Record<string, unknown> = { ...data };
     for (const key of Object.keys(clean)) {
-      if (clean[key] === "" && DATE_FIELDS.has(key)) clean[key] = null;
+      if (!DATE_FIELDS.has(key)) continue;
+      if (clean[key] === "") clean[key] = null;
+      // Values read off a document reach here too; refuse a non-date instead of failing in the DB.
+      else if (typeof clean[key] === "string" && !ISO_DATE.test(clean[key])) {
+        throw APIError.invalidArgument(`${key} must be a date as "YYYY-MM-DD"`);
+      }
     }
     const row = await masterJobRepository.updateForCompany(id, companyId, clean as MasterJobUpdate);
     if (!row) throw APIError.notFound("Master job not found");
@@ -169,7 +182,8 @@ class MasterJobService {
       row.loadType === FULL_LOAD
         ? containersFromHouses(await containerRepository.listByShipmentIds([...houseIds]))
         : (await masterJobContainerRepository.listByMasterJobId(id)).map(toMasterContainerLine);
-    await masterJobContainerRepository.replaceForMasterJob(id, companyId, cleaned);
+    // A Full Load has no list of its own (it is read from the houses), so nothing is stored.
+    if (row.loadType !== FULL_LOAD) await masterJobContainerRepository.replaceForMasterJob(id, companyId, cleaned);
 
     // Containers removed from the master job stay "known" with no assignment, so
     // the houses that carried them drop them too.
@@ -190,35 +204,44 @@ class MasterJobService {
       if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
     }
     for (const shipmentId of shipmentIds) {
-      await shipmentService.linkMasterJob(shipmentId, companyId, row.mczNumber);
-      await this.syncShipment(shipmentId, companyId, userId);
+      await this.attachShipment(shipmentId, companyId, row.mczNumber, userId);
     }
     return this.get(id, companyId);
+  }
+
+  /**
+   * Puts a shipment on the master job with this MCZ number (created when new) and copies
+   * the master job's values onto it. A shipment moved off another master job is taken
+   * out of that one's container assignments.
+   */
+  async attachShipment(shipmentId: string, companyId: string, mczNumber: string, userId: string) {
+    const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
+    if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
+    const linked = await shipmentService.linkMasterJob(shipmentId, companyId, mczNumber);
+    if (shipment.masterJobId && shipment.masterJobId !== linked?.masterJobId) {
+      await this.unassignFromContainers(shipment.masterJobId, companyId, shipmentId);
+    }
+    await this.syncShipment(shipmentId, companyId, userId);
   }
 
   async unlinkShipment(id: string, companyId: string, shipmentId: string) {
     await this.require(id, companyId);
     const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
     if (!shipment || shipment.masterJobId !== id) throw APIError.notFound("Shipment is not on this master job");
-    await shipmentService.unlinkMasterJob(shipmentId, companyId);
-
-    // The house keeps its data; it just stops being assigned to any container.
-    const containers = await masterJobContainerRepository.listByMasterJobId(id);
-    if (containers.some((c) => c.shipmentIds.includes(shipmentId))) {
-      await masterJobContainerRepository.replaceForMasterJob(
-        id,
-        companyId,
-        containers.map((c) => ({
-          ...toMasterContainerLine(c),
-          shipmentIds: c.shipmentIds.filter((s) => s !== shipmentId),
-        })),
-      );
-    }
+    await this.detachShipment(shipmentId, companyId);
     return this.get(id, companyId);
   }
 
+  /** Takes a shipment off its master job. It keeps its data; it just stops being assigned to any container. */
+  async detachShipment(shipmentId: string, companyId: string) {
+    const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
+    if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
+    await shipmentService.unlinkMasterJob(shipmentId, companyId);
+    if (shipment.masterJobId) await this.unassignFromContainers(shipment.masterJobId, companyId, shipmentId);
+  }
+
   /** Copy the master job's filled-in values onto a shipment that was just linked to it. */
-  async syncShipment(shipmentId: string, companyId: string, userId: string) {
+  private async syncShipment(shipmentId: string, companyId: string, userId: string) {
     const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
     if (!shipment?.masterJobId) return;
     const row = await masterJobRepository.getByIdForCompany(shipment.masterJobId, companyId);
@@ -247,6 +270,16 @@ class MasterJobService {
     }
     if (Object.keys(data).length === 0) return;
     await shipmentService.update(shipmentId, companyId, data as never, userId);
+  }
+
+  private async unassignFromContainers(id: string, companyId: string, shipmentId: string) {
+    const containers = await masterJobContainerRepository.listByMasterJobId(id);
+    if (!containers.some((c) => c.shipmentIds.includes(shipmentId))) return;
+    await masterJobContainerRepository.replaceForMasterJob(
+      id,
+      companyId,
+      containers.map((c) => ({ ...toMasterContainerLine(c), shipmentIds: c.shipmentIds.filter((s) => s !== shipmentId) })),
+    );
   }
 
   private async require(id: string, companyId: string): Promise<MasterJobRecord> {
