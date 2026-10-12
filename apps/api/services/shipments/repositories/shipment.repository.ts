@@ -3,6 +3,7 @@ import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { shipmentTable } from "../schemas/shipment.schema";
+import { CANCELLED_STATUS } from "../services/fieldDefaults";
 
 /**
  * Predicates behind the Shipments overview tiles. Shared by the list filter and
@@ -80,8 +81,7 @@ const isDueWithin = ({ date, keepsOverdue }: DeadlineDef, days: number) =>
     : sql`(${date}) BETWEEN ${TODAY} AND ${TODAY} + ${days}::int`;
 const anyDueWithin = (days: number) => sql`(${sql.join(DEADLINES.map((d) => isDueWithin(d, days)), sql` OR `)})`;
 
-// A cancelled shipment stays in the grid but drops out of every count, deadline and warning.
-export const CANCELLED_STATUS = "Cancelled Shipment";
+// A cancelled shipment drops out of every count, deadline and warning.
 const NOT_CANCELLED = sql`${shipmentTable.status} IS DISTINCT FROM ${CANCELLED_STATUS}`;
 
 const ACTIVE = sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced' AND ${NOT_CANCELLED}`;

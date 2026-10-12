@@ -1,3 +1,5 @@
+import { CANCELLED_STATUS, LOAD_TYPES } from "./enums";
+
 export type ColumnType = "text" | "dropdown" | "date" | "checkbox" | "computed" | "popup";
 
 export interface ColumnDef {
@@ -44,10 +46,9 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
     "Pre-Alert Sent [EXP]",
     "Billing [EXP]",
     "Billed [EXP]",
-    // For imports and exports alike.
-    "Cancelled Shipment",
+    CANCELLED_STATUS,
   ],
-  "Load Type": ["Full Load", "Consolidation", "Project Shipment"],
+  "Load Type": [...LOAD_TYPES],
   "Trade Direction": ["Import", "Export"],
   "Freight Mode": ["Air Freight", "Sea Freight", "Rail Freight", "Road Freight"],
   "Service Type": ["Direct", "In-Direct/Nominated"],
@@ -336,7 +337,7 @@ const NO_URGENCY = { level: "none", reason: "", readyStatus: "" } as const;
 
 export function getShipmentUrgency(rowData: Record<string, string>): { level: ShipmentUrgency; reason: string; readyStatus: string } {
   // A cancelled shipment has no deadlines to warn about.
-  if ((rowData["status"] || "") === "Cancelled Shipment") return NO_URGENCY;
+  if (rowData["status"] === CANCELLED_STATUS) return NO_URGENCY;
   const dir = (rowData["tradeDirection"] || "").trim().toLowerCase();
   const rule = dir === "export" || dir === "import" ? URGENCY_RULES[dir] : null;
   if (!rule) return NO_URGENCY;
@@ -647,7 +648,7 @@ export const STATUS_COLORS: Record<string, string> = {
   "Customs Clearance Pending [IMP]": "#F48FB1",
   "Loaded - Customs Clearance In Progress [EXP]": "#F48FB1",
   "Pre-Alert Sent [EXP]": "#9CCC65",
-  "Cancelled Shipment": "#78909C",
+  [CANCELLED_STATUS]: "#78909C",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -675,5 +676,5 @@ export function getFilteredStatusOptions(tradeDirection: string | null | undefin
   const allOpts = DROPDOWN_OPTIONS["Shipment Status"]!;
   const tag = tradeDirection === "Import" ? "[IMP]" : tradeDirection === "Export" ? "[EXP]" : null;
   if (!tag) return allOpts;
-  return allOpts.filter((o) => o.includes(tag) || o === "Cancelled Shipment");
+  return allOpts.filter((o) => o.includes(tag) || o === CANCELLED_STATUS);
 }

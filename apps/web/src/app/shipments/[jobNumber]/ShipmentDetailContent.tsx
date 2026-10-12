@@ -377,7 +377,6 @@ function MemberRow({
   );
 }
 
-// Read-only horizontal row (label | value), matching FieldRow's look.
 // Commercial Invoice number(s) / value: shown from the shipment's invoices and edited in
 // the Commercial Invoices dialog (the same one the Shipments table opens).
 const INVOICE_FIELDS = new Set(["commercialInvoice", "commercialInvoiceValue"]);
@@ -428,6 +427,7 @@ function InvoiceRow({
   );
 }
 
+// Read-only horizontal row (label | value), matching FieldRow's look.
 function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: string | null; labelW?: string }) {
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">

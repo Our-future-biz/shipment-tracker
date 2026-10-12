@@ -1,3 +1,5 @@
+import { LOAD_TYPES } from "@/lib/enums";
+
 export const QUOTE_COLUMNS = [
   "Shipper",
   "Consignee",
@@ -50,7 +52,7 @@ export const COPYABLE_FIELDS: string[] = [
 const INCOTERMS = ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DPU", "DAP", "DDP"];
 
 export const QUOTE_DROPDOWNS: Record<string, string[]> = {
-  "Load Type": ["Full Load", "Consolidation", "Customs Clearance"],
+  "Load Type": [...LOAD_TYPES],
   Service: ["SEA", "AIR", "RAIL", "ROAD"],
   "Trade Direction": ["Import", "Export"],
   "Incoterm Origin": INCOTERMS,
