@@ -24,6 +24,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
 import { useQuotes } from "@/hooks/useQuotes";
+import { useMasterJobs } from "@/hooks/useMasterJobs";
 import { FieldReviewTable } from "./FieldReviewTable";
 import {
   baseCreatePayload,
@@ -143,8 +144,10 @@ export function DocumentReadingWorkflow() {
     [quotes],
   );
   const newShipmentPreview = useMemo(() => nextCzNumber(shipments), [shipments]);
-  const newMcz = useMemo(() => nextMczNumber(shipments), [shipments]);
-  const existingMcz = useMemo(() => existingMczNumbers(shipments), [shipments]);
+  const { masterJobs } = useMasterJobs();
+  const masterJobMczs = useMemo(() => masterJobs.map((m) => m.mczNumber), [masterJobs]);
+  const newMcz = useMemo(() => nextMczNumber(shipments, masterJobMczs), [shipments, masterJobMczs]);
+  const existingMcz = useMemo(() => existingMczNumbers(shipments, masterJobMczs), [shipments, masterJobMczs]);
   const activeMcz = masterMode === "existing" ? masterMczExisting : newMcz;
 
   const approvedCount = fields.filter((f) => f.approved).length;

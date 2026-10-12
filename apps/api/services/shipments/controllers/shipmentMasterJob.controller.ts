@@ -1,6 +1,7 @@
 import { api, APIError } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
+import { masterJobService } from "../services/masterJob.service";
 import type { ShipmentItem } from "../interfaces/interfaces";
 
 interface LinkMasterJobRequest {
@@ -18,7 +19,11 @@ export const shipmentLinkMasterJob = api(
     if (!req.mczNumber) {
       throw APIError.invalidArgument("mczNumber is required");
     }
-    const shipment = await shipmentService.linkMasterJob(req.shipmentId, getAuthData()!.companyID, req.mczNumber);
+    const auth = getAuthData()!;
+    await shipmentService.linkMasterJob(req.shipmentId, auth.companyID, req.mczNumber);
+    // A shipment joining a master job takes over its MBL details.
+    await masterJobService.syncShipment(req.shipmentId, auth.companyID, auth.userID);
+    const shipment = await shipmentService.getById(req.shipmentId, auth.companyID);
     return { shipment: shipment as unknown as ShipmentItem };
   },
 );

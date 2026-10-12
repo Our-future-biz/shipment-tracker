@@ -4,6 +4,8 @@ import { useState, useMemo, useEffect } from "react";
 import { Modal, Button, Input, Checkbox, Tag, Radio, Space } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { type ShipmentItem } from "@/hooks/useShipments";
+import { useMasterJobs } from "@/hooks/useMasterJobs";
+import { nextMczNumber } from "@/app/documents/_lib/extraction";
 
 interface MasterJobDialogProps {
   open: boolean;
@@ -24,32 +26,26 @@ export const MasterJobDialog = ({ open, onClose, shipments, onLink, initialSelec
   const [selectedExistingMCZ, setSelectedExistingMCZ] = useState("");
   const [isLinking, setIsLinking] = useState(false);
 
-  // Generate next MCZ number
-  const nextMCZ = useMemo(() => {
-    let maxNum = 0;
-    for (const s of shipments) {
-      const mn = s.masterJobMczNumber;
-      if (mn && mn.startsWith("MCZ")) {
-        const num = parseInt(mn.substring(3), 10);
-        if (!isNaN(num) && num > maxNum) maxNum = num;
-      }
-    }
-    return `MCZ${String(maxNum + 1).padStart(8, "0")}`;
-  }, [shipments]);
+  // Every master job on the server counts: one created on the Master Jobs page has
+  // no shipments yet, so the loaded shipments alone would hand out its number again.
+  const { masterJobs } = useMasterJobs();
+  const masterJobMczs = useMemo(() => masterJobs.map((m) => m.mczNumber), [masterJobs]);
+
+  const nextMCZ = useMemo(() => nextMczNumber(shipments, masterJobMczs), [shipments, masterJobMczs]);
 
   const activeMCZ = mode === "existing" && selectedExistingMCZ ? selectedExistingMCZ : nextMCZ;
 
-  // Existing MCZ numbers
+  // Existing MCZ numbers with their shipment counts
   const existingMCZs = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of shipments) {
       const mn = s.masterJobMczNumber;
-      if (mn && mn.startsWith("MCZ")) {
-        map.set(mn, (map.get(mn) || 0) + 1);
-      }
+      if (mn && mn.startsWith("MCZ")) map.set(mn, (map.get(mn) || 0) + 1);
     }
+    // The server knows the full count, including shipments older than the loaded ones.
+    for (const m of masterJobs) map.set(m.mczNumber, m.shipmentCount);
     return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
-  }, [shipments]);
+  }, [shipments, masterJobs]);
 
   // Filtered shipments
   const filteredShipments = useMemo(() => {

@@ -988,6 +988,13 @@ export namespace shipments {
             this.commentMarkRead = this.commentMarkRead.bind(this)
             this.commentMentions = this.commentMentions.bind(this)
             this.commentUnread = this.commentUnread.bind(this)
+            this.masterJobContainersUpdate = this.masterJobContainersUpdate.bind(this)
+            this.masterJobCreate = this.masterJobCreate.bind(this)
+            this.masterJobGet = this.masterJobGet.bind(this)
+            this.masterJobList = this.masterJobList.bind(this)
+            this.masterJobShipmentUnlink = this.masterJobShipmentUnlink.bind(this)
+            this.masterJobShipmentsLink = this.masterJobShipmentsLink.bind(this)
+            this.masterJobUpdate = this.masterJobUpdate.bind(this)
             this.shipmentCreate = this.shipmentCreate.bind(this)
             this.shipmentDashboard = this.shipmentDashboard.bind(this)
             this.shipmentDelete = this.shipmentDelete.bind(this)
@@ -1136,6 +1143,67 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipment-comments/unread`)
             return await resp.json() as controllers.CommentUnreadResponse
+        }
+
+        /**
+         * Replaces the master BL's containers and their house assignments, then copies
+         * each house's assigned containers onto it.
+         */
+        public async masterJobContainersUpdate(masterJobId: string, params: controllers.MasterJobContainersUpdateRequest): Promise<controllers.MasterJobContainersUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/master-jobs/${encodeURIComponent(masterJobId)}/containers`, JSON.stringify(params))
+            return await resp.json() as controllers.MasterJobContainersUpdateResponse
+        }
+
+        /**
+         * Creates an empty master job under the next free MCZ number.
+         */
+        public async masterJobCreate(): Promise<controllers.MasterJobCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/master-jobs`)
+            return await resp.json() as controllers.MasterJobCreateResponse
+        }
+
+        public async masterJobGet(masterJobId: string): Promise<controllers.MasterJobGetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/master-jobs/${encodeURIComponent(masterJobId)}`)
+            return await resp.json() as controllers.MasterJobGetResponse
+        }
+
+        /**
+         * Every live master job of the company, newest first, with its shipment count.
+         */
+        public async masterJobList(): Promise<controllers.MasterJobListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/master-jobs`)
+            return await resp.json() as controllers.MasterJobListResponse
+        }
+
+        /**
+         * Takes a shipment off the master job; the shipment keeps the values it got.
+         */
+        public async masterJobShipmentUnlink(masterJobId: string, shipmentId: string): Promise<controllers.MasterJobShipmentsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/master-jobs/${encodeURIComponent(masterJobId)}/shipments/${encodeURIComponent(shipmentId)}`)
+            return await resp.json() as controllers.MasterJobShipmentsResponse
+        }
+
+        /**
+         * Links shipments to the master job and copies its MBL details onto them.
+         */
+        public async masterJobShipmentsLink(masterJobId: string, params: controllers.MasterJobShipmentsLinkRequest): Promise<controllers.MasterJobShipmentsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/master-jobs/${encodeURIComponent(masterJobId)}/shipments`, JSON.stringify(params))
+            return await resp.json() as controllers.MasterJobShipmentsResponse
+        }
+
+        /**
+         * Saves MBL details; the synced ones are written onto every linked shipment too.
+         */
+        public async masterJobUpdate(masterJobId: string, params: controllers.MasterJobUpdateRequest): Promise<controllers.MasterJobUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/master-jobs/${encodeURIComponent(masterJobId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.MasterJobUpdateResponse
         }
 
         public async shipmentCreate(params: controllers.ShipmentCreateRequest): Promise<controllers.ShipmentCreateResponse> {
@@ -1979,6 +2047,77 @@ export namespace controllers {
 
     export interface LogoUploadResponse {
         customer: interfaces.CustomerItem
+    }
+
+    export interface MasterJobContainersUpdateRequest {
+        containers: interfaces.MasterJobContainerLine[]
+    }
+
+    export interface MasterJobContainersUpdateResponse {
+        masterJob: interfaces.MasterJobItem
+        containers: interfaces.MasterJobContainerLine[]
+        shipments: interfaces.MasterJobShipmentItem[]
+    }
+
+    export interface MasterJobCreateResponse {
+        masterJob: interfaces.MasterJobItem
+    }
+
+    export interface MasterJobGetResponse {
+        masterJob: interfaces.MasterJobItem
+        containers: interfaces.MasterJobContainerLine[]
+        shipments: interfaces.MasterJobShipmentItem[]
+    }
+
+    export interface MasterJobListResponse {
+        data: interfaces.MasterJobItem[]
+    }
+
+    export interface MasterJobShipmentsLinkRequest {
+        shipmentIds: string[]
+    }
+
+    export interface MasterJobShipmentsResponse {
+        masterJob: interfaces.MasterJobItem
+        containers: interfaces.MasterJobContainerLine[]
+        shipments: interfaces.MasterJobShipmentItem[]
+    }
+
+    export interface MasterJobUpdateRequest {
+        freightMode?: string
+        tradeDirection?: string
+        incotermOrigin?: string
+        incotermDestination?: string
+        bookingNumber?: string
+        closingDate?: string
+        destination?: string
+        shipper?: string
+        shipperId?: string | null
+        consignee?: string
+        consigneeId?: string | null
+        loadType?: string
+        serviceName?: string
+        shippingLine?: string
+        pol?: string
+        pod?: string
+        estimatedDeparture?: string
+        estimatedArrival?: string
+        actualDeparture?: string
+        actualArrival?: string
+        etaWarehouse?: string
+        warehouseReceivedDate?: string
+        releaseDepot?: string
+        redeliveryReference?: string
+        redeliveryDepot?: string
+        supplierPic?: string
+        masterBolNumber?: string
+        masterBolType?: string
+        vessel?: string
+        voyage?: string
+    }
+
+    export interface MasterJobUpdateResponse {
+        masterJob: interfaces.MasterJobItem
     }
 
     export interface NextJobNumberResponse {
@@ -3151,6 +3290,88 @@ export namespace interfaces {
         issuedAt: string
         createdAt: string
         updatedAt: string
+    }
+
+    /**
+     * A container on the master BL and the house shipments it is assigned to.
+     */
+    export interface MasterJobContainerLine {
+        id?: string
+        containerNumber: string
+        sealNumber: string
+        /**
+         * Same dictionary as a shipment container's type, e.g. "40' HC".
+         */
+        type: string
+
+        shipmentIds: string[]
+    }
+
+    export interface MasterJobItem {
+        id: string
+        mczNumber: string
+        /**
+         * Master job only.
+         */
+        freightMode: string
+
+        tradeDirection: string
+        incotermOrigin: string
+        incotermDestination: string
+        bookingNumber: string
+        closingDate: string | null
+        destination: string
+        shipper: string
+        shipperId: string | null
+        consignee: string
+        consigneeId: string | null
+        /**
+         * Copied onto the linked shipments.
+         */
+        loadType: string
+
+        serviceName: string
+        shippingLine: string
+        pol: string
+        pod: string
+        estimatedDeparture: string | null
+        estimatedArrival: string | null
+        actualDeparture: string | null
+        actualArrival: string | null
+        etaWarehouse: string | null
+        warehouseReceivedDate: string | null
+        releaseDepot: string
+        redeliveryReference: string
+        redeliveryDepot: string
+        supplierPic: string
+        masterBolNumber: string
+        masterBolType: string
+        vessel: string
+        voyage: string
+        /**
+         * Number of live shipments linked to this master job.
+         */
+        shipmentCount: number
+
+        createdAt: string
+        updatedAt: string
+    }
+
+    /**
+     * A house shipment as listed on its master job.
+     */
+    export interface MasterJobShipmentItem {
+        id: string
+        jobNumber: string
+        customer: string
+        shipper: string
+        consignee: string
+        tradeDirection: string
+        status: string
+        /**
+         * The house's own container numbers, comma separated.
+         */
+        containerNumber: string
     }
 
     export interface NoteItem {

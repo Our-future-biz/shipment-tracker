@@ -137,10 +137,11 @@ export function nextCzNumber(shipments: ShipmentItem[], sessionAssigned: string[
   return `CZ${String(max + 1).padStart(8, "0")}`;
 }
 
-export function nextMczNumber(shipments: ShipmentItem[]): string {
+// `masterJobs` are the MCZ numbers of every master job on the server: one created
+// on the Master Jobs page has no shipments yet, so the shipments alone miss it.
+export function nextMczNumber(shipments: ShipmentItem[], masterJobs: string[] = []): string {
   let max = 0;
-  for (const s of shipments) {
-    const mn = s.masterJobMczNumber;
+  for (const mn of [...shipments.map((s) => s.masterJobMczNumber), ...masterJobs]) {
     if (mn && mn.startsWith("MCZ")) {
       const num = parseInt(mn.substring(3), 10);
       if (!isNaN(num) && num > max) max = num;
@@ -149,10 +150,9 @@ export function nextMczNumber(shipments: ShipmentItem[]): string {
   return `MCZ${String(max + 1).padStart(8, "0")}`;
 }
 
-export function existingMczNumbers(shipments: ShipmentItem[]): string[] {
+export function existingMczNumbers(shipments: ShipmentItem[], masterJobs: string[] = []): string[] {
   const set = new Set<string>();
-  for (const s of shipments) {
-    const mn = s.masterJobMczNumber;
+  for (const mn of [...shipments.map((s) => s.masterJobMczNumber), ...masterJobs]) {
     if (mn && mn.startsWith("MCZ")) set.add(mn);
   }
   return Array.from(set).sort();
