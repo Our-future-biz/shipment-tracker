@@ -234,7 +234,73 @@ export interface ShipmentItem {
 export interface MasterJobItem {
   id: string;
   mczNumber: string;
+
+  // Master job only.
+  freightMode: string;
+  tradeDirection: string;
+  incotermOrigin: string;
+  incotermDestination: string;
+  bookingNumber: string;
+  closingDate: string | null;
+  destination: string;
+  shipper: string;
+  shipperId: string | null;
+  consignee: string;
+  consigneeId: string | null;
+  /** Cargo totals of the whole MBL. */
+  pcs: string;
+  typeOfPackages: string;
+  totalWeightTons: string;
+  totalVolumeCbm: string;
+
+  // Copied onto the linked shipments.
+  loadType: string;
+  serviceName: string;
+  shippingLine: string;
+  pol: string;
+  pod: string;
+  estimatedDeparture: string | null;
+  estimatedArrival: string | null;
+  actualDeparture: string | null;
+  actualArrival: string | null;
+  etaWarehouse: string | null;
+  warehouseReceivedDate: string | null;
+  releaseDepot: string;
+  redeliveryReference: string;
+  redeliveryDepot: string;
+  supplierPic: string;
+  masterBolNumber: string;
+  masterBolType: string;
+  vessel: string;
+  voyage: string;
+
+  /** Number of live shipments linked to this master job. */
+  shipmentCount: number;
   createdAt: string;
+  updatedAt: string;
+}
+
+/** A container on the master BL and the house shipments it is assigned to. */
+export interface MasterJobContainerLine {
+  id?: string;
+  containerNumber: string;
+  sealNumber: string;
+  /** Same dictionary as a shipment container's type, e.g. "40' HC". */
+  type: string;
+  shipmentIds: string[];
+}
+
+/** A house shipment as listed on its master job. */
+export interface MasterJobShipmentItem {
+  id: string;
+  jobNumber: string;
+  customer: string;
+  shipper: string;
+  consignee: string;
+  tradeDirection: string;
+  status: string;
+  /** The house's own container numbers, comma separated. */
+  containerNumber: string;
 }
 
 /** A chat message that tags the reader and that they have not opened yet. */

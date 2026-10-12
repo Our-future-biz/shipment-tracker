@@ -52,6 +52,8 @@ export type Department = (typeof DEPARTMENTS)[number];
 
 export const LOAD_TYPES = ["Full Load", "Consolidation", "Project Shipment"] as const;
 export type LoadType = (typeof LOAD_TYPES)[number];
+/** The load type whose master job reads its containers from the linked shipments. */
+export const FULL_LOAD: LoadType = "Full Load";
 
 export const BOL_TYPES = ["OBL", "SWB", "TLX", "Express"] as const;
 export type BolType = (typeof BOL_TYPES)[number];
