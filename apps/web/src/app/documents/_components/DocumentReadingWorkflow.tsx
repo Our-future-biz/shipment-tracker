@@ -118,6 +118,9 @@ export function DocumentReadingWorkflow() {
   // Master Job pipeline
   const [masterMode, setMasterMode] = useState<TargetMode>("new");
   const [masterMczExisting, setMasterMczExisting] = useState("");
+  // The new MCZ a batch was started under. "Next free number" moves on as soon as the
+  // first shipment is linked, so the batch keeps the number it began with.
+  const [batchMcz, setBatchMcz] = useState("");
   const [pipelineSessionId, setPipelineSessionId] = useState("");
   const [pipelineStep, setPipelineStep] = useState<PipelineStep>("idle");
   const [classification, setClassification] = useState<Record<string, number>>({});
@@ -148,7 +151,7 @@ export function DocumentReadingWorkflow() {
   const masterJobMczs = useMemo(() => masterJobs.map((m) => m.mczNumber), [masterJobs]);
   const newMcz = useMemo(() => nextMczNumber(shipments, masterJobMczs), [shipments, masterJobMczs]);
   const existingMcz = useMemo(() => existingMczNumbers(shipments, masterJobMczs), [shipments, masterJobMczs]);
-  const activeMcz = masterMode === "existing" ? masterMczExisting : newMcz;
+  const activeMcz = masterMode === "existing" ? masterMczExisting : batchMcz || newMcz;
 
   const approvedCount = fields.filter((f) => f.approved).length;
   const conflictCount = fields.filter((f) => f.hasConflict).length;
@@ -404,6 +407,7 @@ export function DocumentReadingWorkflow() {
       if (newContainers.length > 0) data.containers = newContainers;
       await updateShipment({ id: created.shipment.id, data });
       await linkMasterJob({ shipmentId: created.shipment.id, mczNumber: activeMcz });
+      if (masterMode === "new") setBatchMcz(activeMcz);
       setMasterCreatedJobs((prev) => [...prev, jobNumber]);
       advanceMaster();
     } catch {
@@ -435,6 +439,7 @@ export function DocumentReadingWorkflow() {
     setInvoiceTargetShipmentId("");
     setMasterMode("new");
     setMasterMczExisting("");
+    setBatchMcz("");
     setPipelineSessionId("");
     setPipelineStep("idle");
     setClassification({});
