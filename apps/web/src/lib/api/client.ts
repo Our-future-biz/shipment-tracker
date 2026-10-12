@@ -614,6 +614,7 @@ export namespace extraction {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.extractCustoms = this.extractCustoms.bind(this)
             this.extractDocument = this.extractDocument.bind(this)
             this.extractInvoice = this.extractInvoice.bind(this)
             this.extractQuote = this.extractQuote.bind(this)
@@ -621,6 +622,12 @@ export namespace extraction {
             this.pipelineExtractHbl = this.pipelineExtractHbl.bind(this)
             this.pipelineExtractMbl = this.pipelineExtractMbl.bind(this)
             this.pipelinePrepare = this.pipelinePrepare.bind(this)
+        }
+
+        public async extractCustoms(params: controllers.ExtractCustomsRequest): Promise<interfaces.ExtractionResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/customs`, JSON.stringify(params))
+            return await resp.json() as interfaces.ExtractionResult
         }
 
         public async extractDocument(params: controllers.ExtractDocumentRequest): Promise<interfaces.ExtractionResult> {
@@ -1942,6 +1949,11 @@ export namespace controllers {
             shipmentId: string
             reference: string
         }[]
+    }
+
+    export interface ExtractCustomsRequest {
+        fileBase64: string
+        fileName: string
     }
 
     export interface ExtractDocumentRequest {

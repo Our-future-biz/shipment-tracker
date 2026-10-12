@@ -5,7 +5,7 @@ import { extractContainerNumbers } from "@/lib/container";
 import { CONTAINER_TYPES, PACK_TYPES } from "@/lib/cargo";
 import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 
-export type Destination = "shipment" | "invoicing" | "quote" | "masterjob";
+export type Destination = "shipment" | "invoicing" | "quote" | "masterjob" | "customs";
 export type InputMode = "file" | "text";
 export type Step = "upload" | "extracting" | "review" | "committed";
 export type TargetMode = "existing" | "new";

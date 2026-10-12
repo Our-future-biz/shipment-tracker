@@ -1,8 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { secret } from "encore.dev/config";
 import { extractTextFromPdf, isImageType, isPdfType, detectMediaType } from "../lib/pdf";
-import { filterExtracted, parseJsonFromResponse, SHIPMENT_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS } from "../lib/fields";
-import { SHIPMENT_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT } from "../lib/prompts";
+import { filterExtracted, parseJsonFromResponse, SHIPMENT_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
+import { SHIPMENT_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT } from "../lib/prompts";
 import type { ExtractionResult } from "../interfaces/interfaces";
 
 const anthropicApiKey = secret("ANTHROPIC_API_KEY");
@@ -150,6 +150,11 @@ export async function extractQuoteFromFile(fileBase64: string, fileName: string)
   return extractFromDocument(fileBase64, fileName, mediaType, QUOTE_PROMPT, QUOTE_FIELDS, "Extract shipping/quote data from this document.");
 }
 
+export async function extractCustomsFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
+  const mediaType = detectMediaType(fileName);
+  return extractFromDocument(fileBase64, fileName, mediaType, CUSTOMS_PROMPT, CUSTOMS_FIELDS, "Extract the MRN number and shipment data from this customs document.", 512);
+}
+
 export async function extractFromTextByDestination(text: string, destination: string): Promise<ExtractionResult> {
   let systemPrompt: string;
   let fields: string[];
@@ -160,6 +165,11 @@ export async function extractFromTextByDestination(text: string, destination: st
       systemPrompt = INVOICE_PROMPT;
       fields = INVOICE_FIELDS;
       userPrompt = "Extract invoice/cost data from this text:";
+      break;
+    case "customs":
+      systemPrompt = CUSTOMS_PROMPT;
+      fields = CUSTOMS_FIELDS;
+      userPrompt = "Extract the MRN number and shipment data from this text:";
       break;
     case "quote":
       systemPrompt = QUOTE_PROMPT;

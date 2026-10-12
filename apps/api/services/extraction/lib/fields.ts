@@ -33,6 +33,8 @@ export const INVOICE_FIELDS = [
   "invoice_date", "due_date", "description", "service_type",
 ];
 
+export const CUSTOMS_FIELDS = ["MRN Number", "Shipper", "Consignee", "Total Weight In Tons", "Container Number"];
+
 export function filterExtracted(
   raw: Record<string, unknown>,
   validFields: string[],

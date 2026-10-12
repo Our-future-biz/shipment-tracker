@@ -68,17 +68,19 @@ type PipelineStep = "idle" | "classified" | "extracting" | "ready";
 const HBL_PREFETCH_AHEAD = 3;
 
 const DESTINATION_OPTIONS = [
-  { value: "shipment", label: "Full Sheet" },
+  { value: "shipment", label: "Shipments" },
   { value: "invoicing", label: "Invoicing" },
   { value: "quote", label: "Quote" },
   { value: "masterjob", label: "Master Job" },
+  { value: "customs", label: "Customs" },
 ] as const;
 
 const DESTINATION_HINT: Record<Destination, string> = {
-  shipment: "Extract shipping data (B/L, booking, waybill) into Full Sheet columns.",
+  shipment: "Extract shipping data (B/L, booking, waybill) into Shipments columns.",
   invoicing: "Extract cost data (invoice, debit note) — amount, vendor, invoice number.",
   quote: "Extract shipping data into a Quote record.",
   masterjob: "Extract multiple shipments from a pre-alert and create them under a Master Job (MCZ).",
+  customs: "Read the MRN Number, Shipper, Consignee, Total Weight and Container Numbers from a customs declaration into one shipment.",
 };
 
 function fieldsToLabelValues(fields: ExtractedField[]): Record<string, string> {
@@ -125,6 +127,8 @@ export function DocumentReadingWorkflow() {
   const [targetShipmentId, setTargetShipmentId] = useState("");
   const [committedJobNumber, setCommittedJobNumber] = useState("");
   const [quoteNumber, setQuoteNumber] = useState("");
+  // Customs reads always go to one existing shipment (by Internal Reference).
+  const [customsShipmentId, setCustomsShipmentId] = useState("");
 
   // Invoicing review
   const [invoiceData, setInvoiceData] = useState<InvoiceExtracted>({});
@@ -188,6 +192,8 @@ export function DocumentReadingWorkflow() {
     if (destination === "masterjob")
       return `${masterCreatedJobs.length} shipment${masterCreatedJobs.length !== 1 ? "s" : ""} created`;
     if (destination === "invoicing") return `Invoice data written to ${committedJobNumber || "shipment"}`;
+    if (destination === "customs")
+      return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
     if (destination === "quote")
       return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${quoteNumber}`;
     if (shipmentMode === "new") return `New shipment ${committedJobNumber} created`;
@@ -233,6 +239,7 @@ export function DocumentReadingWorkflow() {
     const hasInput = destination === "masterjob" || inputMode === "file" ? !!fileBase64 : textInput.trim().length >= 10;
     if (destination === "invoicing") return hasInput && !!invoiceTargetShipmentId;
     if (destination === "quote") return hasInput && !!quoteNumber;
+    if (destination === "customs") return hasInput && !!customsShipmentId;
     if (destination === "masterjob") return masterFiles.length > 0 && !masterFilesTooLarge && !!activeMcz;
     return hasInput && (shipmentMode === "new" || !!targetShipmentId);
   })();
@@ -266,6 +273,32 @@ export function DocumentReadingWorkflow() {
         setInvoiceData(extracted);
         const suggested = extracted.service_type || "";
         setInvoiceCategory(COST_CATEGORY_OPTIONS.some((c) => c.value === suggested) ? suggested : "");
+        setStep("review");
+      } else if (destination === "customs") {
+        const result =
+          inputMode === "file"
+            ? await api.extraction.extractCustoms({ fileBase64, fileName })
+            : await api.extraction.extractText({ text: textInput.trim(), destination: "customs" });
+        if (Object.keys(result.extracted).length === 0) throw new Error("No customs data found in this document.");
+        const target = shipments.find((s) => s.id === customsShipmentId);
+        const targetContainers = (target?.containers ?? []).map((c) => c.containerNumber).filter(Boolean);
+        setFields(
+          buildFields(result.extracted, (label) => {
+            if (!target) return "";
+            if (label === "MRN Number") return target.mrn || "";
+            if (label === "Container Number") return targetContainers.join(", ");
+            return getFieldValue(target, SHIPMENT_FIELD_MAP[label] ?? "");
+          }).map((f) => {
+            // Container numbers are only ever added, so they never clash with the ones on file;
+            // a weight differing only in decimals (12.5 vs 12.500) is the same weight.
+            const sameWeight =
+              f.column === "Total Weight In Tons" && parseFloat(f.extractedValue) === parseFloat(f.existingValue);
+            const hasConflict = f.column === "Container Number" || sameWeight ? false : f.hasConflict;
+            // Only the MRN is ticked up front; everything else waits for the user to tick it.
+            return { ...f, hasConflict, approved: f.column === "MRN Number" && !hasConflict };
+          }),
+        );
+        setExtractionMethod(result.method);
         setStep("review");
       } else if (destination === "quote") {
         const result =
@@ -363,6 +396,29 @@ export function DocumentReadingWorkflow() {
   };
 
   // ─── Commit: quote ───────────────────────────────────────────────
+  // ─── Commit: customs ─────────────────────────────────────────────
+  const commitCustoms = async () => {
+    const approved = fieldsToLabelValues(fields);
+    if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
+    try {
+      const target = shipments.find((s) => s.id === customsShipmentId);
+      const data = toShipmentUpdate(approved);
+      if (approved["MRN Number"]) data.mrn = approved["MRN Number"];
+      // Add only the containers the shipment doesn't have yet (never replace).
+      const existing = target?.containers ?? [];
+      const known = new Set(existing.map((c) => c.containerNumber));
+      const added = containerRowsFromNumbers(
+        parseContainerNumbers(approved["Container Number"]).filter((n) => !known.has(n)),
+      );
+      if (added.length > 0) data.containers = [...existing, ...added];
+      await updateShipment({ id: customsShipmentId, data });
+      setCommittedJobNumber(target?.jobNumber || "");
+      setStep("committed");
+    } catch {
+      toast.error("Failed to save the MRN Number.");
+    }
+  };
+
   const commitQuote = async () => {
     const approved = fieldsToLabelValues(fields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
@@ -534,6 +590,7 @@ export function DocumentReadingWorkflow() {
     setTargetShipmentId("");
     setCommittedJobNumber("");
     setQuoteNumber("");
+    setCustomsShipmentId("");
     setInvoiceData({});
     setInvoiceCategory("");
     setInvoiceTargetShipmentId("");
@@ -628,6 +685,21 @@ export function DocumentReadingWorkflow() {
             </div>
           )}
 
+          {destination === "customs" && (
+            <div className="mb-4">
+              <div className="text-xs font-medium text-slate-500 mb-1.5">Internal Reference (required)</div>
+              <Select
+                showSearch
+                className="w-full"
+                placeholder="Select shipment…"
+                value={customsShipmentId || undefined}
+                onChange={(v) => setCustomsShipmentId(v || "")}
+                options={shipmentOptions}
+                filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+              />
+            </div>
+          )}
+
           {destination === "quote" && (
             <div className="mb-4">
               <div className="text-xs font-medium text-slate-500 mb-1.5">Quote Number (required)</div>
@@ -705,7 +777,9 @@ export function DocumentReadingWorkflow() {
               <p className="ant-upload-hint">
                 {destination === "invoicing"
                   ? "Invoice, Debit Note, Freight Bill, Customs Declaration…"
-                  : destination === "masterjob"
+                  : destination === "customs"
+                    ? "Export / import declaration, transit document (T1), customs release…"
+                    : destination === "masterjob"
                     ? "Pre-alert / manifest with multiple Bills of Lading. All files go under one master job."
                     : "Bill of Lading, Sea Waybill, Booking Confirmation…"}
               </p>
@@ -759,7 +833,7 @@ export function DocumentReadingWorkflow() {
       )}
 
       {/* ─── STEP: Review — shipment / quote ─── */}
-      {step === "review" && (destination === "shipment" || destination === "quote") && (
+      {step === "review" && (destination === "shipment" || destination === "quote" || destination === "customs") && (
         <Card>
           <div className="flex items-center justify-between mb-3">
             <Space size="small" wrap>
@@ -779,10 +853,16 @@ export function DocumentReadingWorkflow() {
             <Button
               type="primary"
               disabled={approvedCount === 0}
-              onClick={destination === "quote" ? commitQuote : commitShipment}
+              onClick={destination === "quote" ? commitQuote : destination === "customs" ? commitCustoms : commitShipment}
             >
               Write {approvedCount} field{approvedCount !== 1 ? "s" : ""} to{" "}
-              {destination === "quote" ? quoteNumber : shipmentMode === "new" ? newShipmentPreview : "shipment"}
+              {destination === "quote"
+                ? quoteNumber
+                : destination === "customs"
+                  ? shipments.find((s) => s.id === customsShipmentId)?.jobNumber || "shipment"
+                  : shipmentMode === "new"
+                    ? newShipmentPreview
+                    : "shipment"}
             </Button>
           </div>
         </Card>

@@ -31,6 +31,21 @@ Rules:
 - service_type: one of "freight", "collection", "locals", "others", "insurance", "customs"
 - Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
 
+export const CUSTOMS_PROMPT = `You are a customs document data extractor. You read the MRN (Movement Reference Number) and basic shipment data from:
+- Export / import customs declarations (e.g. EX-A, ECS, EAD, CUSDEC, Czech "JSD")
+- Transit documents (T1, T2, TAD), release notes, customs clearance confirmations
+
+Rules:
+- MRN Number: the EU Movement Reference Number, 18 characters: 2 digits (year), 2 letters (country code, e.g. CZ, DE, NL), then 14 letters/digits, e.g. "25CZ590000E0123456". Often labelled "MRN", "Movement Reference Number", "Evidenční číslo" or printed beside a barcode.
+- Return it exactly as printed, in upper case, with spaces and dashes removed.
+- If the document shows several MRNs, return them separated by ", ".
+- Shipper: the exporter / consignor (EU declaration box 2), company name only.
+- Consignee: the consignee / importer (EU declaration box 8), company name only.
+- Total Weight In Tons: the total GROSS mass of the declaration, converted to metric tons (kg ÷ 1000), as a number string with a dot, e.g. "12.45". Not the net mass.
+- Container Number: container IDs (4 letters + 7 digits, e.g. "MSMU1234567"), separated by ", ".
+- Leave out any field that is not on the document. If nothing is found, return an empty JSON object.
+- Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
+
 export const QUOTE_PROMPT = `You are a shipping quote/rate request data extractor. You extract structured data from:
 - Rate Requests, Booking Inquiries, Quotation Requests
 - Bills of Lading, Sea Waybills, Booking Confirmations
