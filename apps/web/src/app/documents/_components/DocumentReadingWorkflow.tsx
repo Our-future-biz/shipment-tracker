@@ -56,6 +56,7 @@ import {
   type Step,
   type TargetMode,
   toShipmentUpdate,
+  withCargoLine,
   withPackageType,
 } from "../_lib/extraction";
 
@@ -317,6 +318,7 @@ export function DocumentReadingWorkflow() {
         if (approved["Type Of Packages"] && !data.containers?.length && target?.containers?.length) {
           data.containers = target.containers;
         }
+        data = withCargoLine(data, approved, target?.cargoItems ?? []);
         data = withPackageType(data, approved["Type Of Packages"], target?.cargoItems ?? []);
         await updateShipment({ id: targetShipmentId, data });
         setCommittedJobNumber(target?.jobNumber || "");
@@ -325,6 +327,7 @@ export function DocumentReadingWorkflow() {
         const created = await createShipment(baseCreatePayload(jobNumber, createdByStamp(user?.email)));
         let data = toShipmentUpdate(approved);
         if (newContainers.length > 0) data.containers = newContainers;
+        data = withCargoLine(data, approved);
         data = withPackageType(data, approved["Type Of Packages"]);
         await updateShipment({ id: created.shipment.id, data });
         setCommittedJobNumber(jobNumber);
@@ -493,6 +496,7 @@ export function DocumentReadingWorkflow() {
       let data = toShipmentUpdate(approved);
       const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
       if (newContainers.length > 0) data.containers = newContainers;
+      data = withCargoLine(data, approved);
       data = withPackageType(data, approved["Type Of Packages"]);
       await updateShipment({ id: created.shipment.id, data });
       const linked = await linkMasterJob({ shipmentId: created.shipment.id, mczNumber: activeMcz });

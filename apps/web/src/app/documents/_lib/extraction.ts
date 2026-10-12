@@ -273,7 +273,8 @@ export function withPackageType(
   if (!packageType) return data;
   const out = { ...data, typeOfPackages: packageType };
   if (out.containers?.length) out.containers = out.containers.map((c) => ({ ...c, packageType }));
-  if (cargoItems.length > 0) out.cargoItems = cargoItems.map((i) => ({ ...i, packageType }));
+  const items = out.cargoItems?.length ? out.cargoItems : cargoItems;
+  if (items.length > 0) out.cargoItems = items.map((i) => ({ ...i, packageType }));
   return out;
 }
 
@@ -383,4 +384,35 @@ export function mblDefaultTicks(info: Record<string, string>): Record<string, bo
     ticks[label] = !options || options.includes(value);
   }
   return ticks;
+}
+
+/**
+ * Puts the approved cargo values of a document on a cargo line. Once a shipment has
+ * container or cargo lines, its PCS, HS Code and Cargo Description are read from those
+ * lines, so values kept only on the shipment would show blank. The line carries them
+ * instead (pieces, HS code, description, gross weight in kg). A shipment that already
+ * has cargo lines keeps its own and gets none added, so nothing is counted twice.
+ */
+export function withCargoLine(
+  data: controllers.ShipmentUpdateRequest,
+  approved: Record<string, string>,
+  existingCargoItems: interfaces.CargoItemLine[] = [],
+): controllers.ShipmentUpdateRequest {
+  if (existingCargoItems.length > 0) return data;
+  const description = (approved["Cargo Description"] ?? "").trim();
+  const hsCode = (approved["HS Code"] ?? "").replace(/\D/g, "");
+  const pieces = (approved["PCS"] ?? "").replace(/[^\d.]/g, "");
+  const tons = parseFloat((approved["Total Weight In Tons"] ?? "").replace(",", "."));
+  if (!description && !hsCode && !pieces) return data;
+  const line: interfaces.CargoItemLine = {
+    containerId: null,
+    cargoDescription: description,
+    hsCode,
+    pieces,
+    packageType: approved["Type Of Packages"] ?? "",
+    grossWeight: Number.isFinite(tons) && tons > 0 ? String(Math.round(tons * 1000 * 1000) / 1000) : "",
+    commercialInvoiceValue: "",
+    currency: "",
+  };
+  return { ...data, cargoItems: [line] };
 }
