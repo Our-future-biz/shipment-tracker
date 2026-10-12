@@ -115,6 +115,9 @@ const STATUS_OPTIONS = [
 
 const PAGE_SIZE_OPTIONS = [50, 100, 150, 200];
 
+// Cells that open the shipment's Container Details tab.
+const CONTAINER_LINK_COLUMNS = new Set(["containerNumber", "containerTypeSummary", "totalTeu"]);
+
 // A cell as text, for filtering and export: the Customs "received" ticks read Yes / No
 // (what the tick shows), every other column its own value.
 function cellText(shipment: ShipmentItem, key: string): string {
@@ -482,6 +485,20 @@ export const ShipmentsTable = ({
             <button
               onClick={(e) => { e.stopPropagation(); setMczModal(val); }}
               className="text-indigo-500 hover:underline font-medium bg-transparent border-none p-0 cursor-pointer"
+              style={textStyle}
+            >
+              {val}
+            </button>
+          ) : (
+            <span className="text-slate-300">{"\u2014"}</span>
+          );
+        }
+        // Container Number / Type / Total TEU \u2192 open the shipment's Container Details tab.
+        if (CONTAINER_LINK_COLUMNS.has(col.key)) {
+          return val ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); router.push(`/shipments/${record.id}?tab=container`); }}
+              className="text-indigo-500 hover:underline font-medium bg-transparent border-none p-0 cursor-pointer text-left"
               style={textStyle}
             >
               {val}

@@ -267,6 +267,20 @@
       "when": 1791633276137,
       "tag": "0037_shipment_principal_party",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791732761674,
+      "tag": "0038_master_job_mbl_details",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1791792747763,
+      "tag": "0039_master_job_cargo_totals",
+      "breakpoints": true
     }
   ]
 }

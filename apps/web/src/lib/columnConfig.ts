@@ -57,14 +57,6 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Switch BoL": ["YES", "NO"],
   "House BoL Type": ["OBL", "SWB", "Telex", "OHBL ok", "Direct MBL"],
   "Master BoL Type": ["OBL", "SWB", "Telex", "OMBL ok"],
-  "Container's Length (1)": ["20", "40"],
-  "Container's Length (2)": ["20", "40"],
-  "Container's Length (3)": ["20", "40"],
-  "Container's Length (4)": ["20", "40"],
-  "Container's Type (1)": ["GP", "HC", "RF", "HR", "OT", "HOT", "FR"],
-  "Container's Type (2)": ["GP", "HC", "RF", "HR", "OT", "HOT", "FR"],
-  "Container's Type (3)": ["GP", "HC", "RF", "HR", "OT", "HOT", "FR"],
-  "Container's Type (4)": ["GP", "HC", "RF", "HR", "OT", "HOT", "FR"],
   "Customs Procedure": ["SCP", "JSD", "T1", "C-Goods"],
   "Customs Priority": ["Standard", "Urgent"],
   "Shipping Instructions": ["Not Queried", "Not Received", "Confirmed"],
@@ -89,7 +81,7 @@ export const DATE_COLUMNS = new Set([
 // ─── Computed / Read-only Columns ───────────────────────────────��─────
 
 export const COMPUTED_COLUMNS = new Set([
-  "teu", "totalWeightTons", "totalVolumeCbm", "freightTon", "surface", "profit",
+  "totalWeightTons", "totalVolumeCbm", "freightTon", "surface", "profit",
   "estimatedDepartureWeek", "estimatedArrivalWeek", "actualDepartureWeek", "actualArrivalWeek",
   "shipmentsDate", "shipmentsYear", "dimensionsSummary",
 ]);
@@ -190,7 +182,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "commercialInvoiceValue", title: "Commercial Invoice Value", width: 160, type: "text", apiField: "commercialInvoiceValue" },
   { key: "hsCode", title: "HS Code", width: 110, type: "text", readonly: true, apiField: "hsCode" },
   { key: "cargoDescription", title: "Cargo Description", width: 220, type: "text", readonly: true, apiField: "cargoDescription" },
-  { key: "pcs", title: "Pieces (PCS)", width: 100, type: "text", readonly: true, apiField: "pcs" },
+  { key: "pcs", title: "COLLI", width: 100, type: "text", readonly: true, apiField: "pcs" },
   { key: "creditCheck", title: "Credit Check", width: 110, type: "dropdown", options: DROPDOWN_OPTIONS["Credit Check"], apiField: "creditCheck" },
   { key: "approvedBy", title: "Approved By", width: 150, type: "text", apiField: "approvedBy" },
   { key: "bookingConfirmation", title: "Booking Confirmation", width: 180, type: "dropdown", options: DROPDOWN_OPTIONS["Booking Confirmation"], apiField: "bookingConfirmation" },
@@ -226,22 +218,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "vessel", title: "Vessel", width: 140, type: "text", apiField: "vessel" },
   { key: "voyage", title: "Voyage", width: 90, type: "text", apiField: "voyage" },
 
-  // Containers
-  { key: "containerCount1", title: "Amount Of Containers (1)", width: 140, type: "text", apiField: "containerCount1" },
-  { key: "containerLength1", title: "Container's Length (1)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Length (1)"], apiField: "containerLength1" },
-  { key: "containerType1", title: "Container's Type (1)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Type (1)"], apiField: "containerType1" },
-  { key: "containerCount2", title: "Amount Of Containers (2)", width: 140, type: "text", apiField: "containerCount2" },
-  { key: "containerLength2", title: "Container's Length (2)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Length (2)"], apiField: "containerLength2" },
-  { key: "containerType2", title: "Container's Type (2)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Type (2)"], apiField: "containerType2" },
-  { key: "containerCount3", title: "Amount Of Containers (3)", width: 140, type: "text", apiField: "containerCount3" },
-  { key: "containerLength3", title: "Container's Length (3)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Length (3)"], apiField: "containerLength3" },
-  { key: "containerType3", title: "Container's Type (3)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Type (3)"], apiField: "containerType3" },
-  { key: "containerCount4", title: "Amount Of Containers (4)", width: 140, type: "text", apiField: "containerCount4" },
-  { key: "containerLength4", title: "Container's Length (4)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Length (4)"], apiField: "containerLength4" },
-  { key: "containerType4", title: "Container's Type (4)", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["Container's Type (4)"], apiField: "containerType4" },
 
   // Computed columns
-  { key: "teu", title: "TEU", width: 70, type: "computed", readonly: true },
   // Data carrier for the dimension-derived computed columns (popup type is
   // hidden from every table/picker). Dimension rows live in cargo_dimension.
   { key: "dimensions", title: "Dimensions", width: 180, type: "popup", apiField: "cargoDimensions" },
@@ -250,8 +228,6 @@ export const COLUMNS: ColumnDef[] = [
   // Read-only projections computed by the backend from containers + cargo lines
   { key: "containerTypeSummary", title: "Container Type", width: 150, type: "text", readonly: true, apiField: "containerTypeSummary" },
   { key: "totalTeu", title: "Total TEU", width: 90, type: "text", readonly: true, apiField: "totalTeu" },
-  { key: "totalGrossWeightKg", title: "Total Gross Weight (kg)", width: 160, type: "text", readonly: true, apiField: "totalGrossWeightKg" },
-  { key: "totalVolumeM3", title: "Total Volume (m³)", width: 140, type: "text", readonly: true, apiField: "totalVolumeM3" },
   { key: "civByCurrency", title: "CIV By Currency", width: 170, type: "text", readonly: true, apiField: "civByCurrency" },
   { key: "totalWeightTons", title: "Total Weight In Tons", width: 140, type: "computed", readonly: true, apiField: "totalWeightTons" },
   { key: "totalVolumeCbm", title: "Total Volume In CBM", width: 140, type: "computed", readonly: true, apiField: "totalVolumeCbm" },
@@ -596,29 +572,10 @@ function weekFromDate(dateStr: string): string {
   return String(getISOWeek(d));
 }
 
-export function computeTEU(rowData: Record<string, string>): number {
-  let teu = 0;
-  for (let i = 1; i <= 4; i++) {
-    const count = parseFloat(rowData[`containerCount${i}`] || "0") || 0;
-    const length = parseFloat(rowData[`containerLength${i}`] || "0") || 0;
-    if (count > 0 && length > 0) {
-      teu += count * (length >= 40 ? 2 : 1);
-    }
-  }
-  return teu;
-}
-
 export function getComputedValue(key: string, rowData: Record<string, string>): string {
   const dims = computeDimensionTotals(rowData["dimensions"] || "");
 
   switch (key) {
-    case "teu": {
-      // Container rows are the source of truth; the legacy count/length field
-      // sets only cover shipments that predate the container table.
-      if (rowData["totalTeu"]) return rowData["totalTeu"];
-      const teu = computeTEU(rowData);
-      return teu > 0 ? String(teu) : "";
-    }
     case "totalWeightTons": {
       if (dims.weightKg > 0) return (dims.weightKg / 1000).toFixed(3);
       return rowData["totalWeightTons"] || "";

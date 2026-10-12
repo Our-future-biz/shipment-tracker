@@ -647,7 +647,7 @@ type CargoField = { key: string; label: string; highlight?: boolean; ro?: boolea
 // Pieces, packages, HS code and description are filled in here when the shipment has no
 // cargo or container lines yet; once it has, the lines compute them and win.
 const CARGO_COMMERCIAL_L: CargoField[] = [
-  { key: "pcs", label: "Pieces (PCS)" },
+  { key: "pcs", label: "COLLI" },
   { key: "typeOfPackages", label: "Type of packages" },
   { key: "hsCode", label: "HS code", highlight: true },
   { key: "cargoDescription", label: "Cargo description", highlight: true },
@@ -657,8 +657,6 @@ const CARGO_COMMERCIAL_L: CargoField[] = [
 const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "containerTypeSummary", label: "Container type", ro: true },
   { key: "totalTeu", label: "Total TEU", ro: true },
-  { key: "totalGrossWeightKg", label: "Total gross weight (kg)", ro: true },
-  { key: "totalVolumeM3", label: "Total volume (m³)", ro: true },
   { key: "dimensionsSummary", label: "Dimensions", ro: true },
   { key: "insurance", label: "Insurance" },
   { key: "creditCheck", label: "Credit check" },
