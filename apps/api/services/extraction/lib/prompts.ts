@@ -5,7 +5,7 @@ export const SHIPMENT_PROMPT = `You are a shipping document data extractor. You 
 - Commercial Invoices
 
 Rules:
-- Date format: MM/DD/YY (e.g., 03/15/25)
+- Date format: YYYY-MM-DD (e.g., 2025-03-15). Read day and month as the document means them: a month name (APR) settles it; for numbers only, follow the convention of the country that issued the document
 - Load Type: return exactly "FCL" or "LCL"
 - House/Master BoL Type: "OBL", "SWB", "TLX" (Telex release), or "Express"
 - Trade Direction: "IMP" (import) or "EXP" (export)
@@ -54,7 +54,7 @@ TYPE 3 - MASTER BILL OF LADING (MBL): A single consolidated document with many c
 
 Rules:
 - Return a JSON ARRAY of objects. Each object = one shipment OR one MBL info block.
-- Date format: MM/DD/YY
+- Date format: YYYY-MM-DD (e.g., 2025-03-15). Read day and month as the document means them: a month name (APR) settles it; for numbers only, follow the convention of the country that issued the document
 - Load Type: "FCL" or "LCL"
 - H/BL & M/BL type: "OBL", "SWB", "TLX", "Express"
 - Trade Direction: "IMP" or "EXP"

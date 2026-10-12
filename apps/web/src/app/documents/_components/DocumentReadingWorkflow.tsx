@@ -57,6 +57,7 @@ import {
   type TargetMode,
   toShipmentUpdate,
   withCargoLine,
+  withContainerType,
   withPackageType,
 } from "../_lib/extraction";
 
@@ -318,6 +319,7 @@ export function DocumentReadingWorkflow() {
         if (approved["Type Of Packages"] && !data.containers?.length && target?.containers?.length) {
           data.containers = target.containers;
         }
+        data = withContainerType(data, approved);
         data = withCargoLine(data, approved, target?.cargoItems ?? []);
         data = withPackageType(data, approved["Type Of Packages"], target?.cargoItems ?? []);
         await updateShipment({ id: targetShipmentId, data });
@@ -327,6 +329,7 @@ export function DocumentReadingWorkflow() {
         const created = await createShipment(baseCreatePayload(jobNumber, createdByStamp(user?.email)));
         let data = toShipmentUpdate(approved);
         if (newContainers.length > 0) data.containers = newContainers;
+        data = withContainerType(data, approved);
         data = withCargoLine(data, approved);
         data = withPackageType(data, approved["Type Of Packages"]);
         await updateShipment({ id: created.shipment.id, data });
@@ -496,6 +499,7 @@ export function DocumentReadingWorkflow() {
       let data = toShipmentUpdate(approved);
       const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
       if (newContainers.length > 0) data.containers = newContainers;
+      data = withContainerType(data, approved);
       data = withCargoLine(data, approved);
       data = withPackageType(data, approved["Type Of Packages"]);
       await updateShipment({ id: created.shipment.id, data });

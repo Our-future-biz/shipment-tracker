@@ -119,6 +119,15 @@ export function normalizeExtracted(raw: Record<string, string>): Record<string, 
 
   if (out["Type Of Packages"]) out["Type Of Packages"] = normalizePackageType(out["Type Of Packages"]);
 
+  // "40HC" + "DRY" → the app's Container's Length "40" and Type "HC".
+  for (const i of [1, 2, 3, 4]) {
+    const type = containerTypeFrom(out[`CNTR length [${i}]`] ?? "", out[`CNTR type [${i}]`] ?? "");
+    if (!type) continue;
+    const [size, kind] = type.split(" ");
+    out[`CNTR length [${i}]`] = size!.replace("'", "");
+    out[`CNTR type [${i}]`] = kind!;
+  }
+
   if (!out["Freight Mode"]) {
     const hasVessel = !!out["Vessel"];
     const hasContainer = !!(out["Container Number"] || out["CNTR count [1]"] || out["CNTR length [1]"]);
@@ -316,7 +325,8 @@ export const isMblContainerDetail = (label: string) => /^CNTR (count|length|type
 export function containerTypeFrom(length: string, kind: string): string {
   const size = (length.match(/20|40|45/) ?? [""])[0];
   if (!size) return "";
-  const k = kind.trim().toUpperCase();
+  // Documents often put the high cube in the length ("40HC") and the kind as "DRY".
+  const k = /HC|HQ|HIGH ?CUBE/i.test(length) ? "HC" : kind.trim().toUpperCase();
   const mapped =
     size === "45" ? "HQ"
     : /^(HQ|HC|HIGH ?CUBE)/.test(k) ? "HC"
@@ -414,5 +424,28 @@ export function withCargoLine(
     commercialInvoiceValue: "",
     currency: "",
   };
-  return { ...data, cargoItems: [line] };
+  const out: controllers.ShipmentUpdateRequest = { ...data, cargoItems: [line] };
+  // Volume has no place on a cargo line; with a single container it goes on that container,
+  // which is where the shipment's Total Volume (m³) is read from.
+  const cbm = parseFloat((approved["Total Volume In CBM"] ?? "").replace(",", "."));
+  if (out.containers?.length === 1 && !out.containers[0]!.volume && Number.isFinite(cbm) && cbm > 0) {
+    out.containers = [{ ...out.containers[0]!, volume: String(cbm) }];
+  }
+  return out;
+}
+
+/**
+ * Gives the container rows of a save their type ("40' HC") from the document's container
+ * group, when there is exactly one group so the type can't be mixed up.
+ */
+export function withContainerType(
+  data: controllers.ShipmentUpdateRequest,
+  approved: Record<string, string>,
+): controllers.ShipmentUpdateRequest {
+  if (!data.containers?.length) return data;
+  const groups = [1, 2, 3, 4]
+    .map((i) => containerTypeFrom(approved[`CNTR length [${i}]`] ?? "", approved[`CNTR type [${i}]`] ?? ""))
+    .filter(Boolean);
+  if (groups.length !== 1) return data;
+  return { ...data, containers: data.containers.map((c) => (c.type ? c : { ...c, type: groups[0]! })) };
 }
