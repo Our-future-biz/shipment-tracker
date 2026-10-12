@@ -55,7 +55,7 @@ export function MasterJobShipments({ masterJob, shipments, onLink, onUnlink }: M
               {shipments.map((s) => (
                 <tr key={s.id} className="border-b border-slate-100 last:border-b-0">
                   <td className={TD}>
-                    <Link href={`/shipments/${s.jobNumber}`} className="font-mono font-semibold text-indigo-600 hover:underline">
+                    <Link href={`/shipments/${s.id}`} className="font-mono font-semibold text-indigo-600 hover:underline">
                       {s.jobNumber}
                     </Link>
                   </td>
