@@ -26,7 +26,7 @@ interface CardProps {
 
 export function MasterJobCard({ id, icon, title, actions, children }: CardProps) {
   return (
-    <div id={id} className="scroll-mt-4 bg-white border border-slate-200 rounded-xl p-4 shadow-sm transition-shadow">
+    <div id={id} data-jump="card" className="scroll-mt-4 bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
       <div className="-mx-4 -mt-4 mb-4 px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
         <span className="text-indigo-500 text-base leading-none">{icon}</span>
         <span className="text-[13px] font-bold uppercase tracking-wider text-slate-700">{title}</span>
@@ -64,7 +64,7 @@ function Label({ label, synced }: { label: string; synced?: boolean }) {
 
 export function FieldRow({ label, fieldKey, value, onCommit, synced, id }: FieldRowProps) {
   return (
-    <div id={id} className={`${ROW} scroll-mt-24 rounded transition-colors`}>
+    <div id={id} data-jump={id ? "row" : undefined} className={`${ROW} scroll-mt-24 rounded`}>
       <Label label={label} synced={synced} />
       <EditableCell
         className="flex-1 min-w-0"
@@ -124,13 +124,26 @@ export function IncotermRow({ label, fieldKey, value, onCommit }: FieldRowProps)
   );
 }
 
-const FLASH = ["ring-2", "ring-indigo-300", "bg-indigo-50"];
+// Cards are white, so they flash with a ring only; rows have no background of their own
+// and also tint, which is easier to spot on a single line.
+const FLASH_CARD = ["ring-4", "ring-indigo-400", "ring-offset-2"];
+const FLASH_ROW = ["ring-2", "ring-indigo-400", "bg-indigo-100"];
+const FLASH_MS = 2200;
+const flashTimers = new WeakMap<HTMLElement, number>();
 
-/** Scroll to a card or row of the detail and flash it briefly, so the eye lands on it. */
+/**
+ * Scroll to a card or row of the detail and flash it, so the eye lands on it even
+ * when it was already on screen. A card goes to the top of the view; a row to the
+ * middle, so the fields around it stay visible.
+ */
 export function jumpTo(id: string) {
   const el = document.getElementById(id);
   if (!el) return;
-  el.scrollIntoView({ behavior: "smooth", block: "center" });
-  el.classList.add(...FLASH);
-  window.setTimeout(() => el.classList.remove(...FLASH), 1600);
+  const isRow = el.dataset.jump === "row";
+  const flash = isRow ? FLASH_ROW : FLASH_CARD;
+  el.scrollIntoView({ behavior: "smooth", block: isRow ? "center" : "start" });
+  // A second click restarts the flash instead of cutting it short.
+  window.clearTimeout(flashTimers.get(el));
+  el.classList.add(...flash);
+  flashTimers.set(el, window.setTimeout(() => el.classList.remove(...flash), FLASH_MS));
 }
