@@ -16,6 +16,10 @@ interface MasterJobUpdateRequest {
   shipperId?: string | null;
   consignee?: string;
   consigneeId?: string | null;
+  pcs?: string;
+  typeOfPackages?: string;
+  totalWeightTons?: string;
+  totalVolumeCbm?: string;
   loadType?: string;
   serviceName?: string;
   shippingLine?: string;

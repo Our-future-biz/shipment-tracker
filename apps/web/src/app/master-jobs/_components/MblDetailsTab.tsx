@@ -1,7 +1,7 @@
 "use client";
 
 import { App, Tooltip } from "antd";
-import { EnvironmentOutlined, FileTextOutlined, InboxOutlined, LockOutlined, SyncOutlined } from "@ant-design/icons";
+import { BuildOutlined, EnvironmentOutlined, FileTextOutlined, InboxOutlined, LockOutlined, SyncOutlined } from "@ant-design/icons";
 import { CustomerLinkField } from "@/app/shipments/[jobNumber]/_components/CustomerLinkField";
 import { getComputedValue } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
@@ -173,6 +173,20 @@ export function MblDetailsTab({
             {isConsolidation && (
               <FieldRow label="Service Name" fieldKey="serviceName" value={mj.serviceName} onCommit={handleCommit} synced />
             )}
+          </div>
+        </div>
+      </MasterJobCard>
+
+      {/* Totals of the whole MBL; each house keeps its own cargo, so these are not copied. */}
+      <MasterJobCard icon={<BuildOutlined />} title="MBL Cargo">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
+          <div>
+            <FieldRow label="Pieces (PCS)" fieldKey="pcs" value={mj.pcs} onCommit={handleCommit} />
+            <FieldRow label="Type Of Packages" fieldKey="typeOfPackages" value={mj.typeOfPackages} onCommit={handleCommit} />
+          </div>
+          <div>
+            <FieldRow label="Total Weight In Tons" fieldKey="totalWeightTons" value={mj.totalWeightTons} onCommit={handleCommit} />
+            <FieldRow label="Total Volume In CBM" fieldKey="totalVolumeCbm" value={mj.totalVolumeCbm} onCommit={handleCommit} />
           </div>
         </div>
       </MasterJobCard>

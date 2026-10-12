@@ -25,6 +25,11 @@ export const masterJobTable = pgTable(
     shipperId: uuid("shipper_id"),
     consignee: text("consignee").notNull().default(""),
     consigneeId: uuid("consignee_id"),
+    // Cargo totals of the whole MBL, as read from the master BL.
+    pcs: text("pcs").notNull().default(""),
+    typeOfPackages: text("type_of_packages").notNull().default(""),
+    totalWeightTons: text("total_weight_tons").notNull().default(""),
+    totalVolumeCbm: text("total_volume_cbm").notNull().default(""),
 
     // Copied onto the linked shipments.
     loadType: text("load_type").notNull().default(""),

@@ -239,6 +239,11 @@ export interface MasterJobItem {
   shipperId: string | null;
   consignee: string;
   consigneeId: string | null;
+  /** Cargo totals of the whole MBL. */
+  pcs: string;
+  typeOfPackages: string;
+  totalWeightTons: string;
+  totalVolumeCbm: string;
 
   // Copied onto the linked shipments.
   loadType: string;

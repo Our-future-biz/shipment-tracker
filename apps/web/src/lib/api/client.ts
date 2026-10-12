@@ -2099,6 +2099,10 @@ export namespace controllers {
         shipperId?: string | null
         consignee?: string
         consigneeId?: string | null
+        pcs?: string
+        typeOfPackages?: string
+        totalWeightTons?: string
+        totalVolumeCbm?: string
         loadType?: string
         serviceName?: string
         shippingLine?: string
@@ -3331,6 +3335,14 @@ export namespace interfaces {
         shipperId: string | null
         consignee: string
         consigneeId: string | null
+        /**
+         * Cargo totals of the whole MBL.
+         */
+        pcs: string
+
+        typeOfPackages: string
+        totalWeightTons: string
+        totalVolumeCbm: string
         /**
          * Copied onto the linked shipments.
          */

@@ -2,7 +2,8 @@ import type { controllers, interfaces } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { CURRENCIES } from "@/lib/enums";
 import { extractContainerNumbers } from "@/lib/container";
-import { PACK_TYPES } from "@/lib/cargo";
+import { CONTAINER_TYPES, PACK_TYPES } from "@/lib/cargo";
+import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 
 export type Destination = "shipment" | "invoicing" | "quote" | "masterjob";
 export type InputMode = "file" | "text";
@@ -107,8 +108,9 @@ export function normalizeExtracted(raw: Record<string, string>): Record<string, 
   const out: Record<string, string> = { ...raw };
 
   const lt = (out["Load Type"] || "").trim().toUpperCase();
-  if (lt === "FCL") out["Load Type"] = "Full Load";
-  else if (lt === "LCL") out["Load Type"] = "Consolidation";
+  // Documents also write "FCL/FCL", "LCL/FCL" (origin/destination); the origin side decides.
+  if (lt.startsWith("FCL")) out["Load Type"] = "Full Load";
+  else if (lt.startsWith("LCL")) out["Load Type"] = "Consolidation";
   else if (lt === "CUSTOMS" || lt === "CUSTOMS CLEARANCE") out["Load Type"] = "Customs Clearance";
 
   const td = (out["Trade Direction"] || "").trim().toUpperCase();
@@ -273,4 +275,112 @@ export function withPackageType(
   if (out.containers?.length) out.containers = out.containers.map((c) => ({ ...c, packageType }));
   if (cargoItems.length > 0) out.cargoItems = cargoItems.map((i) => ({ ...i, packageType }));
   return out;
+}
+
+// ─── MBL shared info → master job ──────────────────────────────────
+
+/** MBL detail labels and the master-job field each one is filed to. */
+export const MBL_TO_MASTER_JOB: Record<string, string> = {
+  "Booking Number": "bookingNumber",
+  "Shipping line / Coloader": "shippingLine",
+  "Load Type": "loadType",
+  "Trade Direction": "tradeDirection",
+  "Freight Mode": "freightMode",
+  "Incoterm Origin": "incotermOrigin",
+  "Incoterm Destination": "incotermDestination",
+  "Master BoL Number": "masterBolNumber",
+  "Master BoL Type": "masterBolType",
+  Shipper: "shipper",
+  Consignee: "consignee",
+  POL: "pol",
+  POD: "pod",
+  Destination: "destination",
+  "Estimated Departure": "estimatedDeparture",
+  "Estimated Arrival": "estimatedArrival",
+  Vessel: "vessel",
+  Voyage: "voyage",
+  PCS: "pcs",
+  "Type Of Packages": "typeOfPackages",
+  "Total Weight In Tons": "totalWeightTons",
+  "Total Volume In CBM": "totalVolumeCbm",
+};
+
+/** The MBL detail whose tick files its containers to the master job. */
+export const MBL_CONTAINERS_LABEL = "Container Number";
+
+/** CNTR count/length/type rows only describe the containers; they have no tick of their own. */
+export const isMblContainerDetail = (label: string) => /^CNTR (count|length|type) \[\d\]$/.test(label);
+
+/** A container type in the app's dictionary from a document's length and kind: 40 + HQ → "40' HC". */
+export function containerTypeFrom(length: string, kind: string): string {
+  const size = (length.match(/20|40|45/) ?? [""])[0];
+  if (!size) return "";
+  const k = kind.trim().toUpperCase();
+  const mapped =
+    size === "45" ? "HQ"
+    : /^(HQ|HC|HIGH ?CUBE)/.test(k) ? "HC"
+    : /^(GP|DV|DRY|ST|STD|GENERAL)/.test(k) || !k ? "GP"
+    : /^(RF|REEFER|RE)$/.test(k) ? "RF"
+    : /^(HR)$/.test(k) ? "HR"
+    : /^(OT|OPEN ?TOP)/.test(k) ? "OT"
+    : /^(FR|FLAT ?RACK)/.test(k) ? "FR"
+    : k;
+  const type = `${size}' ${mapped}`;
+  return (CONTAINER_TYPES as readonly string[]).includes(type) ? type : "";
+}
+
+/**
+ * The containers named on the MBL, ready for the master job's Containers list.
+ * The type is filled in only when it is unambiguous: a single CNTR group, or as
+ * many groups as there are container numbers.
+ */
+export function mblContainers(info: Record<string, string>): interfaces.MasterJobContainerLine[] {
+  const numbers = parseContainerNumbers(info[MBL_CONTAINERS_LABEL]);
+  const groups = [1, 2, 3, 4]
+    .map((i) => containerTypeFrom(info[`CNTR length [${i}]`] ?? "", info[`CNTR type [${i}]`] ?? ""))
+    .filter(Boolean);
+  return numbers.map((containerNumber, i) => ({
+    containerNumber,
+    sealNumber: "",
+    type: groups.length === 1 ? groups[0]! : groups.length === numbers.length ? groups[i]! : "",
+    shipmentIds: [],
+  }));
+}
+
+/** The master-job update for the ticked MBL details (container numbers are filed separately). */
+export function mblToMasterJobUpdate(
+  info: Record<string, string>,
+  ticked: Record<string, boolean>,
+): controllers.MasterJobUpdateRequest {
+  const out: Record<string, string> = {};
+  for (const [label, field] of Object.entries(MBL_TO_MASTER_JOB)) {
+    const value = (info[label] ?? "").trim();
+    if (ticked[label] && value) out[field] = value;
+  }
+  return out as controllers.MasterJobUpdateRequest;
+}
+
+// MBL details that must be one of the app's options to be valid on the master job.
+const MBL_OPTION_LISTS: Record<string, string> = {
+  "Load Type": "Load Type",
+  "Trade Direction": "Trade Direction",
+  "Freight Mode": "Freight Mode",
+  "Master BoL Type": "Master BoL Type",
+  "Incoterm Origin": "Incoterm Origin",
+  "Incoterm Destination": "Incoterm Destination",
+};
+
+/**
+ * Which MBL details start ticked: everything with a home on the master job, except a
+ * value that isn't one of the field's options (e.g. Master BoL Type "MBL") — the user
+ * can still tick it.
+ */
+export function mblDefaultTicks(info: Record<string, string>): Record<string, boolean> {
+  const ticks: Record<string, boolean> = {};
+  for (const [label, value] of Object.entries(info)) {
+    if (!value || !(label in MBL_TO_MASTER_JOB || label === MBL_CONTAINERS_LABEL)) continue;
+    const options = MBL_OPTION_LISTS[label] ? DROPDOWN_OPTIONS[MBL_OPTION_LISTS[label]] : undefined;
+    ticks[label] = !options || options.includes(value);
+  }
+  return ticks;
 }
