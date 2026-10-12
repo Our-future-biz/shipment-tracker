@@ -18,6 +18,8 @@ export interface PrepareResult {
   pages: Array<{ pageNum: number; fileName: string; type: string }>;
   /** Every uploaded file with the number of pages it contributed. */
   files: Array<{ fileName: string; pageCount: number }>;
+  /** Distinct House B/Ls found — the number of shipments the batch will create. */
+  hblCount: number;
   /** All file names, comma separated. */
   fileName: string;
 }

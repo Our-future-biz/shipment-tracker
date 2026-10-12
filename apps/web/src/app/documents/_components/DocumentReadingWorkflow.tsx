@@ -128,6 +128,8 @@ export function DocumentReadingWorkflow() {
   const [pipelineSessionId, setPipelineSessionId] = useState("");
   const [pipelineStep, setPipelineStep] = useState<PipelineStep>("idle");
   const [classification, setClassification] = useState<Record<string, number>>({});
+  // Distinct House B/Ls found — continuation pages and copies of one HBL count once.
+  const [hblCount, setHblCount] = useState(0);
   const [mblInfo, setMblInfo] = useState<Record<string, string> | null>(null);
   const [masterShipments, setMasterShipments] = useState<Record<string, string>[]>([]);
   const [masterIdx, setMasterIdx] = useState(0);
@@ -263,6 +265,7 @@ export function DocumentReadingWorkflow() {
         setPreparedFiles(prep.files);
         setPipelineSessionId(prep.sessionId);
         setClassification(prep.classification);
+        setHblCount(prep.hblCount);
         setPipelineStep("classified");
         setStep("review");
       }
@@ -768,7 +771,7 @@ export function DocumentReadingWorkflow() {
                 <h3 className="text-sm font-semibold m-0">Document Analysis Complete</h3>
               </div>
               <p className="text-xs text-slate-400 mb-3">
-                {(classification.MANIFEST || 0) + (classification.HBL || 0) + (classification.MBL || 0) + (classification.SKIP || 0)}{" "}
+                {Object.values(classification).reduce((sum, n) => sum + (n || 0), 0)}{" "}
                 pages scanned from {preparedFiles.length} file{preparedFiles.length === 1 ? "" : "s"}:
               </p>
               {preparedFiles.length > 0 && (
@@ -789,6 +792,8 @@ export function DocumentReadingWorkflow() {
                   { label: "Manifest pages", val: classification.MANIFEST || 0 },
                   { label: "House BL pages", val: classification.HBL || 0 },
                   { label: "Master BL pages", val: classification.MBL || 0 },
+                  { label: "Commercial invoice pages", val: classification.INVOICE || 0, muted: true },
+                  { label: "Packing list pages", val: classification.PACKING_LIST || 0, muted: true },
                   { label: "Skipped", val: classification.SKIP || 0, muted: true },
                 ].map((c) => (
                   <div
@@ -799,6 +804,12 @@ export function DocumentReadingWorkflow() {
                     <span className={`text-sm font-semibold ${c.muted ? "text-slate-400" : "text-amber-600"}`}>{c.val}</span>
                   </div>
                 ))}
+              </div>
+              <div className="flex items-center justify-between px-3 py-2.5 mb-4 rounded-md bg-indigo-50 border border-indigo-100">
+                <span className="text-xs font-semibold text-indigo-700">
+                  House Bills of Lading found — one shipment each
+                </span>
+                <span className="text-base font-bold text-indigo-700">{hblCount}</span>
               </div>
               {error && <Alert className="mb-3" type="error" showIcon message={error} />}
               <div className="flex gap-2">

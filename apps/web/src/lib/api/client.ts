@@ -659,6 +659,10 @@ export namespace extraction {
             return await resp.json() as interfaces.ExtractMblResult
         }
 
+        /**
+         * A pre-alert can be a dozen PDFs sent together as base64 (a third larger than
+         * the files), so the default request size limit is raised for this endpoint.
+         */
         public async pipelinePrepare(params: controllers.PipelinePrepareRequest): Promise<interfaces.PrepareResult> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/extraction/pipeline/prepare`, JSON.stringify(params))
@@ -3410,6 +3414,11 @@ export namespace interfaces {
             fileName: string
             pageCount: number
         }[]
+
+        /**
+         * Distinct House B/Ls found — the number of shipments the batch will create.
+         */
+        hblCount: number
 
         /**
          * All file names, comma separated.
