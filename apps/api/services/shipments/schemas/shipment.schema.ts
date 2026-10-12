@@ -81,6 +81,8 @@ export const shipmentTable = pgTable(
     // — Status / mode —
     freeComments: text("free_comments").notNull().default(""),
     freightPayableAt: text("freight_payable_at").notNull().default(""),
+    hub: text("hub").notNull().default(""),
+    cfs: text("cfs").notNull().default(""),
     freightMode: text("freight_mode").notNull().default(""),
 
     // — Agent —

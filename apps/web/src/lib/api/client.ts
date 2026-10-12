@@ -2194,6 +2194,8 @@ export namespace controllers {
          */
         freeComments?: string
         freightPayableAt?: string
+        hub?: string
+        cfs?: string
 
         freightMode?: string
         /**
@@ -2445,6 +2447,8 @@ export namespace controllers {
          */
         freeComments?: string
         freightPayableAt?: string
+        hub?: string
+        cfs?: string
 
         freightMode?: string
         /**
@@ -3356,6 +3360,8 @@ export namespace interfaces {
          */
         freeComments: string
         freightPayableAt: string
+        hub: string
+        cfs: string
 
         freightMode: string
         /**

@@ -122,6 +122,8 @@ export interface ShipmentItem {
   // Status / mode
   freeComments: string;
   freightPayableAt: string;
+  hub: string;
+  cfs: string;
   freightMode: string;
 
   // Agent

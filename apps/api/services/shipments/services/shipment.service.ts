@@ -9,7 +9,7 @@ import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { commercialInvoiceRepository } from "../repositories/commercialInvoice.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, normalizeContainerNumber, projectCargo } from "./cargoProjection";
-import { actionStamp, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "./fieldDefaults";
+import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "./fieldDefaults";
 import type { ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
@@ -479,6 +479,7 @@ class ShipmentService {
         bookingConfirmation: shipmentData.bookingConfirmation as string,
         invoicingStatus: shipmentData.invoicingStatus as string,
       }),
+      cfsDefault(shipmentData.hub as string, shipmentData.cfs as string),
     );
 
     // A shipment created against a quote inherits that quote's sales owner.
@@ -548,6 +549,7 @@ class ShipmentService {
         bookingConfirmation: after("bookingConfirmation"),
         invoicingStatus: after("invoicingStatus"),
       }),
+      cfsDefault(after("hub"), after("cfs")),
     );
 
     // The plate number belongs to the truck (TCZ…), not to one shipment on it. A shipment

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   actionStamp,
+  cfsDefault,
   exportBolDefaults,
   isCreditApproval,
   startingStateDefaults,
@@ -87,5 +88,21 @@ describe("actionStamp", () => {
 
   it("falls back to the timestamp when the approver is unknown", () => {
     expect(actionStamp("", at)).not.toContain("—");
+  });
+});
+
+describe("cfsDefault", () => {
+  it("fills a blank CFS with the HUB", () => {
+    expect(cfsDefault("Prague", "")).toEqual({ cfs: "Prague" });
+    expect(cfsDefault("Prague", undefined)).toEqual({ cfs: "Prague" });
+  });
+
+  it("never overwrites a CFS that was already chosen", () => {
+    expect(cfsDefault("Prague", "Brno")).toEqual({});
+  });
+
+  it("leaves the CFS alone while there is no HUB", () => {
+    expect(cfsDefault("", "")).toEqual({});
+    expect(cfsDefault(null, "Vienna")).toEqual({});
   });
 });

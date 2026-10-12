@@ -124,6 +124,8 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
             // Merge update request into shipment using Object.assign for type safety
             const updated: ShipmentItem = { ...s };
             Object.assign(updated, data);
+            // Mirrors the server rule: a HUB with no CFS makes the HUB the CFS.
+            if (updated.hub?.trim() && !updated.cfs?.trim()) updated.cfs = updated.hub.trim();
             return updated;
           }),
         };
