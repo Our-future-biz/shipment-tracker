@@ -2160,8 +2160,10 @@ export namespace controllers {
     }
 
     export interface PipelinePrepareRequest {
-        fileBase64: string
-        fileName: string
+        /**
+         * The pre-alert's files; all of them are read as one batch.
+         */
+        files: interfaces.PipelineFile[]
     }
 
     export interface PrefGetResponse {
@@ -3384,14 +3386,34 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    /**
+     * One uploaded file of a pre-alert.
+     */
+    export interface PipelineFile {
+        fileBase64: string
+        fileName: string
+    }
+
     export interface PrepareResult {
         sessionId: string
         pageCount: number
         classification: { [key: string]: number }
         pages: {
             pageNum: number
+            fileName: string
             type: string
         }[]
+        /**
+         * Every uploaded file with the number of pages it contributed.
+         */
+        files: {
+            fileName: string
+            pageCount: number
+        }[]
+
+        /**
+         * All file names, comma separated.
+         */
         fileName: string
     }
 

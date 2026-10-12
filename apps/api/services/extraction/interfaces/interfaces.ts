@@ -5,11 +5,20 @@ export interface ExtractionResult {
   fileName: string;
 }
 
+/** One uploaded file of a pre-alert. */
+export interface PipelineFile {
+  fileBase64: string;
+  fileName: string;
+}
+
 export interface PrepareResult {
   sessionId: string;
   pageCount: number;
   classification: Record<string, number>;
-  pages: Array<{ pageNum: number; type: string }>;
+  pages: Array<{ pageNum: number; fileName: string; type: string }>;
+  /** Every uploaded file with the number of pages it contributed. */
+  files: Array<{ fileName: string; pageCount: number }>;
+  /** All file names, comma separated. */
   fileName: string;
 }
 

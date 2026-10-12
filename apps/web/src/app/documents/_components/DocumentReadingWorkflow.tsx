@@ -17,7 +17,7 @@ import {
   Tag,
   Upload,
 } from "antd";
-import { InboxOutlined, ReloadOutlined } from "@ant-design/icons";
+import { DeleteOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import { fileToBase64 } from "@/lib/files";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -100,6 +100,10 @@ export function DocumentReadingWorkflow() {
   // Input
   const [fileBase64, setFileBase64] = useState("");
   const [fileName, setFileName] = useState("");
+  // A pre-alert can come as several files; all of them are read as one batch
+  // under one master job, and listed so the user sees exactly what was taken.
+  const [masterFiles, setMasterFiles] = useState<MasterFile[]>([]);
+  const [preparedFiles, setPreparedFiles] = useState<{ fileName: string; pageCount: number }[]>([]);
   const [textInput, setTextInput] = useState("");
 
   // Shipment / Quote review
@@ -174,6 +178,20 @@ export function DocumentReadingWorkflow() {
 
   // ─── Input handling ──────────────────────────────────────────────
   const beforeUpload = (file: File) => {
+    if (destination === "masterjob") {
+      fileToBase64(file)
+        .then((base64) => {
+          // The same file dropped twice is kept once.
+          setMasterFiles((prev) =>
+            prev.some((f) => f.name === file.name && f.size === file.size)
+              ? prev
+              : [...prev, { uid: `${file.name}-${file.size}-${file.lastModified}`, name: file.name, size: file.size, base64 }],
+          );
+          setError(null);
+        })
+        .catch(() => setError(`Could not read ${file.name}.`));
+      return false;
+    }
     fileToBase64(file)
       .then((b64) => {
         setFileBase64(b64);
@@ -188,7 +206,7 @@ export function DocumentReadingWorkflow() {
     const hasInput = destination === "masterjob" || inputMode === "file" ? !!fileBase64 : textInput.trim().length >= 10;
     if (destination === "invoicing") return hasInput && !!invoiceTargetShipmentId;
     if (destination === "quote") return hasInput && !!quoteNumber;
-    if (destination === "masterjob") return !!fileBase64 && !!activeMcz;
+    if (destination === "masterjob") return masterFiles.length > 0 && !!activeMcz;
     return hasInput && (shipmentMode === "new" || !!targetShipmentId);
   })();
 
@@ -236,7 +254,10 @@ export function DocumentReadingWorkflow() {
       } else {
         // masterjob — Phase 1: prepare + classify
         setPipelineStep("idle");
-        const prep = await api.extraction.pipelinePrepare({ fileBase64, fileName });
+        const prep = await api.extraction.pipelinePrepare({
+          files: masterFiles.map((f) => ({ fileBase64: f.base64, fileName: f.name })),
+        });
+        setPreparedFiles(prep.files);
         setPipelineSessionId(prep.sessionId);
         setClassification(prep.classification);
         setPipelineStep("classified");
@@ -427,6 +448,8 @@ export function DocumentReadingWorkflow() {
     setError(null);
     setFileBase64("");
     setFileName("");
+    setMasterFiles([]);
+    setPreparedFiles([]);
     setTextInput("");
     setFields([]);
     setExtractionMethod("");
@@ -585,16 +608,26 @@ export function DocumentReadingWorkflow() {
           )}
 
           {inputMode === "file" || destination === "masterjob" ? (
-            <Upload.Dragger accept=".pdf,.jpg,.jpeg,.png" beforeUpload={beforeUpload} showUploadList={false} maxCount={1}>
+            <Upload.Dragger
+              accept=".pdf,.jpg,.jpeg,.png"
+              beforeUpload={beforeUpload}
+              showUploadList={false}
+              multiple={destination === "masterjob"}
+              maxCount={destination === "masterjob" ? undefined : 1}
+            >
               <p className="ant-upload-drag-icon">
                 <InboxOutlined />
               </p>
-              <p className="ant-upload-text">{fileName || "Click or drag a file (PDF, JPG, PNG)"}</p>
+              <p className="ant-upload-text">
+                {destination === "masterjob"
+                  ? "Click or drag files (PDF, JPG, PNG) — you can add several"
+                  : fileName || "Click or drag a file (PDF, JPG, PNG)"}
+              </p>
               <p className="ant-upload-hint">
                 {destination === "invoicing"
                   ? "Invoice, Debit Note, Freight Bill, Customs Declaration…"
                   : destination === "masterjob"
-                    ? "Pre-alert / manifest with multiple Bills of Lading."
+                    ? "Pre-alert / manifest with multiple Bills of Lading. All files go under one master job."
                     : "Bill of Lading, Sea Waybill, Booking Confirmation…"}
               </p>
             </Upload.Dragger>
@@ -607,6 +640,10 @@ export function DocumentReadingWorkflow() {
               maxLength={1500}
               showCount
             />
+          )}
+
+          {destination === "masterjob" && masterFiles.length > 0 && (
+            <MasterFileList files={masterFiles} onRemove={(uid) => setMasterFiles((prev) => prev.filter((f) => f.uid !== uid))} />
           )}
 
           {error && <Alert className="mt-3" type="error" showIcon message={error} />}
@@ -623,7 +660,13 @@ export function DocumentReadingWorkflow() {
           <div className="text-center py-10">
             <Spin size="large" />
             <p className="mt-4 mb-0 text-slate-500">Analyzing document and extracting data…</p>
-            {fileName && <p className="mt-1 mb-0 text-xs text-slate-400">{fileName}</p>}
+            {destination === "masterjob" ? (
+              <p className="mt-1 mb-0 text-xs text-slate-400">
+                {masterFiles.length} file{masterFiles.length === 1 ? "" : "s"}: {masterFiles.map((f) => f.name).join(", ")}
+              </p>
+            ) : (
+              fileName && <p className="mt-1 mb-0 text-xs text-slate-400">{fileName}</p>
+            )}
           </div>
         </Card>
       )}
@@ -715,8 +758,21 @@ export function DocumentReadingWorkflow() {
               </div>
               <p className="text-xs text-slate-400 mb-3">
                 {(classification.MANIFEST || 0) + (classification.HBL || 0) + (classification.MBL || 0) + (classification.SKIP || 0)}{" "}
-                pages scanned:
+                pages scanned from {preparedFiles.length} file{preparedFiles.length === 1 ? "" : "s"}:
               </p>
+              {preparedFiles.length > 0 && (
+                <ul className="mb-3 pl-0 list-none flex flex-col gap-1">
+                  {preparedFiles.map((f) => (
+                    <li key={f.fileName} className="flex items-center gap-2 text-xs text-slate-600">
+                      <FileOutlined className="text-slate-400" />
+                      <span className="truncate">{f.fileName}</span>
+                      <span className="ml-auto shrink-0 text-slate-400">
+                        {f.pageCount} page{f.pageCount === 1 ? "" : "s"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
               <div className="grid grid-cols-2 gap-2 mb-4">
                 {[
                   { label: "Manifest pages", val: classification.MANIFEST || 0 },
@@ -840,6 +896,43 @@ export function DocumentReadingWorkflow() {
           />
         </Card>
       )}
+    </div>
+  );
+}
+
+interface MasterFile {
+  uid: string;
+  name: string;
+  size: number;
+  base64: string;
+}
+
+const formatSize = (bytes: number) =>
+  bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} kB`;
+
+// The files picked for one pre-alert, so it is clear exactly what will be read.
+function MasterFileList({ files, onRemove }: { files: MasterFile[]; onRemove: (uid: string) => void }) {
+  return (
+    <div className="mt-3 border border-slate-200 rounded-lg">
+      <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+        Uploaded files ({files.length})
+      </div>
+      <ul className="m-0 p-0 list-none">
+        {files.map((f) => (
+          <li key={f.uid} className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 last:border-b-0 text-xs">
+            <FileOutlined className="text-indigo-400" />
+            <span className="flex-1 min-w-0 truncate text-slate-800 font-medium">{f.name}</span>
+            <span className="shrink-0 text-slate-400">{formatSize(f.size)}</span>
+            <Button
+              size="small"
+              type="text"
+              icon={<DeleteOutlined />}
+              aria-label={`Remove ${f.name}`}
+              onClick={() => onRemove(f.uid)}
+            />
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -2,10 +2,12 @@ import { classifyPages, extractFromPages } from "./extraction.service";
 import { splitPdfToPages, detectMediaType } from "../lib/pdf";
 import { SHIPMENT_FIELDS } from "../lib/fields";
 import { MASTER_JOB_PROMPT } from "../lib/prompts";
-import type { PrepareResult, ExtractMblResult, ExtractHblResult } from "../interfaces/interfaces";
+import type { PrepareResult, ExtractMblResult, ExtractHblResult, PipelineFile } from "../interfaces/interfaces";
 
 interface PipelinePage {
   pageNum: number;
+  /** The uploaded file the page came from. */
+  fileName: string;
   type: string;
   base64: string;
   mediaType: string;
@@ -45,20 +47,22 @@ function getPagesByType(session: PipelineSession, type: string): PipelinePage[] 
   return session.pages.filter((p) => p.type === type);
 }
 
-export async function prepare(fileBase64: string, fileName: string): Promise<PrepareResult> {
-  const mediaType = detectMediaType(fileName);
-
-  // Split a multi-page PDF into one standalone PDF per page. Images stay as a
-  // single page. This is what lets the pipeline traverse the WHOLE document.
-  let rawPages: { base64: string; mediaType: string }[];
-  if (mediaType === "application/pdf") {
-    const pageB64s = await splitPdfToPages(fileBase64);
-    rawPages =
-      pageB64s.length > 0
-        ? pageB64s.map((b) => ({ base64: b, mediaType: "application/pdf" }))
-        : [{ base64: fileBase64, mediaType }];
-  } else {
-    rawPages = [{ base64: fileBase64, mediaType }];
+// All files of one pre-alert go into a single session, so their pages are
+// classified and extracted together and end up under one master job.
+export async function prepare(files: PipelineFile[]): Promise<PrepareResult> {
+  const rawPages: { base64: string; mediaType: string; fileName: string }[] = [];
+  const fileSummary: { fileName: string; pageCount: number }[] = [];
+  for (const { fileBase64, fileName } of files) {
+    const mediaType = detectMediaType(fileName);
+    // Split a multi-page PDF into one standalone PDF per page. Images stay as a
+    // single page. This is what lets the pipeline traverse the WHOLE document.
+    let filePages: { base64: string; mediaType: string }[] = [{ base64: fileBase64, mediaType }];
+    if (mediaType === "application/pdf") {
+      const pageB64s = await splitPdfToPages(fileBase64);
+      if (pageB64s.length > 0) filePages = pageB64s.map((b) => ({ base64: b, mediaType: "application/pdf" }));
+    }
+    rawPages.push(...filePages.map((p) => ({ ...p, fileName })));
+    fileSummary.push({ fileName, pageCount: filePages.length });
   }
 
   // Classify pages in chunks so we never send an unbounded request.
@@ -77,6 +81,7 @@ export async function prepare(fileBase64: string, fileName: string): Promise<Pre
 
   const sessionPages: PipelinePage[] = rawPages.map((p, i) => ({
     pageNum: i + 1,
+    fileName: p.fileName,
     type: types[i] || "HBL",
     base64: p.base64,
     mediaType: p.mediaType,
@@ -88,7 +93,7 @@ export async function prepare(fileBase64: string, fileName: string): Promise<Pre
     pages: sessionPages,
     mblInfo: null,
     shipments: [],
-    fileName,
+    fileName: files.map((f) => f.fileName).join(", "),
     createdAt: Date.now(),
   });
 
@@ -101,8 +106,9 @@ export async function prepare(fileBase64: string, fileName: string): Promise<Pre
     sessionId,
     pageCount: sessionPages.length,
     classification,
-    pages: sessionPages.map((p) => ({ pageNum: p.pageNum, type: p.type })),
-    fileName,
+    pages: sessionPages.map((p) => ({ pageNum: p.pageNum, fileName: p.fileName, type: p.type })),
+    files: fileSummary,
+    fileName: files.map((f) => f.fileName).join(", "),
   };
 }
 
