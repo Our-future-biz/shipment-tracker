@@ -13,7 +13,7 @@ import type { ShipmentItem } from "@/hooks/useCustomerShipments";
 import { useCustomer } from "@/hooks/useCustomers";
 import { formatDate } from "@/lib/date";
 import { isCompletedStatus } from "@/lib/enums";
-import { statusTagColor } from "@/lib/shipmentStatus";
+import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { useToast } from "@/lib/toast";
 import { fmtMoney, marginPct, num } from "../../_lib/customerMoney";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
@@ -54,7 +54,7 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
   const currency = customer?.currency || undefined;
   const completedCount = useMemo(() => shipments.filter((s) => isCompletedStatus(s.status)).length, [shipments]);
 
-  const statusOptions = useMemo(() => distinctOptions(shipments.map((s) => s.status)), [shipments]);
+  const statusOptions = useMemo(() => distinctOptions(shipments.map((s) => statusLabel(s.status))), [shipments]);
   const modeOptions = useMemo(() => distinctOptions(shipments.map((s) => s.freightMode)), [shipments]);
   const directionOptions = useMemo(() => distinctOptions(shipments.map((s) => s.tradeDirection)), [shipments]);
 
@@ -62,7 +62,7 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
     const query = search.trim().toLowerCase();
     return shipments.filter((s) => {
       if (query && !`${s.jobNumber} ${s.pol} ${s.pod}`.toLowerCase().includes(query)) return false;
-      if (status && s.status !== status) return false;
+      if (status && statusLabel(s.status) !== status) return false;
       if (mode && s.freightMode !== mode) return false;
       if (direction && s.tradeDirection !== direction) return false;
       return true;
@@ -142,7 +142,7 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       render: (v: string) =>
         v ? (
           <Tag color={statusTagColor(v)} className="!m-0">
-            {v}
+            {statusLabel(v)}
           </Tag>
         ) : (
           EMPTY_CELL

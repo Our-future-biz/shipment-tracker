@@ -27,6 +27,7 @@ export const SHIPMENT_STATUSES = [
   "Customs Clearance Pending [IMP]",
   "Loaded - Customs Clearance In Progress [EXP]",
   "Pre-Alert Sent [EXP]",
+  "Cancelled Shipment",
 ] as const;
 export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number];
 
@@ -46,7 +47,7 @@ export const DEPARTMENTS = [
 ] as const;
 export type Department = (typeof DEPARTMENTS)[number];
 
-export const LOAD_TYPES = ["Full Load", "Consolidation", "Customs Clearance"] as const;
+export const LOAD_TYPES = ["Full Load", "Consolidation", "Project Shipment"] as const;
 export type LoadType = (typeof LOAD_TYPES)[number];
 
 export const BOL_TYPES = ["OBL", "SWB", "TLX", "Express"] as const;
@@ -80,6 +81,7 @@ export const STATUS_COLORS: Record<string, string> = {
   "Customs Clearance Pending [IMP]": "#F48FB1",
   "Loaded - Customs Clearance In Progress [EXP]": "#F48FB1",
   "Pre-Alert Sent [EXP]": "#9CCC65",
+  "Cancelled Shipment": "#78909C",
 };
 
 export const CUSTOMS_STATUS_COLORS: Record<string, string> = {
@@ -93,6 +95,7 @@ export function isCompletedStatus(status: string): boolean {
   return status === "Billed [IMP]" || status === "Billed [EXP]";
 }
 
+// Neither finished nor cancelled.
 export function isActiveStatus(status: string): boolean {
-  return !isCompletedStatus(status);
+  return !isCompletedStatus(status) && status !== "Cancelled Shipment";
 }

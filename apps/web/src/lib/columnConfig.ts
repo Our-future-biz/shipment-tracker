@@ -44,8 +44,10 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
     "Pre-Alert Sent [EXP]",
     "Billing [EXP]",
     "Billed [EXP]",
+    // For imports and exports alike.
+    "Cancelled Shipment",
   ],
-  "Load Type": ["Full Load", "Consolidation", "Customs Clearance"],
+  "Load Type": ["Full Load", "Consolidation", "Project Shipment"],
   "Trade Direction": ["Import", "Export"],
   "Freight Mode": ["Air Freight", "Sea Freight", "Rail Freight", "Road Freight"],
   "Service Type": ["Direct", "In-Direct/Nominated"],
@@ -228,7 +230,6 @@ export const COLUMNS: ColumnDef[] = [
   // Read-only projections computed by the backend from containers + cargo lines
   { key: "containerTypeSummary", title: "Container Type", width: 150, type: "text", readonly: true, apiField: "containerTypeSummary" },
   { key: "totalTeu", title: "Total TEU", width: 90, type: "text", readonly: true, apiField: "totalTeu" },
-  { key: "civByCurrency", title: "CIV By Currency", width: 170, type: "text", readonly: true, apiField: "civByCurrency" },
   { key: "totalWeightTons", title: "Total Weight In Tons", width: 140, type: "computed", readonly: true, apiField: "totalWeightTons" },
   { key: "totalVolumeCbm", title: "Total Volume In CBM", width: 140, type: "computed", readonly: true, apiField: "totalVolumeCbm" },
   { key: "freightTon", title: "Freight Ton", width: 110, type: "computed", readonly: true },
@@ -334,6 +335,8 @@ const lettersOnly = (s: string) => s.toLowerCase().replace(/[^a-z]/g, "");
 const NO_URGENCY = { level: "none", reason: "", readyStatus: "" } as const;
 
 export function getShipmentUrgency(rowData: Record<string, string>): { level: ShipmentUrgency; reason: string; readyStatus: string } {
+  // A cancelled shipment has no deadlines to warn about.
+  if ((rowData["status"] || "") === "Cancelled Shipment") return NO_URGENCY;
   const dir = (rowData["tradeDirection"] || "").trim().toLowerCase();
   const rule = dir === "export" || dir === "import" ? URGENCY_RULES[dir] : null;
   if (!rule) return NO_URGENCY;
@@ -497,11 +500,6 @@ export function getCellConditionalStyle(
     if (validityStatus === "Check") return { backgroundColor: "rgba(234, 179, 8, 0.12)" };
   }
 
-  // Booking Number disabled for Customs Clearance load type
-  if (key === "bookingNumber" && rowData["loadType"] === "Customs Clearance") {
-    return { backgroundColor: "rgba(156, 163, 175, 0.1)" };
-  }
-
   return null;
 }
 
@@ -649,6 +647,7 @@ export const STATUS_COLORS: Record<string, string> = {
   "Customs Clearance Pending [IMP]": "#F48FB1",
   "Loaded - Customs Clearance In Progress [EXP]": "#F48FB1",
   "Pre-Alert Sent [EXP]": "#9CCC65",
+  "Cancelled Shipment": "#78909C",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────
@@ -670,9 +669,11 @@ export function getStatusBadgeStyle(status: string): React.CSSProperties {
   };
 }
 
-export function getFilteredStatusOptions(tradeDirection: string): string[] {
+// The Shipment Status choices for a Trade Direction: its own [IMP] / [EXP] steps plus
+// Cancelled Shipment; every status while the direction is not set yet.
+export function getFilteredStatusOptions(tradeDirection: string | null | undefined): string[] {
   const allOpts = DROPDOWN_OPTIONS["Shipment Status"]!;
-  if (tradeDirection === "Import") return allOpts.filter((o) => o.includes("[IMP]") || o === "---");
-  if (tradeDirection === "Export") return allOpts.filter((o) => o.includes("[EXP]") || o === "---");
-  return allOpts;
+  const tag = tradeDirection === "Import" ? "[IMP]" : tradeDirection === "Export" ? "[EXP]" : null;
+  if (!tag) return allOpts;
+  return allOpts.filter((o) => o.includes(tag) || o === "Cancelled Shipment");
 }

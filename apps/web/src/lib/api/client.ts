@@ -2279,6 +2279,11 @@ export namespace controllers {
         cargoItems?: interfaces.CargoItemLine[]
         cargoDimensions?: interfaces.CargoDimensionLine[]
         /**
+         * Replaces the shipment's commercial invoices when present.
+         */
+        commercialInvoices?: interfaces.CommercialInvoiceLine[]
+
+        /**
          * Quote
          */
         salesNumber?: string
@@ -2533,6 +2538,11 @@ export namespace controllers {
 
         cargoItems?: interfaces.CargoItemLine[]
         cargoDimensions?: interfaces.CargoDimensionLine[]
+        /**
+         * Replaces the shipment's commercial invoices when present.
+         */
+        commercialInvoices?: interfaces.CommercialInvoiceLine[]
+
         /**
          * Quote
          */
@@ -3003,6 +3013,15 @@ export namespace interfaces {
         unread: number
     }
 
+    /**
+     * One commercial invoice of the shipment (the Commercial Invoice pop-up).
+     */
+    export interface CommercialInvoiceLine {
+        invoiceNumber: string
+        value: string
+        currency: string
+    }
+
     export interface ContactItem {
         id: string
         customerId: string
@@ -3446,6 +3465,7 @@ export namespace interfaces {
 
         cargoItems: CargoItemLine[] | null
         cargoDimensions: CargoDimensionLine[] | null
+        commercialInvoices: CommercialInvoiceLine[] | null
         /**
          * Read-only projections computed from the rows above (never stored).
          * containerNumber/sealNumber/pcs/typeOfPackages/hsCode/cargoDescription are

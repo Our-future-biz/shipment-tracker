@@ -2,6 +2,7 @@ import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
 import type { ShipmentRecord } from "../schemas/shipment.schema";
+import { CANCELLED_STATUS } from "../repositories/shipment.repository";
 
 interface DeadlineItem {
   id: string;
@@ -105,6 +106,8 @@ export const shipmentDashboard = api(
 
     for (const shipment of allShipments) {
       const status = shipment.status || "";
+      // Cancelled shipments count nowhere and have no deadlines.
+      if (status === CANCELLED_STATUS) continue;
 
       // KPIs — active = not billed
       if (!BILLED_STATUSES.has(status)) {

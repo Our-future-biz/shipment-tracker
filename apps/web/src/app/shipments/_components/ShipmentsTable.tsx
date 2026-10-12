@@ -23,7 +23,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { getFieldValue, buildRowData, useShipments, type ShipmentItem } from "@/hooks/useShipments";
-import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
+import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
 import { DEFAULT_SHIPMENT_COLUMNS } from "@/hooks/useColumnPrefs";
@@ -36,10 +36,12 @@ import { NeedsAttentionTable } from "./NeedsAttentionTable";
 import { MasterJobDetailModal } from "./MasterJobDetailModal";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { DimensionsModal } from "./DimensionsModal";
+import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
 import { ChatPanel } from "./ChatPanel";
 import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { CustomerCell } from "./CustomerCell";
 import type { controllers } from "@/lib/api/client";
+import { statusLabel } from "@/lib/shipmentStatus";
 
 // Draggable table header cell — id comes from each column's onHeaderCell().
 type HeaderCellProps = React.ThHTMLAttributes<HTMLTableCellElement> & { id?: string };
@@ -122,6 +124,8 @@ const CONTAINER_LINK_COLUMNS = new Set(["containerNumber", "containerTypeSummary
 // (what the tick shows), every other column its own value.
 function cellText(shipment: ShipmentItem, key: string): string {
   if (isReceivedTick(key)) return receivedValue(shipment, key) ? "Yes" : "No";
+  if (key === "commercialInvoiceValue" && shipment.civByCurrency) return shipment.civByCurrency;
+  if (key === "status") return statusLabel(shipment.status);
   return getFieldValue(shipment, key);
 }
 
@@ -266,6 +270,7 @@ export const ShipmentsTable = ({
   const [docsShipment, setDocsShipment] = useState<ShipmentItem | null>(null);
   // Shipment whose Dimensions dialog is open, by id so the dialog sees fresh rows.
   const [dimsShipmentId, setDimsShipmentId] = useState<string | null>(null);
+  const [invoicesShipmentId, setInvoicesShipmentId] = useState<string | null>(null);
   const [chatShipment, setChatShipment] = useState<Pick<ShipmentItem, "id" | "jobNumber"> | null>(null);
   // ?chat=<shipmentId> (from a mention notification) opens that shipment's chat, then
   // drops out of the URL so the drawer can be closed and the same link used again.
@@ -556,6 +561,20 @@ export const ShipmentsTable = ({
             </Tooltip>
           );
         }
+        // Commercial Invoice number(s) / value \u2192 the shipment's invoices, shown and edited in a
+        // dialog. The value is the invoices' total per currency.
+        if (col.key === "commercialInvoice" || col.key === "commercialInvoiceValue") {
+          const shown = col.key === "commercialInvoiceValue" ? record.civByCurrency || val : val;
+          return (
+            <button
+              onClick={(e) => { e.stopPropagation(); setInvoicesShipmentId(record.id); }}
+              className={`hover:underline bg-transparent border-none p-0 cursor-pointer text-left ${shown ? "text-slate-600" : "text-slate-300"}`}
+              style={shown ? textStyle : undefined}
+            >
+              {shown || "\u2014"}
+            </button>
+          );
+        }
         // Read-only columns (computed, createdBy\u2026) \u2014 plain text.
         if (col.readonly || viewReadonly?.includes(col.key)) {
           return val ? <span className="text-slate-600" style={textStyle}>{val}</span> : <span className="text-slate-300">{"\u2014"}</span>;
@@ -565,6 +584,7 @@ export const ShipmentsTable = ({
           <EditableCell
             fieldKey={col.key}
             value={val}
+            options={col.key === "status" ? getFilteredStatusOptions(record.tradeDirection) : undefined}
             onCommit={(fieldKey, value) => updateField(record.id, fieldKey, value)}
             placeholder={"\u2014"}
             displayClassName="text-slate-600"
@@ -983,6 +1003,17 @@ export const ShipmentsTable = ({
       {mczModal && (
         <MasterJobDetailModal mcz={mczModal} open={!!mczModal} onClose={() => setMczModal(null)} />
       )}
+
+      <CommercialInvoicesModal
+        shipment={shipments.find((s) => s.id === invoicesShipmentId) ?? null}
+        onClose={() => setInvoicesShipmentId(null)}
+        onSave={(shipment, commercialInvoices) =>
+          updateShipment({ id: shipment.id, data: { commercialInvoices } }).catch((e) => {
+            toast.error("Could not save the commercial invoices");
+            throw e;
+          })
+        }
+      />
 
       <DimensionsModal
         shipment={shipments.find((s) => s.id === dimsShipmentId) ?? null}

@@ -24,7 +24,7 @@ import {
 import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
-import { statusTagColor } from "@/lib/shipmentStatus";
+import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { useCardFields } from "./useCardFields";
 import { useUsers } from "@/hooks/useUsers";
@@ -40,7 +40,7 @@ import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsTab } from "./tabs/CustomsTab";
-import { EditableCell } from "./_components/EditableCell";
+import { EditableCell, TradeDirectionContext } from "./_components/EditableCell";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
 import type { controllers } from "@/lib/api/client";
@@ -50,6 +50,7 @@ import { MasterJobDialog } from "../_components/MasterJobDialog";
 import { LinkedQuotePanel } from "../_components/LinkedQuotePanel";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
 import { NotesDrawer } from "../_components/NotesDrawer";
+import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
 
 export type CommitFn = (fieldKey: string, value: string) => void;
 
@@ -166,6 +167,8 @@ function SectionHeader({
   const fieldRow = (f: FieldDef): React.ReactNode =>
     renderField?.[f.key] ? (
       renderField[f.key]
+    ) : INVOICE_FIELDS.has(f.key) ? (
+      <InvoiceRow label={f.label} fieldKey={f.key} shipment={shipment!} styleFor={styleFor} />
     ) : f.ro ? (
       <RoRow label={f.label} value={getFieldValue(shipment!, f.key)} />
     ) : (
@@ -375,6 +378,56 @@ function MemberRow({
 }
 
 // Read-only horizontal row (label | value), matching FieldRow's look.
+// Commercial Invoice number(s) / value: shown from the shipment's invoices and edited in
+// the Commercial Invoices dialog (the same one the Shipments table opens).
+const INVOICE_FIELDS = new Set(["commercialInvoice", "commercialInvoiceValue"]);
+
+function InvoiceRow({
+  label,
+  fieldKey,
+  shipment,
+  styleFor,
+  labelW = "w-[140px]",
+}: {
+  label: string;
+  fieldKey: string;
+  shipment: ShipmentItem;
+  styleFor?: StyleFor;
+  labelW?: string;
+}) {
+  const { updateShipment } = useShipments();
+  const [open, setOpen] = useState(false);
+  const value =
+    fieldKey === "commercialInvoiceValue"
+      ? shipment.civByCurrency || getFieldValue(shipment, "commercialInvoiceValue")
+      : getFieldValue(shipment, fieldKey);
+  return (
+    <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
+      <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className={`flex-1 min-w-0 text-left bg-transparent border-none p-0 cursor-pointer hover:underline ${
+          value ? "text-slate-900 font-medium" : "text-slate-300"
+        }`}
+        style={value ? styleFor?.(fieldKey, value) ?? undefined : undefined}
+      >
+        {value || "—"}
+      </button>
+      <CommercialInvoicesModal
+        shipment={open ? shipment : null}
+        onClose={() => setOpen(false)}
+        onSave={(s, commercialInvoices) =>
+          updateShipment({ id: s.id, data: { commercialInvoices } }).catch((e) => {
+            message.error("Could not save the commercial invoices");
+            throw e;
+          })
+        }
+      />
+    </div>
+  );
+}
+
 function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: string | null; labelW?: string }) {
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
@@ -460,7 +513,9 @@ export function DetailCard({
             {col.filter((f) => !shown || shown.has(f.key)).map((f) => (
               <React.Fragment key={f.key}>
                 {renderBefore?.[f.key]}
-                {f.ro ? (
+                {INVOICE_FIELDS.has(f.key) ? (
+                  <InvoiceRow label={f.label} fieldKey={f.key} shipment={shipment} styleFor={styleFor} />
+                ) : f.ro ? (
                   <RoRow label={f.label} value={getFieldValue(shipment, f.key)} />
                 ) : (
                   <FieldRow label={f.label} fieldKey={f.key} value={getFieldValue(shipment, f.key)} onCommit={onCommit} styleFor={styleFor} />
@@ -674,12 +729,10 @@ function CargoRow({
   onCommit: CommitFn;
   styleFor?: StyleFor;
 }) {
-  // The commercial invoice value shows the per-currency breakdown from the
-  // cargo lines when there is one; the stored single value covers old data.
-  const value =
-    field.key === "commercialInvoiceValue"
-      ? getFieldValue(shipment, "civByCurrency") || getFieldValue(shipment, "commercialInvoiceValue")
-      : getFieldValue(shipment, field.key);
+  if (INVOICE_FIELDS.has(field.key)) {
+    return <InvoiceRow label={field.label} fieldKey={field.key} shipment={shipment} styleFor={styleFor} labelW="w-[180px]" />;
+  }
+  const value = getFieldValue(shipment, field.key);
   // Approved by is a person, picked from the company's members.
   if (field.key === "approvedBy") {
     return <MemberRow label={field.label} fieldKey={field.key} value={value} onCommit={onCommit} labelW="w-[180px]" />;
@@ -947,7 +1000,8 @@ export function ShipmentDetailContent() {
     },
   };
 
-  return (
+  // Shipment Status cells on this page offer only the shipment's Trade Direction statuses.
+  const page = (
     <div className="bg-slate-50 min-h-full">
       {/* ── Header ── */}
       <div className="bg-white border-b border-slate-200 px-6 pt-4 pb-0">
@@ -975,7 +1029,7 @@ export function ShipmentDetailContent() {
 
           <div className="flex items-center gap-3">
             {/* Status badge */}
-            {status && <Tag color={statusTagColor(status)} className="m-0 !text-[12px] !font-semibold">{status}</Tag>}
+            {status && <Tag color={statusTagColor(status)} className="m-0 !text-[12px] !font-semibold">{statusLabel(status)}</Tag>}
 
             {/* ETD / ETA */}
             <span className="text-xs text-slate-500">
@@ -1544,4 +1598,5 @@ export function ShipmentDetailContent() {
       </Modal>
     </div>
   );
+  return <TradeDirectionContext.Provider value={shipment.tradeDirection ?? undefined}>{page}</TradeDirectionContext.Provider>;
 }

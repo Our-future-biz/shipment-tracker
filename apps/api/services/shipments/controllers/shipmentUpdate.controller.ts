@@ -1,7 +1,7 @@
 import { api, APIError } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
-import type { ShipmentItem, ContainerLine, CargoItemLine, CargoDimensionLine } from "../interfaces/interfaces";
+import type { ShipmentItem, ContainerLine, CargoItemLine, CargoDimensionLine, CommercialInvoiceLine } from "../interfaces/interfaces";
 
 interface ShipmentUpdateRequest {
   shipmentId: string;
@@ -146,6 +146,8 @@ interface ShipmentUpdateRequest {
   containers?: ContainerLine[];
   cargoItems?: CargoItemLine[];
   cargoDimensions?: CargoDimensionLine[];
+  // Replaces the shipment's commercial invoices when present.
+  commercialInvoices?: CommercialInvoiceLine[];
 
   // Quote
   salesNumber?: string;

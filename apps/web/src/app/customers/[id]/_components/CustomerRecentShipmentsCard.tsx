@@ -5,7 +5,7 @@ import { Tag } from "antd";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerShipments } from "@/hooks/useCustomerShipments";
 import { formatDate } from "@/lib/date";
-import { statusTagColor } from "@/lib/shipmentStatus";
+import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { EMPTY_CELL } from "../../_lib/customerTable";
 
 const RECENT_COUNT = 5;
@@ -86,8 +86,8 @@ export function CustomerRecentShipmentsCard({ customerId, onSelectTab }: Custome
                 </span>
                 <span className={STATUS_CLASS}>
                   {shipment.status ? (
-                    <Tag color={statusTagColor(shipment.status)} title={shipment.status} className={STATUS_TAG_CLASS}>
-                      {shipment.status}
+                    <Tag color={statusTagColor(shipment.status)} title={statusLabel(shipment.status)} className={STATUS_TAG_CLASS}>
+                      {statusLabel(shipment.status)}
                     </Tag>
                   ) : (
                     EMPTY_CELL

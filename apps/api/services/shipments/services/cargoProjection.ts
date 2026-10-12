@@ -51,6 +51,19 @@ export function civByCurrency(items: CargoItemLine[]): string {
   return [...byCurrency.entries()].map(([c, v]) => `${fmtNum(v)} ${c}`).join(", ");
 }
 
+// The commercial invoices' values summed per currency: "12 500 USD, 3 000 EUR". A value
+// without a currency is shown as a bare number.
+export function invoiceValueByCurrency(invoices: { value: string; currency: string }[]): string {
+  const byCurrency = new Map<string, number>();
+  for (const inv of invoices) {
+    const value = num(inv.value);
+    if (!value) continue;
+    const currency = inv.currency.trim().toUpperCase();
+    byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + value);
+  }
+  return [...byCurrency.entries()].map(([c, v]) => `${fmtNum(v)} ${c}`.trim()).join(", ");
+}
+
 // The read-only Shipment Details fields, computed from the detail rows. Empty
 // string means "no data" (the UI renders it as —). The primary source is always
 // the container declaration; only when its total is empty do the cargo items and

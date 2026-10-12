@@ -2,6 +2,7 @@
 
 import { Tag } from "antd";
 import { getStatusStyle } from "@/lib/statusColors";
+import { statusLabel } from "@/lib/shipmentStatus";
 
 interface StatusBadgeProps {
   status: string;
@@ -19,7 +20,7 @@ export function StatusBadge({ status, label }: StatusBadgeProps) {
         color: style.text,
       }}
     >
-      {label ?? status}
+      {label ?? statusLabel(status)}
     </Tag>
   );
 }

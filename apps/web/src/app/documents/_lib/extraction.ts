@@ -107,7 +107,6 @@ export function normalizeExtracted(raw: Record<string, string>): Record<string, 
   const lt = (out["Load Type"] || "").trim().toUpperCase();
   if (lt === "FCL") out["Load Type"] = "Full Load";
   else if (lt === "LCL") out["Load Type"] = "Consolidation";
-  else if (lt === "CUSTOMS" || lt === "CUSTOMS CLEARANCE") out["Load Type"] = "Customs Clearance";
 
   const td = (out["Trade Direction"] || "").trim().toUpperCase();
   if (td === "IMP" || td === "IMPORT") out["Trade Direction"] = "Import";

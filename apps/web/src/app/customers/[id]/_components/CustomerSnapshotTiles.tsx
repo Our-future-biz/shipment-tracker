@@ -11,7 +11,7 @@ import { useCustomerShipments } from "@/hooks/useCustomerShipments";
 import type { ShipmentItem } from "@/hooks/useCustomerShipments";
 import { useCustomer } from "@/hooks/useCustomers";
 import { formatDate } from "@/lib/date";
-import { isCompletedStatus } from "@/lib/enums";
+import { isActiveStatus } from "@/lib/enums";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { ATTENTION_RULES } from "../../_lib/customerAttention";
 import { daysSince, relativeDayLabel } from "../../_lib/customerDates";
@@ -54,7 +54,7 @@ function nextArrival(shipments: ShipmentItem[]): string | null {
 }
 
 function activeShipmentsTile(shipments: ShipmentItem[]): TileContent {
-  const active = shipments.filter((shipment) => !isCompletedStatus(shipment.status));
+  const active = shipments.filter((shipment) => isActiveStatus(shipment.status));
   if (active.length === 0) return { value: 0, hint: "None in progress" };
   const eta = nextArrival(active);
   return { value: active.length, hint: eta ? `Next ETA ${formatDate(eta)}` : "No upcoming arrival" };

@@ -7,20 +7,23 @@ import { masterJobRepository } from "../repositories/masterJob.repository";
 import { containerRepository } from "../repositories/container.repository";
 import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
-import { isValidContainerNumber, normalizeContainerNumber, projectCargo } from "./cargoProjection";
-import { actionStamp, exportBolDefaults, isCreditApproval, startingStateDefaults } from "./fieldDefaults";
+import { commercialInvoiceRepository } from "../repositories/commercialInvoice.repository";
+import { invoiceValueByCurrency, isValidContainerNumber, normalizeContainerNumber, projectCargo } from "./cargoProjection";
+import { actionStamp, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "./fieldDefaults";
 import type { ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
 import type { CargoItemRecord } from "../schemas/cargoItem.schema";
 import type { CargoDimensionRecord } from "../schemas/cargoDimension.schema";
-import type { ContainerLine, CargoItemLine, CargoDimensionLine, ShipmentDueItem } from "../interfaces/interfaces";
+import type { CommercialInvoiceRecord } from "../schemas/commercialInvoice.schema";
+import type { ContainerLine, CargoItemLine, CargoDimensionLine, CommercialInvoiceLine, ShipmentDueItem } from "../interfaces/interfaces";
 
 // Extra detail rows accepted alongside the shipment's own fields on create/update.
 interface DetailRows {
   containers?: ContainerLine[];
   cargoItems?: CargoItemLine[];
   cargoDimensions?: CargoDimensionLine[];
+  commercialInvoices?: CommercialInvoiceLine[];
 }
 
 // Project table rows down to the API line shapes (drop internal
@@ -66,8 +69,23 @@ function toCargoDimensionLine(row: CargoDimensionRecord): CargoDimensionLine {
   };
 }
 
+function toCommercialInvoiceLine(row: CommercialInvoiceRecord): CommercialInvoiceLine {
+  return { invoiceNumber: row.invoiceNumber, value: row.value, currency: row.currency };
+}
+
 // Container and seal numbers live per-container; the shipment-level values are
 // read-only aggregates of every container's value.
+function uniqueJoin(values: string[]): string {
+  return [...new Set(values.map((v) => v.trim()).filter(Boolean))].join(", ");
+}
+
+// The shipment's own Commercial Invoice fields follow the invoice rows whenever they are
+// saved: the numbers joined, the single value cleared (the rows carry the values now).
+function legacyInvoiceFields(invoices: CommercialInvoiceLine[] | undefined) {
+  if (invoices === undefined) return {};
+  return { commercialInvoice: uniqueJoin(invoices.map((i) => i.invoiceNumber)), commercialInvoiceValue: null };
+}
+
 function aggregate(containers: ContainerLine[], field: "containerNumber" | "sealNumber"): string {
   return containers
     .map((c) => c[field])
@@ -78,7 +96,13 @@ function aggregate(containers: ContainerLine[], field: "containerNumber" | "seal
 // Attach detail rows and the read-only projections to a shipment row. Computed
 // values win over the stored legacy fields; the stored value only shows for
 // shipments that predate the detail tables and have no rows to compute from.
-function enrich(shipment: ShipmentRecord, containers: ContainerLine[], cargoItems: CargoItemLine[], cargoDimensions: CargoDimensionLine[]) {
+function enrich(
+  shipment: ShipmentRecord,
+  containers: ContainerLine[],
+  cargoItems: CargoItemLine[],
+  cargoDimensions: CargoDimensionLine[],
+  commercialInvoices: CommercialInvoiceLine[],
+) {
   const hasDetailRows = containers.length > 0 || cargoItems.length > 0 || cargoDimensions.length > 0;
   const p = projectCargo(containers, cargoItems, cargoDimensions);
   return {
@@ -86,13 +110,19 @@ function enrich(shipment: ShipmentRecord, containers: ContainerLine[], cargoItem
     containers,
     cargoItems,
     cargoDimensions,
+    commercialInvoices,
+    // The invoice numbers and values come from the commercial invoice rows; the stored
+    // single fields only show for shipments that have no rows.
+    commercialInvoice: commercialInvoices.length
+      ? uniqueJoin(commercialInvoices.map((i) => i.invoiceNumber))
+      : shipment.commercialInvoice,
     containerNumber: aggregate(containers, "containerNumber"),
     sealNumber: aggregate(containers, "sealNumber"),
     pcs: hasDetailRows ? p.pcs : shipment.pcs,
     typeOfPackages: hasDetailRows ? p.typeOfPackages : shipment.typeOfPackages,
     hsCode: hasDetailRows ? p.hsCode : shipment.hsCode,
     cargoDescription: hasDetailRows ? p.cargoDescription : shipment.cargoDescription,
-    civByCurrency: p.civByCurrency,
+    civByCurrency: invoiceValueByCurrency(commercialInvoices),
     containerTypeSummary: p.containerTypeSummary,
     totalTeu: p.totalTeu,
     totalGrossWeightKg: p.totalGrossWeightKg,
@@ -284,6 +314,9 @@ class ShipmentService {
         await cargoDimensionRepository.replaceForShipment(shipmentId, companyId, sanitizeContainerLinks(rows.cargoDimensions, containerIds));
       }
     }
+    if (rows.commercialInvoices !== undefined) {
+      await commercialInvoiceRepository.replaceForShipment(shipmentId, companyId, rows.commercialInvoices);
+    }
   }
 
   async list(companyId: string, filters: ShipmentListFilters) {
@@ -319,6 +352,7 @@ class ShipmentService {
     const containersByShipment = groupByShipment(await containerRepository.listByShipmentIds(shipmentIds), toContainerLine);
     const itemsByShipment = groupByShipment(await cargoItemRepository.listByShipmentIds(shipmentIds), toCargoItemLine);
     const dimensionsByShipment = groupByShipment(await cargoDimensionRepository.listByShipmentIds(shipmentIds), toCargoDimensionLine);
+    const invoicesByShipment = groupByShipment(await commercialInvoiceRepository.listByShipmentIds(shipmentIds), toCommercialInvoiceLine);
 
     // Document types per shipment — the Customs screen shows a tick when the
     // required document is present.
@@ -337,6 +371,7 @@ class ShipmentService {
         containersByShipment.get(s.id) ?? [],
         itemsByShipment.get(s.id) ?? [],
         dimensionsByShipment.get(s.id) ?? [],
+        invoicesByShipment.get(s.id) ?? [],
       ),
       masterJobMczNumber: s.masterJobId ? mczMap.get(s.masterJobId) || null : null,
       documentTypes: (docsByShipment.get(s.id) ?? []).map((d) => d.documentType),
@@ -383,9 +418,10 @@ class ShipmentService {
     const containers = (await containerRepository.listByShipmentId(id)).map(toContainerLine);
     const cargoItems = (await cargoItemRepository.listByShipmentId(id)).map(toCargoItemLine);
     const cargoDimensions = (await cargoDimensionRepository.listByShipmentId(id)).map(toCargoDimensionLine);
+    const commercialInvoices = (await commercialInvoiceRepository.listByShipmentId(id)).map(toCommercialInvoiceLine);
     const documents = await this.documentsOf(id, companyId);
     return {
-      ...enrich(shipment, containers, cargoItems, cargoDimensions),
+      ...enrich(shipment, containers, cargoItems, cargoDimensions, commercialInvoices),
       masterJobMczNumber,
       documentTypes: documents.map((d) => d.documentType),
       customsStatus: customsStatusFor(shipment.customsStatus, documents),
@@ -421,11 +457,14 @@ class ShipmentService {
   }
 
   async create(companyId: string, data: Omit<NewShipmentRecord, "companyId"> & DetailRows) {
-    const { containers, cargoItems, cargoDimensions, ...rest } = data;
+    const { containers, cargoItems, cargoDimensions, commercialInvoices, ...rest } = data;
     assertValidContainerNumbers(containers);
-    const shipmentData = sanitizeTypedFields(rest as Record<string, unknown>);
+    const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) } as Record<string, unknown>);
     // A new shipment has no paperwork yet, so its customs status starts where the paperwork does.
     delete shipmentData.customsStatus;
+    // The starting status belongs to the shipment's Trade Direction.
+    const directionStatus = statusForDirection(shipmentData.status as string, shipmentData.tradeDirection as string);
+    if (directionStatus) shipmentData.status = directionStatus;
     normalizeCustomsPriority(shipmentData, (key) => shipmentData[key] as string);
     await this.resolvePrincipalParty(shipmentData);
     Object.assign(
@@ -449,7 +488,7 @@ class ShipmentService {
       if (owner) shipmentData.salesPerson = owner;
     }
     const shipment = await shipmentRepository.createForCompany(companyId, shipmentData as never);
-    await this.syncDetailRows(shipment.id, companyId, { containers, cargoItems, cargoDimensions });
+    await this.syncDetailRows(shipment.id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
     await this.recalcCustomerRollups(shipment.customerId, companyId);
     return this.getById(shipment.id, companyId);
   }
@@ -465,9 +504,9 @@ class ShipmentService {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) return null;
 
-    const { containers, cargoItems, cargoDimensions, ...rest } = data;
+    const { containers, cargoItems, cargoDimensions, commercialInvoices, ...rest } = data;
     assertValidContainerNumbers(containers);
-    const shipmentData = sanitizeTypedFields(rest as Record<string, unknown>);
+    const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) } as Record<string, unknown>);
 
     // Up to "Paperwork Verified" the customs status follows the paperwork; only the steps
     // after it are set by hand, and only once the paperwork is approved.
@@ -492,6 +531,11 @@ class ShipmentService {
     // before the audit loop below, so the change is recorded like any other.
     const after = (key: string) => (key in shipmentData ? shipmentData[key] : (existing as Record<string, unknown>)[key]) as string;
     normalizeCustomsPriority(shipmentData, after);
+    // A Trade Direction change carries the shipment status over to the new direction.
+    if ("tradeDirection" in shipmentData && after("tradeDirection") !== existing.tradeDirection) {
+      const moved = statusForDirection(after("status"), after("tradeDirection"));
+      if (moved) shipmentData.status = moved;
+    }
     Object.assign(
       shipmentData,
       exportBolDefaults(after("tradeDirection"), {
@@ -548,7 +592,7 @@ class ShipmentService {
       }
     }
 
-    await this.syncDetailRows(id, companyId, { containers, cargoItems, cargoDimensions });
+    await this.syncDetailRows(id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
 
     if (Object.keys(shipmentData).length > 0) {
       await shipmentRepository.updateForCompany(id, companyId, shipmentData as never);

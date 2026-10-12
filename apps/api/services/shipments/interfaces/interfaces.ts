@@ -39,6 +39,13 @@ export interface CargoDimensionLine {
   stackable: string;
 }
 
+// One commercial invoice of the shipment (the Commercial Invoice pop-up).
+export interface CommercialInvoiceLine {
+  invoiceNumber: string;
+  value: string;
+  currency: string;
+}
+
 export interface ShipmentItem {
   id: string;
   jobNumber: string;
@@ -194,6 +201,7 @@ export interface ShipmentItem {
   containers: ContainerLine[] | null;
   cargoItems: CargoItemLine[] | null;
   cargoDimensions: CargoDimensionLine[] | null;
+  commercialInvoices: CommercialInvoiceLine[] | null;
 
   // Read-only projections computed from the rows above (never stored).
   // containerNumber/sealNumber/pcs/typeOfPackages/hsCode/cargoDescription are
@@ -202,7 +210,7 @@ export interface ShipmentItem {
   totalTeu: string;
   totalGrossWeightKg: string;
   totalVolumeM3: string;
-  civByCurrency: string; // e.g. "12 500 USD, 3 000 EUR"
+  civByCurrency: string; // the commercial invoices' values per currency, e.g. "12 500 USD, 3 000 EUR"
 
   // Quote
   salesNumber: string;

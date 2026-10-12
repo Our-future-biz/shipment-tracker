@@ -80,17 +80,23 @@ const isDueWithin = ({ date, keepsOverdue }: DeadlineDef, days: number) =>
     : sql`(${date}) BETWEEN ${TODAY} AND ${TODAY} + ${days}::int`;
 const anyDueWithin = (days: number) => sql`(${sql.join(DEADLINES.map((d) => isDueWithin(d, days)), sql` OR `)})`;
 
-const ACTIVE = sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced'`;
+// A cancelled shipment stays in the grid but drops out of every count, deadline and warning.
+export const CANCELLED_STATUS = "Cancelled Shipment";
+const NOT_CANCELLED = sql`${shipmentTable.status} IS DISTINCT FROM ${CANCELLED_STATUS}`;
+
+const ACTIVE = sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced' AND ${NOT_CANCELLED}`;
 
 const TILE_PREDICATES = {
   active: ACTIVE,
   attention: sql`${ACTIVE} AND ${anyDueWithin(1)}`,
-  import: sql`lower(${shipmentTable.tradeDirection}) = 'import'`,
-  export: sql`lower(${shipmentTable.tradeDirection}) = 'export'`,
+  import: sql`lower(${shipmentTable.tradeDirection}) = 'import' AND ${NOT_CANCELLED}`,
+  export: sql`lower(${shipmentTable.tradeDirection}) = 'export' AND ${NOT_CANCELLED}`,
   week: sql`${RELEVANT_ETA} IS NOT NULL
-    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', ${TODAY})`,
+    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', ${TODAY})
+    AND ${NOT_CANCELLED}`,
   nextweek: sql`${RELEVANT_ETA} IS NOT NULL
-    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', ${TODAY} + 7)`,
+    AND date_trunc('week', ${RELEVANT_ETA}) = date_trunc('week', ${TODAY} + 7)
+    AND ${NOT_CANCELLED}`,
 } as const;
 
 export type TileId = keyof typeof TILE_PREDICATES;
@@ -122,6 +128,7 @@ const CUSTOMS_DEADLINE_AT = sql`CASE WHEN ${shipmentTable.customsDeadline} ~ '^[
 const CUSTOMS_PREDICATES = {
   urgent: sql`${shipmentTable.customsPriority} = 'Urgent'
     AND ${shipmentTable.customsStatus} <> 'Customs Cleared/Released'
+    AND ${NOT_CANCELLED}
     AND ${CUSTOMS_DEADLINE_AT} < (now() AT TIME ZONE 'Europe/Prague') + interval '24 hours'`,
 } as const;
 
@@ -206,6 +213,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         eq(shipmentTable.companyId, companyId),
         eq(shipmentTable.customerId, customerId),
         isNull(shipmentTable.deletedAt),
+        NOT_CANCELLED,
       ));
     return {
       totalRevenue: Number(row?.totalRevenue ?? 0),

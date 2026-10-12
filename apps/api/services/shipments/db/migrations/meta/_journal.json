@@ -281,6 +281,13 @@
       "when": 1791792747763,
       "tag": "0039_master_job_cargo_totals",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791792748763,
+      "tag": "0040_commercial_invoices",
+      "breakpoints": true
     }
   ]
 }

@@ -63,3 +63,20 @@ export function actionStamp(actor: string, at: Date): string {
   const when = at.toLocaleString("cs-CZ", { timeZone: "Europe/Prague" });
   return actor.trim() ? `${actor.trim()} — ${when}` : when;
 }
+
+// Shipment statuses carry their direction as a suffix ("Billing [IMP]"). When a shipment's
+// Trade Direction flips, a status of the other direction moves to the same step on the new
+// side when that side has it (Booking Confirmation Pending, All Done, Billing, Billed),
+// otherwise back to Booking Confirmation Pending. Returns the new status, or undefined when
+// the status already fits (or has no direction, like "Cancelled Shipment").
+const SHARED_STEPS = ["Booking Confirmation Pending", "All Done - Waiting To Be Shipped", "Billing", "Billed"];
+
+export function statusForDirection(status: string | null | undefined, tradeDirection: string | null | undefined): string | undefined {
+  const tag = eq(tradeDirection, "Import") ? "IMP" : eq(tradeDirection, "Export") ? "EXP" : null;
+  if (!tag) return undefined;
+  const other = tag === "IMP" ? "EXP" : "IMP";
+  const match = (status ?? "").trim().match(new RegExp(`^(.*) \\[${other}\\]$`));
+  if (!match) return undefined;
+  const step = match[1]!.trim();
+  return `${SHARED_STEPS.includes(step) ? step : SHARED_STEPS[0]} [${tag}]`;
+}
