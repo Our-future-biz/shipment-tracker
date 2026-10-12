@@ -14,10 +14,6 @@ export interface ColumnDef {
 // ─── Dropdown Options ─────────────────────────────────────────────────
 
 export const DROPDOWN_OPTIONS: Record<string, string[]> = {
-  "Shipments Date": [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-  ],
   "Department": ["Operation Department", "Custom Department", "Administration Department", "Road Department"],
   "Customs Status": [
     "Waiting For Commercial Paperwork",
@@ -619,7 +615,8 @@ export function getComputedValue(key: string, rowData: Record<string, string>): 
       const d = parseDateMMDDYY(src || "");
       if (!d) return "";
       if (key === "shipmentsYear") return String(d.getFullYear());
-      return DROPDOWN_OPTIONS["Shipments Date"]?.[d.getMonth()] ?? "";
+      // Month as a number: 1 = January … 12 = December.
+      return String(d.getMonth() + 1);
     }
     case "estimatedDepartureWeek":
       return weekFromDate(rowData["estimatedDeparture"] || "");
