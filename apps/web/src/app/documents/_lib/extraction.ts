@@ -2,6 +2,7 @@ import type { controllers, interfaces } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { CURRENCIES } from "@/lib/enums";
 import { extractContainerNumbers } from "@/lib/container";
+import { PACK_TYPES } from "@/lib/cargo";
 
 export type Destination = "shipment" | "invoicing" | "quote" | "masterjob";
 export type InputMode = "file" | "text";
@@ -63,6 +64,7 @@ export const SHIPMENT_FIELD_MAP: Record<string, string> = {
   "CNTR length [4]": "containerLength4",
   "CNTR type [4]": "containerType4",
   PCS: "pcs",
+  "Type Of Packages": "typeOfPackages",
   "Total Weight In Tons": "totalWeightTons",
   "Total Volume In CBM": "totalVolumeCbm",
   "Cargo Origin": "cargoOrigin",
@@ -112,6 +114,8 @@ export function normalizeExtracted(raw: Record<string, string>): Record<string, 
   const td = (out["Trade Direction"] || "").trim().toUpperCase();
   if (td === "IMP" || td === "IMPORT") out["Trade Direction"] = "Import";
   else if (td === "EXP" || td === "EXPORT") out["Trade Direction"] = "Export";
+
+  if (out["Type Of Packages"]) out["Type Of Packages"] = normalizePackageType(out["Type Of Packages"]);
 
   if (!out["Freight Mode"]) {
     const hasVessel = !!out["Vessel"];
@@ -224,4 +228,49 @@ export function buildFields(
     const hasConflict = existingValue !== "" && existingValue !== extractedValue;
     return { column, extractedValue, existingValue, hasConflict, approved: !hasConflict };
   });
+}
+
+// How documents write the package types of the app's list (PACK_TYPES).
+const PACKAGE_SYNONYMS: Array<[RegExp, string]> = [
+  [/\b(PALLET|PALLETS|PLT|PLTS|PAL|PALS|SKID|SKIDS)\b/, "Pallet(s)"],
+  [/\b(CARTON|CARTONS|CTN|CTNS|CARTOON|CARTOONS)\b/, "Cartons"],
+  [/\b(WOODEN BOX|WOODEN BOXES|WOODEN CASE|WOODEN CASES|CRATE|CRATES|WDN|CASE|CASES)\b/, "Wooden boxes"],
+  [/\b(BOX|BOXES|BX|BXS)\b/, "Boxes"],
+  [/\b(DRUM|DRUMS|DRM|DRMS|BARREL|BARRELS)\b/, "Drums"],
+  [/\b(COLLI|COLLO|PKG|PKGS|PACKAGE|PACKAGES|PIECE|PIECES|PCS)\b/, "Colli"],
+];
+
+/**
+ * The extracted "Type Of Packages" matched to the app's package types:
+ * "8 PLTS" → "Pallet(s)", "CRATES" → "Wooden boxes". Several types become a
+ * comma-separated list; anything unknown stays as written so the user can fix
+ * it before approving.
+ */
+export function normalizePackageType(raw: string): string {
+  const text = raw.trim();
+  if (!text) return "";
+  const exact = PACK_TYPES.find((t) => t.toLowerCase() === text.toLowerCase());
+  if (exact) return exact;
+  const upper = text.toUpperCase();
+  const found = PACKAGE_SYNONYMS.filter(([re]) => re.test(upper)).map(([, type]) => type);
+  // "Wooden boxes" also matches the plain "box" rule; keep only the more specific one.
+  const types = [...new Set(found)].filter((t) => !(t === "Boxes" && found.includes("Wooden boxes")));
+  return types.length > 0 ? types.join(", ") : text;
+}
+
+/**
+ * Writes an approved package type onto the shipment and onto every container
+ * and cargo line it is being saved with: the shipment's Type Of Packages is
+ * read from those lines whenever it has any, so they must carry it too.
+ */
+export function withPackageType(
+  data: controllers.ShipmentUpdateRequest,
+  packageType: string | undefined,
+  cargoItems: interfaces.CargoItemLine[] = [],
+): controllers.ShipmentUpdateRequest {
+  if (!packageType) return data;
+  const out = { ...data, typeOfPackages: packageType };
+  if (out.containers?.length) out.containers = out.containers.map((c) => ({ ...c, packageType }));
+  if (cargoItems.length > 0) out.cargoItems = cargoItems.map((i) => ({ ...i, packageType }));
+  return out;
 }

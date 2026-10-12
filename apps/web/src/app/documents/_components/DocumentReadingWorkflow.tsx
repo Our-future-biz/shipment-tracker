@@ -47,6 +47,7 @@ import {
   type Step,
   type TargetMode,
   toShipmentUpdate,
+  withPackageType,
 } from "../_lib/extraction";
 
 type PipelineStep = "idle" | "classified" | "extracting" | "ready";
@@ -290,16 +291,22 @@ export function DocumentReadingWorkflow() {
     try {
       if (shipmentMode === "existing") {
         const target = shipments.find((s) => s.id === targetShipmentId);
-        const data = toShipmentUpdate(approved);
+        let data = toShipmentUpdate(approved);
         // Append extracted containers to the shipment's existing rows (never replace).
         if (newContainers.length > 0) data.containers = [...(target?.containers ?? []), ...newContainers];
+        // An approved package type goes onto all of the shipment's containers and cargo lines.
+        if (approved["Type Of Packages"] && !data.containers?.length && target?.containers?.length) {
+          data.containers = target.containers;
+        }
+        data = withPackageType(data, approved["Type Of Packages"], target?.cargoItems ?? []);
         await updateShipment({ id: targetShipmentId, data });
         setCommittedJobNumber(target?.jobNumber || "");
       } else {
         const jobNumber = nextCzNumber(shipments);
         const created = await createShipment(baseCreatePayload(jobNumber, createdByStamp(user?.email)));
-        const data = toShipmentUpdate(approved);
+        let data = toShipmentUpdate(approved);
         if (newContainers.length > 0) data.containers = newContainers;
+        data = withPackageType(data, approved["Type Of Packages"]);
         await updateShipment({ id: created.shipment.id, data });
         setCommittedJobNumber(jobNumber);
       }
@@ -429,9 +436,10 @@ export function DocumentReadingWorkflow() {
     try {
       const jobNumber = nextCzNumber(shipments, masterCreatedJobs);
       const created = await createShipment(baseCreatePayload(jobNumber, createdByStamp(user?.email, "System (Master Job)")));
-      const data = toShipmentUpdate(approved);
+      let data = toShipmentUpdate(approved);
       const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
       if (newContainers.length > 0) data.containers = newContainers;
+      data = withPackageType(data, approved["Type Of Packages"]);
       await updateShipment({ id: created.shipment.id, data });
       await linkMasterJob({ shipmentId: created.shipment.id, mczNumber: activeMcz });
       if (masterMode === "new") setBatchMcz(activeMcz);
