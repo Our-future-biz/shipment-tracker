@@ -8,6 +8,8 @@ import type { MasterJobContainerLine, MasterJobShipmentItem } from "@/hooks/useM
 import { MasterJobCard } from "./MasterJobFields";
 
 interface MasterJobContainersProps {
+  /** Anchor for the summary tile that jumps here. */
+  id?: string;
   containers: MasterJobContainerLine[];
   shipments: MasterJobShipmentItem[];
   onSave: (containers: MasterJobContainerLine[]) => Promise<unknown>;
@@ -20,7 +22,7 @@ const TH = "px-2 py-2 text-left text-[11px] font-bold text-slate-500 uppercase t
 // The containers on the master BL, each assigned to the houses whose cargo it
 // carries. Edited as one list and saved together; a save copies every house's
 // assigned containers onto that house.
-export function MasterJobContainers({ containers, shipments, onSave }: MasterJobContainersProps) {
+export function MasterJobContainers({ id, containers, shipments, onSave }: MasterJobContainersProps) {
   const { message } = App.useApp();
   const [draft, setDraft] = useState<MasterJobContainerLine[]>(containers);
   const [saving, setSaving] = useState(false);
@@ -48,6 +50,7 @@ export function MasterJobContainers({ containers, shipments, onSave }: MasterJob
 
   return (
     <MasterJobCard
+      id={id}
       icon={<ContainerOutlined />}
       title={`Containers (${containers.length})`}
       actions={

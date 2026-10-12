@@ -7,7 +7,7 @@ import { getComputedValue } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { teuForType } from "@/lib/cargo";
 import type { MasterJobContainerLine, MasterJobItem, MasterJobShipmentItem, MasterJobUpdate } from "@/hooks/useMasterJobs";
-import { FieldRow, IncotermRow, MasterJobCard, ReadOnlyRow } from "./MasterJobFields";
+import { FieldRow, IncotermRow, MasterJobCard, ReadOnlyRow, jumpTo } from "./MasterJobFields";
 import { MasterJobContainers } from "./MasterJobContainers";
 import { MasterJobShipments } from "./MasterJobShipments";
 
@@ -28,13 +28,34 @@ function rowData(mj: MasterJobItem): Record<string, string> {
   return out;
 }
 
-function Tile({ label, value, note }: { label: string; value: React.ReactNode; note?: React.ReactNode }) {
+// Anchors the summary tiles jump to.
+export const MJ_ANCHORS = {
+  shipments: "mj-shipments",
+  containers: "mj-containers",
+  etd: "mj-estimated-departure",
+  eta: "mj-estimated-arrival",
+} as const;
+
+interface TileProps {
+  label: string;
+  value: React.ReactNode;
+  note?: React.ReactNode;
+  /** The card or row this tile jumps to. */
+  target: string;
+}
+
+function Tile({ label, value, note, target }: TileProps) {
   return (
-    <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm">
+    <button
+      type="button"
+      onClick={() => jumpTo(target)}
+      title={`Go to ${label}`}
+      className="text-left bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-sm cursor-pointer transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+    >
       <div className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">{label}</div>
       <div className="mt-1 text-[17px] font-bold text-slate-900">{value || "—"}</div>
       {note && <div className="mt-0.5 text-[12px] text-slate-500">{note}</div>}
-    </div>
+    </button>
   );
 }
 
@@ -75,10 +96,10 @@ export function MblDetailsTab({
   return (
     <div className="flex flex-col gap-3">
       <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-        <Tile label="Linked shipments" value={String(shipments.length)} />
-        <Tile label="Containers" value={String(containers.length)} note={teu ? `${teu} TEU` : undefined} />
-        <Tile label="Estimated Departure" value={formatDate(value("estimatedDeparture"))} note={week("estimatedDepartureWeek")} />
-        <Tile label="Estimated Arrival" value={formatDate(value("estimatedArrival"))} note={week("estimatedArrivalWeek")} />
+        <Tile label="Linked shipments" value={String(shipments.length)} target={MJ_ANCHORS.shipments} />
+        <Tile label="Containers" value={String(containers.length)} note={teu ? `${teu} TEU` : undefined} target={MJ_ANCHORS.containers} />
+        <Tile label="Estimated Departure" value={formatDate(value("estimatedDeparture"))} note={week("estimatedDepartureWeek")} target={MJ_ANCHORS.etd} />
+        <Tile label="Estimated Arrival" value={formatDate(value("estimatedArrival"))} note={week("estimatedArrivalWeek")} target={MJ_ANCHORS.eta} />
       </div>
 
       <MasterJobCard icon={<FileTextOutlined />} title="MBL Details">
@@ -98,8 +119,8 @@ export function MblDetailsTab({
             <FieldRow label="Destination" fieldKey="destination" value={mj.destination} onCommit={handleCommit} />
           </div>
           <div>
-            <FieldRow label="Estimated Departure" fieldKey="estimatedDeparture" value={mj.estimatedDeparture} onCommit={handleCommit} synced />
-            <FieldRow label="Estimated Arrival" fieldKey="estimatedArrival" value={mj.estimatedArrival} onCommit={handleCommit} synced />
+            <FieldRow id={MJ_ANCHORS.etd} label="Estimated Departure" fieldKey="estimatedDeparture" value={mj.estimatedDeparture} onCommit={handleCommit} synced />
+            <FieldRow id={MJ_ANCHORS.eta} label="Estimated Arrival" fieldKey="estimatedArrival" value={mj.estimatedArrival} onCommit={handleCommit} synced />
             {showDeparture && (
               <FieldRow label="Actual Departure" fieldKey="actualDeparture" value={mj.actualDeparture} onCommit={handleCommit} synced />
             )}
@@ -150,9 +171,9 @@ export function MblDetailsTab({
         </div>
       </MasterJobCard>
 
-      <MasterJobContainers containers={containers} shipments={shipments} onSave={onSaveContainers} />
+      <MasterJobContainers id={MJ_ANCHORS.containers} containers={containers} shipments={shipments} onSave={onSaveContainers} />
 
-      <MasterJobCard icon={<InboxOutlined />} title={`Linked shipments (${shipments.length})`}>
+      <MasterJobCard id={MJ_ANCHORS.shipments} icon={<InboxOutlined />} title={`Linked shipments (${shipments.length})`}>
         <MasterJobShipments
           masterJob={mj}
           shipments={shipments}

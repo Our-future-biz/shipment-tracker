@@ -16,15 +16,17 @@ const ROW = "flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b
 const LABEL = "w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide";
 
 interface CardProps {
+  /** Anchor for the summary tiles that jump to this card. */
+  id?: string;
   icon: React.ReactNode;
   title: string;
   actions?: React.ReactNode;
   children: React.ReactNode;
 }
 
-export function MasterJobCard({ icon, title, actions, children }: CardProps) {
+export function MasterJobCard({ id, icon, title, actions, children }: CardProps) {
   return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+    <div id={id} className="scroll-mt-4 bg-white border border-slate-200 rounded-xl p-4 shadow-sm transition-shadow">
       <div className="-mx-4 -mt-4 mb-4 px-4 py-2.5 flex items-center gap-2.5 bg-indigo-50 border-b border-indigo-100 rounded-t-xl">
         <span className="text-indigo-500 text-base leading-none">{icon}</span>
         <span className="text-[13px] font-bold uppercase tracking-wider text-slate-700">{title}</span>
@@ -43,6 +45,8 @@ interface FieldRowProps {
   onCommit: MasterJobCommit;
   /** Copied onto every linked shipment — marked so the user knows a save reaches the houses. */
   synced?: boolean;
+  /** Anchor for the summary tiles that jump to this row. */
+  id?: string;
 }
 
 function Label({ label, synced }: { label: string; synced?: boolean }) {
@@ -58,9 +62,9 @@ function Label({ label, synced }: { label: string; synced?: boolean }) {
   );
 }
 
-export function FieldRow({ label, fieldKey, value, onCommit, synced }: FieldRowProps) {
+export function FieldRow({ label, fieldKey, value, onCommit, synced, id }: FieldRowProps) {
   return (
-    <div className={ROW}>
+    <div id={id} className={`${ROW} scroll-mt-24 rounded transition-colors`}>
       <Label label={label} synced={synced} />
       <EditableCell
         className="flex-1 min-w-0"
@@ -118,4 +122,15 @@ export function IncotermRow({ label, fieldKey, value, onCommit }: FieldRowProps)
       )}
     </div>
   );
+}
+
+const FLASH = ["ring-2", "ring-indigo-300", "bg-indigo-50"];
+
+/** Scroll to a card or row of the detail and flash it briefly, so the eye lands on it. */
+export function jumpTo(id: string) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.add(...FLASH);
+  window.setTimeout(() => el.classList.remove(...FLASH), 1600);
 }
