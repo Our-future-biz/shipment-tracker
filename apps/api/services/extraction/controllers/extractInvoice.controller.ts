@@ -8,7 +8,7 @@ interface ExtractInvoiceRequest {
 }
 
 export const extractInvoice = api(
-  { expose: true, auth: true, method: "POST", path: "/extraction/invoice" },
+  { expose: true, auth: true, method: "POST", path: "/extraction/invoice", bodyLimit: 50 * 1024 * 1024 },
   async (req: ExtractInvoiceRequest): Promise<ExtractionResult> => {
     if (!req.fileBase64 || !req.fileName) {
       throw APIError.invalidArgument("fileBase64 and fileName are required");

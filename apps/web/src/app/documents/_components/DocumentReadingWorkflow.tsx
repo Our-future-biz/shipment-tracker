@@ -202,11 +202,14 @@ export function DocumentReadingWorkflow() {
     return false;
   };
 
+  const masterFilesSize = masterFiles.reduce((sum, f) => sum + f.size, 0);
+  const masterFilesTooLarge = masterFilesSize > MASTER_FILES_MAX_BYTES;
+
   const canExtract = (() => {
     const hasInput = destination === "masterjob" || inputMode === "file" ? !!fileBase64 : textInput.trim().length >= 10;
     if (destination === "invoicing") return hasInput && !!invoiceTargetShipmentId;
     if (destination === "quote") return hasInput && !!quoteNumber;
-    if (destination === "masterjob") return masterFiles.length > 0 && !!activeMcz;
+    if (destination === "masterjob") return masterFiles.length > 0 && !masterFilesTooLarge && !!activeMcz;
     return hasInput && (shipmentMode === "new" || !!targetShipmentId);
   })();
 
@@ -645,6 +648,14 @@ export function DocumentReadingWorkflow() {
           {destination === "masterjob" && masterFiles.length > 0 && (
             <MasterFileList files={masterFiles} onRemove={(uid) => setMasterFiles((prev) => prev.filter((f) => f.uid !== uid))} />
           )}
+          {destination === "masterjob" && masterFilesTooLarge && (
+            <Alert
+              className="mt-3"
+              type="warning"
+              showIcon
+              message={`The files add up to ${formatSize(masterFilesSize)}; at most ${formatSize(MASTER_FILES_MAX_BYTES)} can be read in one go. Remove some and read them as a second batch with "Add to existing".`}
+            />
+          )}
 
           {error && <Alert className="mt-3" type="error" showIcon message={error} />}
 
@@ -900,6 +911,10 @@ export function DocumentReadingWorkflow() {
   );
 }
 
+// The server accepts 100 MB per request and the files travel base64-encoded
+// (a third larger), so this is the most one batch can carry.
+const MASTER_FILES_MAX_BYTES = 70 * 1024 * 1024;
+
 interface MasterFile {
   uid: string;
   name: string;
@@ -915,7 +930,7 @@ function MasterFileList({ files, onRemove }: { files: MasterFile[]; onRemove: (u
   return (
     <div className="mt-3 border border-slate-200 rounded-lg">
       <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-        Uploaded files ({files.length})
+        Uploaded files ({files.length}) · {formatSize(files.reduce((sum, f) => sum + f.size, 0))}
       </div>
       <ul className="m-0 p-0 list-none">
         {files.map((f) => (
