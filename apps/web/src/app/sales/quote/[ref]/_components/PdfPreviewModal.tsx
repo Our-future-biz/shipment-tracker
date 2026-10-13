@@ -1,16 +1,27 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Modal, Button } from "antd";
-import type { SalesQuoteData, PackageLine, CostLine } from "@/app/sales/_lib/types";
-import { computeTotals, fmt, type SalesQuote } from "@/app/sales/_lib/salesQuote";
-import { printQuote } from "@/app/sales/_lib/printQuote";
+import Link from "next/link";
+import { Alert, Button, Spin } from "antd";
+import { LINK_CLASS } from "@/components/linkClass";
+import { PillTabs } from "@/components/SectionCard";
+import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
+import { useSalesPermissions } from "@/hooks/useSalesPermissions";
+import { useCompanyDetails } from "@/hooks/useSalesPrefs";
+import { useToast } from "@/lib/toast";
+import type { SalesQuoteData } from "@/app/sales/_lib/types";
+import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
+import { SalesDialog } from "@/app/sales/_components/SalesDialog";
+import { hasCompanyDetails } from "@/app/sales/_lib/companyDetails";
+import { printQuote, quoteDocument } from "@/app/sales/_lib/printQuote";
+import { salesSettingsHref } from "@/app/sales/_lib/tabs";
 
 export function PdfPreviewModal({
   open,
   quoteNumber,
   data,
   family,
+  familyError,
   onClose,
 }: {
   open: boolean;
@@ -19,8 +30,15 @@ export function PdfPreviewModal({
   // Sibling variants (-2/-3 refs); when given, the preview shows tabs to flip
   // between them without leaving the modal.
   family?: SalesQuote[];
+  // Given when the variants could not be loaded: the preview says so and offers to ask again -
+  // without their tabs it would look like that of a quote without variants.
+  familyError?: { onRetry: () => void };
   onClose: () => void;
 }) {
+  const exchange = useCurrentExchangeRates();
+  const company = useCompanyDetails();
+  const permissions = useSalesPermissions();
+  const toast = useToast();
   const [activeRef, setActiveRef] = useState(quoteNumber);
   useEffect(() => {
     if (open) setActiveRef(quoteNumber);
@@ -30,202 +48,103 @@ export function PdfPreviewModal({
   const shown: SalesQuoteData = activeRef === quoteNumber ? data : (activeQuote?.data ?? data);
   const shownRef = activeQuote ? activeQuote.quoteNumber : quoteNumber;
 
-  const currency = shown.currency ?? "EUR";
-  const totals = computeTotals(shown);
-  const packages: PackageLine[] = shown.packages ?? [];
-  const sellingLines: CostLine[] = shown.sellingLines ?? [];
-  const totalPackages = packages.reduce((sum, p) => sum + (Number(p.qty) || 0), 0);
+  // The preview is not a second layout: it shows the very document Export PDF prints. A quote
+  // that has no document - an incomplete total, company details or exchange rates that did not
+  // load - shows the reason instead.
+  const doc = quoteDocument(shownRef, shown, exchange, company);
+  // What did not load can be asked for again right here.
+  const retry = company.status === "error" ? company.reload : exchange.isError ? exchange.reload : null;
 
-  const Field = ({ label, value }: { label: string; value?: string }) => (
-    <div className="flex text-[13px]">
-      <span className="w-32 shrink-0 text-slate-400">{label}</span>
-      <span className="text-slate-700">{value || "—"}</span>
-    </div>
-  );
-
-  const SectionTitle = ({ children }: { children: string }) => (
-    <h3 className="mt-6 mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{children}</h3>
-  );
+  const exportPdf = () => {
+    const blocked = printQuote(shownRef, shown, exchange, company);
+    if (blocked) toast.error(blocked);
+  };
 
   return (
-    <Modal
+    <SalesDialog
       open={open}
-      onCancel={onClose}
-      width={820}
-      title="Quotation preview"
-      footer={[
-        <Button key="cancel" onClick={onClose}>
-          Cancel
-        </Button>,
-        <Button key="print" type="primary" onClick={() => printQuote(shownRef, shown)}>
-          Download / Print
-        </Button>,
-      ]}
+      onClose={onClose}
+      title="Quote preview"
+      size="reading"
+      footer={
+        <>
+          <Button onClick={onClose}>Close</Button>
+          <Button type="primary" disabled={doc.blocked !== null} onClick={exportPdf}>
+            Export PDF
+          </Button>
+        </>
+      }
     >
-      {family && family.length > 1 && (
-        <div className="flex gap-1.5 mb-3 overflow-x-auto">
-          {family.map((q) => {
-            const active = q.quoteNumber === activeRef;
-            return (
-              <button
-                key={q.quoteNumber}
-                type="button"
-                onClick={() => setActiveRef(q.quoteNumber)}
-                className={`shrink-0 font-mono text-xs px-2.5 py-1 rounded-lg border transition ${
-                  active
-                    ? "bg-indigo-50 border-indigo-400 text-indigo-700 font-bold"
-                    : "bg-white border-slate-200 text-slate-500 hover:border-indigo-300"
-                }`}
-              >
-                {q.quoteNumber}
-              </button>
-            );
-          })}
-        </div>
-      )}
-      <div className="bg-white">
-        {/* Header bar */}
-        <div className="bg-slate-800 text-white rounded-t-lg px-6 py-4 flex items-start justify-between">
-          <div>
-            <div className="text-lg font-semibold">Freight Quotation</div>
-            <div className="font-mono text-xs text-slate-300">{shownRef}</div>
+      <div className="flex flex-col gap-3">
+        {familyError && (
+          <Alert
+            type="error"
+            showIcon
+            message="The other variants of this quote could not be loaded."
+            action={
+              <Button size="small" onClick={familyError.onRetry}>
+                Retry
+              </Button>
+            }
+          />
+        )}
+        {family && family.length > 1 && (
+          <PillTabs tabs={family.map((q) => ({ key: q.quoteNumber, label: q.quoteNumber }))} active={activeRef} onChange={setActiveRef} />
+        )}
+        {company.status === "loading" ? (
+          <div className="flex justify-center py-16">
+            <Spin />
           </div>
-          <div className="text-right">
-            <div className="text-sm">{shown.serviceType || "—"}</div>
-            <div className="font-mono text-xs text-slate-300">{shown.incoterm || "—"}</div>
-          </div>
-        </div>
-
-        <div className="border border-t-0 border-slate-200 rounded-b-lg px-6 py-5">
-          {/* Prepared for */}
-          <SectionTitle>Prepared for</SectionTitle>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-            <Field label="Customer" value={shown.customerName} />
-            <Field label="Contact" value={shown.customerContact} />
-            <Field label="Email" value={shown.customerEmail} />
-            <Field label="Phone" value={shown.customerPhone} />
-          </div>
-
-          {/* Routing */}
-          <SectionTitle>Routing</SectionTitle>
-          <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-            <Field label="Direction" value={shown.direction} />
-            <Field label="Incoterm" value={shown.incoterm} />
-            <Field
-              label="Origin → Dest."
-              value={`${shown.origin || "—"} → ${shown.destination || "—"}`}
+        ) : doc.blocked === null ? (
+          <>
+            {/* Who quotes are from is set in Sales Settings, by those the server lets change it.
+                Whoever may not is told whom to ask; until the server's answer is known, neither. */}
+            {!hasCompanyDetails(company.details) && (
+              <Alert
+                type="info"
+                showIcon
+                message={
+                  <>
+                    This quote does not say who it is from.
+                    {permissions.canEditCompanyDetails ? (
+                      <>
+                        {" "}
+                        Add your company details in{" "}
+                        <Link href={salesSettingsHref("company")} className={LINK_CLASS}>
+                          Sales Settings
+                        </Link>
+                        .
+                      </>
+                    ) : (
+                      permissions.status === "ready" && " Ask a manager to add the company details."
+                    )}
+                  </>
+                }
+              />
+            )}
+            {/* The sandbox runs nothing: the document is static HTML and is only looked at here. */}
+            <iframe
+              title={`Quotation ${shownRef}`}
+              srcDoc={doc.html}
+              sandbox=""
+              className="w-full h-[66vh] rounded-lg border border-slate-200 bg-white"
             />
-            <Field label="Pickup" value={shown.pickup} />
-            <Field label="Delivery" value={shown.delivery} />
-            <Field label="Cargo ready" value={shown.readyDate} />
-          </div>
-
-          {/* Cargo */}
-          <SectionTitle>Cargo</SectionTitle>
-          <table className="w-full border-collapse text-[13px]">
-            <thead>
-              <tr className="bg-slate-50 text-left text-slate-500">
-                <th className="border border-slate-200 px-2.5 py-1.5 font-medium">Commodity</th>
-                <th className="border border-slate-200 px-2.5 py-1.5 font-medium">Packing type</th>
-                <th className="border border-slate-200 px-2.5 py-1.5 font-medium">Qty</th>
-                <th className="border border-slate-200 px-2.5 py-1.5 font-medium">L×W×H</th>
-                <th className="border border-slate-200 px-2.5 py-1.5 font-medium">Weight</th>
-              </tr>
-            </thead>
-            <tbody>
-              {packages.length > 0 ? (
-                packages.map((p: PackageLine, i) => (
-                  <tr key={i}>
-                    <td className="border border-slate-200 px-2.5 py-1.5">{shown.commodity || "—"}</td>
-                    <td className="border border-slate-200 px-2.5 py-1.5">{p.type || "—"}</td>
-                    <td className="border border-slate-200 px-2.5 py-1.5">{p.qty}</td>
-                    <td className="border border-slate-200 px-2.5 py-1.5">
-                      {p.length}×{p.width}×{p.height} cm
-                    </td>
-                    <td className="border border-slate-200 px-2.5 py-1.5">{p.weight} kg</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td className="border border-slate-200 px-2.5 py-1.5" colSpan={5}>
-                    {shown.commodity || "—"}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          <div className="mt-2 text-[12px] text-slate-500">
-            Total packages: {totalPackages || packages.length} · Total weight: {shown.weight ?? 0} kg · CBM:{" "}
-            {shown.cbm ?? 0}
-          </div>
-
-          {/* Charges */}
-          <SectionTitle>Charges</SectionTitle>
-          <table className="w-full border-collapse text-[13px]">
-            <thead>
-              <tr className="bg-slate-50 text-left text-slate-500">
-                <th className="border border-slate-200 px-2.5 py-1.5 font-medium">Service</th>
-                <th className="border border-slate-200 px-2.5 py-1.5 font-medium">Description</th>
-                <th className="border border-slate-200 px-2.5 py-1.5 text-right font-medium">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sellingLines.length > 0 ? (
-                sellingLines.map((l: CostLine, i) => (
-                  <tr key={i}>
-                    <td className="border border-slate-200 px-2.5 py-1.5">{l.type || "—"}</td>
-                    <td className="border border-slate-200 px-2.5 py-1.5">{l.description || "—"}</td>
-                    <td className="border border-slate-200 px-2.5 py-1.5 text-right">
-                      {l.amount} {l.currency || currency}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td className="border border-slate-200 px-2.5 py-1.5" colSpan={3}>
-                    —
-                  </td>
-                </tr>
-              )}
-              <tr className="font-semibold">
-                <td className="border border-slate-200 px-2.5 py-1.5" colSpan={2}>
-                  Total
-                </td>
-                <td className="border border-slate-200 px-2.5 py-1.5 text-right">
-                  {fmt(totals.selling, currency)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          {/* Shipping conditions */}
-          <SectionTitle>Shipping conditions</SectionTitle>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-green-700">
-                Includes
-              </div>
-              <div className="whitespace-pre-wrap text-[13px] text-slate-700">
-                {shown.shippingIncludes || "—"}
-              </div>
-            </div>
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-red-700">
-                Excludes
-              </div>
-              <div className="whitespace-pre-wrap text-[13px] text-slate-700">
-                {shown.shippingExcludes || "—"}
-              </div>
-            </div>
-          </div>
-
-          {/* Footer note */}
-          <div className="mt-7 text-[12px] text-slate-400">
-            Validity: {shown.validityDays ?? 14} days. Indicative quotation, subject to space and equipment
-            availability.
-          </div>
-        </div>
+          </>
+        ) : (
+          <Alert
+            type="error"
+            showIcon
+            message={doc.blocked}
+            action={
+              retry && (
+                <Button size="small" onClick={() => retry()}>
+                  Retry
+                </Button>
+              )
+            }
+          />
+        )}
       </div>
-    </Modal>
+    </SalesDialog>
   );
 }

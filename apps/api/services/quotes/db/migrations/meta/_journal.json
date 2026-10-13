@@ -22,6 +22,34 @@
       "when": 1786385246153,
       "tag": "0002_misty_phalanx",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791666432401,
+      "tag": "0003_quote_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791666449567,
+      "tag": "0004_quote_lifecycle_adopt",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791673011574,
+      "tag": "0005_quote_lifecycle_catchup",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791733011574,
+      "tag": "0006_quote_substatus_clear",
+      "breakpoints": true
     }
   ]
 }

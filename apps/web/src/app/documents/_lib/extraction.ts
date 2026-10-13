@@ -5,7 +5,7 @@ import { extractContainerNumbers } from "@/lib/container";
 import { CONTAINER_TYPES, PACK_TYPES } from "@/lib/cargo";
 import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 
-export type Destination = "shipment" | "invoicing" | "quote" | "masterjob" | "customs" | "booking";
+export type Destination = "shipment" | "invoicing" | "masterjob" | "customs" | "booking";
 export type InputMode = "file" | "text";
 export type Step = "upload" | "extracting" | "review" | "committed";
 export type TargetMode = "existing" | "new";
@@ -206,7 +206,7 @@ export function baseCreatePayload(jobNumber: string, createdBy: string): control
   };
 }
 
-// Build the review field list for shipment/quote destinations, detecting conflicts
+// Build the review field list for the shipment destination, detecting conflicts
 // against a lookup of existing values keyed by extracted label.
 export function buildFields(
   normalized: Record<string, string>,

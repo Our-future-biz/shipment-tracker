@@ -4,7 +4,9 @@ import { Providers } from "./Providers";
 import { AppShell } from "./AppShell";
 
 export const metadata: Metadata = {
-  title: "Shipment Tracker",
+  // A page that names itself (`metadata.title`) shows as "Quotes | Shipment Tracker" on its
+  // browser tab, so several tabs of the app can be told apart.
+  title: { default: "Shipment Tracker", template: "%s | Shipment Tracker" },
   description: "Shipment management system",
 };
 

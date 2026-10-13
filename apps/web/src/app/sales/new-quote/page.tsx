@@ -1,12 +1,9 @@
-import { SalesShell } from "../_components/SalesShell";
-import { NewQuoteButton } from "../_components/NewQuoteButton";
+import { redirect } from "next/navigation";
+import { SALES_PAGES } from "../_lib/tabs";
 
-export default function NewQuotePage() {
-  return (
-    <SalesShell title="Create new quote">
-      <div>
-        <NewQuoteButton size="large" />
-      </div>
-    </SalesShell>
-  );
+// "Create new quote" used to be a page with one button. Creating a quote is an action of the
+// Quotes list now: this keeps old links and bookmarks doing what their name says - the list opens
+// its New Quote dialog for ?new=1 and then drops the parameter.
+export default function NewQuoteRedirectPage() {
+  redirect(`${SALES_PAGES.quotes.path}?new=1`);
 }

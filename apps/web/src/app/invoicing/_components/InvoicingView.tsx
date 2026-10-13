@@ -5,10 +5,7 @@ import { Select, Button, Tag } from "antd";
 import { PrinterOutlined, PlusOutlined } from "@ant-design/icons";
 import { useShipments } from "@/hooks/useShipments";
 import { useInvoicing } from "@/hooks/useInvoicing";
-import { useQuotes } from "@/hooks/useQuotes";
-import { api } from "@/lib/api";
 import { CURRENCIES } from "@/lib/enums";
-import { quoteCosts } from "@/app/quotes/_lib/quoteColumns";
 import type { interfaces } from "@/lib/api/client";
 import { PageHeader } from "@/components/PageHeader";
 import { AppCard } from "@/components/AppCard";
@@ -56,7 +53,6 @@ export const InvoicingView = () => {
     generateInvoice,
     isGenerating,
   } = useInvoicing(selectedShipmentId);
-  const { quotes } = useQuotes();
 
   const [costs, setCosts] = useState<CostRow[]>([]);
   const [charges, setCharges] = useState<ChargeRow[]>([]);
@@ -162,36 +158,6 @@ export const InvoicingView = () => {
   const saveBilling = (currency: string, roeVal: string) =>
     upsertBilling({ billingCurrency: currency, roe: roeVal }).catch(() => toast.error("Failed to save billing"));
 
-  // ─── Import estimated costs from a quote ─────────────────────────
-  const quotesWithCosts = useMemo(
-    () => quotes.filter((q) => quoteCosts(q.data).some((c) => (c.estAmount ?? "").trim() !== "")),
-    [quotes],
-  );
-
-  const importFromQuote = async (quoteNumber: string) => {
-    const quote = quotes.find((q) => q.quoteNumber === quoteNumber);
-    if (!quote) return;
-    const qCosts = quoteCosts(quote.data);
-    let copied = 0;
-    const next = costs.map((row) => {
-      const from = qCosts.find((c) => c.category === row.category);
-      if (!from || !(from.estAmount ?? "").trim()) return row;
-      if ((row.estAmount ?? "").trim()) return row; // don't overwrite an existing estimate
-      copied += 1;
-      const updated = { ...row, estAmount: from.estAmount, estCurrency: from.estCurrency || row.estCurrency, vendor: from.vendor || row.vendor };
-      saveCost(updated);
-      return updated;
-    });
-    setCosts(next);
-    try {
-      const { ref } = await api.quotes.quoteAllocateRef(quoteNumber);
-      await upsertBilling({ billingCurrency, roe, quoteRef: ref });
-      toast.success(copied ? `Imported ${copied} estimate${copied !== 1 ? "s" : ""} from ${quoteNumber} (${ref})` : `No new estimates in ${quoteNumber}`);
-    } catch {
-      toast.error("Failed to record quote reference");
-    }
-  };
-
   // ─── Totals ──────────────────────────────────────────────────────
   const totals = useMemo(() => {
     const estCosts = costs.reduce((s, r) => s + parseNum(r.estAmount), 0);
@@ -283,22 +249,7 @@ export const InvoicingView = () => {
           </AppCard>
         ) : (
           <div className="flex flex-col gap-5 max-w-[1150px]">
-            <AppCard
-              title="Costs"
-              extra={
-                <Select
-                  size="small"
-                  placeholder="Import from Quote…"
-                  style={{ width: 220 }}
-                  value={null}
-                  onChange={(v) => v && importFromQuote(v)}
-                  showSearch
-                  filterOption={(input, option) => (option?.value ?? "").toLowerCase().includes(input.toLowerCase())}
-                  options={quotesWithCosts.map((q) => ({ value: q.quoteNumber, label: q.quoteNumber }))}
-                  notFoundContent="No quotes with estimates"
-                />
-              }
-            >
+            <AppCard title="Costs">
               <CostGrid
                 rows={costs}
                 roe={roeNum}

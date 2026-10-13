@@ -1,10 +1,7 @@
-import { SalesShell } from "../_components/SalesShell";
-import { ShipmentReportsTab } from "../_components/ShipmentReportsTab";
+import { redirect } from "next/navigation";
 
-export default function SalesShipmentReportsPage() {
-  return (
-    <SalesShell title="Shipment Reports">
-      <ShipmentReportsTab />
-    </SalesShell>
-  );
+// "Shipment Reports" was a shorter copy of the Shipments list, which has the same columns. This
+// keeps its old links and bookmarks working.
+export default function SalesShipmentReportsRedirectPage() {
+  redirect("/shipments");
 }

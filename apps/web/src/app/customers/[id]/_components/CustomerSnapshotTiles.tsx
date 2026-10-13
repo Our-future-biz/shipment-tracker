@@ -10,7 +10,9 @@ import { useCustomerQuotes } from "@/hooks/useCustomerQuotes";
 import { useCustomerShipments } from "@/hooks/useCustomerShipments";
 import type { ShipmentItem } from "@/hooks/useCustomerShipments";
 import { useCustomer } from "@/hooks/useCustomers";
+import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { formatDate } from "@/lib/date";
+import type { ExchangeRates } from "@/lib/exchangeRates";
 import { isActiveStatus } from "@/lib/enums";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { ATTENTION_RULES } from "../../_lib/customerAttention";
@@ -60,12 +62,22 @@ function activeShipmentsTile(shipments: ShipmentItem[]): TileContent {
   return { value: active.length, hint: eta ? `Next ETA ${formatDate(eta)}` : "No upcoming arrival" };
 }
 
-function openQuotesTile(quotes: SalesQuote[]): TileContent {
+function openQuotesTile(quotes: SalesQuote[], sheet: ExchangeRates): TileContent {
   const open = quotes.filter((quote) => quoteBucket(quote) === "open");
   if (open.length === 0) return { value: 0, hint: "None open" };
-  const selling = sellingByCurrency(open);
+  const selling = sellingByCurrency(open, sheet);
+  if (selling.incomplete) {
+    // Lines without an exchange rate are not in the sum. Said first, where a narrow tile cannot
+    // cut it off; the tooltip adds why.
+    const hint = ["Incomplete", selling.text].filter(Boolean).join(" · ");
+    return {
+      value: open.length,
+      hint: <span title={`${hint} - without the lines that cannot be converted`}>{hint}</span>,
+      hintTone: "amber",
+    };
+  }
   // Several currencies can outgrow the tile, so the full figure is also the tooltip.
-  return { value: open.length, hint: selling ? <span title={selling}>{selling}</span> : "No value yet" };
+  return { value: open.length, hint: selling.text ? <span title={selling.text}>{selling.text}</span> : "No value yet" };
 }
 
 function outstandingTile(invoices: InvoiceItem[], currency?: string): TileContent {
@@ -100,9 +112,11 @@ export function CustomerSnapshotTiles({ customerId, onSelectTab }: CustomerSnaps
   const { quotes, isLoading: quotesLoading, isError: quotesError } = useCustomerQuotes(customerId);
   const { invoices, isLoading: invoicesLoading, isError: invoicesError } = useCustomerInvoices(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
+  // The value of the open quotes needs the Exchange sheet as well: Sales converts with it.
+  const exchange = useCurrentExchangeRates();
 
   const shipmentsTile = placeholderTile(shipmentsLoading, shipmentsError) ?? activeShipmentsTile(shipments);
-  const quotesTile = placeholderTile(quotesLoading, quotesError) ?? openQuotesTile(quotes);
+  const quotesTile = placeholderTile(quotesLoading || exchange.isLoading, quotesError) ?? openQuotesTile(quotes, exchange.rates);
   // The amounts are in the customer's currency, so this tile needs the customer as well as the invoices.
   const financeTile =
     placeholderTile(customerLoading || invoicesLoading, invoicesError || !customer) ?? outstandingTile(invoices, customer?.currency);

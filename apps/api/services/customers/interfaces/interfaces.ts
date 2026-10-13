@@ -35,6 +35,17 @@ export interface CustomerItem {
   updatedAt: string;
 }
 
+/** A customer as the pipeline of the sales service needs it. */
+export interface CustomerPipelineItem {
+  id: string;
+  companyName: string;
+  /** Active / Prospect / Inactive, as set by hand on the customer. */
+  status: string;
+  label: string;
+  salesOwner: string;
+  createdAt: string;
+}
+
 export interface ContactItem {
   id: string;
   customerId: string;

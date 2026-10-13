@@ -4,10 +4,11 @@
 export interface PackageLine {
   qty: number;
   type: string;
-  length: number;
-  width: number;
-  height: number;
-  weight: number;
+  // Dimensions (cm) and weight per piece (kg) are absent until somebody enters them.
+  length?: number;
+  width?: number;
+  height?: number;
+  weight?: number;
   stackable?: boolean;
 }
 
@@ -20,15 +21,60 @@ export interface CostLine {
   value?: number;
 }
 
-export interface TimelineEntry {
-  status: string;
-  substatus?: string;
-  at: string;
-  user?: string;
-  comment?: string;
-  lostReason?: string;
+// One exchange rate a quote keeps for itself.
+export interface QuoteRate {
+  // CZK per 1 unit of the currency, as on the Exchange sheet.
+  rate: number;
+  // The Exchange week the rate was taken from ("2026-W41"); absent when it was typed on the quote.
+  week?: string;
 }
 
+// One line of a quote's history. The server writes them; the browser only shows them.
+export interface TimelineEntry {
+  // What the line records. A line written before kinds existed has none and is a status change;
+  // only status changes carry a status.
+  kind?: "status" | "validity" | "owner" | "follow_up" | "shipment" | "deleted";
+  status?: string;
+  at: string;
+  // Display name of who made the change. Entries written before names were recorded say "You".
+  user?: string;
+  userId?: string;
+  // On a validity or owner line the whole sentence: "Valid until 2026-10-25 (was 2026-10-20)".
+  comment?: string;
+  lostReason?: string;
+  // The status before: on a Won the system made, and on a line by which a quote left a status
+  // that proves it was sent while no sent date says so.
+  from?: string;
+  shipmentId?: string;
+  jobNumber?: string;
+  action?: "linked" | "removed";
+  auto?: boolean;
+}
+
+// The keys of a quote's document only the server writes: the reference, the lifecycle (status,
+// dates, validity, owner, history) and what the lifecycle keeps aside. They are changed with
+// their own actions; a save of the document never changes them, whatever it sends. The twin of
+// PROTECTED_KEYS in apps/api/services/quotes/utils/quoteDocument.utils.ts - an API test compares
+// the two.
+export const PROTECTED_KEYS = [
+  "reference",
+  "quoteStatus",
+  "substatus",
+  "lostReason",
+  "lostComment",
+  "sentAt",
+  "decidedAt",
+  "validUntil",
+  "validityDays",
+  "winProbability",
+  "timeline",
+  "salesOwner",
+  "lifecycleUnreadable",
+  "timelineUnreadable",
+] as const satisfies readonly (keyof SalesQuoteData)[];
+
+// Every other key is one the Sales editor writes. The server stores those as a save sends them
+// and keeps no list of them, so a field added here needs no change in the API to be saved.
 export interface SalesQuoteData {
   reference?: string;
   method?: string;
@@ -60,22 +106,39 @@ export interface SalesQuoteData {
   // Pricing
   buyingLines?: CostLine[];
   sellingLines?: CostLine[];
+  // The currency the quote is presented in (EUR when empty); each line keeps its own.
   currency?: string;
+  // The quote's own snapshot of the rates its lines are converted with, by currency, so a quote
+  // that was sent does not change when next week's Exchange sheet is entered.
+  rates?: Record<string, QuoteRate>;
   // Shipping terms
   shippingTerms?: string; // name of a terms_condition template
   shippingIncludes?: string;
   shippingExcludes?: string;
+  // The former "Additional conditions / notes" box: no longer entered, shown or printed. Text
+  // typed before stays stored.
   shippingTermsNotes?: string;
-  // Lifecycle
+  // Lifecycle - written by the server only (PROTECTED_KEYS). These keys mirror the facts the
+  // server keeps, for whoever reads the document: lists, the printed quotation.
   quoteStatus?: string; // draft / ready_to_send / quoted / feedback / revised / won / lost / expired
+  // No longer written or shown; kept as a protected key so that nothing can bring it back in.
   substatus?: string;
   lostReason?: string;
   lostComment?: string;
+  // "Valid N days" from sentAt: how quotes sent before the validity became a date carry it. No
+  // longer written; read only for a quote that has no validUntil.
   validityDays?: number;
-  validUntil?: string; // explicit expiry date (YYYY-MM-DD) picked from the calendar
+  // The last day the quote is valid (YYYY-MM-DD): picked under Shipping terms, or today + N
+  // written when the quote is sent as "valid N days".
+  validUntil?: string;
   winProbability?: number;
   sentAt?: string;
+  // When the quote was marked Won or Lost.
+  decidedAt?: string;
   timeline?: TimelineEntry[];
+  // Old values of the lifecycle keys the server could not read, kept as they were.
+  lifecycleUnreadable?: Record<string, unknown>;
+  timelineUnreadable?: unknown;
 }
 
 export interface QuoteStatusDef {
@@ -83,30 +146,41 @@ export interface QuoteStatusDef {
   label: string;
   winProbability: number;
   color: { bg: string; text: string };
-  next: string[];
 }
 
+// How each status is shown. Which status may follow which is the server's rule: every quote
+// comes with the statuses it may be set to (allowedTransitions).
 export const QUOTE_STATUSES: QuoteStatusDef[] = [
-  { key: "draft", label: "Draft", winProbability: 10, color: { bg: "#f1f5f9", text: "#64748b" }, next: ["ready_to_send", "lost"] },
-  { key: "ready_to_send", label: "Ready to Send", winProbability: 20, color: { bg: "#e0e7ff", text: "#4f46e5" }, next: ["quoted", "draft", "lost"] },
-  { key: "quoted", label: "Quoted", winProbability: 30, color: { bg: "#dbeafe", text: "#1d4ed8" }, next: ["feedback", "revised", "won", "lost"] },
-  { key: "feedback", label: "Feedback", winProbability: 60, color: { bg: "#fef3c7", text: "#d97706" }, next: ["revised", "won", "lost", "quoted"] },
-  { key: "revised", label: "Revised", winProbability: 50, color: { bg: "#ede9fe", text: "#7c3aed" }, next: ["quoted", "won", "lost"] },
-  { key: "won", label: "Won", winProbability: 100, color: { bg: "#dcfce7", text: "#16a34a" }, next: [] },
-  { key: "lost", label: "Lost", winProbability: 0, color: { bg: "#fee2e2", text: "#dc2626" }, next: ["draft"] },
-  { key: "expired", label: "Expired", winProbability: 0, color: { bg: "#f1f5f9", text: "#64748b" }, next: ["draft", "revised"] },
+  { key: "draft", label: "Draft", winProbability: 10, color: { bg: "#f1f5f9", text: "#64748b" } },
+  { key: "ready_to_send", label: "Ready to Send", winProbability: 20, color: { bg: "#e0e7ff", text: "#4f46e5" } },
+  { key: "quoted", label: "Quoted", winProbability: 30, color: { bg: "#dbeafe", text: "#1d4ed8" } },
+  { key: "feedback", label: "Feedback", winProbability: 60, color: { bg: "#fef3c7", text: "#d97706" } },
+  { key: "revised", label: "Revised", winProbability: 50, color: { bg: "#ede9fe", text: "#7c3aed" } },
+  { key: "won", label: "Won", winProbability: 100, color: { bg: "#dcfce7", text: "#16a34a" } },
+  { key: "lost", label: "Lost", winProbability: 0, color: { bg: "#fee2e2", text: "#dc2626" } },
+  { key: "expired", label: "Expired", winProbability: 0, color: { bg: "#f1f5f9", text: "#64748b" } },
 ];
 
 export const QUOTE_STATUS_MAP: Record<string, QuoteStatusDef> = Object.fromEntries(
   QUOTE_STATUSES.map((s) => [s.key, s]),
 );
 
-export const FEEDBACK_SUBSTATUSES = [
-  "Under Review",
-  "Negotiation",
-  "Waiting for Customer",
-  "Rate Revision Requested",
-] as const;
+// The statuses a quote can be set to. Expired is not one of them: a quote expires by itself when
+// its validity date has passed.
+export const SETTABLE_QUOTE_STATUSES = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won", "lost"] as const;
+export type SettableQuoteStatus = (typeof SETTABLE_QUOTE_STATUSES)[number];
+
+// A quote is open while it is still in play: neither decided (won / lost) nor expired.
+export const OPEN_QUOTE_STATUSES = ["draft", "ready_to_send", "quoted", "feedback", "revised"];
+
+// In these statuses the quote is with the customer and an answer is awaited: the ones a follow-up
+// can be recorded on. A quote whose validity has passed is shown as Expired and is not among them.
+export const AWAITING_QUOTE_STATUSES = ["quoted", "feedback"];
+
+// In these statuses the quotation as it stands has not gone to the customer: it was never sent, or
+// it was revised or reopened since. Sending it makes the quote Quoted; in any other status it either
+// went out already or is closed.
+export const UNSENT_QUOTE_STATUSES = ["draft", "ready_to_send", "revised"];
 
 export const LOST_REASONS: Record<string, string[]> = {
   Pricing: ["Price too high", "Competitor cheaper", "Margin too low"],

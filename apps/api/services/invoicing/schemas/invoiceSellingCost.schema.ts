@@ -13,6 +13,8 @@ export const invoiceSellingCostTable = pgTable(
     ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
     category: text("category").notNull().default(""),
+    /** What is charged, in words - the category alone cannot tell two lines of one kind apart. */
+    description: text("description").notNull().default(""),
     customer: text("customer").notNull().default(""),
     qty: numeric("qty", { precision: 14, scale: 2 }),
     amount: numeric("amount", { precision: 14, scale: 2 }),
@@ -22,6 +24,8 @@ export const invoiceSellingCostTable = pgTable(
     /** vazba na zdrojovy buying radek (mockup: data-src) - brani opakovanemu kopirovani */
     sourceBuyId: uuid("source_buy_id"),
     sortOrder: integer("sort_order").notNull().default(0),
+    /** The sales quote the row was copied from; "" for a row entered by hand. Tells whether a quote was already copied. */
+    sourceQuoteNumber: text("source_quote_number").notNull().default(""),
   },
   (table) => [
     ...defaultTableIndexes("invoice_selling_cost", table),

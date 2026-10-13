@@ -1,5 +1,6 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
+import { quoteLinksService } from "../services/quoteLinks.service";
 import { shipmentService } from "../services/shipment.service";
 import type { ShipmentItem } from "../interfaces/interfaces";
 
@@ -33,7 +34,11 @@ interface ShipmentListResponse {
 export const shipmentList = api(
   { expose: true, auth: true, method: "GET", path: "/shipments" },
   async (req: ShipmentListRequest): Promise<ShipmentListResponse> => {
-    const result = await shipmentService.list(getAuthData()!.companyID, {
+    const companyId = getAuthData()!.companyID;
+    // The one place every user passes regularly: the links between quotes and shipments are
+    // compared here when that is due - at most once an hour unless something needs repair.
+    await quoteLinksService.ensureQuoteLinksSynced(companyId);
+    const result = await shipmentService.list(companyId, {
       customerId: req.customerId,
       status: req.status,
       statusBucket: req.statusBucket,

@@ -6,6 +6,7 @@ import type { SellingCostItem } from "../interfaces/interfaces";
 interface AddSellingRequest {
   shipmentId: string;
   category?: string;
+  description?: string;
   customer?: string;
   qty?: string;
   amount?: string;
@@ -32,6 +33,7 @@ interface UpdateSellingRequest {
   shipmentId: string;
   sellingId: string;
   category?: string;
+  description?: string;
   customer?: string;
   qty?: string;
   amount?: string;

@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
+import { invalidateQuoteLists } from "@/hooks/useSalesQuotes";
 import { NEEDS_ATTENTION_KEY } from "@/hooks/useShipmentsNeedingAttention";
 
 export type ShipmentItem = interfaces.ShipmentItem;
@@ -63,6 +64,8 @@ export const useCustomerShipments = (customerId: string) => {
       queryClient.invalidateQueries({ queryKey: ["shipments"] });
       queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
       queryClient.invalidateQueries({ queryKey: ["shipment-tile-counts"] });
+      // The quote the shipment carried as its Sales Number loses it - and a Won it owed to it.
+      invalidateQuoteLists(queryClient);
     },
   });
 

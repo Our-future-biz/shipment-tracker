@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useShipments } from "@/hooks/useShipments";
 import { useDebounced } from "@/hooks/useDebounced";
+import { CountToggleButton } from "@/components/CountToggleButton";
 import { ShipmentsTable } from "@/app/shipments/_components/ShipmentsTable";
 import { CustomsSummary, CustomsShipmentInfo } from "./CustomsOverview";
 import { CustomsTab } from "@/app/shipments/[jobNumber]/tabs/CustomsTab";
@@ -182,26 +183,13 @@ export function CustomsView() {
             shipments={rows}
             isLoading={isLoading}
             toolbarLead={
-              <button
-                type="button"
-                onClick={toggleUrgentOnly}
-                aria-pressed={urgentOnly}
+              <CountToggleButton
+                label="Urgents in next 24hrs"
+                count={urgentSoon}
+                active={urgentOnly}
+                onToggle={toggleUrgentOnly}
                 title={urgentOnly ? "Show all shipments" : "Show only these shipments"}
-                className={`flex items-center gap-2 h-9 pl-3 pr-1.5 rounded-lg border text-[13px] font-bold uppercase tracking-wide cursor-pointer transition-colors ${
-                  urgentOnly
-                    ? "border-red-600 bg-red-50 text-red-700"
-                    : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                Urgents in next 24hrs
-                <span
-                  className={`inline-flex items-center justify-center min-w-7 h-7 px-2 rounded-full text-[13px] font-bold ${
-                    urgentSoon > 0 ? "bg-red-600 text-white" : "bg-slate-100 text-slate-500"
-                  }`}
-                >
-                  {urgentSoon}
-                </span>
-              </button>
+              />
             }
             view={{ key: "customs", title: "Customs", detailHref: "/customs?open=:id", defaultColumns: CUSTOMS_DEFAULT_COLUMNS, readonlyColumns: CUSTOMS_READONLY_COLUMNS, quickFilter: CUSTOMS_QUICK_FILTER }}
           />

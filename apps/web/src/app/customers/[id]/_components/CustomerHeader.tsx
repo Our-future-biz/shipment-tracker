@@ -2,11 +2,11 @@
 
 import { useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Dropdown } from "antd";
 import type { MenuProps } from "antd";
-import { ArrowLeftOutlined, DownOutlined } from "@ant-design/icons";
+import { DownOutlined } from "@ant-design/icons";
+import { BackLink } from "@/components/BackLink";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useCustomer } from "@/hooks/useCustomers";
 import type { CustomerItem } from "@/hooks/useCustomers";
@@ -89,10 +89,7 @@ export function CustomerHeader({ customer }: { customer: CustomerItem }) {
 
   return (
     <>
-      <Link href={listHref} className="inline-flex items-center gap-1.5 text-[13px] text-indigo-500 hover:text-indigo-600 mb-2">
-        <ArrowLeftOutlined className="text-[11px]" />
-        Customer Database
-      </Link>
+      <BackLink href={listHref} className="mb-2">Customer Database</BackLink>
 
       <div className="flex items-center justify-between gap-4 mb-2">
         <div className="flex items-center gap-3 min-w-0">

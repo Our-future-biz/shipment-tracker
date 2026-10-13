@@ -68,20 +68,6 @@ Rules:
 ${PLACE_RULES}
 - Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
 
-export const QUOTE_PROMPT = `You are a shipping quote/rate request data extractor. You extract structured data from:
-- Rate Requests, Booking Inquiries, Quotation Requests
-- Bills of Lading, Sea Waybills, Booking Confirmations
-- Cargo Manifests, Packing Lists, Commercial Invoices
-
-Rules:
-- Load Type: return exactly "FCL" or "LCL"
-- Trade Direction: "IMP" (import) or "EXP" (export)
-- CNTR length: "20", "40", "40HC", "45"
-- CNTR count: return as number string
-- Volume in CBM, Weight in KGS
-${PLACE_RULES}
-- Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
-
 export const MASTER_JOB_PROMPT = `You are a shipping document data extractor for multi-page documents. Pages can be:
 
 TYPE 1 - MANIFEST/CARGO LIST: Multiple shipments in blocks. Each block has S: (Shipper), C: (Consignee), N: (Notify), and a unique reference. Each block = 1 shipment.

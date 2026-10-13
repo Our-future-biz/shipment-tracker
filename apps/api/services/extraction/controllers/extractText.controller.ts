@@ -4,7 +4,7 @@ import type { ExtractionResult } from "../interfaces/interfaces";
 
 interface ExtractTextRequest {
   text: string;
-  destination: string; // "shipment" | "invoicing" | "quote" | "customs" | "booking"
+  destination: string; // "shipment" | "invoicing" | "customs" | "booking"
 }
 
 export const extractText = api(

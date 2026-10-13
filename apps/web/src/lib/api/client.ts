@@ -674,7 +674,6 @@ export namespace extraction {
             this.extractCustoms = this.extractCustoms.bind(this)
             this.extractDocument = this.extractDocument.bind(this)
             this.extractInvoice = this.extractInvoice.bind(this)
-            this.extractQuote = this.extractQuote.bind(this)
             this.extractText = this.extractText.bind(this)
             this.pipelineExtractHbl = this.pipelineExtractHbl.bind(this)
             this.pipelineExtractMbl = this.pipelineExtractMbl.bind(this)
@@ -703,12 +702,6 @@ export namespace extraction {
         public async extractInvoice(params: controllers.ExtractInvoiceRequest): Promise<interfaces.ExtractionResult> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/extraction/invoice`, JSON.stringify(params))
-            return await resp.json() as interfaces.ExtractionResult
-        }
-
-        public async extractQuote(params: controllers.ExtractQuoteRequest): Promise<interfaces.ExtractionResult> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/quote`, JSON.stringify(params))
             return await resp.json() as interfaces.ExtractionResult
         }
 
@@ -817,6 +810,7 @@ export namespace invoicing {
             this.invoicingDeleteSellingCost = this.invoicingDeleteSellingCost.bind(this)
             this.invoicingGenerate = this.invoicingGenerate.bind(this)
             this.invoicingGet = this.invoicingGet.bind(this)
+            this.invoicingImportQuote = this.invoicingImportQuote.bind(this)
             this.invoicingUpdateBuyingCost = this.invoicingUpdateBuyingCost.bind(this)
             this.invoicingUpdateCharge = this.invoicingUpdateCharge.bind(this)
             this.invoicingUpdateSellingCost = this.invoicingUpdateSellingCost.bind(this)
@@ -927,6 +921,20 @@ export namespace invoicing {
             return await resp.json() as controllers.InvoicingGetResponse
         }
 
+        /**
+         * Copies the cost lines of a sales quote into a shipment's Costs Breakdown: one buying row per
+         * buying line and one selling row per selling line, in the quote's order and each in its own
+         * currency, read from the quote as it is stored. All rows or none. The same quote is copied to
+         * a side only once - "costs from QCZ... were already copied to this shipment" - unless `force`
+         * says to copy it again. Used when a shipment is created from a quote and by "Copy from quote"
+         * on the Costs tab.
+         */
+        public async invoicingImportQuote(shipmentId: string, params: controllers.ImportQuoteRequest): Promise<controllers.ImportQuoteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/import-quote`, JSON.stringify(params))
+            return await resp.json() as controllers.ImportQuoteResponse
+        }
+
         public async invoicingUpdateBuyingCost(shipmentId: string, costId: string, params: controllers.UpdateBuyingRequest): Promise<controllers.UpdateBuyingResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/invoicing/${encodeURIComponent(shipmentId)}/buying/${encodeURIComponent(costId)}`, JSON.stringify(params))
@@ -972,96 +980,115 @@ export namespace quotes {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
-            this.quoteAllocateRef = this.quoteAllocateRef.bind(this)
-            this.quoteAttachmentContent = this.quoteAttachmentContent.bind(this)
-            this.quoteAttachmentCreate = this.quoteAttachmentCreate.bind(this)
-            this.quoteAttachmentDelete = this.quoteAttachmentDelete.bind(this)
-            this.quoteAttachmentList = this.quoteAttachmentList.bind(this)
-            this.quoteCreate = this.quoteCreate.bind(this)
-            this.quoteDelete = this.quoteDelete.bind(this)
-            this.quoteDuplicate = this.quoteDuplicate.bind(this)
-            this.quoteGet = this.quoteGet.bind(this)
-            this.quoteList = this.quoteList.bind(this)
-            this.quoteNextRef = this.quoteNextRef.bind(this)
-            this.quoteUpdate = this.quoteUpdate.bind(this)
+            this.salesQuoteCreate = this.salesQuoteCreate.bind(this)
+            this.salesQuoteDelete = this.salesQuoteDelete.bind(this)
+            this.salesQuoteDuplicate = this.salesQuoteDuplicate.bind(this)
+            this.salesQuoteFollowUp = this.salesQuoteFollowUp.bind(this)
+            this.salesQuoteGet = this.salesQuoteGet.bind(this)
+            this.salesQuoteList = this.salesQuoteList.bind(this)
+            this.salesQuoteOwner = this.salesQuoteOwner.bind(this)
+            this.salesQuoteSave = this.salesQuoteSave.bind(this)
+            this.salesQuoteTransition = this.salesQuoteTransition.bind(this)
+            this.salesQuoteValidity = this.salesQuoteValidity.bind(this)
         }
 
-        public async quoteAllocateRef(quoteNumber: string): Promise<controllers.QuoteAllocateRefResponse> {
+        public async salesQuoteCreate(params: controllers.SalesQuoteCreateRequest): Promise<controllers.SalesQuoteCreateResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/quotes/${encodeURIComponent(quoteNumber)}/allocate-ref`)
-            return await resp.json() as controllers.QuoteAllocateRefResponse
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes`, JSON.stringify(params))
+            return await resp.json() as controllers.SalesQuoteCreateResponse
         }
 
-        public async quoteAttachmentContent(method: "GET", quoteNumber: string, id: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
-            return this.baseClient.callAPI(method, `/quotes/${encodeURIComponent(quoteNumber)}/attachments/${encodeURIComponent(id)}/content`, body, options)
-        }
-
-        public async quoteAttachmentCreate(quoteNumber: string, params: controllers.QuoteAttachmentCreateRequest): Promise<controllers.QuoteAttachmentCreateResponse> {
+        /**
+         * Deletes a sales quote: it is gone from Sales for everybody, while its row, its history and
+         * its reference - which is never used again - are kept. Refused for a user who may not delete
+         * this quote (permission denied), and for everybody while a shipment is linked to it (failed
+         * precondition, naming the shipment). What the signed-in user may do is on every quote that is
+         * handed out: permissions.canDelete.
+         */
+        public async salesQuoteDelete(quoteNumber: string): Promise<controllers.SalesQuoteDeleteResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/quotes/${encodeURIComponent(quoteNumber)}/attachments`, JSON.stringify(params))
-            return await resp.json() as controllers.QuoteAttachmentCreateResponse
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/sales-quotes/${encodeURIComponent(quoteNumber)}`)
+            return await resp.json() as controllers.SalesQuoteDeleteResponse
         }
 
-        public async quoteAttachmentDelete(quoteNumber: string, attachmentId: string): Promise<controllers.QuoteAttachmentDeleteResponse> {
+        public async salesQuoteDuplicate(quoteNumber: string, params: controllers.SalesQuoteDuplicateRequest): Promise<controllers.SalesQuoteDuplicateResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/quotes/${encodeURIComponent(quoteNumber)}/attachments/${encodeURIComponent(attachmentId)}`)
-            return await resp.json() as controllers.QuoteAttachmentDeleteResponse
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/duplicate`, JSON.stringify(params))
+            return await resp.json() as controllers.SalesQuoteDuplicateResponse
         }
 
-        public async quoteAttachmentList(quoteNumber: string): Promise<controllers.QuoteAttachmentListResponse> {
+        /**
+         * Records that the customer was contacted about a quote that is with them (Quoted or Feedback,
+         * not expired): the follow-up flag goes off for three days and the history gets a line with who
+         * and when. Refused for a quote in any other status.
+         */
+        public async salesQuoteFollowUp(quoteNumber: string, params: controllers.SalesQuoteFollowUpRequest): Promise<controllers.SalesQuoteFollowUpResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/quotes/${encodeURIComponent(quoteNumber)}/attachments`)
-            return await resp.json() as controllers.QuoteAttachmentListResponse
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/follow-up`, JSON.stringify(params))
+            return await resp.json() as controllers.SalesQuoteFollowUpResponse
         }
 
-        public async quoteCreate(params: controllers.QuoteCreateRequest): Promise<controllers.QuoteCreateResponse> {
+        public async salesQuoteGet(quoteNumber: string): Promise<controllers.SalesQuoteGetResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/quotes`, JSON.stringify(params))
-            return await resp.json() as controllers.QuoteCreateResponse
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quotes/${encodeURIComponent(quoteNumber)}`)
+            return await resp.json() as controllers.SalesQuoteGetResponse
         }
 
-        public async quoteDelete(quoteNumber: string): Promise<controllers.QuoteDeleteResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/quotes/${encodeURIComponent(quoteNumber)}`)
-            return await resp.json() as controllers.QuoteDeleteResponse
-        }
-
-        public async quoteDuplicate(params: controllers.QuoteDuplicateRequest): Promise<controllers.QuoteDuplicateResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/quote-duplicate`, JSON.stringify(params))
-            return await resp.json() as controllers.QuoteDuplicateResponse
-        }
-
-        public async quoteGet(quoteNumber: string): Promise<controllers.QuoteGetResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/quotes/${encodeURIComponent(quoteNumber)}`)
-            return await resp.json() as controllers.QuoteGetResponse
-        }
-
-        public async quoteList(params: controllers.QuoteListRequest): Promise<controllers.QuoteListResponse> {
+        /**
+         * The company's sales quotes - not the rows of the old quotes module - filtered, searched and
+         * sorted by the server, one page at a time, with the real number of matches. Every quote comes
+         * with its whole document. A screen that needs all of them loads them with afterId.
+         */
+        public async salesQuoteList(params: controllers.SalesQuoteListRequest): Promise<controllers.SalesQuoteListResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
+                afterId:       params.afterId,
+                createdFrom:   params.createdFrom,
+                createdTo:     params.createdTo,
                 customerId:    params.customerId,
+                decidedFrom:   params.decidedFrom,
+                decidedTo:     params.decidedTo,
+                direction:     params.direction,
+                familyOf:      params.familyOf,
+                followUp:      params.followUp === undefined ? undefined : String(params.followUp),
+                hasShipment:   params.hasShipment === undefined ? undefined : String(params.hasShipment),
                 limit:         params.limit === undefined ? undefined : String(params.limit),
                 offset:        params.offset === undefined ? undefined : String(params.offset),
+                owner:         params.owner,
+                search:        params.search,
+                serviceType:   params.serviceType,
+                sortBy:        params.sortBy,
                 sortDirection: params.sortDirection === undefined ? undefined : String(params.sortDirection),
+                statuses:      params.statuses,
             })
 
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/quotes`, undefined, {query})
-            return await resp.json() as controllers.QuoteListResponse
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales-quotes`, undefined, {query})
+            return await resp.json() as controllers.SalesQuoteListResponse
         }
 
-        public async quoteNextRef(): Promise<controllers.QuoteNextRefResponse> {
+        public async salesQuoteOwner(quoteNumber: string, params: controllers.SalesQuoteOwnerRequest): Promise<controllers.SalesQuoteOwnerResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/quote-next-ref`)
-            return await resp.json() as controllers.QuoteNextRefResponse
+            const resp = await this.baseClient.callTypedAPI("PUT", `/sales-quotes/${encodeURIComponent(quoteNumber)}/owner`, JSON.stringify(params))
+            return await resp.json() as controllers.SalesQuoteOwnerResponse
         }
 
-        public async quoteUpdate(quoteNumber: string, params: controllers.QuoteUpdateRequest): Promise<controllers.QuoteUpdateResponse> {
+        public async salesQuoteSave(quoteNumber: string, params: controllers.SalesQuoteSaveRequest): Promise<controllers.SalesQuoteSaveResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/quotes/${encodeURIComponent(quoteNumber)}`, JSON.stringify(params))
-            return await resp.json() as controllers.QuoteUpdateResponse
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/sales-quotes/${encodeURIComponent(quoteNumber)}`, JSON.stringify(params))
+            return await resp.json() as controllers.SalesQuoteSaveResponse
+        }
+
+        public async salesQuoteTransition(quoteNumber: string, params: controllers.SalesQuoteTransitionRequest): Promise<controllers.SalesQuoteTransitionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/transition`, JSON.stringify(params))
+            return await resp.json() as controllers.SalesQuoteTransitionResponse
+        }
+
+        public async salesQuoteValidity(quoteNumber: string, params: controllers.SalesQuoteValidityRequest): Promise<controllers.SalesQuoteValidityResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/sales-quotes/${encodeURIComponent(quoteNumber)}/validity`, JSON.stringify(params))
+            return await resp.json() as controllers.SalesQuoteValidityResponse
         }
     }
 }
@@ -1073,13 +1100,72 @@ export namespace sales {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.followupTaskCreate = this.followupTaskCreate.bind(this)
+            this.followupTaskDelete = this.followupTaskDelete.bind(this)
+            this.followupTaskList = this.followupTaskList.bind(this)
+            this.followupTaskUpdate = this.followupTaskUpdate.bind(this)
             this.prefGet = this.prefGet.bind(this)
             this.prefSet = this.prefSet.bind(this)
+            this.salesPermissions = this.salesPermissions.bind(this)
+            this.salesPipeline = this.salesPipeline.bind(this)
             this.termsCreate = this.termsCreate.bind(this)
             this.termsDelete = this.termsDelete.bind(this)
-            this.termsGet = this.termsGet.bind(this)
             this.termsList = this.termsList.bind(this)
             this.termsUpdate = this.termsUpdate.bind(this)
+        }
+
+        /**
+         * Adds one follow-up task. Refused (invalid argument) for a due date that is not a real day, an
+         * assignee who is not a user of the company, a customer id that is no id, or a quote that does
+         * not exist.
+         */
+        public async followupTaskCreate(params: controllers.FollowupTaskCreateRequest): Promise<controllers.FollowupTaskCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales/followup-tasks`, JSON.stringify(params))
+            return await resp.json() as controllers.FollowupTaskCreateResponse
+        }
+
+        /**
+         * Deletes one follow-up task: it is gone from the lists for everybody, its row is kept. Not found
+         * for a task that is already deleted or belongs to another company.
+         */
+        public async followupTaskDelete(id: string): Promise<controllers.FollowupTaskDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/sales/followup-tasks/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.FollowupTaskDeleteResponse
+        }
+
+        /**
+         * The company's manual follow-up tasks, one page at a time, with the real number of matches.
+         * Without afterId the open tasks come by due day - those without one last - and the done tasks
+         * by when they were done, the latest first. A screen that needs all of them loads them with
+         * afterId and sorts them itself.
+         */
+        public async followupTaskList(params: controllers.FollowupTaskListRequest): Promise<controllers.FollowupTaskListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                afterId:  params.afterId,
+                assignee: params.assignee,
+                limit:    params.limit === undefined ? undefined : String(params.limit),
+                offset:   params.offset === undefined ? undefined : String(params.offset),
+                state:    params.state === undefined ? undefined : String(params.state),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales/followup-tasks`, undefined, {query})
+            return await resp.json() as controllers.FollowupTaskListResponse
+        }
+
+        /**
+         * Changes one follow-up task: only the fields that are sent, and only this task - two people
+         * changing two tasks at the same moment do not touch each other's. Refused for the same reasons
+         * as a new task, and for a customer link sent without its name or the other way round; not found
+         * for a task that is deleted or belongs to another company.
+         */
+        public async followupTaskUpdate(id: string, params: controllers.FollowupTaskUpdateRequest): Promise<controllers.FollowupTaskUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/sales/followup-tasks/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.FollowupTaskUpdateResponse
         }
 
         public async prefGet(prefKey: string): Promise<controllers.PrefGetResponse> {
@@ -1088,10 +1174,48 @@ export namespace sales {
             return await resp.json() as controllers.PrefGetResponse
         }
 
+        /**
+         * Stores one of the preferences Sales keeps for the whole company - the columns and the saved
+         * views of the Quotes list, the company details on quotations - in place of what was stored.
+         * Refused for any other key, for a value that is missing, too large or not of the form the
+         * preference has, and - the company details - for who may not edit the Sales settings.
+         */
         public async prefSet(prefKey: string, params: controllers.PrefSetRequest): Promise<controllers.PrefSetResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/sales-prefs/${encodeURIComponent(prefKey)}`, JSON.stringify(params))
             return await resp.json() as controllers.PrefSetResponse
+        }
+
+        /**
+         * What the signed-in user may do in Sales beyond a single quote: the screens show, hide and lock
+         * their controls by these flags and hold no rule about roles themselves. The endpoints refuse by
+         * the same policy, whatever a screen shows.
+         */
+        public async salesPermissions(): Promise<interfaces.SalesPermissions> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales/permissions`)
+            return await resp.json() as interfaces.SalesPermissions
+        }
+
+        /**
+         * The customer pipeline: every customer of the company on the stage its quotes and shipments put
+         * it on - Prospect (interested, no quote sent yet), Proposal (a quote was sent), Won (a shipment
+         * was ordered) - with its open quotes and last activity. `totals` count whole columns; `cards`
+         * are cut to the limit; `notes` count what cannot be placed. Read-only: nothing is written, the
+         * status on a customer record is neither read as a stage nor changed.
+         */
+        public async salesPipeline(params: controllers.SalesPipelineRequest): Promise<interfaces.PipelineBoard> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit:    params.limit === undefined ? undefined : String(params.limit),
+                offset:   params.offset === undefined ? undefined : String(params.offset),
+                stage:    params.stage === undefined ? undefined : String(params.stage),
+                wonSince: params.wonSince,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/sales/pipeline`, undefined, {query})
+            return await resp.json() as interfaces.PipelineBoard
         }
 
         public async termsCreate(params: controllers.TermsCreateRequest): Promise<controllers.TermsCreateResponse> {
@@ -1106,18 +1230,17 @@ export namespace sales {
             return await resp.json() as controllers.TermsDeleteResponse
         }
 
-        public async termsGet(id: string): Promise<controllers.TermsGetResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/terms-conditions/${encodeURIComponent(id)}`)
-            return await resp.json() as controllers.TermsGetResponse
-        }
-
         public async termsList(): Promise<controllers.TermsListResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/terms-conditions`)
             return await resp.json() as controllers.TermsListResponse
         }
 
+        /**
+         * Changes one template: only the fields that are sent. A name is trimmed and refused when it is
+         * empty or another template of the company has it; not found for a template that is deleted or
+         * belongs to another company.
+         */
         public async termsUpdate(id: string, params: controllers.TermsUpdateRequest): Promise<controllers.TermsUpdateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/terms-conditions/${encodeURIComponent(id)}`, JSON.stringify(params))
@@ -1164,6 +1287,8 @@ export namespace shipments {
             this.shipmentList = this.shipmentList.bind(this)
             this.shipmentNeedsAttention = this.shipmentNeedsAttention.bind(this)
             this.shipmentNextJobNumber = this.shipmentNextJobNumber.bind(this)
+            this.shipmentQuoteLink = this.shipmentQuoteLink.bind(this)
+            this.shipmentQuoteLinksSync = this.shipmentQuoteLinksSync.bind(this)
             this.shipmentReleaseHouseBol = this.shipmentReleaseHouseBol.bind(this)
             this.shipmentTileCounts = this.shipmentTileCounts.bind(this)
             this.shipmentUnlinkMasterJob = this.shipmentUnlinkMasterJob.bind(this)
@@ -1445,6 +1570,31 @@ export namespace shipments {
         }
 
         /**
+         * Tells the sales quote in the shipment's Sales Number about the shipment (again): the quote
+         * links itself to the oldest live shipment that names it. The retry for a create whose answer
+         * said the quote could not be told - then with markWon - and for a shipment whose quote does not
+         * know it yet. What goes wrong is answered as an error, not swallowed. `found: false` in the
+         * answer: the Sales Number names no live sales quote.
+         */
+        public async shipmentQuoteLink(shipmentId: string, params: controllers.ShipmentQuoteLinkRequest): Promise<interfaces.QuoteSyncResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/quote-link`, JSON.stringify(params))
+            return await resp.json() as interfaces.QuoteSyncResult
+        }
+
+        /**
+         * Compares the company's shipments with the links its sales quotes hold and repairs what
+         * differs: a quote learns of a shipment that carries its number, and forgets one that no longer
+         * does. The same run the list of shipments starts by itself, for a screen that shows links
+         * before anybody opened Shipments (Quote History), and - forced - for a manager after a deploy.
+         */
+        public async shipmentQuoteLinksSync(params: controllers.ShipmentQuoteLinksSyncRequest): Promise<controllers.ShipmentQuoteLinksSyncResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipment-quote-links/sync`, JSON.stringify(params))
+            return await resp.json() as controllers.ShipmentQuoteLinksSyncResponse
+        }
+
+        /**
          * Releasing the house BoL is its own action rather than a field edit: the
          * record of who released it is written from the authenticated user, so it
          * cannot be typed in by hand.
@@ -1586,6 +1736,7 @@ export namespace controllers {
      */
     export interface AddBuyingRequest {
         category?: string
+        description?: string
         vendor?: string
         estQty?: string
         estAmount?: string
@@ -1626,6 +1777,7 @@ export namespace controllers {
 
     export interface AddSellingRequest {
         category?: string
+        description?: string
         customer?: string
         qty?: string
         amount?: string
@@ -2166,14 +2318,126 @@ export namespace controllers {
         fileName: string
     }
 
-    export interface ExtractQuoteRequest {
-        fileBase64: string
-        fileName: string
-    }
-
     export interface ExtractTextRequest {
         text: string
         destination: string
+    }
+
+    export interface FollowupTaskCreateRequest {
+        type: "Call" | "Email" | "Visit"
+        note?: string
+        /**
+         * YYYY-MM-DD; null or left out = no due day.
+         */
+        dueDate?: string | null
+
+        /**
+         * A user of the company. Left out = the signed-in user; null = nobody.
+         */
+        assigneeUserId?: string | null
+
+        /**
+         * The customer the task is about, when it is one from the Customer Database.
+         */
+        customerId?: string | null
+
+        /**
+         * The company as typed, or the name of that customer.
+         */
+        customerLabel?: string
+
+        contact?: string
+        /**
+         * The reference of the sales quote the task is about.
+         */
+        quoteNumber?: string | null
+    }
+
+    export interface FollowupTaskCreateResponse {
+        task: interfaces.FollowupTaskItem
+    }
+
+    export interface FollowupTaskDeleteResponse {
+        ok: boolean
+    }
+
+    export interface FollowupTaskListRequest {
+        /**
+         * Whose tasks: "me" (the signed-in user), "none" (tasks assigned to nobody), the id of a user,
+         * or "all" - which is also what leaving it out means.
+         */
+        assignee?: string
+
+        /**
+         * open (the default), done, or all.
+         */
+        state?: "open" | "done" | "all"
+
+        /**
+         * Rows per page: 50 when left out, at most 200.
+         */
+        limit?: number
+
+        /**
+         * How many rows of the sorted list to skip.
+         */
+        offset?: number
+
+        /**
+         * For loading everything: the id of the last task already loaded - for the first page the nil
+         * id 00000000-0000-0000-0000-000000000000. The rows are then those with a greater id, in the
+         * order of their ids, and offset is ignored: no task is skipped or repeated when tasks are
+         * created or deleted meanwhile. A page shorter than the limit is the last one.
+         */
+        afterId?: string
+    }
+
+    export interface FollowupTaskListResponse {
+        pagination: {
+            /**
+             * How many tasks match the filters in all - also with afterId.
+             */
+            total: number
+
+            offset: number
+            limit: number
+        }
+        data: interfaces.FollowupTaskItem[]
+    }
+
+    export interface FollowupTaskUpdateRequest {
+        type?: "Call" | "Email" | "Visit"
+        note?: string
+        /**
+         * YYYY-MM-DD; null = no due day.
+         */
+        dueDate?: string | null
+
+        /**
+         * A user of the company; null = nobody.
+         */
+        assigneeUserId?: string | null
+
+        /**
+         * The customer of the Customer Database the task links to; null = none. One value with customerLabel: sent together or not at all.
+         */
+        customerId?: string | null
+
+        /**
+         * The company as typed, or the name of that customer.
+         */
+        customerLabel?: string
+
+        contact?: string
+        quoteNumber?: string | null
+        /**
+         * true ticks the task off - who did it and when is recorded; false opens it again.
+         */
+        done?: boolean
+    }
+
+    export interface FollowupTaskUpdateResponse {
+        task: interfaces.FollowupTaskItem
     }
 
     export interface GenerateInvoiceRequest {
@@ -2203,6 +2467,35 @@ export namespace controllers {
     export interface HolidayReadRequest {
         fileBase64: string
         fileName: string
+    }
+
+    export interface ImportQuoteRequest {
+        /**
+         * The whole reference of a sales quote, variant suffix included: QCZ20261010001-2 is not QCZ20261010001.
+         */
+        quoteNumber: string
+
+        /**
+         * The side of Costs Breakdown that gets the quote's lines: buying, selling, or both when left out.
+         */
+        target?: "buy" | "sell" | "both"
+
+        /**
+         * Copy although lines of this quote were already copied to that side of this shipment.
+         */
+        force?: boolean
+    }
+
+    export interface ImportQuoteResponse {
+        /**
+         * How many buying rows were added.
+         */
+        buying: number
+
+        /**
+         * How many selling rows were added.
+         */
+        selling: number
     }
 
     export interface InvoiceCreateRequest {
@@ -2433,89 +2726,6 @@ export namespace controllers {
         ok: boolean
     }
 
-    export interface QuoteAllocateRefResponse {
-        ref: string
-    }
-
-    export interface QuoteAttachmentCreateRequest {
-        fileName: string
-        fileSize: number
-        fileType: string
-        contentBase64?: string
-    }
-
-    export interface QuoteAttachmentCreateResponse {
-        attachment: interfaces.QuoteAttachmentItem
-    }
-
-    export interface QuoteAttachmentDeleteResponse {
-        ok: boolean
-    }
-
-    export interface QuoteAttachmentListResponse {
-        attachments: interfaces.QuoteAttachmentItem[]
-    }
-
-    export interface QuoteCreateRequest {
-        quoteNumber: string
-        data?: any
-        terms?: string
-    }
-
-    export interface QuoteCreateResponse {
-        quote: interfaces.QuoteItem
-    }
-
-    export interface QuoteDeleteResponse {
-        ok: boolean
-    }
-
-    export interface QuoteDuplicateRequest {
-        baseRef: string
-        data?: any
-    }
-
-    export interface QuoteDuplicateResponse {
-        quoteNumber: string
-        quote: interfaces.QuoteItem
-    }
-
-    export interface QuoteGetResponse {
-        quote: interfaces.QuoteItem
-    }
-
-    export interface QuoteListRequest {
-        limit?: number
-        offset?: number
-        sortDirection?: "asc" | "desc"
-        /**
-         * Only the quotes made for this customer (the customer page's Quotes tab).
-         */
-        customerId?: string
-    }
-
-    export interface QuoteListResponse {
-        pagination: {
-            total: number
-            offset: number
-            limit: number
-        }
-        data: interfaces.QuoteItem[]
-    }
-
-    export interface QuoteNextRefResponse {
-        ref: string
-    }
-
-    export interface QuoteUpdateRequest {
-        data?: any
-        terms?: string
-    }
-
-    export interface QuoteUpdateResponse {
-        quote: interfaces.QuoteItem
-    }
-
     export interface ReleaseHouseBolResponse {
         shipment: interfaces.ShipmentItem
     }
@@ -2529,6 +2739,276 @@ export namespace controllers {
          * Per item, its form in the database ("Hamburg (DEHAM)", "Germany (DE)", "DE"), or null.
          */
         values: (string | null)[]
+    }
+
+    export interface SalesPipelineRequest {
+        /**
+         * The Won column holds the customers whose first shipment was created on this day or later
+         * (YYYY-MM-DD, the day in Prague). Left out = all time. The other columns do not depend on it.
+         */
+        wonSince?: string
+
+        /**
+         * Only this column's cards, from `offset` on: the way to fetch more of a column that was cut.
+         */
+        stage?: "prospect" | "proposal" | "won"
+
+        /**
+         * Cards per column: 100 when left out, at most 500.
+         */
+        limit?: number
+
+        /**
+         * With `stage`: how many cards of that column to skip.
+         */
+        offset?: number
+    }
+
+    export interface SalesQuoteCreateRequest {
+        /**
+         * The fields the quote starts with. Reference, status, owner and history are assigned by the
+         * server; keys of that kind in here are ignored.
+         */
+        data?: any
+    }
+
+    export interface SalesQuoteCreateResponse {
+        quote: interfaces.SalesQuoteItem
+    }
+
+    export interface SalesQuoteDeleteResponse {
+        ok: boolean
+    }
+
+    export interface SalesQuoteDuplicateRequest {
+        /**
+         * The fields the variant starts with. Reference, status, owner and history are assigned by
+         * the server; keys of that kind in here are ignored.
+         */
+        data?: any
+    }
+
+    export interface SalesQuoteDuplicateResponse {
+        quote: interfaces.SalesQuoteItem
+    }
+
+    export interface SalesQuoteFollowUpRequest {
+        /**
+         * What was said or agreed, for the quote's history; at most 2000 characters.
+         */
+        note?: string
+    }
+
+    export interface SalesQuoteFollowUpResponse {
+        quote: interfaces.SalesQuoteItem
+    }
+
+    export interface SalesQuoteGetResponse {
+        quote: interfaces.SalesQuoteItem
+    }
+
+    export interface SalesQuoteListRequest {
+        /**
+         * Rows per page: 50 when left out, at most 200.
+         */
+        limit?: number
+
+        /**
+         * How many rows of the sorted list to skip.
+         */
+        offset?: number
+
+        /**
+         * For loading everything: the id of the last quote already loaded - for the first page the nil
+         * id 00000000-0000-0000-0000-000000000000. The rows are then those with a greater id, in the
+         * order of their ids, and offset and sortBy are ignored: no quote is skipped or repeated when
+         * quotes are created or deleted meanwhile. A page shorter than the limit is the last one.
+         */
+        afterId?: string
+
+        /**
+         * createdAt (the default) | updatedAt | quoteNumber | customer | status | owner | sentAt |
+         * validUntil | decidedAt | lastContactAt. Anything else sorts by createdAt. Quotes without a
+         * value come last in both directions.
+         */
+        sortBy?: string
+
+        /**
+         * desc when left out.
+         */
+        sortDirection?: "asc" | "desc"
+
+        /**
+         * Words that all have to occur in the quote: in its reference, customer, service type,
+         * direction, origin, destination, commodity, incoterm, owner, job number or status. Case and
+         * diacritics do not matter; at most five words are looked for.
+         */
+        search?: string
+
+        /**
+         * Statuses as shown, separated by commas: draft, ready_to_send, quoted, feedback, revised, won,
+         * lost, expired. A quote whose validity has passed is "expired", not "quoted".
+         */
+        statuses?: string
+
+        /**
+         * The service type as the quote stores it, e.g. "Air".
+         */
+        serviceType?: string
+
+        /**
+         * "Import" or "Export", as the quote stores it.
+         */
+        direction?: string
+
+        /**
+         * Created on this day or later (YYYY-MM-DD, the day in Prague).
+         */
+        createdFrom?: string
+
+        /**
+         * Created on this day or earlier (YYYY-MM-DD, the day in Prague).
+         */
+        createdTo?: string
+
+        /**
+         * Won or lost on this day or later (YYYY-MM-DD, the day in Prague).
+         */
+        decidedFrom?: string
+
+        /**
+         * Won or lost on this day or earlier (YYYY-MM-DD, the day in Prague).
+         */
+        decidedTo?: string
+
+        /**
+         * "me" (the signed-in user), "none" (quotes that belong to no user) or the id of a user.
+         */
+        owner?: string
+
+        /**
+         * The id of the customer the quotes are for.
+         */
+        customerId?: string
+
+        /**
+         * "due": only the quotes whose follow-up is due - the ones that carry followUpDue.
+         */
+        followUp?: "due"
+
+        /**
+         * A quote reference: that quote's base and all its variants (-2, -3, ...).
+         */
+        familyOf?: string
+
+        /**
+         * true: only the quotes a shipment names (shipmentJobNumber is set); false: only the quotes none does.
+         */
+        hasShipment?: boolean
+    }
+
+    export interface SalesQuoteListResponse {
+        pagination: {
+            /**
+             * How many quotes match the filters in all - also with afterId.
+             */
+            total: number
+
+            offset: number
+            limit: number
+        }
+        data: interfaces.SalesQuoteItem[]
+    }
+
+    export interface SalesQuoteOwnerRequest {
+        /**
+         * The id of the user who owns the quote from now on - one of the company's users - or null for nobody.
+         */
+        ownerUserId: string | null
+    }
+
+    export interface SalesQuoteOwnerResponse {
+        quote: interfaces.SalesQuoteItem
+        /**
+         * False when the quote already had that owner: nothing was written.
+         */
+        changed: boolean
+    }
+
+    export interface SalesQuoteSaveRequest {
+        /**
+         * The whole document as edited. Status, validity, owner and history are not taken from it:
+         * they are changed with their own endpoints, and keys of that kind in here are ignored.
+         */
+        data: any
+
+        /**
+         * The dataVersion of the document the caller's copy is based on. The quote is written only
+         * while it still has that version; otherwise the request fails with a conflict (HTTP 409)
+         * and nothing is written.
+         */
+        expectedDataVersion: number
+    }
+
+    export interface SalesQuoteSaveResponse {
+        quote: interfaces.SalesQuoteItem
+    }
+
+    export interface SalesQuoteTransitionRequest {
+        /**
+         * The status to set. Expired is not one: a quote expires when its validity date has passed.
+         */
+        to: "draft" | "ready_to_send" | "quoted" | "feedback" | "revised" | "won" | "lost"
+
+        comment?: string
+        /**
+         * To Quoted: "valid N days" from today (1-365), used only when the quote has no validity that still holds.
+         */
+        validityDays?: number
+
+        /**
+         * To Lost: "Category: reason".
+         */
+        lostReason?: string
+
+        /**
+         * To Quoted: the Exchange sheet the sender saw (CZK per 1 unit, and its week). The rates the
+         * quote converts with and does not store yet are stored from it together with the sending.
+         */
+        exchange?: {
+            rates: { [key: string]: number }
+            week?: string
+        }
+
+        /**
+         * The status the caller's screen showed - the effective one, so "expired" for a quote whose
+         * validity has passed. When sent, the change is refused if the quote is in another by now.
+         */
+        expectedStatus?: string
+
+        /**
+         * The dataVersion the caller's copy is based on. When sent and no longer current: conflict (HTTP 409).
+         */
+        expectedDataVersion?: number
+    }
+
+    export interface SalesQuoteTransitionResponse {
+        quote: interfaces.SalesQuoteItem
+        /**
+         * False when the quote already had that status: nothing was written.
+         */
+        changed: boolean
+    }
+
+    export interface SalesQuoteValidityRequest {
+        /**
+         * The last day the quote is valid (YYYY-MM-DD), or null for none.
+         */
+        validUntil: string | null
+    }
+
+    export interface SalesQuoteValidityResponse {
+        quote: interfaces.SalesQuoteItem
     }
 
     export interface SetIssuedInvoiceNumberRequest {
@@ -2712,6 +3192,21 @@ export namespace controllers {
         validityStatus?: string
         salesPerson?: string
         /**
+         * The reference of the sales quote the shipment is created from. The quote becomes the
+         * shipment's Sales Number and, unless salesPerson is sent, its owner the Sales Person; the
+         * quote is linked to the shipment and marked Won, and its cost lines are copied into Costs
+         * Breakdown. An unknown reference is refused. When a live shipment was already created from
+         * the quote the request is refused with HTTP 409 and details { shipmentId, jobNumber } of that
+         * shipment - unless allowSecondShipment is sent.
+         */
+        fromQuoteNumber?: string
+
+        /**
+         * With fromQuoteNumber: create the shipment although the quote already has one.
+         */
+        allowSecondShipment?: boolean
+
+        /**
          * Other
          */
         claim?: string
@@ -2721,6 +3216,20 @@ export namespace controllers {
 
     export interface ShipmentCreateResponse {
         shipment: interfaces.ShipmentItem
+        /**
+         * With fromQuoteNumber: whether the quote was told about the shipment, and what that made of it.
+         */
+        quoteLink?: interfaces.QuoteLinkOutcome
+
+        /**
+         * With fromQuoteNumber: how many of the quote's cost lines were copied into Costs Breakdown.
+         */
+        costImport?: interfaces.CostImportOutcome
+
+        /**
+         * With fromQuoteNumber: why containers or cargo lines were not saved although the shipment was created.
+         */
+        detailRowsError?: string
     }
 
     export interface ShipmentDeleteResponse {
@@ -2776,6 +3285,52 @@ export namespace controllers {
     export interface ShipmentNeedsAttentionResponse {
         within24h: interfaces.ShipmentDueItem[]
         within48h: interfaces.ShipmentDueItem[]
+    }
+
+    export interface ShipmentQuoteLinkRequest {
+        /**
+         * The shipment was created from the quote: an open quote becomes Won, as it would have at the create.
+         */
+        markWon?: boolean
+    }
+
+    export interface ShipmentQuoteLinksSyncRequest {
+        /**
+         * Managers only: compare everything now, whenever the last run was, and go on until nothing is left.
+         */
+        force?: boolean
+    }
+
+    export interface ShipmentQuoteLinksSyncResponse {
+        /**
+         * False when no run was due: the links were compared within the last hour and nothing has failed since.
+         */
+        ran: boolean
+
+        /**
+         * Quotes that got a link, or another one.
+         */
+        linked: number
+
+        /**
+         * Quotes whose link was taken away.
+         */
+        unlinked: number
+
+        /**
+         * References whose quote already had the right link.
+         */
+        unchanged: number
+
+        /**
+         * References that name no live sales quote.
+         */
+        quoteNotFound: number
+
+        /**
+         * References the run did not get to: it stops at a limit, and the next run goes on.
+         */
+        remaining: number
     }
 
     /**
@@ -3011,10 +3566,6 @@ export namespace controllers {
         ok: boolean
     }
 
-    export interface TermsGetResponse {
-        terms: interfaces.TermsConditionItem
-    }
-
     export interface TermsListResponse {
         data: interfaces.TermsConditionItem[]
     }
@@ -3023,6 +3574,12 @@ export namespace controllers {
         name?: string
         includes?: string
         excludes?: string
+        /**
+         * The updatedAt of the copy the change was made on, as the API handed it out. When the stored
+         * template is no longer that version - somebody saved it since - nothing is written and the
+         * call is refused with "aborted". Without it the change is written whatever is stored.
+         */
+        expectedUpdatedAt?: string
     }
 
     export interface TermsUpdateResponse {
@@ -3039,6 +3596,7 @@ export namespace controllers {
 
     export interface UpdateBuyingRequest {
         category?: string
+        description?: string
         vendor?: string
         estQty?: string
         estAmount?: string
@@ -3086,6 +3644,7 @@ export namespace controllers {
 
     export interface UpdateSellingRequest {
         category?: string
+        description?: string
         customer?: string
         qty?: string
         amount?: string
@@ -3496,6 +4055,18 @@ export namespace interfaces {
         volume: string
     }
 
+    /**
+     * How copying the quote's cost lines went when a shipment was created from it.
+     */
+    export interface CostImportOutcome {
+        buying: number
+        selling: number
+        /**
+         * Why nothing was copied; "Copy from quote" on the Costs tab does it later.
+         */
+        error?: string
+    }
+
     export interface CustomerItem {
         id: string
         ico: string
@@ -3595,6 +4166,48 @@ export namespace interfaces {
         fileName: string
     }
 
+    /**
+     * A manual follow-up task as the Follow-up screen gets it. Times are ISO strings, days are YYYY-MM-DD.
+     */
+    export interface FollowupTaskItem {
+        id: string
+        /**
+         * Call, Email or Visit.
+         */
+        type: string
+
+        note: string
+        dueDate: string | null
+        assigneeUserId: string | null
+        /**
+         * The assignee's current display name; "" for a task assigned to nobody, or to a user that cannot be resolved.
+         */
+        assigneeName: string
+
+        customerId: string | null
+        /**
+         * The company as typed, or the customer's name at the time the task was linked to the customer.
+         */
+        customerLabel: string
+
+        contact: string
+        quoteNumber: string | null
+        done: boolean
+        doneAt: string | null
+        /**
+         * Due before today and not done. Worked out when the task is read: nobody sets it and nothing stores it.
+         */
+        overdue: boolean
+
+        /**
+         * The position the task had in the old shared list; null for a task created since.
+         */
+        legacyIndex: number | null
+
+        createdAt: string
+        updatedAt: string
+    }
+
     export interface GeneratedInvoiceItem {
         id: string
         shipmentId: string
@@ -3655,6 +4268,7 @@ export namespace interfaces {
         id: string
         shipmentId: string
         category: string
+        description: string
         estQty: string | null
         estAmount: string | null
         estCurrency: string
@@ -3788,12 +4402,133 @@ export namespace interfaces {
     }
 
     /**
+     * The customer pipeline. Derived on every read from customers, quotes and shipments; nothing of it is stored.
+     */
+    export interface PipelineBoard {
+        /**
+         * The day the Won column starts with (YYYY-MM-DD), as asked; null = all time.
+         */
+        wonSince: string | null
+
+        /**
+         * How many customers each column holds in all, whatever part of them `cards` carries.
+         */
+        totals: {
+            prospect: number
+            proposal: number
+            won: number
+        }
+
+        cards: {
+            prospect: PipelineCard[]
+            proposal: PipelineCard[]
+            won: PipelineCard[]
+        }
+        /**
+         * What the board cannot place, as counts.
+         */
+        notes: {
+            /**
+             * Live shipments without a customer record, or whose customer is no longer in the Customer Database.
+             */
+            shipmentsWithoutCustomer: number
+
+            /**
+             * Sent quotes that name no customer record.
+             */
+            quotesWithoutCustomer: number
+
+            /**
+             * Sent quotes whose customer is no longer in the Customer Database.
+             */
+            quotesOfMissingCustomers: number
+
+            /**
+             * Sent quotes of the customers under Proposal that have no sent date: they count from the day they were created.
+             */
+            sentQuotesWithoutDate: number
+        }
+    }
+
+    /**
+     * A customer on the pipeline board. Times are ISO strings.
+     */
+    export interface PipelineCard {
+        customerId: string
+        companyName: string
+        label: string
+        /**
+         * The customer's sales owner, as set on the customer.
+         */
+        salesOwner: string
+
+        stage: PipelineStage
+        /**
+         * When the first quote for the customer went out; null when none did.
+         */
+        firstQuoteSentAt: string | null
+
+        /**
+         * False when that quote has no sent date and firstQuoteSentAt is the day it was created.
+         */
+        firstQuoteSentAtKnown: boolean
+
+        /**
+         * The first shipment with the customer: when it was created in the app, and which it is.
+         */
+        firstShipmentAt: string | null
+
+        firstShipmentId: string | null
+        firstJobNumber: string | null
+        shipmentCount: number
+        /**
+         * The last write of a quote for the customer or the creation of its newest shipment, whichever is later.
+         */
+        lastActivityAt: string | null
+
+        /**
+         * The customer's quotes that are neither decided nor expired, the newest first.
+         */
+        openQuotes: PipelineOpenQuote[]
+    }
+
+    /**
      * One uploaded file of a pre-alert.
      */
     export interface PipelineFile {
         fileBase64: string
         fileName: string
     }
+
+    /**
+     * An open quote on a customer's card. The server never converts money: the value of the quote is
+     * worked out where every other screen works it out, from these parts of its document.
+     */
+    export interface PipelineOpenQuote {
+        quoteNumber: string
+        status: string
+        validUntil: string | null
+        /**
+         * The quote's currency as stored; "" when it stores none.
+         */
+        currency: string
+
+        /**
+         * The rates the quote stores (data.rates), as stored.
+         */
+        rates: any
+
+        /**
+         * The selling lines (data.sellingLines), as stored.
+         */
+        sellingLines: any
+    }
+
+    /**
+     * Where a customer stands in the pipeline: prospect - interested, no quote sent yet; proposal - a
+     * quote was sent; won - the customer ordered a shipment.
+     */
+    export type PipelineStage = "prospect" | "proposal" | "won"
 
     export interface PrepareResult {
         sessionId: string
@@ -3823,23 +4558,171 @@ export namespace interfaces {
         fileName: string
     }
 
-    export interface QuoteAttachmentItem {
-        id: string
-        quoteNumber: string
-        fileName: string
-        fileSize: number
-        fileType: string
-        storageKey: string
-        createdAt: string
+    /**
+     * How telling the quote went when a shipment was created from it.
+     */
+    export interface QuoteLinkOutcome {
+        /**
+         * The quote knows the shipment.
+         */
+        linked: boolean
+
+        becameWon: boolean
+        /**
+         * The status the quote shows now; null when it could not be told.
+         */
+        quoteStatus: string | null
+
+        /**
+         * Why the quote did not become Won although it was told.
+         */
+        note?: string
+
+        /**
+         * Why the quote could not be told; POST /shipments/:shipmentId/quote-link tries again.
+         */
+        error?: string
     }
 
-    export interface QuoteItem {
+    /**
+     * What the sales quote a Sales Number names made of its shipments, as the quotes service answers.
+     */
+    export interface QuoteSyncResult {
+        quoteNumber: string
+        /**
+         * False when the reference is not a live sales quote: nothing was linked.
+         */
+        found: boolean
+
+        /**
+         * The shipment the quote is linked to now: the oldest live one that names it.
+         */
+        shipmentId: string | null
+
+        shipmentJobNumber: string | null
+        /**
+         * The status the quote shows now.
+         */
+        status: string | null
+
+        /**
+         * This call made the quote Won.
+         */
+        becameWon: boolean
+
+        /**
+         * The status the quote returned to because its last shipment is gone.
+         */
+        revertedTo: string | null
+
+        /**
+         * Why the shipment did not make the quote Won.
+         */
+        note: string | null
+    }
+
+    /**
+     * What the signed-in user may do in Sales beyond a single quote, which carries its own permissions.
+     */
+    export interface SalesPermissions {
+        /**
+         * Reassign and delete any quote.
+         */
+        canManageSales: boolean
+
+        /**
+         * Create, change and delete Terms & Conditions templates.
+         */
+        canEditTerms: boolean
+
+        /**
+         * Change the company details printed on quotations.
+         */
+        canEditCompanyDetails: boolean
+    }
+
+    /**
+     * A sales quote as the Sales screens get it: the document, and the lifecycle facts the server
+     * owns, as typed fields. Times are ISO strings, days are YYYY-MM-DD.
+     */
+    export interface SalesQuoteItem {
         id: string
         quoteNumber: string
         data: any
         terms: string
         createdAt: string
         updatedAt: string
+        /**
+         * The version of the document. A save names the one it is based on.
+         */
+        dataVersion: number
+
+        /**
+         * The status as stored.
+         */
+        status: string
+
+        /**
+         * The status to show: "expired" for a Quoted or Feedback quote whose validity has passed.
+         */
+        effectiveStatus: string
+
+        /**
+         * The statuses the quote may be set to now, in menu order.
+         */
+        allowedTransitions: string[]
+
+        substatus: string | null
+        lostReason: string | null
+        lostComment: string | null
+        customerId: string | null
+        /**
+         * The last sending.
+         */
+        sentAt: string | null
+
+        firstSentAt: string | null
+        decidedAt: string | null
+        validUntil: string | null
+        /**
+         * When the customer last heard from us: the last recorded contact, else the last sending.
+         */
+        lastContactAt: string | null
+
+        followUpDue: boolean
+        ownerUserId: string | null
+        /**
+         * The owner's current display name; the stored label when the owner is not linked to a user.
+         */
+        ownerName: string
+
+        /**
+         * The owner as text, as stored: what old quotes had instead of a user.
+         */
+        ownerLabel: string
+
+        shipmentId: string | null
+        shipmentJobNumber: string | null
+        /**
+         * What the signed-in user may do with this quote.
+         */
+        permissions: {
+            /**
+             * any: reassign freely. own: hand over or give up. claim: take for themselves. none: nothing.
+             */
+            canChangeOwner: "any" | "own" | "claim" | "none"
+
+            /**
+             * Whether the user may delete the quote as it stands.
+             */
+            canDelete: boolean
+
+            /**
+             * Why not, when they may not - the sentence to show: a shipment is linked to the quote (then
+             * nobody may, and shipmentId is set), or the user would have to be a manager.
+             */
+            deleteBlockedReason?: string
+        }
     }
 
     /**
@@ -3849,6 +4732,7 @@ export namespace interfaces {
         id: string
         shipmentId: string
         category: string
+        description: string
         customer: string
         qty: string | null
         amount: string | null

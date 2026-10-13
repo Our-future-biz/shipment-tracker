@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Spin } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { BackLink } from "@/components/BackLink";
 import { useShipments } from "@/hooks/useShipments";
 import { WarehouseTab } from "@/app/shipments/[jobNumber]/tabs/WarehouseTab";
 import { WAREHOUSE_SECTIONS, type WarehouseSection } from "../_components/warehouseRules";
@@ -17,12 +17,7 @@ export function WarehouseShipmentContent() {
   const section: WarehouseSection = from in WAREHOUSE_SECTIONS ? (from as WarehouseSection) : "in";
   const { shipments, isLoading } = useShipments({ warehouse: section });
   const shipment = shipments.find((s) => s.id === shipmentId);
-  const back = (
-    <Link href={`/warehouse/${section}`} className="inline-flex items-center gap-1.5 text-[13px] text-indigo-500 hover:text-indigo-600">
-      <ArrowLeftOutlined className="text-[11px]" />
-      {WAREHOUSE_SECTIONS[section]}
-    </Link>
-  );
+  const back = <BackLink href={`/warehouse/${section}`}>{WAREHOUSE_SECTIONS[section]}</BackLink>;
 
   if (isLoading) {
     return (

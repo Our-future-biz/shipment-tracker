@@ -1,5 +1,6 @@
 import { APIError, ErrCode } from "encore.dev/api";
-import { auth, customers, quotes } from "~encore/clients";
+import log from "encore.dev/log";
+import { auth, customers, invoicing, quotes } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { shipmentRepository, OVERDUE_DEADLINE_FIELDS } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
@@ -10,13 +11,24 @@ import { cargoDimensionRepository } from "../repositories/cargoDimension.reposit
 import { commercialInvoiceRepository } from "../repositories/commercialInvoice.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, normalizeContainerNumber, projectCargo } from "./cargoProjection";
 import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "./fieldDefaults";
+import { quoteLinksService } from "./quoteLinks.service";
 import type { ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
 import type { CargoItemRecord } from "../schemas/cargoItem.schema";
 import type { CargoDimensionRecord } from "../schemas/cargoDimension.schema";
 import type { CommercialInvoiceRecord } from "../schemas/commercialInvoice.schema";
-import type { ContainerLine, CargoItemLine, CargoDimensionLine, CommercialInvoiceLine, ShipmentDueItem } from "../interfaces/interfaces";
+import type {
+  ContainerLine,
+  CargoItemLine,
+  CargoDimensionLine,
+  CommercialInvoiceLine,
+  CostImportOutcome,
+  CustomerShipmentFacts,
+  QuoteLinkOutcome,
+  QuoteSyncResult,
+  ShipmentDueItem,
+} from "../interfaces/interfaces";
 
 // Extra detail rows accepted alongside the shipment's own fields on create/update.
 interface DetailRows {
@@ -25,6 +37,28 @@ interface DetailRows {
   cargoDimensions?: CargoDimensionLine[];
   commercialInvoices?: CommercialInvoiceLine[];
 }
+
+// How a shipment is made from a sales quote, alongside its own fields on create.
+interface FromQuote {
+  /** The reference of the quote the shipment is created from. */
+  fromQuoteNumber?: string;
+  /** Create it although a live shipment was already created from that quote. */
+  allowSecondShipment?: boolean;
+}
+
+// What a create answers: the shipment, and for one made from a quote how each further step went.
+interface CreatedShipment {
+  shipment: Awaited<ReturnType<ShipmentService["getById"]>>;
+  quoteLink?: QuoteLinkOutcome;
+  costImport?: CostImportOutcome;
+  /** Why containers or cargo lines were not saved although the shipment was created. */
+  detailRowsError?: string;
+}
+
+// Why a step failed, as the answer of a create reports it: the sentence of whoever refused.
+// Any other failure is in the log and not in the answer - a database error carries its whole
+// statement and the values that went into it.
+const reasonOf = (err: unknown): string => (err instanceof APIError ? err.message : "an unexpected error occurred");
 
 // Project table rows down to the API line shapes (drop internal
 // shipmentId/companyId/timestamps; containers keep their id — cargo lines
@@ -284,14 +318,13 @@ class ShipmentService {
     }
   }
 
-  // The sales person of the quote a shipment was sold from. Quotes live in
-  // another service and their fields sit in a jsonb blob, so this reads the
-  // owner off that blob. Empty when the reference isn't a known quote.
+  // The sales person of the quote a shipment was sold from: whoever owns the
+  // sales quote its Sales Number names, by the name they have now - as a
+  // shipment created from a quote gets it. Empty when the number is no sales quote.
   private async quoteSalesOwner(quoteNumber: string): Promise<string> {
     try {
-      const { quote } = await quotes.quoteGet({ quoteNumber });
-      const data = (quote.data ?? {}) as { salesOwner?: string; createdBy?: string };
-      return (data.salesOwner || data.createdBy || "").trim();
+      const { quote } = await quotes.salesQuoteGet({ quoteNumber });
+      return quote.ownerName.trim();
     } catch {
       // Free-text sales numbers are allowed; an unknown reference just means
       // there is no owner to inherit.
@@ -456,8 +489,82 @@ class ShipmentService {
     return rows.filter((r) => r.documentType);
   }
 
-  async create(companyId: string, data: Omit<NewShipmentRecord, "companyId"> & DetailRows) {
-    const { containers, cargoItems, cargoDimensions, commercialInvoices, ...rest } = data;
+  // Tells the quote a Sales Number names which shipments carry that number now. Called after a
+  // shipment write that changed it; such a write must not fail because the quote could not be
+  // told, so a failure is logged and the company marked - the next reconcile repairs the link.
+  private async tellQuote(companyId: string, salesNumber: string) {
+    try {
+      await quoteLinksService.syncReference(companyId, salesNumber);
+    } catch (err) {
+      log.warn(err, "the quote of a shipment could not be told about it", { companyId, salesNumber });
+      quoteLinksService.markDirty(companyId);
+    }
+  }
+
+  // A shipment made from a sales quote: it carries the quote as its Sales Number, the quote
+  // becomes Won and its cost lines arrive in Costs Breakdown. Three databases, no transaction
+  // across them - so the order is shipment, then quote, then costs, and once the shipment
+  // exists nothing fails the request any more: each further step is tried on its own and the
+  // answer says which one did not work, so it can be done again by itself.
+  private async createFromQuote(
+    companyId: string,
+    quoteNumber: string,
+    allowSecond: boolean,
+    shipmentData: Record<string, unknown>,
+    rows: DetailRows,
+  ): Promise<CreatedShipment> {
+    let quote;
+    try {
+      ({ quote } = await quotes.salesQuoteGet({ quoteNumber }));
+    } catch (err) {
+      if (err instanceof APIError && err.code === ErrCode.NotFound) throw APIError.invalidArgument(`quote ${quoteNumber} not found`);
+      throw err;
+    }
+    const reference = quote.quoteNumber;
+    // Whoever owns the quote sold the shipment - unless the request names somebody itself.
+    if (!((shipmentData.salesPerson as string) ?? "").trim() && quote.ownerName) shipmentData.salesPerson = quote.ownerName;
+
+    const made = await shipmentRepository.createFromQuote(companyId, reference, shipmentData as never, allowSecond);
+    if ("existing" in made) {
+      const { id, jobNumber } = made.existing;
+      throw APIError.alreadyExists(`shipment ${jobNumber} was already created from quote ${reference}`).withDetails({ shipmentId: id, jobNumber });
+    }
+    const shipment = made.created;
+
+    let detailRowsError: string | undefined;
+    try {
+      await this.syncDetailRows(shipment.id, companyId, rows);
+    } catch (err) {
+      log.warn(err, "the cargo lines of a shipment created from a quote were not saved", { companyId, shipmentId: shipment.id });
+      detailRowsError = reasonOf(err);
+    }
+    await this.recalcCustomerRollups(shipment.customerId, companyId);
+
+    let quoteLink: QuoteLinkOutcome;
+    try {
+      const synced = await quoteLinksService.syncReference(companyId, reference, { wonByShipmentId: shipment.id });
+      quoteLink = synced?.found
+        ? { linked: synced.shipmentId !== null, becameWon: synced.becameWon, quoteStatus: synced.status, note: synced.note ?? undefined }
+        : { linked: false, becameWon: false, quoteStatus: null, error: `quote ${reference} could not be linked` };
+    } catch (err) {
+      log.warn(err, "the quote a shipment was created from could not be told about it", { companyId, shipmentId: shipment.id, reference });
+      quoteLinksService.markDirty(companyId);
+      quoteLink = { linked: false, becameWon: false, quoteStatus: null, error: reasonOf(err) };
+    }
+
+    let costImport: CostImportOutcome;
+    try {
+      costImport = await invoicing.invoicingImportQuote({ shipmentId: shipment.id, quoteNumber: reference, target: "both" });
+    } catch (err) {
+      log.warn(err, "the costs of a quote were not copied to the shipment created from it", { companyId, shipmentId: shipment.id, reference });
+      costImport = { buying: 0, selling: 0, error: reasonOf(err) };
+    }
+
+    return { shipment: await this.getById(shipment.id, companyId), quoteLink, costImport, detailRowsError };
+  }
+
+  async create(companyId: string, data: Omit<NewShipmentRecord, "companyId"> & DetailRows & FromQuote): Promise<CreatedShipment> {
+    const { containers, cargoItems, cargoDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, ...rest } = data;
     assertValidContainerNumbers(containers);
     const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) } as Record<string, unknown>);
     // A new shipment has no paperwork yet, so its customs status starts where the paperwork does.
@@ -482,8 +589,15 @@ class ShipmentService {
       cfsDefault(shipmentData.hub as string, shipmentData.cfs as string),
     );
 
-    // A shipment created against a quote inherits that quote's sales owner.
+    const fromQuote = fromQuoteNumber?.trim();
+    if (fromQuote) {
+      return this.createFromQuote(companyId, fromQuote, allowSecondShipment === true, shipmentData, { containers, cargoItems, cargoDimensions, commercialInvoices });
+    }
+
+    // The Sales Number is stored trimmed: it is what a quote finds its shipments by.
     const salesNumber = ((shipmentData.salesNumber as string) ?? "").trim();
+    if ("salesNumber" in shipmentData) shipmentData.salesNumber = salesNumber;
+    // A shipment created against a quote inherits that quote's sales owner.
     if (salesNumber && !((shipmentData.salesPerson as string) ?? "").trim()) {
       const owner = await this.quoteSalesOwner(salesNumber);
       if (owner) shipmentData.salesPerson = owner;
@@ -491,7 +605,9 @@ class ShipmentService {
     const shipment = await shipmentRepository.createForCompany(companyId, shipmentData as never);
     await this.syncDetailRows(shipment.id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
     await this.recalcCustomerRollups(shipment.customerId, companyId);
-    return this.getById(shipment.id, companyId);
+    // A quote number typed as Sales Number links that quote to the shipment, without marking it Won.
+    await this.tellQuote(companyId, salesNumber);
+    return { shipment: await this.getById(shipment.id, companyId) };
   }
 
   // Next CZ job number for this company (a per-company sequence over all rows incl.
@@ -508,6 +624,8 @@ class ShipmentService {
     const { containers, cargoItems, cargoDimensions, commercialInvoices, ...rest } = data;
     assertValidContainerNumbers(containers);
     const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) } as Record<string, unknown>);
+    // The Sales Number is stored trimmed: it is what a quote finds its shipments by.
+    if (typeof shipmentData.salesNumber === "string") shipmentData.salesNumber = shipmentData.salesNumber.trim();
 
     // Up to "Paperwork Verified" the customs status follows the paperwork; only the steps
     // after it are set by hand, and only once the paperwork is approved.
@@ -572,8 +690,10 @@ class ShipmentService {
     // Assigning a quote number hands the shipment to whoever sold it: the
     // quote's sales owner becomes the shipment's sales person. Only on a real
     // change, and never over a salesPerson set in the same request.
-    const nextSalesNumber = (shipmentData.salesNumber as string | undefined)?.trim();
-    if (nextSalesNumber && nextSalesNumber !== existing.salesNumber && !("salesPerson" in shipmentData)) {
+    const previousSalesNumber = existing.salesNumber.trim();
+    const nextSalesNumber = shipmentData.salesNumber as string | undefined;
+    const salesNumberChanged = nextSalesNumber !== undefined && nextSalesNumber !== previousSalesNumber;
+    if (salesNumberChanged && nextSalesNumber && !("salesPerson" in shipmentData)) {
       const owner = await this.quoteSalesOwner(nextSalesNumber);
       if (owner) shipmentData.salesPerson = owner;
     }
@@ -612,7 +732,28 @@ class ShipmentService {
       await this.recalcCustomerRollups(existing.customerId, companyId);
     }
 
+    // A changed Sales Number takes the shipment from one quote and gives it to another: both
+    // are told, the new one without being marked Won.
+    if (salesNumberChanged) {
+      await this.tellQuote(companyId, nextSalesNumber);
+      await this.tellQuote(companyId, previousSalesNumber);
+    }
+
     return this.getById(id, companyId);
+  }
+
+  // What the company's shipments say about its customers, for the pipeline of the sales service:
+  // for each customer its first shipment - what "ordered" means there - its newest, and how many.
+  async customerFacts(companyId: string): Promise<{ customers: CustomerShipmentFacts[]; shipmentsWithoutCustomer: number }> {
+    const facts = await shipmentRepository.customerFacts(companyId);
+    return {
+      customers: facts.customers.map((customer) => ({
+        ...customer,
+        firstShipmentAt: customer.firstShipmentAt.toISOString(),
+        lastShipmentAt: customer.lastShipmentAt.toISOString(),
+      })),
+      shipmentsWithoutCustomer: facts.shipmentsWithoutCustomer,
+    };
   }
 
   async getAllForCompany(companyId: string, limit = 5000) {
@@ -638,7 +779,21 @@ class ShipmentService {
 
     const deleted = await shipmentRepository.softDeleteForCompany(id, companyId);
     await this.recalcCustomerRollups(existing.customerId, companyId);
+    // The quote the shipment named loses it - and with its last shipment a Won it owed to one.
+    await this.tellQuote(companyId, existing.salesNumber.trim());
     return deleted;
+  }
+
+  // Tells the quote the shipment names about it once more, and passes on what the quote
+  // answers or why it could not be asked: the retry after a create that could not tell the
+  // quote (`markWon`: the shipment was created from it), and "Link now" on a shipment whose
+  // quote does not know it. Null when there is no such shipment.
+  async linkQuote(id: string, companyId: string, markWon: boolean): Promise<QuoteSyncResult | null> {
+    const existing = await shipmentRepository.getByIdForCompany(id, companyId);
+    if (!existing) return null;
+    const synced = await quoteLinksService.syncReference(companyId, existing.salesNumber.trim(), markWon ? { wonByShipmentId: id } : {});
+    if (!synced) throw APIError.failedPrecondition("the Sales Number of this shipment is not the reference of a sales quote");
+    return synced;
   }
 
   // Release the house bill of lading, recording who released it and when.

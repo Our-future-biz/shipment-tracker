@@ -16,18 +16,6 @@ export const SHIPMENT_FIELDS = [
   "Commercial Invoice Value",
 ];
 
-export const QUOTE_FIELDS = [
-  "Shipper", "Consignee", "Load Type", "Agent", "Agent's PIC",
-  "Incoterm Origin", "Incoterm Destination", "Cargo Origin", "Origin",
-  "POL", "POD", "Destination", "HS Code", "Cargo Description",
-  "Trade Direction", "Volume", "Weight", "Number of pieces",
-  "CNTR count [1]", "CNTR length [1]",
-  "CNTR count [2]", "CNTR length [2]",
-  "CNTR count [3]", "CNTR length [3]",
-  "CNTR count [4]", "CNTR length [4]",
-  "PCS",
-];
-
 export const INVOICE_FIELDS = [
   "total_amount", "currency", "vendor", "invoice_number",
   "invoice_date", "due_date", "description", "service_type",

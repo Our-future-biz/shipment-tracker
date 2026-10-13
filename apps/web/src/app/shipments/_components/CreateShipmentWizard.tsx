@@ -1,29 +1,42 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Select, Button, Checkbox, Segmented, Tag } from "antd";
-import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { Alert, Select, Button, Checkbox, Segmented, Tag } from "antd";
+import { useQueryClient } from "@tanstack/react-query";
 import { AppModal } from "@/components/AppModal";
 import { useToast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import { COLUMN_MAP } from "@/lib/columnConfig";
+import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
+import { invalidateQuoteLists } from "@/hooks/useSalesQuotes";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
-import { isSalesQuote, toSalesQuote } from "@/app/sales/_lib/salesQuote";
-import { QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
-import { quoteToCreateRequest, quoteCostPlan, quotePreview } from "./quoteToShipment";
-import type { controllers } from "@/lib/api/client";
+import { quoteProblem } from "@/app/sales/_lib/quoteProblem";
+import { toSalesQuote, type SalesQuote } from "@/app/sales/_lib/salesQuote";
+import { ExchangeRatesError } from "@/app/sales/_components/ExchangeRatesError";
+import { QuotePicker } from "@/app/sales/_components/QuotePicker";
+import { QuoteStatusPill } from "@/app/sales/_components/QuoteStatusPill";
+import { quoteToCreateRequest, quotePreview } from "./quoteToShipment";
+import type { controllers, interfaces } from "@/lib/api/client";
 
 interface CreateShipmentWizardProps {
   open: boolean;
-  onClose: () => void;
+  /**
+   * The wizard is done. With `openShipmentId` it closes in order to show that shipment - the one
+   * it created, or the one its quote already has; going there is the caller's, which may have a
+   * navigation of its own to make and can make only one.
+   */
+  onClose: (openShipmentId?: string) => void;
   createShipment: (params: controllers.ShipmentCreateRequest) => Promise<controllers.ShipmentCreateResponse>;
   isCreating: boolean;
   existingShipments: ShipmentItem[];
+  /** The reference of the sales quote the wizard is opened for ("Create shipment" on the quote page). */
+  fromQuote?: string | null;
 }
 
-type WizardStep = "ask-copy" | "select-fields" | "confirm-costs";
+// "created": a shipment was made from a quote, but a step after it did not work - the wizard
+// stays to say which, instead of opening the shipment as if all was done.
+type WizardStep = "ask-copy" | "select-fields" | "confirm-costs" | "created";
 
 // Ordered field keys offered on the "Select Fields to Copy" step.
 // "origin" is not part of the create payload — it is applied via a follow-up update.
@@ -43,37 +56,53 @@ const COPYABLE_FIELDS = [
   "cargoDescription",
 ] as const;
 
+// What a create from a quote made of the quote and of its cost lines, as the result words it.
+// Null for a step that did not work.
+function quoteOutcome(link: interfaces.QuoteLinkOutcome | undefined): string | null {
+  if (!link?.linked) return null;
+  if (link.becameWon) return "quote marked Won";
+  if (link.note) return `quote linked (${link.note})`;
+  return link.quoteStatus === "won" ? "quote was already Won" : "quote linked";
+}
+
+function costsOutcome(costs: interfaces.CostImportOutcome | undefined): string | null {
+  if (!costs || costs.error) return null;
+  const lines = costs.buying + costs.selling;
+  return lines ? `${lines} cost line${lines === 1 ? "" : "s"} copied` : "no cost lines to copy";
+}
+
 export const CreateShipmentWizard = ({
   open,
   onClose,
   createShipment,
   isCreating,
   existingShipments,
+  fromQuote = null,
 }: CreateShipmentWizardProps) => {
-  const router = useRouter();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const toast = useToast();
+  // The Exchange sheet converts the quote's totals where the quote stores no rate of its own.
+  const exchange = useCurrentExchangeRates();
 
   const [step, setStep] = useState<WizardStep>("ask-copy");
   const [copyMode, setCopyMode] = useState<"shipment" | "quote">("shipment");
   const [copyFromId, setCopyFromId] = useState<string>("");
-  const [quoteRef, setQuoteRef] = useState<string>("");
+  // The sales quote picked in "Copy from Quote", whole, as the picker found it: any quote of the
+  // company, in any lifecycle status.
+  const [selectedQuote, setSelectedQuote] = useState<SalesQuote | null>(null);
+  // How reading the quote the wizard was opened for is going.
+  const [preset, setPreset] = useState({ loading: false, error: "" });
+  // The shipment the server refused to add another to: the picked quote already has it (HTTP 409).
+  const [refusedFor, setRefusedFor] = useState<{ id: string; jobNumber: string } | null>(null);
+  // "Create another shipment from this quote" is ticked.
+  const [another, setAnother] = useState(false);
+  // What the server answered to a create from a quote, while the result step shows it.
+  const [created, setCreated] = useState<controllers.ShipmentCreateResponse | null>(null);
+  const [retrying, setRetrying] = useState(false);
   const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set(COPYABLE_FIELDS));
   const [copyEstimatedCosts, setCopyEstimatedCosts] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-
-  // Sales quotes for the "Copy from Quote" mode (all lifecycle statuses,
-  // newest first).
-  const { data: quoteData } = useQuery({
-    queryKey: ["quotes", "wizard"],
-    queryFn: () => api.quotes.quoteList({ limit: 200, sortDirection: "desc" }),
-    enabled: open,
-  });
-  const salesQuotes = useMemo(
-    () => (quoteData?.data ?? []).filter(isSalesQuote).map(toSalesQuote),
-    [quoteData],
-  );
-  const selectedQuote = salesQuotes.find((q) => q.quoteNumber === quoteRef);
 
   // The next job number is generated on the server so it accounts for archived
   // (soft-deleted) shipments and never reuses a reference.
@@ -94,6 +123,42 @@ export const CreateShipmentWizard = ({
     };
   }, [open]);
 
+  // Opened for one quote: it is read as it is stored now and picked, as if found in the picker.
+  useEffect(() => {
+    if (!open || !fromQuote) return;
+    let active = true;
+    setCopyMode("quote");
+    setPreset({ loading: true, error: "" });
+    api.quotes.salesQuoteGet(fromQuote).then(
+      ({ quote }) => {
+        if (!active) return;
+        setSelectedQuote(toSalesQuote(quote));
+        setPreset({ loading: false, error: "" });
+      },
+      (err) => {
+        if (active) setPreset({ loading: false, error: quoteProblem(err).reason });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [open, fromQuote]);
+
+  // Another quote is another question: what was answered or ticked for the last one goes.
+  const pickQuote = (quote: SalesQuote | null) => {
+    setSelectedQuote(quote);
+    setRefusedFor(null);
+    setAnother(false);
+  };
+
+  // The shipment the picked quote already has: as the quote says, or as the server said when it
+  // refused - a colleague may have created it after the quote was read.
+  const existing =
+    refusedFor ??
+    (selectedQuote?.shipmentId && selectedQuote.shipmentJobNumber
+      ? { id: selectedQuote.shipmentId, jobNumber: selectedQuote.shipmentJobNumber }
+      : null);
+
   const jobOptions = useMemo(
     () =>
       existingShipments
@@ -103,27 +168,31 @@ export const CreateShipmentWizard = ({
     [existingShipments],
   );
 
-  const quoteOptions = useMemo(
-    () =>
-      salesQuotes.map((q) => ({
-        value: q.quoteNumber,
-        label: q.data.customerName ? `${q.quoteNumber} — ${q.data.customerName}` : q.quoteNumber,
-      })),
-    [salesQuotes],
-  );
-  const statusOf = (key?: string) => (key ? (QUOTE_STATUS_MAP[key]?.label ?? key) : "");
-
   const source = existingShipments.find((s) => s.id === copyFromId);
   const sourceJob = source?.jobNumber ?? "";
 
-  const resetAndClose = () => {
+  // Back to what a newly opened wizard shows.
+  const reset = () => {
     setStep("ask-copy");
     setCopyMode("shipment");
     setCopyFromId("");
-    setQuoteRef("");
+    pickQuote(null);
+    setPreset({ loading: false, error: "" });
+    setCreated(null);
     setSelectedFields(new Set(COPYABLE_FIELDS));
     setCopyEstimatedCosts(false);
+  };
+
+  // Takes no argument: as the handler of a click it must not pass the click on as a shipment.
+  const resetAndClose = () => {
+    reset();
     onClose();
+  };
+
+  // Closes to show a shipment: the one just created, or the one the picked quote already has.
+  const closeAndOpen = (shipmentId: string) => {
+    reset();
+    onClose(shipmentId);
   };
 
   const baseRequest = (): controllers.ShipmentCreateRequest => {
@@ -139,11 +208,6 @@ export const CreateShipmentWizard = ({
     };
   };
 
-  const openCreated = (id: string) => {
-    resetAndClose();
-    router.push(`/shipments/${id}`);
-  };
-
   const handleCreateBlank = async () => {
     if (!nextJobNumber) {
       toast.error("Generating job number, please wait…");
@@ -153,7 +217,7 @@ export const CreateShipmentWizard = ({
     try {
       const result = await createShipment(baseRequest());
       toast.success("Shipment created");
-      openCreated(result.shipment.id);
+      closeAndOpen(result.shipment.id);
     } catch {
       toast.error("Failed to create shipment");
     } finally {
@@ -191,13 +255,13 @@ export const CreateShipmentWizard = ({
           await copyEstimates(source.id, newId);
         } catch {
           toast.error("Shipment created, but copying estimated costs failed");
-          openCreated(newId);
+          closeAndOpen(newId);
           return;
         }
       }
 
       toast.success("Shipment created");
-      openCreated(newId);
+      closeAndOpen(newId);
     } catch {
       toast.error("Failed to create shipment");
     } finally {
@@ -205,46 +269,61 @@ export const CreateShipmentWizard = ({
     }
   };
 
-  // Create a shipment carrying everything the quote holds: mapped fields +
-  // cargo lines in the create call, then the quote link and estimated costs.
+  // Create a shipment from the quote: the mapped fields and cargo lines go in the create call,
+  // and the server does the rest - it tells the quote, which becomes Won, and copies the quote's
+  // cost lines into Costs Breakdown. Its answer says how each of those went.
   const handleCreateFromQuote = async () => {
     if (!selectedQuote || !nextJobNumber) return;
     setSubmitting(true);
 
     const request: controllers.ShipmentCreateRequest = {
       ...baseRequest(),
-      ...quoteToCreateRequest(selectedQuote.quoteNumber, selectedQuote.data),
+      ...quoteToCreateRequest(selectedQuote.quoteNumber, selectedQuote.data, exchange.rates),
       jobNumber: nextJobNumber,
+      allowSecondShipment: (existing && another) || undefined,
     };
 
     try {
       const result = await createShipment(request);
-      const newId = result.shipment.id;
-
-      try {
-        // Link the quote so the Linked Quote panel and invoicing pick it up.
-        await api.invoicing.invoicingUpsertBillingSettings(newId, { quoteRef: selectedQuote.quoteNumber });
-        const plan = quoteCostPlan(selectedQuote.data);
-        for (const cost of plan.costs) {
-          await api.invoicing.invoicingUpsertCost(newId, cost);
-        }
-        let sortOrder = 0;
-        for (const charge of plan.charges) {
-          await api.invoicing.invoicingAddCharge(newId, { ...charge, sortOrder: sortOrder++ });
-        }
-      } catch {
-        toast.error("Shipment created, but copying quote costs failed");
-        openCreated(newId);
-        return;
+      const done = [quoteOutcome(result.quoteLink), costsOutcome(result.costImport)];
+      if (done.every(Boolean) && !result.detailRowsError) {
+        toast.success(`Shipment created from ${selectedQuote.quoteNumber} - ${done.join(", ")}`);
+        closeAndOpen(result.shipment.id);
+      } else {
+        setCreated(result);
+        setStep("created");
       }
-
-      toast.success(`Shipment created from ${selectedQuote.quoteNumber}`);
-      openCreated(newId);
-    } catch {
-      toast.error("Failed to create shipment");
+    } catch (err) {
+      // The quote already has a shipment and nothing was created: the wizard names that shipment
+      // and asks before it makes another.
+      if (isAPIError(err) && err.code === ErrCode.AlreadyExists && typeof err.details?.shipmentId === "string") {
+        setRefusedFor({ id: err.details.shipmentId, jobNumber: String(err.details.jobNumber ?? "") });
+        setAnother(false);
+      } else {
+        toast.error(`Shipment not created - ${apiErrorMessage(err)}`);
+      }
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Tells the quote once more that the shipment was created from it - the step of the create
+  // that failed - so an open quote still becomes Won.
+  const retryQuoteLink = async () => {
+    if (!created) return;
+    setRetrying(true);
+    let quoteLink: interfaces.QuoteLinkOutcome;
+    try {
+      const synced = await api.shipments.shipmentQuoteLink(created.shipment.id, { markWon: true });
+      quoteLink = synced.found
+        ? { linked: synced.shipmentId !== null, becameWon: synced.becameWon, quoteStatus: synced.status, note: synced.note ?? undefined }
+        : { linked: false, becameWon: false, quoteStatus: null, error: `quote ${synced.quoteNumber} could not be linked` };
+      invalidateQuoteLists(queryClient);
+    } catch (err) {
+      quoteLink = { linked: false, becameWon: false, quoteStatus: null, error: apiErrorMessage(err) };
+    }
+    setCreated({ ...created, quoteLink });
+    setRetrying(false);
   };
 
   const copyEstimates = async (sourceId: string, targetId: string) => {
@@ -289,14 +368,22 @@ export const CreateShipmentWizard = ({
       ? "New Shipment"
       : step === "select-fields"
         ? "Select Fields to Copy"
-        : "Copy Estimated Costs?";
+        : step === "confirm-costs"
+          ? "Copy Estimated Costs?"
+          : "Shipment Created";
 
   const subtitle =
     step === "ask-copy"
       ? `Job Number: ${nextJobNumber}`
       : step === "select-fields"
         ? `From ${sourceJob} → ${nextJobNumber}`
-        : `From ${sourceJob} to Invoicing`;
+        : step === "confirm-costs"
+          ? `From ${sourceJob} to Invoicing`
+          : `Job Number: ${created?.shipment.jobNumber ?? ""}`;
+
+  // What worked of a create from a quote; the result step lists the rest.
+  const createdQuote = quoteOutcome(created?.quoteLink);
+  const createdCosts = costsOutcome(created?.costImport);
 
   const footer =
     step === "ask-copy" ? (
@@ -310,8 +397,9 @@ export const CreateShipmentWizard = ({
             Next &mdash; Select Fields
           </Button>
         )}
-        {copyMode === "quote" && quoteRef && (
-          <Button type="primary" onClick={handleCreateFromQuote} loading={busy}>
+        {copyMode === "quote" && selectedQuote && (
+          // Not before the Exchange sheet is in: the quote's totals would be worked out without it.
+          <Button type="primary" onClick={handleCreateFromQuote} loading={busy} disabled={exchange.isLoading || (!!existing && !another)}>
             Create from Quote
           </Button>
         )}
@@ -327,11 +415,17 @@ export const CreateShipmentWizard = ({
           Next &mdash; Estimated Costs
         </Button>
       </div>
-    ) : (
+    ) : step === "confirm-costs" ? (
       <div className="flex justify-end gap-2">
         <Button onClick={() => setStep("select-fields")}>Back</Button>
         <Button type="primary" onClick={handleCreateWithCopy} loading={busy}>
           Create Shipment
+        </Button>
+      </div>
+    ) : (
+      <div className="flex justify-end gap-2">
+        <Button type="primary" onClick={() => created && closeAndOpen(created.shipment.id)}>
+          Open Shipment
         </Button>
       </div>
     );
@@ -349,7 +443,7 @@ export const CreateShipmentWizard = ({
             onChange={(v) => {
               setCopyMode(v as "shipment" | "quote");
               setCopyFromId("");
-              setQuoteRef("");
+              pickQuote(null);
             }}
             options={[
               { label: "Copy from Shipment", value: "shipment" },
@@ -374,28 +468,19 @@ export const CreateShipmentWizard = ({
           ) : (
             <>
               <label className="block text-[11px] text-slate-500 mb-1">Copy from Quote Number</label>
-              <Select
-                showSearch
-                allowClear
-                className="w-full"
-                placeholder="Search or select..."
-                value={quoteRef || undefined}
-                onChange={(value) => setQuoteRef(value ?? "")}
-                options={quoteOptions}
-                optionFilterProp="label"
-              />
+              <QuotePicker value={selectedQuote} onChange={pickQuote} />
+              {preset.loading && <div className="mt-2 text-xs text-slate-400">Loading {fromQuote}…</div>}
+              {preset.error && <Alert className="mt-3" type="error" showIcon message={`${fromQuote} - ${preset.error}`} />}
 
               {selectedQuote && (
                 <div className="mt-4 border border-slate-200 bg-slate-50 rounded-xl px-4 py-3.5">
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Data to transfer</span>
                     <Tag color="geekblue" className="!m-0 font-mono">{selectedQuote.quoteNumber}</Tag>
-                    {statusOf(selectedQuote.data.quoteStatus) && (
-                      <Tag className="!m-0">{statusOf(selectedQuote.data.quoteStatus)}</Tag>
-                    )}
+                    <QuoteStatusPill status={selectedQuote.status} />
                   </div>
                   <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-                    {quotePreview(selectedQuote.data).map((item) => (
+                    {quotePreview(selectedQuote.data, exchange.rates).map((item) => (
                       <div key={item.label}>
                         <div className="text-[11px] text-slate-400">{item.label}</div>
                         <div className="text-xs font-semibold text-slate-800">{item.value}</div>
@@ -404,8 +489,80 @@ export const CreateShipmentWizard = ({
                   </div>
                 </div>
               )}
+              {selectedQuote && <ExchangeRatesError exchange={exchange} className="mt-3" />}
+
+              {/* A Lost quote is linked to the shipment but is not reopened by it. */}
+              {selectedQuote?.status === "lost" && (
+                <Alert
+                  className="mt-3"
+                  type="info"
+                  showIcon
+                  message="This quote is Lost and will stay Lost - reopen it in Sales if the customer ordered after all"
+                />
+              )}
+
+              {existing && (
+                <Alert
+                  className="mt-3"
+                  type="warning"
+                  showIcon
+                  message={
+                    <>
+                      Shipment {existing.jobNumber} was already created from this quote.{" "}
+                      <button
+                        type="button"
+                        onClick={() => closeAndOpen(existing.id)}
+                        className="font-semibold underline bg-transparent border-none p-0 cursor-pointer"
+                      >
+                        Open {existing.jobNumber}
+                      </button>
+                    </>
+                  }
+                  description={
+                    <Checkbox checked={another} onChange={(e) => setAnother(e.target.checked)}>
+                      <span className="text-xs">Create another shipment from this quote</span>
+                    </Checkbox>
+                  }
+                />
+              )}
             </>
           )}
+        </>
+      )}
+
+      {step === "created" && created && (
+        <>
+          <p className="text-xs text-slate-600 mb-3">
+            Shipment <strong className="text-slate-700">{created.shipment.jobNumber}</strong> was created from{" "}
+            {selectedQuote?.quoteNumber}
+            {[createdQuote, createdCosts].some(Boolean) && ` - ${[createdQuote, createdCosts].filter(Boolean).join(", ")}`}.
+          </p>
+          <div className="space-y-2">
+            {!createdQuote && (
+              <Alert
+                type="warning"
+                showIcon
+                message="Shipment created, but the quote could not be told"
+                description={created.quoteLink?.error}
+                action={
+                  <Button size="small" loading={retrying} onClick={retryQuoteLink}>
+                    Retry
+                  </Button>
+                }
+              />
+            )}
+            {!createdCosts && (
+              <Alert
+                type="warning"
+                showIcon
+                message="Shipment created, but the quote's costs were not copied - use Copy from quote on the Costs tab"
+                description={created.costImport?.error}
+              />
+            )}
+            {created.detailRowsError && (
+              <Alert type="warning" showIcon message="Shipment created, but some cargo lines were not saved" description={created.detailRowsError} />
+            )}
+          </div>
         </>
       )}
 

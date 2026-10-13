@@ -48,6 +48,23 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       .limit(f.limit ?? 2000);
   }
 
+  // Every live customer of the company with what the sales pipeline shows of it. All of them -
+  // the pipeline counts every customer, so a limit would be a silent cap - and only these
+  // columns: a row also carries the logo, a base64 image.
+  async pipelineList(companyId: string) {
+    return this.db
+      .select({
+        id: customerTable.id,
+        companyName: customerTable.companyName,
+        status: customerTable.status,
+        label: customerTable.label,
+        salesOwner: customerTable.salesOwner,
+        createdAt: customerTable.createdAt,
+      })
+      .from(customerTable)
+      .where(and(eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)));
+  }
+
   async listByStatus(status: string, companyId: string, limit = 2000) {
     const rows = await this.db
       .select()

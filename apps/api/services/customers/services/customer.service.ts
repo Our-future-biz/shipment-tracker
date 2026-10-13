@@ -7,6 +7,7 @@ import { customerDocumentTable } from "../schemas/customerDocument.schema";
 import { customerInvoiceTable } from "../schemas/customerInvoice.schema";
 import { customerRepository } from "../repositories/customer.repository";
 import type { CustomerListFilters } from "../repositories/customer.repository";
+import type { CustomerPipelineItem } from "../interfaces/interfaces";
 import { aresService } from "./ares.service";
 import { logoService } from "./logo.service";
 
@@ -42,6 +43,12 @@ class CustomerService {
 
   async getById(id: string, companyId: string) {
     return customerRepository.getByIdForCompany(id, companyId);
+  }
+
+  // The company's customers as the sales pipeline needs them: every live one, a few fields each.
+  async pipelineList(companyId: string): Promise<CustomerPipelineItem[]> {
+    const customers = await customerRepository.pipelineList(companyId);
+    return customers.map((customer) => ({ ...customer, createdAt: customer.createdAt.toISOString() }));
   }
 
   async createFromAres(companyId: string, ico: string) {

@@ -2,8 +2,9 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
-// Persisted Sales UI state (quote-history column picker, saved views, follow-up tasks),
-// scoped per company so companies never share UI state.
+// Persisted Sales UI state (quote-history column picker, saved views), scoped per company so
+// companies never share UI state. The key 'followup_tasks' holds the list the manual follow-up
+// tasks used to be: an archive that is no longer written - the tasks are rows of followup_task.
 export const salesPreferenceTable = pgTable(
   "sales_preference",
   {

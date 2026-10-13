@@ -1,8 +1,8 @@
-import { and, eq, or, ilike, isNull, like, desc, asc, count, sql } from "drizzle-orm";
+import { and, eq, or, ilike, isNotNull, isNull, like, desc, asc, count, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { shipmentTable } from "../schemas/shipment.schema";
+import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../schemas/shipment.schema";
 import { CANCELLED_STATUS } from "../services/fieldDefaults";
 
 /**
@@ -161,9 +161,119 @@ const STATUS_BUCKETS: Record<string, string[]> = {
   delivered: ["billed", "billing", "delivered"],
 };
 
+/** A live shipment as the quote it names needs to know it. */
+export interface NamingShipment {
+  id: string;
+  jobNumber: string;
+}
+
+/** What the company's live shipments say about one customer. */
+export interface CustomerShipmentFactsRow {
+  customerId: string;
+  /** The oldest of the customer's shipments: when it was created, and which it is. */
+  firstShipmentAt: Date;
+  firstShipmentId: string;
+  firstJobNumber: string;
+  /** When the newest one was created. */
+  lastShipmentAt: Date;
+  shipmentCount: number;
+}
+
+// The Sales Number as it is compared: rows written before it was stored trimmed may carry
+// spaces around it.
+const SALES_NUMBER = sql<string>`btrim(${shipmentTable.salesNumber})`;
+
 class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   constructor() {
     super(db as never, shipmentTable, "shipment");
+  }
+
+  // The live shipments of the company whose Sales Number is `reference`, the oldest first - the
+  // order a quote takes its link by - read under a lock on that reference, which `tx` holds
+  // until it ends: whoever acts on the list does so alone. A statement sees what was committed
+  // before it began, so the read sees everything whoever held the lock before has written.
+  private async lockLiveBySalesNumber(tx: Pick<typeof this.db, "execute" | "select">, companyId: string, reference: string): Promise<NamingShipment[]> {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`shipment-from-quote:${companyId}:${reference}`}))`);
+    return tx
+      .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), sql`${SALES_NUMBER} = ${reference}`))
+      .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
+  }
+
+  /**
+   * Every live shipment of the company whose Sales Number has the format of a sales quote
+   * reference - `pattern`, a regular expression - with that reference, the oldest first.
+   */
+  async salesReferenceShipments(companyId: string, pattern: string): Promise<(NamingShipment & { reference: string })[]> {
+    return this.db
+      .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber, reference: SALES_NUMBER })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), sql`${SALES_NUMBER} ~ ${pattern}`))
+      .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
+  }
+
+  /**
+   * Reads the live shipments that name `reference` and hands them to `tell`, under the lock on
+   * the reference and until `tell` is done. Two such reports about one quote can therefore not
+   * overtake each other: the one that runs later has read the newer list.
+   */
+  async withLiveBySalesNumber<T>(companyId: string, reference: string, tell: (shipments: NamingShipment[]) => Promise<T>): Promise<T> {
+    return this.db.transaction(async (tx) => tell(await this.lockLiveBySalesNumber(tx, companyId, reference)));
+  }
+
+  /**
+   * Inserts the shipment made from a quote - unless a live shipment already names that quote and
+   * a second one is not allowed: then nothing is inserted and that shipment (the oldest) is
+   * returned. Check and insert are one transaction under an advisory lock on the reference, so
+   * of two requests at the same moment the second finds the shipment of the first.
+   */
+  async createFromQuote(
+    companyId: string,
+    reference: string,
+    data: Omit<NewShipmentRecord, "companyId" | "salesNumber">,
+    allowSecond: boolean,
+  ): Promise<{ created: ShipmentRecord } | { existing: NamingShipment }> {
+    return this.db.transaction(async (tx) => {
+      const [existing] = await this.lockLiveBySalesNumber(tx, companyId, reference);
+      if (existing && !allowSecond) return { existing };
+      const [created] = await tx
+        .insert(shipmentTable)
+        .values({ ...data, companyId, salesNumber: reference })
+        .returning();
+      return { created: created! };
+    });
+  }
+
+  /**
+   * What the company's live shipments say about each customer they are for: the first one - the
+   * oldest, by creation and then by id, as wherever shipments are put in order - when the newest
+   * was created, and how many there are. Shipments without a customer record can place no
+   * customer and are only counted.
+   */
+  async customerFacts(companyId: string): Promise<{ customers: CustomerShipmentFactsRow[]; shipmentsWithoutCustomer: number }> {
+    const live = and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt));
+    const [customers, [{ value }]] = await Promise.all([
+      this.db
+        // One row per customer: the first in the order below, its oldest shipment. The window
+        // functions have seen all of the customer's rows before the others are dropped.
+        .selectDistinctOn([shipmentTable.customerId], {
+          customerId: shipmentTable.customerId,
+          firstShipmentAt: shipmentTable.createdAt,
+          firstShipmentId: shipmentTable.id,
+          firstJobNumber: shipmentTable.jobNumber,
+          lastShipmentAt: sql`max(${shipmentTable.createdAt}) over (partition by ${shipmentTable.customerId})`.mapWith(shipmentTable.createdAt),
+          shipmentCount: sql`count(*) over (partition by ${shipmentTable.customerId})`.mapWith(Number),
+        })
+        .from(shipmentTable)
+        .where(and(live, isNotNull(shipmentTable.customerId)))
+        .orderBy(asc(shipmentTable.customerId), asc(shipmentTable.createdAt), asc(shipmentTable.id)),
+      this.db
+        .select({ value: count() })
+        .from(shipmentTable)
+        .where(and(live, isNull(shipmentTable.customerId))),
+    ]);
+    return { customers: customers as CustomerShipmentFactsRow[], shipmentsWithoutCustomer: Number(value) };
   }
 
   async findByJobNumber(jobNumber: string, companyId: string) {

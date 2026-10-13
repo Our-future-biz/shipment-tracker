@@ -438,3 +438,68 @@ export interface ShipmentDueItem {
   /** The dates that are due in that window, soonest first. */
   deadlines: ShipmentDeadline[];
 }
+
+/** What the sales quote a Sales Number names made of its shipments, as the quotes service answers. */
+export interface QuoteSyncResult {
+  quoteNumber: string;
+  /** False when the reference is not a live sales quote: nothing was linked. */
+  found: boolean;
+  /** The shipment the quote is linked to now: the oldest live one that names it. */
+  shipmentId: string | null;
+  shipmentJobNumber: string | null;
+  /** The status the quote shows now. */
+  status: string | null;
+  /** This call made the quote Won. */
+  becameWon: boolean;
+  /** The status the quote returned to because its last shipment is gone. */
+  revertedTo: string | null;
+  /** Why the shipment did not make the quote Won. */
+  note: string | null;
+}
+
+/** How telling the quote went when a shipment was created from it. */
+export interface QuoteLinkOutcome {
+  /** The quote knows the shipment. */
+  linked: boolean;
+  becameWon: boolean;
+  /** The status the quote shows now; null when it could not be told. */
+  quoteStatus: string | null;
+  /** Why the quote did not become Won although it was told. */
+  note?: string;
+  /** Why the quote could not be told; POST /shipments/:shipmentId/quote-link tries again. */
+  error?: string;
+}
+
+/** How copying the quote's cost lines went when a shipment was created from it. */
+export interface CostImportOutcome {
+  buying: number;
+  selling: number;
+  /** Why nothing was copied; "Copy from quote" on the Costs tab does it later. */
+  error?: string;
+}
+
+/** What comparing the quotes' links with the shipments did. */
+export interface QuoteLinksSyncResult {
+  /** Quotes that got a link, or another one. */
+  linked: number;
+  /** Quotes whose link was taken away. */
+  unlinked: number;
+  /** References whose quote already had the right link. */
+  unchanged: number;
+  /** References that name no live sales quote. */
+  quoteNotFound: number;
+  /** References the run did not get to: it stops at a limit, and the next run goes on. */
+  remaining: number;
+}
+
+/** What the company's shipments say about one customer, for the pipeline of the sales service. */
+export interface CustomerShipmentFacts {
+  customerId: string;
+  /** When the customer's first shipment was created in the app - the oldest live one - and which it is. */
+  firstShipmentAt: string;
+  firstShipmentId: string;
+  firstJobNumber: string;
+  /** When the newest one was created. */
+  lastShipmentAt: string;
+  shipmentCount: number;
+}

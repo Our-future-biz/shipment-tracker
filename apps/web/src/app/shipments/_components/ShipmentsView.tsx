@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useToast } from "@/lib/toast";
+import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { ShipmentsTable } from "./ShipmentsTable";
 import { CreateShipmentWizard } from "./CreateShipmentWizard";
 import { MasterJobDialog } from "./MasterJobDialog";
@@ -14,10 +15,13 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 // here to drive the server-side query — so filtering covers the whole company dataset
 // instead of only the rows already in the browser.
 export const ShipmentsView = () => {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const search = useDebounced(searchParams.get("q") ?? "", 300);
   const statusBucket = searchParams.get("status") ?? "all";
   const tile = searchParams.get("tile") ?? "all";
+  // "Create shipment" on a quote's page leads here with ?fromQuote=QCZ...
+  const fromQuote = searchParams.get("fromQuote");
 
   const { shipments, isLoading, createShipment, deleteShipment, linkMasterJob, isCreating, isDeleting } =
     useShipments({ search, statusBucket, tile });
@@ -27,6 +31,30 @@ export const ShipmentsView = () => {
   // Shipments ticked in the table when "Add to Master Job" was pressed.
   const [masterJobPreselected, setMasterJobPreselected] = useState<string[]>([]);
   const [deleteTarget, setDeleteTarget] = useState<ShipmentItem | null>(null);
+
+  // An address that names a quote opens New Shipment for that quote.
+  useEffect(() => {
+    if (fromQuote) setCreateOpen(true);
+  }, [fromQuote]);
+
+  // An address that names a quote is left once the wizard is closed: coming back to it, or
+  // reloading it, must not open the wizard again. That is done by the one navigation there is:
+  // Next drops a navigation that is still under way when the next one starts, so a clean-up of
+  // the address followed by a push would leave it as it was.
+  const closeCreate = (openShipmentId?: string) => {
+    setCreateOpen(false);
+    if (openShipmentId) {
+      const href = `/shipments/${openShipmentId}`;
+      // In place of the entry that names the quote: Back from the shipment leads to where the
+      // wizard was asked for, not into it again.
+      if (fromQuote) router.replace(href);
+      else router.push(href);
+      return;
+    }
+    // Opened for a quote and closed without opening a shipment: back to that quote, in place of
+    // the entry that asked for the wizard. Whoever came from a quote was not going to the list.
+    if (fromQuote) router.replace(quoteHref(fromQuote));
+  };
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -73,10 +101,11 @@ export const ShipmentsView = () => {
 
       <CreateShipmentWizard
         open={createOpen}
-        onClose={() => setCreateOpen(false)}
+        onClose={closeCreate}
         createShipment={createShipment}
         isCreating={isCreating}
         existingShipments={shipments}
+        fromQuote={fromQuote}
       />
 
       <ConfirmModal

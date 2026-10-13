@@ -28,7 +28,6 @@ import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
-import { useQuotes } from "@/hooks/useQuotes";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
 import { FieldReviewTable } from "./FieldReviewTable";
 import {
@@ -74,7 +73,6 @@ const HBL_PREFETCH_AHEAD = 3;
 const DESTINATION_OPTIONS = [
   { value: "shipment", label: "Shipments" },
   { value: "invoicing", label: "Invoicing" },
-  { value: "quote", label: "Quote" },
   { value: "masterjob", label: "Master Job" },
   { value: "booking", label: "Booking Confirmation" },
   { value: "customs", label: "Customs" },
@@ -83,7 +81,6 @@ const DESTINATION_OPTIONS = [
 const DESTINATION_HINT: Record<Destination, string> = {
   shipment: "Extract shipping data (B/L, booking, waybill) into Shipments columns.",
   invoicing: "Extract cost data (invoice, debit note) — amount, vendor, invoice number.",
-  quote: "Extract shipping data into a Quote record.",
   masterjob: "Extract multiple shipments from a pre-alert and create them under a Master Job (MCZ).",
   booking: "Read a carrier's booking confirmation into a new or an existing Master Job (MCZ); its details also reach the master job's shipments.",
   customs: "Read the MRN Number, Shipper, Consignee, Total Weight and Container Numbers from a customs declaration into one shipment.",
@@ -110,7 +107,6 @@ export function DocumentReadingWorkflow() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { shipments, createShipment, updateShipment, linkMasterJob } = useShipments();
-  const { quotes, updateQuote } = useQuotes();
 
   // Workflow
   const [destination, setDestination] = useState<Destination>("shipment");
@@ -127,13 +123,12 @@ export function DocumentReadingWorkflow() {
   const [preparedFiles, setPreparedFiles] = useState<{ fileName: string; pageCount: number }[]>([]);
   const [textInput, setTextInput] = useState("");
 
-  // Shipment / Quote review
+  // Shipment review
   const [fields, setFields] = useState<ExtractedField[]>([]);
   const [extractionMethod, setExtractionMethod] = useState("");
   const [shipmentMode, setShipmentMode] = useState<TargetMode>("existing");
   const [targetShipmentId, setTargetShipmentId] = useState("");
   const [committedJobNumber, setCommittedJobNumber] = useState("");
-  const [quoteNumber, setQuoteNumber] = useState("");
   // Booking confirmations go to a new master job or to an existing one (by MCZ).
   const [bookingMode, setBookingMode] = useState<TargetMode>("new");
   const [bookingMcz, setBookingMcz] = useState("");
@@ -181,10 +176,6 @@ export function DocumentReadingWorkflow() {
         .map((s) => ({ value: s.id, label: `${s.jobNumber} — ${s.shipper || s.consignee || ""}` })),
     [shipments],
   );
-  const quoteOptions = useMemo(
-    () => quotes.map((q) => ({ value: q.quoteNumber, label: q.quoteNumber })),
-    [quotes],
-  );
   const newShipmentPreview = useMemo(() => nextCzNumber(shipments), [shipments]);
   const { masterJobs } = useMasterJobs();
   const createMasterJob = useCreateMasterJob();
@@ -212,8 +203,6 @@ export function DocumentReadingWorkflow() {
       return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
     if (destination === "customs")
       return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
-    if (destination === "quote")
-      return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${quoteNumber}`;
     if (shipmentMode === "new") return `New shipment ${committedJobNumber} created`;
     return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
   })();
@@ -256,7 +245,6 @@ export function DocumentReadingWorkflow() {
   const canExtract = (() => {
     const hasInput = inputMode === "file" ? !!fileBase64 : textInput.trim().length >= 10;
     if (destination === "invoicing") return hasInput && !!invoiceTargetShipmentId;
-    if (destination === "quote") return hasInput && !!quoteNumber;
     if (destination === "booking") return hasInput && (bookingMode === "new" || !!bookingMasterJob);
     if (destination === "customs") return hasInput && !!customsShipmentId;
     if (destination === "masterjob") return masterFiles.length > 0 && !masterFilesTooLarge && !!activeMcz;
@@ -328,17 +316,6 @@ export function DocumentReadingWorkflow() {
         // Freight Mode is derived for shipments; a booking leaves the master job's own.
         delete normalized["Freight Mode"];
         setFields(buildFields(normalized, (label) => bookingExistingValue(bookingMasterJob, label)));
-        setExtractionMethod(result.method);
-        setStep("review");
-      } else if (destination === "quote") {
-        const result =
-          inputMode === "file"
-            ? await api.extraction.extractQuote({ fileBase64, fileName })
-            : await api.extraction.extractText({ text: textInput.trim(), destination: "quote" });
-        const normalized = normalizeExtracted(result.extracted);
-        const quote = quotes.find((q) => q.quoteNumber === quoteNumber);
-        const existing = quote && quote.data && typeof quote.data === "object" ? (quote.data as Record<string, string>) : {};
-        setFields(buildFields(normalized, (label) => existing[label] || ""));
         setExtractionMethod(result.method);
         setStep("review");
       } else {
@@ -474,20 +451,6 @@ export function DocumentReadingWorkflow() {
       toast.error(`Failed to save the booking: ${err instanceof Error ? err.message : "unknown error"}`);
     } finally {
       setBookingSaving(false);
-    }
-  };
-
-  // ─── Commit: quote ───────────────────────────────────────────────
-  const commitQuote = async () => {
-    const approved = fieldsToLabelValues(fields);
-    if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
-    try {
-      const quote = quotes.find((q) => q.quoteNumber === quoteNumber);
-      const existing = quote && quote.data && typeof quote.data === "object" ? (quote.data as Record<string, string>) : {};
-      await updateQuote({ quoteNumber, params: { data: { ...existing, ...approved } } });
-      setStep("committed");
-    } catch {
-      toast.error("Failed to save quote data.");
     }
   };
 
@@ -648,7 +611,6 @@ export function DocumentReadingWorkflow() {
     setShipmentMode("existing");
     setTargetShipmentId("");
     setCommittedJobNumber("");
-    setQuoteNumber("");
     setCustomsShipmentId("");
     setBookingMode("new");
     setBookingMcz("");
@@ -759,21 +721,6 @@ export function DocumentReadingWorkflow() {
                 value={customsShipmentId || undefined}
                 onChange={(v) => setCustomsShipmentId(v || "")}
                 options={shipmentOptions}
-                filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-              />
-            </div>
-          )}
-
-          {destination === "quote" && (
-            <div className="mb-4">
-              <div className="text-xs font-medium text-slate-500 mb-1.5">Quote Number (required)</div>
-              <Select
-                showSearch
-                className="w-full"
-                placeholder="Select quote…"
-                value={quoteNumber || undefined}
-                onChange={(v) => setQuoteNumber(v || "")}
-                options={quoteOptions}
                 filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
               />
             </div>
@@ -938,8 +885,8 @@ export function DocumentReadingWorkflow() {
         </Card>
       )}
 
-      {/* ─── STEP: Review — shipment / quote ─── */}
-      {step === "review" && (destination === "shipment" || destination === "quote" || destination === "customs" || destination === "booking") && (
+      {/* ─── STEP: Review — shipment / customs / booking ─── */}
+      {step === "review" && (destination === "shipment" || destination === "customs" || destination === "booking") && (
         <Card>
           <div className="flex items-center justify-between mb-3">
             <Space size="small" wrap>
@@ -959,22 +906,12 @@ export function DocumentReadingWorkflow() {
             <Button
               type="primary"
               disabled={approvedCount === 0}
-              onClick={
-                destination === "quote"
-                  ? commitQuote
-                  : destination === "customs"
-                    ? commitCustoms
-                    : destination === "booking"
-                      ? handleCommitBooking
-                      : commitShipment
-              }
+              onClick={destination === "customs" ? commitCustoms : destination === "booking" ? handleCommitBooking : commitShipment}
               loading={destination === "booking" && bookingSaving}
             >
               Write {approvedCount} field{approvedCount !== 1 ? "s" : ""} to{" "}
               {destination === "booking"
                 ? bookingMasterJob?.mczNumber ?? bookingCreated?.mczNumber ?? `${newMcz} (new master job)`
-                : destination === "quote"
-                ? quoteNumber
                 : destination === "customs"
                   ? shipments.find((s) => s.id === customsShipmentId)?.jobNumber || "shipment"
                   : shipmentMode === "new"

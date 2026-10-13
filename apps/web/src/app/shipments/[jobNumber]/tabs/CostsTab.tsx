@@ -2,12 +2,13 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { Input, Select, Checkbox, Tooltip, Modal, message } from "antd";
+import { App, Input, Select, Checkbox, Tooltip, Modal } from "antd";
 import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined, WarningOutlined } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { formatWeekLabel } from "@/lib/isoWeek";
+import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
 
@@ -134,11 +135,15 @@ function HeadBtn({
 
 export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   const queryClient = useQueryClient();
+  // Toasts go through the App context: antd's static `message` shows nothing under React 19.
+  const { message } = App.useApp();
   const [quoteInput, setQuoteInput] = useState("");
   const [quoteLoading, setQuoteLoading] = useState(false);
   // modalni okno Copy from quote (mockup: #quoteModal)
   const [quoteModal, setQuoteModal] = useState<null | "buy" | "sell">(null);
   const [quoteErr, setQuoteErr] = useState("");
+  // The server refused because this quote's lines are on that side already: the next try says to copy them again.
+  const [quoteAgain, setQuoteAgain] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   /* Zamykani radku dle mockupu (trida .display): vyplneny radek se po
      opusteni zamkne do "read-only" podoby, dvojklik ho zase otevre.
@@ -164,12 +169,6 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     console.error(`[CostsTab] ${what}`, e);
     message.error(detail ? `${what}: ${detail}` : what);
   };
-
-  const upsertBilling = useMutation({
-    mutationFn: (params: { billingCurrency?: string; roe?: string; quoteRef?: string }) =>
-      api.invoicing.invoicingUpsertBillingSettings(shipment.id, params),
-    onSuccess: invalidate,
-  });
 
   /* ── Buying costs ── */
   // novy radek dle mockupu: Qty = 1, meny podle zvolene billing meny
@@ -233,8 +232,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
 
   /** prazdny radek nema smysl vracet (mockup: costRowFilled) */
   const buyRowFilled = (r: BuyingRow) =>
-    !!(r.category || r.vendor || r.estAmount || r.realAmount || r.invoiceNumber);
-  const sellRowFilled = (r: SellingRow) => !!(r.category || r.customer || r.amount);
+    !!(r.category || r.description || r.vendor || r.estAmount || r.realAmount || r.invoiceNumber);
+  const sellRowFilled = (r: SellingRow) => !!(r.category || r.description || r.customer || r.amount);
 
   /** costRowFilled z mockupu - podle nej se radek zamyka */
   const buyLocked = (r: BuyingRow) =>
@@ -321,7 +320,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
      U selling se nekopiruje vazba na zdrojovy radek - kopie je novy nezavisly radek. */
   const duplicateBuy = async (r: BuyingRow, index: number) => {
     await api.invoicing.invoicingAddBuyingCost(shipment.id, {
-      category: r.category, vendor: r.vendor,
+      category: r.category, description: r.description, vendor: r.vendor,
       estQty: r.estQty, estAmount: r.estAmount, estCurrency: r.estCurrency,
       realQty: r.realQty, realAmount: r.realAmount, realCurrency: r.realCurrency,
       sortOrder: index + 1,
@@ -334,7 +333,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
 
   const duplicateSell = async (r: SellingRow, index: number) => {
     await api.invoicing.invoicingAddSellingCost(shipment.id, {
-      category: r.category, customer: r.customer,
+      category: r.category, description: r.description, customer: r.customer,
       qty: r.qty, amount: r.amount, currency: r.currency, invoice: r.invoice,
       sortOrder: index + 1,
     });
@@ -376,6 +375,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       ...rows.map((r, i) =>
         api.invoicing.invoicingAddSellingCost(shipment.id, {
           category: r.category,
+          description: r.description,
           qty: r.estQty || "1",
           amount: r.estAmount || "",
           currency: r.estCurrency,
@@ -389,53 +389,42 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   };
 
   /* ── Copy from quote (mockup: openQuoteModal / doQuoteImport) ──
-     Reference se zadava v modalnim okne, ne primo v karte. */
+     The reference is typed in a dialog. The quote a shipment was sold from is the one in its
+     Sales Number, so the dialog starts with that. */
+  const openQuoteModal = (target: "buy" | "sell") => {
+    const salesNumber = (shipment.salesNumber ?? "").trim();
+    if (isSalesQuoteRef(salesNumber)) setQuoteInput(salesNumber);
+    setQuoteErr("");
+    setQuoteAgain(false);
+    setQuoteModal(target);
+  };
+
+  // The server copies the lines of the quote as it is stored - one row per line, each in its own
+  // currency - to the side of the card the dialog was opened from.
   const importQuoteCosts = async () => {
     const target = quoteModal;
     if (!target) return;
-    const ref = quoteInput.trim();
-    if (!ref) { setQuoteErr("Enter the quotation reference."); return; }
+    // The whole reference, variant suffix included: QCZ...-2 is another quote than QCZ...
+    const quoteNumber = quoteInput.trim();
+    if (!quoteNumber) { setQuoteErr("Enter the quotation reference."); return; }
 
     setQuoteLoading(true);
     setQuoteErr("");
-    const qn = ref.replace(/-\d+$/, "");
     try {
-      const quoteData = await api.invoicing.invoicingGet(qn);
-      const quoteCosts = quoteData.costs ?? [];
-      if (!quoteCosts.length) {
-        setQuoteErr(`No costs found for quote ${qn}.`);
-        setQuoteLoading(false);
-        return;
-      }
-      const usable = quoteCosts.filter((c) => c.realAmount || c.estAmount);
-      await Promise.all(usable.map((c, i) => {
-        const amount = (c.realAmount || c.estAmount)!;
-        const currency = (c.realAmount ? c.realCurrency : c.estCurrency) || billingCur;
-        const qty = (c.realAmount ? c.realQty : c.estQty) || "1";
-        return target === "buy"
-          ? api.invoicing.invoicingAddBuyingCost(shipment.id, {
-              category: c.category ?? "", vendor: c.vendor ?? "",
-              estQty: qty, estAmount: amount, estCurrency: currency,
-              realQty: "1", realCurrency: currency,
-              sortOrder: buyRows.length + i,
-            })
-          : api.invoicing.invoicingAddSellingCost(shipment.id, {
-              category: c.category ?? "", qty, amount, currency, invoice: true,
-              sortOrder: sellRows.length + i,
-            } as never);
-      }));
-      const imported = usable.length;
-      const qBilling = quoteData.billingSettings;
-      await upsertBilling.mutateAsync({
-        quoteRef: qn,
-        ...(qBilling?.billingCurrency ? { billingCurrency: qBilling.billingCurrency } : {}),
-        ...(qBilling?.roe ? { roe: qBilling.roe } : {}),
-      });
+      const copied = await api.invoicing.invoicingImportQuote(shipment.id, { quoteNumber, target, force: quoteAgain || undefined });
+      const rows = target === "buy" ? copied.buying : copied.selling;
+      const side = target === "buy" ? "buying" : "selling";
       invalidate();
-      message.success(`Imported ${imported} cost(s) from ${qn}`);
+      if (rows) message.success(`Copied ${rows} ${side} cost line${rows === 1 ? "" : "s"} from ${quoteNumber}`);
+      else message.info(`${quoteNumber} has no ${side} cost lines`);
       setQuoteModal(null);
-    } catch {
-      setQuoteErr("Quote not found or error.");
+    } catch (err) {
+      // A quote is copied to a side once. Copying it again has to be asked for: the dialog stays,
+      // says so, and its next try is that request.
+      if (isAPIError(err) && err.code === ErrCode.FailedPrecondition) setQuoteAgain(true);
+      // The server's own sentence: it names the reference that was not found or already copied.
+      const reason = apiErrorMessage(err);
+      setQuoteErr(`${reason.charAt(0).toUpperCase()}${reason.slice(1)}.`);
     }
     setQuoteLoading(false);
   };
@@ -459,7 +448,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
             <HeadBtn onClick={guarded("Could not restore the row", undoBuy)} disabled={!undoBuyCount} title="Undo the last deleted cost" ariaLabel="Undo the last deleted buying cost">
               <UndoOutlined />
             </HeadBtn>
-            <HeadBtn onClick={() => { setQuoteErr(""); setQuoteModal("buy"); }}>
+            <HeadBtn onClick={() => openQuoteModal("buy")}>
               Copy from quote
             </HeadBtn>
             <HeadBtn onClick={() => addBuy.mutate()}>Add buying cost</HeadBtn>
@@ -467,11 +456,11 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         }
       >
         <div className="overflow-x-auto">
-          <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "1180px" }}>
+          <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "1240px" }}>
             <thead>
               {/* seskupene zahlavi Estimated / Real dle mockupu */}
               <tr>
-                <th colSpan={2} className="border-b border-slate-200" />
+                <th colSpan={3} className="border-b border-slate-200" />
                 <th colSpan={3} className={`${TH} text-center bg-[#F5F6FD] text-[#3F4DBF]`}>
                   Estimated buying costs
                 </th>
@@ -481,17 +470,18 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                 <th colSpan={2} className="border-b border-slate-200" />
               </tr>
               <tr>
-                <th className={`${TH} text-left w-[16%]`}>Category</th>
-                <th className={`${TH} text-left w-[9%]`}>Vendor</th>
-                <th className={`${TH} text-center w-[5%]`}>Qty</th>
-                <th className={`${TH} text-right w-[9%]`}>Est. Amount</th>
+                <th className={`${TH} text-left w-[13%]`}>Category</th>
+                <th className={`${TH} text-left w-[12%]`}>Description</th>
+                <th className={`${TH} text-left w-[8%]`}>Vendor</th>
+                <th className={`${TH} text-center w-[4%]`}>Qty</th>
+                <th className={`${TH} text-right w-[8%]`}>Est. Amount</th>
                 <th className={`${TH} text-left w-[6%]`}>Cur</th>
-                <th className={`${TH} ${SPLIT} text-center w-[5%]`}>Qty</th>
-                <th className={`${TH} text-right w-[9%]`}>Real Cost</th>
+                <th className={`${TH} ${SPLIT} text-center w-[4%]`}>Qty</th>
+                <th className={`${TH} text-right w-[8%]`}>Real Cost</th>
                 <th className={`${TH} text-left w-[6%]`}>Cur</th>
-                <th className={`${TH} text-left w-[9%]`}>Invoice number</th>
-                <th className={`${TH} text-center w-[6%]`} title="Supplier invoice received">Received</th>
-                <th className={`${TH} text-right w-[12%]`}>Total in {billingCur}</th>
+                <th className={`${TH} text-left w-[8%]`}>Invoice number</th>
+                <th className={`${TH} text-center w-[5%]`} title="Supplier invoice received">Received</th>
+                <th className={`${TH} text-right w-[10%]`}>Total in {billingCur}</th>
                 <th className={`${TH} w-[70px]`} />
               </tr>
             </thead>
@@ -518,6 +508,13 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                       }`}
                       options={COST_CATEGORIES.map((v) => ({ value: v, label: v }))}
                       onChange={(v) => updateBuy.mutate({ id: r.id, category: v })}
+                    />
+                  </td>
+                  <td className={CELL}>
+                    <input
+                      className={`${FIELD}${fld}`}
+                      defaultValue={r.description}
+                      onBlur={(e) => e.target.value !== r.description && updateBuy.mutate({ id: r.id, description: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
@@ -621,7 +618,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
               })}
               {!buyRows.length && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-8 text-center">
+                  <td colSpan={13} className="px-4 py-8 text-center">
                     <button
                       onClick={() => addBuy.mutate()}
                       disabled={addBuy.isPending}
@@ -637,7 +634,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
             {/* soucty: pod Est. Amount a Real Cost, mena vzdy pod sloupcem Cur */}
             <tfoot>
               <tr className="bg-slate-50 font-bold">
-                <td className="px-[6px] py-2 text-[12px] uppercase tracking-wide text-slate-500" colSpan={3}>
+                <td className="px-[6px] py-2 text-[12px] uppercase tracking-wide text-slate-500" colSpan={4}>
                   Total buying
                 </td>
                 <td className="px-[6px] py-2 text-right text-[13px] tabular-nums text-slate-900">
@@ -665,7 +662,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
             <HeadBtn onClick={guarded("Could not restore the row", undoSell)} disabled={!undoSellCount} title="Undo the last deleted cost" ariaLabel="Undo the last deleted selling cost">
               <UndoOutlined />
             </HeadBtn>
-            <HeadBtn onClick={() => { setQuoteErr(""); setQuoteModal("sell"); }}>
+            <HeadBtn onClick={() => openQuoteModal("sell")}>
               Copy from quote
             </HeadBtn>
             <HeadBtn onClick={guarded("Could not copy from buying", copyFromBuying)}>Copy from buying</HeadBtn>
@@ -674,16 +671,17 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         }
       >
         <div className="overflow-x-auto">
-          <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "900px" }}>
+          <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "1040px" }}>
             <thead>
               <tr>
                 <th className={`${TH} text-left w-[185px]`}>Category</th>
-                <th className={`${TH} text-left w-[28%]`}>Customer</th>
-                <th className={`${TH} text-center w-[10%]`}>Qty</th>
-                <th className={`${TH} text-right w-[13%]`}>Amount</th>
-                <th className={`${TH} text-left w-[9%]`}>Cur</th>
-                <th className={`${TH} text-right w-[14%]`}>Total in {billingCur}</th>
-                <th className={`${TH} text-center w-[7%]`} title="Include in the billing calculation sheet">Invoice</th>
+                <th className={`${TH} text-left w-[16%]`}>Description</th>
+                <th className={`${TH} text-left w-[16%]`}>Customer</th>
+                <th className={`${TH} text-center w-[7%]`}>Qty</th>
+                <th className={`${TH} text-right w-[11%]`}>Amount</th>
+                <th className={`${TH} text-left w-[8%]`}>Cur</th>
+                <th className={`${TH} text-right w-[13%]`}>Total in {billingCur}</th>
+                <th className={`${TH} text-center w-[6%]`} title="Include in the billing calculation sheet">Invoice</th>
                 <th className={`${TH} w-[70px]`} />
               </tr>
             </thead>
@@ -710,6 +708,13 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                       }`}
                       options={COST_CATEGORIES.map((v) => ({ value: v, label: v }))}
                       onChange={(v) => updateSell.mutate({ id: r.id, category: v })}
+                    />
+                  </td>
+                  <td className={CELL}>
+                    <input
+                      className={`${FIELD}${fld}`}
+                      defaultValue={r.description}
+                      onBlur={(e) => e.target.value !== r.description && updateSell.mutate({ id: r.id, description: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
@@ -778,7 +783,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
               })}
               {!sellRows.length && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-8 text-center">
+                  <td colSpan={9} className="px-4 py-8 text-center">
                     <button
                       onClick={() => addSell.mutate({})}
                       disabled={addSell.isPending}
@@ -793,7 +798,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
             </tbody>
             <tfoot>
               <tr className="bg-slate-50 font-bold">
-                <td className="px-[6px] py-2 text-[12px] uppercase tracking-wide text-slate-500" colSpan={5}>
+                <td className="px-[6px] py-2 text-[12px] uppercase tracking-wide text-slate-500" colSpan={6}>
                   Total selling
                   {/* Only rows ticked for invoicing count towards the total and the profit. */}
                   {t.sellNotInvoicedCount > 0 && (
@@ -1013,7 +1018,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         open={quoteModal !== null}
         onCancel={() => { setQuoteModal(null); setQuoteErr(""); }}
         onOk={importQuoteCosts}
-        okText="Import"
+        okText={quoteAgain ? "Copy again" : "Import"}
         cancelText="Cancel"
         confirmLoading={quoteLoading}
         title="Copy from quote"
@@ -1028,12 +1033,13 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
           autoFocus
           placeholder="QCZ20260815001"
           value={quoteInput}
-          onChange={(e) => { setQuoteInput(e.target.value); setQuoteErr(""); }}
+          onChange={(e) => { setQuoteInput(e.target.value); setQuoteErr(""); setQuoteAgain(false); }}
           onPressEnter={importQuoteCosts}
           className="font-mono tracking-[.03em]"
         />
-        <div className="text-[#C3392B] text-[12.5px] font-semibold min-h-[17px] mt-[7px]">
+        <div className={`${quoteAgain ? "text-[#95620B]" : "text-[#C3392B]"} text-[12.5px] font-semibold min-h-[17px] mt-[7px]`}>
           {quoteErr}
+          {quoteAgain && " Copy again?"}
         </div>
       </Modal>
     </div>

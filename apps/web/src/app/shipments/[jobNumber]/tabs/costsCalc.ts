@@ -60,6 +60,8 @@ function rateOf(currency: string, rates: Rates): number | null {
 export interface BuyingRow {
   id: string;
   category: string;
+  /** What the cost is for, in the user's words - the description of the quote line it was copied from. */
+  description: string;
   vendor: string;
   estQty: string;
   estAmount: string;
@@ -74,6 +76,7 @@ export interface BuyingRow {
 export interface SellingRow {
   id: string;
   category: string;
+  description: string;
   customer: string;
   qty: string;
   amount: string;

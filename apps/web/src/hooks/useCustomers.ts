@@ -28,7 +28,9 @@ const CUSTOMER_RECORD_KEYS = [
 // One shared empty list, so "nothing loaded" does not look like new data on every render.
 const NO_CUSTOMERS: CustomerItem[] = [];
 
-export const useCustomers = (params: CustomerQueryParams = {}) => {
+// With `enabled: false` nothing is asked: a picker that searches as its user types has no reason
+// to download the whole customer database before anything was typed.
+export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true } = {}) => {
   const queryClient = useQueryClient();
 
   const search = params.search?.trim() || undefined;
@@ -40,6 +42,7 @@ export const useCustomers = (params: CustomerQueryParams = {}) => {
     queryKey: ["customers", search ?? "", status ?? "", label ?? "", country ?? ""],
     queryFn: () => api.customers.customerList({ search, status, label, country }),
     placeholderData: (prev) => prev,
+    enabled,
   });
 
   const createMutation = useMutation({

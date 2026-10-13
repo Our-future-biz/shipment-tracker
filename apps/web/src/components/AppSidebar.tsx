@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Tooltip, Dropdown } from "antd";
 import {
@@ -23,22 +23,23 @@ import {
   BankOutlined,
   CalendarOutlined,
 } from "@ant-design/icons";
+import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { SALES_NAV } from "@/app/sales/_lib/tabs";
+import { SALES_NAV, SALES_PAGES, type SalesNavItem } from "@/app/sales/_lib/tabs";
 import type { ReactNode } from "react";
 
-interface NavChild {
-  path: string;
-  label: string;
-}
+// An item of a submenu. Its shape is defined with the Sales menu, the one that uses all of it.
+type NavChild = SalesNavItem;
+
 interface NavItem {
   path: string;
   label: string;
   icon: ReactNode;
+  // A group: clicking it opens its own page, the arrow folds the submenu.
   children?: NavChild[];
-  // A group with a page of its own: clicking it opens that page, the arrow folds the submenu.
-  ownPage?: boolean;
+  // A group's own page, when that is not `path` itself.
+  home?: string;
   // If set, the item only shows for these roles.
   roles?: string[];
 }
@@ -47,7 +48,9 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/dashboard", label: "Dashboard", icon: <DashboardOutlined /> },
   { path: "/shipments", label: "Shipments", icon: <ContainerOutlined /> },
   { path: "/customers", label: "Customer Database", icon: <TeamOutlined /> },
-  { path: "/sales", label: "Sales", icon: <LineChartOutlined />, children: SALES_NAV.map(({ path, label }) => ({ path, label })) },
+  // The Quotes list is where work in Sales starts, so that is what "Sales" opens. /sales itself
+  // only redirects there: going straight saves the detour.
+  { path: "/sales", label: "Sales", icon: <LineChartOutlined />, home: SALES_PAGES.quotes.path, children: SALES_NAV },
   { path: "/documents", label: "Document / Text Reading", icon: <FileTextOutlined /> },
   { path: "/invoicing", label: "Invoicing", icon: <DollarOutlined /> },
   { path: "/exchange", label: "Exchange", icon: <SwapOutlined /> },
@@ -56,7 +59,6 @@ const NAV_ITEMS: NavItem[] = [
     path: "/warehouse",
     label: "Warehouse",
     icon: <InboxOutlined />,
-    ownPage: true,
     children: [
       { path: "/warehouse/in", label: "In Warehouse" },
       { path: "/warehouse/stock", label: "Stock" },
@@ -69,7 +71,6 @@ const NAV_ITEMS: NavItem[] = [
     path: "/calendar",
     label: "Calendar",
     icon: <CalendarOutlined />,
-    ownPage: true,
     children: [{ path: "/calendar/public-holidays", label: "Public Holidays" }],
   },
   // Company admins/managers manage their own users; superadmins manage all companies.
@@ -81,12 +82,19 @@ const NAV_ITEMS: NavItem[] = [
 const EXPANDED_WIDTH = 260;
 const COLLAPSED_WIDTH = 64;
 
+// Whether `pathname` is the page at `path` or anything below it.
+const isUnder = (pathname: string, path: string) => pathname === path || pathname.startsWith(path + "/");
+
 export function AppSidebar() {
-  const pathname = usePathname();
+  // The app runs with trailingSlash, so the pathname ends in a slash the menu paths do not have.
+  const pathname = usePathname().replace(/\/$/, "");
   const router = useRouter();
   const { collapsed, toggle } = useSidebarState();
   const { user } = useAuth();
+  const { canManageSales } = useSalesPermissions();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  const isChildActive = (child: NavChild) => [child.path, ...(child.alsoActiveUnder ?? [])].some((path) => isUnder(pathname, path));
 
   // Hide role-restricted items the current user can't access.
   const navItems = NAV_ITEMS.filter((item) => !item.roles || (user != null && item.roles.includes(user.role)));
@@ -94,7 +102,7 @@ export function AppSidebar() {
   // Auto-expand the group that owns the current route.
   useEffect(() => {
     for (const item of NAV_ITEMS) {
-      if (item.children && (pathname === item.path || pathname.startsWith(item.path + "/"))) {
+      if (item.children && isUnder(pathname, item.path)) {
         setOpenGroups((g) => (g[item.path] ? g : { ...g, [item.path]: true }));
       }
     }
@@ -103,7 +111,7 @@ export function AppSidebar() {
   const width = collapsed ? COLLAPSED_WIDTH : EXPANDED_WIDTH;
 
   const renderLeaf = (item: NavItem) => {
-    const isActive = pathname === item.path || pathname.startsWith(item.path + "/");
+    const isActive = isUnder(pathname, item.path);
     const navItem = (
       <div
         onClick={() => router.push(item.path)}
@@ -125,10 +133,11 @@ export function AppSidebar() {
   };
 
   const renderGroup = (item: NavItem) => {
-    const children = item.children ?? [];
-    const groupActive = pathname === item.path || pathname.startsWith(item.path + "/");
+    const children = (item.children ?? []).filter((c) => !c.managersOnly || canManageSales);
+    const groupActive = isUnder(pathname, item.path);
     const open = !!openGroups[item.path];
-    const onOwnPage = !!item.ownPage && pathname.replace(/\/$/, "") === item.path;
+    const onOwnPage = pathname === item.path;
+    const openOwnPage = () => router.push(item.home ?? item.path);
     const toggleGroup = () => setOpenGroups((g) => ({ ...g, [item.path]: !g[item.path] }));
 
     // Collapsed: submenu shown as a right-side flyout.
@@ -139,16 +148,15 @@ export function AppSidebar() {
           placement="bottomRight"
           trigger={["click", "hover"]}
           menu={{
-            items: children.map((c) => ({
-              key: c.path,
-              label: c.label,
-              onClick: () => router.push(c.path),
-            })),
-            selectedKeys: children.filter((c) => pathname === c.path).map((c) => c.path),
+            items: children.flatMap((c) => [
+              ...(c.divided ? [{ type: "divider" as const }] : []),
+              { key: c.path, label: c.label, onClick: () => router.push(c.path) },
+            ]),
+            selectedKeys: children.filter(isChildActive).map((c) => c.path),
           }}
         >
           <div
-            onClick={item.ownPage ? () => router.push(item.path) : undefined}
+            onClick={openOwnPage}
             className={`flex items-center justify-center px-2 py-3 rounded-xl text-[14px] cursor-pointer mb-0.5 transition-all duration-150 ${
               groupActive ? "bg-indigo-500 text-white font-medium" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
             }`}
@@ -163,9 +171,8 @@ export function AppSidebar() {
       <div key={item.path}>
         <div
           onClick={() => {
-            if (!item.ownPage) return toggleGroup();
             setOpenGroups((g) => ({ ...g, [item.path]: true }));
-            router.push(item.path);
+            openOwnPage();
           }}
           className={`flex items-center gap-3 rounded-xl text-[14px] cursor-pointer mb-0.5 px-4 py-3 transition-all duration-150 ${
             onOwnPage
@@ -179,25 +186,24 @@ export function AppSidebar() {
           <span className="whitespace-nowrap overflow-hidden flex-1">{item.label}</span>
           <DownOutlined
             onClick={(e) => { e.stopPropagation(); toggleGroup(); }}
-            className={`text-[10px] transition-transform duration-150 ${item.ownPage ? "p-1.5 -m-1.5" : ""} ${open ? "" : "-rotate-90"}`}
+            className={`text-[10px] transition-transform duration-150 p-1.5 -m-1.5 ${open ? "" : "-rotate-90"}`}
           />
         </div>
         {open && (
           <div className="ml-4 pl-3 border-l border-slate-100 mb-1 space-y-0.5">
-            {children.map((c) => {
-              const active = pathname === c.path;
-              return (
+            {children.map((c) => (
+              <Fragment key={c.path}>
+                {c.divided && <div role="separator" className="h-px mx-3 my-1 bg-slate-100" />}
                 <div
-                  key={c.path}
                   onClick={() => router.push(c.path)}
                   className={`px-3 py-2 rounded-lg text-[13px] cursor-pointer transition-all duration-150 ${
-                    active ? "bg-indigo-500 text-white font-medium" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
+                    isChildActive(c) ? "bg-indigo-500 text-white font-medium" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100"
                   }`}
                 >
                   {c.label}
                 </div>
-              );
-            })}
+              </Fragment>
+            ))}
           </div>
         )}
       </div>

@@ -2,6 +2,7 @@ export interface InvoiceCostItem {
   id: string;
   shipmentId: string;
   category: string;
+  description: string;
   estQty: string | null;
   estAmount: string | null;
   estCurrency: string;
@@ -19,6 +20,7 @@ export interface SellingCostItem {
   id: string;
   shipmentId: string;
   category: string;
+  description: string;
   customer: string;
   qty: string | null;
   amount: string | null;

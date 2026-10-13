@@ -1,8 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { getClient, MODEL } from "../lib/anthropic";
 import { extractTextFromPdf, isImageType, isPdfType, detectMediaType } from "../lib/pdf";
-import { filterExtracted, parseJsonFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
-import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT } from "../lib/prompts";
+import { filterExtracted, parseJsonFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
+import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, CUSTOMS_PROMPT } from "../lib/prompts";
 import type { ExtractionResult } from "../interfaces/interfaces";
 import { canonicalizeRecords } from "./places.service";
 
@@ -145,13 +145,6 @@ export async function extractInvoiceFromFile(fileBase64: string, fileName: strin
   return extractFromDocument(fileBase64, fileName, mediaType, INVOICE_PROMPT, INVOICE_FIELDS, "Extract invoice/cost data from this document.", 1024);
 }
 
-export async function extractQuoteFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
-  const mediaType = detectMediaType(fileName);
-  return withCanonicalPlaces(
-    extractFromDocument(fileBase64, fileName, mediaType, QUOTE_PROMPT, QUOTE_FIELDS, "Extract shipping/quote data from this document."),
-  );
-}
-
 export async function extractBookingFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
   return withCanonicalPlaces(
@@ -184,11 +177,6 @@ export async function extractFromTextByDestination(text: string, destination: st
       systemPrompt = BOOKING_PROMPT;
       fields = BOOKING_FIELDS;
       userPrompt = "Extract the booking details from this booking confirmation:";
-      break;
-    case "quote":
-      systemPrompt = QUOTE_PROMPT;
-      fields = QUOTE_FIELDS;
-      userPrompt = "Extract shipping/quote data from this text:";
       break;
     default:
       systemPrompt = SHIPMENT_PROMPT;

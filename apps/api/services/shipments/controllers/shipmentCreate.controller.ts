@@ -1,7 +1,15 @@
 import { api, APIError } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
-import type { ShipmentItem, ContainerLine, CargoItemLine, CargoDimensionLine, CommercialInvoiceLine } from "../interfaces/interfaces";
+import type {
+  ShipmentItem,
+  ContainerLine,
+  CargoItemLine,
+  CargoDimensionLine,
+  CommercialInvoiceLine,
+  CostImportOutcome,
+  QuoteLinkOutcome,
+} from "../interfaces/interfaces";
 
 interface ShipmentCreateRequest {
   jobNumber: string;
@@ -146,6 +154,17 @@ interface ShipmentCreateRequest {
   quoteValidity?: string;
   validityStatus?: string;
   salesPerson?: string;
+  /**
+   * The reference of the sales quote the shipment is created from. The quote becomes the
+   * shipment's Sales Number and, unless salesPerson is sent, its owner the Sales Person; the
+   * quote is linked to the shipment and marked Won, and its cost lines are copied into Costs
+   * Breakdown. An unknown reference is refused. When a live shipment was already created from
+   * the quote the request is refused with HTTP 409 and details { shipmentId, jobNumber } of that
+   * shipment - unless allowSecondShipment is sent.
+   */
+  fromQuoteNumber?: string;
+  /** With fromQuoteNumber: create the shipment although the quote already has one. */
+  allowSecondShipment?: boolean;
 
   // Other
   claim?: string;
@@ -154,6 +173,12 @@ interface ShipmentCreateRequest {
 
 interface ShipmentCreateResponse {
   shipment: ShipmentItem;
+  /** With fromQuoteNumber: whether the quote was told about the shipment, and what that made of it. */
+  quoteLink?: QuoteLinkOutcome;
+  /** With fromQuoteNumber: how many of the quote's cost lines were copied into Costs Breakdown. */
+  costImport?: CostImportOutcome;
+  /** With fromQuoteNumber: why containers or cargo lines were not saved although the shipment was created. */
+  detailRowsError?: string;
 }
 
 export const shipmentCreate = api(
@@ -162,7 +187,7 @@ export const shipmentCreate = api(
     if (!req.jobNumber) {
       throw APIError.invalidArgument("jobNumber is required");
     }
-    const shipment = await shipmentService.create(getAuthData()!.companyID, req);
-    return { shipment: shipment as unknown as ShipmentItem };
+    const { shipment, ...outcome } = await shipmentService.create(getAuthData()!.companyID, req);
+    return { shipment: shipment as unknown as ShipmentItem, ...outcome };
   },
 );

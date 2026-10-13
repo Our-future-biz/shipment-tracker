@@ -15,6 +15,20 @@
       "when": 1786385410217,
       "tag": "0001_flaky_ultron",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791712195798,
+      "tag": "0002_followup_task",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791712201860,
+      "tag": "0003_followup_task_import_fn",
+      "breakpoints": true
     }
   ]
 }

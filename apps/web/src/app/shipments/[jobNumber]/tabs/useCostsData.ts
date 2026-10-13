@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
+import { exchangeRatesFor } from "@/lib/exchangeRates";
 import { weekKeyFromDate } from "@/lib/isoWeek";
 import { computeCosts, type BuyingRow, type Rates, type SellingRow } from "./costsCalc";
 
@@ -12,9 +13,6 @@ import { computeCosts, type BuyingRow, type Rates, type SellingRow } from "./cos
  * that apply to them, and the totals computed from both. The Costs Breakdown tab and the
  * Quote card on the detail page share this, so they always show the same numbers.
  */
-
-/** Without a rate sheet only CZK is known. */
-const CZK_ONLY: Rates = { CZK: 1 };
 
 /** Shipment date the rates follow: import by ETA, export by ETD. */
 function rateDateOf(shipment: ShipmentItem, basis: "eta" | "etd") {
@@ -60,27 +58,7 @@ export function useCostsData(shipment: ShipmentItem | undefined) {
   });
 
   /** Rates of the ETA/ETD week; the closest older week when that one is missing. */
-  const fx = useMemo(() => {
-    const list = ratesQuery.data?.rates ?? [];
-    if (!list.length) return { rates: CZK_ONLY, source: "none" as const, usedWeek: "" };
-
-    const exact = list.find((r) => r.week === weekKey);
-    // the list comes newest first, so the first older week is the closest one
-    const fallbackRow = exact ?? (rateDate ? list.find((r) => r.validFrom <= rateDate) : list[0]) ?? list[0];
-    if (!fallbackRow) return { rates: CZK_ONLY, source: "none" as const, usedWeek: "" };
-
-    const eur = Number(fallbackRow.rateEur);
-    const usd = Number(fallbackRow.rateUsd);
-    return {
-      rates: {
-        CZK: 1,
-        ...(Number.isFinite(eur) && eur > 0 ? { EUR: eur } : {}),
-        ...(Number.isFinite(usd) && usd > 0 ? { USD: usd } : {}),
-      } as Rates,
-      source: exact ? ("exact" as const) : ("older" as const),
-      usedWeek: fallbackRow.week,
-    };
-  }, [ratesQuery.data?.rates, weekKey, rateDate]);
+  const fx = useMemo(() => exchangeRatesFor(ratesQuery.data?.rates ?? [], rateDate), [ratesQuery.data?.rates, rateDate]);
 
   const rates: Rates = fx.rates;
 
@@ -89,6 +67,7 @@ export function useCostsData(shipment: ShipmentItem | undefined) {
       (data?.costs ?? []).map((c) => ({
         id: c.id,
         category: c.category ?? "",
+        description: c.description ?? "",
         vendor: c.vendor ?? "",
         estQty: c.estQty ?? "",
         estAmount: c.estAmount ?? "",
@@ -107,6 +86,7 @@ export function useCostsData(shipment: ShipmentItem | undefined) {
       (data?.sellingCosts ?? []).map((c) => ({
         id: c.id,
         category: c.category ?? "",
+        description: c.description ?? "",
         customer: c.customer ?? "",
         qty: c.qty ?? "",
         amount: c.amount ?? "",

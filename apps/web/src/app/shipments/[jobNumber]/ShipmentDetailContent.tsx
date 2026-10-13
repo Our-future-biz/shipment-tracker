@@ -21,6 +21,7 @@ import {
   FileTextOutlined,
   EditOutlined,
 } from "@ant-design/icons";
+import { useShipment } from "@/hooks/useShipment";
 import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
@@ -28,6 +29,8 @@ import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { useCardFields } from "./useCardFields";
 import { useUsers } from "@/hooks/useUsers";
+import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
+import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
 import Link from "next/link";
 import { ClaimsTab } from "./tabs/ClaimsTab";
@@ -44,11 +47,11 @@ import { EditableCell, TradeDirectionContext } from "./_components/EditableCell"
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
+import { SalesQuoteLink } from "./_components/SalesQuoteLink";
 import type { controllers } from "@/lib/api/client";
 import { TasksPanel } from "./_components/TasksPanel";
 import { MasterJobDetailModal } from "../_components/MasterJobDetailModal";
 import { MasterJobDialog } from "../_components/MasterJobDialog";
-import { LinkedQuotePanel } from "../_components/LinkedQuotePanel";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
 import { NotesDrawer } from "../_components/NotesDrawer";
 import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
@@ -850,10 +853,9 @@ export function ShipmentDetailContent() {
   const { jobNumber } = useParams<{ jobNumber: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { shipments, isLoading, updateField, updateShipment, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipments();
+  const { shipments, isLoading: listLoading, updateField, updateShipment, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipments();
   const [masterJobOpen, setMasterJobOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
-  const [quotePanelOpen, setQuotePanelOpen] = useState(false);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -867,7 +869,9 @@ export function ShipmentDetailContent() {
   // container-number link.
   const [cargoFocusId, setCargoFocusId] = useState<string | null>(null);
 
-  const shipment = shipments.find((s) => s.id === jobNumber);
+  // From the loaded list when the shipment is among its rows, otherwise read on its own: a
+  // shipment opened by link need not be one of the newest.
+  const { shipment, isLoading, notFound, error, reload } = useShipment(jobNumber, { shipments, isLoading: listLoading });
 
   // Fakturacni data se nactou uz pri otevreni zakazky, takze zalozka
   // Costs Breakdown je pri prokliku ma hned k dispozici a nic nedonacita.
@@ -876,7 +880,8 @@ export function ShipmentDetailContent() {
     queryFn: () => api.invoicing.invoicingGet(shipment!.id),
     enabled: !!shipment,
   });
-  const linkedQuote = invoicingData?.billingSettings?.quoteRef ?? "";
+  // The quote the costs were copied from, as the billing settings remember it.
+  const costsQuoteRef = (invoicingData?.billingSettings?.quoteRef ?? "").trim();
 
   // Totals of the Costs Breakdown tab, shown on the Quote card.
   const costs = useCostsData(shipment);
@@ -914,7 +919,17 @@ export function ShipmentDetailContent() {
   if (!shipment) {
     return (
       <div className="p-10 text-center text-slate-500">
-        Shipment not found.{" "}
+        {/* "Not found" is said only when the server said so; a request that failed is tried again. */}
+        {notFound ? (
+          "Shipment not found."
+        ) : (
+          <>
+            Could not load the shipment - {error}.{" "}
+            <Button size="small" onClick={() => reload()}>
+              Retry
+            </Button>
+          </>
+        )}{" "}
         <Link href="/shipments" className="text-indigo-500">
           Back to list
         </Link>
@@ -922,7 +937,8 @@ export function ShipmentDetailContent() {
     );
   }
 
-  const handleCommit: CommitFn = (fieldKey, value) => updateField(shipment.id, fieldKey, value);
+  // The shipment goes along: it need not be among the rows the list hook knows.
+  const handleCommit: CommitFn = (fieldKey, value) => updateField(shipment.id, fieldKey, value, shipment);
 
   // Update a party's name + its CRM customer link together.
   const linkParty = (nameKey: string, idKey: string, name: string, customerId: string | null) => {
@@ -935,6 +951,10 @@ export function ShipmentDetailContent() {
 
   const styleFor = makeStyleFor(shipment);
   const status = shipment.status ?? "";
+  // The quote the shipment was sold from is the one its Sales Number names, when that is the
+  // reference of a sales quote.
+  const salesNumber = (shipment.salesNumber ?? "").trim();
+  const salesQuoteRef = isSalesQuoteRef(salesNumber) ? salesNumber : null;
   const routeSegments = [shipment.pol, shipment.pod, shipment.destination].filter(Boolean);
 
   const handleCopy = () => {
@@ -1040,15 +1060,23 @@ export function ShipmentDetailContent() {
               ETD {formatDate(shipment.estimatedDeparture) || "--"} / ETA {formatDate(shipment.estimatedArrival) || "--"}
             </span>
 
-            {/* Linked Quote */}
-            {linkedQuote && (
-              <button
-                onClick={() => setQuotePanelOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 cursor-pointer text-slate-600"
+            {/* The shipment's quote, shown once: the sales quote in its Sales Number, with a link
+                to its page. A shipment without one may still carry the reference its costs were
+                copied from (Costs tab > Copy from quote): that is named as what it is, and is not
+                made the shipment's quote. */}
+            {salesQuoteRef ? (
+              <SalesQuoteLink shipmentId={shipment.id} quoteNumber={salesQuoteRef} />
+            ) : isSalesQuoteRef(costsQuoteRef) ? (
+              <Link
+                href={quoteHref(costsQuoteRef)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 text-slate-600 whitespace-nowrap"
               >
                 <SplitCellsOutlined />
-                Linked Quote
-              </button>
+                Costs copied from {costsQuoteRef}
+              </Link>
+            ) : (
+              // Anything else is a reference of the old quotes module: it has no page to lead to.
+              costsQuoteRef && <span className="text-xs text-slate-500 whitespace-nowrap">Costs copied from {costsQuoteRef}</span>
             )}
 
             {/* Notes */}
@@ -1187,6 +1215,9 @@ export function ShipmentDetailContent() {
                     consignee: (
                       <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
                     ),
+                    // Not a column of the Shipments grid, so getFieldValue knows no such key: read
+                    // from the shipment itself. It is changed in the Quote card below.
+                    salesPerson: <RoRow label="Sales Person" value={shipment.salesPerson} />,
                     incoterm: (
                       <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
                         <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Incoterm Origin/Destination</span>
@@ -1533,14 +1564,6 @@ export function ShipmentDetailContent() {
         initialSelectedIds={[shipment.id]}
       />
 
-      {linkedQuote && (
-        <LinkedQuotePanel
-          quoteNumber={linkedQuote}
-          open={quotePanelOpen}
-          onClose={() => setQuotePanelOpen(false)}
-        />
-      )}
-
       <Drawer
         open={attachmentsOpen}
         onClose={() => setAttachmentsOpen(false)}
@@ -1560,7 +1583,7 @@ export function ShipmentDetailContent() {
         shipment={shipment}
         open={notesOpen}
         onClose={() => setNotesOpen(false)}
-        onSave={(value) => updateField(shipment.id, "freeComments", value)}
+        onSave={(value) => handleCommit("freeComments", value)}
       />
 
 

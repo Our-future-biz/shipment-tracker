@@ -10,6 +10,7 @@ import type { InvoiceCostItem } from "../interfaces/interfaces";
 interface AddBuyingRequest {
   shipmentId: string;
   category?: string;
+  description?: string;
   vendor?: string;
   estQty?: string;
   estAmount?: string;
@@ -39,6 +40,7 @@ interface UpdateBuyingRequest {
   shipmentId: string;
   costId: string;
   category?: string;
+  description?: string;
   vendor?: string;
   estQty?: string;
   estAmount?: string;
