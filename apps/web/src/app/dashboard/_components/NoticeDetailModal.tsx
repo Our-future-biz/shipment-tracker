@@ -9,7 +9,6 @@ import { formatDateTime } from "@/lib/date";
 import { downloadDataUrl } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import type { Announcement } from "@/hooks/useNoticeboard";
-import { BOARDS } from "../_lib/boards";
 import { NoticeAttachmentList } from "./NoticeAttachmentList";
 import { NoticeSeverityTag } from "./NoticeSeverityTag";
 
@@ -113,8 +112,8 @@ export function NoticeDetailModal({ post, onClose, onEdit, onDelete }: NoticeDet
 
   const closePreview = () => setPreview(null);
 
-  // The department's own name says more than "Department"; the company board has none.
-  const addressee = shown?.target || (BOARDS.find((b) => b.scope === shown?.scope)?.title ?? "");
+  // Who the notice is for, e.g. "Czechia · Prague Office · Accounting", or "All".
+  const addressee = shown?.target ?? "";
   const initials = (shown?.authorName ?? "")
     .split(/\s+/)
     .map((w) => w[0] ?? "")

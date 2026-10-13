@@ -1,4 +1,5 @@
 import { and, desc, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { announcementTable, announcementReadTable } from "../schemas/announcement.schema";
@@ -12,7 +13,11 @@ export interface AnnouncementAudience {
   departmentId: string | null;
   branchId: string | null;
   country: string | null;
+  countryCode: string | null;
 }
+
+// An empty audience column means "all"; a filled one must be the reader's own.
+const sameOrAll = (column: PgColumn, own: string | null) => (own ? or(isNull(column), eq(column, own))! : isNull(column));
 
 class AnnouncementRepository extends TenantRepository<typeof announcementTable> {
   constructor() {
@@ -26,7 +31,16 @@ class AnnouncementRepository extends TenantRepository<typeof announcementTable> 
     if (!audience.all) {
       // Everyone reads the company board and the boards they belong to; authors keep
       // seeing what they posted elsewhere so they can still edit or remove it.
-      const visible: SQL[] = [eq(announcementTable.scope, "company"), eq(announcementTable.authorId, audience.userId)];
+      const visible: SQL[] = [
+        eq(announcementTable.scope, "company"),
+        eq(announcementTable.authorId, audience.userId),
+        and(
+          eq(announcementTable.scope, "audience"),
+          sameOrAll(announcementTable.countryCode, audience.countryCode),
+          sameOrAll(announcementTable.branchId, audience.branchId),
+          sameOrAll(announcementTable.departmentId, audience.departmentId),
+        )!,
+      ];
       if (audience.departmentId) {
         visible.push(and(eq(announcementTable.scope, "department"), eq(announcementTable.departmentId, audience.departmentId))!);
       }
@@ -48,6 +62,7 @@ class AnnouncementRepository extends TenantRepository<typeof announcementTable> 
         departmentId: announcementTable.departmentId,
         branchId: announcementTable.branchId,
         country: announcementTable.country,
+        countryCode: announcementTable.countryCode,
         severity: announcementTable.severity,
         title: announcementTable.title,
         body: announcementTable.body,

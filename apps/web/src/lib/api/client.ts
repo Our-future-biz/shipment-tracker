@@ -1496,12 +1496,14 @@ export namespace controllers {
     export interface AnnouncementCreateRequest {
         scope: string
         /**
-         * The addressee matching the scope; ignored for "company".
+         * The addressee matching the scope; ignored for "company". For "audience" each of
+         * countryCode, branchId and departmentId may be left out, meaning all of them.
          */
         departmentId?: string
 
         branchId?: string
         country?: string
+        countryCode?: string
         severity?: string
         title: string
         body?: string
@@ -3739,7 +3741,7 @@ export namespace services {
         id: string
         scope: string
         /**
-         * Who the post is addressed to within its board, e.g. the department name; empty for "company".
+         * Who the post is addressed to, e.g. "Czechia · Prague Office · Accounting", or "All".
          */
         target: string
 
@@ -3829,6 +3831,7 @@ export namespace services {
         branchId: string | null
         branchName: string | null
         country: string | null
+        countryCode: string | null
     }
 }
 
