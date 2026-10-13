@@ -817,6 +817,7 @@ export namespace invoicing {
             this.invoiceDocPreview = this.invoiceDocPreview.bind(this)
             this.invoiceProfileGet = this.invoiceProfileGet.bind(this)
             this.invoiceProfileSave = this.invoiceProfileSave.bind(this)
+            this.invoiceQueue = this.invoiceQueue.bind(this)
             this.invoicingAddBuyingCost = this.invoicingAddBuyingCost.bind(this)
             this.invoicingAddCharge = this.invoicingAddCharge.bind(this)
             this.invoicingAddSellingCost = this.invoicingAddSellingCost.bind(this)
@@ -936,6 +937,15 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/invoicing/profile`, JSON.stringify(params))
             return await resp.json() as controllers.GetProfileResponse
+        }
+
+        /**
+         * "Ready to bill": shipments with selling rows ticked for Invoice and how much of it is invoiced.
+         */
+        public async invoiceQueue(): Promise<controllers.QueueResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/queue`)
+            return await resp.json() as controllers.QueueResponse
         }
 
         public async invoicingAddBuyingCost(shipmentId: string, params: controllers.AddBuyingRequest): Promise<controllers.AddBuyingResponse> {
@@ -2533,6 +2543,10 @@ export namespace controllers {
         preview: interfaces.InvoicePreviewItem
     }
 
+    export interface QueueResponse {
+        queue: interfaces.BillingQueueItem[]
+    }
+
     export interface QuoteAllocateRefResponse {
         ref: string
     }
@@ -3456,6 +3470,31 @@ export namespace interfaces {
         shipmentId: string
         rowKey: string
         billingAmount: string | null
+    }
+
+    /**
+     * One shipment in the "Ready to bill" queue
+     */
+    export interface BillingQueueItem {
+        shipmentId: string
+        /**
+         * to_bill | partly_invoiced | invoiced
+         */
+        status: string
+
+        billingCurrency: string
+        /**
+         * Ticked selling rows not on an open invoice, at today's rates (an estimate until issued)
+         */
+        amountToBill: number
+
+        rowsToBill: number
+        missingCurrencies: string[]
+        invoiceNumbers: string[]
+        invoiced: {
+            currency: string
+            gross: number
+        }[]
     }
 
     export interface BillingSettingsItem {

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, like, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { invoiceLineTable, invoiceTable, type NewInvoiceLineRecord, type NewInvoiceRecord } from "../schemas/invoice.schema";
 import { nextSequence } from "../lib/invoiceNumber";
@@ -32,6 +32,32 @@ class InvoiceRepository {
       .from(invoiceLineTable)
       .where(and(eq(invoiceLineTable.invoiceId, invoiceId), eq(invoiceLineTable.companyId, companyId)))
       .orderBy(asc(invoiceLineTable.seq));
+  }
+
+  /**
+   * Issued, not credited invoices of the company, with the selling rows their lines were
+   * made from (for the "Ready to bill" queue).
+   */
+  async listOpenInvoicesWithSources(companyId: string) {
+    const invoices = await db
+      .select({
+        id: invoiceTable.id,
+        shipmentId: invoiceTable.shipmentId,
+        number: invoiceTable.number,
+        currency: invoiceTable.currency,
+        gross: invoiceTable.gross,
+      })
+      .from(invoiceTable)
+      .where(and(eq(invoiceTable.companyId, companyId), eq(invoiceTable.kind, "invoice"), eq(invoiceTable.status, "issued")));
+    if (!invoices.length) return [];
+    const lines = await db
+      .select({ invoiceId: invoiceLineTable.invoiceId, source: invoiceLineTable.sourceSellingCostId })
+      .from(invoiceLineTable)
+      .where(and(eq(invoiceLineTable.companyId, companyId), inArray(invoiceLineTable.invoiceId, invoices.map((i) => i.id))));
+    return invoices.map((i) => ({
+      ...i,
+      sourceSellingCostIds: lines.filter((l) => l.invoiceId === i.id).map((l) => l.source),
+    }));
   }
 
   async getByIdempotencyKey(companyId: string, key: string) {

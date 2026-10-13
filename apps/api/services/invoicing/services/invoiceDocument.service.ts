@@ -26,6 +26,7 @@ import {
 import type { InvoiceDocItem, InvoiceDocLineItem, InvoicePartyItem, InvoicePreviewItem } from "../interfaces/interfaces";
 import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
+import { buildBillingQueue, type QueueEntry } from "../lib/billingQueue";
 import { invoiceBucket } from "../storage/invoiceBucket";
 
 /**
@@ -462,6 +463,22 @@ class InvoiceDocumentService {
       contentBase64: bytes.toString("base64"),
       sha256: createHash("sha256").update(bytes).digest("hex"),
     };
+  }
+
+  async queue(companyId: string): Promise<QueueEntry[]> {
+    const [rows, openInvoices, settings, rateRows] = await Promise.all([
+      sellingCostRepository.listTickedByCompany(companyId),
+      invoiceRepository.listOpenInvoicesWithSources(companyId),
+      billingSettingsRepository.listByCompany(companyId),
+      exchangeRateRepository.listByCompany(companyId),
+    ]);
+    return buildBillingQueue({
+      rows,
+      openInvoices,
+      billingCurrencies: new Map(settings.map((x) => [x.shipmentId, x.billingCurrency])),
+      rateRows,
+      today: pragueToday(),
+    });
   }
 
   async list(shipmentId: string, companyId: string): Promise<InvoiceDocItem[]> {

@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
 import { invoiceDocumentService } from "../services/invoiceDocument.service";
-import type { InvoiceDocItem, InvoicePreviewItem } from "../interfaces/interfaces";
+import type { BillingQueueItem, InvoiceDocItem, InvoicePreviewItem } from "../interfaces/interfaces";
 
 /**
  * Tax documents of a shipment: preview (nothing stored), issue, list, detail and credit
@@ -113,5 +113,18 @@ export const invoiceDocPdf = api(
   async (req: PdfRequest): Promise<PdfResponse> => {
     const actor = requireRole();
     return invoiceDocumentService.pdf(req.invoiceId, actor.companyID);
+  },
+);
+
+interface QueueResponse {
+  queue: BillingQueueItem[];
+}
+
+/** "Ready to bill": shipments with selling rows ticked for Invoice and how much of it is invoiced. */
+export const invoiceQueue = api(
+  { expose: true, auth: true, method: "GET", path: "/invoicing/queue" },
+  async (): Promise<QueueResponse> => {
+    const actor = requireRole();
+    return { queue: await invoiceDocumentService.queue(actor.companyID) };
   },
 );

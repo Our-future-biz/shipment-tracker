@@ -34,6 +34,7 @@ export function useInvoiceDocs(shipmentId: string, params: { customerId?: string
   const refreshAfterIssue = () => {
     void queryClient.invalidateQueries({ queryKey: docsKey });
     void queryClient.invalidateQueries({ queryKey: ["invoice-preview", shipmentId] });
+    void queryClient.invalidateQueries({ queryKey: ["invoice-queue"] });
     // the customer's invoice list (aging) got a new row
     void queryClient.invalidateQueries({ queryKey: ["customer-invoices"] });
   };

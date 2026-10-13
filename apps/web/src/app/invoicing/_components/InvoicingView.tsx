@@ -16,6 +16,7 @@ import { moneyCz } from "@/lib/money";
 import { CostsTab } from "@/app/shipments/[jobNumber]/tabs/CostsTab";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { InvoicePanel } from "./InvoicePanel";
+import { BillingQueue } from "./BillingQueue";
 
 /** Remembered per browser: whether the Costs section is collapsed. */
 const COSTS_COLLAPSED_KEY = "invoicing.costsCollapsed";
@@ -142,7 +143,8 @@ export const InvoicingView = () => {
     if (id) params.set("shipment", id);
     else params.delete("shipment");
     const qs = params.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // push, not replace: Back returns from a job to the "Ready to bill" queue
+    router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
   return (
@@ -166,11 +168,13 @@ export const InvoicingView = () => {
         </AppCard>
 
         {!selectedShipment ? (
-          <AppCard>
-            <div className="flex items-center justify-center h-[200px] text-slate-500 text-sm">
-              {selectedShipmentId && shipments.length ? "Shipment not found" : "Select a shipment to view invoicing"}
-            </div>
-          </AppCard>
+          selectedShipmentId && shipments.length ? (
+            <AppCard>
+              <div className="flex items-center justify-center h-[120px] text-slate-500 text-sm">Shipment not found</div>
+            </AppCard>
+          ) : (
+            <BillingQueue shipments={shipments} onOpen={select} />
+          )
         ) : (
           <>
             <CostsSection key={`costs-${selectedShipment.id}`} shipment={selectedShipment} />

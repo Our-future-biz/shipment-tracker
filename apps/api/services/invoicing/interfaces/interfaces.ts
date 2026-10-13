@@ -220,3 +220,17 @@ export interface InvoicePreviewItem {
   /** Everything that blocks issuing; empty = ready to issue */
   problems: string[];
 }
+
+/** One shipment in the "Ready to bill" queue */
+export interface BillingQueueItem {
+  shipmentId: string;
+  /** to_bill | partly_invoiced | invoiced */
+  status: string;
+  billingCurrency: string;
+  /** Ticked selling rows not on an open invoice, at today's rates (an estimate until issued) */
+  amountToBill: number;
+  rowsToBill: number;
+  missingCurrencies: string[];
+  invoiceNumbers: string[];
+  invoiced: { currency: string; gross: number }[];
+}
