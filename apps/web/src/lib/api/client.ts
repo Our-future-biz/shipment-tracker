@@ -674,6 +674,7 @@ export namespace extraction {
             this.extractCustoms = this.extractCustoms.bind(this)
             this.extractDocument = this.extractDocument.bind(this)
             this.extractInvoice = this.extractInvoice.bind(this)
+            this.extractQuote = this.extractQuote.bind(this)
             this.extractText = this.extractText.bind(this)
             this.pipelineExtractHbl = this.pipelineExtractHbl.bind(this)
             this.pipelineExtractMbl = this.pipelineExtractMbl.bind(this)
@@ -702,6 +703,12 @@ export namespace extraction {
         public async extractInvoice(params: controllers.ExtractInvoiceRequest): Promise<interfaces.ExtractionResult> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/extraction/invoice`, JSON.stringify(params))
+            return await resp.json() as interfaces.ExtractionResult
+        }
+
+        public async extractQuote(params: controllers.ExtractQuoteRequest): Promise<interfaces.ExtractionResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/quote`, JSON.stringify(params))
             return await resp.json() as interfaces.ExtractionResult
         }
 
@@ -2314,6 +2321,11 @@ export namespace controllers {
     }
 
     export interface ExtractInvoiceRequest {
+        fileBase64: string
+        fileName: string
+    }
+
+    export interface ExtractQuoteRequest {
         fileBase64: string
         fileName: string
     }

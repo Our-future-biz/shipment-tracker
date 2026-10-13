@@ -30,6 +30,7 @@ import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
 import { FieldReviewTable } from "./FieldReviewTable";
+import { QuoteOpenButton, QuoteReview, QuoteTarget } from "./QuoteReading";
 import {
   baseCreatePayload,
   bookingExistingValue,
@@ -63,6 +64,7 @@ import {
   withContainerType,
   withPackageType,
 } from "../_lib/extraction";
+import { useQuoteReading } from "../_lib/useQuoteReading";
 
 type PipelineStep = "idle" | "classified" | "extracting" | "ready";
 
@@ -73,6 +75,7 @@ const HBL_PREFETCH_AHEAD = 3;
 const DESTINATION_OPTIONS = [
   { value: "shipment", label: "Shipments" },
   { value: "invoicing", label: "Invoicing" },
+  { value: "quote", label: "Quote" },
   { value: "masterjob", label: "Master Job" },
   { value: "booking", label: "Booking Confirmation" },
   { value: "customs", label: "Customs" },
@@ -81,6 +84,7 @@ const DESTINATION_OPTIONS = [
 const DESTINATION_HINT: Record<Destination, string> = {
   shipment: "Extract shipping data (B/L, booking, waybill) into Shipments columns.",
   invoicing: "Extract cost data (invoice, debit note) — amount, vendor, invoice number.",
+  quote: "Read a customer's request (inquiry email, rate request, packing list) into a Sales quote: customer, route, cargo and readiness date. Prices are not read.",
   masterjob: "Extract multiple shipments from a pre-alert and create them under a Master Job (MCZ).",
   booking: "Read a carrier's booking confirmation into a new or an existing Master Job (MCZ); its details also reach the master job's shipments.",
   customs: "Read the MRN Number, Shipper, Consignee, Total Weight and Container Numbers from a customs declaration into one shipment.",
@@ -107,6 +111,7 @@ export function DocumentReadingWorkflow() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { shipments, createShipment, updateShipment, linkMasterJob } = useShipments();
+  const quoteReading = useQuoteReading();
 
   // Workflow
   const [destination, setDestination] = useState<Destination>("shipment");
@@ -203,6 +208,7 @@ export function DocumentReadingWorkflow() {
       return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
     if (destination === "customs")
       return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
+    if (destination === "quote") return quoteReading.doneTitle;
     if (shipmentMode === "new") return `New shipment ${committedJobNumber} created`;
     return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
   })();
@@ -242,9 +248,14 @@ export function DocumentReadingWorkflow() {
   const masterFilesSize = masterFiles.reduce((sum, f) => sum + f.size, 0);
   const masterFilesTooLarge = masterFilesSize > MASTER_FILES_MAX_BYTES;
 
+  // The same limit the API applies to pasted text (extractText.controller.ts).
+  const textMaxLength = destination === "quote" ? 6000 : 1500;
+
   const canExtract = (() => {
-    const hasInput = inputMode === "file" ? !!fileBase64 : textInput.trim().length >= 10;
+    const textLength = textInput.trim().length;
+    const hasInput = inputMode === "file" ? !!fileBase64 : textLength >= 10 && textLength <= textMaxLength;
     if (destination === "invoicing") return hasInput && !!invoiceTargetShipmentId;
+    if (destination === "quote") return hasInput && quoteReading.ready;
     if (destination === "booking") return hasInput && (bookingMode === "new" || !!bookingMasterJob);
     if (destination === "customs") return hasInput && !!customsShipmentId;
     if (destination === "masterjob") return masterFiles.length > 0 && !masterFilesTooLarge && !!activeMcz;
@@ -317,6 +328,9 @@ export function DocumentReadingWorkflow() {
         delete normalized["Freight Mode"];
         setFields(buildFields(normalized, (label) => bookingExistingValue(bookingMasterJob, label)));
         setExtractionMethod(result.method);
+        setStep("review");
+      } else if (destination === "quote") {
+        await quoteReading.read(inputMode === "file" ? { fileBase64, fileName } : { text: textInput.trim() });
         setStep("review");
       } else {
         // masterjob — Phase 1: prepare + classify. A new batch starts on the next free MCZ.
@@ -611,6 +625,7 @@ export function DocumentReadingWorkflow() {
     setShipmentMode("existing");
     setTargetShipmentId("");
     setCommittedJobNumber("");
+    quoteReading.reset();
     setCustomsShipmentId("");
     setBookingMode("new");
     setBookingMcz("");
@@ -726,6 +741,8 @@ export function DocumentReadingWorkflow() {
             </div>
           )}
 
+          {destination === "quote" && <QuoteTarget reading={quoteReading} />}
+
           {destination === "booking" && (
             <div className="mb-4">
               <div className="text-xs font-medium text-slate-500 mb-1.5">Master Job Number</div>
@@ -828,6 +845,8 @@ export function DocumentReadingWorkflow() {
               <p className="ant-upload-hint">
                 {destination === "invoicing"
                   ? "Invoice, Debit Note, Freight Bill, Customs Declaration…"
+                  : destination === "quote"
+                    ? "Inquiry email saved as PDF, rate request, packing list…"
                   : destination === "customs"
                     ? "Export / import declaration, transit document (T1), customs release…"
                     : destination === "masterjob"
@@ -843,7 +862,7 @@ export function DocumentReadingWorkflow() {
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               placeholder="Paste shipping data, email content, or any text with relevant details…"
-              maxLength={1500}
+              maxLength={textMaxLength}
               showCount
             />
           )}
@@ -920,6 +939,11 @@ export function DocumentReadingWorkflow() {
             </Button>
           </div>
         </Card>
+      )}
+
+      {/* ─── STEP: Review — quote ─── */}
+      {step === "review" && destination === "quote" && (
+        <QuoteReview reading={quoteReading} onBack={() => setStep("upload")} onWritten={() => setStep("committed")} />
       )}
 
       {/* ─── STEP: Review — invoicing ─── */}
@@ -1119,9 +1143,12 @@ export function DocumentReadingWorkflow() {
             title={successTitle}
             subTitle={successSubtitle}
             extra={
-              <Button type="primary" size="large" icon={<ReloadOutlined />} onClick={reset}>
-                New Extraction
-              </Button>
+              <Space>
+                <Button type="primary" size="large" icon={<ReloadOutlined />} onClick={reset}>
+                  New Extraction
+                </Button>
+                {destination === "quote" && quoteReading.written && <QuoteOpenButton quoteNumber={quoteReading.written.quoteNumber} />}
+              </Space>
             }
           />
         </Card>

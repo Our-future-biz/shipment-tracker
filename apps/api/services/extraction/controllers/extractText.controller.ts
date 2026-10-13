@@ -4,7 +4,7 @@ import type { ExtractionResult } from "../interfaces/interfaces";
 
 interface ExtractTextRequest {
   text: string;
-  destination: string; // "shipment" | "invoicing" | "customs" | "booking"
+  destination: string; // "shipment" | "invoicing" | "quote" | "customs" | "booking"
 }
 
 export const extractText = api(
@@ -13,8 +13,10 @@ export const extractText = api(
     if (!req.text || req.text.length < 10) {
       throw APIError.invalidArgument("text must be at least 10 characters");
     }
-    if (req.text.length > 1500) {
-      throw APIError.invalidArgument("text must be at most 1500 characters");
+    // A customer's e-mail, with its signature and the mail it answers, is longer than a line of shipping data.
+    const maxLength = req.destination === "quote" ? 6000 : 1500;
+    if (req.text.length > maxLength) {
+      throw APIError.invalidArgument(`text must be at most ${maxLength} characters`);
     }
     return extractFromTextByDestination(req.text, req.destination);
   },

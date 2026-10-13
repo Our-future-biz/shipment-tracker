@@ -1,10 +1,11 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { getClient, MODEL } from "../lib/anthropic";
 import { extractTextFromPdf, isImageType, isPdfType, detectMediaType } from "../lib/pdf";
-import { filterExtracted, parseJsonFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
-import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, CUSTOMS_PROMPT } from "../lib/prompts";
+import { filterExtracted, parseJsonFromResponse, parseJsonObjectFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
+import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT } from "../lib/prompts";
+import { normalizeQuoteFields } from "../lib/quoteFields";
 import type { ExtractionResult } from "../interfaces/interfaces";
-import { canonicalizeRecords } from "./places.service";
+import { canonicalizeRecords, resolveGeo } from "./places.service";
 
 // The model only returns useful keys when told the exact field names to use;
 // filterExtracted() then keeps only exact matches, so the list must be injected.
@@ -56,9 +57,9 @@ async function extractViaVision(
     .map((b) => b.text)
     .join("");
 
-  const parsed = parseJsonFromResponse(text);
-  if (!parsed || typeof parsed !== "object") return {};
-  return filterExtracted(parsed as Record<string, unknown>, validFields);
+  const parsed = parseJsonObjectFromResponse(text);
+  if (!parsed) return {};
+  return filterExtracted(parsed, validFields);
 }
 
 async function extractViaText(
@@ -84,9 +85,9 @@ async function extractViaText(
     .map((b) => b.text)
     .join("");
 
-  const parsed = parseJsonFromResponse(text);
-  if (!parsed || typeof parsed !== "object") return {};
-  return filterExtracted(parsed as Record<string, unknown>, validFields);
+  const parsed = parseJsonObjectFromResponse(text);
+  if (!parsed) return {};
+  return filterExtracted(parsed, validFields);
 }
 
 export async function extractFromDocument(
@@ -133,6 +134,25 @@ async function withCanonicalPlaces(result: Promise<ExtractionResult>): Promise<E
   return done;
 }
 
+// What the places of a quote mean, as the quote page's own inquiry import asks for them: a quote's
+// origin and destination become the shipment's POL and POD.
+const QUOTE_PLACE_ROLES: Record<string, string> = {
+  Origin: "origin: port or place the cargo leaves from",
+  Destination: "destination: port or place the cargo goes to",
+};
+
+// A customer's request comes back in the forms a Sales quote stores (lib/quoteFields), its places
+// in the database's form. What matches no place stays as read; the screens flag it.
+async function asQuoteFields(done: ExtractionResult): Promise<ExtractionResult> {
+  const extracted = normalizeQuoteFields(done.extracted);
+  const labels = Object.keys(QUOTE_PLACE_ROLES).filter((label) => extracted[label]);
+  const places = await resolveGeo(labels.map((label) => ({ text: extracted[label]!, kind: "place" as const, role: QUOTE_PLACE_ROLES[label] })));
+  labels.forEach((label, i) => {
+    if (places[i]) extracted[label] = places[i]!;
+  });
+  return { ...done, extracted, fieldCount: Object.keys(extracted).length };
+}
+
 export async function extractShipmentFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
   return withCanonicalPlaces(
@@ -143,6 +163,13 @@ export async function extractShipmentFromFile(fileBase64: string, fileName: stri
 export async function extractInvoiceFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
   return extractFromDocument(fileBase64, fileName, mediaType, INVOICE_PROMPT, INVOICE_FIELDS, "Extract invoice/cost data from this document.", 1024);
+}
+
+export async function extractQuoteFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
+  const mediaType = detectMediaType(fileName);
+  return asQuoteFields(
+    await extractFromDocument(fileBase64, fileName, mediaType, QUOTE_PROMPT, QUOTE_FIELDS, "Extract the customer's request from this document."),
+  );
 }
 
 export async function extractBookingFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
@@ -178,6 +205,11 @@ export async function extractFromTextByDestination(text: string, destination: st
       fields = BOOKING_FIELDS;
       userPrompt = "Extract the booking details from this booking confirmation:";
       break;
+    case "quote":
+      systemPrompt = QUOTE_PROMPT;
+      fields = QUOTE_FIELDS;
+      userPrompt = "Extract the customer's request from this text:";
+      break;
     default:
       systemPrompt = SHIPMENT_PROMPT;
       fields = SHIPMENT_FIELDS;
@@ -186,6 +218,7 @@ export async function extractFromTextByDestination(text: string, destination: st
   }
 
   const extracted = await extractViaText(text, systemPrompt, fields, userPrompt);
+  if (destination === "quote") return asQuoteFields({ extracted, fieldCount: 0, method: "text", fileName: "(text input)" });
   if (destination !== "invoicing") await canonicalizeRecords([extracted]);
   return { extracted, fieldCount: Object.keys(extracted).length, method: "text", fileName: "(text input)" };
 }
