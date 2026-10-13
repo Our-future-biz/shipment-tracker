@@ -5,6 +5,7 @@ import { AutoComplete } from "antd";
 import Link from "next/link";
 import { EditOutlined } from "@ant-design/icons";
 import { useCustomers } from "@/hooks/useCustomers";
+import { FadeText } from "@/components/FadeText";
 
 interface CustomerLinkFieldProps {
   label: string;
@@ -75,11 +76,11 @@ export function CustomerLinkField({ label, name, customerId, onChange }: Custome
           <div className="group flex items-center gap-1.5">
             {name ? (
               customerId ? (
-                <Link href={`/customers/${customerId}`} className="text-indigo-600 hover:underline font-medium truncate">
-                  {name}
+                <Link href={`/customers/${customerId}`} className="min-w-0 text-indigo-600 hover:underline font-medium">
+                  <FadeText>{name}</FadeText>
                 </Link>
               ) : (
-                <span className="text-slate-900 font-medium truncate">{name}</span>
+                <FadeText className="text-slate-900 font-medium">{name}</FadeText>
               )
             ) : (
               <span className="text-slate-400">—</span>

@@ -6,6 +6,7 @@ import { PartyContactLink } from "./PartyContactLink";
 import { EditOutlined } from "@ant-design/icons";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { FadeText } from "@/components/FadeText";
 
 interface PartyContactFieldProps {
   label: string;
@@ -115,12 +116,14 @@ export function PartyContactField({ label, fieldKey, value, customerId, onCommit
           </div>
         ) : (
           <span
-            className="cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors block truncate"
-            title="Click to pick a saved contact"
+            className="cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors block"
+            title={value ? undefined : "Click to pick a saved contact"}
             onClick={startEdit}
           >
             {value ? (
-              <span className="text-slate-900 font-medium">{value}</span>
+              <FadeText className="text-slate-900 font-medium" title="Click to pick a saved contact">
+                {value}
+              </FadeText>
             ) : (
               <span className="text-slate-300">—</span>
             )}
