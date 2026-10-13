@@ -91,18 +91,23 @@ export async function resolveGeo(items: GeoItem[]): Promise<(string | null)[]> {
   });
 
   if (placeItems.length > 0) {
-    const { byCode, candidates } = await lookupPlaces(
-      placeItems.flatMap((p) => (p.code ? [p.code] : [])),
-      placeItems.map((p) => ({ name: p.name, countryCode: p.weakCountry ? undefined : (p.countryCode ?? undefined) })),
-    );
+    // Each item is looked up by name in its country (or worldwide when it names none). A weak
+    // hint is also looked up worldwide: the worldwide list is capped, so the in-country match
+    // must not depend on it ("San Jose, US" has more namesakes than fit).
+    const names: { name: string; countryCode?: string }[] = [];
+    const slots = placeItems.map((p) => ({
+      main: names.push({ name: p.name, countryCode: p.countryCode ?? undefined }) - 1,
+      world: p.weakCountry ? names.push({ name: p.name }) - 1 : -1,
+    }));
+    const { byCode, candidates } = await lookupPlaces(placeItems.flatMap((p) => (p.code ? [p.code] : [])), names);
     const known = new Map(byCode.map((p) => [p.code, p]));
     placeItems.forEach((p, i) => {
-      let found = candidates[i] ?? [];
-      if (p.weakCountry) {
-        // "Hamburg, DE" keeps DE; "Chicago, IL" finds nothing in Israel and drops it.
-        const inCountry = found.filter((c) => c.countryCode === p.countryCode);
-        if (inCountry.length > 0) found = inCountry;
-        else p.countryCode = null;
+      const slot = slots[i]!;
+      let found = candidates[slot.main] ?? [];
+      if (p.weakCountry && found.length === 0) {
+        // "Hamburg, DE" keeps DE; "Chicago, IL" finds nothing in Israel, so the hint is dropped.
+        found = candidates[slot.world] ?? [];
+        p.countryCode = null;
       }
       const coded = p.code ? known.get(p.code) : undefined;
       // A written "Name (CODE)" or a bare code wins, unless a bare word like "PARIS" is a real

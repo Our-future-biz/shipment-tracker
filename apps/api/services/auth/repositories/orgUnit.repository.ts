@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { departmentTable, branchTable, countryTable } from "../schemas/orgUnit.schema";
@@ -32,11 +32,21 @@ class BranchRepository extends TenantRepository<typeof branchTable> {
       .orderBy(asc(branchTable.name));
   }
 
-  async countByCountryCode(companyId: string, countryCode: string): Promise<number> {
+  // Branches in a country: by its code, or — for branches saved before codes — by its name.
+  async countInCountry(companyId: string, country: { code: string; name: string }): Promise<number> {
     const [row] = await this.db
       .select({ n: sql<number>`count(*)::int` })
       .from(branchTable)
-      .where(and(eq(branchTable.companyId, companyId), eq(branchTable.countryCode, countryCode), isNull(branchTable.deletedAt)));
+      .where(
+        and(
+          eq(branchTable.companyId, companyId),
+          isNull(branchTable.deletedAt),
+          or(
+            eq(branchTable.countryCode, country.code),
+            and(isNull(branchTable.countryCode), sql`lower(${branchTable.country}) = lower(${country.name})`),
+          ),
+        ),
+      );
     return row?.n ?? 0;
   }
 }
@@ -52,29 +62,6 @@ class CountryRepository extends TenantRepository<typeof countryTable> {
       .from(countryTable)
       .where(and(eq(countryTable.companyId, companyId), isNull(countryTable.deletedAt)))
       .orderBy(asc(countryTable.name));
-  }
-
-  // Branches keep a copy of their country's code and name, so a changed country carries over
-  // to them in the same transaction.
-  async updateWithBranches(id: string, companyId: string, values: { code: string; name: string }) {
-    return this.db.transaction(async (tx) => {
-      const [before] = await tx
-        .select()
-        .from(countryTable)
-        .where(and(eq(countryTable.id, id), eq(countryTable.companyId, companyId), isNull(countryTable.deletedAt)))
-        .limit(1);
-      if (!before) return null;
-      const [row] = await tx
-        .update(countryTable)
-        .set({ ...values, updatedAt: new Date() })
-        .where(eq(countryTable.id, id))
-        .returning();
-      await tx
-        .update(branchTable)
-        .set({ countryCode: values.code, country: values.name, updatedAt: new Date() })
-        .where(and(eq(branchTable.companyId, companyId), eq(branchTable.countryCode, before.code), isNull(branchTable.deletedAt)));
-      return row ?? null;
-    });
   }
 
   async findByCode(companyId: string, code: string) {

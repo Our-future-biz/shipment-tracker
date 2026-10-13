@@ -55,8 +55,7 @@ function containerTypeOptions(query: string) {
 const packTypeOptions = (query: string) =>
   PACK_TYPES.filter((p) => p.toLowerCase().includes(query.toLowerCase().trim())).map((p) => ({ value: p }));
 
-const FIELDS = ["containerNumber", "sealNumber", "type", "packages", "packageType", "grossWeight", "volume"] as const;
-type Field = (typeof FIELDS)[number];
+type Field = "containerNumber" | "sealNumber" | "type" | "packages" | "packageType" | "grossWeight" | "volume";
 
 // Centred columns with room between them, like the cargo tables.
 const COLS = "grid grid-cols-[1.5fr_1.1fr_1fr_0.7fr_1.1fr_1.1fr_1fr_36px] gap-3 items-center";

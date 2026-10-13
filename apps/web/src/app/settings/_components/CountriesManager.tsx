@@ -40,8 +40,9 @@ export function CountriesManager({ search }: CountriesManagerProps) {
       else await updateCountry({ id: editing.id, input: { code } });
       toast.success("Country saved");
       setEditing(null);
-    } catch {
-      toast.error("Failed to save country (it may already be added)");
+    } catch (e) {
+      // e.g. already added, or branches are still in the country being changed
+      toast.error(e instanceof Error && e.message ? e.message : "Failed to save country");
     } finally {
       setSaving(false);
     }

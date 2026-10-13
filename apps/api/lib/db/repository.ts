@@ -21,7 +21,7 @@ type TableWithDefaults = PgTable & {
   deletedAt: PgColumn;
 };
 
-export interface PaginationOptions<TTable extends TableWithDefaults> {
+export interface PaginationOptions {
   request: PaginationRequest;
   whereClauses?: SQL[];
   defaultOrderBy: PgColumn;
@@ -74,7 +74,7 @@ export abstract class BaseRepository<TTable extends TableWithDefaults> {
     return rows as InferSelectModel<TTable>[];
   }
 
-  async getPaginated(options: PaginationOptions<TTable>): Promise<PaginatedResponse<InferSelectModel<TTable>>> {
+  async getPaginated(options: PaginationOptions): Promise<PaginatedResponse<InferSelectModel<TTable>>> {
     const { request, whereClauses = [], defaultOrderBy, defaultMaxLimit, defaultLimit } = options;
     const limit = Math.min(request.limit ?? defaultLimit, defaultMaxLimit);
     const offset = request.offset ?? 0;

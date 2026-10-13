@@ -195,7 +195,18 @@ class OrgUnitService {
   // The country's branches follow a changed code/name (they keep a copy of both).
   async updateCountry(id: string, companyId: string, input: CountryInput): Promise<CountryInfo> {
     const values = requireCountry(input);
-    const row = await guardDuplicate("country", () => countryRepository.updateWithBranches(id, companyId, values));
+    const before = await countryRepository.getByIdForCompany(id, companyId);
+    if (!before) throw APIError.notFound("Country not found");
+    // Branches carry their country and a city in it, so the country can't change under them.
+    if (values.code !== before.code) {
+      const branches = await branchRepository.countInCountry(companyId, before);
+      if (branches > 0) {
+        throw APIError.failedPrecondition(
+          `${before.name} still has ${branches} branch${branches === 1 ? "" : "es"}. Move or remove them before changing the country.`,
+        );
+      }
+    }
+    const row = await guardDuplicate("country", () => countryRepository.updateForCompany(id, companyId, values));
     if (!row) throw APIError.notFound("Country not found");
     return { id: row.id, code: row.code, name: row.name };
   }
@@ -204,7 +215,7 @@ class OrgUnitService {
   async deleteCountry(id: string, companyId: string): Promise<void> {
     const country = await countryRepository.getByIdForCompany(id, companyId);
     if (!country) throw APIError.notFound("Country not found");
-    const branches = await branchRepository.countByCountryCode(companyId, country.code);
+    const branches = await branchRepository.countInCountry(companyId, country);
     if (branches > 0) {
       throw APIError.failedPrecondition(
         `${country.name} still has ${branches} branch${branches === 1 ? "" : "es"}. Move or remove them first.`,

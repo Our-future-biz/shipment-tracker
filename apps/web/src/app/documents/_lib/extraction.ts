@@ -307,7 +307,8 @@ const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "
 export function toIsoDate(value: string): string {
   const s = value.trim();
   const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-  const dmy = s.match(/^(\d{1,2})[./\-\s]+(\d{1,2}|[A-Za-z]{3,})[./\-\s,]+(\d{4})$/);
+  // A time after the date ("20.11.2026 12:00", common on closings) is ignored.
+  const dmy = s.match(/^(\d{1,2})[./\-\s]+(\d{1,2}|[A-Za-z]{3,})[./\-\s,]+(\d{4})(?:[\sT,].*)?$/);
   let y: number, m: number, d: number;
   if (iso) [y, m, d] = [+iso[1]!, +iso[2]!, +iso[3]!];
   else if (dmy) {

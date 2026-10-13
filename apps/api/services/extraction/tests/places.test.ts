@@ -56,16 +56,17 @@ describe("sameName", () => {
 
 describe("resolveGeo", () => {
   it("does not read a US state as a country", async () => {
-    placeLookup.mockResolvedValueOnce({ byCode: [], candidates: [[place("USCHI", "Chicago")]] });
+    // In Israel: nothing; worldwide: Chicago.
+    placeLookup.mockResolvedValueOnce({ byCode: [], candidates: [[], [place("USCHI", "Chicago")]] });
     const [value] = await resolveGeo([{ text: "Chicago, IL", kind: "place" }]);
-    // Searched worldwide, not in Israel.
-    expect(placeLookup.mock.calls[0]![0].names).toEqual([{ name: "Chicago", countryCode: undefined }]);
+    expect(placeLookup.mock.calls[0]![0].names).toEqual([{ name: "Chicago", countryCode: "IL" }, { name: "Chicago" }]);
     // With the hint dropped it isn't a sure match, so it's left for the AI (absent here).
     expect(value).toBeNull();
   });
 
-  it("keeps a two-letter country hint the place exists in", async () => {
-    placeLookup.mockResolvedValueOnce({ byCode: [], candidates: [[place("DEHAM", "Hamburg"), place("USHMB", "Hamburg")]] });
+  it("keeps a two-letter country hint the place exists in, whatever the worldwide list holds", async () => {
+    // The capped worldwide list need not contain the German one at all.
+    placeLookup.mockResolvedValueOnce({ byCode: [], candidates: [[place("DEHAM", "Hamburg")], [place("USHMB", "Hamburg")]] });
     expect(await resolveGeo([{ text: "Hamburg, DE", kind: "place" }])).toEqual(["Hamburg (DEHAM)"]);
   });
 

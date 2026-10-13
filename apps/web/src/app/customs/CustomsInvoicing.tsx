@@ -52,6 +52,19 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
   const dropDraft = (id: string) =>
     setDrafts((prev) => Object.fromEntries(Object.entries(prev).filter(([key]) => key !== id)));
 
+  // After a save, forget only the draft fields that still hold what was sent: anything typed
+  // in the meantime (e.g. the value, while the category was saving) stays.
+  const settleDraft = (id: string, sent: LineDraft) =>
+    setDrafts((prev) => {
+      const draft = prev[id];
+      if (!draft) return prev;
+      const left = Object.fromEntries(
+        Object.entries(draft).filter(([field, v]) => v !== sent[field as keyof LineDraft]),
+      ) as LineDraft;
+      const others = Object.fromEntries(Object.entries(prev).filter(([key]) => key !== id));
+      return Object.keys(left).length ? { ...others, [id]: left } : others;
+    });
+
   const handleFieldChange = (id: string, field: keyof LineDraft, value: string) =>
     setDrafts((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
 
@@ -64,13 +77,14 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
       message.error(`"${row.value}" is not an amount — use e.g. 1 250,50`);
       return;
     }
+    const sent: LineDraft = { category: row.category, currency: row.currency, value: row.value };
     const before = toRow(saved);
     if (before.category === row.category && before.currency === row.currency && before.value === value) {
-      dropDraft(row.id);
+      settleDraft(row.id, sent);
       return;
     }
     updateLine({ id: row.id, category: row.category, currency: row.currency, value })
-      .then(() => dropDraft(row.id))
+      .then(() => settleDraft(row.id, sent))
       .catch(() => {});
   };
 
@@ -175,8 +189,7 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
                   size="small"
                   icon={<DeleteOutlined />}
                   onClick={() => {
-                    dropDraft(row.id);
-                    deleteLine(row.id);
+                    deleteLine(row.id, { onSuccess: () => dropDraft(row.id) });
                   }}
                   className="!text-slate-400 hover:!text-red-500"
                 />

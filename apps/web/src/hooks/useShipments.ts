@@ -64,6 +64,9 @@ export interface ShipmentQueryParams {
   refetchInterval?: number;
 }
 
+// Fields that trigger automation when changed
+const AUTOMATION_FIELDS = new Set(["department", "status", "holidayCover"]);
+
 export const useShipments = (params: ShipmentQueryParams = {}) => {
   const queryClient = useQueryClient();
   const { message } = App.useApp();
@@ -165,10 +168,7 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
   });
 
-  const shipments: ShipmentItem[] = query.data?.data ?? [];
-
-  // Fields that trigger automation when changed
-  const AUTOMATION_FIELDS = new Set(["department", "status", "holidayCover"]);
+  const shipments: ShipmentItem[] = useMemo(() => query.data?.data ?? [], [query.data]);
 
   // Update a single field (handles API field vs extra field routing)
   const updateField = useCallback(
