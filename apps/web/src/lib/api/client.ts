@@ -809,6 +809,8 @@ export namespace invoicing {
             this.exchangeRateDelete = this.exchangeRateDelete.bind(this)
             this.exchangeRateList = this.exchangeRateList.bind(this)
             this.exchangeRateUpdate = this.exchangeRateUpdate.bind(this)
+            this.invoiceProfileGet = this.invoiceProfileGet.bind(this)
+            this.invoiceProfileSave = this.invoiceProfileSave.bind(this)
             this.invoicingAddBuyingCost = this.invoicingAddBuyingCost.bind(this)
             this.invoicingAddCharge = this.invoicingAddCharge.bind(this)
             this.invoicingAddSellingCost = this.invoicingAddSellingCost.bind(this)
@@ -877,6 +879,18 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/exchange-rates/${encodeURIComponent(rateId)}`, JSON.stringify(params))
             return await resp.json() as controllers.UpdateRateResponse
+        }
+
+        public async invoiceProfileGet(): Promise<controllers.GetProfileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/profile`)
+            return await resp.json() as controllers.GetProfileResponse
+        }
+
+        public async invoiceProfileSave(params: controllers.SaveProfileRequest): Promise<controllers.GetProfileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/invoicing/profile`, JSON.stringify(params))
+            return await resp.json() as controllers.GetProfileResponse
         }
 
         public async invoicingAddBuyingCost(shipmentId: string, params: controllers.AddBuyingRequest): Promise<controllers.AddBuyingResponse> {
@@ -2187,6 +2201,10 @@ export namespace controllers {
         invoice: interfaces.GeneratedInvoiceItem
     }
 
+    export interface GetProfileResponse {
+        profile: interfaces.InvoiceProfileItem
+    }
+
     export interface HolidayDeleteResponse {
         ok: boolean
     }
@@ -2529,6 +2547,25 @@ export namespace controllers {
          * Per item, its form in the database ("Hamburg (DEHAM)", "Germany (DE)", "DE"), or null.
          */
         values: (string | null)[]
+    }
+
+    export interface SaveProfileRequest {
+        companyName: string
+        street: string
+        city: string
+        postalCode: string
+        country: string
+        ico: string
+        dic: string
+        vatPayer: boolean
+        registerEntry: string
+        email: string
+        phone: string
+        web: string
+        logoData: string
+        bankAccounts: schemas.BankAccount[]
+        defaultDueDays: number
+        footerNote: string
     }
 
     export interface SetIssuedInvoiceNumberRequest {
@@ -3680,6 +3717,38 @@ export namespace interfaces {
     }
 
     /**
+     * Issuer details printed on invoices (Settings → Organization → Invoicing details)
+     */
+    export interface InvoiceProfileItem {
+        companyName: string
+        street: string
+        city: string
+        postalCode: string
+        country: string
+        ico: string
+        dic: string
+        vatPayer: boolean
+        registerEntry: string
+        email: string
+        phone: string
+        web: string
+        logoData: string
+        bankAccounts: {
+            currency: string
+            bankName: string
+            accountNumber: string
+            iban: string
+            swift: string
+        }[]
+        defaultDueDays: number
+        footerNote: string
+        /**
+         * What must still be filled in before an invoice can be issued; empty = ready.
+         */
+        missingForIssue: string[]
+    }
+
+    /**
      * A container on the master BL and the house shipments it is assigned to.
      */
     export interface MasterJobContainerLine {
@@ -4176,6 +4245,23 @@ export namespace interfaces {
         data: any
         createdAt: string
         updatedAt: string
+    }
+}
+
+export namespace schemas {
+    /**
+     * One bank account the customer can pay to, per invoice currency.
+     */
+    export interface BankAccount {
+        currency: string
+        bankName: string
+        /**
+         * Czech account number, e.g. "123456789/0800" (optional for foreign accounts).
+         */
+        accountNumber: string
+
+        iban: string
+        swift: string
     }
 }
 

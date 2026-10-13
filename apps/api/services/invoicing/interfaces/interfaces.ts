@@ -99,3 +99,31 @@ export interface CustomsInvoiceLineInput {
   value?: string;
   sortOrder?: number;
 }
+
+/** Issuer details printed on invoices (Settings → Organization → Invoicing details) */
+export interface InvoiceProfileItem {
+  companyName: string;
+  street: string;
+  city: string;
+  postalCode: string;
+  country: string;
+  ico: string;
+  dic: string;
+  vatPayer: boolean;
+  registerEntry: string;
+  email: string;
+  phone: string;
+  web: string;
+  logoData: string;
+  bankAccounts: {
+    currency: string;
+    bankName: string;
+    accountNumber: string;
+    iban: string;
+    swift: string;
+  }[];
+  defaultDueDays: number;
+  footerNote: string;
+  /** What must still be filled in before an invoice can be issued; empty = ready. */
+  missingForIssue: string[];
+}
