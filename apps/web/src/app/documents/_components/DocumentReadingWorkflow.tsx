@@ -117,6 +117,9 @@ export function DocumentReadingWorkflow() {
   // Master Job pipeline
   const [masterMode, setMasterMode] = useState<TargetMode>("new");
   const [masterMczExisting, setMasterMczExisting] = useState("");
+  // New MCZ number locked in on the first shipment created, so every HBL of one
+  // pre-alert links to the same master job (newMcz moves on once shipments refresh).
+  const [frozenNewMcz, setFrozenNewMcz] = useState("");
   const [pipelineSessionId, setPipelineSessionId] = useState("");
   const [pipelineStep, setPipelineStep] = useState<PipelineStep>("idle");
   const [classification, setClassification] = useState<Record<string, number>>({});
@@ -145,7 +148,7 @@ export function DocumentReadingWorkflow() {
   const newShipmentPreview = useMemo(() => nextCzNumber(shipments), [shipments]);
   const newMcz = useMemo(() => nextMczNumber(shipments), [shipments]);
   const existingMcz = useMemo(() => existingMczNumbers(shipments), [shipments]);
-  const activeMcz = masterMode === "existing" ? masterMczExisting : newMcz;
+  const activeMcz = masterMode === "existing" ? masterMczExisting : frozenNewMcz || newMcz;
 
   const approvedCount = fields.filter((f) => f.approved).length;
   const conflictCount = fields.filter((f) => f.hasConflict).length;
@@ -329,6 +332,7 @@ export function DocumentReadingWorkflow() {
       setHblTotalBatches(hbl.totalBatches || 1);
       setMasterIdx(0);
       setMasterCreatedJobs([]);
+      setFrozenNewMcz("");
       loadMasterFields(extracted[0]);
       setPipelineStep("ready");
     } catch (err) {
@@ -393,6 +397,8 @@ export function DocumentReadingWorkflow() {
     if (!activeMcz) return toast.warning("No MCZ number available.");
     const approved = fieldsToLabelValues(masterFields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
+    const mczNumber = activeMcz;
+    if (masterMode === "new") setFrozenNewMcz(mczNumber);
     try {
       const jobNumber = nextCzNumber(shipments, masterCreatedJobs);
       const created = await createShipment(baseCreatePayload(jobNumber, createdByStamp(user?.email, "System (Master Job)")));
@@ -400,7 +406,7 @@ export function DocumentReadingWorkflow() {
       const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
       if (newContainers.length > 0) data.containers = newContainers;
       await updateShipment({ id: created.shipment.id, data });
-      await linkMasterJob({ shipmentId: created.shipment.id, mczNumber: activeMcz });
+      await linkMasterJob({ shipmentId: created.shipment.id, mczNumber });
       setMasterCreatedJobs((prev) => [...prev, jobNumber]);
       advanceMaster();
     } catch {
@@ -432,6 +438,7 @@ export function DocumentReadingWorkflow() {
     setInvoiceTargetShipmentId("");
     setMasterMode("new");
     setMasterMczExisting("");
+    setFrozenNewMcz("");
     setPipelineSessionId("");
     setPipelineStep("idle");
     setClassification({});
