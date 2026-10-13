@@ -1,4 +1,13 @@
-export type ColumnType = "text" | "dropdown" | "date" | "checkbox" | "computed" | "popup";
+import type { GeoKind } from "./places";
+
+// "place" / "country" / "countryCode" are picked from the location database (see lib/places.ts).
+export type ColumnType = "text" | "dropdown" | "date" | "checkbox" | "computed" | "popup" | GeoKind;
+
+const GEO_TYPES: ReadonlySet<string> = new Set<GeoKind>(["place", "country", "countryCode"]);
+
+/** The place/country kind of a column, if it holds one. */
+export const geoKindOf = (col: ColumnDef | undefined): GeoKind | undefined =>
+  col && GEO_TYPES.has(col.type) ? (col.type as GeoKind) : undefined;
 
 export interface ColumnDef {
   key: string;        // Internal field key (maps to API field)
@@ -52,8 +61,6 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Insurance": ["Yes", "Pending", "No"],
   "Credit Check": ["Green", "Yellow", "Red"],
   "Freight Payable At": ["Origin", "Destination"],
-  "HUB": ["Budapest", "Bratislava", "Brno", "Dunajska Streda", "Plzen", "Prague", "Ostrava", "Vienna"],
-  "CFS": ["Budapest", "Bratislava", "Brno", "Dunajska Streda", "Plzen", "Prague", "Ostrava", "Vienna"],
   "Validity Status": ["Ok", "Check"],
   "Switch BoL": ["YES", "NO"],
   "House BoL Type": ["OBL", "SWB", "Telex", "OHBL ok", "Direct MBL"],
@@ -110,7 +117,7 @@ export const COLUMNS: ColumnDef[] = [
 
   // Pickup + POL
   { key: "pickupAddress", title: "Pickup Address", width: 200, type: "text", apiField: "pickupAddress" },
-  { key: "pol", title: "POL", width: 100, type: "text", apiField: "pol" },
+  { key: "pol", title: "POL", width: 160, type: "place", apiField: "pol" },
 
   // Shipper/Consignee
   { key: "shipper", title: "Shipper", width: 180, type: "text", apiField: "shipper" },
@@ -118,8 +125,8 @@ export const COLUMNS: ColumnDef[] = [
 
   // Delivery + POD
   { key: "deliveryAddress", title: "Delivery Address", width: 200, type: "text", apiField: "deliveryAddress" },
-  { key: "pod", title: "POD", width: 100, type: "text", apiField: "pod" },
-  { key: "destination", title: "Destination", width: 130, type: "text", apiField: "destination" },
+  { key: "pod", title: "POD", width: 160, type: "place", apiField: "pod" },
+  { key: "destination", title: "Destination", width: 160, type: "place", apiField: "destination" },
 
   // Status block
   // Read-only in the lists: it follows the paperwork, and only the steps after it are set, in the Customs detail.
@@ -168,8 +175,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "actualArrival", title: "Actual Arrival", width: 130, type: "date", apiField: "actualArrival" },
   { key: "actualArrivalWeek", title: "Actual Arrival Week", width: 120, type: "computed", readonly: true },
   { key: "etaWarehouse", title: "ETA Warehouse/HUB", width: 140, type: "date", apiField: "etaWarehouse" },
-  { key: "hub", title: "HUB", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["HUB"], apiField: "hub" },
-  { key: "cfs", title: "CFS", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["CFS"], apiField: "cfs" },
+  { key: "hub", title: "HUB", width: 160, type: "place", apiField: "hub" },
+  { key: "cfs", title: "CFS", width: 160, type: "place", apiField: "cfs" },
   { key: "warehouseReceivedDate", title: "Warehouse Received", width: 150, type: "date", apiField: "warehouseReceivedDate" },
   { key: "warehouseReference", title: "Warehouse Reference", width: 160, type: "text", readonly: true, apiField: "warehouseReference" },
   { key: "warehouseTruck", title: "Truck Reference", width: 150, type: "text", readonly: true, apiField: "warehouseTruck" },
@@ -177,9 +184,9 @@ export const COLUMNS: ColumnDef[] = [
   { key: "warehouseReleasedDate", title: "Warehouse Released", width: 150, type: "date", apiField: "warehouseReleasedDate" },
   { key: "plannedDeliveryDate", title: "Planned Delivery Date", width: 140, type: "date", apiField: "plannedDeliveryDate" },
   { key: "plannedDeliveryTime", title: "Planned Delivery Time", width: 140, type: "date", apiField: "plannedDeliveryTime" },
-  { key: "cargoOrigin", title: "Cargo Origin", width: 130, type: "text", apiField: "cargoOrigin" },
-  { key: "origin", title: "Origin", width: 130, type: "text", apiField: "origin" },
-  { key: "countryCode", title: "Country Code", width: 110, type: "text", apiField: "countryCode" },
+  { key: "cargoOrigin", title: "Cargo Origin", width: 160, type: "country", apiField: "cargoOrigin" },
+  { key: "origin", title: "Origin", width: 160, type: "place", apiField: "origin" },
+  { key: "countryCode", title: "Country Code", width: 110, type: "countryCode", apiField: "countryCode" },
 
   // Commercial
   { key: "commercialInvoice", title: "Commercial Invoice number(s)", width: 170, type: "text", apiField: "commercialInvoice" },

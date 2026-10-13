@@ -5,6 +5,8 @@ import { Modal, Input, Button, Upload } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import { parseInquiry } from "@/app/sales/_lib/parseInquiry";
+import { api } from "@/lib/api";
+import { GeoFlag } from "@/components/GeoSelect";
 
 interface ImportInquiryModalProps {
   open: boolean;
@@ -77,8 +79,33 @@ export function ImportInquiryModal({ open, onClose, onApply }: ImportInquiryModa
     onClose();
   };
 
-  const handleParse = () => {
-    setParsed(parseInquiry(text));
+  const [parsing, setParsing] = useState(false);
+
+  // Origin and destination are matched to the location database; what matches nothing stays
+  // as written and is flagged.
+  const handleParse = async () => {
+    const result = parseInquiry(text);
+    const keys = (["origin", "destination"] as const).filter((k) => result[k]);
+    if (keys.length > 0) {
+      setParsing(true);
+      try {
+        const { values } = await api.extraction.resolvePlaces({
+          items: keys.map((k) => ({
+            text: result[k]!,
+            kind: "place",
+            role: k === "origin" ? "origin: port or place the cargo leaves from" : "destination: port or place the cargo goes to",
+          })),
+        });
+        keys.forEach((k, i) => {
+          if (values[i]) result[k] = values[i]!;
+        });
+      } catch {
+        // Unmatched values are kept and flagged.
+      } finally {
+        setParsing(false);
+      }
+    }
+    setParsed(result);
   };
 
   const handleApply = () => {
@@ -141,7 +168,7 @@ export function ImportInquiryModal({ open, onClose, onApply }: ImportInquiryModa
             <Button icon={<UploadOutlined />}>Upload .txt</Button>
           </Upload>
 
-          <Button type="primary" onClick={handleParse} disabled={text.trim().length === 0}>
+          <Button type="primary" onClick={handleParse} loading={parsing} disabled={text.trim().length === 0}>
             Parse
           </Button>
         </div>
@@ -162,7 +189,10 @@ export function ImportInquiryModal({ open, onClose, onApply }: ImportInquiryModa
                     <span className="min-w-32 font-medium text-gray-600">
                       {labelFor(key)}:
                     </span>
-                    <span className="text-gray-900">{displayValue(value)}</span>
+                    <span className="text-gray-900">
+                      {displayValue(value)}
+                      {(key === "origin" || key === "destination") && <GeoFlag kind="place" value={String(value ?? "")} />}
+                    </span>
                   </div>
                 ))}
               </div>

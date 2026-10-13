@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { departmentTable, branchTable, countryTable } from "../schemas/orgUnit.schema";
@@ -55,6 +55,8 @@ class CountryRepository extends TenantRepository<typeof countryTable> {
   }
 }
 
+type PlaceRow = { code: string; countryCode: string; name: string; subdivisionName: string | null };
+
 // UN/LOCODE places: reference data, the same for every company.
 class LocationRepository {
   async listByCountry(countryCode: string) {
@@ -74,6 +76,61 @@ class LocationRepository {
   async getById(id: number) {
     const [row] = await db.select().from(locationTable).where(eq(locationTable.id, id)).limit(1);
     return row ?? null;
+  }
+
+  private readonly placeColumns = {
+    code: locationTable.code,
+    countryCode: locationTable.countryCode,
+    name: locationTable.name,
+    subdivisionName: locationTable.subdivisionName,
+  };
+
+  /**
+   * Places worldwide whose code or name starts with the text (or a word of the name does), for
+   * the place pickers. The exact code comes first, then names that start with the text.
+   * `query` is ASCII-folded by the caller, matching `name_ascii`.
+   */
+  async search(query: string, countryCode: string | null, limit: number) {
+    const prefix = `${query}%`;
+    const inCountry = countryCode ? sql`AND country_code = ${countryCode}` : sql``;
+    const result = await db.execute<PlaceRow>(sql`
+      SELECT code, country_code AS "countryCode", name, subdivision_name AS "subdivisionName" FROM (
+        SELECT DISTINCT ON (code) code, country_code, name, name_ascii, subdivision_name FROM location
+        WHERE (code ILIKE ${prefix} OR name_ascii ILIKE ${prefix} OR name_ascii ILIKE ${`% ${query}%`} OR name_ascii ILIKE ${`%(${query}%`}) ${inCountry}
+        ORDER BY code, id
+      ) p
+      ORDER BY CASE WHEN code ILIKE ${query} THEN 0 WHEN name_ascii ILIKE ${query} THEN 1 WHEN name_ascii ILIKE ${prefix} THEN 2 ELSE 3 END,
+        length(name), name
+      LIMIT ${limit}`);
+    return result.rows;
+  }
+
+  /** One row per known code (the first-listed name where a code has several). */
+  async findByCodes(codes: string[]) {
+    if (codes.length === 0) return [];
+    return db
+      .selectDistinctOn([locationTable.code], this.placeColumns)
+      .from(locationTable)
+      .where(inArray(locationTable.code, codes))
+      .orderBy(locationTable.code, asc(locationTable.id));
+  }
+
+  /**
+   * Places a written name could mean: the same name, a name starting with it ("Shanghai" →
+   * "Shanghai Pt") or carrying it in brackets ("Ostend (Oostende)"). `name` is ASCII-folded.
+   */
+  async findCandidates(name: string, countryCode: string | null, limit: number) {
+    return db
+      .selectDistinctOn([locationTable.code], this.placeColumns)
+      .from(locationTable)
+      .where(
+        and(
+          countryCode ? eq(locationTable.countryCode, countryCode) : undefined,
+          sql`(${locationTable.nameAscii} ILIKE ${name} OR ${locationTable.nameAscii} ILIKE ${`${name} %`} OR ${locationTable.nameAscii} ILIKE ${`%(${name})%`})`,
+        ),
+      )
+      .orderBy(locationTable.code, asc(locationTable.id))
+      .limit(limit);
   }
 }
 

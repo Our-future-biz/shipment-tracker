@@ -4,7 +4,8 @@ import { createContext, useContext, useState, useRef } from "react";
 import { Input, Select, DatePicker } from "antd";
 import type { InputRef } from "antd";
 import dayjs from "dayjs";
-import { COLUMN_MAP, getFilteredStatusOptions } from "@/lib/columnConfig";
+import { COLUMN_MAP, geoKindOf, getFilteredStatusOptions } from "@/lib/columnConfig";
+import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import { formatDate } from "@/lib/date";
 import { statusLabel } from "@/lib/shipmentStatus";
 
@@ -72,6 +73,8 @@ export function EditableCell({
   const digitsOnly = fieldKey === "hsCode";
   const clean = (v: string) => (digitsOnly ? v.replace(/\D/g, "") : v);
   const isDate = col?.type === "date";
+  // Places and countries are picked from the location database.
+  const geoKind = geoKindOf(col);
   const tradeDirection = useContext(TradeDirectionContext);
   const options = allowedOptions ?? (fieldKey === "status" ? getFilteredStatusOptions(tradeDirection) : col?.options) ?? [];
   const original = value ?? "";
@@ -109,7 +112,25 @@ export function EditableCell({
         <span className={hasValue ? displayClassName : (emptyClassName ?? displayClassName)} style={hasValue ? displayStyle : undefined}>
           {shown}
         </span>
+        {geoKind && <GeoFlag kind={geoKind} value={original} />}
       </span>
+    );
+  }
+
+  if (geoKind) {
+    return (
+      <div className={className}>
+        <GeoSelect
+          kind={geoKind}
+          size="small"
+          autoFocus
+          defaultOpen
+          className="w-full min-w-[200px]"
+          value={original}
+          onChange={(v) => commit(v)}
+          onBlur={() => setEditing(false)}
+        />
+      </div>
     );
   }
 

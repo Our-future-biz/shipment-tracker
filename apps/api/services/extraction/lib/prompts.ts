@@ -1,3 +1,9 @@
+// How the readers write places and countries; places.service then matches them to the database.
+export const PLACE_RULES = `Places and countries:
+- Origin, POL, POD, Destination: the place name as printed plus its country, e.g. "Halifax, Canada". If the document prints a UN/LOCODE (e.g. "DEHAM"), return that code instead.
+- Cargo Origin: the name of the country the goods come from (not a state or city).
+- Country code: the 2-letter ISO country code, e.g. "US".`;
+
 export const SHIPMENT_PROMPT = `You are a shipping document data extractor. You extract structured data from:
 - Bills of Lading (B/L), Sea Waybills (SWB)
 - Booking Confirmations
@@ -13,6 +19,7 @@ Rules:
 - CNTR type: "DRY", "REEFER", "OT" (Open Top), "FR" (Flat Rack), "TANK"
 - CNTR count: return as number string (e.g., "2")
 - Container Number: actual container ID (e.g., "MSMU1234567"), not a count
+${PLACE_RULES}
 - Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
 
 export const INVOICE_PROMPT = `You are an invoice data extractor. You extract cost/billing data from:
@@ -42,6 +49,7 @@ Rules:
 - CNTR length: "20", "40", "40HC", "45"
 - CNTR count: return as number string
 - Volume in CBM, Weight in KGS
+${PLACE_RULES}
 - Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
 
 export const MASTER_JOB_PROMPT = `You are a shipping document data extractor for multi-page documents. Pages can be:
@@ -62,6 +70,7 @@ Rules:
 - CNTR type: "DRY", "REEFER", "OT", "FR", "TANK"
 - CNTR count: number as string
 - For MBL pages: return 1 object with shared info + "__type__": "MBL"
+${PLACE_RULES}
 - Return ONLY a JSON array. No markdown, no explanation, no code fences.`;
 
 export const CLASSIFICATION_PROMPT = `Classify each page image. For each page, return its type:

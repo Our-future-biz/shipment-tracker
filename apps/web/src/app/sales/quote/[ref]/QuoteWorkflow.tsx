@@ -26,6 +26,7 @@ import { useCustomers } from "@/hooks/useCustomers";
 import { useTermsConditions } from "@/hooks/useTermsConditions";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
+import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import type { SalesQuoteData, PackageLine, CostLine } from "../../_lib/types";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, CURRENCIES, COST_LINE_TYPES, PACKING_TYPES } from "../../_lib/types";
 import { computeTotals, computeCargo, fmt, validityInfo, quoteFamily } from "../../_lib/salesQuote";
@@ -226,10 +227,16 @@ export function QuoteWorkflow() {
       content: (
         <div className="grid grid-cols-2 gap-3">
           <Field label="Origin">
-            <Input value={draft.origin ?? ""} onChange={(e) => set({ origin: e.target.value })} />
+            <span className="flex items-center">
+              <GeoSelect kind="place" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
+              <GeoFlag kind="place" value={draft.origin} />
+            </span>
           </Field>
           <Field label="Destination">
-            <Input value={draft.destination ?? ""} onChange={(e) => set({ destination: e.target.value })} />
+            <span className="flex items-center">
+              <GeoSelect kind="place" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
+              <GeoFlag kind="place" value={draft.destination} />
+            </span>
           </Field>
           <Field label="Pickup">
             <Input value={draft.pickup ?? ""} onChange={(e) => set({ pickup: e.target.value })} />

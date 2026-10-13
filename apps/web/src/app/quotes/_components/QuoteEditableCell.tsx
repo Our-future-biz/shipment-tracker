@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { Input, Select } from "antd";
 import { QUOTE_DROPDOWNS, quoteColType } from "../_lib/quoteColumns";
+import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
+import type { GeoKind } from "@/lib/places";
 
 interface QuoteEditableCellProps {
   column: string;
@@ -14,6 +16,7 @@ export function QuoteEditableCell({ column, value, onCommit }: QuoteEditableCell
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const type = quoteColType(column);
+  const geoKind = type === "place" || type === "country" || type === "countryCode" ? (type as GeoKind) : undefined;
 
   const start = () => {
     setDraft(value);
@@ -32,7 +35,23 @@ export function QuoteEditableCell({ column, value, onCommit }: QuoteEditableCell
         onDoubleClick={start}
       >
         {value || <span className="text-slate-300">—</span>}
+        {geoKind && <GeoFlag kind={geoKind} value={value} />}
       </span>
+    );
+  }
+
+  if (geoKind) {
+    return (
+      <GeoSelect
+        kind={geoKind}
+        size="small"
+        autoFocus
+        defaultOpen
+        className="w-full min-w-[200px]"
+        value={value}
+        onChange={commit}
+        onBlur={() => setEditing(false)}
+      />
     );
   }
 

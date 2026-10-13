@@ -149,6 +149,7 @@ export namespace auth {
             this.departmentList = this.departmentList.bind(this)
             this.departmentUpdate = this.departmentUpdate.bind(this)
             this.locationList = this.locationList.bind(this)
+            this.placeSearch = this.placeSearch.bind(this)
             this.userCreate = this.userCreate.bind(this)
             this.userDelete = this.userDelete.bind(this)
             this.userUpdate = this.userUpdate.bind(this)
@@ -400,6 +401,21 @@ export namespace auth {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/auth/locations/${encodeURIComponent(countryCode)}`)
             return await resp.json() as controllers.LocationListResponse
+        }
+
+        /**
+         * Places worldwide matching typed text, for the Origin / POL / POD / Destination / HUB / CFS pickers.
+         */
+        public async placeSearch(params: controllers.PlaceSearchRequest): Promise<controllers.PlaceListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                countryCode: params.countryCode,
+                q:           params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/places`, undefined, {query})
+            return await resp.json() as controllers.PlaceListResponse
         }
 
         /**
@@ -661,6 +677,7 @@ export namespace extraction {
             this.pipelineExtractHbl = this.pipelineExtractHbl.bind(this)
             this.pipelineExtractMbl = this.pipelineExtractMbl.bind(this)
             this.pipelinePrepare = this.pipelinePrepare.bind(this)
+            this.resolvePlaces = this.resolvePlaces.bind(this)
         }
 
         public async extractDocument(params: controllers.ExtractDocumentRequest): Promise<interfaces.ExtractionResult> {
@@ -703,6 +720,15 @@ export namespace extraction {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/extraction/pipeline/prepare`, JSON.stringify(params))
             return await resp.json() as interfaces.PrepareResult
+        }
+
+        /**
+         * Matches typed or pasted places and countries (e.g. an imported inquiry) to the database.
+         */
+        public async resolvePlaces(params: controllers.ResolvePlacesRequest): Promise<controllers.ResolvePlacesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/places/resolve`, JSON.stringify(params))
+            return await resp.json() as controllers.ResolvePlacesResponse
         }
     }
 }
@@ -2166,6 +2192,15 @@ export namespace controllers {
         fileName: string
     }
 
+    export interface PlaceListResponse {
+        places: services.PlaceInfo[]
+    }
+
+    export interface PlaceSearchRequest {
+        q: string
+        countryCode?: string
+    }
+
     export interface PrefGetResponse {
         value: any | null
     }
@@ -2263,6 +2298,17 @@ export namespace controllers {
 
     export interface ReleaseHouseBolResponse {
         shipment: interfaces.ShipmentItem
+    }
+
+    export interface ResolvePlacesRequest {
+        items: services.GeoItem[]
+    }
+
+    export interface ResolvePlacesResponse {
+        /**
+         * Per item, its form in the database ("Hamburg (DEHAM)", "Germany (DE)", "DE"), or null.
+         */
+        values: (string | null)[]
     }
 
     export interface ShipmentCreateRequest {
@@ -2964,6 +3010,10 @@ export namespace controllers {
     export interface WarehouseUpdateResponse {
         task: interfaces.WarehouseTaskItem
     }
+}
+
+export namespace geo {
+    export type GeoKind = "place" | "country" | "countryCode"
 }
 
 export namespace interfaces {
@@ -3818,6 +3868,15 @@ export namespace services {
         name: string
     }
 
+    export interface GeoItem {
+        text: string
+        kind: geo.GeoKind
+        /**
+         * What the field means, which tells a port from an airport or a town, e.g. "port of loading".
+         */
+        role?: string
+    }
+
     /**
      * A UN/LOCODE place as the city pickers list it.
      */
@@ -3839,6 +3898,16 @@ export namespace services {
         branchName: string | null
         country: string | null
         countryCode: string | null
+    }
+
+    /**
+     * A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
+     */
+    export interface PlaceInfo {
+        code: string
+        countryCode: string
+        name: string
+        subdivisionName: string | null
     }
 }
 

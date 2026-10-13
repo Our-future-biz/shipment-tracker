@@ -2,7 +2,7 @@ import { api, APIError } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
 import { orgUnitService } from "../services/orgUnit.service";
-import type { DepartmentInfo, BranchInfo, CountryInfo, LocationInfo } from "../services/orgUnit.service";
+import type { DepartmentInfo, BranchInfo, CountryInfo, LocationInfo, PlaceInfo, PlaceCandidateQuery } from "../services/orgUnit.service";
 
 // The company's departments, branches and countries. Everyone in the company can read them
 // (the noticeboard and user forms need the names); only admins maintain them.
@@ -189,5 +189,44 @@ export const locationList = api(
   { expose: true, auth: true, method: "GET", path: "/auth/locations/:countryCode" },
   async (req: LocationListRequest): Promise<LocationListResponse> => {
     return { locations: await orgUnitService.listLocations(req.countryCode) };
+  },
+);
+
+interface PlaceSearchRequest {
+  q: string;
+  countryCode?: string;
+}
+interface PlaceListResponse {
+  places: PlaceInfo[];
+}
+
+// Places worldwide matching typed text, for the Origin / POL / POD / Destination / HUB / CFS pickers.
+export const placeSearch = api(
+  { expose: true, auth: true, method: "GET", path: "/auth/places" },
+  async (req: PlaceSearchRequest): Promise<PlaceListResponse> => {
+    return { places: await orgUnitService.searchPlaces(req.q, req.countryCode) };
+  },
+);
+
+interface PlaceLookupRequest {
+  codes: string[];
+  names: PlaceCandidateQuery[];
+}
+interface PlaceLookupResponse {
+  // The known ones among `codes`.
+  byCode: PlaceInfo[];
+  // Per entry of `names`, the places it could mean.
+  candidates: PlaceInfo[][];
+}
+
+// For the extraction service, which matches what the AI read to the database.
+export const placeLookup = api(
+  { expose: false, method: "POST", path: "/auth/places/lookup" },
+  async (req: PlaceLookupRequest): Promise<PlaceLookupResponse> => {
+    const [byCode, candidates] = await Promise.all([
+      orgUnitService.placesByCodes(req.codes),
+      orgUnitService.placeCandidates(req.names),
+    ]);
+    return { byCode, candidates };
   },
 );

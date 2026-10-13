@@ -33,6 +33,24 @@ export interface LocationInfo {
   subdivisionName: string | null;
 }
 
+// A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
+export interface PlaceInfo {
+  code: string;
+  countryCode: string;
+  name: string;
+  subdivisionName: string | null;
+}
+
+export interface PlaceCandidateQuery {
+  // The written name (accents are folded here).
+  name: string;
+  countryCode?: string;
+}
+
+const asciiFold = (text: string) => text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+// LIKE wildcards in typed text match literally.
+const likeSafe = (text: string) => text.replace(/[\\%_]/g, (c) => `\\${c}`);
+
 type BranchRow = { id: string; name: string; country: string; countryCode: string | null; locationId: number | null; city: string | null };
 
 const toBranchInfo = (b: BranchRow): BranchInfo => ({
@@ -136,6 +154,27 @@ class OrgUnitService {
 
   async listLocations(countryCode: string): Promise<LocationInfo[]> {
     return locationRepository.listByCountry(requireText(countryCode, "countryCode").toUpperCase());
+  }
+
+  async searchPlaces(query: string, countryCode?: string): Promise<PlaceInfo[]> {
+    const q = likeSafe(asciiFold(query ?? ""));
+    if (q.length < 2) return [];
+    return locationRepository.search(q, countryCode ? countryCode.toUpperCase() : null, 30);
+  }
+
+  async placesByCodes(codes: string[]): Promise<PlaceInfo[]> {
+    const clean = [...new Set(codes.map((c) => c.trim().toUpperCase()).filter((c) => /^[A-Z]{2}[A-Z0-9]{3}$/.test(c)))];
+    return locationRepository.findByCodes(clean);
+  }
+
+  async placeCandidates(queries: PlaceCandidateQuery[]): Promise<PlaceInfo[][]> {
+    return Promise.all(
+      queries.map((q) => {
+        const name = likeSafe(asciiFold(q.name));
+        if (name.length < 2) return [];
+        return locationRepository.findCandidates(name, q.countryCode ? q.countryCode.toUpperCase() : null, 25);
+      }),
+    );
   }
 
   async deleteBranch(id: string, companyId: string): Promise<boolean> {
