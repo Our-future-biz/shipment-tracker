@@ -8,6 +8,7 @@ import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useBranches, useCountries, useLocations } from "@/hooks/useOrgUnits";
 import type { Branch, BranchInput, Location } from "@/hooks/useOrgUnits";
+import { matchesSearch, sectionTitle, emptyText } from "../_lib/orgSearch";
 
 // "Springfield, Illinois (USSPI)": the region and the code tell apart places of the same name.
 const cityLabel = (l: Location) => `${l.name}${l.subdivisionName ? `, ${l.subdivisionName}` : ""} (${l.code})`;
@@ -21,9 +22,10 @@ const cityMatches = (l: Location, query: string) => {
 // null = closed, "new" = adding, otherwise the branch being edited.
 type Editing = Branch | "new" | null;
 
-export function BranchesManager() {
+export function BranchesManager({ search }: { search: string }) {
   const toast = useToast();
   const { branches, isLoading, createBranch, updateBranch, deleteBranch } = useBranches();
+  const shown = branches.filter((b) => matchesSearch(search, b.name, b.city, b.country, b.countryCode));
   const [editing, setEditing] = useState<Editing>(null);
   const [deleteTarget, setDeleteTarget] = useState<Branch | null>(null);
   const [saving, setSaving] = useState(false);
@@ -82,7 +84,7 @@ export function BranchesManager() {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">Branches ({branches.length})</span>
+        <span className="text-sm font-semibold text-slate-800">{sectionTitle("Branches", shown.length, branches.length)}</span>
         <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
           Add Branch
         </Button>
@@ -92,10 +94,10 @@ export function BranchesManager() {
         size="small"
         rowKey="id"
         loading={isLoading}
-        dataSource={branches}
+        dataSource={shown}
         columns={columns}
         pagination={false}
-        locale={{ emptyText: "No branches yet" }}
+        locale={{ emptyText: emptyText(search, "No branches yet") }}
       />
 
       <Modal

@@ -9,13 +9,15 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { useCountries } from "@/hooks/useOrgUnits";
 import type { Country } from "@/hooks/useOrgUnits";
 import { COUNTRIES } from "@/lib/countries";
+import { matchesSearch, sectionTitle, emptyText } from "../_lib/orgSearch";
 
 // null = closed, "new" = adding, otherwise the country being edited.
 type Editing = Country | "new" | null;
 
-export function CountriesManager() {
+export function CountriesManager({ search }: { search: string }) {
   const toast = useToast();
   const { countries, isLoading, createCountry, updateCountry, deleteCountry } = useCountries();
+  const shown = countries.filter((c) => matchesSearch(search, c.name, c.code));
   const [editing, setEditing] = useState<Editing>(null);
   const [deleteTarget, setDeleteTarget] = useState<Country | null>(null);
   const [saving, setSaving] = useState(false);
@@ -73,7 +75,7 @@ export function CountriesManager() {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">Countries ({countries.length})</span>
+        <span className="text-sm font-semibold text-slate-800">{sectionTitle("Countries", shown.length, countries.length)}</span>
         <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
           Add Country
         </Button>
@@ -83,10 +85,10 @@ export function CountriesManager() {
         size="small"
         rowKey="id"
         loading={isLoading}
-        dataSource={countries}
+        dataSource={shown}
         columns={columns}
         pagination={false}
-        locale={{ emptyText: "No countries yet" }}
+        locale={{ emptyText: emptyText(search, "No countries yet") }}
       />
 
       <Modal
