@@ -20,6 +20,12 @@ export const MASTER_JOB_SYNCED_FIELDS = [
   "actualArrival",
   "etaWarehouse",
   "warehouseReceivedDate",
+  // From the booking confirmation.
+  "bookingNumber",
+  "closingDate",
+  "vgmClosing",
+  "siClosing",
+  "releaseReference",
   "releaseDepot",
   "redeliveryReference",
   "redeliveryDepot",

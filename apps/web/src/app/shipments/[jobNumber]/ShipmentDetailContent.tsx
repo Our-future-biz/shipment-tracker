@@ -41,6 +41,7 @@ import { TrackingTab } from "./tabs/TrackingTab";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsTab } from "./tabs/CustomsTab";
 import { EditableCell, TradeDirectionContext } from "./_components/EditableCell";
+import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
 import type { controllers } from "@/lib/api/client";
@@ -432,7 +433,11 @@ function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: 
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
-      <span className="flex-1 min-w-0 text-slate-900 font-medium">{value ? value : <span className="text-slate-300">—</span>}</span>
+      {value ? (
+        <FadeText className="flex-1 text-slate-900 font-medium">{value}</FadeText>
+      ) : (
+        <span className="flex-1 min-w-0 text-slate-300 font-medium">—</span>
+      )}
     </div>
   );
 }
@@ -1185,11 +1190,11 @@ export function ShipmentDetailContent() {
                     incoterm: (
                       <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
                         <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Incoterm Origin/Destination</span>
-                        <span className="flex-1 min-w-0 text-slate-900 font-medium">
+                        <FadeText className="flex-1 text-slate-900 font-medium">
                           {shipment.incotermOrigin || shipment.incotermDestination
                             ? `${shipment.incotermOrigin || "—"}/${shipment.incotermDestination || "—"}`
                             : <span className="text-slate-300">—</span>}
-                        </span>
+                        </FadeText>
                       </div>
                     ),
                   };

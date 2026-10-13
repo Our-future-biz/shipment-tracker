@@ -11,6 +11,7 @@ import { useDebounced } from "@/hooks/useDebounced";
 import { ShipmentsTable } from "@/app/shipments/_components/ShipmentsTable";
 import { CustomsSummary, CustomsShipmentInfo } from "./CustomsOverview";
 import { CustomsTab } from "@/app/shipments/[jobNumber]/tabs/CustomsTab";
+import { CustomsInvoicing } from "./CustomsInvoicing";
 
 // The columns Customs starts from (CUSTOMS_GRID in the approved mockup); from there the
 // user shows, hides and reorders them like in Shipments.
@@ -49,6 +50,7 @@ const URGENT_REFRESH_MS = 60_000;
 const CUSTOMS_DETAIL_TABS = [
   { key: "details", label: "Shipment Details" },
   { key: "documents", label: "Documents" },
+  { key: "invoicing", label: "Invoicing" },
 ] as const;
 
 // Customs as a view of the shipments: the Shipments table itself over the same live rows,
@@ -153,12 +155,14 @@ export function CustomsView() {
                   ))}
                 </div>
               )}
-              {openShipment ? (
+              {openShipment && detailTab === "invoicing" ? (
+                <CustomsInvoicing shipment={openShipment} />
+              ) : openShipment ? (
                 <div className="flex flex-col gap-3">
                   {detailTab === "details" && <CustomsSummary shipment={openShipment} />}
                   <CustomsTab
                     canReview
-                    section={detailTab}
+                    section={detailTab === "documents" ? "documents" : "details"}
                     shipment={openShipment}
                     onCommit={(fieldKey, value) => updateField(openShipment.id, fieldKey, value)}
                   />

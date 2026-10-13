@@ -5,8 +5,10 @@ import { companyTable } from "./company.schema";
 import { userTable } from "./user.schema";
 import { departmentTable, branchTable } from "./orgUnit.schema";
 
-// A noticeboard post. `scope` picks the board it hangs on; exactly the matching target
-// column is filled (none for "company"), which the service enforces.
+// A noticeboard post. `scope` picks who it is for: "company" is everyone; "audience" is the
+// people matching every filled one of country_code, branch_id and department_id (an empty one
+// means all of them). The older "department", "branch" and "country" scopes fill exactly their
+// one column. The service enforces this.
 export const announcementTable = pgTable(
   "announcement",
   {
@@ -15,7 +17,9 @@ export const announcementTable = pgTable(
     scope: text("scope").notNull(),
     departmentId: uuid("department_id").references(() => departmentTable.id),
     branchId: uuid("branch_id").references(() => branchTable.id),
+    // The country's name; for "audience" posts it is shown, country_code is matched.
     country: text("country"),
+    countryCode: text("country_code"),
     severity: text("severity").notNull().default("info"),
     title: text("title").notNull(),
     body: text("body").notNull().default(""),
@@ -25,7 +29,7 @@ export const announcementTable = pgTable(
     ...defaultTableIndexes("announcement", table),
     tenantIndex("announcement", table),
     index("announcement_company_scope_idx").on(table.companyId, table.scope),
-    check("announcement_scope_check", sql`${table.scope} IN ('company', 'department', 'branch', 'country')`),
+    check("announcement_scope_check", sql`${table.scope} IN ('company', 'audience', 'department', 'branch', 'country')`),
     check("announcement_severity_check", sql`${table.severity} IN ('info', 'warning', 'critical')`),
   ],
 );

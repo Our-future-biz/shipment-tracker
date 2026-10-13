@@ -4,7 +4,9 @@ import { createContext, useContext, useState, useRef } from "react";
 import { Input, Select, DatePicker } from "antd";
 import type { InputRef } from "antd";
 import dayjs from "dayjs";
-import { COLUMN_MAP, getFilteredStatusOptions } from "@/lib/columnConfig";
+import { COLUMN_MAP, geoKindOf, getFilteredStatusOptions } from "@/lib/columnConfig";
+import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
+import { FadeText } from "@/components/FadeText";
 import { formatDate } from "@/lib/date";
 import { statusLabel } from "@/lib/shipmentStatus";
 
@@ -72,6 +74,8 @@ export function EditableCell({
   const digitsOnly = fieldKey === "hsCode";
   const clean = (v: string) => (digitsOnly ? v.replace(/\D/g, "") : v);
   const isDate = col?.type === "date";
+  // Places and countries are picked from the location database.
+  const geoKind = geoKindOf(col);
   const tradeDirection = useContext(TradeDirectionContext);
   const options = allowedOptions ?? (fieldKey === "status" ? getFilteredStatusOptions(tradeDirection) : col?.options) ?? [];
   const original = value ?? "";
@@ -100,16 +104,44 @@ export function EditableCell({
     const hasValue = original.length > 0;
     // Dates are stored as ISO but shown in the unified DD.MM.YYYY display format.
     const shown = hasValue ? (isDate ? formatDate(original) : fieldKey === "status" ? statusLabel(original) : original) : placeholder;
+    const textClass = hasValue ? displayClassName : (emptyClassName ?? displayClassName);
+    const textStyle = hasValue ? displayStyle : undefined;
     return (
       <span
-        className={`${className ?? ""} cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors block`}
-        title="Double-click to edit"
+        className={`${className ?? ""} cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors ${multiline ? "block" : "flex items-center"}`}
+        title={hasValue ? undefined : "Double-click to edit"}
         onDoubleClick={startEditing}
       >
-        <span className={hasValue ? displayClassName : (emptyClassName ?? displayClassName)} style={hasValue ? displayStyle : undefined}>
-          {shown}
-        </span>
+        {multiline ? (
+          // Address blocks keep their lines.
+          <span className={textClass} style={textStyle}>
+            {shown}
+          </span>
+        ) : (
+          // One line that stops at the field's edge; the whole value shows after a 1 s hover.
+          <FadeText className={textClass} style={textStyle} title="Double-click to edit">
+            {shown}
+          </FadeText>
+        )}
+        {geoKind && <GeoFlag kind={geoKind} value={original} />}
       </span>
+    );
+  }
+
+  if (geoKind) {
+    return (
+      <div className={className}>
+        <GeoSelect
+          kind={geoKind}
+          size="small"
+          autoFocus
+          defaultOpen
+          className="w-full min-w-[200px]"
+          value={original}
+          onChange={(v) => commit(v)}
+          onBlur={() => setEditing(false)}
+        />
+      </div>
     );
   }
 

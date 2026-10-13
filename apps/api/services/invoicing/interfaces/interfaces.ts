@@ -76,3 +76,26 @@ export interface ExchangeRateItem {
   rateUsd: string | null;
   note: string;
 }
+
+/** Line of the Invoicing tab in Customs */
+export interface CustomsInvoiceLineItem {
+  id: string;
+  shipmentId: string;
+  category: string;
+  currency: string;
+  value: string | null;
+  sortOrder: number;
+}
+
+/** Invoicing tab in Customs: its lines and the one Issued Invoice Number of the shipment */
+export interface CustomsInvoicingItem {
+  lines: CustomsInvoiceLineItem[];
+  issuedInvoiceNumber: string;
+}
+
+export interface CustomsInvoiceLineInput {
+  category?: string;
+  currency?: string;
+  value?: string;
+  sortOrder?: number;
+}

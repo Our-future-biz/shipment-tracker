@@ -23,15 +23,33 @@ const line = (containerNumber: string, extra: Partial<ContainerLine> = {}): Cont
 });
 
 describe("syncedShipmentData", () => {
-  const masterJob = { vessel: "MSC ANNA", voyage: "", pol: "CNSHA", bookingNumber: "BK1", estimatedDeparture: null };
+  const masterJob = { vessel: "MSC ANNA", voyage: "", pol: "CNSHA", shipper: "ACME", estimatedDeparture: null };
 
   it("copies only filled-in synced fields when a shipment is linked", () => {
     expect(syncedShipmentData(masterJob)).toEqual({ vessel: "MSC ANNA", pol: "CNSHA" });
   });
 
+  it("copies the booking confirmation's booking number, closings and release reference", () => {
+    expect(
+      syncedShipmentData({
+        bookingNumber: "BK1",
+        closingDate: "2026-11-19",
+        vgmClosing: "2026-11-18",
+        siClosing: "2026-11-17",
+        releaseReference: "REL1",
+      }),
+    ).toEqual({
+      bookingNumber: "BK1",
+      closingDate: "2026-11-19",
+      vgmClosing: "2026-11-18",
+      siClosing: "2026-11-17",
+      releaseReference: "REL1",
+    });
+  });
+
   it("never copies master-job-only fields", () => {
-    expect(syncedShipmentData(masterJob)).not.toHaveProperty("bookingNumber");
-    expect(syncedShipmentData(masterJob, { bookingNumber: "BK2", shipper: "X" })).toEqual({});
+    expect(syncedShipmentData(masterJob)).not.toHaveProperty("shipper");
+    expect(syncedShipmentData(masterJob, { shipper: "X", destination: "Y" })).toEqual({});
   });
 
   it("writes every synced field of a save, blanks included", () => {

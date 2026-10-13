@@ -51,11 +51,13 @@ export const announcementReadReceipts = api(
 );
 
 interface AnnouncementCreateRequest {
-  scope: string; // company | department | branch | country
-  // The addressee matching the scope; ignored for "company".
+  scope: string; // company | audience | department | branch | country
+  // The addressee matching the scope; ignored for "company". For "audience" each of
+  // countryCode, branchId and departmentId may be left out, meaning all of them.
   departmentId?: string;
   branchId?: string;
   country?: string;
+  countryCode?: string;
   severity?: string; // info | warning | critical
   title: string;
   body?: string;
@@ -63,6 +65,8 @@ interface AnnouncementCreateRequest {
 
 interface AnnouncementCreateResponse {
   id: string;
+  // Whom the post went to, worded as on the board ("Czechia · Prague Office", "All").
+  target: string;
 }
 
 export const announcementCreate = api(

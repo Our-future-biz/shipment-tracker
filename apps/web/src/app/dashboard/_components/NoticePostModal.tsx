@@ -2,24 +2,24 @@
 
 import { useRef, useState } from "react";
 import { Modal, Form, Input, Select, Button } from "antd";
-import { BankOutlined, CloseOutlined, LockOutlined, PaperClipOutlined, TeamOutlined } from "@ant-design/icons";
+import { CloseOutlined, LockOutlined, PaperClipOutlined, TeamOutlined } from "@ant-design/icons";
 import { formatFileSize } from "@/lib/files";
 import { useToast } from "@/lib/toast";
-import { useDepartments } from "@/hooks/useOrgUnits";
-import type { Announcement, NewAnnouncementInput, NoticeboardViewer, UpdateAnnouncementInput } from "@/hooks/useNoticeboard";
-import { BOARDS, SEVERITIES } from "../_lib/boards";
+import { ConfirmModal } from "@/components/ConfirmModal";
+import { useBranches, useCountries, useDepartments } from "@/hooks/useOrgUnits";
+import type { Announcement, NewAnnouncementInput, UpdateAnnouncementInput } from "@/hooks/useNoticeboard";
+import { SEVERITIES } from "../_lib/boards";
+import { branchFitsCountry, branchOptions } from "../_lib/branches";
 import { fileIcon } from "./NoticeAttachmentList";
-import type { BoardScope } from "../_lib/boards";
 
-// A new post for a board, or an existing post being edited.
-export type NoticePostTarget = { scope: BoardScope } | { post: Announcement };
+// A new post, or an existing post being edited.
+export type NoticePostTarget = "new" | { post: Announcement };
 
 interface NoticePostModalProps {
   // Null closes the dialog. The owner gives the dialog a new `key` for every opening.
   target: NoticePostTarget | null;
-  viewer?: NoticeboardViewer;
   onClose: () => void;
-  onCreate: (input: NewAnnouncementInput) => Promise<{ id: string }>;
+  onCreate: (input: NewAnnouncementInput) => Promise<{ id: string; target: string }>;
   onUpdate: (args: { id: string; input: UpdateAnnouncementInput }) => Promise<unknown>;
   onAddAttachment: (args: { id: string; file: File }) => Promise<unknown>;
   onRemoveAttachment: (attachmentId: string) => Promise<unknown>;
@@ -27,8 +27,14 @@ interface NoticePostModalProps {
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+// Each audience field is one of the organization's own entries, or ALL for every one of them.
+const ALL = "all";
+const AUDIENCE_FIELDS = ["countryCode", "branchId", "departmentId"] as const;
+type AudienceField = (typeof AUDIENCE_FIELDS)[number];
+
 interface NoticeFormValues {
-  scope: BoardScope;
+  countryCode?: string;
+  branchId?: string;
   departmentId?: string;
   severity: string;
   title: string;
@@ -106,9 +112,11 @@ function DocumentRow({ fileName, fileType, fileSize, disabled, onRemove }: { fil
   );
 }
 
-export function NoticePostModal({ target, viewer, onClose, onCreate, onUpdate, onAddAttachment, onRemoveAttachment }: NoticePostModalProps) {
+export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAttachment, onRemoveAttachment }: NoticePostModalProps) {
   const toast = useToast();
   const { departments } = useDepartments();
+  const { branches } = useBranches();
+  const { countries } = useCountries();
   const [form] = Form.useForm<NoticeFormValues>();
   const [saving, setSaving] = useState(false);
   // Blocks a second click that lands before the button has re-rendered as busy.
@@ -121,20 +129,20 @@ export function NoticePostModal({ target, viewer, onClose, onCreate, onUpdate, o
   const [createdId, setCreatedId] = useState<string | null>(null);
   const removedDone = useRef(new Set<string>());
   const [dragOver, setDragOver] = useState(false);
-  // Where a new post ended up, for showing it once the board can no longer be changed.
-  const [createdOn, setCreatedOn] = useState<{ scope: BoardScope; departmentId?: string } | null>(null);
+  // Whom a new post went to, shown once its audience can no longer be changed.
+  const [createdFor, setCreatedFor] = useState<string | null>(null);
+  // The audience field whose choice of "All" made all three "All", while that is being confirmed.
+  const [confirmAll, setConfirmAll] = useState<AudienceField | null>(null);
 
   // The dialog is mounted anew for every opening (an antd form instance would otherwise
   // carry the previous opening's values over), so what it was opened with is fixed here;
   // `target` going null afterwards only closes it, without the content changing on the way out.
   const [opened] = useState(target);
-  const editing = opened && "post" in opened ? opened.post : null;
+  const editing = opened && opened !== "new" ? opened.post : null;
 
   const initialValues: Partial<NoticeFormValues> = editing
-    ? { scope: editing.scope as BoardScope, severity: editing.severity, title: editing.title, body: editing.body }
+    ? { severity: editing.severity, title: editing.title, body: editing.body }
     : {
-        scope: opened && "scope" in opened ? opened.scope : "company",
-        departmentId: viewer?.departmentId ?? undefined,
         severity: "info",
         title: "",
         body: "",
@@ -176,9 +184,14 @@ export function NoticePostModal({ target, viewer, onClose, onCreate, onUpdate, o
         // Also a retry after the notice was posted without its documents: send what the form says now.
         await onUpdate({ id, input: { severity: v.severity, title: v.title, body: v.body ?? "" } });
       } else {
-        id = (await onCreate(v)).id;
+        const chosen = (value?: string) => (value && value !== ALL ? value : undefined);
+        const audience = { countryCode: chosen(v.countryCode), branchId: chosen(v.branchId), departmentId: chosen(v.departmentId) };
+        const forAll = !audience.countryCode && !audience.branchId && !audience.departmentId;
+        const created = await onCreate({ scope: forAll ? "company" : "audience", ...audience, severity: v.severity, title: v.title, body: v.body ?? "" });
+        id = created.id;
         setCreatedId(id);
-        setCreatedOn({ scope: v.scope, departmentId: v.scope === "department" ? v.departmentId : undefined });
+        // Worded by the server, the same as the post will show on the board.
+        setCreatedFor(created.target);
       }
       noticeSaved = true;
       await Promise.all(
@@ -214,16 +227,25 @@ export function NoticePostModal({ target, viewer, onClose, onCreate, onUpdate, o
     }
   };
 
-  // The board and the department are fixed once the notice exists, so they are shown, not offered.
+  // Whom the notice is for is fixed once it exists, so it is shown, not offered.
   const locked = !!editing || !!createdId;
-  const scope = Form.useWatch("scope", form) ?? initialValues.scope;
-  const lockedBoard = editing?.scope ?? createdOn?.scope;
-  const lockedLabel = [
-    BOARDS.find((b) => b.scope === lockedBoard)?.title,
-    editing ? editing.target : departments.find((d) => d.id === createdOn?.departmentId)?.name,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  const lockedLabel = editing ? editing.target : createdFor;
+
+  // A chosen country narrows the branches to the ones in it.
+  const countryCode = Form.useWatch("countryCode", form);
+  const countryChosen = !!countryCode && countryCode !== ALL;
+  const withAll = (allLabel: string, options: { value: string; label: string }[]) => [{ value: ALL, label: allLabel }, ...options];
+
+  const handleValuesChange = (changed: Partial<NoticeFormValues>, all: NoticeFormValues) => {
+    // A branch in another country no longer fits. Judged on the country just picked: `countryChosen`
+    // is still the previous render's.
+    if (changed.countryCode && changed.countryCode !== ALL && all.branchId !== ALL) {
+      if (!branchFitsCountry(branches, all.branchId, changed.countryCode)) form.setFieldValue("branchId", undefined);
+    }
+    // The choice that makes it every country, branch and department is confirmed first.
+    const field = AUDIENCE_FIELDS.find((f) => f in changed);
+    if (field && changed[field] === ALL && AUDIENCE_FIELDS.every((f) => all[f] === ALL)) setConfirmAll(field);
+  };
 
   return (
     <Modal
@@ -246,26 +268,42 @@ export function NoticePostModal({ target, viewer, onClose, onCreate, onUpdate, o
       width={520}
       destroyOnHidden
     >
-      <Form form={form} layout="vertical" className="pt-2 pb-2" preserve={false} initialValues={initialValues} disabled={saving}>
+      <Form form={form} layout="vertical" className="pt-2 pb-2" preserve={false} initialValues={initialValues} disabled={saving} onValuesChange={handleValuesChange}>
         {locked ? (
-          <Form.Item label="Board">
+          <Form.Item label="For">
             <div className="flex items-center gap-2 h-9 px-3 rounded-lg bg-slate-100 text-[13px] text-slate-600">
-              {lockedBoard === "department" ? <TeamOutlined className="text-slate-500" /> : <BankOutlined className="text-slate-500" />}
+              <TeamOutlined className="text-slate-500" />
               <span className="min-w-0 flex-1 truncate">{lockedLabel}</span>
-              <LockOutlined className="!text-slate-400" title="The board cannot be changed" />
+              <LockOutlined className="!text-slate-400" title="Whom the notice is for cannot be changed" />
             </div>
           </Form.Item>
         ) : (
+          // Only the people matching all three see the notice; "All" leaves that one open.
           <>
-            <Form.Item name="scope" label="Board">
-              <Select options={BOARDS.map((b) => ({ value: b.scope, label: b.title }))} />
+            <Form.Item name="countryCode" label="Country" rules={[{ required: true, message: "Choose a country, or All" }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Choose a country"
+                options={withAll("All countries", countries.map((c) => ({ value: c.code, label: c.name })))}
+              />
             </Form.Item>
-            {/* A new department post also picks which department it is for. */}
-            {scope === "department" && (
-              <Form.Item name="departmentId" label="Department" rules={[{ required: true, message: "Choose a department" }]}>
-                <Select options={departments.map((d) => ({ value: d.id, label: d.name }))} placeholder="Choose a department" />
-              </Form.Item>
-            )}
+            <Form.Item name="branchId" label="Branch" rules={[{ required: true, message: "Choose a branch, or All" }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Choose a branch"
+                options={withAll(countryChosen ? "All branches in this country" : "All branches", branchOptions(branches, countryChosen ? countryCode : undefined))}
+              />
+            </Form.Item>
+            <Form.Item name="departmentId" label="Department" rules={[{ required: true, message: "Choose a department, or All" }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Choose a department"
+                options={withAll("All departments", departments.map((d) => ({ value: d.id, label: d.name })))}
+              />
+            </Form.Item>
           </>
         )}
         <Form.Item name="severity" label="Priority">
@@ -338,6 +376,18 @@ export function NoticePostModal({ target, viewer, onClose, onCreate, onUpdate, o
           </ul>
         )}
       </Form>
+      <ConfirmModal
+        open={!!confirmAll}
+        title="Send to all?"
+        description="The notice will be shown to all."
+        confirmLabel="Confirm"
+        onConfirm={() => setConfirmAll(null)}
+        // Not confirmed: the "All" that tipped it is taken back.
+        onClose={() => {
+          if (confirmAll) form.setFieldValue(confirmAll, undefined);
+          setConfirmAll(null);
+        }}
+      />
     </Modal>
   );
 }

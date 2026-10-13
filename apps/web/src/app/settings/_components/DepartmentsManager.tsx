@@ -8,13 +8,19 @@ import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useDepartments } from "@/hooks/useOrgUnits";
 import type { Department } from "@/hooks/useOrgUnits";
+import { matchesSearch, sectionTitle, emptyText } from "../_lib/orgSearch";
 
 // null = closed, "new" = adding, otherwise the department being renamed.
 type Editing = Department | "new" | null;
 
-export function DepartmentsManager() {
+interface DepartmentsManagerProps {
+  search: string;
+}
+
+export function DepartmentsManager({ search }: DepartmentsManagerProps) {
   const toast = useToast();
   const { departments, isLoading, createDepartment, updateDepartment, deleteDepartment } = useDepartments();
+  const shown = departments.filter((d) => matchesSearch(search, d.name));
   const [editing, setEditing] = useState<Editing>(null);
   const [deleteTarget, setDeleteTarget] = useState<Department | null>(null);
   const [saving, setSaving] = useState(false);
@@ -65,7 +71,7 @@ export function DepartmentsManager() {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">Departments ({departments.length})</span>
+        <span className="text-sm font-semibold text-slate-800">{sectionTitle("Departments", shown.length, departments.length)}</span>
         <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
           Add Department
         </Button>
@@ -75,10 +81,10 @@ export function DepartmentsManager() {
         size="small"
         rowKey="id"
         loading={isLoading}
-        dataSource={departments}
+        dataSource={shown}
         columns={columns}
         pagination={false}
-        locale={{ emptyText: "No departments yet" }}
+        locale={{ emptyText: emptyText(search, "No departments yet") }}
       />
 
       <Modal

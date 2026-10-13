@@ -8,16 +8,10 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { useNoticeboard } from "@/hooks/useNoticeboard";
-import { BOARDS } from "@/app/dashboard/_lib/boards";
 import { NoticeSeverityTag } from "@/app/dashboard/_components/NoticeSeverityTag";
 
 const formatTime = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-
-const boardLabel = (scope: string, target: string) => {
-  const board = BOARDS.find((b) => b.scope === scope)?.title ?? scope;
-  return target ? `${board} · ${target}` : board;
-};
 
 // How far back the "All" view of the panel goes.
 const RECENT_NOTICES = 20;
@@ -76,7 +70,7 @@ export function NotificationBell() {
     for (const a of fresh) {
       toast.notify({
         title: `New notice: ${a.title}`,
-        description: `${a.authorName} · ${boardLabel(a.scope, a.target)}`,
+        description: `${a.authorName} · ${a.target}`,
         type: NOTICE_TOAST_TYPE[a.severity] ?? "info",
       });
     }
@@ -127,7 +121,7 @@ export function NotificationBell() {
           </span>
           {a.body && <span className={`text-[12px] line-clamp-2 ${a.unread ? "text-slate-600" : "text-slate-400"}`}>{a.body}</span>}
           <span className="block text-[11px] text-slate-400 mt-0.5">
-            {a.authorName} · {boardLabel(a.scope, a.target)} · {formatTime(a.createdAt)}
+            {a.authorName} · {a.target} · {formatTime(a.createdAt)}
           </span>
         </button>
       ))}

@@ -140,10 +140,16 @@ export namespace auth {
             this.companyUserDelete = this.companyUserDelete.bind(this)
             this.companyUserUpdate = this.companyUserUpdate.bind(this)
             this.companyUsersList = this.companyUsersList.bind(this)
+            this.countryCreate = this.countryCreate.bind(this)
+            this.countryDelete = this.countryDelete.bind(this)
+            this.countryList = this.countryList.bind(this)
+            this.countryUpdate = this.countryUpdate.bind(this)
             this.departmentCreate = this.departmentCreate.bind(this)
             this.departmentDelete = this.departmentDelete.bind(this)
             this.departmentList = this.departmentList.bind(this)
             this.departmentUpdate = this.departmentUpdate.bind(this)
+            this.locationList = this.locationList.bind(this)
+            this.placeSearch = this.placeSearch.bind(this)
             this.userCreate = this.userCreate.bind(this)
             this.userDelete = this.userDelete.bind(this)
             this.userUpdate = this.userUpdate.bind(this)
@@ -340,6 +346,30 @@ export namespace auth {
             return await resp.json() as controllers.CompanyUsersListResponse
         }
 
+        public async countryCreate(params: controllers.CountryCreateRequest): Promise<controllers.CountryResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/auth/countries`, JSON.stringify(params))
+            return await resp.json() as controllers.CountryResponse
+        }
+
+        public async countryDelete(id: string): Promise<controllers.OkResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/auth/countries/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.OkResponse
+        }
+
+        public async countryList(): Promise<controllers.CountryListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/countries`)
+            return await resp.json() as controllers.CountryListResponse
+        }
+
+        public async countryUpdate(id: string, params: controllers.CountryUpdateRequest): Promise<controllers.CountryResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/auth/countries/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.CountryResponse
+        }
+
         public async departmentCreate(params: controllers.DepartmentCreateRequest): Promise<controllers.DepartmentResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/auth/departments`, JSON.stringify(params))
@@ -362,6 +392,30 @@ export namespace auth {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/auth/departments/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.DepartmentResponse
+        }
+
+        /**
+         * Every UN/LOCODE place of one country, for the branch city picker.
+         */
+        public async locationList(countryCode: string): Promise<controllers.LocationListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/locations/${encodeURIComponent(countryCode)}`)
+            return await resp.json() as controllers.LocationListResponse
+        }
+
+        /**
+         * Places worldwide matching typed text, for the Origin / POL / POD / Destination / HUB / CFS pickers.
+         */
+        public async placeSearch(params: controllers.PlaceSearchRequest): Promise<controllers.PlaceListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                countryCode: params.countryCode,
+                q:           params.q,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/places`, undefined, {query})
+            return await resp.json() as controllers.PlaceListResponse
         }
 
         /**
@@ -616,6 +670,7 @@ export namespace extraction {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.extractBooking = this.extractBooking.bind(this)
             this.extractCustoms = this.extractCustoms.bind(this)
             this.extractDocument = this.extractDocument.bind(this)
             this.extractInvoice = this.extractInvoice.bind(this)
@@ -624,6 +679,13 @@ export namespace extraction {
             this.pipelineExtractHbl = this.pipelineExtractHbl.bind(this)
             this.pipelineExtractMbl = this.pipelineExtractMbl.bind(this)
             this.pipelinePrepare = this.pipelinePrepare.bind(this)
+            this.resolvePlaces = this.resolvePlaces.bind(this)
+        }
+
+        public async extractBooking(params: controllers.ExtractBookingRequest): Promise<interfaces.ExtractionResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/booking`, JSON.stringify(params))
+            return await resp.json() as interfaces.ExtractionResult
         }
 
         public async extractCustoms(params: controllers.ExtractCustomsRequest): Promise<interfaces.ExtractionResult> {
@@ -677,6 +739,15 @@ export namespace extraction {
             const resp = await this.baseClient.callTypedAPI("POST", `/extraction/pipeline/prepare`, JSON.stringify(params))
             return await resp.json() as interfaces.PrepareResult
         }
+
+        /**
+         * Matches typed or pasted places and countries (e.g. an imported inquiry) to the database.
+         */
+        public async resolvePlaces(params: controllers.ResolvePlacesRequest): Promise<controllers.ResolvePlacesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/places/resolve`, JSON.stringify(params))
+            return await resp.json() as controllers.ResolvePlacesResponse
+        }
     }
 }
 
@@ -729,6 +800,11 @@ export namespace invoicing {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.customsInvoicingAddLine = this.customsInvoicingAddLine.bind(this)
+            this.customsInvoicingDeleteLine = this.customsInvoicingDeleteLine.bind(this)
+            this.customsInvoicingGet = this.customsInvoicingGet.bind(this)
+            this.customsInvoicingSetNumber = this.customsInvoicingSetNumber.bind(this)
+            this.customsInvoicingUpdateLine = this.customsInvoicingUpdateLine.bind(this)
             this.exchangeRateCreate = this.exchangeRateCreate.bind(this)
             this.exchangeRateDelete = this.exchangeRateDelete.bind(this)
             this.exchangeRateList = this.exchangeRateList.bind(this)
@@ -747,6 +823,36 @@ export namespace invoicing {
             this.invoicingUpsertBillingOverride = this.invoicingUpsertBillingOverride.bind(this)
             this.invoicingUpsertBillingSettings = this.invoicingUpsertBillingSettings.bind(this)
             this.invoicingUpsertCost = this.invoicingUpsertCost.bind(this)
+        }
+
+        public async customsInvoicingAddLine(shipmentId: string, params: controllers.AddCustomsLineRequest): Promise<controllers.CustomsLineResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customs-invoicing/${encodeURIComponent(shipmentId)}/lines`, JSON.stringify(params))
+            return await resp.json() as controllers.CustomsLineResponse
+        }
+
+        public async customsInvoicingDeleteLine(shipmentId: string, lineId: string): Promise<controllers.DeleteCustomsLineResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/customs-invoicing/${encodeURIComponent(shipmentId)}/lines/${encodeURIComponent(lineId)}`)
+            return await resp.json() as controllers.DeleteCustomsLineResponse
+        }
+
+        public async customsInvoicingGet(shipmentId: string): Promise<interfaces.CustomsInvoicingItem> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customs-invoicing/${encodeURIComponent(shipmentId)}`)
+            return await resp.json() as interfaces.CustomsInvoicingItem
+        }
+
+        public async customsInvoicingSetNumber(shipmentId: string, params: controllers.SetIssuedInvoiceNumberRequest): Promise<controllers.SetIssuedInvoiceNumberResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/customs-invoicing/${encodeURIComponent(shipmentId)}/number`, JSON.stringify(params))
+            return await resp.json() as controllers.SetIssuedInvoiceNumberResponse
+        }
+
+        public async customsInvoicingUpdateLine(shipmentId: string, lineId: string, params: controllers.UpdateCustomsLineRequest): Promise<controllers.CustomsLineResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/customs-invoicing/${encodeURIComponent(shipmentId)}/lines/${encodeURIComponent(lineId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.CustomsLineResponse
         }
 
         public async exchangeRateCreate(params: controllers.CreateRateRequest): Promise<controllers.CreateRateResponse> {
@@ -1511,6 +1617,13 @@ export namespace controllers {
         charge: interfaces.AdditionalChargeItem
     }
 
+    export interface AddCustomsLineRequest {
+        category?: string
+        currency?: string
+        value?: string
+        sortOrder?: number
+    }
+
     export interface AddSellingRequest {
         category?: string
         customer?: string
@@ -1540,12 +1653,14 @@ export namespace controllers {
     export interface AnnouncementCreateRequest {
         scope: string
         /**
-         * The addressee matching the scope; ignored for "company".
+         * The addressee matching the scope; ignored for "company". For "audience" each of
+         * countryCode, branchId and departmentId may be left out, meaning all of them.
          */
         departmentId?: string
 
         branchId?: string
         country?: string
+        countryCode?: string
         severity?: string
         title: string
         body?: string
@@ -1553,6 +1668,10 @@ export namespace controllers {
 
     export interface AnnouncementCreateResponse {
         id: string
+        /**
+         * Whom the post went to, worded as on the board ("Czechia · Prague Office", "All").
+         */
+        target: string
     }
 
     export interface AnnouncementListResponse {
@@ -1656,7 +1775,8 @@ export namespace controllers {
 
     export interface BranchCreateRequest {
         name: string
-        country: string
+        countryCode: string
+        locationId: number
     }
 
     export interface BranchListResponse {
@@ -1669,7 +1789,8 @@ export namespace controllers {
 
     export interface BranchUpdateRequest {
         name: string
-        country: string
+        countryCode: string
+        locationId: number
     }
 
     export interface ClaimCreateRequest {
@@ -1820,6 +1941,25 @@ export namespace controllers {
         contact: interfaces.ContactItem
     }
 
+    /**
+     * The country by its ISO code; its name is taken from the server's country list.
+     */
+    export interface CountryCreateRequest {
+        code: string
+    }
+
+    export interface CountryListResponse {
+        countries: services.CountryInfo[]
+    }
+
+    export interface CountryResponse {
+        country: services.CountryInfo
+    }
+
+    export interface CountryUpdateRequest {
+        code: string
+    }
+
     export interface CreateRateRequest {
         week: string
         validFrom: string
@@ -1890,6 +2030,10 @@ export namespace controllers {
         customer: interfaces.CustomerItem
     }
 
+    export interface CustomsLineResponse {
+        line: interfaces.CustomsInvoiceLineItem
+    }
+
     export interface DashboardResponse {
         kpis: {
             totalActive: number
@@ -1930,6 +2074,10 @@ export namespace controllers {
     }
 
     export interface DeleteColumnTemplateResponse {
+        ok: boolean
+    }
+
+    export interface DeleteCustomsLineResponse {
         ok: boolean
     }
 
@@ -1996,6 +2144,11 @@ export namespace controllers {
             shipmentId: string
             reference: string
         }[]
+    }
+
+    export interface ExtractBookingRequest {
+        fileBase64: string
+        fileName: string
     }
 
     export interface ExtractCustomsRequest {
@@ -2114,6 +2267,10 @@ export namespace controllers {
         rates: interfaces.ExchangeRateItem[]
     }
 
+    export interface LocationListResponse {
+        locations: services.LocationInfo[]
+    }
+
     export interface LogoDeleteResponse {
         customer: interfaces.CustomerItem
     }
@@ -2191,6 +2348,10 @@ export namespace controllers {
         actualArrival?: string
         etaWarehouse?: string
         warehouseReceivedDate?: string
+        equipment?: string
+        vgmClosing?: string
+        siClosing?: string
+        releaseReference?: string
         releaseDepot?: string
         redeliveryReference?: string
         redeliveryDepot?: string
@@ -2249,6 +2410,15 @@ export namespace controllers {
          * The pre-alert's files; all of them are read as one batch.
          */
         files: interfaces.PipelineFile[]
+    }
+
+    export interface PlaceListResponse {
+        places: services.PlaceInfo[]
+    }
+
+    export interface PlaceSearchRequest {
+        q: string
+        countryCode?: string
     }
 
     export interface PrefGetResponse {
@@ -2348,6 +2518,25 @@ export namespace controllers {
 
     export interface ReleaseHouseBolResponse {
         shipment: interfaces.ShipmentItem
+    }
+
+    export interface ResolvePlacesRequest {
+        items: services.GeoItem[]
+    }
+
+    export interface ResolvePlacesResponse {
+        /**
+         * Per item, its form in the database ("Hamburg (DEHAM)", "Germany (DE)", "DE"), or null.
+         */
+        values: (string | null)[]
+    }
+
+    export interface SetIssuedInvoiceNumberRequest {
+        issuedInvoiceNumber: string
+    }
+
+    export interface SetIssuedInvoiceNumberResponse {
+        issuedInvoiceNumber: string
     }
 
     export interface ShipmentCreateRequest {
@@ -2879,6 +3068,12 @@ export namespace controllers {
         charge: interfaces.AdditionalChargeItem
     }
 
+    export interface UpdateCustomsLineRequest {
+        category?: string
+        currency?: string
+        value?: string
+    }
+
     export interface UpdateRateRequest {
         rateEur?: string
         rateUsd?: string
@@ -3048,6 +3243,20 @@ export namespace controllers {
 
     export interface WarehouseUpdateResponse {
         task: interfaces.WarehouseTaskItem
+    }
+}
+
+export namespace geo {
+    export type GeoKind = "place" | "country" | "countryCode"
+
+    /**
+     * A UN/LOCODE place as shipments, quotes and the extraction use it, written "Name (CODE)".
+     */
+    export interface Place {
+        code: string
+        countryCode: string
+        name: string
+        subdivisionName: string | null
     }
 }
 
@@ -3321,6 +3530,26 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    /**
+     * Line of the Invoicing tab in Customs
+     */
+    export interface CustomsInvoiceLineItem {
+        id: string
+        shipmentId: string
+        category: string
+        currency: string
+        value: string | null
+        sortOrder: number
+    }
+
+    /**
+     * Invoicing tab in Customs: its lines and the one Issued Invoice Number of the shipment
+     */
+    export interface CustomsInvoicingItem {
+        lines: CustomsInvoiceLineItem[]
+        issuedInvoiceNumber: string
+    }
+
     export interface DocumentItem {
         id: string
         customerId: string
@@ -3506,6 +3735,14 @@ export namespace interfaces {
         actualArrival: string | null
         etaWarehouse: string | null
         warehouseReceivedDate: string | null
+        /**
+         * Booked equipment, e.g. "2 x 40' HC, 1 x 20' GP" (master job only).
+         */
+        equipment: string
+
+        vgmClosing: string | null
+        siClosing: string | null
+        releaseReference: string
         releaseDepot: string
         redeliveryReference: string
         redeliveryDepot: string
@@ -3960,10 +4197,17 @@ export namespace services {
         id: string
         scope: string
         /**
-         * Who the post is addressed to within its board, e.g. the department name; empty for "company".
+         * Who the post is addressed to, e.g. "Czechia · Prague Office · Accounting", or "All".
          */
         target: string
 
+        /**
+         * The same audience as ids, each null for "all", so the board can be filtered by it.
+         */
+        countryCode: string | null
+
+        branchId: string | null
+        departmentId: string | null
         severity: string
         title: string
         body: string
@@ -4007,6 +4251,9 @@ export namespace services {
         id: string
         name: string
         country: string
+        countryCode: string | null
+        locationId: number | null
+        city: string | null
     }
 
     export interface CompanyInfo {
@@ -4016,9 +4263,35 @@ export namespace services {
         createdAt: string
     }
 
+    export interface CountryInfo {
+        id: string
+        code: string
+        name: string
+    }
+
     export interface DepartmentInfo {
         id: string
         name: string
+    }
+
+    export interface GeoItem {
+        text: string
+        kind: geo.GeoKind
+        /**
+         * What the field means, which tells a port from an airport or a town, e.g. "port of loading".
+         */
+        role?: string
+    }
+
+    /**
+     * A UN/LOCODE place as the city pickers list it.
+     */
+    export interface LocationInfo {
+        id: number
+        code: string
+        name: string
+        nameAscii: string
+        subdivisionName: string | null
     }
 
     /**
@@ -4030,7 +4303,13 @@ export namespace services {
         branchId: string | null
         branchName: string | null
         country: string | null
+        countryCode: string | null
     }
+
+    /**
+     * A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
+     */
+    export type PlaceInfo = geo.Place
 }
 
 

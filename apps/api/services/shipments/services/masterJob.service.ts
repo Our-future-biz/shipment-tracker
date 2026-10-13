@@ -39,6 +39,8 @@ const DATE_FIELDS = new Set([
   "actualArrival",
   "etaWarehouse",
   "warehouseReceivedDate",
+  "vgmClosing",
+  "siClosing",
 ]);
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;

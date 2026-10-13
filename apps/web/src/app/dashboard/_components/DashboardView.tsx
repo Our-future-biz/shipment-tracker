@@ -8,7 +8,10 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useNoticeboard } from "@/hooks/useNoticeboard";
 import type { Announcement } from "@/hooks/useNoticeboard";
-import { BOARDS } from "../_lib/boards";
+import { useBranches } from "@/hooks/useOrgUnits";
+import { filterNotices, hasFilters } from "../_lib/noticeFilters";
+import type { NoticeFilters } from "../_lib/noticeFilters";
+import { NoticeFiltersBar } from "./NoticeFiltersBar";
 import { NoticeBoardCard } from "./NoticeBoardCard";
 import { NoticeDetailModal } from "./NoticeDetailModal";
 import { NoticePostModal } from "./NoticePostModal";
@@ -24,7 +27,6 @@ export function DashboardView() {
   const searchParams = useSearchParams();
   const {
     announcements,
-    viewer,
     hasLoaded,
     isError,
     createAnnouncement,
@@ -90,6 +92,11 @@ export function DashboardView() {
   };
 
   const canPost = !!user && POSTING_ROLES.includes(user.role);
+  const [filters, setFilters] = useState<NoticeFilters>({});
+  const { branches } = useBranches();
+  const branchCountry = branches.find((b) => b.id === filters.branchId)?.countryCode;
+  const shownNotices = filterNotices(announcements, filters, branchCountry);
+  const filtered = hasFilters(filters);
   // Until the list has arrived or failed — including while the request is held back offline.
   const isLoading = !hasLoaded && !isError;
 
@@ -115,31 +122,23 @@ export function DashboardView() {
     <div className="bg-slate-50 min-h-full p-6">
       <div className="max-w-[1400px] mx-auto">
         <PageHeader title="Dashboard" />
-        <div className="grid grid-cols-1 xl:grid-cols-2 items-start gap-3.5">
-          {BOARDS.map((board) => {
-            const posts = announcements.filter((a) => a.scope === board.scope);
-            const ownTarget = viewer ? board.ownTarget(viewer) : null;
-            return (
-              <NoticeBoardCard
-                key={board.scope}
-                title={board.title}
-                caption={ownTarget ?? undefined}
-                posts={posts}
-                isLoading={isLoading}
-                emptyText={isError ? "Could not load notices." : viewer && ownTarget === null ? board.unassignedText : "No notices."}
-                showTarget={posts.some((p) => p.target !== (ownTarget ?? ""))}
-                canPost={canPost}
-                onPost={() => openPostDialog({ scope: board.scope })}
-                onOpen={(post) => setOpenId(post.id)}
-                onEdit={(post) => openPostDialog({ post })}
-                onDelete={(post) => {
-                  setDeleteTarget(post);
-                  setDeleteOpen(true);
-                }}
-              />
-            );
-          })}
-        </div>
+        {/* One board: every notice addressed to the reader, each tagged with whom it is for. */}
+        <NoticeBoardCard
+          title="Noticeboard"
+          posts={shownNotices}
+          toolbar={<NoticeFiltersBar value={filters} onChange={setFilters} shown={shownNotices.length} total={announcements.length} />}
+          isLoading={isLoading}
+          emptyText={isError ? "Could not load notices." : filtered ? "No notices match these filters." : "No notices."}
+          showTarget
+          canPost={canPost}
+          onPost={() => openPostDialog("new")}
+          onOpen={(post) => setOpenId(post.id)}
+          onEdit={(post) => openPostDialog({ post })}
+          onDelete={(post) => {
+            setDeleteTarget(post);
+            setDeleteOpen(true);
+          }}
+        />
       </div>
 
       {/* Editing or deleting from the detail closes it first; the next dialog takes over. */}
@@ -159,7 +158,6 @@ export function DashboardView() {
       <NoticePostModal
         key={postDialog.key}
         target={postDialog.target}
-        viewer={viewer}
         onClose={() => setPostDialog((d) => ({ ...d, target: null }))}
         onCreate={createAnnouncement}
         onUpdate={updateAnnouncement}

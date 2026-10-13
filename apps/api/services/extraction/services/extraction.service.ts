@@ -1,19 +1,10 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { secret } from "encore.dev/config";
+import type Anthropic from "@anthropic-ai/sdk";
+import { getClient, MODEL } from "../lib/anthropic";
 import { extractTextFromPdf, isImageType, isPdfType, detectMediaType } from "../lib/pdf";
-import { filterExtracted, parseJsonFromResponse, SHIPMENT_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
-import { SHIPMENT_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT } from "../lib/prompts";
+import { filterExtracted, parseJsonFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
+import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT } from "../lib/prompts";
 import type { ExtractionResult } from "../interfaces/interfaces";
-
-const anthropicApiKey = secret("ANTHROPIC_API_KEY");
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
-
-function getClient(): Anthropic {
-  // Prefer the Encore secret; fall back to the OS env var for local runs where
-  // the cloud secret store isn't reachable.
-  const apiKey = anthropicApiKey() || process.env.ANTHROPIC_API_KEY;
-  return new Anthropic({ apiKey });
-}
+import { canonicalizeRecords } from "./places.service";
 
 // The model only returns useful keys when told the exact field names to use;
 // filterExtracted() then keeps only exact matches, so the list must be injected.
@@ -135,9 +126,18 @@ export async function extractFromDocument(
 
 // ─── Public API (called by controllers) ──────────────────────────
 
+// Places and countries come back in the database's form (see places.service).
+async function withCanonicalPlaces(result: Promise<ExtractionResult>): Promise<ExtractionResult> {
+  const done = await result;
+  await canonicalizeRecords([done.extracted]);
+  return done;
+}
+
 export async function extractShipmentFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
-  return extractFromDocument(fileBase64, fileName, mediaType, SHIPMENT_PROMPT, SHIPMENT_FIELDS, "Extract all shipping data from this document.");
+  return withCanonicalPlaces(
+    extractFromDocument(fileBase64, fileName, mediaType, SHIPMENT_PROMPT, SHIPMENT_FIELDS, "Extract all shipping data from this document."),
+  );
 }
 
 export async function extractInvoiceFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
@@ -147,7 +147,16 @@ export async function extractInvoiceFromFile(fileBase64: string, fileName: strin
 
 export async function extractQuoteFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
-  return extractFromDocument(fileBase64, fileName, mediaType, QUOTE_PROMPT, QUOTE_FIELDS, "Extract shipping/quote data from this document.");
+  return withCanonicalPlaces(
+    extractFromDocument(fileBase64, fileName, mediaType, QUOTE_PROMPT, QUOTE_FIELDS, "Extract shipping/quote data from this document."),
+  );
+}
+
+export async function extractBookingFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
+  const mediaType = detectMediaType(fileName);
+  return withCanonicalPlaces(
+    extractFromDocument(fileBase64, fileName, mediaType, BOOKING_PROMPT, BOOKING_FIELDS, "Extract the booking details from this booking confirmation."),
+  );
 }
 
 export async function extractCustomsFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
@@ -171,6 +180,11 @@ export async function extractFromTextByDestination(text: string, destination: st
       fields = CUSTOMS_FIELDS;
       userPrompt = "Extract the MRN number and shipment data from this text:";
       break;
+    case "booking":
+      systemPrompt = BOOKING_PROMPT;
+      fields = BOOKING_FIELDS;
+      userPrompt = "Extract the booking details from this booking confirmation:";
+      break;
     case "quote":
       systemPrompt = QUOTE_PROMPT;
       fields = QUOTE_FIELDS;
@@ -184,6 +198,7 @@ export async function extractFromTextByDestination(text: string, destination: st
   }
 
   const extracted = await extractViaText(text, systemPrompt, fields, userPrompt);
+  if (destination !== "invoicing") await canonicalizeRecords([extracted]);
   return { extracted, fieldCount: Object.keys(extracted).length, method: "text", fileName: "(text input)" };
 }
 

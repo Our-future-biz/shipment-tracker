@@ -29,11 +29,15 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
 import { useQuotes } from "@/hooks/useQuotes";
-import { useMasterJobs } from "@/hooks/useMasterJobs";
+import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
 import { FieldReviewTable } from "./FieldReviewTable";
 import {
   baseCreatePayload,
+  bookingExistingValue,
+  bookingToMasterJobUpdate,
+  invalidBookingDates,
   buildFields,
+  withBookingEquipment,
   containerRowsFromNumbers,
   COST_CATEGORY_OPTIONS,
   createdByStamp,
@@ -72,6 +76,7 @@ const DESTINATION_OPTIONS = [
   { value: "invoicing", label: "Invoicing" },
   { value: "quote", label: "Quote" },
   { value: "masterjob", label: "Master Job" },
+  { value: "booking", label: "Booking Confirmation" },
   { value: "customs", label: "Customs" },
 ] as const;
 
@@ -80,6 +85,7 @@ const DESTINATION_HINT: Record<Destination, string> = {
   invoicing: "Extract cost data (invoice, debit note) — amount, vendor, invoice number.",
   quote: "Extract shipping data into a Quote record.",
   masterjob: "Extract multiple shipments from a pre-alert and create them under a Master Job (MCZ).",
+  booking: "Read a carrier's booking confirmation into a new or an existing Master Job (MCZ); its details also reach the master job's shipments.",
   customs: "Read the MRN Number, Shipper, Consignee, Total Weight and Container Numbers from a customs declaration into one shipment.",
 };
 
@@ -128,6 +134,9 @@ export function DocumentReadingWorkflow() {
   const [targetShipmentId, setTargetShipmentId] = useState("");
   const [committedJobNumber, setCommittedJobNumber] = useState("");
   const [quoteNumber, setQuoteNumber] = useState("");
+  // Booking confirmations go to a new master job or to an existing one (by MCZ).
+  const [bookingMode, setBookingMode] = useState<TargetMode>("new");
+  const [bookingMcz, setBookingMcz] = useState("");
   // Customs reads always go to one existing shipment (by Internal Reference).
   const [customsShipmentId, setCustomsShipmentId] = useState("");
 
@@ -142,6 +151,9 @@ export function DocumentReadingWorkflow() {
   // The new MCZ a batch was started under. "Next free number" moves on as soon as the
   // first shipment is linked, so the batch keeps the number it began with.
   const [batchMcz, setBatchMcz] = useState("");
+  // The master job a booking save created, so a retry after a failed save reuses it.
+  const [bookingCreated, setBookingCreated] = useState<{ id: string; mczNumber: string } | null>(null);
+  const [bookingSaving, setBookingSaving] = useState(false);
   const [pipelineSessionId, setPipelineSessionId] = useState("");
   const [pipelineStep, setPipelineStep] = useState<PipelineStep>("idle");
   const [classification, setClassification] = useState<Record<string, number>>({});
@@ -175,6 +187,8 @@ export function DocumentReadingWorkflow() {
   );
   const newShipmentPreview = useMemo(() => nextCzNumber(shipments), [shipments]);
   const { masterJobs } = useMasterJobs();
+  const createMasterJob = useCreateMasterJob();
+  const updateMasterJob = useUpdateMasterJob();
   const masterJobMczs = useMemo(() => masterJobs.map((m) => m.mczNumber), [masterJobs]);
   const newMcz = useMemo(() => nextMczNumber(shipments, masterJobMczs), [shipments, masterJobMczs]);
   const existingMcz = useMemo(() => existingMczNumbers(shipments, masterJobMczs), [shipments, masterJobMczs]);
@@ -185,6 +199,8 @@ export function DocumentReadingWorkflow() {
   const mblLoadTypeLocked =
     !!currentMasterJob?.loadType && !!mblInfo?.["Load Type"] && currentMasterJob.loadType !== mblInfo["Load Type"];
 
+  const bookingMasterJob = bookingMode === "existing" ? masterJobs.find((m) => m.mczNumber === bookingMcz) : undefined;
+
   const approvedCount = fields.filter((f) => f.approved).length;
   const conflictCount = fields.filter((f) => f.hasConflict).length;
 
@@ -192,6 +208,8 @@ export function DocumentReadingWorkflow() {
     if (destination === "masterjob")
       return `${masterCreatedJobs.length} shipment${masterCreatedJobs.length !== 1 ? "s" : ""} created`;
     if (destination === "invoicing") return `Invoice data written to ${committedJobNumber || "shipment"}`;
+    if (destination === "booking")
+      return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
     if (destination === "customs")
       return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
     if (destination === "quote")
@@ -239,6 +257,7 @@ export function DocumentReadingWorkflow() {
     const hasInput = inputMode === "file" ? !!fileBase64 : textInput.trim().length >= 10;
     if (destination === "invoicing") return hasInput && !!invoiceTargetShipmentId;
     if (destination === "quote") return hasInput && !!quoteNumber;
+    if (destination === "booking") return hasInput && (bookingMode === "new" || !!bookingMasterJob);
     if (destination === "customs") return hasInput && !!customsShipmentId;
     if (destination === "masterjob") return masterFiles.length > 0 && !masterFilesTooLarge && !!activeMcz;
     return hasInput && (shipmentMode === "new" || !!targetShipmentId);
@@ -300,6 +319,17 @@ export function DocumentReadingWorkflow() {
         );
         setExtractionMethod(result.method);
         setStep("review");
+      } else if (destination === "booking") {
+        const result =
+          inputMode === "file"
+            ? await api.extraction.extractBooking({ fileBase64, fileName })
+            : await api.extraction.extractText({ text: textInput.trim(), destination: "booking" });
+        const normalized = withBookingEquipment(normalizeExtracted(result.extracted));
+        // Freight Mode is derived for shipments; a booking leaves the master job's own.
+        delete normalized["Freight Mode"];
+        setFields(buildFields(normalized, (label) => bookingExistingValue(bookingMasterJob, label)));
+        setExtractionMethod(result.method);
+        setStep("review");
       } else if (destination === "quote") {
         const result =
           inputMode === "file"
@@ -312,7 +342,10 @@ export function DocumentReadingWorkflow() {
         setExtractionMethod(result.method);
         setStep("review");
       } else {
-        // masterjob — Phase 1: prepare + classify
+        // masterjob — Phase 1: prepare + classify. A new batch starts on the next free MCZ.
+        setBatchMcz("");
+        setMblFiled(false);
+        setMasterCreatedJobs([]);
         setPipelineStep("idle");
         const prep = await api.extraction.pipelinePrepare({
           files: masterFiles.map((f) => ({ fileBase64: f.base64, fileName: f.name })),
@@ -415,6 +448,32 @@ export function DocumentReadingWorkflow() {
       setStep("committed");
     } catch {
       toast.error("Failed to write the customs data to the shipment.");
+    }
+  };
+
+  // ─── Commit: booking confirmation ────────────────────────────────
+  const handleCommitBooking = async () => {
+    if (bookingSaving) return;
+    const approved = fieldsToLabelValues(fields);
+    if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
+    // Checked before anything is created, so a bad date never leaves an empty master job behind.
+    const badDates = invalidBookingDates(approved);
+    if (badDates.length > 0) {
+      return toast.error(`Not a full date (DD.MM.YYYY): ${badDates.join(", ")}. Correct it or untick it.`);
+    }
+    setBookingSaving(true);
+    try {
+      const target = bookingMasterJob ?? bookingCreated ?? (await createMasterJob.mutateAsync()).masterJob;
+      if (!bookingMasterJob) setBookingCreated({ id: target.id, mczNumber: target.mczNumber });
+      // The master job saves its details onto its shipments too (masterJobSync).
+      const data = bookingToMasterJobUpdate(approved);
+      if (Object.keys(data).length > 0) await updateMasterJob.mutateAsync({ id: target.id, data });
+      setCommittedJobNumber(target.mczNumber);
+      setStep("committed");
+    } catch (err) {
+      toast.error(`Failed to save the booking: ${err instanceof Error ? err.message : "unknown error"}`);
+    } finally {
+      setBookingSaving(false);
     }
   };
 
@@ -591,6 +650,9 @@ export function DocumentReadingWorkflow() {
     setCommittedJobNumber("");
     setQuoteNumber("");
     setCustomsShipmentId("");
+    setBookingMode("new");
+    setBookingMcz("");
+    setBookingCreated(null);
     setInvoiceData({});
     setInvoiceCategory("");
     setInvoiceTargetShipmentId("");
@@ -635,6 +697,8 @@ export function DocumentReadingWorkflow() {
               onChange={(v) => {
                 setDestination(v as Destination);
                 setError(null);
+                setBatchMcz("");
+                setBookingCreated(null);
               }}
               options={DESTINATION_OPTIONS as unknown as { value: string; label: string }[]}
             />
@@ -715,10 +779,50 @@ export function DocumentReadingWorkflow() {
             </div>
           )}
 
+          {destination === "booking" && (
+            <div className="mb-4">
+              <div className="text-xs font-medium text-slate-500 mb-1.5">Master Job Number</div>
+              <Radio.Group
+                value={bookingMode}
+                onChange={(e) => {
+                  setBookingMode(e.target.value);
+                  setBookingCreated(null);
+                }}
+                className="mb-2"
+              >
+                <Radio value="new">Create new Master Job</Radio>
+                <Radio value="existing">Add to existing</Radio>
+              </Radio.Group>
+              {bookingMode === "new" ? (
+                <Tag color="gold" className="font-mono text-sm py-1 px-2">
+                  {newMcz} (will be assigned)
+                </Tag>
+              ) : existingMcz.length === 0 ? (
+                <div className="text-xs italic text-slate-400">No existing MCZ numbers found.</div>
+              ) : (
+                <Select
+                  showSearch
+                  className="w-full"
+                  placeholder="Select existing MCZ…"
+                  value={bookingMcz || undefined}
+                  onChange={(v) => setBookingMcz(v || "")}
+                  options={existingMcz.map((m) => ({ value: m, label: m }))}
+                />
+              )}
+            </div>
+          )}
+
           {destination === "masterjob" && (
             <div className="mb-4">
               <div className="text-xs font-medium text-slate-500 mb-1.5">Master Job Number</div>
-              <Radio.Group value={masterMode} onChange={(e) => setMasterMode(e.target.value)} className="mb-2">
+              <Radio.Group
+                value={masterMode}
+                onChange={(e) => {
+                  setMasterMode(e.target.value);
+                  setBatchMcz("");
+                }}
+                className="mb-2"
+              >
                 <Radio value="new">Create new Master Job</Radio>
                 <Radio value="existing">Add to existing</Radio>
               </Radio.Group>
@@ -781,6 +885,8 @@ export function DocumentReadingWorkflow() {
                     ? "Export / import declaration, transit document (T1), customs release…"
                     : destination === "masterjob"
                     ? "Pre-alert / manifest with multiple Bills of Lading. All files go under one master job."
+                    : destination === "booking"
+                    ? "Booking confirmation, booking note, release order…"
                     : "Bill of Lading, Sea Waybill, Booking Confirmation…"}
               </p>
             </Upload.Dragger>
@@ -833,7 +939,7 @@ export function DocumentReadingWorkflow() {
       )}
 
       {/* ─── STEP: Review — shipment / quote ─── */}
-      {step === "review" && (destination === "shipment" || destination === "quote" || destination === "customs") && (
+      {step === "review" && (destination === "shipment" || destination === "quote" || destination === "customs" || destination === "booking") && (
         <Card>
           <div className="flex items-center justify-between mb-3">
             <Space size="small" wrap>
@@ -853,10 +959,21 @@ export function DocumentReadingWorkflow() {
             <Button
               type="primary"
               disabled={approvedCount === 0}
-              onClick={destination === "quote" ? commitQuote : destination === "customs" ? commitCustoms : commitShipment}
+              onClick={
+                destination === "quote"
+                  ? commitQuote
+                  : destination === "customs"
+                    ? commitCustoms
+                    : destination === "booking"
+                      ? handleCommitBooking
+                      : commitShipment
+              }
+              loading={destination === "booking" && bookingSaving}
             >
               Write {approvedCount} field{approvedCount !== 1 ? "s" : ""} to{" "}
-              {destination === "quote"
+              {destination === "booking"
+                ? bookingMasterJob?.mczNumber ?? bookingCreated?.mczNumber ?? `${newMcz} (new master job)`
+                : destination === "quote"
                 ? quoteNumber
                 : destination === "customs"
                   ? shipments.find((s) => s.id === customsShipmentId)?.jobNumber || "shipment"

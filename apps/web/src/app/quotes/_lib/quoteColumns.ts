@@ -1,3 +1,4 @@
+import { LABEL_GEO_FIELDS, type GeoKind } from "@/lib/places";
 import { LOAD_TYPES } from "@/lib/enums";
 
 export const QUOTE_COLUMNS = [
@@ -74,16 +75,18 @@ const NUMBER_COLUMNS = new Set<string>([
   "PCS",
 ]);
 
-export type QuoteColType = "text" | "dropdown" | "number";
+// Places and countries are picked from the location database (see lib/places.ts).
+export type QuoteColType = "text" | "dropdown" | "number" | GeoKind;
 
 export function quoteColType(col: string): QuoteColType {
+  if (LABEL_GEO_FIELDS[col]) return LABEL_GEO_FIELDS[col];
   if (QUOTE_DROPDOWNS[col]) return "dropdown";
   if (NUMBER_COLUMNS.has(col)) return "number";
   return "text";
 }
 
 export function quoteColWidth(col: string): number {
-  if (col === "Cargo Description") return 200;
+  if (col === "Cargo Description" || LABEL_GEO_FIELDS[col] === "place") return 200;
   return 140;
 }
 

@@ -5,7 +5,7 @@ import { extractContainerNumbers } from "@/lib/container";
 import { CONTAINER_TYPES, PACK_TYPES } from "@/lib/cargo";
 import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 
-export type Destination = "shipment" | "invoicing" | "quote" | "masterjob" | "customs";
+export type Destination = "shipment" | "invoicing" | "quote" | "masterjob" | "customs" | "booking";
 export type InputMode = "file" | "text";
 export type Step = "upload" | "extracting" | "review" | "committed";
 export type TargetMode = "existing" | "new";
@@ -262,6 +262,98 @@ export function withPackageType(
   if (out.containers?.length) out.containers = out.containers.map((c) => ({ ...c, packageType }));
   const items = out.cargoItems?.length ? out.cargoItems : cargoItems;
   if (items.length > 0) out.cargoItems = items.map((i) => ({ ...i, packageType }));
+  return out;
+}
+
+// ─── Booking confirmation → master job ─────────────────────────────
+
+/** Booking confirmation labels (apps/api/services/extraction/lib/fields.ts) and the master-job field each fills. */
+export const BOOKING_TO_MASTER_JOB: Record<string, keyof interfaces.MasterJobItem> = {
+  "Booking Number": "bookingNumber",
+  Equipment: "equipment",
+  Vessel: "vessel",
+  Voyage: "voyage",
+  POL: "pol",
+  POD: "pod",
+  "MBL Number": "masterBolNumber",
+  ETS: "estimatedDeparture",
+  ETA: "estimatedArrival",
+  "Cargo Closing": "closingDate",
+  "VGM Closing": "vgmClosing",
+  "SI Closing": "siClosing",
+  "Release Reference": "releaseReference",
+  "Release Depot": "releaseDepot",
+  "Redelivery Reference": "redeliveryReference",
+  "Redelivery Depot": "redeliveryDepot",
+};
+
+/** The master job's current value for a booking label, to show conflicts in the review. */
+export function bookingExistingValue(masterJob: interfaces.MasterJobItem | undefined, label: string): string {
+  const field = BOOKING_TO_MASTER_JOB[label];
+  if (!masterJob || !field) return "";
+  const value = masterJob[field];
+  return typeof value === "string" ? value : "";
+}
+
+/** Booking labels the master job stores as dates ("YYYY-MM-DD"). */
+const BOOKING_DATE_LABELS = new Set(["ETS", "ETA", "Cargo Closing", "VGM Closing", "SI Closing"]);
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/**
+ * A date as read off a document — "2026-11-20", "20.11.2026", "20/11/2026", "20-NOV-2026",
+ * "20 Nov 2026" (day first) — as "YYYY-MM-DD"; "" when it isn't a full date (e.g. no year).
+ */
+export function toIsoDate(value: string): string {
+  const s = value.trim();
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  const dmy = s.match(/^(\d{1,2})[./\-\s]+(\d{1,2}|[A-Za-z]{3,})[./\-\s,]+(\d{4})$/);
+  let y: number, m: number, d: number;
+  if (iso) [y, m, d] = [+iso[1]!, +iso[2]!, +iso[3]!];
+  else if (dmy) {
+    const month = /^\d+$/.test(dmy[2]!) ? +dmy[2]! : MONTHS.indexOf(dmy[2]!.slice(0, 3).toLowerCase()) + 1;
+    [y, m, d] = [+dmy[3]!, month, +dmy[1]!];
+  } else return "";
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (m < 1 || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return "";
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/** Approved booking dates that can't be read as a full date; the master job would refuse them. */
+export function invalidBookingDates(approved: Record<string, string>): string[] {
+  return Object.entries(approved)
+    .filter(([label, value]) => BOOKING_DATE_LABELS.has(label) && value.trim() && !toIsoDate(value))
+    .map(([label]) => label);
+}
+
+/** The master-job update for the approved booking values, dates as "YYYY-MM-DD". */
+export function bookingToMasterJobUpdate(approved: Record<string, string>): controllers.MasterJobUpdateRequest {
+  const out: Record<string, string> = {};
+  for (const [label, field] of Object.entries(BOOKING_TO_MASTER_JOB)) {
+    const value = (approved[label] ?? "").trim();
+    if (value) out[field] = BOOKING_DATE_LABELS.has(label) ? toIsoDate(value) : value;
+  }
+  return out as controllers.MasterJobUpdateRequest;
+}
+
+/**
+ * Folds a booking's CNTR count/length/type groups into one Equipment value, the form the
+ * master job keeps: "2 x 40' HC, 1 x 20' GP". Groups that don't make a known type stay as read.
+ */
+export function withBookingEquipment(extracted: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  const parts: string[] = [];
+  for (const [label, value] of Object.entries(extracted)) {
+    if (!/^CNTR (count|length|type) \[\d\]$/.test(label)) out[label] = value;
+  }
+  for (const i of [1, 2, 3, 4]) {
+    const length = extracted[`CNTR length [${i}]`] ?? "";
+    const kind = extracted[`CNTR type [${i}]`] ?? "";
+    const count = (extracted[`CNTR count [${i}]`] ?? "").trim();
+    const type = containerTypeFrom(length, kind) || [length, kind].filter(Boolean).join(" ");
+    if (type) parts.push(count ? `${count} x ${type}` : type);
+  }
+  if (parts.length > 0) out.Equipment = parts.join(", ");
   return out;
 }
 

@@ -3,6 +3,9 @@
 import { useState } from "react";
 import { Input, Select } from "antd";
 import { QUOTE_DROPDOWNS, quoteColType } from "../_lib/quoteColumns";
+import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
+import { isGeoKind } from "@/lib/places";
+import { FadeText } from "@/components/FadeText";
 
 interface QuoteEditableCellProps {
   column: string;
@@ -14,6 +17,7 @@ export function QuoteEditableCell({ column, value, onCommit }: QuoteEditableCell
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const type = quoteColType(column);
+  const geoKind = isGeoKind(type) ? type : undefined;
 
   const start = () => {
     setDraft(value);
@@ -27,12 +31,32 @@ export function QuoteEditableCell({ column, value, onCommit }: QuoteEditableCell
   if (!editing) {
     return (
       <span
-        className="cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors block min-h-[20px] text-xs text-slate-700"
-        title="Double-click to edit"
+        className="cursor-pointer rounded px-1 -mx-1 hover:bg-slate-100 transition-colors flex items-center min-h-[20px] text-xs text-slate-700"
+        title={value ? undefined : "Double-click to edit"}
         onDoubleClick={start}
       >
-        {value || <span className="text-slate-300">—</span>}
+        {value ? (
+          <FadeText title="Double-click to edit">{value}</FadeText>
+        ) : (
+          <span className="text-slate-300">—</span>
+        )}
+        {geoKind && <GeoFlag kind={geoKind} value={value} />}
       </span>
+    );
+  }
+
+  if (geoKind) {
+    return (
+      <GeoSelect
+        kind={geoKind}
+        size="small"
+        autoFocus
+        defaultOpen
+        className="w-full min-w-[200px]"
+        value={value}
+        onChange={commit}
+        onBlur={() => setEditing(false)}
+      />
     );
   }
 

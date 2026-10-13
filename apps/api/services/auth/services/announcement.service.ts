@@ -2,12 +2,12 @@ import { APIError } from "encore.dev/api";
 import { isAdminLevel } from "../../../lib/rbac";
 import { announcementRepository } from "../repositories/announcement.repository";
 import { announcementAttachmentRepository } from "../repositories/announcementAttachment.repository";
-import { departmentRepository, branchRepository } from "../repositories/orgUnit.repository";
+import { departmentRepository, branchRepository, countryRepository } from "../repositories/orgUnit.repository";
 import { userRepository } from "../repositories/user.repository";
 import { MAX_ATTACHMENT_BYTES, parseAttachmentDataUrl } from "../attachmentDataUrl";
+import { type AnnouncementScope, audienceCountryCode, audienceLabel, isAddressedTo } from "../announcementAudience";
 
-export const ANNOUNCEMENT_SCOPES = ["company", "department", "branch", "country"] as const;
-export type AnnouncementScope = (typeof ANNOUNCEMENT_SCOPES)[number];
+export { ANNOUNCEMENT_SCOPES, type AnnouncementScope } from "../announcementAudience";
 
 export const ANNOUNCEMENT_SEVERITIES = ["info", "warning", "critical"] as const;
 
@@ -40,8 +40,12 @@ export interface AnnouncementAttachmentContent {
 export interface AnnouncementInfo {
   id: string;
   scope: string;
-  // Who the post is addressed to within its board, e.g. the department name; empty for "company".
+  // Who the post is addressed to, e.g. "Czechia · Prague Office · Accounting", or "All".
   target: string;
+  // The same audience as ids, each null for "all", so the board can be filtered by it.
+  countryCode: string | null;
+  branchId: string | null;
+  departmentId: string | null;
   severity: string;
   title: string;
   body: string;
@@ -68,6 +72,7 @@ export interface NoticeboardViewer {
   branchId: string | null;
   branchName: string | null;
   country: string | null;
+  countryCode: string | null;
 }
 
 interface Actor {
@@ -81,6 +86,8 @@ interface AnnouncementInput {
   departmentId?: string;
   branchId?: string;
   country?: string;
+  // For "audience": one of the company's countries; left out means all countries.
+  countryCode?: string;
   severity?: string;
   title: string;
   body?: string;
@@ -105,25 +112,6 @@ function checkBody(value: string | undefined): string {
   return body;
 }
 
-// Whether a post on its board is addressed to someone sitting where `viewer` does.
-function isAddressedTo(
-  post: { scope: string; departmentId: string | null; branchId: string | null; country: string | null },
-  viewer: { departmentId: string | null; branchId: string | null; country: string | null },
-): boolean {
-  switch (post.scope as AnnouncementScope) {
-    case "company":
-      return true;
-    case "department":
-      return !!viewer.departmentId && post.departmentId === viewer.departmentId;
-    case "branch":
-      return !!viewer.branchId && post.branchId === viewer.branchId;
-    case "country":
-      return !!viewer.country && post.country?.toLowerCase() === viewer.country.toLowerCase();
-    default:
-      return false;
-  }
-}
-
 function checkSeverity(severity: string): string {
   if (!(ANNOUNCEMENT_SEVERITIES as readonly string[]).includes(severity)) {
     throw APIError.invalidArgument("severity must be info, warning or critical");
@@ -143,6 +131,7 @@ class AnnouncementService {
       departmentId: viewer.departmentId,
       branchId: viewer.branchId,
       country: viewer.country,
+      countryCode: viewer.countryCode,
     });
     const attachments = await announcementAttachmentRepository.listMeta(
       actor.companyID,
@@ -155,7 +144,10 @@ class AnnouncementService {
     const announcements = rows.map((r) => ({
       id: r.id,
       scope: r.scope,
-      target: r.departmentName ?? r.branchName ?? r.country ?? "",
+      target: audienceLabel([r.country, r.branchName, r.departmentName]),
+      countryCode: audienceCountryCode(r),
+      branchId: r.branchId,
+      departmentId: r.departmentId,
       severity: r.severity,
       title: r.title,
       body: r.body,
@@ -172,18 +164,19 @@ class AnnouncementService {
     return { viewer, announcements };
   }
 
-  async create(actor: Actor, input: AnnouncementInput): Promise<{ id: string }> {
+  // Returns the new post's id and whom it went to, worded as on the board.
+  async create(actor: Actor, input: AnnouncementInput): Promise<{ id: string; target: string }> {
     const title = checkTitle(input.title);
     const body = checkBody(input.body);
-    const target = await this.#resolveTarget(actor.companyID, input);
+    const { label, ...columns } = await this.#resolveTarget(actor.companyID, input);
     const row = await announcementRepository.createForCompany(actor.companyID, {
-      ...target,
+      ...columns,
       severity: checkSeverity(input.severity ?? "info"),
       title,
       body,
       authorId: actor.userID,
     } as never);
-    return { id: row.id };
+    return { id: row.id, target: label };
   }
 
   async update(actor: Actor, id: string, patch: AnnouncementPatch): Promise<boolean> {
@@ -244,25 +237,19 @@ class AnnouncementService {
     const post = (await announcementRepository.getByIdForCompany(id, actor.companyID))!;
     const [users, branches, reads] = await Promise.all([
       userRepository.listByCompany(actor.companyID),
-      post.scope === "country" ? branchRepository.listForCompany(actor.companyID) : [],
+      branchRepository.listForCompany(actor.companyID),
       announcementRepository.listReads(id),
     ]);
-    const countryBranches = new Set(
-      branches.filter((b) => b.country.toLowerCase() === post.country?.toLowerCase()).map((b) => b.id),
-    );
+    // Each user sits where their department and branch put them; the branch gives the country.
+    const branchById = new Map(branches.map((b) => [b.id, b]));
     const addressed = (u: (typeof users)[number]) => {
-      switch (post.scope as AnnouncementScope) {
-        case "company":
-          return true;
-        case "department":
-          return u.departmentId === post.departmentId;
-        case "branch":
-          return u.branchId === post.branchId;
-        case "country":
-          return !!u.branchId && countryBranches.has(u.branchId);
-        default:
-          return false;
-      }
+      const branch = u.branchId ? branchById.get(u.branchId) : undefined;
+      return isAddressedTo(post, {
+        departmentId: u.departmentId,
+        branchId: branch?.id ?? null,
+        country: branch?.country ?? null,
+        countryCode: branch?.countryCode ?? null,
+      });
     };
     const readAt = new Map(reads.map((r) => [r.userId, r.readAt]));
     const audience = users
@@ -285,17 +272,7 @@ class AnnouncementService {
     const post = await announcementRepository.getByIdForCompany(id, actor.companyID);
     if (!post) return false;
     if (isAdminLevel(actor.role) || post.scope === "company" || post.authorId === actor.userID) return true;
-    const viewer = await this.#viewer(actor);
-    switch (post.scope as AnnouncementScope) {
-      case "department":
-        return !!viewer.departmentId && post.departmentId === viewer.departmentId;
-      case "branch":
-        return !!viewer.branchId && post.branchId === viewer.branchId;
-      case "country":
-        return !!viewer.country && post.country?.toLowerCase() === viewer.country.toLowerCase();
-      default:
-        return false;
-    }
+    return isAddressedTo(post, await this.#viewer(actor));
   }
 
   // Authors manage their own posts; company admins manage every post.
@@ -308,30 +285,52 @@ class AnnouncementService {
     return true;
   }
 
-  // Validates the board + addressee and returns exactly the columns that board uses.
+  // Validates the board + addressee and returns exactly the columns that board uses, with the
+  // addressee worded as the board shows it.
   async #resolveTarget(companyId: string, input: AnnouncementInput) {
-    const empty = { departmentId: null, branchId: null, country: null };
+    const empty = { departmentId: null, branchId: null, country: null, countryCode: null };
     switch (input.scope as AnnouncementScope) {
       case "company":
-        return { ...empty, scope: "company" };
+        return { ...empty, scope: "company", label: audienceLabel([]) };
+      case "audience": {
+        // Each of country, branch and department is one of the company's own, or left out for all.
+        const code = input.countryCode?.trim().toUpperCase();
+        const country = code ? await countryRepository.findByCode(companyId, code) : null;
+        if (code && !country) throw APIError.invalidArgument("Choose one of the organization's countries");
+        const branch = input.branchId ? await branchRepository.getByIdForCompany(input.branchId, companyId) : null;
+        if (input.branchId && !branch) throw APIError.invalidArgument("Choose one of the organization's branches");
+        if (branch && country && branch.countryCode !== country.code) throw APIError.invalidArgument("The branch is not in this country");
+        const department = input.departmentId ? await departmentRepository.getByIdForCompany(input.departmentId, companyId) : null;
+        if (input.departmentId && !department) throw APIError.invalidArgument("Choose one of the organization's departments");
+        // All three left at "all" is everyone: the company-wide notice.
+        if (!country && !branch && !department) return { ...empty, scope: "company", label: audienceLabel([]) };
+        return {
+          scope: "audience",
+          country: country?.name ?? null,
+          countryCode: country?.code ?? null,
+          branchId: branch?.id ?? null,
+          departmentId: department?.id ?? null,
+          label: audienceLabel([country?.name, branch?.name, department?.name]),
+        };
+      }
       case "department": {
         const department = input.departmentId && (await departmentRepository.getByIdForCompany(input.departmentId, companyId));
         if (!department) throw APIError.invalidArgument("Choose a department");
-        return { ...empty, scope: "department", departmentId: department.id };
+        return { ...empty, scope: "department", departmentId: department.id, label: audienceLabel([department.name]) };
       }
       case "branch": {
         const branch = input.branchId && (await branchRepository.getByIdForCompany(input.branchId, companyId));
         if (!branch) throw APIError.invalidArgument("Choose a branch");
-        return { ...empty, scope: "branch", branchId: branch.id };
+        return { ...empty, scope: "branch", branchId: branch.id, label: audienceLabel([branch.name]) };
       }
       case "country": {
         const country = input.country?.trim();
         if (!country) throw APIError.invalidArgument("Choose a country");
         if (country.length > MAX_COUNTRY_LENGTH) throw APIError.invalidArgument("country is too long");
-        return { ...empty, scope: "country", country };
+        return { ...empty, scope: "country", country, label: audienceLabel([country]) };
       }
       default:
-        throw APIError.invalidArgument("scope must be company, department, branch or country");
+        throw APIError.invalidArgument("scope must be company, audience, department, branch or country");
     }
   }
 
@@ -347,6 +346,7 @@ class AnnouncementService {
       branchId: branch?.id ?? null,
       branchName: branch?.name ?? null,
       country: branch?.country ?? null,
+      countryCode: branch?.countryCode ?? null,
     };
   }
 }

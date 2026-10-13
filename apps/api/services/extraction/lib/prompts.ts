@@ -1,3 +1,9 @@
+// How the readers write places and countries; places.service then matches them to the database.
+export const PLACE_RULES = `Places and countries:
+- Origin, POL, POD, Destination: the place name as printed plus its country, e.g. "Halifax, Canada". If the document prints a UN/LOCODE (e.g. "DEHAM"), return that code instead.
+- Cargo Origin: the name of the country the goods come from (not a state or city).
+- Country code: the 2-letter ISO country code, e.g. "US".`;
+
 export const SHIPMENT_PROMPT = `You are a shipping document data extractor. You extract structured data from:
 - Bills of Lading (B/L), Sea Waybills (SWB)
 - Booking Confirmations
@@ -13,6 +19,7 @@ Rules:
 - CNTR type: "DRY", "REEFER", "OT" (Open Top), "FR" (Flat Rack), "TANK"
 - CNTR count: return as number string (e.g., "2")
 - Container Number: actual container ID (e.g., "MSMU1234567"), not a count
+${PLACE_RULES}
 - Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
 
 export const INVOICE_PROMPT = `You are an invoice data extractor. You extract cost/billing data from:
@@ -46,6 +53,21 @@ Rules:
 - Leave out any field that is not on the document. If nothing is found, return an empty JSON object.
 - Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
 
+export const BOOKING_PROMPT = `You are a booking confirmation data extractor. You read a shipping line's or coloader's booking confirmation (booking note, booking acknowledgement, release order).
+
+Rules:
+- Date format: YYYY-MM-DD (e.g., 2025-03-15). Read day and month as the document means them: a month name (APR) settles it; for numbers only, follow the convention of the country that issued the document. For a closing with a time (e.g. "20-NOV 12:00"), return the date only
+- ETS: estimated time of sailing (departure) from the POL. ETA: estimated arrival at the POD
+- Cargo Closing: the cargo / CY / FCL closing (cut-off) date. VGM Closing: the VGM cut-off. SI Closing: the shipping instruction / documentation cut-off
+- Release Reference / Release Depot: the reference and depot to pick up the empty equipment. Redelivery Reference / Redelivery Depot: the reference and depot (terminal) to deliver the full container to. Depot names as printed
+- MBL Number: the master B/L number, only if the document prints one as a B/L number
+- Equipment: one CNTR group per equipment type, e.g. "2 x 40HC" → CNTR count [1] "2", CNTR length [1] "40HC", CNTR type [1] "DRY"
+- CNTR length: "20", "40", "40HC", "45"
+- CNTR type: "DRY", "REEFER", "OT" (Open Top), "FR" (Flat Rack), "TANK"
+- Leave out anything the document does not state
+${PLACE_RULES}
+- Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
+
 export const QUOTE_PROMPT = `You are a shipping quote/rate request data extractor. You extract structured data from:
 - Rate Requests, Booking Inquiries, Quotation Requests
 - Bills of Lading, Sea Waybills, Booking Confirmations
@@ -57,6 +79,7 @@ Rules:
 - CNTR length: "20", "40", "40HC", "45"
 - CNTR count: return as number string
 - Volume in CBM, Weight in KGS
+${PLACE_RULES}
 - Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
 
 export const MASTER_JOB_PROMPT = `You are a shipping document data extractor for multi-page documents. Pages can be:
@@ -77,6 +100,7 @@ Rules:
 - CNTR type: "DRY", "REEFER", "OT", "FR", "TANK"
 - CNTR count: number as string
 - For MBL pages: return 1 object with shared info + "__type__": "MBL"
+${PLACE_RULES}
 - Return ONLY a JSON array. No markdown, no explanation, no code fences.`;
 
 export const CLASSIFICATION_PROMPT = `Classify each page image. For each page, return its type:

@@ -8,6 +8,7 @@ import * as billingOverrideSchema from "../schemas/billingOverride.schema";
 import * as generatedInvoiceSchema from "../schemas/generatedInvoice.schema";
 import * as invoiceSellingCostSchema from "../schemas/invoiceSellingCost.schema";
 import * as exchangeRateSchema from "../schemas/exchangeRate.schema";
+import * as customsInvoiceSchema from "../schemas/customsInvoice.schema";
 
 const { Pool } = pg;
 
@@ -28,5 +29,6 @@ export const db = drizzle(pool, {
     ...generatedInvoiceSchema,
     ...invoiceSellingCostSchema,
     ...exchangeRateSchema,
+    ...customsInvoiceSchema,
   },
 });

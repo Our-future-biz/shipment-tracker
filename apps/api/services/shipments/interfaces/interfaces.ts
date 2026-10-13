@@ -268,6 +268,11 @@ export interface MasterJobItem {
   actualArrival: string | null;
   etaWarehouse: string | null;
   warehouseReceivedDate: string | null;
+  /** Booked equipment, e.g. "2 x 40' HC, 1 x 20' GP" (master job only). */
+  equipment: string;
+  vgmClosing: string | null;
+  siClosing: string | null;
+  releaseReference: string;
   releaseDepot: string;
   redeliveryReference: string;
   redeliveryDepot: string;

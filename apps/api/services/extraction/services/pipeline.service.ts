@@ -1,8 +1,9 @@
 import { classifyPages, extractFromPages } from "./extraction.service";
 import { splitPdfToPages, detectMediaType } from "../lib/pdf";
 import { SHIPMENT_FIELDS } from "../lib/fields";
-import { MASTER_JOB_PROMPT } from "../lib/prompts";
+import { MASTER_JOB_PROMPT, PLACE_RULES } from "../lib/prompts";
 import { groupHblPages } from "../lib/hblGroups";
+import { canonicalizeRecords } from "./places.service";
 import type { PrepareResult, ExtractMblResult, ExtractHblResult, PipelineFile } from "../interfaces/interfaces";
 
 interface PipelinePage {
@@ -137,12 +138,13 @@ export async function extractMbl(sessionId: string): Promise<ExtractMblResult> {
   const results = await extractFromPages(
     pages,
     "",
-    `This is a Master Bill of Lading (MBL). Extract ONLY the shared shipping info:\n- Vessel / Voyage\n- POL, POD\n- ETD date, ETA date\n- Shipping line / Coloader\n- Booking number\n- FCL/LCL\n- CNTR no. (all container numbers)\n- CNTR count, length, type\nDo NOT extract cargo items. Return a single JSON object.`,
+    `This is a Master Bill of Lading (MBL). Extract ONLY the shared shipping info:\n- Vessel / Voyage\n- POL, POD\n- ETD date, ETA date\n- Shipping line / Coloader\n- Booking number\n- FCL/LCL\n- CNTR no. (all container numbers)\n- CNTR count, length, type\nDo NOT extract cargo items. Return a single JSON object.\n\n${PLACE_RULES}`,
     SHIPMENT_FIELDS,
     2048,
   );
 
   const mblInfo = results[0] || null;
+  if (mblInfo) await canonicalizeRecords([mblInfo]);
   session.mblInfo = mblInfo;
 
   return { mblInfo };
@@ -186,7 +188,9 @@ export async function extractHblBatch(sessionId: string, batchIndex: number): Pr
   // Exactly one shipment per House B/L, even if the model split it.
   const shipments = perHbl.map((rows) => rows[0]).filter((s): s is Record<string, string> => !!s);
 
-  // Enrich with MBL shared info
+  await canonicalizeRecords(shipments);
+
+  // Enrich with MBL shared info (already in the database's form)
   if (session.mblInfo) {
     for (const shipment of shipments) {
       for (const key of MBL_SHARED_KEYS) {

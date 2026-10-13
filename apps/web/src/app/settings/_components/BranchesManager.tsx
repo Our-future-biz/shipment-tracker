@@ -1,24 +1,50 @@
 "use client";
 
-import { useState } from "react";
-import { Table, Button, Modal, Form, Input } from "antd";
+import { useMemo, useState } from "react";
+import { Table, Button, Modal, Form, Input, Select } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { useToast } from "@/lib/toast";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { useBranches } from "@/hooks/useOrgUnits";
-import type { Branch, BranchInput } from "@/hooks/useOrgUnits";
+import { useBranches, useCountries, useLocations } from "@/hooks/useOrgUnits";
+import type { Branch, BranchInput, Location } from "@/hooks/useOrgUnits";
+import { matchesSearch, sectionTitle, emptyText } from "../_lib/orgSearch";
+
+// "Springfield, Illinois (USSPI)": the region and the code tell apart places of the same name.
+const cityLabel = (l: Location) => `${l.name}${l.subdivisionName ? `, ${l.subdivisionName}` : ""} (${l.code})`;
+
+// Matches the name with or without diacritics, the region and the UN/LOCODE.
+const cityMatches = (l: Location, query: string) => {
+  const q = query.trim().toLowerCase();
+  return [l.name, l.nameAscii, l.subdivisionName ?? "", l.code].some((v) => v.toLowerCase().includes(q));
+};
 
 // null = closed, "new" = adding, otherwise the branch being edited.
 type Editing = Branch | "new" | null;
 
-export function BranchesManager() {
+interface BranchesManagerProps {
+  search: string;
+}
+
+export function BranchesManager({ search }: BranchesManagerProps) {
   const toast = useToast();
   const { branches, isLoading, createBranch, updateBranch, deleteBranch } = useBranches();
+  const shown = branches.filter((b) => matchesSearch(search, b.name, b.city, b.country, b.countryCode));
   const [editing, setEditing] = useState<Editing>(null);
   const [deleteTarget, setDeleteTarget] = useState<Branch | null>(null);
   const [saving, setSaving] = useState(false);
   const [form] = Form.useForm<BranchInput>();
+  const { countries } = useCountries();
+  // The city list follows the country chosen in the dialog.
+  const countryCode = Form.useWatch("countryCode", form);
+  const { locations, isLoading: locationsLoading } = useLocations(editing ? countryCode : undefined);
+  const byId = useMemo(() => new Map(locations.map((l) => [l.id, l])), [locations]);
+  const cityOptions = useMemo(() => locations.map((l) => ({ value: l.id, label: cityLabel(l) })), [locations]);
+
+  // A city belongs to one country: choosing another country clears it.
+  const handleValuesChange = (changed: Partial<BranchInput>) => {
+    if ("countryCode" in changed) form.setFieldValue("locationId", undefined);
+  };
 
   const handleSubmit = async () => {
     if (!editing) return;
@@ -49,6 +75,7 @@ export function BranchesManager() {
 
   const columns: ColumnsType<Branch> = [
     { title: "Name", dataIndex: "name" },
+    { title: "City", dataIndex: "city", width: 200, render: (city: string | null) => city ?? <span className="text-slate-400">—</span> },
     { title: "Country", dataIndex: "country", width: 200 },
     {
       title: "",
@@ -66,7 +93,7 @@ export function BranchesManager() {
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <span className="text-sm font-semibold text-slate-800">Branches ({branches.length})</span>
+        <span className="text-sm font-semibold text-slate-800">{sectionTitle("Branches", shown.length, branches.length)}</span>
         <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setEditing("new")}>
           Add Branch
         </Button>
@@ -76,10 +103,10 @@ export function BranchesManager() {
         size="small"
         rowKey="id"
         loading={isLoading}
-        dataSource={branches}
+        dataSource={shown}
         columns={columns}
         pagination={false}
-        locale={{ emptyText: "No branches yet" }}
+        locale={{ emptyText: emptyText(search, "No branches yet") }}
       />
 
       <Modal
@@ -96,18 +123,46 @@ export function BranchesManager() {
           layout="vertical"
           className="pt-2"
           preserve={false}
-          initialValues={editing && editing !== "new" ? { name: editing.name, country: editing.country } : { name: "", country: "" }}
+          initialValues={
+            editing && editing !== "new"
+              ? { name: editing.name, countryCode: editing.countryCode ?? undefined, locationId: editing.locationId ?? undefined }
+              : { name: "" }
+          }
+          onValuesChange={handleValuesChange}
         >
           <Form.Item name="name" label="Name" rules={[{ required: true, whitespace: true, message: "Name is required" }]}>
-            <Input placeholder="e.g. Prague" />
+            <Input placeholder="e.g. Prague Office" />
           </Form.Item>
           <Form.Item
-            name="country"
+            name="countryCode"
             label="Country"
-            extra="Users of this branch see the noticeboard of this country."
-            rules={[{ required: true, whitespace: true, message: "Country is required" }]}
+            extra={
+              countries.length
+                ? "Users of this branch see the noticeboard of this country."
+                : "Add the country under Countries below first."
+            }
+            rules={[{ required: true, message: "Choose a country" }]}
           >
-            <Input placeholder="e.g. Czech Republic" onPressEnter={handleSubmit} />
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder="Choose a country"
+              options={countries.map((c) => ({ value: c.code, label: c.name }))}
+            />
+          </Form.Item>
+          <Form.Item name="locationId" label="City" rules={[{ required: true, message: "Choose a city" }]}>
+            <Select
+              showSearch
+              disabled={!countryCode}
+              loading={locationsLoading}
+              placeholder={countryCode ? "Type to search the cities of this country" : "Choose a country first"}
+              options={cityOptions}
+              filterOption={(input, option) => {
+                const place = option ? byId.get(option.value) : undefined;
+                return !!place && cityMatches(place, input);
+              }}
+              notFoundContent={locationsLoading ? "Loading cities…" : "No city found"}
+            />
           </Form.Item>
         </Form>
       </Modal>

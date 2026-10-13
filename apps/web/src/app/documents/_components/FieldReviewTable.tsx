@@ -2,6 +2,8 @@
 
 import { Table, Checkbox, Input, Tag } from "antd";
 import type { ExtractedField } from "../_lib/extraction";
+import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
+import { LABEL_GEO_FIELDS } from "@/lib/places";
 
 interface FieldReviewTableProps {
   fields: ExtractedField[];
@@ -42,8 +44,24 @@ export function FieldReviewTable({
     {
       title: "Extracted Value",
       dataIndex: "extractedValue",
-      render: (v: string, row: Row) =>
-        editable ? (
+      render: (v: string, row: Row) => {
+        // Places and countries the AI could not match to the database are flagged; when the
+        // value can be edited, it is picked from the database.
+        const geoKind = LABEL_GEO_FIELDS[row.column];
+        if (geoKind) {
+          return editable ? (
+            <span className="flex items-center">
+              <GeoSelect kind={geoKind} size="small" className="w-full max-w-[320px]" value={v} onChange={(next) => onEdit?.(row.index, next)} />
+              <GeoFlag kind={geoKind} value={v} />
+            </span>
+          ) : (
+            <span className={`font-mono ${valueClass}`}>
+              {v}
+              <GeoFlag kind={geoKind} value={v} />
+            </span>
+          );
+        }
+        return editable ? (
           <Input
             size="small"
             variant="borderless"
@@ -53,7 +71,8 @@ export function FieldReviewTable({
           />
         ) : (
           <span className={`font-mono ${valueClass}`}>{v}</span>
-        ),
+        );
+      },
     },
     ...(showExisting
       ? [
