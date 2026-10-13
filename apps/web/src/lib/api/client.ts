@@ -140,10 +140,15 @@ export namespace auth {
             this.companyUserDelete = this.companyUserDelete.bind(this)
             this.companyUserUpdate = this.companyUserUpdate.bind(this)
             this.companyUsersList = this.companyUsersList.bind(this)
+            this.countryCreate = this.countryCreate.bind(this)
+            this.countryDelete = this.countryDelete.bind(this)
+            this.countryList = this.countryList.bind(this)
+            this.countryUpdate = this.countryUpdate.bind(this)
             this.departmentCreate = this.departmentCreate.bind(this)
             this.departmentDelete = this.departmentDelete.bind(this)
             this.departmentList = this.departmentList.bind(this)
             this.departmentUpdate = this.departmentUpdate.bind(this)
+            this.locationList = this.locationList.bind(this)
             this.userCreate = this.userCreate.bind(this)
             this.userDelete = this.userDelete.bind(this)
             this.userUpdate = this.userUpdate.bind(this)
@@ -340,6 +345,30 @@ export namespace auth {
             return await resp.json() as controllers.CompanyUsersListResponse
         }
 
+        public async countryCreate(params: controllers.CountryCreateRequest): Promise<controllers.CountryResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/auth/countries`, JSON.stringify(params))
+            return await resp.json() as controllers.CountryResponse
+        }
+
+        public async countryDelete(id: string): Promise<controllers.OkResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/auth/countries/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.OkResponse
+        }
+
+        public async countryList(): Promise<controllers.CountryListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/countries`)
+            return await resp.json() as controllers.CountryListResponse
+        }
+
+        public async countryUpdate(id: string, params: controllers.CountryUpdateRequest): Promise<controllers.CountryResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/auth/countries/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.CountryResponse
+        }
+
         public async departmentCreate(params: controllers.DepartmentCreateRequest): Promise<controllers.DepartmentResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/auth/departments`, JSON.stringify(params))
@@ -362,6 +391,15 @@ export namespace auth {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/auth/departments/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.DepartmentResponse
+        }
+
+        /**
+         * Every UN/LOCODE place of one country, for the branch city picker.
+         */
+        public async locationList(countryCode: string): Promise<controllers.LocationListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/auth/locations/${encodeURIComponent(countryCode)}`)
+            return await resp.json() as controllers.LocationListResponse
         }
 
         /**
@@ -1574,7 +1612,8 @@ export namespace controllers {
 
     export interface BranchCreateRequest {
         name: string
-        country: string
+        countryCode: string
+        locationId: number
     }
 
     export interface BranchListResponse {
@@ -1587,7 +1626,8 @@ export namespace controllers {
 
     export interface BranchUpdateRequest {
         name: string
-        country: string
+        countryCode: string
+        locationId: number
     }
 
     export interface ClaimCreateRequest {
@@ -1736,6 +1776,24 @@ export namespace controllers {
 
     export interface ContactUpdateResponse {
         contact: interfaces.ContactItem
+    }
+
+    export interface CountryCreateRequest {
+        code: string
+        name: string
+    }
+
+    export interface CountryListResponse {
+        countries: services.CountryInfo[]
+    }
+
+    export interface CountryResponse {
+        country: services.CountryInfo
+    }
+
+    export interface CountryUpdateRequest {
+        code: string
+        name: string
     }
 
     export interface CreateRateRequest {
@@ -2040,6 +2098,10 @@ export namespace controllers {
 
     export interface ListRatesResponse {
         rates: interfaces.ExchangeRateItem[]
+    }
+
+    export interface LocationListResponse {
+        locations: services.LocationInfo[]
     }
 
     export interface LogoDeleteResponse {
@@ -3724,6 +3786,9 @@ export namespace services {
         id: string
         name: string
         country: string
+        countryCode: string | null
+        locationId: number | null
+        city: string | null
     }
 
     export interface CompanyInfo {
@@ -3733,9 +3798,26 @@ export namespace services {
         createdAt: string
     }
 
+    export interface CountryInfo {
+        id: string
+        code: string
+        name: string
+    }
+
     export interface DepartmentInfo {
         id: string
         name: string
+    }
+
+    /**
+     * A UN/LOCODE place as the city pickers list it.
+     */
+    export interface LocationInfo {
+        id: number
+        code: string
+        name: string
+        nameAscii: string
+        subdivisionName: string | null
     }
 
     /**

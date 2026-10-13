@@ -1,5 +1,5 @@
 import { APIError } from "encore.dev/api";
-import { departmentRepository, branchRepository } from "../repositories/orgUnit.repository";
+import { departmentRepository, branchRepository, countryRepository, locationRepository } from "../repositories/orgUnit.repository";
 import { userRepository } from "../repositories/user.repository";
 
 export interface DepartmentInfo {
@@ -11,6 +11,55 @@ export interface BranchInfo {
   id: string;
   name: string;
   country: string;
+  countryCode: string | null;
+  locationId: number | null;
+  city: string | null;
+}
+
+export interface BranchInput {
+  name: string;
+  // One of the company's countries, by code.
+  countryCode: string;
+  // The UN/LOCODE place (its Record ID) the branch is in; it must lie in that country.
+  locationId: number;
+}
+
+// A UN/LOCODE place as the city pickers list it.
+export interface LocationInfo {
+  id: number;
+  code: string;
+  name: string;
+  nameAscii: string;
+  subdivisionName: string | null;
+}
+
+type BranchRow = { id: string; name: string; country: string; countryCode: string | null; locationId: number | null; city: string | null };
+
+const toBranchInfo = (b: BranchRow): BranchInfo => ({
+  id: b.id,
+  name: b.name,
+  country: b.country,
+  countryCode: b.countryCode,
+  locationId: b.locationId,
+  city: b.city,
+});
+
+export interface CountryInfo {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface CountryInput {
+  code: string;
+  name: string;
+}
+
+// The web app picks the country from its fixed list and sends both its code and its name.
+function requireCountry(input: CountryInput): CountryInput {
+  const code = input.code?.trim().toUpperCase();
+  if (!code || !/^[A-Z]{2}$/.test(code)) throw APIError.invalidArgument("code must be a two-letter country code");
+  return { code, name: requireText(input.name, "name") };
 }
 
 function requireText(value: string | undefined, field: string): string {
@@ -58,21 +107,35 @@ class OrgUnitService {
 
   async listBranches(companyId: string): Promise<BranchInfo[]> {
     const rows = await branchRepository.listByName(companyId);
-    return rows.map((b) => ({ id: b.id, name: b.name, country: b.country }));
+    return rows.map(toBranchInfo);
   }
 
-  async createBranch(companyId: string, input: { name: string; country: string }): Promise<BranchInfo> {
+  // The stored values of a branch: the country's name (the country noticeboard matches on it)
+  // and the city's name are copied from the country and the place picked.
+  private async branchValues(companyId: string, input: BranchInput) {
     const name = requireText(input.name, "name");
-    const country = requireText(input.country, "country");
-    const row = await guardDuplicate("branch", () => branchRepository.createForCompany(companyId, { name, country }));
-    return { id: row.id, name: row.name, country: row.country };
+    const countryCode = requireText(input.countryCode, "countryCode").toUpperCase();
+    const country = await countryRepository.findByCode(companyId, countryCode);
+    if (!country) throw APIError.invalidArgument("Choose one of the organization's countries");
+    const location = Number.isInteger(input.locationId) ? await locationRepository.getById(input.locationId) : null;
+    if (!location || location.countryCode !== countryCode) throw APIError.invalidArgument("Choose a city in this country");
+    return { name, country: country.name, countryCode, locationId: location.id, city: location.name };
   }
 
-  async updateBranch(id: string, companyId: string, input: { name: string; country: string }): Promise<BranchInfo | null> {
-    const name = requireText(input.name, "name");
-    const country = requireText(input.country, "country");
-    const row = await guardDuplicate("branch", () => branchRepository.updateForCompany(id, companyId, { name, country }));
-    return row ? { id: row.id, name: row.name, country: row.country } : null;
+  async createBranch(companyId: string, input: BranchInput): Promise<BranchInfo> {
+    const values = await this.branchValues(companyId, input);
+    const row = await guardDuplicate("branch", () => branchRepository.createForCompany(companyId, values));
+    return toBranchInfo(row);
+  }
+
+  async updateBranch(id: string, companyId: string, input: BranchInput): Promise<BranchInfo | null> {
+    const values = await this.branchValues(companyId, input);
+    const row = await guardDuplicate("branch", () => branchRepository.updateForCompany(id, companyId, values));
+    return row ? toBranchInfo(row) : null;
+  }
+
+  async listLocations(countryCode: string): Promise<LocationInfo[]> {
+    return locationRepository.listByCountry(requireText(countryCode, "countryCode").toUpperCase());
   }
 
   async deleteBranch(id: string, companyId: string): Promise<boolean> {
@@ -80,6 +143,27 @@ class OrgUnitService {
     if (!row) return false;
     await userRepository.clearBranch(companyId, id);
     return true;
+  }
+
+  async listCountries(companyId: string): Promise<CountryInfo[]> {
+    const rows = await countryRepository.listByName(companyId);
+    return rows.map((c) => ({ id: c.id, code: c.code, name: c.name }));
+  }
+
+  async createCountry(companyId: string, input: CountryInput): Promise<CountryInfo> {
+    const values = requireCountry(input);
+    const row = await guardDuplicate("country", () => countryRepository.createForCompany(companyId, values));
+    return { id: row.id, code: row.code, name: row.name };
+  }
+
+  async updateCountry(id: string, companyId: string, input: CountryInput): Promise<CountryInfo | null> {
+    const values = requireCountry(input);
+    const row = await guardDuplicate("country", () => countryRepository.updateForCompany(id, companyId, values));
+    return row ? { id: row.id, code: row.code, name: row.name } : null;
+  }
+
+  async deleteCountry(id: string, companyId: string): Promise<boolean> {
+    return !!(await countryRepository.softDeleteForCompany(id, companyId));
   }
 }
 

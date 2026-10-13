@@ -2,9 +2,9 @@ import { api, APIError } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
 import { orgUnitService } from "../services/orgUnit.service";
-import type { DepartmentInfo, BranchInfo } from "../services/orgUnit.service";
+import type { DepartmentInfo, BranchInfo, CountryInfo, LocationInfo } from "../services/orgUnit.service";
 
-// The company's departments and branches. Everyone in the company can read them
+// The company's departments, branches and countries. Everyone in the company can read them
 // (the noticeboard and user forms need the names); only admins maintain them.
 
 interface OkResponse {
@@ -80,7 +80,8 @@ export const branchList = api(
 
 interface BranchCreateRequest {
   name: string;
-  country: string;
+  countryCode: string;
+  locationId: number;
 }
 interface BranchResponse {
   branch: BranchInfo;
@@ -97,7 +98,8 @@ export const branchCreate = api(
 interface BranchUpdateRequest {
   id: string;
   name: string;
-  country: string;
+  countryCode: string;
+  locationId: number;
 }
 
 export const branchUpdate = api(
@@ -118,5 +120,74 @@ export const branchDelete = api(
       throw APIError.notFound("Branch not found");
     }
     return { ok: true };
+  },
+);
+
+interface CountryListResponse {
+  countries: CountryInfo[];
+}
+
+export const countryList = api(
+  { expose: true, auth: true, method: "GET", path: "/auth/countries" },
+  async (): Promise<CountryListResponse> => {
+    return { countries: await orgUnitService.listCountries(getAuthData()!.companyID) };
+  },
+);
+
+interface CountryCreateRequest {
+  code: string;
+  name: string;
+}
+interface CountryResponse {
+  country: CountryInfo;
+}
+
+export const countryCreate = api(
+  { expose: true, auth: true, method: "POST", path: "/auth/countries" },
+  async (req: CountryCreateRequest): Promise<CountryResponse> => {
+    const actor = requireRole("superadmin", "admin");
+    return { country: await orgUnitService.createCountry(actor.companyID, req) };
+  },
+);
+
+interface CountryUpdateRequest {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export const countryUpdate = api(
+  { expose: true, auth: true, method: "PATCH", path: "/auth/countries/:id" },
+  async (req: CountryUpdateRequest): Promise<CountryResponse> => {
+    const actor = requireRole("superadmin", "admin");
+    const country = await orgUnitService.updateCountry(req.id, actor.companyID, req);
+    if (!country) throw APIError.notFound("Country not found");
+    return { country };
+  },
+);
+
+export const countryDelete = api(
+  { expose: true, auth: true, method: "DELETE", path: "/auth/countries/:id" },
+  async (req: OrgUnitDeleteRequest): Promise<OkResponse> => {
+    const actor = requireRole("superadmin", "admin");
+    if (!(await orgUnitService.deleteCountry(req.id, actor.companyID))) {
+      throw APIError.notFound("Country not found");
+    }
+    return { ok: true };
+  },
+);
+
+interface LocationListRequest {
+  countryCode: string;
+}
+interface LocationListResponse {
+  locations: LocationInfo[];
+}
+
+// Every UN/LOCODE place of one country, for the branch city picker.
+export const locationList = api(
+  { expose: true, auth: true, method: "GET", path: "/auth/locations/:countryCode" },
+  async (req: LocationListRequest): Promise<LocationListResponse> => {
+    return { locations: await orgUnitService.listLocations(req.countryCode) };
   },
 );
