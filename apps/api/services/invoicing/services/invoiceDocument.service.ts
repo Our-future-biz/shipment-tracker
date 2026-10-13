@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { customers, shipments } from "~encore/clients";
@@ -23,6 +24,9 @@ import {
   type VatCode,
 } from "../lib/invoiceCalc";
 import type { InvoiceDocItem, InvoiceDocLineItem, InvoicePartyItem, InvoicePreviewItem } from "../interfaces/interfaces";
+import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
+import { loadPdfFonts } from "../lib/pdfFonts";
+import { invoiceBucket } from "../storage/invoiceBucket";
 
 /**
  * Issuing tax documents. Everything is computed on the server from stored data: the
@@ -225,6 +229,73 @@ async function postToCustomer(inv: InvoiceRecord) {
   }
 }
 
+export interface InvoicePdfFile {
+  fileName: string;
+  contentBase64: string;
+  sha256: string;
+}
+
+async function pdfInput(inv: InvoiceRecord, lines: InvoiceLineRecord[], companyId: string): Promise<InvoiceForPdf> {
+  const corrected = inv.correctsInvoiceId ? await invoiceRepository.getById(inv.correctsInvoiceId, companyId) : null;
+  return {
+    kind: inv.kind,
+    number: inv.number,
+    issueDate: inv.issueDate,
+    duzp: inv.duzp,
+    dueDate: inv.dueDate,
+    currency: inv.currency,
+    fxRate: inv.fxRate,
+    fxWeek: inv.fxWeek,
+    net: inv.net,
+    vat: inv.vat,
+    gross: inv.gross,
+    netCzk: inv.netCzk,
+    vatCzk: inv.vatCzk,
+    grossCzk: inv.grossCzk,
+    vatSummary: inv.vatSummary,
+    supplier: inv.supplier,
+    customer: inv.customer,
+    shipment: inv.shipment,
+    note: inv.note,
+    creditReason: inv.creditReason,
+    correctsNumber: corrected?.number ?? "",
+    lines: lines.map((l) => ({
+      description: l.description, qty: l.qty, unitPrice: l.unitPrice, unitCurrency: l.unitCurrency,
+      net: l.net, vatCode: l.vatCode, vatRate: l.vatRate,
+    })),
+  };
+}
+
+/**
+ * Renders the PDF from the stored snapshot and keeps it as the official copy. When two
+ * requests race, the first stored file wins and the other upload is removed.
+ */
+async function storePdf(inv: InvoiceRecord, lines: InvoiceLineRecord[], companyId: string): Promise<Buffer> {
+  const bytes = Buffer.from(await renderInvoicePdf(await pdfInput(inv, lines, companyId), await loadPdfFonts()));
+  const key = `${companyId}/${inv.number}-${randomUUID()}.pdf`;
+  await invoiceBucket.upload(key, bytes, { contentType: "application/pdf" });
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  if (await invoiceRepository.setPdfIfMissing(inv.id, companyId, key, sha)) return bytes;
+
+  await invoiceBucket.remove(key).catch(() => undefined);
+  const winner = await invoiceRepository.getById(inv.id, companyId);
+  return invoiceBucket.download(winner!.pdfKey);
+}
+
+/**
+ * Right after issuing: store the PDF, but never fail the issue because of it (it is made
+ * on the first download then). Returns whether a PDF is stored.
+ */
+async function storePdfQuietly(inv: InvoiceRecord, lines: InvoiceLineRecord[], companyId: string): Promise<boolean> {
+  try {
+    await storePdf(inv, lines, companyId);
+    return true;
+  } catch (err) {
+    log.error(err, "could not store the invoice PDF; it will be made on first download", { number: inv.number });
+    return false;
+  }
+}
+
 class InvoiceDocumentService {
   async preview(shipmentId: string, companyId: string, params: IssueParams): Promise<InvoicePreviewItem> {
     const ctx = await loadContext(shipmentId, companyId, params);
@@ -296,7 +367,8 @@ class InvoiceDocumentService {
       lineRows(ctx.calc.lines),
     );
     await postToCustomer(invoice);
-    return toDocItem(invoice, lines);
+    const stored = await storePdfQuietly(invoice, lines, companyId);
+    return { ...toDocItem(invoice, lines), hasPdf: stored };
   }
 
   /**
@@ -366,7 +438,30 @@ class InvoiceDocumentService {
       },
     );
     await postToCustomer(invoice);
-    return toDocItem(invoice, lines);
+    const stored = await storePdfQuietly(invoice, lines, companyId);
+    return { ...toDocItem(invoice, lines), hasPdf: stored };
+  }
+
+  /** The official PDF: the stored copy, or made and stored now if issuing could not store it. */
+  async pdf(id: string, companyId: string): Promise<InvoicePdfFile> {
+    const row = await invoiceRepository.getById(id, companyId);
+    if (!row) throw APIError.notFound("Invoice not found");
+    let bytes: Buffer | null = null;
+    if (row.pdfKey) {
+      try {
+        bytes = await invoiceBucket.download(row.pdfKey);
+      } catch (err) {
+        log.error(err, "stored invoice PDF is missing", { number: row.number });
+        throw APIError.internal(`The stored PDF of ${row.number} could not be read`);
+      }
+    } else {
+      bytes = await storePdf(row, await invoiceRepository.getLines(row.id, companyId), companyId);
+    }
+    return {
+      fileName: `${row.number}.pdf`,
+      contentBase64: bytes.toString("base64"),
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+    };
   }
 
   async list(shipmentId: string, companyId: string): Promise<InvoiceDocItem[]> {

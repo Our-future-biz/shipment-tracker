@@ -813,6 +813,7 @@ export namespace invoicing {
             this.invoiceDocGet = this.invoiceDocGet.bind(this)
             this.invoiceDocIssue = this.invoiceDocIssue.bind(this)
             this.invoiceDocList = this.invoiceDocList.bind(this)
+            this.invoiceDocPdf = this.invoiceDocPdf.bind(this)
             this.invoiceDocPreview = this.invoiceDocPreview.bind(this)
             this.invoiceProfileGet = this.invoiceProfileGet.bind(this)
             this.invoiceProfileSave = this.invoiceProfileSave.bind(this)
@@ -908,6 +909,16 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/${encodeURIComponent(shipmentId)}/invoices`)
             return await resp.json() as controllers.ListResponse
+        }
+
+        /**
+         * The stored PDF of an invoice / credit note. Behind login and scoped to the company
+         * (unlike shipment attachments, invoices are never served by a public URL).
+         */
+        public async invoiceDocPdf(invoiceId: string): Promise<controllers.PdfResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoices/${encodeURIComponent(invoiceId)}/pdf`)
+            return await resp.json() as controllers.PdfResponse
         }
 
         public async invoiceDocPreview(shipmentId: string, params: controllers.PreviewRequest): Promise<controllers.PreviewResponse> {
@@ -2479,6 +2490,16 @@ export namespace controllers {
 
     export interface OkResponse {
         ok: boolean
+    }
+
+    export interface PdfResponse {
+        fileName: string
+        /**
+         * The official stored PDF, base64
+         */
+        contentBase64: string
+
+        sha256: string
     }
 
     export interface PipelineExtractHblRequest {

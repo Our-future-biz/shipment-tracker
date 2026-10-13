@@ -89,11 +89,17 @@ class InvoiceRepository {
     return rows.length > 0;
   }
 
-  async setPdf(id: string, companyId: string, pdfKey: string, pdfSha256: string) {
-    await db
+  /**
+   * Stores the PDF reference once. false = another request stored one a moment earlier;
+   * that first file stays the official copy.
+   */
+  async setPdfIfMissing(id: string, companyId: string, pdfKey: string, pdfSha256: string): Promise<boolean> {
+    const rows = await db
       .update(invoiceTable)
       .set({ pdfKey, pdfSha256, updatedAt: new Date() })
-      .where(and(eq(invoiceTable.id, id), eq(invoiceTable.companyId, companyId)));
+      .where(and(eq(invoiceTable.id, id), eq(invoiceTable.companyId, companyId), eq(invoiceTable.pdfKey, "")))
+      .returning({ id: invoiceTable.id });
+    return rows.length > 0;
   }
 }
 

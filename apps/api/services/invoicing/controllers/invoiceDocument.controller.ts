@@ -92,3 +92,26 @@ export const invoiceDocCredit = api(
     return { invoice: await invoiceDocumentService.credit(req.invoiceId, actor.companyID, actor.userID, req.reason, req.idempotencyKey) };
   },
 );
+
+interface PdfRequest {
+  invoiceId: string;
+}
+
+interface PdfResponse {
+  fileName: string;
+  /** The official stored PDF, base64 */
+  contentBase64: string;
+  sha256: string;
+}
+
+/**
+ * The stored PDF of an invoice / credit note. Behind login and scoped to the company
+ * (unlike shipment attachments, invoices are never served by a public URL).
+ */
+export const invoiceDocPdf = api(
+  { expose: true, auth: true, method: "GET", path: "/invoices/:invoiceId/pdf" },
+  async (req: PdfRequest): Promise<PdfResponse> => {
+    const actor = requireRole();
+    return invoiceDocumentService.pdf(req.invoiceId, actor.companyID);
+  },
+);

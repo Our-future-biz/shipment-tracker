@@ -7,7 +7,10 @@ const repo = vi.hoisted(() => ({
   getLines: vi.fn(),
   listByShipment: vi.fn(),
   markCredited: vi.fn(),
+  setPdfIfMissing: vi.fn(),
 }));
+const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: vi.fn() }));
+const pdf = vi.hoisted(() => ({ render: vi.fn() }));
 const profiles = vi.hoisted(() => ({ getByCompany: vi.fn() }));
 const selling = vi.hoisted(() => ({ listByShipmentId: vi.fn() }));
 const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn() }));
@@ -24,12 +27,16 @@ vi.mock("~encore/clients", () => ({
   customers: { customerGet: clients.customerGet, invoiceCreate: clients.invoiceCreate },
 }));
 vi.mock("encore.dev/log", () => ({ default: { error: vi.fn() } }));
+vi.mock("../storage/invoiceBucket", () => ({ invoiceBucket: bucket }));
+vi.mock("../lib/pdfFonts", () => ({ loadPdfFonts: async () => ({ regular: new Uint8Array(), bold: new Uint8Array() }) }));
+vi.mock("../lib/invoicePdf", () => ({ renderInvoicePdf: pdf.render }));
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
 vi.mock("encore.dev/api", () => ({
   APIError: {
     notFound: (msg: string) => new Error(msg),
     invalidArgument: (msg: string) => new Error(msg),
     failedPrecondition: (msg: string) => new Error(msg),
+    internal: (msg: string) => new Error(msg),
   },
 }));
 
@@ -69,6 +76,10 @@ beforeEach(() => {
   settings.getByShipmentId.mockResolvedValue({ billingCurrency: "CZK" });
   rates.listByCompany.mockResolvedValue([rateRow]);
   repo.getByIdempotencyKey.mockResolvedValue(null);
+  repo.setPdfIfMissing.mockResolvedValue(true);
+  bucket.upload.mockResolvedValue(undefined);
+  bucket.remove.mockResolvedValue(undefined);
+  pdf.render.mockResolvedValue(new TextEncoder().encode("%PDF-test"));
   repo.issue.mockImplementation(async (prefix: string, header: Record<string, unknown>, lines: Record<string, unknown>[]) => ({
     invoice: { ...header, id: "inv1", number: `${prefix}001`, correctsInvoiceId: header.correctsInvoiceId ?? null, creditReason: header.creditReason ?? "", pdfKey: "", createdAt: new Date("2026-10-13T10:00:00Z") },
     lines: lines.map((l) => ({ ...l, sourceSellingCostId: l.sourceSellingCostId ?? null })),
@@ -119,6 +130,10 @@ describe("issue", () => {
     });
     expect(lines).toHaveLength(2);
     expect(inv.number).toBe("INV2026CZ00000028-001");
+    // the PDF is rendered from the stored snapshot and kept as the official copy
+    expect(bucket.upload).toHaveBeenCalledWith(expect.stringMatching(/^00000000-0000-0000-0000-000000000001\/INV2026CZ00000028-001-.+\.pdf$/), expect.any(Buffer), { contentType: "application/pdf" });
+    expect(repo.setPdfIfMissing).toHaveBeenCalledWith("inv1", COMPANY, expect.any(String), expect.stringMatching(/^[0-9a-f]{64}$/));
+    expect(inv.hasPdf).toBe(true);
     expect(clients.invoiceCreate).toHaveBeenCalledWith(expect.objectContaining({
       customerId: CUSTOMER, invoiceNumber: "INV2026CZ00000028-001", amount: 29999.5, currency: "CZK", status: "Open",
     }));
@@ -140,6 +155,13 @@ describe("issue", () => {
     expect(inv.number).toBe("INV2026CZ00000028-001");
     expect(repo.issue).not.toHaveBeenCalled();
     expect(clients.invoiceCreate).not.toHaveBeenCalled();
+  });
+
+  it("still issues when the PDF cannot be stored", async () => {
+    bucket.upload.mockRejectedValue(new Error("storage down"));
+    const inv = await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {});
+    expect(inv.number).toBe("INV2026CZ00000028-001");
+    expect(inv.hasPdf).toBe(false);
   });
 
   it("still issues when posting to the customer's list fails", async () => {
@@ -195,5 +217,45 @@ describe("credit", () => {
       return { invoice: {}, lines: [] };
     });
     await expect(invoiceDocumentService.credit("inv1", COMPANY, USER, "x")).rejects.toThrow(/already been credited/);
+  });
+});
+
+describe("pdf", () => {
+  const stored = { id: "inv1", number: "INV2026CZ00000028-001", pdfKey: "c/INV2026CZ00000028-001-x.pdf", correctsInvoiceId: null };
+
+  it("returns the stored copy", async () => {
+    repo.getById.mockResolvedValue(stored);
+    bucket.download.mockResolvedValue(Buffer.from("%PDF-stored"));
+    const f = await invoiceDocumentService.pdf("inv1", COMPANY);
+    expect(f.fileName).toBe("INV2026CZ00000028-001.pdf");
+    expect(Buffer.from(f.contentBase64, "base64").toString()).toBe("%PDF-stored");
+    expect(pdf.render).not.toHaveBeenCalled();
+  });
+
+  it("makes and stores the PDF when issuing could not", async () => {
+    repo.getById.mockResolvedValue({ ...stored, pdfKey: "", supplier: profile, customer, shipment: {} });
+    repo.getLines.mockResolvedValue([]);
+    const f = await invoiceDocumentService.pdf("inv1", COMPANY);
+    expect(Buffer.from(f.contentBase64, "base64").toString()).toBe("%PDF-test");
+    expect(bucket.upload).toHaveBeenCalledTimes(1);
+    expect(repo.setPdfIfMissing).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the first stored file when two requests race", async () => {
+    repo.getById
+      .mockResolvedValueOnce({ ...stored, pdfKey: "", supplier: profile, customer, shipment: {} })
+      .mockResolvedValueOnce({ ...stored, pdfKey: "c/first.pdf" });
+    repo.getLines.mockResolvedValue([]);
+    repo.setPdfIfMissing.mockResolvedValue(false);
+    bucket.download.mockResolvedValue(Buffer.from("%PDF-first"));
+    const f = await invoiceDocumentService.pdf("inv1", COMPANY);
+    expect(bucket.remove).toHaveBeenCalledTimes(1);
+    expect(bucket.download).toHaveBeenCalledWith("c/first.pdf");
+    expect(Buffer.from(f.contentBase64, "base64").toString()).toBe("%PDF-first");
+  });
+
+  it("is scoped to the company", async () => {
+    repo.getById.mockResolvedValue(null);
+    await expect(invoiceDocumentService.pdf("inv1", COMPANY)).rejects.toThrow(/not found/);
   });
 });
