@@ -43,6 +43,13 @@
       "when": 1790005242803,
       "tag": "0005_snapshot_realign",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791894040034,
+      "tag": "0006_customs_invoicing",
+      "breakpoints": true
     }
   ]
 }

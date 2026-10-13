@@ -800,6 +800,11 @@ export namespace invoicing {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.customsInvoicingAddLine = this.customsInvoicingAddLine.bind(this)
+            this.customsInvoicingDeleteLine = this.customsInvoicingDeleteLine.bind(this)
+            this.customsInvoicingGet = this.customsInvoicingGet.bind(this)
+            this.customsInvoicingSetNumber = this.customsInvoicingSetNumber.bind(this)
+            this.customsInvoicingUpdateLine = this.customsInvoicingUpdateLine.bind(this)
             this.exchangeRateCreate = this.exchangeRateCreate.bind(this)
             this.exchangeRateDelete = this.exchangeRateDelete.bind(this)
             this.exchangeRateList = this.exchangeRateList.bind(this)
@@ -818,6 +823,36 @@ export namespace invoicing {
             this.invoicingUpsertBillingOverride = this.invoicingUpsertBillingOverride.bind(this)
             this.invoicingUpsertBillingSettings = this.invoicingUpsertBillingSettings.bind(this)
             this.invoicingUpsertCost = this.invoicingUpsertCost.bind(this)
+        }
+
+        public async customsInvoicingAddLine(shipmentId: string, params: controllers.AddCustomsLineRequest): Promise<controllers.CustomsLineResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customs-invoicing/${encodeURIComponent(shipmentId)}/lines`, JSON.stringify(params))
+            return await resp.json() as controllers.CustomsLineResponse
+        }
+
+        public async customsInvoicingDeleteLine(shipmentId: string, lineId: string): Promise<controllers.DeleteCustomsLineResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/customs-invoicing/${encodeURIComponent(shipmentId)}/lines/${encodeURIComponent(lineId)}`)
+            return await resp.json() as controllers.DeleteCustomsLineResponse
+        }
+
+        public async customsInvoicingGet(shipmentId: string): Promise<controllers.CustomsInvoicingGetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customs-invoicing/${encodeURIComponent(shipmentId)}`)
+            return await resp.json() as controllers.CustomsInvoicingGetResponse
+        }
+
+        public async customsInvoicingSetNumber(shipmentId: string, params: controllers.SetIssuedInvoiceNumberRequest): Promise<controllers.SetIssuedInvoiceNumberResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/customs-invoicing/${encodeURIComponent(shipmentId)}/number`, JSON.stringify(params))
+            return await resp.json() as controllers.SetIssuedInvoiceNumberResponse
+        }
+
+        public async customsInvoicingUpdateLine(shipmentId: string, lineId: string, params: controllers.UpdateCustomsLineRequest): Promise<controllers.CustomsLineResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/customs-invoicing/${encodeURIComponent(shipmentId)}/lines/${encodeURIComponent(lineId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.CustomsLineResponse
         }
 
         public async exchangeRateCreate(params: controllers.CreateRateRequest): Promise<controllers.CreateRateResponse> {
@@ -1582,6 +1617,13 @@ export namespace controllers {
         charge: interfaces.AdditionalChargeItem
     }
 
+    export interface AddCustomsLineRequest {
+        category?: string
+        currency?: string
+        value?: string
+        sortOrder?: number
+    }
+
     export interface AddSellingRequest {
         category?: string
         customer?: string
@@ -1983,6 +2025,15 @@ export namespace controllers {
         customer: interfaces.CustomerItem
     }
 
+    export interface CustomsInvoicingGetResponse {
+        lines: interfaces.CustomsInvoiceLineItem[]
+        issuedInvoiceNumber: string
+    }
+
+    export interface CustomsLineResponse {
+        line: interfaces.CustomsInvoiceLineItem
+    }
+
     export interface DashboardResponse {
         kpis: {
             totalActive: number
@@ -2023,6 +2074,10 @@ export namespace controllers {
     }
 
     export interface DeleteColumnTemplateResponse {
+        ok: boolean
+    }
+
+    export interface DeleteCustomsLineResponse {
         ok: boolean
     }
 
@@ -2489,6 +2544,14 @@ export namespace controllers {
          * Per item, its form in the database ("Hamburg (DEHAM)", "Germany (DE)", "DE"), or null.
          */
         values: (string | null)[]
+    }
+
+    export interface SetIssuedInvoiceNumberRequest {
+        issuedInvoiceNumber: string
+    }
+
+    export interface SetIssuedInvoiceNumberResponse {
+        issuedInvoiceNumber: string
     }
 
     export interface ShipmentCreateRequest {
@@ -3020,6 +3083,12 @@ export namespace controllers {
         charge: interfaces.AdditionalChargeItem
     }
 
+    export interface UpdateCustomsLineRequest {
+        category?: string
+        currency?: string
+        value?: string
+    }
+
     export interface UpdateRateRequest {
         rateEur?: string
         rateUsd?: string
@@ -3464,6 +3533,18 @@ export namespace interfaces {
         lastActivityDate: string
         createdAt: string
         updatedAt: string
+    }
+
+    /**
+     * Line of the Invoicing tab in Customs
+     */
+    export interface CustomsInvoiceLineItem {
+        id: string
+        shipmentId: string
+        category: string
+        currency: string
+        value: string | null
+        sortOrder: number
     }
 
     export interface DocumentItem {
