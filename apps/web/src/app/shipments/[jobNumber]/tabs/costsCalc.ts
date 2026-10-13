@@ -12,43 +12,12 @@
  * missingCurrencies, aby na nej slo uzivatele upozornit.
  */
 
+import { money, num } from "@/lib/money";
+
+// num() a money() jsou ve sdilenem modulu @/lib/money; re-export, aby stavajici importy fungovaly dal.
+export { num, money } from "@/lib/money";
+
 export type Rates = Record<string, number>;
-
-/**
- * num() z mockupu - tolerantni parsovani cisel.
- * Zvlada desetinnou carku i tecku vcetne oddelovace tisicu:
- * "1 234,56" i "1,234.56" -> 1234.56. Pri obou oddelovacich plati ten posledni.
- */
-export function num(v: unknown): number {
-  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
-
-  const cleaned = String(v ?? "").replace(/[^0-9.,-]/g, "");
-  if (!cleaned) return 0;
-
-  const lastComma = cleaned.lastIndexOf(",");
-  const lastDot = cleaned.lastIndexOf(".");
-  let normalised: string;
-  if (lastComma > -1 && lastDot > -1) {
-    // oba oddelovace - posledni je desetinny, ten druhy oddeluje tisice
-    const decimalAt = Math.max(lastComma, lastDot);
-    normalised =
-      cleaned.slice(0, decimalAt).replace(/[.,]/g, "") + "." + cleaned.slice(decimalAt + 1).replace(/[.,]/g, "");
-  } else {
-    // jen jeden oddelovac - bereme ho jako desetinny (bezne zadani u nas)
-    normalised = cleaned.replace(",", ".");
-  }
-
-  const parsed = parseFloat(normalised);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-/** money() z mockupu - dve desetinna mista s oddelovacem tisicu */
-export function money(v: number): string {
-  return (Number.isFinite(v) ? v : 0).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 /** Kurz meny vuci CZK. null = pro tuto menu kurz nemame. */
 function rateOf(currency: string, rates: Rates): number | null {
