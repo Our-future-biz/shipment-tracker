@@ -21,6 +21,7 @@ import {
   ApartmentOutlined,
   SwapOutlined,
   BankOutlined,
+  CalendarOutlined,
 } from "@ant-design/icons";
 import { useSidebarState } from "@/hooks/useSidebarState";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -64,6 +65,13 @@ const NAV_ITEMS: NavItem[] = [
   },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
+  {
+    path: "/calendar",
+    label: "Calendar",
+    icon: <CalendarOutlined />,
+    ownPage: true,
+    children: [{ path: "/calendar/public-holidays", label: "Public Holidays" }],
+  },
   // Company admins/managers manage their own users; superadmins manage all companies.
   { path: "/settings/users", label: "Users", icon: <UsergroupAddOutlined />, roles: ["admin", "manager"] },
   { path: "/settings/organization", label: "Organization", icon: <BankOutlined />, roles: ["admin", "superadmin"] },
@@ -198,7 +206,7 @@ export function AppSidebar() {
 
   return (
     <aside
-      className="bg-white border-r border-slate-200 flex flex-col shrink-0 transition-[width] duration-200 ease-in-out overflow-hidden"
+      className="print:hidden bg-white border-r border-slate-200 flex flex-col shrink-0 transition-[width] duration-200 ease-in-out overflow-hidden"
       style={{ width }}
     >
       {/* Header with logo + collapse toggle */}

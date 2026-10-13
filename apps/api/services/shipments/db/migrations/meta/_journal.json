@@ -288,6 +288,20 @@
       "when": 1791792748763,
       "tag": "0040_commercial_invoices",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791822760503,
+      "tag": "0041_freight_payable_at",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791827361862,
+      "tag": "0042_hub_cfs",
+      "breakpoints": true
     }
   ]
 }

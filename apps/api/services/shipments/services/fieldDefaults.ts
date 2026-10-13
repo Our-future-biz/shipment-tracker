@@ -50,6 +50,12 @@ export function startingStateDefaults(current: {
   return defaults;
 }
 
+// The CFS defaults to the HUB: a shipment with a HUB but no CFS takes the HUB as its CFS.
+// Only a blank CFS is filled, so a CFS someone picked is never overwritten.
+export function cfsDefault(hub: string | null | undefined, cfs: string | null | undefined): { cfs?: string } {
+  return !isBlank(hub) && isBlank(cfs) ? { cfs: (hub ?? "").trim() } : {};
+}
+
 // True when a write moves the credit check to approved — the moment the
 // approval is stamped. Staying on Green does not re-stamp.
 export function isCreditApproval(next: string | null | undefined, previous: string | null | undefined): boolean {

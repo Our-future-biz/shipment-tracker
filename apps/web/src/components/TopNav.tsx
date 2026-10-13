@@ -49,7 +49,7 @@ export function TopNav() {
     .slice(0, 2);
 
   return (
-    <header className="bg-white border-b border-slate-200 flex items-center px-8 h-[70px] sticky top-0 z-[100]">
+    <header className="print:hidden bg-white border-b border-slate-200 flex items-center px-8 h-[70px] sticky top-0 z-[100]">
       {/* Search */}
       <div className="flex-1 max-w-lg">
         <Input

@@ -684,10 +684,9 @@ const COMPLIANCE_FIELDS: FieldDef[] = [
   { key: "bolDraft", label: "BoL Draft" },
   { key: "claim", label: "Claim", ro: true },
 ];
-const SWITCH_BOL_FIELDS: FieldDef[] = [
-  { key: "switchBol", label: "Switch BOL" },
-  { key: "switchBolApprovedBy", label: "Switch BOL Approved By" },
-  { key: "switchBolNumber", label: "Switch BOL Number" },
+const DESTINATION_ROUTING_FIELDS: FieldDef[] = [
+  { key: "hub", label: "HUB" },
+  { key: "cfs", label: "CFS" },
 ];
 
 /* ── Cargo & Commercial card (mirrors the standalone cargo-details design) ── */
@@ -1129,6 +1128,7 @@ export function ShipmentDetailContent() {
                     { key: "salesPerson", label: "Sales Person", ro: true },
                     { key: "incoterm", label: "Incoterm Origin/Destination", ro: true },
                     { key: "freeComments", label: "Free Comments" },
+                    { key: "freightPayableAt", label: "Freight Payable At" },
                   ];
                   const right: FieldDef[] = [
                     { key: "status", label: "Shipment Status" },
@@ -1475,7 +1475,7 @@ export function ShipmentDetailContent() {
               </div>
 
               <DetailCard icon={<CheckSquareOutlined />} title="Compliance" cardId="compliance" columns={[COMPLIANCE_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
-              <DetailCard icon={<SplitCellsOutlined />} title="Switch BOL" cardId="switchBol" columns={[SWITCH_BOL_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
+              <DetailCard icon={<EnvironmentOutlined />} title="Destination Warehouse Routing" cardId="destinationRouting" columns={[DESTINATION_ROUTING_FIELDS]} shipment={shipment} onCommit={handleCommit} styleFor={styleFor} />
             </div>
           </div>
         )}

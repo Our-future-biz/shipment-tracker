@@ -15,11 +15,10 @@ export interface ColumnDef {
 
 // ─── Dropdown Options ─────────────────────────────────────────────────
 
+// Destination warehouses: a shipment's HUB and its CFS are picked from the same list.
+const WAREHOUSE_LOCATIONS = ["Budapest", "Bratislava", "Brno", "Dunajska Streda", "Plzen", "Prague", "Ostrava", "Vienna"];
+
 export const DROPDOWN_OPTIONS: Record<string, string[]> = {
-  "Shipments Date": [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
-  ],
   "Department": ["Operation Department", "Custom Department", "Administration Department", "Road Department"],
   "Customs Status": [
     "Waiting For Commercial Paperwork",
@@ -56,6 +55,9 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Incoterm Destination": ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DPU", "DAP", "DDP"],
   "Insurance": ["Yes", "Pending", "No"],
   "Credit Check": ["Green", "Yellow", "Red"],
+  "Freight Payable At": ["Origin", "Destination"],
+  "HUB": WAREHOUSE_LOCATIONS,
+  "CFS": WAREHOUSE_LOCATIONS,
   "Validity Status": ["Ok", "Check"],
   "Switch BoL": ["YES", "NO"],
   "House BoL Type": ["OBL", "SWB", "Telex", "OHBL ok", "Direct MBL"],
@@ -131,6 +133,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "customsDeadline", title: "Customs Deadline", width: 160, type: "text", readonly: true, apiField: "customsDeadline" },
   { key: "status", title: "Shipment Status", width: 320, type: "dropdown", options: DROPDOWN_OPTIONS["Shipment Status"], apiField: "status" },
   { key: "freeComments", title: "Free Comments", width: 200, type: "text", apiField: "freeComments" },
+  { key: "freightPayableAt", title: "Freight Payable At", width: 160, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Payable At"], apiField: "freightPayableAt" },
   { key: "freightMode", title: "Freight Mode", width: 130, type: "dropdown", options: DROPDOWN_OPTIONS["Freight Mode"], apiField: "freightMode" },
 
   // References
@@ -169,6 +172,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: "actualArrival", title: "Actual Arrival", width: 130, type: "date", apiField: "actualArrival" },
   { key: "actualArrivalWeek", title: "Actual Arrival Week", width: 120, type: "computed", readonly: true },
   { key: "etaWarehouse", title: "ETA Warehouse/HUB", width: 140, type: "date", apiField: "etaWarehouse" },
+  { key: "hub", title: "HUB", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["HUB"], apiField: "hub" },
+  { key: "cfs", title: "CFS", width: 140, type: "dropdown", options: DROPDOWN_OPTIONS["CFS"], apiField: "cfs" },
   { key: "warehouseReceivedDate", title: "Warehouse Received", width: 150, type: "date", apiField: "warehouseReceivedDate" },
   { key: "warehouseReference", title: "Warehouse Reference", width: 160, type: "text", readonly: true, apiField: "warehouseReference" },
   { key: "warehouseTruck", title: "Truck Reference", width: 150, type: "text", readonly: true, apiField: "warehouseTruck" },
@@ -614,7 +619,8 @@ export function getComputedValue(key: string, rowData: Record<string, string>): 
       const d = parseDateMMDDYY(src || "");
       if (!d) return "";
       if (key === "shipmentsYear") return String(d.getFullYear());
-      return DROPDOWN_OPTIONS["Shipments Date"]?.[d.getMonth()] ?? "";
+      // Month as a number: 1 = January … 12 = December.
+      return String(d.getMonth() + 1);
     }
     case "estimatedDepartureWeek":
       return weekFromDate(rowData["estimatedDeparture"] || "");
