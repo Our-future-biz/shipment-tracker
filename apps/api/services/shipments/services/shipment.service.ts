@@ -73,8 +73,6 @@ function toCommercialInvoiceLine(row: CommercialInvoiceRecord): CommercialInvoic
   return { invoiceNumber: row.invoiceNumber, value: row.value, currency: row.currency };
 }
 
-// Container and seal numbers live per-container; the shipment-level values are
-// read-only aggregates of every container's value.
 function uniqueJoin(values: string[]): string {
   return [...new Set(values.map((v) => v.trim()).filter(Boolean))].join(", ");
 }
@@ -86,6 +84,8 @@ function legacyInvoiceFields(invoices: CommercialInvoiceLine[] | undefined) {
   return { commercialInvoice: uniqueJoin(invoices.map((i) => i.invoiceNumber)), commercialInvoiceValue: null };
 }
 
+// Container and seal numbers live per-container; the shipment-level values are
+// read-only aggregates of every container's value.
 function aggregate(containers: ContainerLine[], field: "containerNumber" | "sealNumber"): string {
   return containers
     .map((c) => c[field])

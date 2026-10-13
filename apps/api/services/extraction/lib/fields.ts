@@ -8,7 +8,7 @@ export const SHIPMENT_FIELDS = [
   "CNTR count [2]", "CNTR length [2]", "CNTR type [2]",
   "CNTR count [3]", "CNTR length [3]", "CNTR type [3]",
   "CNTR count [4]", "CNTR length [4]", "CNTR type [4]",
-  "PCS", "Total Weight In Tons", "Total Volume In CBM",
+  "PCS", "Type Of Packages", "Total Weight In Tons", "Total Volume In CBM",
   "Cargo Origin", "Country code", "Origin",
   "Estimated Departure", "Estimated Arrival",
   "Trade Direction", "Agent",
@@ -32,6 +32,8 @@ export const INVOICE_FIELDS = [
   "total_amount", "currency", "vendor", "invoice_number",
   "invoice_date", "due_date", "description", "service_type",
 ];
+
+export const CUSTOMS_FIELDS = ["MRN Number", "Shipper", "Consignee", "Total Weight In Tons", "Container Number"];
 
 export function filterExtracted(
   raw: Record<string, unknown>,

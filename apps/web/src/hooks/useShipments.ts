@@ -36,7 +36,9 @@ export function getFieldValue(shipment: ShipmentItem, key: string): string {
 export function buildRowData(shipment: ShipmentItem): Record<string, string> {
   const data: Record<string, string> = {};
   for (const col of COLUMNS) {
-    if (col.type === "computed") continue; // avoid recursion
+    // A computed column is never computed here (that would recurse), but one backed by a
+    // stored field (Total Weight In Tons, Total Volume In CBM) still passes that stored
+    // value on: it is what the column shows when there are no dimensions to compute from.
     if (col.apiField) {
       const val = shipment[col.apiField as keyof ShipmentItem];
       if (val == null) { data[col.key] = ""; }

@@ -1,18 +1,21 @@
 import { api, APIError } from "encore.dev/api";
+import type { MinLen } from "encore.dev/validate";
 import { prepare } from "../services/pipeline.service";
-import type { PrepareResult } from "../interfaces/interfaces";
+import type { PipelineFile, PrepareResult } from "../interfaces/interfaces";
 
 interface PipelinePrepareRequest {
-  fileBase64: string;
-  fileName: string;
+  /** The pre-alert's files; all of them are read as one batch. */
+  files: PipelineFile[] & MinLen<1>;
 }
 
+// A pre-alert can be a dozen PDFs sent together as base64 (a third larger than
+// the files), so the default request size limit is raised for this endpoint.
 export const pipelinePrepare = api(
-  { expose: true, auth: true, method: "POST", path: "/extraction/pipeline/prepare" },
+  { expose: true, auth: true, method: "POST", path: "/extraction/pipeline/prepare", bodyLimit: 100 * 1024 * 1024 },
   async (req: PipelinePrepareRequest): Promise<PrepareResult> => {
-    if (!req.fileBase64 || !req.fileName) {
-      throw APIError.invalidArgument("fileBase64 and fileName are required");
+    if (req.files.some((f) => !f.fileBase64 || !f.fileName)) {
+      throw APIError.invalidArgument("every file needs fileBase64 and fileName");
     }
-    return prepare(req.fileBase64, req.fileName);
+    return prepare(req.files);
   },
 );

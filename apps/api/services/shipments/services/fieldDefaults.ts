@@ -70,6 +70,9 @@ export function actionStamp(actor: string, at: Date): string {
   return actor.trim() ? `${actor.trim()} — ${when}` : when;
 }
 
+// A cancelled shipment stays in the grid but drops out of every count, deadline and warning.
+export const CANCELLED_STATUS = "Cancelled Shipment";
+
 // Shipment statuses carry their direction as a suffix ("Billing [IMP]"). When a shipment's
 // Trade Direction flips, a status of the other direction moves to the same step on the new
 // side when that side has it (Booking Confirmation Pending, All Done, Billing, Billed),

@@ -2,7 +2,7 @@ import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
 import type { ShipmentRecord } from "../schemas/shipment.schema";
-import { CANCELLED_STATUS } from "../repositories/shipment.repository";
+import { CANCELLED_STATUS } from "../services/fieldDefaults";
 
 interface DeadlineItem {
   id: string;

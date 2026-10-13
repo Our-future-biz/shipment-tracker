@@ -1,8 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { getClient, MODEL } from "../lib/anthropic";
 import { extractTextFromPdf, isImageType, isPdfType, detectMediaType } from "../lib/pdf";
-import { filterExtracted, parseJsonFromResponse, SHIPMENT_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS } from "../lib/fields";
-import { SHIPMENT_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT } from "../lib/prompts";
+import { filterExtracted, parseJsonFromResponse, SHIPMENT_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
+import { SHIPMENT_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT } from "../lib/prompts";
 import type { ExtractionResult } from "../interfaces/interfaces";
 import { canonicalizeRecords } from "./places.service";
 
@@ -152,6 +152,11 @@ export async function extractQuoteFromFile(fileBase64: string, fileName: string)
   );
 }
 
+export async function extractCustomsFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
+  const mediaType = detectMediaType(fileName);
+  return extractFromDocument(fileBase64, fileName, mediaType, CUSTOMS_PROMPT, CUSTOMS_FIELDS, "Extract the MRN number and shipment data from this customs document.", 512);
+}
+
 export async function extractFromTextByDestination(text: string, destination: string): Promise<ExtractionResult> {
   let systemPrompt: string;
   let fields: string[];
@@ -162,6 +167,11 @@ export async function extractFromTextByDestination(text: string, destination: st
       systemPrompt = INVOICE_PROMPT;
       fields = INVOICE_FIELDS;
       userPrompt = "Extract invoice/cost data from this text:";
+      break;
+    case "customs":
+      systemPrompt = CUSTOMS_PROMPT;
+      fields = CUSTOMS_FIELDS;
+      userPrompt = "Extract the MRN number and shipment data from this text:";
       break;
     case "quote":
       systemPrompt = QUOTE_PROMPT;
@@ -183,7 +193,7 @@ export async function extractFromTextByDestination(text: string, destination: st
 // For pipeline: classify pages (each page is its own PDF/image document block)
 export async function classifyPages(
   pages: Array<{ pageNum: number; base64: string; mediaType: string }>,
-): Promise<Array<{ page: number; type: string }>> {
+): Promise<Array<{ page: number; type: string; ref?: string }>> {
   const client = getClient();
   const pageBlocks: Anthropic.ContentBlockParam[] = pages.map((p) => mediaBlock(p.base64, p.mediaType));
 
@@ -196,7 +206,7 @@ export async function classifyPages(
         ...pageBlocks,
         {
           type: "text",
-          text: `These are ${pages.length} pages from a shipping document, in order. Classify EACH page.\n\nTypes:\n- MANIFEST: Cargo manifest/list showing multiple shipments in blocks\n- HBL: House Bill of Lading (full-page B/L for one shipment)\n- MBL: Master Bill of Lading (single consolidated B/L with many cargo items)\n- SKIP: Terms & conditions, blank pages, signatures, cover pages, anything without shipment data\n\nReturn ONLY a JSON array with one object per page, in order: [{"page": 1, "type": "HBL"}, ...]\nNo markdown.`,
+          text: `These are ${pages.length} pages from a shipping document, in order. Classify EACH page.\n\nTypes:\n- MANIFEST: Cargo manifest/list showing multiple shipments in blocks\n- HBL: House Bill of Lading for one shipment — including its continuation/rider pages and a rated or unrated copy\n- MBL: Master Bill of Lading (single consolidated B/L with many cargo items)\n- INVOICE: Commercial invoice, pro-forma invoice\n- PACKING_LIST: Packing list, packing specification\n- SKIP: Terms & conditions, blank pages, fax/e-mail cover sheets, signatures, anything without shipment data\n\nFor every HBL page also give "ref": the House B/L number printed on it (e.g. "CHI/BRV/V01035"), exactly as printed, or "" if none is visible. A continuation page of the same HBL carries the same ref.\n\nReturn ONLY a JSON array with one object per page, in order: [{"page": 1, "type": "HBL", "ref": "CHI/BRV/V01035"}, ...]\nNo markdown.`,
         },
       ],
     }],
@@ -209,7 +219,7 @@ export async function classifyPages(
 
   const parsed = parseJsonFromResponse(text);
   if (!Array.isArray(parsed)) return pages.map((p) => ({ page: p.pageNum, type: "HBL" }));
-  return parsed as Array<{ page: number; type: string }>;
+  return parsed as Array<{ page: number; type: string; ref?: string }>;
 }
 
 // For pipeline: extract from multiple pages (HBL batch, MBL) sent as document blocks

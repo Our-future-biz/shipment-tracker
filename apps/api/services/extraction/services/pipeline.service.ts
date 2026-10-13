@@ -2,12 +2,17 @@ import { classifyPages, extractFromPages } from "./extraction.service";
 import { splitPdfToPages, detectMediaType } from "../lib/pdf";
 import { SHIPMENT_FIELDS } from "../lib/fields";
 import { MASTER_JOB_PROMPT, PLACE_RULES } from "../lib/prompts";
+import { groupHblPages } from "../lib/hblGroups";
 import { canonicalizeRecords } from "./places.service";
-import type { PrepareResult, ExtractMblResult, ExtractHblResult } from "../interfaces/interfaces";
+import type { PrepareResult, ExtractMblResult, ExtractHblResult, PipelineFile } from "../interfaces/interfaces";
 
 interface PipelinePage {
   pageNum: number;
+  /** The uploaded file the page came from. */
+  fileName: string;
   type: string;
+  /** House B/L number read on an HBL page; "" when none. */
+  ref: string;
   base64: string;
   mediaType: string;
 }
@@ -46,39 +51,50 @@ function getPagesByType(session: PipelineSession, type: string): PipelinePage[] 
   return session.pages.filter((p) => p.type === type);
 }
 
-export async function prepare(fileBase64: string, fileName: string): Promise<PrepareResult> {
-  const mediaType = detectMediaType(fileName);
-
-  // Split a multi-page PDF into one standalone PDF per page. Images stay as a
-  // single page. This is what lets the pipeline traverse the WHOLE document.
-  let rawPages: { base64: string; mediaType: string }[];
-  if (mediaType === "application/pdf") {
-    const pageB64s = await splitPdfToPages(fileBase64);
-    rawPages =
-      pageB64s.length > 0
-        ? pageB64s.map((b) => ({ base64: b, mediaType: "application/pdf" }))
-        : [{ base64: fileBase64, mediaType }];
-  } else {
-    rawPages = [{ base64: fileBase64, mediaType }];
+// All files of one pre-alert go into a single session, so their pages are
+// classified and extracted together and end up under one master job.
+export async function prepare(files: PipelineFile[]): Promise<PrepareResult> {
+  const rawPages: { base64: string; mediaType: string; fileName: string }[] = [];
+  const fileSummary: { fileName: string; pageCount: number }[] = [];
+  for (const { fileBase64, fileName } of files) {
+    const mediaType = detectMediaType(fileName);
+    // Split a multi-page PDF into one standalone PDF per page. Images stay as a
+    // single page. This is what lets the pipeline traverse the WHOLE document.
+    let filePages: { base64: string; mediaType: string }[] = [{ base64: fileBase64, mediaType }];
+    if (mediaType === "application/pdf") {
+      const pageB64s = await splitPdfToPages(fileBase64);
+      if (pageB64s.length > 0) filePages = pageB64s.map((b) => ({ base64: b, mediaType: "application/pdf" }));
+    }
+    rawPages.push(...filePages.map((p) => ({ ...p, fileName })));
+    fileSummary.push({ fileName, pageCount: filePages.length });
   }
 
   // Classify pages in chunks so we never send an unbounded request.
   const types: string[] = [];
+  const refs: string[] = [];
   for (let i = 0; i < rawPages.length; i += CLASSIFY_CHUNK) {
     const chunk = rawPages
       .slice(i, i + CLASSIFY_CHUNK)
       .map((p, j) => ({ pageNum: i + j + 1, base64: p.base64, mediaType: p.mediaType }));
     try {
       const classified = await classifyPages(chunk);
-      for (let j = 0; j < chunk.length; j++) types.push((classified[j]?.type || "HBL").toUpperCase());
+      for (let j = 0; j < chunk.length; j++) {
+        types.push((classified[j]?.type || "HBL").toUpperCase());
+        refs.push(String(classified[j]?.ref ?? ""));
+      }
     } catch {
-      for (let j = 0; j < chunk.length; j++) types.push("HBL");
+      for (let j = 0; j < chunk.length; j++) {
+        types.push("HBL");
+        refs.push("");
+      }
     }
   }
 
   const sessionPages: PipelinePage[] = rawPages.map((p, i) => ({
     pageNum: i + 1,
+    fileName: p.fileName,
     type: types[i] || "HBL",
+    ref: refs[i] || "",
     base64: p.base64,
     mediaType: p.mediaType,
   }));
@@ -89,11 +105,11 @@ export async function prepare(fileBase64: string, fileName: string): Promise<Pre
     pages: sessionPages,
     mblInfo: null,
     shipments: [],
-    fileName,
+    fileName: files.map((f) => f.fileName).join(", "),
     createdAt: Date.now(),
   });
 
-  const classification: Record<string, number> = { MANIFEST: 0, HBL: 0, MBL: 0, SKIP: 0 };
+  const classification: Record<string, number> = { MANIFEST: 0, HBL: 0, MBL: 0, INVOICE: 0, PACKING_LIST: 0, SKIP: 0 };
   for (const page of sessionPages) {
     classification[page.type] = (classification[page.type] || 0) + 1;
   }
@@ -102,8 +118,11 @@ export async function prepare(fileBase64: string, fileName: string): Promise<Pre
     sessionId,
     pageCount: sessionPages.length,
     classification,
-    pages: sessionPages.map((p) => ({ pageNum: p.pageNum, type: p.type })),
-    fileName,
+    pages: sessionPages.map((p) => ({ pageNum: p.pageNum, fileName: p.fileName, type: p.type })),
+    files: fileSummary,
+    // Shipments to expect: HBL pages grouped by House B/L number.
+    hblCount: groupHblPages(sessionPages).length,
+    fileName: files.map((f) => f.fileName).join(", "),
   };
 }
 
@@ -138,8 +157,9 @@ const MBL_SHARED_KEYS = [
 
 export async function extractHblBatch(sessionId: string, batchIndex: number): Promise<ExtractHblResult> {
   const session = getSessionOrThrow(sessionId);
-  const hblPages = getPagesByType(session, "HBL");
-  const totalBatches = Math.ceil(hblPages.length / BATCH_SIZE);
+  // One entry per House B/L: all its pages (continuation pages, other copies) together.
+  const hbls = groupHblPages(getPagesByType(session, "HBL"));
+  const totalBatches = Math.ceil(hbls.length / BATCH_SIZE);
 
   if (batchIndex >= totalBatches) {
     return {
@@ -151,16 +171,22 @@ export async function extractHblBatch(sessionId: string, batchIndex: number): Pr
     };
   }
 
-  const batch = hblPages.slice(batchIndex * BATCH_SIZE, (batchIndex + 1) * BATCH_SIZE);
-  const pages = batch.map((p) => ({ base64: p.base64, mediaType: p.mediaType }));
-
-  const shipments = await extractFromPages(
-    pages,
-    MASTER_JOB_PROMPT,
-    `These are ${batch.length} House Bill of Lading pages. Each page = 1 shipment. For EACH page, extract a separate shipment object with fields: ${SHIPMENT_FIELDS.join(", ")}, and 'Personal Reference' (the House B/L number). Return a JSON array with exactly ${batch.length} objects.`,
-    SHIPMENT_FIELDS,
-    8192,
+  const batch = hbls.slice(batchIndex * BATCH_SIZE, (batchIndex + 1) * BATCH_SIZE);
+  const perHbl = await Promise.all(
+    batch.map((pages) =>
+      extractFromPages(
+        pages.map((p) => ({ base64: p.base64, mediaType: p.mediaType })),
+        MASTER_JOB_PROMPT,
+        pages.length === 1
+          ? `This is one House Bill of Lading page = 1 shipment. Extract a single shipment object with fields: ${SHIPMENT_FIELDS.join(", ")}, and 'Personal Reference' (the House B/L number). Return one JSON object.`
+          : `These ${pages.length} pages are ONE House Bill of Lading (continuation pages or copies of the same B/L) = 1 shipment. Combine them into a single shipment object with fields: ${SHIPMENT_FIELDS.join(", ")}, and 'Personal Reference' (the House B/L number). Return one JSON object.`,
+        SHIPMENT_FIELDS,
+        4096,
+      ),
+    ),
   );
+  // Exactly one shipment per House B/L, even if the model split it.
+  const shipments = perHbl.map((rows) => rows[0]).filter((s): s is Record<string, string> => !!s);
 
   await canonicalizeRecords(shipments);
 

@@ -38,19 +38,6 @@ const sum = <T>(rows: T[], pick: (r: T) => number): number => rows.reduce((s, r)
 const uniqJoin = (values: string[], sep: string): string =>
   [...new Set(values.map((v) => v.trim()).filter(Boolean))].join(sep);
 
-// Commercial invoice value summed per currency: "12 500 USD, 3 000 EUR".
-// An empty currency counts as USD.
-export function civByCurrency(items: CargoItemLine[]): string {
-  const byCurrency = new Map<string, number>();
-  for (const item of items) {
-    const value = num(item.commercialInvoiceValue);
-    if (!value) continue;
-    const currency = item.currency.trim().toUpperCase() || "USD";
-    byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + value);
-  }
-  return [...byCurrency.entries()].map(([c, v]) => `${fmtNum(v)} ${c}`).join(", ");
-}
-
 // The commercial invoices' values summed per currency: "12 500 USD, 3 000 EUR". A value
 // without a currency is shown as a bare number.
 export function invoiceValueByCurrency(invoices: { value: string; currency: string }[]): string {
@@ -73,7 +60,6 @@ export interface CargoProjection {
   typeOfPackages: string;
   hsCode: string;
   cargoDescription: string;
-  civByCurrency: string;
   containerTypeSummary: string;
   totalTeu: string;
   totalGrossWeightKg: string;
@@ -110,7 +96,6 @@ export function projectCargo(
     ),
     hsCode: uniqJoin(items.map((i) => i.hsCode), ", "),
     cargoDescription: items.map((i) => i.cargoDescription.trim()).filter(Boolean).join("; "),
-    civByCurrency: civByCurrency(items),
     containerTypeSummary,
     totalTeu: teu ? fmtNum(teu) : "",
     totalGrossWeightKg: grossWeight ? fmtNum(grossWeight) : "",

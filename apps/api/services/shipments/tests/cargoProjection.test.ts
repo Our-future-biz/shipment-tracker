@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  civByCurrency,
   dimensionVolumePerPiece,
   fmtNum,
+  invoiceValueByCurrency,
   isValidContainerNumber,
   normalizeContainerNumber,
   num,
@@ -78,18 +78,19 @@ describe("dimensionVolumePerPiece", () => {
   });
 });
 
-describe("civByCurrency", () => {
-  it("sums per currency, defaulting empty currency to USD", () => {
-    const items = [
-      item({ commercialInvoiceValue: "12 500", currency: "" }),
-      item({ commercialInvoiceValue: "3000", currency: "eur" }),
-      item({ commercialInvoiceValue: "500", currency: "USD" }),
+describe("invoiceValueByCurrency", () => {
+  it("sums per currency; a value without one stands alone", () => {
+    const invoices = [
+      { value: "12 500", currency: "usd" },
+      { value: "3000", currency: "EUR" },
+      { value: "500", currency: "USD" },
+      { value: "40", currency: "" },
     ];
-    expect(civByCurrency(items)).toBe("13,000 USD, 3,000 EUR");
+    expect(invoiceValueByCurrency(invoices)).toBe("13,000 USD, 3,000 EUR, 40");
   });
 
   it("skips zero/empty values", () => {
-    expect(civByCurrency([item({ commercialInvoiceValue: "", currency: "EUR" })])).toBe("");
+    expect(invoiceValueByCurrency([{ value: "", currency: "EUR" }])).toBe("");
   });
 });
 
@@ -138,7 +139,6 @@ describe("projectCargo", () => {
     expect(p.totalGrossWeightKg).toBe("");
     expect(p.totalVolumeM3).toBe("");
     expect(p.containerTypeSummary).toBe("");
-    expect(p.civByCurrency).toBe("");
   });
 });
 

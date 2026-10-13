@@ -10,6 +10,9 @@ export type Currency = (typeof CURRENCIES)[number];
 export const TRADE_DIRECTIONS = ["Import", "Export"] as const;
 export type TradeDirection = (typeof TRADE_DIRECTIONS)[number];
 
+/** For imports and exports alike; left out of every count, deadline and warning. */
+export const CANCELLED_STATUS = "Cancelled Shipment";
+
 export const SHIPMENT_STATUSES = [
   "Billed [IMP]",
   "Billed [EXP]",
@@ -27,7 +30,7 @@ export const SHIPMENT_STATUSES = [
   "Customs Clearance Pending [IMP]",
   "Loaded - Customs Clearance In Progress [EXP]",
   "Pre-Alert Sent [EXP]",
-  "Cancelled Shipment",
+  CANCELLED_STATUS,
 ] as const;
 export type ShipmentStatus = (typeof SHIPMENT_STATUSES)[number];
 
@@ -49,6 +52,8 @@ export type Department = (typeof DEPARTMENTS)[number];
 
 export const LOAD_TYPES = ["Full Load", "Consolidation", "Project Shipment"] as const;
 export type LoadType = (typeof LOAD_TYPES)[number];
+/** The load type whose master job reads its containers from the linked shipments. */
+export const FULL_LOAD: LoadType = "Full Load";
 
 export const BOL_TYPES = ["OBL", "SWB", "TLX", "Express"] as const;
 export type BolType = (typeof BOL_TYPES)[number];
@@ -81,7 +86,7 @@ export const STATUS_COLORS: Record<string, string> = {
   "Customs Clearance Pending [IMP]": "#F48FB1",
   "Loaded - Customs Clearance In Progress [EXP]": "#F48FB1",
   "Pre-Alert Sent [EXP]": "#9CCC65",
-  "Cancelled Shipment": "#78909C",
+  [CANCELLED_STATUS]: "#78909C",
 };
 
 export const CUSTOMS_STATUS_COLORS: Record<string, string> = {
@@ -97,5 +102,5 @@ export function isCompletedStatus(status: string): boolean {
 
 // Neither finished nor cancelled.
 export function isActiveStatus(status: string): boolean {
-  return !isCompletedStatus(status) && status !== "Cancelled Shipment";
+  return !isCompletedStatus(status) && status !== CANCELLED_STATUS;
 }

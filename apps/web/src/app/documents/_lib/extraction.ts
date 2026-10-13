@@ -2,8 +2,10 @@ import type { controllers, interfaces } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { CURRENCIES } from "@/lib/enums";
 import { extractContainerNumbers } from "@/lib/container";
+import { CONTAINER_TYPES, PACK_TYPES } from "@/lib/cargo";
+import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 
-export type Destination = "shipment" | "invoicing" | "quote" | "masterjob";
+export type Destination = "shipment" | "invoicing" | "quote" | "masterjob" | "customs";
 export type InputMode = "file" | "text";
 export type Step = "upload" | "extracting" | "review" | "committed";
 export type TargetMode = "existing" | "new";
@@ -63,6 +65,7 @@ export const SHIPMENT_FIELD_MAP: Record<string, string> = {
   "CNTR length [4]": "containerLength4",
   "CNTR type [4]": "containerType4",
   PCS: "pcs",
+  "Type Of Packages": "typeOfPackages",
   "Total Weight In Tons": "totalWeightTons",
   "Total Volume In CBM": "totalVolumeCbm",
   "Cargo Origin": "cargoOrigin",
@@ -105,12 +108,24 @@ export function normalizeExtracted(raw: Record<string, string>): Record<string, 
   const out: Record<string, string> = { ...raw };
 
   const lt = (out["Load Type"] || "").trim().toUpperCase();
-  if (lt === "FCL") out["Load Type"] = "Full Load";
-  else if (lt === "LCL") out["Load Type"] = "Consolidation";
+  // Documents also write "FCL/FCL", "LCL/FCL" (origin/destination); the origin side decides.
+  if (lt.startsWith("FCL")) out["Load Type"] = "Full Load";
+  else if (lt.startsWith("LCL")) out["Load Type"] = "Consolidation";
 
   const td = (out["Trade Direction"] || "").trim().toUpperCase();
   if (td === "IMP" || td === "IMPORT") out["Trade Direction"] = "Import";
   else if (td === "EXP" || td === "EXPORT") out["Trade Direction"] = "Export";
+
+  if (out["Type Of Packages"]) out["Type Of Packages"] = normalizePackageType(out["Type Of Packages"]);
+
+  // "40HC" + "DRY" → the app's Container's Length "40" and Type "HC".
+  for (const i of [1, 2, 3, 4]) {
+    const type = containerTypeFrom(out[`CNTR length [${i}]`] ?? "", out[`CNTR type [${i}]`] ?? "");
+    if (!type) continue;
+    const [size, kind] = type.split(" ");
+    out[`CNTR length [${i}]`] = size!.replace("'", "");
+    out[`CNTR type [${i}]`] = kind!;
+  }
 
   if (!out["Freight Mode"]) {
     const hasVessel = !!out["Vessel"];
@@ -134,27 +149,6 @@ export function nextCzNumber(shipments: ShipmentItem[], sessionAssigned: string[
   for (const s of shipments) consider(s.jobNumber);
   for (const jn of sessionAssigned) consider(jn);
   return `CZ${String(max + 1).padStart(8, "0")}`;
-}
-
-export function nextMczNumber(shipments: ShipmentItem[]): string {
-  let max = 0;
-  for (const s of shipments) {
-    const mn = s.masterJobMczNumber;
-    if (mn && mn.startsWith("MCZ")) {
-      const num = parseInt(mn.substring(3), 10);
-      if (!isNaN(num) && num > max) max = num;
-    }
-  }
-  return `MCZ${String(max + 1).padStart(8, "0")}`;
-}
-
-export function existingMczNumbers(shipments: ShipmentItem[]): string[] {
-  const set = new Set<string>();
-  for (const s of shipments) {
-    const mn = s.masterJobMczNumber;
-    if (mn && mn.startsWith("MCZ")) set.add(mn);
-  }
-  return Array.from(set).sort();
 }
 
 // A document's "Container Number" field can hold several numbers and use spaces or
@@ -223,4 +217,213 @@ export function buildFields(
     const hasConflict = existingValue !== "" && existingValue !== extractedValue;
     return { column, extractedValue, existingValue, hasConflict, approved: !hasConflict };
   });
+}
+
+// How documents write the package types of the app's list (PACK_TYPES).
+const PACKAGE_SYNONYMS: Array<[RegExp, string]> = [
+  [/\b(PALLET|PALLETS|PLT|PLTS|PAL|PALS|SKID|SKIDS)\b/, "Pallet(s)"],
+  [/\b(CARTON|CARTONS|CTN|CTNS|CARTOON|CARTOONS)\b/, "Cartons"],
+  [/\b(WOODEN BOX|WOODEN BOXES|WOODEN CASE|WOODEN CASES|CRATE|CRATES|WDN|CASE|CASES)\b/, "Wooden boxes"],
+  [/\b(BOX|BOXES|BX|BXS)\b/, "Boxes"],
+  [/\b(DRUM|DRUMS|DRM|DRMS|BARREL|BARRELS)\b/, "Drums"],
+  [/\b(COLLI|COLLO|PKG|PKGS|PACKAGE|PACKAGES|PIECE|PIECES|PCS)\b/, "Colli"],
+];
+
+/**
+ * The extracted "Type Of Packages" matched to the app's package types:
+ * "8 PLTS" → "Pallet(s)", "CRATES" → "Wooden boxes". Several types become a
+ * comma-separated list; anything unknown stays as written so the user can fix
+ * it before approving.
+ */
+export function normalizePackageType(raw: string): string {
+  const text = raw.trim();
+  if (!text) return "";
+  const exact = PACK_TYPES.find((t) => t.toLowerCase() === text.toLowerCase());
+  if (exact) return exact;
+  const upper = text.toUpperCase();
+  const found = PACKAGE_SYNONYMS.filter(([re]) => re.test(upper)).map(([, type]) => type);
+  // "Wooden boxes" also matches the plain "box" rule; keep only the more specific one.
+  const types = [...new Set(found)].filter((t) => !(t === "Boxes" && found.includes("Wooden boxes")));
+  return types.length > 0 ? types.join(", ") : text;
+}
+
+/**
+ * Writes an approved package type onto the shipment and onto every container
+ * and cargo line it is being saved with: the shipment's Type Of Packages is
+ * read from those lines whenever it has any, so they must carry it too.
+ */
+export function withPackageType(
+  data: controllers.ShipmentUpdateRequest,
+  packageType: string | undefined,
+  cargoItems: interfaces.CargoItemLine[] = [],
+): controllers.ShipmentUpdateRequest {
+  if (!packageType) return data;
+  const out = { ...data, typeOfPackages: packageType };
+  if (out.containers?.length) out.containers = out.containers.map((c) => ({ ...c, packageType }));
+  const items = out.cargoItems?.length ? out.cargoItems : cargoItems;
+  if (items.length > 0) out.cargoItems = items.map((i) => ({ ...i, packageType }));
+  return out;
+}
+
+// ─── MBL shared info → master job ──────────────────────────────────
+
+/** MBL detail labels and the master-job field each one is filed to. */
+export const MBL_TO_MASTER_JOB: Record<string, string> = {
+  "Booking Number": "bookingNumber",
+  "Shipping line / Coloader": "shippingLine",
+  "Load Type": "loadType",
+  "Trade Direction": "tradeDirection",
+  "Freight Mode": "freightMode",
+  "Incoterm Origin": "incotermOrigin",
+  "Incoterm Destination": "incotermDestination",
+  "Master BoL Number": "masterBolNumber",
+  "Master BoL Type": "masterBolType",
+  Shipper: "shipper",
+  Consignee: "consignee",
+  POL: "pol",
+  POD: "pod",
+  Destination: "destination",
+  "Estimated Departure": "estimatedDeparture",
+  "Estimated Arrival": "estimatedArrival",
+  Vessel: "vessel",
+  Voyage: "voyage",
+  PCS: "pcs",
+  "Type Of Packages": "typeOfPackages",
+  "Total Weight In Tons": "totalWeightTons",
+  "Total Volume In CBM": "totalVolumeCbm",
+};
+
+/** The MBL detail whose tick files its containers to the master job. */
+export const MBL_CONTAINERS_LABEL = "Container Number";
+
+/** CNTR count/length/type rows only describe the containers; they have no tick of their own. */
+export const isMblContainerDetail = (label: string) => /^CNTR (count|length|type) \[\d\]$/.test(label);
+
+/** A container type in the app's dictionary from a document's length and kind: 40 + HQ → "40' HC". */
+export function containerTypeFrom(length: string, kind: string): string {
+  const size = (length.match(/20|40|45/) ?? [""])[0];
+  if (!size) return "";
+  // Documents often put the high cube in the length ("40HC") and the kind as "DRY".
+  const k = /HC|HQ|HIGH ?CUBE/i.test(length) ? "HC" : kind.trim().toUpperCase();
+  const mapped =
+    size === "45" ? "HQ"
+    : /^(HQ|HC|HIGH ?CUBE)/.test(k) ? "HC"
+    : /^(GP|DV|DRY|ST|STD|GENERAL)/.test(k) || !k ? "GP"
+    : /^(RF|REEFER|RE)$/.test(k) ? "RF"
+    : /^(HR)$/.test(k) ? "HR"
+    : /^(OT|OPEN ?TOP)/.test(k) ? "OT"
+    : /^(FR|FLAT ?RACK)/.test(k) ? "FR"
+    : k;
+  const type = `${size}' ${mapped}`;
+  return (CONTAINER_TYPES as readonly string[]).includes(type) ? type : "";
+}
+
+/**
+ * The containers named on the MBL, ready for the master job's Containers list.
+ * The type is filled in only when it is unambiguous: a single CNTR group, or as
+ * many groups as there are container numbers.
+ */
+export function mblContainers(info: Record<string, string>): interfaces.MasterJobContainerLine[] {
+  const numbers = parseContainerNumbers(info[MBL_CONTAINERS_LABEL]);
+  const groups = [1, 2, 3, 4]
+    .map((i) => containerTypeFrom(info[`CNTR length [${i}]`] ?? "", info[`CNTR type [${i}]`] ?? ""))
+    .filter(Boolean);
+  return numbers.map((containerNumber, i) => ({
+    containerNumber,
+    sealNumber: "",
+    type: groups.length === 1 ? groups[0]! : groups.length === numbers.length ? groups[i]! : "",
+    shipmentIds: [],
+  }));
+}
+
+/** The master-job update for the ticked MBL details (container numbers are filed separately). */
+export function mblToMasterJobUpdate(
+  info: Record<string, string>,
+  ticked: Record<string, boolean>,
+): controllers.MasterJobUpdateRequest {
+  const out: Record<string, string> = {};
+  for (const [label, field] of Object.entries(MBL_TO_MASTER_JOB)) {
+    const value = (info[label] ?? "").trim();
+    if (ticked[label] && value) out[field] = value;
+  }
+  return out as controllers.MasterJobUpdateRequest;
+}
+
+// MBL details that must be one of the app's options to be valid on the master job.
+const MBL_OPTION_LISTS: Record<string, string> = {
+  "Load Type": "Load Type",
+  "Trade Direction": "Trade Direction",
+  "Freight Mode": "Freight Mode",
+  "Master BoL Type": "Master BoL Type",
+  "Incoterm Origin": "Incoterm Origin",
+  "Incoterm Destination": "Incoterm Destination",
+};
+
+/**
+ * Which MBL details start ticked: everything with a home on the master job, except a
+ * value that isn't one of the field's options (e.g. Master BoL Type "MBL") — the user
+ * can still tick it.
+ */
+export function mblDefaultTicks(info: Record<string, string>): Record<string, boolean> {
+  const ticks: Record<string, boolean> = {};
+  for (const [label, value] of Object.entries(info)) {
+    if (!value || !(label in MBL_TO_MASTER_JOB || label === MBL_CONTAINERS_LABEL)) continue;
+    const options = MBL_OPTION_LISTS[label] ? DROPDOWN_OPTIONS[MBL_OPTION_LISTS[label]] : undefined;
+    ticks[label] = !options || options.includes(value);
+  }
+  return ticks;
+}
+
+/**
+ * Puts the approved cargo values of a document on a cargo line. Once a shipment has
+ * container or cargo lines, its PCS, HS Code and Cargo Description are read from those
+ * lines, so values kept only on the shipment would show blank. The line carries them
+ * instead (pieces, HS code, description, gross weight in kg). A shipment that already
+ * has cargo lines keeps its own and gets none added, so nothing is counted twice.
+ */
+export function withCargoLine(
+  data: controllers.ShipmentUpdateRequest,
+  approved: Record<string, string>,
+  existingCargoItems: interfaces.CargoItemLine[] = [],
+): controllers.ShipmentUpdateRequest {
+  if (existingCargoItems.length > 0) return data;
+  const description = (approved["Cargo Description"] ?? "").trim();
+  const hsCode = (approved["HS Code"] ?? "").replace(/\D/g, "");
+  const pieces = (approved["PCS"] ?? "").replace(/[^\d.]/g, "");
+  const tons = parseFloat((approved["Total Weight In Tons"] ?? "").replace(",", "."));
+  if (!description && !hsCode && !pieces) return data;
+  const line: interfaces.CargoItemLine = {
+    containerId: null,
+    cargoDescription: description,
+    hsCode,
+    pieces,
+    packageType: approved["Type Of Packages"] ?? "",
+    grossWeight: Number.isFinite(tons) && tons > 0 ? String(Math.round(tons * 1000 * 1000) / 1000) : "",
+    commercialInvoiceValue: "",
+    currency: "",
+  };
+  const out: controllers.ShipmentUpdateRequest = { ...data, cargoItems: [line] };
+  // Volume has no place on a cargo line; with a single container it goes on that container,
+  // which is where the shipment's Total Volume (m³) is read from.
+  const cbm = parseFloat((approved["Total Volume In CBM"] ?? "").replace(",", "."));
+  if (out.containers?.length === 1 && !out.containers[0]!.volume && Number.isFinite(cbm) && cbm > 0) {
+    out.containers = [{ ...out.containers[0]!, volume: String(cbm) }];
+  }
+  return out;
+}
+
+/**
+ * Gives the container rows of a save their type ("40' HC") from the document's container
+ * group, when there is exactly one group so the type can't be mixed up.
+ */
+export function withContainerType(
+  data: controllers.ShipmentUpdateRequest,
+  approved: Record<string, string>,
+): controllers.ShipmentUpdateRequest {
+  if (!data.containers?.length) return data;
+  const groups = [1, 2, 3, 4]
+    .map((i) => containerTypeFrom(approved[`CNTR length [${i}]`] ?? "", approved[`CNTR type [${i}]`] ?? ""))
+    .filter(Boolean);
+  if (groups.length !== 1) return data;
+  return { ...data, containers: data.containers.map((c) => (c.type ? c : { ...c, type: groups[0]! })) };
 }

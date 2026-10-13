@@ -5,6 +5,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Descriptions,
   Input,
   Radio,
@@ -17,13 +18,18 @@ import {
   Tag,
   Upload,
 } from "antd";
-import { InboxOutlined, ReloadOutlined } from "@ant-design/icons";
+import { DeleteOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
+import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { interfaces } from "@/lib/api/client";
 import { fileToBase64 } from "@/lib/files";
+import { FULL_LOAD } from "@/lib/enums";
+import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
 import { useQuotes } from "@/hooks/useQuotes";
+import { useMasterJobs } from "@/hooks/useMasterJobs";
 import { FieldReviewTable } from "./FieldReviewTable";
 import {
   baseCreatePayload,
@@ -32,20 +38,27 @@ import {
   COST_CATEGORY_OPTIONS,
   createdByStamp,
   type Destination,
-  existingMczNumbers,
   type ExtractedField,
   type InputMode,
   INVOICE_FIELD_LABELS,
   type InvoiceExtracted,
   nextCzNumber,
-  nextMczNumber,
   normalizeCurrency,
   normalizeExtracted,
   parseContainerNumbers,
+  MBL_CONTAINERS_LABEL,
+  MBL_TO_MASTER_JOB,
+  isMblContainerDetail,
+  mblContainers,
+  mblDefaultTicks,
+  mblToMasterJobUpdate,
   SHIPMENT_FIELD_MAP,
   type Step,
   type TargetMode,
   toShipmentUpdate,
+  withCargoLine,
+  withContainerType,
+  withPackageType,
 } from "../_lib/extraction";
 
 type PipelineStep = "idle" | "classified" | "extracting" | "ready";
@@ -55,17 +68,19 @@ type PipelineStep = "idle" | "classified" | "extracting" | "ready";
 const HBL_PREFETCH_AHEAD = 3;
 
 const DESTINATION_OPTIONS = [
-  { value: "shipment", label: "Full Sheet" },
+  { value: "shipment", label: "Shipments" },
   { value: "invoicing", label: "Invoicing" },
   { value: "quote", label: "Quote" },
   { value: "masterjob", label: "Master Job" },
+  { value: "customs", label: "Customs" },
 ] as const;
 
 const DESTINATION_HINT: Record<Destination, string> = {
-  shipment: "Extract shipping data (B/L, booking, waybill) into Full Sheet columns.",
+  shipment: "Extract shipping data (B/L, booking, waybill) into Shipments columns.",
   invoicing: "Extract cost data (invoice, debit note) — amount, vendor, invoice number.",
   quote: "Extract shipping data into a Quote record.",
   masterjob: "Extract multiple shipments from a pre-alert and create them under a Master Job (MCZ).",
+  customs: "Read the MRN Number, Shipper, Consignee, Total Weight and Container Numbers from a customs declaration into one shipment.",
 };
 
 function fieldsToLabelValues(fields: ExtractedField[]): Record<string, string> {
@@ -86,6 +101,7 @@ function recordToFields(record: Record<string, string>): ExtractedField[] {
 
 export function DocumentReadingWorkflow() {
   const toast = useToast();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const { shipments, createShipment, updateShipment, linkMasterJob } = useShipments();
   const { quotes, updateQuote } = useQuotes();
@@ -99,6 +115,10 @@ export function DocumentReadingWorkflow() {
   // Input
   const [fileBase64, setFileBase64] = useState("");
   const [fileName, setFileName] = useState("");
+  // A pre-alert can come as several files; all of them are read as one batch
+  // under one master job, and listed so the user sees exactly what was taken.
+  const [masterFiles, setMasterFiles] = useState<MasterFile[]>([]);
+  const [preparedFiles, setPreparedFiles] = useState<{ fileName: string; pageCount: number }[]>([]);
   const [textInput, setTextInput] = useState("");
 
   // Shipment / Quote review
@@ -108,6 +128,8 @@ export function DocumentReadingWorkflow() {
   const [targetShipmentId, setTargetShipmentId] = useState("");
   const [committedJobNumber, setCommittedJobNumber] = useState("");
   const [quoteNumber, setQuoteNumber] = useState("");
+  // Customs reads always go to one existing shipment (by Internal Reference).
+  const [customsShipmentId, setCustomsShipmentId] = useState("");
 
   // Invoicing review
   const [invoiceData, setInvoiceData] = useState<InvoiceExtracted>({});
@@ -117,13 +139,19 @@ export function DocumentReadingWorkflow() {
   // Master Job pipeline
   const [masterMode, setMasterMode] = useState<TargetMode>("new");
   const [masterMczExisting, setMasterMczExisting] = useState("");
-  // New MCZ number locked in on the first shipment created, so every HBL of one
-  // pre-alert links to the same master job (newMcz moves on once shipments refresh).
-  const [frozenNewMcz, setFrozenNewMcz] = useState("");
+  // The new MCZ a batch was started under. "Next free number" moves on as soon as the
+  // first shipment is linked, so the batch keeps the number it began with.
+  const [batchMcz, setBatchMcz] = useState("");
   const [pipelineSessionId, setPipelineSessionId] = useState("");
   const [pipelineStep, setPipelineStep] = useState<PipelineStep>("idle");
   const [classification, setClassification] = useState<Record<string, number>>({});
+  // Distinct House B/Ls found — continuation pages and copies of one HBL count once.
+  const [hblCount, setHblCount] = useState(0);
   const [mblInfo, setMblInfo] = useState<Record<string, string> | null>(null);
+  // MBL details the user ticked to file onto the master job — once per batch,
+  // with the batch's first shipment.
+  const [mblTicked, setMblTicked] = useState<Record<string, boolean>>({});
+  const [mblFiled, setMblFiled] = useState(false);
   const [masterShipments, setMasterShipments] = useState<Record<string, string>[]>([]);
   const [masterIdx, setMasterIdx] = useState(0);
   const [masterFields, setMasterFields] = useState<ExtractedField[]>([]);
@@ -146,9 +174,16 @@ export function DocumentReadingWorkflow() {
     [quotes],
   );
   const newShipmentPreview = useMemo(() => nextCzNumber(shipments), [shipments]);
-  const newMcz = useMemo(() => nextMczNumber(shipments), [shipments]);
-  const existingMcz = useMemo(() => existingMczNumbers(shipments), [shipments]);
-  const activeMcz = masterMode === "existing" ? masterMczExisting : frozenNewMcz || newMcz;
+  const { masterJobs } = useMasterJobs();
+  const masterJobMczs = useMemo(() => masterJobs.map((m) => m.mczNumber), [masterJobs]);
+  const newMcz = useMemo(() => nextMczNumber(shipments, masterJobMczs), [shipments, masterJobMczs]);
+  const existingMcz = useMemo(() => existingMczNumbers(shipments, masterJobMczs), [shipments, masterJobMczs]);
+  const activeMcz = masterMode === "existing" ? masterMczExisting : batchMcz || newMcz;
+  // The master job the batch goes to, once it exists ("Add to existing", or after the first shipment).
+  const currentMasterJob = masterJobs.find((m) => m.mczNumber === activeMcz);
+  // Load Type is chosen once per master job; a different one on the MBL can't be filed.
+  const mblLoadTypeLocked =
+    !!currentMasterJob?.loadType && !!mblInfo?.["Load Type"] && currentMasterJob.loadType !== mblInfo["Load Type"];
 
   const approvedCount = fields.filter((f) => f.approved).length;
   const conflictCount = fields.filter((f) => f.hasConflict).length;
@@ -157,6 +192,8 @@ export function DocumentReadingWorkflow() {
     if (destination === "masterjob")
       return `${masterCreatedJobs.length} shipment${masterCreatedJobs.length !== 1 ? "s" : ""} created`;
     if (destination === "invoicing") return `Invoice data written to ${committedJobNumber || "shipment"}`;
+    if (destination === "customs")
+      return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
     if (destination === "quote")
       return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${quoteNumber}`;
     if (shipmentMode === "new") return `New shipment ${committedJobNumber} created`;
@@ -171,6 +208,20 @@ export function DocumentReadingWorkflow() {
 
   // ─── Input handling ──────────────────────────────────────────────
   const beforeUpload = (file: File) => {
+    if (destination === "masterjob") {
+      fileToBase64(file)
+        .then((base64) => {
+          // The same file dropped twice is kept once.
+          setMasterFiles((prev) =>
+            prev.some((f) => f.name === file.name && f.size === file.size)
+              ? prev
+              : [...prev, { uid: `${file.name}-${file.size}-${file.lastModified}`, name: file.name, size: file.size, base64 }],
+          );
+          setError(null);
+        })
+        .catch(() => setError(`Could not read ${file.name}.`));
+      return false;
+    }
     fileToBase64(file)
       .then((b64) => {
         setFileBase64(b64);
@@ -181,11 +232,15 @@ export function DocumentReadingWorkflow() {
     return false;
   };
 
+  const masterFilesSize = masterFiles.reduce((sum, f) => sum + f.size, 0);
+  const masterFilesTooLarge = masterFilesSize > MASTER_FILES_MAX_BYTES;
+
   const canExtract = (() => {
-    const hasInput = destination === "masterjob" || inputMode === "file" ? !!fileBase64 : textInput.trim().length >= 10;
+    const hasInput = inputMode === "file" ? !!fileBase64 : textInput.trim().length >= 10;
     if (destination === "invoicing") return hasInput && !!invoiceTargetShipmentId;
     if (destination === "quote") return hasInput && !!quoteNumber;
-    if (destination === "masterjob") return !!fileBase64 && !!activeMcz;
+    if (destination === "customs") return hasInput && !!customsShipmentId;
+    if (destination === "masterjob") return masterFiles.length > 0 && !masterFilesTooLarge && !!activeMcz;
     return hasInput && (shipmentMode === "new" || !!targetShipmentId);
   })();
 
@@ -219,6 +274,32 @@ export function DocumentReadingWorkflow() {
         const suggested = extracted.service_type || "";
         setInvoiceCategory(COST_CATEGORY_OPTIONS.some((c) => c.value === suggested) ? suggested : "");
         setStep("review");
+      } else if (destination === "customs") {
+        const result =
+          inputMode === "file"
+            ? await api.extraction.extractCustoms({ fileBase64, fileName })
+            : await api.extraction.extractText({ text: textInput.trim(), destination: "customs" });
+        if (Object.keys(result.extracted).length === 0) throw new Error("No customs data found in this document.");
+        const target = shipments.find((s) => s.id === customsShipmentId);
+        const targetContainers = (target?.containers ?? []).map((c) => c.containerNumber).filter(Boolean);
+        setFields(
+          buildFields(result.extracted, (label) => {
+            if (!target) return "";
+            if (label === "MRN Number") return target.mrn || "";
+            if (label === "Container Number") return targetContainers.join(", ");
+            return getFieldValue(target, SHIPMENT_FIELD_MAP[label] ?? "");
+          }).map((f) => {
+            // Container numbers are only ever added, so they never clash with the ones on file;
+            // a weight differing only in decimals (12.5 vs 12.500) is the same weight.
+            const sameWeight =
+              f.column === "Total Weight In Tons" && parseFloat(f.extractedValue) === parseFloat(f.existingValue);
+            const hasConflict = f.column === "Container Number" || sameWeight ? false : f.hasConflict;
+            // Only the MRN is ticked up front; everything else waits for the user to tick it.
+            return { ...f, hasConflict, approved: f.column === "MRN Number" && !hasConflict };
+          }),
+        );
+        setExtractionMethod(result.method);
+        setStep("review");
       } else if (destination === "quote") {
         const result =
           inputMode === "file"
@@ -233,9 +314,13 @@ export function DocumentReadingWorkflow() {
       } else {
         // masterjob — Phase 1: prepare + classify
         setPipelineStep("idle");
-        const prep = await api.extraction.pipelinePrepare({ fileBase64, fileName });
+        const prep = await api.extraction.pipelinePrepare({
+          files: masterFiles.map((f) => ({ fileBase64: f.base64, fileName: f.name })),
+        });
+        setPreparedFiles(prep.files);
         setPipelineSessionId(prep.sessionId);
         setClassification(prep.classification);
+        setHblCount(prep.hblCount);
         setPipelineStep("classified");
         setStep("review");
       }
@@ -260,16 +345,26 @@ export function DocumentReadingWorkflow() {
     try {
       if (shipmentMode === "existing") {
         const target = shipments.find((s) => s.id === targetShipmentId);
-        const data = toShipmentUpdate(approved);
+        let data = toShipmentUpdate(approved);
         // Append extracted containers to the shipment's existing rows (never replace).
         if (newContainers.length > 0) data.containers = [...(target?.containers ?? []), ...newContainers];
+        // An approved package type goes onto all of the shipment's containers and cargo lines.
+        if (approved["Type Of Packages"] && !data.containers?.length && target?.containers?.length) {
+          data.containers = target.containers;
+        }
+        data = withContainerType(data, approved);
+        data = withCargoLine(data, approved, target?.cargoItems ?? []);
+        data = withPackageType(data, approved["Type Of Packages"], target?.cargoItems ?? []);
         await updateShipment({ id: targetShipmentId, data });
         setCommittedJobNumber(target?.jobNumber || "");
       } else {
         const jobNumber = nextCzNumber(shipments);
         const created = await createShipment(baseCreatePayload(jobNumber, createdByStamp(user?.email)));
-        const data = toShipmentUpdate(approved);
+        let data = toShipmentUpdate(approved);
         if (newContainers.length > 0) data.containers = newContainers;
+        data = withContainerType(data, approved);
+        data = withCargoLine(data, approved);
+        data = withPackageType(data, approved["Type Of Packages"]);
         await updateShipment({ id: created.shipment.id, data });
         setCommittedJobNumber(jobNumber);
       }
@@ -300,6 +395,29 @@ export function DocumentReadingWorkflow() {
     }
   };
 
+  // ─── Commit: customs ─────────────────────────────────────────────
+  const commitCustoms = async () => {
+    const approved = fieldsToLabelValues(fields);
+    if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
+    try {
+      const target = shipments.find((s) => s.id === customsShipmentId);
+      const data = toShipmentUpdate(approved);
+      if (approved["MRN Number"]) data.mrn = approved["MRN Number"];
+      // Add only the containers the shipment doesn't have yet (never replace).
+      const existing = target?.containers ?? [];
+      const known = new Set(existing.map((c) => c.containerNumber));
+      const added = containerRowsFromNumbers(
+        parseContainerNumbers(approved["Container Number"]).filter((n) => !known.has(n)),
+      );
+      if (added.length > 0) data.containers = [...existing, ...added];
+      await updateShipment({ id: customsShipmentId, data });
+      setCommittedJobNumber(target?.jobNumber || "");
+      setStep("committed");
+    } catch {
+      toast.error("Failed to write the customs data to the shipment.");
+    }
+  };
+
   // ─── Commit: quote ───────────────────────────────────────────────
   const commitQuote = async () => {
     const approved = fieldsToLabelValues(fields);
@@ -323,7 +441,12 @@ export function DocumentReadingWorkflow() {
     setError(null);
     try {
       const mbl = await api.extraction.pipelineExtractMbl({ sessionId: pipelineSessionId }).catch(() => null);
-      if (mbl?.mblInfo) setMblInfo(mbl.mblInfo);
+      if (mbl?.mblInfo) {
+        const info = normalizeExtracted(mbl.mblInfo);
+        setMblInfo(info);
+        setMblTicked(mblDefaultTicks(info));
+        setMblFiled(false);
+      }
 
       const hbl = await api.extraction.pipelineExtractHbl({ sessionId: pipelineSessionId, batchIndex: 0 });
       const extracted = (hbl.shipments || []).map(normalizeExtracted);
@@ -332,7 +455,6 @@ export function DocumentReadingWorkflow() {
       setHblTotalBatches(hbl.totalBatches || 1);
       setMasterIdx(0);
       setMasterCreatedJobs([]);
-      setFrozenNewMcz("");
       loadMasterFields(extracted[0]);
       setPipelineStep("ready");
     } catch (err) {
@@ -393,20 +515,53 @@ export function DocumentReadingWorkflow() {
     }
   }, [waitingForBatch, masterShipments, masterIdx, hblBatchIndex, hblTotalBatches, hblLoading]);
 
+  // Files the ticked MBL details onto the master job — once per batch, right after its first
+  // shipment is linked, so the master job exists and its synced fields reach that shipment too.
+  // A failure here doesn't undo the shipment; the user is told and can fill in MBL Details by hand.
+  const fileMblToMasterJob = async (masterJobId: string) => {
+    if (!mblInfo) return;
+    try {
+      const data = mblToMasterJobUpdate(mblInfo, mblTicked);
+      if (mblLoadTypeLocked) delete data.loadType;
+      if (Object.keys(data).length > 0) await api.shipments.masterJobUpdate(masterJobId, data);
+
+      const added = mblTicked[MBL_CONTAINERS_LABEL] ? mblContainers(mblInfo) : [];
+      if (added.length > 0) {
+        const current = await api.shipments.masterJobGet(masterJobId);
+        // A Full Load master job reads its containers from the shipments.
+        if (current.masterJob.loadType !== FULL_LOAD) {
+          const known = new Set(current.containers.map((c) => c.containerNumber));
+          const fresh = added.filter((c) => !known.has(c.containerNumber));
+          if (fresh.length > 0) {
+            await api.shipments.masterJobContainersUpdate(masterJobId, { containers: [...current.containers, ...fresh] });
+          }
+        }
+      }
+      setMblFiled(true);
+      queryClient.invalidateQueries({ queryKey: ["master-jobs"] });
+      queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    } catch (err) {
+      toast.error(`MBL details could not be filed to the master job: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
+  };
+
   const validateAndCreate = async () => {
     if (!activeMcz) return toast.warning("No MCZ number available.");
     const approved = fieldsToLabelValues(masterFields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
-    const mczNumber = activeMcz;
-    if (masterMode === "new") setFrozenNewMcz(mczNumber);
     try {
       const jobNumber = nextCzNumber(shipments, masterCreatedJobs);
       const created = await createShipment(baseCreatePayload(jobNumber, createdByStamp(user?.email, "System (Master Job)")));
-      const data = toShipmentUpdate(approved);
+      let data = toShipmentUpdate(approved);
       const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
       if (newContainers.length > 0) data.containers = newContainers;
+      data = withContainerType(data, approved);
+      data = withCargoLine(data, approved);
+      data = withPackageType(data, approved["Type Of Packages"]);
       await updateShipment({ id: created.shipment.id, data });
-      await linkMasterJob({ shipmentId: created.shipment.id, mczNumber });
+      const linked = await linkMasterJob({ shipmentId: created.shipment.id, mczNumber: activeMcz });
+      if (masterMode === "new") setBatchMcz(activeMcz);
+      if (!mblFiled && linked.shipment.masterJobId) await fileMblToMasterJob(linked.shipment.masterJobId);
       setMasterCreatedJobs((prev) => [...prev, jobNumber]);
       advanceMaster();
     } catch {
@@ -426,6 +581,8 @@ export function DocumentReadingWorkflow() {
     setError(null);
     setFileBase64("");
     setFileName("");
+    setMasterFiles([]);
+    setPreparedFiles([]);
     setTextInput("");
     setFields([]);
     setExtractionMethod("");
@@ -433,16 +590,19 @@ export function DocumentReadingWorkflow() {
     setTargetShipmentId("");
     setCommittedJobNumber("");
     setQuoteNumber("");
+    setCustomsShipmentId("");
     setInvoiceData({});
     setInvoiceCategory("");
     setInvoiceTargetShipmentId("");
     setMasterMode("new");
     setMasterMczExisting("");
-    setFrozenNewMcz("");
+    setBatchMcz("");
     setPipelineSessionId("");
     setPipelineStep("idle");
     setClassification({});
     setMblInfo(null);
+    setMblTicked({});
+    setMblFiled(false);
     setMasterShipments([]);
     setMasterIdx(0);
     setMasterFields([]);
@@ -525,6 +685,21 @@ export function DocumentReadingWorkflow() {
             </div>
           )}
 
+          {destination === "customs" && (
+            <div className="mb-4">
+              <div className="text-xs font-medium text-slate-500 mb-1.5">Internal Reference (required)</div>
+              <Select
+                showSearch
+                className="w-full"
+                placeholder="Select shipment…"
+                value={customsShipmentId || undefined}
+                onChange={(v) => setCustomsShipmentId(v || "")}
+                options={shipmentOptions}
+                filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+              />
+            </div>
+          )}
+
           {destination === "quote" && (
             <div className="mb-4">
               <div className="text-xs font-medium text-slate-500 mb-1.5">Quote Number (required)</div>
@@ -584,16 +759,28 @@ export function DocumentReadingWorkflow() {
           )}
 
           {inputMode === "file" || destination === "masterjob" ? (
-            <Upload.Dragger accept=".pdf,.jpg,.jpeg,.png" beforeUpload={beforeUpload} showUploadList={false} maxCount={1}>
+            <Upload.Dragger
+              accept=".pdf,.jpg,.jpeg,.png"
+              beforeUpload={beforeUpload}
+              showUploadList={false}
+              multiple={destination === "masterjob"}
+              maxCount={destination === "masterjob" ? undefined : 1}
+            >
               <p className="ant-upload-drag-icon">
                 <InboxOutlined />
               </p>
-              <p className="ant-upload-text">{fileName || "Click or drag a file (PDF, JPG, PNG)"}</p>
+              <p className="ant-upload-text">
+                {destination === "masterjob"
+                  ? "Click or drag files (PDF, JPG, PNG) — you can add several"
+                  : fileName || "Click or drag a file (PDF, JPG, PNG)"}
+              </p>
               <p className="ant-upload-hint">
                 {destination === "invoicing"
                   ? "Invoice, Debit Note, Freight Bill, Customs Declaration…"
-                  : destination === "masterjob"
-                    ? "Pre-alert / manifest with multiple Bills of Lading."
+                  : destination === "customs"
+                    ? "Export / import declaration, transit document (T1), customs release…"
+                    : destination === "masterjob"
+                    ? "Pre-alert / manifest with multiple Bills of Lading. All files go under one master job."
                     : "Bill of Lading, Sea Waybill, Booking Confirmation…"}
               </p>
             </Upload.Dragger>
@@ -605,6 +792,18 @@ export function DocumentReadingWorkflow() {
               placeholder="Paste shipping data, email content, or any text with relevant details…"
               maxLength={1500}
               showCount
+            />
+          )}
+
+          {destination === "masterjob" && masterFiles.length > 0 && (
+            <MasterFileList files={masterFiles} onRemove={(uid) => setMasterFiles((prev) => prev.filter((f) => f.uid !== uid))} />
+          )}
+          {destination === "masterjob" && masterFilesTooLarge && (
+            <Alert
+              className="mt-3"
+              type="warning"
+              showIcon
+              message={`The files add up to ${formatSize(masterFilesSize)}; at most ${formatSize(MASTER_FILES_MAX_BYTES)} can be read in one go. Remove some and read them as a second batch with "Add to existing".`}
             />
           )}
 
@@ -622,13 +821,19 @@ export function DocumentReadingWorkflow() {
           <div className="text-center py-10">
             <Spin size="large" />
             <p className="mt-4 mb-0 text-slate-500">Analyzing document and extracting data…</p>
-            {fileName && <p className="mt-1 mb-0 text-xs text-slate-400">{fileName}</p>}
+            {destination === "masterjob" ? (
+              <p className="mt-1 mb-0 text-xs text-slate-400">
+                {masterFiles.length} file{masterFiles.length === 1 ? "" : "s"}: {masterFiles.map((f) => f.name).join(", ")}
+              </p>
+            ) : (
+              fileName && <p className="mt-1 mb-0 text-xs text-slate-400">{fileName}</p>
+            )}
           </div>
         </Card>
       )}
 
       {/* ─── STEP: Review — shipment / quote ─── */}
-      {step === "review" && (destination === "shipment" || destination === "quote") && (
+      {step === "review" && (destination === "shipment" || destination === "quote" || destination === "customs") && (
         <Card>
           <div className="flex items-center justify-between mb-3">
             <Space size="small" wrap>
@@ -648,10 +853,16 @@ export function DocumentReadingWorkflow() {
             <Button
               type="primary"
               disabled={approvedCount === 0}
-              onClick={destination === "quote" ? commitQuote : commitShipment}
+              onClick={destination === "quote" ? commitQuote : destination === "customs" ? commitCustoms : commitShipment}
             >
               Write {approvedCount} field{approvedCount !== 1 ? "s" : ""} to{" "}
-              {destination === "quote" ? quoteNumber : shipmentMode === "new" ? newShipmentPreview : "shipment"}
+              {destination === "quote"
+                ? quoteNumber
+                : destination === "customs"
+                  ? shipments.find((s) => s.id === customsShipmentId)?.jobNumber || "shipment"
+                  : shipmentMode === "new"
+                    ? newShipmentPreview
+                    : "shipment"}
             </Button>
           </div>
         </Card>
@@ -713,14 +924,29 @@ export function DocumentReadingWorkflow() {
                 <h3 className="text-sm font-semibold m-0">Document Analysis Complete</h3>
               </div>
               <p className="text-xs text-slate-400 mb-3">
-                {(classification.MANIFEST || 0) + (classification.HBL || 0) + (classification.MBL || 0) + (classification.SKIP || 0)}{" "}
-                pages scanned:
+                {Object.values(classification).reduce((sum, n) => sum + (n || 0), 0)}{" "}
+                pages scanned from {preparedFiles.length} file{preparedFiles.length === 1 ? "" : "s"}:
               </p>
+              {preparedFiles.length > 0 && (
+                <ul className="mb-3 pl-0 list-none flex flex-col gap-1">
+                  {preparedFiles.map((f) => (
+                    <li key={f.fileName} className="flex items-center gap-2 text-xs text-slate-600">
+                      <FileOutlined className="text-slate-400" />
+                      <span className="truncate">{f.fileName}</span>
+                      <span className="ml-auto shrink-0 text-slate-400">
+                        {f.pageCount} page{f.pageCount === 1 ? "" : "s"}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
               <div className="grid grid-cols-2 gap-2 mb-4">
                 {[
                   { label: "Manifest pages", val: classification.MANIFEST || 0 },
                   { label: "House BL pages", val: classification.HBL || 0 },
                   { label: "Master BL pages", val: classification.MBL || 0 },
+                  { label: "Commercial invoice pages", val: classification.INVOICE || 0, muted: true },
+                  { label: "Packing list pages", val: classification.PACKING_LIST || 0, muted: true },
                   { label: "Skipped", val: classification.SKIP || 0, muted: true },
                 ].map((c) => (
                   <div
@@ -731,6 +957,12 @@ export function DocumentReadingWorkflow() {
                     <span className={`text-sm font-semibold ${c.muted ? "text-slate-400" : "text-amber-600"}`}>{c.val}</span>
                   </div>
                 ))}
+              </div>
+              <div className="flex items-center justify-between px-3 py-2.5 mb-4 rounded-md bg-indigo-50 border border-indigo-100">
+                <span className="text-xs font-semibold text-indigo-700">
+                  House Bills of Lading found — one shipment each
+                </span>
+                <span className="text-base font-bold text-indigo-700">{hblCount}</span>
               </div>
               {error && <Alert className="mb-3" type="error" showIcon message={error} />}
               <div className="flex gap-2">
@@ -763,13 +995,14 @@ export function DocumentReadingWorkflow() {
               </div>
 
               {mblInfo && Object.keys(mblInfo).length > 0 && (
-                <Descriptions
-                  className="mb-3"
-                  title="MBL shared info"
-                  bordered
-                  size="small"
-                  column={2}
-                  items={Object.entries(mblInfo).map(([key, value]) => ({ key, label: key, children: value || "—" }))}
+                <MblDetailsBox
+                  info={mblInfo}
+                  ticked={mblTicked}
+                  onToggle={(label) => setMblTicked((prev) => ({ ...prev, [label]: !prev[label] }))}
+                  filed={mblFiled}
+                  mcz={activeMcz}
+                  masterJob={currentMasterJob}
+                  loadTypeLocked={mblLoadTypeLocked}
                 />
               )}
 
@@ -839,6 +1072,125 @@ export function DocumentReadingWorkflow() {
           />
         </Card>
       )}
+    </div>
+  );
+}
+
+// The server accepts 100 MB per request and the files travel base64-encoded
+// (a third larger), so this is the most one batch can carry.
+const MASTER_FILES_MAX_BYTES = 70 * 1024 * 1024;
+
+interface MasterFile {
+  uid: string;
+  name: string;
+  size: number;
+  base64: string;
+}
+
+const formatSize = (bytes: number) =>
+  bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} kB`;
+
+// The files picked for one pre-alert, so it is clear exactly what will be read.
+function MasterFileList({ files, onRemove }: { files: MasterFile[]; onRemove: (uid: string) => void }) {
+  return (
+    <div className="mt-3 border border-slate-200 rounded-lg">
+      <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+        Uploaded files ({files.length}) · {formatSize(files.reduce((sum, f) => sum + f.size, 0))}
+      </div>
+      <ul className="m-0 p-0 list-none">
+        {files.map((f) => (
+          <li key={f.uid} className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 last:border-b-0 text-xs">
+            <FileOutlined className="text-indigo-400" />
+            <span className="flex-1 min-w-0 truncate text-slate-800 font-medium">{f.name}</span>
+            <span className="shrink-0 text-slate-400">{formatSize(f.size)}</span>
+            <Button
+              size="small"
+              type="text"
+              icon={<DeleteOutlined />}
+              aria-label={`Remove ${f.name}`}
+              onClick={() => onRemove(f.uid)}
+            />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+interface MblDetailsBoxProps {
+  info: Record<string, string>;
+  ticked: Record<string, boolean>;
+  onToggle: (label: string) => void;
+  /** Already filed to the master job — the ticks are shown but locked. */
+  filed: boolean;
+  mcz: string;
+  masterJob?: interfaces.MasterJobItem;
+  loadTypeLocked: boolean;
+}
+
+// The MBL details read from the pre-alert, each with a tick: ticked ones are filed to the
+// master job (once, with the batch's first shipment). When the master job already holds a
+// different value, it is shown so the overwrite is visible before saving.
+function MblDetailsBox({ info, ticked, onToggle, filed, mcz, masterJob, loadTypeLocked }: MblDetailsBoxProps) {
+  const rows = Object.entries(info).filter(([, value]) => value);
+  const current = (label: string): string => {
+    const field = MBL_TO_MASTER_JOB[label];
+    if (!field || !masterJob) return "";
+    const v = (masterJob as unknown as Record<string, unknown>)[field];
+    return v == null ? "" : String(v);
+  };
+  const tickedCount = rows.filter(([label]) => ticked[label]).length;
+  // A Full Load master job reads its containers from its shipments, so MBL containers aren't added.
+  const fullLoad = (masterJob?.loadType || (ticked["Load Type"] ? info["Load Type"] : "")) === FULL_LOAD;
+
+  return (
+    <div className="mb-3 border border-slate-200 rounded-lg overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
+        <span className="text-sm font-semibold text-slate-800">MBL shared info</span>
+        <span className="text-xs text-slate-500">
+          {filed
+            ? `Filed to ${mcz}`
+            : `${tickedCount} ticked — filed to ${mcz} with the first shipment`}
+        </span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2">
+        {rows.map(([label, value]) => {
+          const cntrDetail = isMblContainerDetail(label);
+          const fileable = !cntrDetail && (label in MBL_TO_MASTER_JOB || label === MBL_CONTAINERS_LABEL);
+          const locked = label === "Load Type" && loadTypeLocked;
+          const existing = current(label);
+          return (
+            <div key={label} className="flex items-start gap-2 px-3 py-2 border-b border-slate-100 text-xs">
+              <span className="w-5 shrink-0 pt-0.5">
+                {fileable && !locked && (
+                  <Checkbox
+                    checked={!!ticked[label]}
+                    disabled={filed}
+                    onChange={() => onToggle(label)}
+                    aria-label={`File ${label} to the master job`}
+                  />
+                )}
+              </span>
+              <span className="w-[150px] shrink-0 text-slate-500">{label}</span>
+              <span className="flex-1 min-w-0">
+                <span className="text-slate-900 font-medium break-words">{value}</span>
+                {cntrDetail && <span className="block text-[11px] text-slate-400">Used for the container type</span>}
+                {label === MBL_CONTAINERS_LABEL && fullLoad && (
+                  <span className="block text-[11px] text-slate-400">Full Load: the containers come from the shipments</span>
+                )}
+                {locked && (
+                  <span className="block text-[11px] text-amber-600">
+                    Master job is already {masterJob?.loadType}; Load Type can&apos;t be changed
+                  </span>
+                )}
+                {!locked && existing && existing !== value && fileable && (
+                  <span className="block text-[11px] text-slate-400">On master job now: {existing}</span>
+                )}
+              </span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
