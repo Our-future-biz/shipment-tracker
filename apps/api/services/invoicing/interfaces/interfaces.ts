@@ -86,3 +86,16 @@ export interface CustomsInvoiceLineItem {
   value: string | null;
   sortOrder: number;
 }
+
+/** Invoicing tab in Customs: its lines and the one Issued Invoice Number of the shipment */
+export interface CustomsInvoicingItem {
+  lines: CustomsInvoiceLineItem[];
+  issuedInvoiceNumber: string;
+}
+
+export interface CustomsInvoiceLineInput {
+  category?: string;
+  currency?: string;
+  value?: string;
+  sortOrder?: number;
+}

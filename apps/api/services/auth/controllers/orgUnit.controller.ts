@@ -1,4 +1,5 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
 import { orgUnitService } from "../services/orgUnit.service";
@@ -46,9 +47,7 @@ export const departmentUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/auth/departments/:id" },
   async (req: DepartmentUpdateRequest): Promise<DepartmentResponse> => {
     const actor = requireRole("superadmin", "admin");
-    const department = await orgUnitService.updateDepartment(req.id, actor.companyID, req);
-    if (!department) throw APIError.notFound("Department not found");
-    return { department };
+    return { department: await orgUnitService.updateDepartment(req.id, actor.companyID, req) };
   },
 );
 
@@ -60,9 +59,7 @@ export const departmentDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/auth/departments/:id" },
   async (req: OrgUnitDeleteRequest): Promise<OkResponse> => {
     const actor = requireRole("superadmin", "admin");
-    if (!(await orgUnitService.deleteDepartment(req.id, actor.companyID))) {
-      throw APIError.notFound("Department not found");
-    }
+    await orgUnitService.deleteDepartment(req.id, actor.companyID);
     return { ok: true };
   },
 );
@@ -106,9 +103,7 @@ export const branchUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/auth/branches/:id" },
   async (req: BranchUpdateRequest): Promise<BranchResponse> => {
     const actor = requireRole("superadmin", "admin");
-    const branch = await orgUnitService.updateBranch(req.id, actor.companyID, req);
-    if (!branch) throw APIError.notFound("Branch not found");
-    return { branch };
+    return { branch: await orgUnitService.updateBranch(req.id, actor.companyID, req) };
   },
 );
 
@@ -116,9 +111,7 @@ export const branchDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/auth/branches/:id" },
   async (req: OrgUnitDeleteRequest): Promise<OkResponse> => {
     const actor = requireRole("superadmin", "admin");
-    if (!(await orgUnitService.deleteBranch(req.id, actor.companyID))) {
-      throw APIError.notFound("Branch not found");
-    }
+    await orgUnitService.deleteBranch(req.id, actor.companyID);
     return { ok: true };
   },
 );
@@ -134,9 +127,9 @@ export const countryList = api(
   },
 );
 
+// The country by its ISO code; its name is taken from the server's country list.
 interface CountryCreateRequest {
-  code: string;
-  name: string;
+  code: string & MinLen<2> & MaxLen<2>;
 }
 interface CountryResponse {
   country: CountryInfo;
@@ -152,17 +145,14 @@ export const countryCreate = api(
 
 interface CountryUpdateRequest {
   id: string;
-  code: string;
-  name: string;
+  code: string & MinLen<2> & MaxLen<2>;
 }
 
 export const countryUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/auth/countries/:id" },
   async (req: CountryUpdateRequest): Promise<CountryResponse> => {
     const actor = requireRole("superadmin", "admin");
-    const country = await orgUnitService.updateCountry(req.id, actor.companyID, req);
-    if (!country) throw APIError.notFound("Country not found");
-    return { country };
+    return { country: await orgUnitService.updateCountry(req.id, actor.companyID, req) };
   },
 );
 
@@ -170,9 +160,7 @@ export const countryDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/auth/countries/:id" },
   async (req: OrgUnitDeleteRequest): Promise<OkResponse> => {
     const actor = requireRole("superadmin", "admin");
-    if (!(await orgUnitService.deleteCountry(req.id, actor.companyID))) {
-      throw APIError.notFound("Country not found");
-    }
+    await orgUnitService.deleteCountry(req.id, actor.companyID);
     return { ok: true };
   },
 );

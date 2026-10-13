@@ -15,5 +15,12 @@ export const locationTable = pgTable(
     nameAscii: text("name_ascii").notNull(),
     subdivisionName: text("subdivision_name"),
   },
-  (table) => [index("location_country_code_idx").on(table.countryCode)],
+  (table) => [
+    index("location_country_code_idx").on(table.countryCode),
+    index("location_code_idx").on(table.code),
+    // The pickers search code and name with ILIKE, also mid-name ("% ham%", "%(ham%"):
+    // trigram indexes serve those (pg_trgm, created by the migration).
+    index("location_code_trgm_idx").using("gin", table.code.op("gin_trgm_ops")),
+    index("location_name_ascii_trgm_idx").using("gin", table.nameAscii.op("gin_trgm_ops")),
+  ],
 );

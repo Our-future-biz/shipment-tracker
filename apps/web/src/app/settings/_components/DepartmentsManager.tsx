@@ -13,7 +13,11 @@ import { matchesSearch, sectionTitle, emptyText } from "../_lib/orgSearch";
 // null = closed, "new" = adding, otherwise the department being renamed.
 type Editing = Department | "new" | null;
 
-export function DepartmentsManager({ search }: { search: string }) {
+interface DepartmentsManagerProps {
+  search: string;
+}
+
+export function DepartmentsManager({ search }: DepartmentsManagerProps) {
   const toast = useToast();
   const { departments, isLoading, createDepartment, updateDepartment, deleteDepartment } = useDepartments();
   const shown = departments.filter((d) => matchesSearch(search, d.name));

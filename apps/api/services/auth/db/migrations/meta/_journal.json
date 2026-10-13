@@ -99,6 +99,13 @@
       "when": 1791864699585,
       "tag": "0013_announcement_audience",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791908024904,
+      "tag": "0014_location_search_indexes",
+      "breakpoints": true
     }
   ]
 }

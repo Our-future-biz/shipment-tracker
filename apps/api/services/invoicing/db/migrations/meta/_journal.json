@@ -50,6 +50,13 @@
       "when": 1791894040034,
       "tag": "0006_customs_invoicing",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791907988518,
+      "tag": "0007_customs_invoice_unique_per_company",
+      "breakpoints": true
     }
   ]
 }

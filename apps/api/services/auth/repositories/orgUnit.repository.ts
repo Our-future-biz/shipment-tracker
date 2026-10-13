@@ -3,6 +3,7 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { departmentTable, branchTable, countryTable } from "../schemas/orgUnit.schema";
 import { locationTable } from "../schemas/location.schema";
+import type { Place } from "../../../lib/geo/place";
 
 class DepartmentRepository extends TenantRepository<typeof departmentTable> {
   constructor() {
@@ -30,6 +31,14 @@ class BranchRepository extends TenantRepository<typeof branchTable> {
       .where(and(eq(branchTable.companyId, companyId), isNull(branchTable.deletedAt)))
       .orderBy(asc(branchTable.name));
   }
+
+  async countByCountryCode(companyId: string, countryCode: string): Promise<number> {
+    const [row] = await this.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(branchTable)
+      .where(and(eq(branchTable.companyId, companyId), eq(branchTable.countryCode, countryCode), isNull(branchTable.deletedAt)));
+    return row?.n ?? 0;
+  }
 }
 
 class CountryRepository extends TenantRepository<typeof countryTable> {
@@ -45,6 +54,29 @@ class CountryRepository extends TenantRepository<typeof countryTable> {
       .orderBy(asc(countryTable.name));
   }
 
+  // Branches keep a copy of their country's code and name, so a changed country carries over
+  // to them in the same transaction.
+  async updateWithBranches(id: string, companyId: string, values: { code: string; name: string }) {
+    return this.db.transaction(async (tx) => {
+      const [before] = await tx
+        .select()
+        .from(countryTable)
+        .where(and(eq(countryTable.id, id), eq(countryTable.companyId, companyId), isNull(countryTable.deletedAt)))
+        .limit(1);
+      if (!before) return null;
+      const [row] = await tx
+        .update(countryTable)
+        .set({ ...values, updatedAt: new Date() })
+        .where(eq(countryTable.id, id))
+        .returning();
+      await tx
+        .update(branchTable)
+        .set({ countryCode: values.code, country: values.name, updatedAt: new Date() })
+        .where(and(eq(branchTable.companyId, companyId), eq(branchTable.countryCode, before.code), isNull(branchTable.deletedAt)));
+      return row ?? null;
+    });
+  }
+
   async findByCode(companyId: string, code: string) {
     const [row] = await this.db
       .select()
@@ -54,8 +86,6 @@ class CountryRepository extends TenantRepository<typeof countryTable> {
     return row ?? null;
   }
 }
-
-type PlaceRow = { code: string; countryCode: string; name: string; subdivisionName: string | null };
 
 // UN/LOCODE places: reference data, the same for every company.
 class LocationRepository {
@@ -93,7 +123,7 @@ class LocationRepository {
   async search(query: string, countryCode: string | null, limit: number) {
     const prefix = `${query}%`;
     const inCountry = countryCode ? sql`AND country_code = ${countryCode}` : sql``;
-    const result = await db.execute<PlaceRow>(sql`
+    const result = await db.execute<Place & Record<string, unknown>>(sql`
       SELECT code, country_code AS "countryCode", name, subdivision_name AS "subdivisionName" FROM (
         SELECT DISTINCT ON (code) code, country_code, name, name_ascii, subdivision_name FROM location
         WHERE (code ILIKE ${prefix} OR name_ascii ILIKE ${prefix} OR name_ascii ILIKE ${`% ${query}%`} OR name_ascii ILIKE ${`%(${query}%`}) ${inCountry}

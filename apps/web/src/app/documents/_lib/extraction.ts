@@ -295,12 +295,43 @@ export function bookingExistingValue(masterJob: interfaces.MasterJobItem | undef
   return typeof value === "string" ? value : "";
 }
 
-/** The master-job update for the approved booking values. */
+/** Booking labels the master job stores as dates ("YYYY-MM-DD"). */
+const BOOKING_DATE_LABELS = new Set(["ETS", "ETA", "Cargo Closing", "VGM Closing", "SI Closing"]);
+
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/**
+ * A date as read off a document — "2026-11-20", "20.11.2026", "20/11/2026", "20-NOV-2026",
+ * "20 Nov 2026" (day first) — as "YYYY-MM-DD"; "" when it isn't a full date (e.g. no year).
+ */
+export function toIsoDate(value: string): string {
+  const s = value.trim();
+  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  const dmy = s.match(/^(\d{1,2})[./\-\s]+(\d{1,2}|[A-Za-z]{3,})[./\-\s,]+(\d{4})$/);
+  let y: number, m: number, d: number;
+  if (iso) [y, m, d] = [+iso[1]!, +iso[2]!, +iso[3]!];
+  else if (dmy) {
+    const month = /^\d+$/.test(dmy[2]!) ? +dmy[2]! : MONTHS.indexOf(dmy[2]!.slice(0, 3).toLowerCase()) + 1;
+    [y, m, d] = [+dmy[3]!, month, +dmy[1]!];
+  } else return "";
+  const date = new Date(Date.UTC(y, m - 1, d));
+  if (m < 1 || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return "";
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/** Approved booking dates that can't be read as a full date; the master job would refuse them. */
+export function invalidBookingDates(approved: Record<string, string>): string[] {
+  return Object.entries(approved)
+    .filter(([label, value]) => BOOKING_DATE_LABELS.has(label) && value.trim() && !toIsoDate(value))
+    .map(([label]) => label);
+}
+
+/** The master-job update for the approved booking values, dates as "YYYY-MM-DD". */
 export function bookingToMasterJobUpdate(approved: Record<string, string>): controllers.MasterJobUpdateRequest {
   const out: Record<string, string> = {};
   for (const [label, field] of Object.entries(BOOKING_TO_MASTER_JOB)) {
     const value = (approved[label] ?? "").trim();
-    if (value) out[field] = value;
+    if (value) out[field] = BOOKING_DATE_LABELS.has(label) ? toIsoDate(value) : value;
   }
   return out as controllers.MasterJobUpdateRequest;
 }

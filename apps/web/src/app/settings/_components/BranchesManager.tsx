@@ -22,7 +22,11 @@ const cityMatches = (l: Location, query: string) => {
 // null = closed, "new" = adding, otherwise the branch being edited.
 type Editing = Branch | "new" | null;
 
-export function BranchesManager({ search }: { search: string }) {
+interface BranchesManagerProps {
+  search: string;
+}
+
+export function BranchesManager({ search }: BranchesManagerProps) {
   const toast = useToast();
   const { branches, isLoading, createBranch, updateBranch, deleteBranch } = useBranches();
   const shown = branches.filter((b) => matchesSearch(search, b.name, b.city, b.country, b.countryCode));
@@ -36,6 +40,11 @@ export function BranchesManager({ search }: { search: string }) {
   const { locations, isLoading: locationsLoading } = useLocations(editing ? countryCode : undefined);
   const byId = useMemo(() => new Map(locations.map((l) => [l.id, l])), [locations]);
   const cityOptions = useMemo(() => locations.map((l) => ({ value: l.id, label: cityLabel(l) })), [locations]);
+
+  // A city belongs to one country: choosing another country clears it.
+  const handleValuesChange = (changed: Partial<BranchInput>) => {
+    if ("countryCode" in changed) form.setFieldValue("locationId", undefined);
+  };
 
   const handleSubmit = async () => {
     if (!editing) return;
@@ -119,10 +128,7 @@ export function BranchesManager({ search }: { search: string }) {
               ? { name: editing.name, countryCode: editing.countryCode ?? undefined, locationId: editing.locationId ?? undefined }
               : { name: "" }
           }
-          // A city belongs to one country: choosing another country clears it.
-          onValuesChange={(changed) => {
-            if ("countryCode" in changed) form.setFieldValue("locationId", undefined);
-          }}
+          onValuesChange={handleValuesChange}
         >
           <Form.Item name="name" label="Name" rules={[{ required: true, whitespace: true, message: "Name is required" }]}>
             <Input placeholder="e.g. Prague Office" />

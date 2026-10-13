@@ -8,6 +8,9 @@ import { COUNTRIES } from "./countries";
 
 export type GeoKind = "place" | "country" | "countryCode";
 
+export const isGeoKind = (type: string | undefined): type is GeoKind =>
+  type === "place" || type === "country" || type === "countryCode";
+
 const PLACE_RE = /^.+ \([A-Z]{2}[A-Z0-9]{3}\)$/;
 const COUNTRY_RE = /^.+ \(([A-Z]{2})\)$/;
 

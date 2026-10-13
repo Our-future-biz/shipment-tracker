@@ -4,10 +4,7 @@ import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode }
 import { Tooltip } from "antd";
 
 // The last ~5 characters of a value too long for its field fade out.
-const FADE: CSSProperties = {
-  maskImage: "linear-gradient(to right, #000 calc(100% - 5ch), transparent)",
-  WebkitMaskImage: "linear-gradient(to right, #000 calc(100% - 5ch), transparent)",
-};
+const FADE = "[mask-image:linear-gradient(to_right,#000_calc(100%-5ch),transparent)]";
 
 interface FadeTextProps {
   children: ReactNode;
@@ -41,8 +38,8 @@ export function FadeText({ children, full, className, style, title }: FadeTextPr
     <Tooltip title={overflows ? (full ?? children) : null} mouseEnterDelay={1} placement="topLeft">
       <span
         ref={ref}
-        className={`block min-w-0 overflow-hidden whitespace-nowrap ${className ?? ""}`}
-        style={overflows ? { ...style, ...FADE } : style}
+        className={`block min-w-0 overflow-hidden whitespace-nowrap ${overflows ? FADE : ""} ${className ?? ""}`}
+        style={style}
         title={overflows ? undefined : title}
       >
         {children}

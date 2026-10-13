@@ -9,6 +9,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { useBranches, useCountries, useDepartments } from "@/hooks/useOrgUnits";
 import type { Announcement, NewAnnouncementInput, UpdateAnnouncementInput } from "@/hooks/useNoticeboard";
 import { SEVERITIES } from "../_lib/boards";
+import { branchFitsCountry, branchOptions } from "../_lib/branches";
 import { fileIcon } from "./NoticeAttachmentList";
 
 // A new post, or an existing post being edited.
@@ -18,7 +19,7 @@ interface NoticePostModalProps {
   // Null closes the dialog. The owner gives the dialog a new `key` for every opening.
   target: NoticePostTarget | null;
   onClose: () => void;
-  onCreate: (input: NewAnnouncementInput) => Promise<{ id: string }>;
+  onCreate: (input: NewAnnouncementInput) => Promise<{ id: string; target: string }>;
   onUpdate: (args: { id: string; input: UpdateAnnouncementInput }) => Promise<unknown>;
   onAddAttachment: (args: { id: string; file: File }) => Promise<unknown>;
   onRemoveAttachment: (attachmentId: string) => Promise<unknown>;
@@ -186,17 +187,11 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
         const chosen = (value?: string) => (value && value !== ALL ? value : undefined);
         const audience = { countryCode: chosen(v.countryCode), branchId: chosen(v.branchId), departmentId: chosen(v.departmentId) };
         const forAll = !audience.countryCode && !audience.branchId && !audience.departmentId;
-        id = (await onCreate({ scope: forAll ? "company" : "audience", ...audience, severity: v.severity, title: v.title, body: v.body ?? "" })).id;
+        const created = await onCreate({ scope: forAll ? "company" : "audience", ...audience, severity: v.severity, title: v.title, body: v.body ?? "" });
+        id = created.id;
         setCreatedId(id);
-        setCreatedFor(
-          [
-            countries.find((c) => c.code === audience.countryCode)?.name,
-            branches.find((b) => b.id === audience.branchId)?.name,
-            departments.find((d) => d.id === audience.departmentId)?.name,
-          ]
-            .filter(Boolean)
-            .join(" · ") || "All",
-        );
+        // Worded by the server, the same as the post will show on the board.
+        setCreatedFor(created.target);
       }
       noticeSaved = true;
       await Promise.all(
@@ -239,15 +234,13 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
   // A chosen country narrows the branches to the ones in it.
   const countryCode = Form.useWatch("countryCode", form);
   const countryChosen = !!countryCode && countryCode !== ALL;
-  const branchOptions = branches
-    .filter((b) => !countryChosen || b.countryCode === countryCode)
-    .map((b) => ({ value: b.id, label: b.city ? `${b.name} (${b.city})` : b.name }));
   const withAll = (allLabel: string, options: { value: string; label: string }[]) => [{ value: ALL, label: allLabel }, ...options];
 
   const handleValuesChange = (changed: Partial<NoticeFormValues>, all: NoticeFormValues) => {
-    // A branch in another country no longer fits.
-    if ("countryCode" in changed && countryChosen && all.branchId && all.branchId !== ALL) {
-      if (branches.find((b) => b.id === all.branchId)?.countryCode !== changed.countryCode) form.setFieldValue("branchId", undefined);
+    // A branch in another country no longer fits. Judged on the country just picked: `countryChosen`
+    // is still the previous render's.
+    if (changed.countryCode && changed.countryCode !== ALL && all.branchId !== ALL) {
+      if (!branchFitsCountry(branches, all.branchId, changed.countryCode)) form.setFieldValue("branchId", undefined);
     }
     // The choice that makes it every country, branch and department is confirmed first.
     const field = AUDIENCE_FIELDS.find((f) => f in changed);
@@ -300,7 +293,7 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
                 showSearch
                 optionFilterProp="label"
                 placeholder="Choose a branch"
-                options={withAll(countryChosen ? "All branches in this country" : "All branches", branchOptions)}
+                options={withAll(countryChosen ? "All branches in this country" : "All branches", branchOptions(branches, countryChosen ? countryCode : undefined))}
               />
             </Form.Item>
             <Form.Item name="departmentId" label="Department" rules={[{ required: true, message: "Choose a department, or All" }]}>

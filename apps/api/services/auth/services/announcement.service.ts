@@ -5,9 +5,9 @@ import { announcementAttachmentRepository } from "../repositories/announcementAt
 import { departmentRepository, branchRepository, countryRepository } from "../repositories/orgUnit.repository";
 import { userRepository } from "../repositories/user.repository";
 import { MAX_ATTACHMENT_BYTES, parseAttachmentDataUrl } from "../attachmentDataUrl";
+import { type AnnouncementScope, audienceCountryCode, audienceLabel, isAddressedTo } from "../announcementAudience";
 
-export const ANNOUNCEMENT_SCOPES = ["company", "audience", "department", "branch", "country"] as const;
-export type AnnouncementScope = (typeof ANNOUNCEMENT_SCOPES)[number];
+export { ANNOUNCEMENT_SCOPES, type AnnouncementScope } from "../announcementAudience";
 
 export const ANNOUNCEMENT_SEVERITIES = ["info", "warning", "critical"] as const;
 
@@ -112,33 +112,6 @@ function checkBody(value: string | undefined): string {
   return body;
 }
 
-type Addressee = { departmentId: string | null; branchId: string | null; country: string | null; countryCode: string | null };
-
-// An "audience" column left empty means all; a filled one must be the reader's own.
-const sameOrAll = (wanted: string | null, own: string | null) => !wanted || wanted === own;
-
-// Whether a post is addressed to someone sitting where `viewer` does.
-function isAddressedTo(post: Addressee & { scope: string }, viewer: Addressee): boolean {
-  switch (post.scope as AnnouncementScope) {
-    case "company":
-      return true;
-    case "audience":
-      return (
-        sameOrAll(post.countryCode, viewer.countryCode) &&
-        sameOrAll(post.branchId, viewer.branchId) &&
-        sameOrAll(post.departmentId, viewer.departmentId)
-      );
-    case "department":
-      return !!viewer.departmentId && post.departmentId === viewer.departmentId;
-    case "branch":
-      return !!viewer.branchId && post.branchId === viewer.branchId;
-    case "country":
-      return !!viewer.country && post.country?.toLowerCase() === viewer.country.toLowerCase();
-    default:
-      return false;
-  }
-}
-
 function checkSeverity(severity: string): string {
   if (!(ANNOUNCEMENT_SEVERITIES as readonly string[]).includes(severity)) {
     throw APIError.invalidArgument("severity must be info, warning or critical");
@@ -171,8 +144,8 @@ class AnnouncementService {
     const announcements = rows.map((r) => ({
       id: r.id,
       scope: r.scope,
-      target: [r.country, r.branchName, r.departmentName].filter(Boolean).join(" · ") || "All",
-      countryCode: r.countryCode,
+      target: audienceLabel([r.country, r.branchName, r.departmentName]),
+      countryCode: audienceCountryCode(r),
       branchId: r.branchId,
       departmentId: r.departmentId,
       severity: r.severity,
@@ -191,18 +164,19 @@ class AnnouncementService {
     return { viewer, announcements };
   }
 
-  async create(actor: Actor, input: AnnouncementInput): Promise<{ id: string }> {
+  // Returns the new post's id and whom it went to, worded as on the board.
+  async create(actor: Actor, input: AnnouncementInput): Promise<{ id: string; target: string }> {
     const title = checkTitle(input.title);
     const body = checkBody(input.body);
-    const target = await this.#resolveTarget(actor.companyID, input);
+    const { label, ...columns } = await this.#resolveTarget(actor.companyID, input);
     const row = await announcementRepository.createForCompany(actor.companyID, {
-      ...target,
+      ...columns,
       severity: checkSeverity(input.severity ?? "info"),
       title,
       body,
       authorId: actor.userID,
     } as never);
-    return { id: row.id };
+    return { id: row.id, target: label };
   }
 
   async update(actor: Actor, id: string, patch: AnnouncementPatch): Promise<boolean> {
@@ -311,12 +285,13 @@ class AnnouncementService {
     return true;
   }
 
-  // Validates the board + addressee and returns exactly the columns that board uses.
+  // Validates the board + addressee and returns exactly the columns that board uses, with the
+  // addressee worded as the board shows it.
   async #resolveTarget(companyId: string, input: AnnouncementInput) {
     const empty = { departmentId: null, branchId: null, country: null, countryCode: null };
     switch (input.scope as AnnouncementScope) {
       case "company":
-        return { ...empty, scope: "company" };
+        return { ...empty, scope: "company", label: audienceLabel([]) };
       case "audience": {
         // Each of country, branch and department is one of the company's own, or left out for all.
         const code = input.countryCode?.trim().toUpperCase();
@@ -328,30 +303,31 @@ class AnnouncementService {
         const department = input.departmentId ? await departmentRepository.getByIdForCompany(input.departmentId, companyId) : null;
         if (input.departmentId && !department) throw APIError.invalidArgument("Choose one of the organization's departments");
         // All three left at "all" is everyone: the company-wide notice.
-        if (!country && !branch && !department) return { ...empty, scope: "company" };
+        if (!country && !branch && !department) return { ...empty, scope: "company", label: audienceLabel([]) };
         return {
           scope: "audience",
           country: country?.name ?? null,
           countryCode: country?.code ?? null,
           branchId: branch?.id ?? null,
           departmentId: department?.id ?? null,
+          label: audienceLabel([country?.name, branch?.name, department?.name]),
         };
       }
       case "department": {
         const department = input.departmentId && (await departmentRepository.getByIdForCompany(input.departmentId, companyId));
         if (!department) throw APIError.invalidArgument("Choose a department");
-        return { ...empty, scope: "department", departmentId: department.id };
+        return { ...empty, scope: "department", departmentId: department.id, label: audienceLabel([department.name]) };
       }
       case "branch": {
         const branch = input.branchId && (await branchRepository.getByIdForCompany(input.branchId, companyId));
         if (!branch) throw APIError.invalidArgument("Choose a branch");
-        return { ...empty, scope: "branch", branchId: branch.id };
+        return { ...empty, scope: "branch", branchId: branch.id, label: audienceLabel([branch.name]) };
       }
       case "country": {
         const country = input.country?.trim();
         if (!country) throw APIError.invalidArgument("Choose a country");
         if (country.length > MAX_COUNTRY_LENGTH) throw APIError.invalidArgument("country is too long");
-        return { ...empty, scope: "country", country };
+        return { ...empty, scope: "country", country, label: audienceLabel([country]) };
       }
       default:
         throw APIError.invalidArgument("scope must be company, audience, department, branch or country");

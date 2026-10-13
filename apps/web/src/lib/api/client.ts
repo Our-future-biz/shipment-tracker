@@ -837,10 +837,10 @@ export namespace invoicing {
             return await resp.json() as controllers.DeleteCustomsLineResponse
         }
 
-        public async customsInvoicingGet(shipmentId: string): Promise<controllers.CustomsInvoicingGetResponse> {
+        public async customsInvoicingGet(shipmentId: string): Promise<interfaces.CustomsInvoicingItem> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/customs-invoicing/${encodeURIComponent(shipmentId)}`)
-            return await resp.json() as controllers.CustomsInvoicingGetResponse
+            return await resp.json() as interfaces.CustomsInvoicingItem
         }
 
         public async customsInvoicingSetNumber(shipmentId: string, params: controllers.SetIssuedInvoiceNumberRequest): Promise<controllers.SetIssuedInvoiceNumberResponse> {
@@ -1668,6 +1668,10 @@ export namespace controllers {
 
     export interface AnnouncementCreateResponse {
         id: string
+        /**
+         * Whom the post went to, worded as on the board ("Czechia · Prague Office", "All").
+         */
+        target: string
     }
 
     export interface AnnouncementListResponse {
@@ -1937,9 +1941,11 @@ export namespace controllers {
         contact: interfaces.ContactItem
     }
 
+    /**
+     * The country by its ISO code; its name is taken from the server's country list.
+     */
     export interface CountryCreateRequest {
         code: string
-        name: string
     }
 
     export interface CountryListResponse {
@@ -1952,7 +1958,6 @@ export namespace controllers {
 
     export interface CountryUpdateRequest {
         code: string
-        name: string
     }
 
     export interface CreateRateRequest {
@@ -2023,11 +2028,6 @@ export namespace controllers {
 
     export interface CustomerUpdateResponse {
         customer: interfaces.CustomerItem
-    }
-
-    export interface CustomsInvoicingGetResponse {
-        lines: interfaces.CustomsInvoiceLineItem[]
-        issuedInvoiceNumber: string
     }
 
     export interface CustomsLineResponse {
@@ -3263,6 +3263,16 @@ export namespace controllers {
 
 export namespace geo {
     export type GeoKind = "place" | "country" | "countryCode"
+
+    /**
+     * A UN/LOCODE place as shipments, quotes and the extraction use it, written "Name (CODE)".
+     */
+    export interface Place {
+        code: string
+        countryCode: string
+        name: string
+        subdivisionName: string | null
+    }
 }
 
 export namespace interfaces {
@@ -3545,6 +3555,14 @@ export namespace interfaces {
         currency: string
         value: string | null
         sortOrder: number
+    }
+
+    /**
+     * Invoicing tab in Customs: its lines and the one Issued Invoice Number of the shipment
+     */
+    export interface CustomsInvoicingItem {
+        lines: CustomsInvoiceLineItem[]
+        issuedInvoiceNumber: string
     }
 
     export interface DocumentItem {
@@ -4287,12 +4305,7 @@ export namespace services {
     /**
      * A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
      */
-    export interface PlaceInfo {
-        code: string
-        countryCode: string
-        name: string
-        subdivisionName: string | null
-    }
+    export type PlaceInfo = geo.Place
 }
 
 

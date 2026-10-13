@@ -1,15 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Button, Spin } from "antd";
+import { useMemo, useState } from "react";
+import { Button, Spin, message } from "antd";
 import { DeleteOutlined, EyeOutlined, PlusOutlined } from "@ant-design/icons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import { CURRENCIES } from "@/lib/enums";
 import { AppCard } from "@/components/AppCard";
 import { GridHeader, GridInput, GridSelect } from "@/app/invoicing/_components/gridControls";
 import { type ShipmentItem } from "@/hooks/useShipments";
-import { CustomsInvoicePreview, type CustomsInvoiceLine } from "./CustomsInvoicePreview";
+import { type CustomsInvoiceLineItem, useCustomsInvoicing } from "@/hooks/useCustomsInvoicing";
+import { CustomsInvoicePreview } from "./CustomsInvoicePreview";
+import { type CustomsInvoiceLine, fmt, parseAmount, totalsByCurrency } from "./_lib/customsInvoice";
 
 // Offered in the Category field; any other text can be typed in as well.
 const CUSTOMS_CATEGORIES = ["Customs clearance", "Duty", "VAT", "T1 document", "Other"];
@@ -26,82 +26,89 @@ interface LineRow {
   value: string;
 }
 
-// "1 000,50" and "1000.50" are the same value; it is stored with a dot and no spaces.
-const toNumberText = (v: string) => v.replace(/\s/g, "").replace(",", ".");
+type LineDraft = Partial<Omit<LineRow, "id">>;
 
-const fmt = (n: number) => n.toLocaleString("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const toRow = (l: CustomsInvoiceLineItem): LineRow => ({ id: l.id, category: l.category, currency: l.currency, value: l.value ?? "" });
+
+interface CustomsInvoicingProps {
+  shipment: ShipmentItem;
+}
 
 // Invoicing tab of a shipment opened in Customs: lines of Category, Currency and Value,
 // and one Issued Invoice Number for the whole shipment. Each field saves when it is left.
-export function CustomsInvoicing({ shipment }: { shipment: ShipmentItem }) {
-  const shipmentId = shipment.id;
-  const queryClient = useQueryClient();
-  const queryKey = ["customs-invoicing", shipmentId];
-  const query = useQuery({ queryKey, queryFn: () => api.invoicing.customsInvoicingGet(shipmentId) });
-  const invalidate = () => queryClient.invalidateQueries({ queryKey });
+// What is being typed is kept as a draft over the saved lines, so a save or refetch of
+// another line never overwrites it.
+export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
+  const { lines, issuedInvoiceNumber, isLoading, addLine, isAdding, updateLine, deleteLine, setIssuedInvoiceNumber } =
+    useCustomsInvoicing(shipment.id);
 
-  const [rows, setRows] = useState<LineRow[]>([]);
-  const [issuedNumber, setIssuedNumber] = useState("");
+  const [drafts, setDrafts] = useState<Record<string, LineDraft>>({});
+  const [numberDraft, setNumberDraft] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
 
-  useEffect(() => {
-    if (!query.data) return;
-    setRows(query.data.lines.map((l) => ({ id: l.id, category: l.category, currency: l.currency, value: l.value ?? "" })));
-    setIssuedNumber(query.data.issuedInvoiceNumber);
-  }, [query.data]);
+  const rows = useMemo(() => lines.map((l) => ({ ...toRow(l), ...drafts[l.id] })), [lines, drafts]);
+  const issuedNumber = numberDraft ?? issuedInvoiceNumber;
 
-  const addLine = useMutation({
-    mutationFn: () => api.invoicing.customsInvoicingAddLine(shipmentId, { currency: "CZK", sortOrder: rows.length }),
-    onSuccess: invalidate,
-  });
-  const saveLine = useMutation({
-    mutationFn: (row: LineRow) =>
-      api.invoicing.customsInvoicingUpdateLine(shipmentId, row.id, {
-        category: row.category,
-        currency: row.currency,
-        value: toNumberText(row.value),
-      }),
-    onSuccess: invalidate,
-  });
-  const deleteLine = useMutation({
-    mutationFn: (id: string) => api.invoicing.customsInvoicingDeleteLine(shipmentId, id),
-    onSuccess: invalidate,
-  });
-  const saveNumber = useMutation({
-    mutationFn: (value: string) => api.invoicing.customsInvoicingSetNumber(shipmentId, { issuedInvoiceNumber: value }),
-    onSuccess: invalidate,
-  });
+  const dropDraft = (id: string) =>
+    setDrafts((prev) => Object.fromEntries(Object.entries(prev).filter(([key]) => key !== id)));
 
-  const setField = (i: number, field: keyof LineRow, value: string) =>
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)));
+  const handleFieldChange = (id: string, field: keyof LineDraft, value: string) =>
+    setDrafts((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
 
-  // Only a changed line is written back.
-  const commitLine = (row: LineRow) => {
-    const saved = query.data?.lines.find((l) => l.id === row.id);
-    if (saved && saved.category === row.category && saved.currency === row.currency && (saved.value ?? "") === row.value) return;
-    saveLine.mutate(row);
+  // Only a changed line is written back; an amount that can't be read is not sent.
+  const handleLineCommit = (row: LineRow) => {
+    const saved = lines.find((l) => l.id === row.id);
+    if (!saved) return;
+    const value = parseAmount(row.value);
+    if (value === null) {
+      message.error(`"${row.value}" is not an amount — use e.g. 1 250,50`);
+      return;
+    }
+    const before = toRow(saved);
+    if (before.category === row.category && before.currency === row.currency && before.value === value) {
+      dropDraft(row.id);
+      return;
+    }
+    updateLine({ id: row.id, category: row.category, currency: row.currency, value })
+      .then(() => dropDraft(row.id))
+      .catch(() => {});
   };
 
-  // The lines add up per currency; values that are not numbers are left out.
-  const totals = useMemo(() => {
-    const sums = new Map<string, number>();
-    for (const r of rows) {
-      const n = Number(toNumberText(r.value));
-      if (r.value.trim() === "" || !Number.isFinite(n)) continue;
-      sums.set(r.currency, (sums.get(r.currency) ?? 0) + n);
+  const handleNumberCommit = () => {
+    if (numberDraft === null) return;
+    if (numberDraft.trim() === issuedInvoiceNumber) {
+      setNumberDraft(null);
+      return;
     }
-    return [...sums.entries()];
-  }, [rows]);
+    setIssuedInvoiceNumber(numberDraft)
+      .then(() => setNumberDraft(null))
+      .catch(() => {});
+  };
+
+  // Lines with an amount that reads as a number; the rest are left out of totals and preview.
+  const amountOf = (r: LineRow) => {
+    const v = parseAmount(r.value);
+    return v ? Number(v) : null;
+  };
+
+  const totals = useMemo(
+    () =>
+      totalsByCurrency(
+        rows.flatMap((r) => {
+          const n = amountOf(r);
+          return n === null ? [] : [{ category: r.category, currency: r.currency, value: n }];
+        }),
+      ),
+    [rows],
+  );
 
   // What the preview shows: every line that has anything filled in, a missing value as 0.
   const previewLines: CustomsInvoiceLine[] = rows
     .filter((r) => r.category.trim() !== "" || r.value.trim() !== "")
-    .map((r) => {
-      const n = Number(toNumberText(r.value));
-      return { category: r.category, currency: r.currency, value: Number.isFinite(n) ? n : 0 };
-    });
+    .map((r) => ({ category: r.category, currency: r.currency, value: amountOf(r) ?? 0 }));
+  const unreadable = rows.filter((r) => parseAmount(r.value) === null).length;
 
-  if (query.isLoading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Spin />
@@ -118,7 +125,7 @@ export function CustomsInvoicing({ shipment }: { shipment: ShipmentItem }) {
             <Button size="small" icon={<EyeOutlined />} onClick={() => setPreviewOpen(true)}>
               Preview
             </Button>
-            <Button size="small" icon={<PlusOutlined />} loading={addLine.isPending} onClick={() => addLine.mutate()}>
+            <Button size="small" icon={<PlusOutlined />} loading={isAdding} onClick={() => addLine({ currency: "CZK", sortOrder: rows.length })}>
               Add line
             </Button>
           </div>
@@ -134,14 +141,14 @@ export function CustomsInvoicing({ shipment }: { shipment: ShipmentItem }) {
               ))}
             </datalist>
             <GridHeader template={TEMPLATE} columns={["Category", "Cur.", "Value", ""]} />
-            {rows.map((row, i) => (
+            {rows.map((row) => (
               <div key={row.id} className={`grid ${TEMPLATE} items-center gap-1 py-[2px] border-b border-slate-100`}>
                 <input
                   type="text"
                   list="customs-invoice-categories"
                   value={row.category}
-                  onChange={(e) => setField(i, "category", e.target.value)}
-                  onBlur={() => commitLine(rows[i]!)}
+                  onChange={(e) => handleFieldChange(row.id, "category", e.target.value)}
+                  onBlur={() => handleLineCommit(row)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") (e.target as HTMLInputElement).blur();
                   }}
@@ -152,21 +159,25 @@ export function CustomsInvoicing({ shipment }: { shipment: ShipmentItem }) {
                   value={row.currency}
                   options={CURRENCIES}
                   onChange={(v) => {
-                    setField(i, "currency", v);
-                    commitLine({ ...row, currency: v });
+                    handleFieldChange(row.id, "currency", v);
+                    handleLineCommit({ ...row, currency: v });
                   }}
                 />
                 <GridInput
                   value={row.value}
-                  onChange={(v) => setField(i, "value", v)}
-                  onBlur={() => commitLine(rows[i]!)}
+                  onChange={(v) => handleFieldChange(row.id, "value", v)}
+                  onBlur={() => handleLineCommit(row)}
                   placeholder="0.00"
+                  className={parseAmount(row.value) === null ? "!border-red-400 !text-red-600" : ""}
                 />
                 <Button
                   type="text"
                   size="small"
                   icon={<DeleteOutlined />}
-                  onClick={() => deleteLine.mutate(row.id)}
+                  onClick={() => {
+                    dropDraft(row.id);
+                    deleteLine(row.id);
+                  }}
                   className="!text-slate-400 hover:!text-red-500"
                 />
               </div>
@@ -180,10 +191,8 @@ export function CustomsInvoicing({ shipment }: { shipment: ShipmentItem }) {
           <label className="text-xs text-slate-500">Issued Invoice Number:</label>
           <input
             value={issuedNumber}
-            onChange={(e) => setIssuedNumber(e.target.value)}
-            onBlur={() => {
-              if (issuedNumber.trim() !== (query.data?.issuedInvoiceNumber ?? "")) saveNumber.mutate(issuedNumber);
-            }}
+            onChange={(e) => setNumberDraft(e.target.value)}
+            onBlur={handleNumberCommit}
             onKeyDown={(e) => {
               if (e.key === "Enter") (e.target as HTMLInputElement).blur();
             }}
@@ -200,6 +209,11 @@ export function CustomsInvoicing({ shipment }: { shipment: ShipmentItem }) {
                   {cur} {fmt(sum)}
                 </span>
               ))
+            )}
+            {unreadable > 0 && (
+              <span className="text-red-500">
+                ({unreadable} {unreadable === 1 ? "amount" : "amounts"} not readable, left out)
+              </span>
             )}
           </div>
         </div>

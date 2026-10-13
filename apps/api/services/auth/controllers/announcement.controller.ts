@@ -65,6 +65,8 @@ interface AnnouncementCreateRequest {
 
 interface AnnouncementCreateResponse {
   id: string;
+  // Whom the post went to, worded as on the board ("Czechia · Prague Office", "All").
+  target: string;
 }
 
 export const announcementCreate = api(

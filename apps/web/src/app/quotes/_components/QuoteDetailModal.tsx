@@ -13,7 +13,7 @@ import { QUOTE_DROPDOWNS, QUOTE_TO_SHIPMENT_FIELD, quoteColType, quoteField } fr
 import { QuoteCostSection } from "./QuoteCostSection";
 import { QuoteDocumentsTab } from "./QuoteDocumentsTab";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
-import type { GeoKind } from "@/lib/places";
+import { isGeoKind } from "@/lib/places";
 
 const { TextArea } = Input;
 
@@ -32,8 +32,8 @@ const ALL_DETAIL_COLS = DETAIL_SECTIONS.flatMap((s) => s.cols);
 
 function FieldControl({ label, value, onChange, onSave }: { label: string; value: string; onChange: (v: string) => void; onSave: (v: string) => void }) {
   const type = quoteColType(label);
-  if (type === "place" || type === "country" || type === "countryCode") {
-    const kind = type as GeoKind;
+  if (isGeoKind(type)) {
+    const kind = type;
     return (
       <div className="flex items-center min-w-0">
         <GeoSelect kind={kind} size="small" className="w-full min-w-0" value={value} onChange={onSave} />

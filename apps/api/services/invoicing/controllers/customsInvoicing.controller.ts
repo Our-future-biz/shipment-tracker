@@ -1,44 +1,28 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, Min } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
-import { customsInvoiceRepository } from "../repositories/customsInvoice.repository";
-import type { CustomsInvoiceLineItem } from "../interfaces/interfaces";
+import { customsInvoicingService } from "../services/customsInvoicing.service";
+import type { CustomsInvoiceLineItem, CustomsInvoicingItem } from "../interfaces/interfaces";
 
-// Invoicing tab of a shipment opened in Customs: lines of Category, Currency and Value,
-// and one Issued Invoice Number for the whole shipment.
-
-// Postgres rejects "" for a numeric column, so a cleared value is stored as empty (null).
-const toValue = (v: string | undefined) => (v === undefined ? undefined : v.trim() === "" ? null : v.trim());
+// Invoicing tab of a shipment opened in Customs.
 
 interface CustomsInvoicingGetRequest {
   shipmentId: string;
 }
 
-interface CustomsInvoicingGetResponse {
-  lines: CustomsInvoiceLineItem[];
-  issuedInvoiceNumber: string;
-}
-
 export const customsInvoicingGet = api(
   { expose: true, auth: true, method: "GET", path: "/customs-invoicing/:shipmentId" },
-  async (req: CustomsInvoicingGetRequest): Promise<CustomsInvoicingGetResponse> => {
-    const companyId = getAuthData()!.companyID;
-    const [lines, invoice] = await Promise.all([
-      customsInvoiceRepository.listLines(req.shipmentId, companyId),
-      customsInvoiceRepository.getInvoice(req.shipmentId, companyId),
-    ]);
-    return {
-      lines: lines as unknown as CustomsInvoiceLineItem[],
-      issuedInvoiceNumber: invoice?.issuedInvoiceNumber ?? "",
-    };
+  async (req: CustomsInvoicingGetRequest): Promise<CustomsInvoicingItem> => {
+    return customsInvoicingService.get(req.shipmentId, getAuthData()!.companyID);
   },
 );
 
 interface AddCustomsLineRequest {
   shipmentId: string;
-  category?: string;
-  currency?: string;
-  value?: string;
-  sortOrder?: number;
+  category?: string & MaxLen<200>;
+  currency?: string & MaxLen<3>;
+  value?: string & MaxLen<20>;
+  sortOrder?: number & Min<0>;
 }
 
 interface CustomsLineResponse {
@@ -47,36 +31,23 @@ interface CustomsLineResponse {
 
 export const customsInvoicingAddLine = api(
   { expose: true, auth: true, method: "POST", path: "/customs-invoicing/:shipmentId/lines" },
-  async (req: AddCustomsLineRequest): Promise<CustomsLineResponse> => {
-    const { shipmentId, value, ...data } = req;
-    const line = await customsInvoiceRepository.createLine({
-      companyId: getAuthData()!.companyID,
-      shipmentId,
-      ...data,
-      value: toValue(value),
-    });
-    return { line: line as unknown as CustomsInvoiceLineItem };
+  async ({ shipmentId, ...input }: AddCustomsLineRequest): Promise<CustomsLineResponse> => {
+    return { line: await customsInvoicingService.addLine(shipmentId, getAuthData()!.companyID, input) };
   },
 );
 
 interface UpdateCustomsLineRequest {
   shipmentId: string;
   lineId: string;
-  category?: string;
-  currency?: string;
-  value?: string;
+  category?: string & MaxLen<200>;
+  currency?: string & MaxLen<3>;
+  value?: string & MaxLen<20>;
 }
 
 export const customsInvoicingUpdateLine = api(
   { expose: true, auth: true, method: "PATCH", path: "/customs-invoicing/:shipmentId/lines/:lineId" },
-  async (req: UpdateCustomsLineRequest): Promise<CustomsLineResponse> => {
-    const { shipmentId, lineId, value, ...rest } = req;
-    const data: Record<string, unknown> = { ...rest };
-    if (value !== undefined) data.value = toValue(value);
-    for (const key of Object.keys(data)) if (data[key] === undefined) delete data[key];
-    const line = await customsInvoiceRepository.updateLine(lineId, getAuthData()!.companyID, shipmentId, data);
-    if (!line) throw APIError.notFound("Line not found");
-    return { line: line as unknown as CustomsInvoiceLineItem };
+  async ({ shipmentId, lineId, ...input }: UpdateCustomsLineRequest): Promise<CustomsLineResponse> => {
+    return { line: await customsInvoicingService.updateLine(shipmentId, lineId, getAuthData()!.companyID, input) };
   },
 );
 
@@ -92,14 +63,14 @@ interface DeleteCustomsLineResponse {
 export const customsInvoicingDeleteLine = api(
   { expose: true, auth: true, method: "DELETE", path: "/customs-invoicing/:shipmentId/lines/:lineId" },
   async (req: DeleteCustomsLineRequest): Promise<DeleteCustomsLineResponse> => {
-    await customsInvoiceRepository.deleteLine(req.lineId, getAuthData()!.companyID, req.shipmentId);
+    await customsInvoicingService.deleteLine(req.shipmentId, req.lineId, getAuthData()!.companyID);
     return { ok: true };
   },
 );
 
 interface SetIssuedInvoiceNumberRequest {
   shipmentId: string;
-  issuedInvoiceNumber: string;
+  issuedInvoiceNumber: string & MaxLen<100>;
 }
 
 interface SetIssuedInvoiceNumberResponse {
@@ -109,7 +80,7 @@ interface SetIssuedInvoiceNumberResponse {
 export const customsInvoicingSetNumber = api(
   { expose: true, auth: true, method: "PUT", path: "/customs-invoicing/:shipmentId/number" },
   async (req: SetIssuedInvoiceNumberRequest): Promise<SetIssuedInvoiceNumberResponse> => {
-    const row = await customsInvoiceRepository.upsertInvoice(req.shipmentId, getAuthData()!.companyID, req.issuedInvoiceNumber.trim());
-    return { issuedInvoiceNumber: row.issuedInvoiceNumber };
+    const companyId = getAuthData()!.companyID;
+    return { issuedInvoiceNumber: await customsInvoicingService.setIssuedInvoiceNumber(req.shipmentId, companyId, req.issuedInvoiceNumber) };
   },
 );

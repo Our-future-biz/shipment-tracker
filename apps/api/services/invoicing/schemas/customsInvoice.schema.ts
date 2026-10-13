@@ -1,4 +1,4 @@
-import { pgTable, text, numeric, uuid, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, uuid, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 // Lines of the Invoicing tab in Customs: what customs work is billed, by category.
@@ -26,16 +26,18 @@ export const customsInvoiceTable = pgTable(
   {
     ...defaultTableColumns,
     ...tenantColumns,
-    // shipment_id is a globally-unique UUID, so one row per shipment holds across companies.
-    shipmentId: uuid("shipment_id").notNull().unique(),
+    shipmentId: uuid("shipment_id").notNull(),
     issuedInvoiceNumber: text("issued_invoice_number").notNull().default(""),
   },
   (table) => [
     ...defaultTableIndexes("customs_invoice", table),
     tenantIndex("customs_invoice", table),
     index("customs_invoice_shipment_id_idx").on(table.shipmentId),
+    // Unique per company: another company's row for the same id can never block this one.
+    uniqueIndex("customs_invoice_company_shipment_unique").on(table.companyId, table.shipmentId),
   ],
 );
 
 export type CustomsInvoiceLineRecord = typeof customsInvoiceLineTable.$inferSelect;
+export type NewCustomsInvoiceLineRecord = typeof customsInvoiceLineTable.$inferInsert;
 export type CustomsInvoiceRecord = typeof customsInvoiceTable.$inferSelect;

@@ -66,6 +66,18 @@ export function useMasterJob(id: string | null) {
   };
 }
 
+/** Saves onto any master job (e.g. one just created); refreshes master jobs and shipments. */
+export function useUpdateMasterJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: MasterJobUpdate }) => api.shipments.masterJobUpdate(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: LIST_KEY });
+      qc.invalidateQueries({ queryKey: ["shipments"] });
+    },
+  });
+}
+
 export function useCreateMasterJob() {
   const qc = useQueryClient();
   return useMutation({

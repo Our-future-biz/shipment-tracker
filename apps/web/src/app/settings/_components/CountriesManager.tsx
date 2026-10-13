@@ -14,7 +14,11 @@ import { matchesSearch, sectionTitle, emptyText } from "../_lib/orgSearch";
 // null = closed, "new" = adding, otherwise the country being edited.
 type Editing = Country | "new" | null;
 
-export function CountriesManager({ search }: { search: string }) {
+interface CountriesManagerProps {
+  search: string;
+}
+
+export function CountriesManager({ search }: CountriesManagerProps) {
   const toast = useToast();
   const { countries, isLoading, createCountry, updateCountry, deleteCountry } = useCountries();
   const shown = countries.filter((c) => matchesSearch(search, c.name, c.code));
@@ -30,12 +34,10 @@ export function CountriesManager({ search }: { search: string }) {
   const handleSubmit = async () => {
     if (!editing) return;
     const { code } = await form.validateFields();
-    const country = COUNTRIES.find((c) => c.code === code);
-    if (!country) return;
     setSaving(true);
     try {
-      if (editing === "new") await createCountry(country);
-      else await updateCountry({ id: editing.id, input: country });
+      if (editing === "new") await createCountry({ code });
+      else await updateCountry({ id: editing.id, input: { code } });
       toast.success("Country saved");
       setEditing(null);
     } catch {
@@ -50,8 +52,9 @@ export function CountriesManager({ search }: { search: string }) {
     try {
       await deleteCountry(deleteTarget.id);
       toast.success("Country removed");
-    } catch {
-      toast.error("Failed to remove country");
+    } catch (e) {
+      // e.g. branches are still in this country
+      toast.error(e instanceof Error && e.message ? e.message : "Failed to remove country");
     }
     setDeleteTarget(null);
   };

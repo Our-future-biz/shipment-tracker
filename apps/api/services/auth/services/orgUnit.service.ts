@@ -1,5 +1,7 @@
 import { APIError } from "encore.dev/api";
+import { countryName } from "../../../lib/geo/format";
 import { departmentRepository, branchRepository, countryRepository, locationRepository } from "../repositories/orgUnit.repository";
+import type { Place } from "../../../lib/geo/place";
 import { userRepository } from "../repositories/user.repository";
 
 export interface DepartmentInfo {
@@ -34,12 +36,7 @@ export interface LocationInfo {
 }
 
 // A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
-export interface PlaceInfo {
-  code: string;
-  countryCode: string;
-  name: string;
-  subdivisionName: string | null;
-}
+export type PlaceInfo = Place;
 
 export interface PlaceCandidateQuery {
   // The written name (accents are folded here).
@@ -69,15 +66,15 @@ export interface CountryInfo {
 }
 
 export interface CountryInput {
+  // ISO 3166-1 alpha-2; the name comes from the server's country list.
   code: string;
-  name: string;
 }
 
-// The web app picks the country from its fixed list and sends both its code and its name.
-function requireCountry(input: CountryInput): CountryInput {
-  const code = input.code?.trim().toUpperCase();
-  if (!code || !/^[A-Z]{2}$/.test(code)) throw APIError.invalidArgument("code must be a two-letter country code");
-  return { code, name: requireText(input.name, "name") };
+function requireCountry(input: CountryInput): { code: string; name: string } {
+  const code = input.code.trim().toUpperCase();
+  const name = countryName(code);
+  if (!name) throw APIError.invalidArgument(`Unknown country code ${code}`);
+  return { code, name };
 }
 
 function requireText(value: string | undefined, field: string): string {
@@ -110,17 +107,17 @@ class OrgUnitService {
     return { id: row.id, name: row.name };
   }
 
-  async updateDepartment(id: string, companyId: string, input: { name: string }): Promise<DepartmentInfo | null> {
+  async updateDepartment(id: string, companyId: string, input: { name: string }): Promise<DepartmentInfo> {
     const name = requireText(input.name, "name");
     const row = await guardDuplicate("department", () => departmentRepository.updateForCompany(id, companyId, { name }));
-    return row ? { id: row.id, name: row.name } : null;
+    if (!row) throw APIError.notFound("Department not found");
+    return { id: row.id, name: row.name };
   }
 
-  async deleteDepartment(id: string, companyId: string): Promise<boolean> {
+  async deleteDepartment(id: string, companyId: string): Promise<void> {
     const row = await departmentRepository.softDeleteForCompany(id, companyId);
-    if (!row) return false;
+    if (!row) throw APIError.notFound("Department not found");
     await userRepository.clearDepartment(companyId, id);
-    return true;
   }
 
   async listBranches(companyId: string): Promise<BranchInfo[]> {
@@ -146,10 +143,11 @@ class OrgUnitService {
     return toBranchInfo(row);
   }
 
-  async updateBranch(id: string, companyId: string, input: BranchInput): Promise<BranchInfo | null> {
+  async updateBranch(id: string, companyId: string, input: BranchInput): Promise<BranchInfo> {
     const values = await this.branchValues(companyId, input);
     const row = await guardDuplicate("branch", () => branchRepository.updateForCompany(id, companyId, values));
-    return row ? toBranchInfo(row) : null;
+    if (!row) throw APIError.notFound("Branch not found");
+    return toBranchInfo(row);
   }
 
   async listLocations(countryCode: string): Promise<LocationInfo[]> {
@@ -177,11 +175,10 @@ class OrgUnitService {
     );
   }
 
-  async deleteBranch(id: string, companyId: string): Promise<boolean> {
+  async deleteBranch(id: string, companyId: string): Promise<void> {
     const row = await branchRepository.softDeleteForCompany(id, companyId);
-    if (!row) return false;
+    if (!row) throw APIError.notFound("Branch not found");
     await userRepository.clearBranch(companyId, id);
-    return true;
   }
 
   async listCountries(companyId: string): Promise<CountryInfo[]> {
@@ -195,14 +192,25 @@ class OrgUnitService {
     return { id: row.id, code: row.code, name: row.name };
   }
 
-  async updateCountry(id: string, companyId: string, input: CountryInput): Promise<CountryInfo | null> {
+  // The country's branches follow a changed code/name (they keep a copy of both).
+  async updateCountry(id: string, companyId: string, input: CountryInput): Promise<CountryInfo> {
     const values = requireCountry(input);
-    const row = await guardDuplicate("country", () => countryRepository.updateForCompany(id, companyId, values));
-    return row ? { id: row.id, code: row.code, name: row.name } : null;
+    const row = await guardDuplicate("country", () => countryRepository.updateWithBranches(id, companyId, values));
+    if (!row) throw APIError.notFound("Country not found");
+    return { id: row.id, code: row.code, name: row.name };
   }
 
-  async deleteCountry(id: string, companyId: string): Promise<boolean> {
-    return !!(await countryRepository.softDeleteForCompany(id, companyId));
+  // A country that branches are still in can't be removed: they would point at nothing.
+  async deleteCountry(id: string, companyId: string): Promise<void> {
+    const country = await countryRepository.getByIdForCompany(id, companyId);
+    if (!country) throw APIError.notFound("Country not found");
+    const branches = await branchRepository.countByCountryCode(companyId, country.code);
+    if (branches > 0) {
+      throw APIError.failedPrecondition(
+        `${country.name} still has ${branches} branch${branches === 1 ? "" : "es"}. Move or remove them first.`,
+      );
+    }
+    await countryRepository.softDeleteForCompany(id, companyId);
   }
 }
 

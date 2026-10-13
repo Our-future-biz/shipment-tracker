@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Select, Tooltip } from "antd";
 import { ExclamationCircleOutlined } from "@ant-design/icons";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useDebounced } from "@/hooks/useDebounced";
+import { usePlaceSearch } from "@/hooks/usePlaceSearch";
 import { COUNTRIES } from "@/lib/countries";
 import { countryCodeOf, countryLabel, countryMatches, countryValue, isUnmatched, UNMATCHED_HINT, type GeoKind } from "@/lib/places";
 
@@ -44,7 +44,6 @@ export function GeoSelect({
   const current = (value ?? "").trim();
   const unmatched = isUnmatched(kind, current);
   const [search, setSearch] = useState(unmatched && kind === "place" ? searchTextOf(current) : "");
-  const [debounced, setDebounced] = useState(search);
   // Antd clears the search text as the list opens and closes; the old text stays until the
   // user types.
   const typed = useRef(false);
@@ -53,17 +52,8 @@ export function GeoSelect({
     typed.current = true;
     setSearch(text);
   };
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(search.trim()), 250);
-    return () => clearTimeout(t);
-  }, [search]);
-
-  const places = useQuery({
-    queryKey: ["places", debounced],
-    queryFn: () => api.auth.placeSearch({ q: debounced }),
-    enabled: kind === "place" && debounced.length >= 2,
-    staleTime: Infinity,
-  });
+  const debounced = useDebounced(search.trim(), 250);
+  const places = usePlaceSearch(debounced, kind === "place");
 
   const options = useMemo((): { value: string; label: ReactNode; code?: string }[] => {
     if (kind !== "place") {

@@ -3,6 +3,7 @@ import { auth } from "~encore/clients";
 import { getClient, MODEL, replyText } from "../lib/anthropic";
 import { parseJsonFromResponse } from "../lib/fields";
 import { countryValue, fold, placeCodeOf, placeLabel, resolveCountryCode, type GeoKind } from "../../../lib/geo/format";
+import type { Place } from "../../../lib/geo/place";
 
 // Turns places and countries read by the AI (or typed into an inquiry) into the form the
 // database uses: "Hamburg (DEHAM)", "Germany (DE)", "DE". Text that matches nothing is left
@@ -14,8 +15,6 @@ export interface GeoItem {
   // What the field means, which tells a port from an airport or a town, e.g. "port of loading".
   role?: string;
 }
-
-type Place = { code: string; countryCode: string; name: string; subdivisionName: string | null };
 
 /** The extracted fields that hold places or countries, by their extraction label. */
 export const GEO_FIELDS: Record<string, { kind: GeoKind; role: string }> = {
@@ -32,7 +31,7 @@ export const GEO_FIELDS: Record<string, { kind: GeoKind; role: string }> = {
 const placeOf = (p: Place) => placeLabel(p.name, p.code);
 
 /** "Ostend (Oostende)" is the same name as "Ostend" and as "Oostende". */
-function sameName(dbName: string, written: string): boolean {
+export function sameName(dbName: string, written: string): boolean {
   const w = fold(written);
   return [dbName, ...[...dbName.matchAll(/\(([^)]+)\)/g)].map((m) => m[1]!), dbName.replace(/\s*\(.*\)\s*/g, " ")].some(
     (n) => fold(n) === w,
@@ -41,15 +40,32 @@ function sameName(dbName: string, written: string): boolean {
 
 const BARE_CODE = /^([A-Z]{2})\s?([A-Z0-9]{3})$/;
 
-/** "Chicago, IL, United States" → name "Chicago", country "US"; "PORT OF HAMBURG" → "HAMBURG". */
-function splitPlace(text: string): { name: string; countryCode: string | null } {
+/**
+ * "Chicago, IL, United States" → name "Chicago", country "US"; "PORT OF HAMBURG" → "HAMBURG".
+ * A bare two-letter last part ("Hamburg, DE" but also "Chicago, IL") may be a country code or
+ * a state/province, so it is only a hint (`weakCountry`): the name is searched worldwide and
+ * the hint applies only when the place exists in that country.
+ */
+export function splitPlace(text: string): { name: string; countryCode: string | null; weakCountry: boolean } {
   const parts = text.split(/[,;/]/).map((p) => p.trim()).filter(Boolean);
-  const countryCode = parts.length > 1 ? resolveCountryCode(parts[parts.length - 1]!) : null;
+  const last = parts.length > 1 ? parts[parts.length - 1]! : null;
+  const countryCode = last ? resolveCountryCode(last) : null;
+  const weakCountry = countryCode !== null && parts.length === 2 && /^[A-Za-z]{2}$/.test(last!);
   const name = (parts[0] ?? text)
     .replace(/^port\s+of\s+/i, "")
     .replace(/\s+(sea)?port$/i, "")
     .trim();
-  return { name, countryCode };
+  return { name, countryCode, weakCountry };
+}
+
+// The places a lookup returned; on failure none, so the values stay as read and get flagged.
+async function lookupPlaces(codes: string[], names: { name: string; countryCode?: string }[]): Promise<{ byCode: Place[]; candidates: Place[][] }> {
+  try {
+    return await auth.placeLookup({ codes, names });
+  } catch (err) {
+    log.error(err, "place lookup failed");
+    return { byCode: [], candidates: names.map(() => []) };
+  }
 }
 
 /** The stored form of each item, or null where nothing in the database matches it. */
@@ -59,7 +75,7 @@ export async function resolveGeo(items: GeoItem[]): Promise<(string | null)[]> {
   // rows the text could mean (empty when none were found by name).
   const open: { index: number; candidates: Place[] }[] = [];
 
-  const placeItems: { index: number; code: string | null; name: string; countryCode: string | null }[] = [];
+  const placeItems: { index: number; code: string | null; name: string; countryCode: string | null; weakCountry: boolean }[] = [];
   items.forEach((item, index) => {
     const text = item.text.trim();
     if (!text) return;
@@ -75,13 +91,19 @@ export async function resolveGeo(items: GeoItem[]): Promise<(string | null)[]> {
   });
 
   if (placeItems.length > 0) {
-    const { byCode, candidates } = await auth.placeLookup({
-      codes: placeItems.flatMap((p) => (p.code ? [p.code] : [])),
-      names: placeItems.map((p) => ({ name: p.name, countryCode: p.countryCode ?? undefined })),
-    });
+    const { byCode, candidates } = await lookupPlaces(
+      placeItems.flatMap((p) => (p.code ? [p.code] : [])),
+      placeItems.map((p) => ({ name: p.name, countryCode: p.weakCountry ? undefined : (p.countryCode ?? undefined) })),
+    );
     const known = new Map(byCode.map((p) => [p.code, p]));
     placeItems.forEach((p, i) => {
-      const found = candidates[i] ?? [];
+      let found = candidates[i] ?? [];
+      if (p.weakCountry) {
+        // "Hamburg, DE" keeps DE; "Chicago, IL" finds nothing in Israel and drops it.
+        const inCountry = found.filter((c) => c.countryCode === p.countryCode);
+        if (inCountry.length > 0) found = inCountry;
+        else p.countryCode = null;
+      }
       const coded = p.code ? known.get(p.code) : undefined;
       // A written "Name (CODE)" or a bare code wins, unless a bare word like "PARIS" is a real
       // place name that only happens to look like a code.
@@ -99,7 +121,7 @@ export async function resolveGeo(items: GeoItem[]): Promise<(string | null)[]> {
   if (open.length > 0) {
     const picks = await askAi(items, open);
     const suggested = [...new Set(Object.values(picks).filter((c): c is string => !!c))];
-    const valid = suggested.length > 0 ? (await auth.placeLookup({ codes: suggested, names: [] })).byCode : [];
+    const valid = suggested.length > 0 ? (await lookupPlaces(suggested, [])).byCode : [];
     const validByCode = new Map(valid.map((p) => [p.code, p]));
     for (const { index } of open) {
       const code = picks[index];

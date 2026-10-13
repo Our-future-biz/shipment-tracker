@@ -3,23 +3,11 @@
 import { Modal, Button } from "antd";
 import { type ShipmentItem } from "@/hooks/useShipments";
 
-export interface CustomsInvoiceLine {
-  category: string;
-  currency: string;
-  value: number;
-}
-
-const fmt = (n: number) => n.toLocaleString("cs-CZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+import { type CustomsInvoiceLine, fmt, totalsByCurrency } from "./_lib/customsInvoice";
 
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] ?? c));
 
-// The lines add up per currency, in the order the currencies first appear.
-function totalsByCurrency(lines: CustomsInvoiceLine[]): [string, number][] {
-  const sums = new Map<string, number>();
-  for (const l of lines) sums.set(l.currency, (sums.get(l.currency) ?? 0) + l.value);
-  return [...sums.entries()];
-}
 
 // Who the invoice is for: the customer, or the principal party when there is none.
 const billTo = (s: ShipmentItem) => s.customer || s.principalParty;
@@ -110,31 +98,34 @@ function printCustomsInvoice(shipment: ShipmentItem, issuedNumber: string, lines
 }
 
 // What the customer will get, before it is printed: the same look as the Quotation preview in Sales.
-export function CustomsInvoicePreview({
-  open,
-  shipment,
-  issuedNumber,
-  lines,
-  onClose,
-}: {
-  open: boolean;
-  shipment: ShipmentItem;
-  issuedNumber: string;
-  lines: CustomsInvoiceLine[];
-  onClose: () => void;
-}) {
-  const totals = totalsByCurrency(lines);
+interface FieldProps {
+  label: string;
+  value?: string;
+}
 
-  const Field = ({ label, value }: { label: string; value?: string }) => (
+function Field({ label, value }: FieldProps) {
+  return (
     <div className="flex text-[13px]">
       <span className="w-36 shrink-0 text-slate-400">{label}</span>
       <span className="text-slate-700">{value || "—"}</span>
     </div>
   );
+}
 
-  const SectionTitle = ({ children }: { children: string }) => (
-    <h3 className="mt-6 mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{children}</h3>
-  );
+function SectionTitle({ children }: { children: string }) {
+  return <h3 className="mt-6 mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-400">{children}</h3>;
+}
+
+interface CustomsInvoicePreviewProps {
+  open: boolean;
+  shipment: ShipmentItem;
+  issuedNumber: string;
+  lines: CustomsInvoiceLine[];
+  onClose: () => void;
+}
+
+export function CustomsInvoicePreview({ open, shipment, issuedNumber, lines, onClose }: CustomsInvoicePreviewProps) {
+  const totals = totalsByCurrency(lines);
 
   return (
     <Modal

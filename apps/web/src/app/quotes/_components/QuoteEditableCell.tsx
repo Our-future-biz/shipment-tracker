@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Input, Select } from "antd";
 import { QUOTE_DROPDOWNS, quoteColType } from "../_lib/quoteColumns";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
-import type { GeoKind } from "@/lib/places";
+import { isGeoKind } from "@/lib/places";
 import { FadeText } from "@/components/FadeText";
 
 interface QuoteEditableCellProps {
@@ -17,7 +17,7 @@ export function QuoteEditableCell({ column, value, onCommit }: QuoteEditableCell
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const type = quoteColType(column);
-  const geoKind = type === "place" || type === "country" || type === "countryCode" ? (type as GeoKind) : undefined;
+  const geoKind = isGeoKind(type) ? type : undefined;
 
   const start = () => {
     setDraft(value);

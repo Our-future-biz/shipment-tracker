@@ -3,6 +3,7 @@
 import { Select, Button } from "antd";
 import { useBranches, useCountries, useDepartments } from "@/hooks/useOrgUnits";
 import { SEVERITIES } from "../_lib/boards";
+import { branchFitsCountry, branchOptions } from "../_lib/branches";
 import { hasFilters } from "../_lib/noticeFilters";
 import type { NoticeFilters } from "../_lib/noticeFilters";
 
@@ -20,14 +21,8 @@ export function NoticeFiltersBar({ value, onChange, shown, total }: NoticeFilter
   const { branches } = useBranches();
   const { departments } = useDepartments();
 
-  const branchOptions = branches
-    .filter((b) => !value.countryCode || b.countryCode === value.countryCode)
-    .map((b) => ({ value: b.id, label: b.city ? `${b.name} (${b.city})` : b.name }));
-
-  const setCountry = (countryCode?: string) => {
-    // A branch in another country no longer fits.
-    const branch = branches.find((b) => b.id === value.branchId);
-    const keepBranch = !countryCode || branch?.countryCode === countryCode;
+  const handleCountryChange = (countryCode?: string) => {
+    const keepBranch = branchFitsCountry(branches, value.branchId, countryCode);
     onChange({ ...value, countryCode, branchId: keepBranch ? value.branchId : undefined });
   };
 
@@ -45,7 +40,7 @@ export function NoticeFiltersBar({ value, onChange, shown, total }: NoticeFilter
         aria-label="Filter by country"
         placeholder="All countries"
         value={value.countryCode}
-        onChange={setCountry}
+        onChange={handleCountryChange}
         options={countries.map((c) => ({ value: c.code, label: c.name }))}
       />
       <Select
@@ -54,7 +49,7 @@ export function NoticeFiltersBar({ value, onChange, shown, total }: NoticeFilter
         placeholder={value.countryCode ? "All branches in this country" : "All branches"}
         value={value.branchId}
         onChange={(branchId?: string) => onChange({ ...value, branchId })}
-        options={branchOptions}
+        options={branchOptions(branches, value.countryCode)}
       />
       <Select
         {...common}

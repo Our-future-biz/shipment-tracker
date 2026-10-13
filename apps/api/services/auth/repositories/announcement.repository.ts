@@ -73,6 +73,7 @@ class AnnouncementRepository extends TenantRepository<typeof announcementTable> 
         authorEmail: userTable.email,
         departmentName: departmentTable.name,
         branchName: branchTable.name,
+        branchCountryCode: branchTable.countryCode,
         readAt: announcementReadTable.readAt,
       })
       .from(announcementTable)

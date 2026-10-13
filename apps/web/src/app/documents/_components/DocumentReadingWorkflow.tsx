@@ -29,12 +29,13 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
 import { useQuotes } from "@/hooks/useQuotes";
-import { useMasterJobs } from "@/hooks/useMasterJobs";
+import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
 import { FieldReviewTable } from "./FieldReviewTable";
 import {
   baseCreatePayload,
   bookingExistingValue,
   bookingToMasterJobUpdate,
+  invalidBookingDates,
   buildFields,
   withBookingEquipment,
   containerRowsFromNumbers,
@@ -150,6 +151,9 @@ export function DocumentReadingWorkflow() {
   // The new MCZ a batch was started under. "Next free number" moves on as soon as the
   // first shipment is linked, so the batch keeps the number it began with.
   const [batchMcz, setBatchMcz] = useState("");
+  // The master job a booking save created, so a retry after a failed save reuses it.
+  const [bookingCreated, setBookingCreated] = useState<{ id: string; mczNumber: string } | null>(null);
+  const [bookingSaving, setBookingSaving] = useState(false);
   const [pipelineSessionId, setPipelineSessionId] = useState("");
   const [pipelineStep, setPipelineStep] = useState<PipelineStep>("idle");
   const [classification, setClassification] = useState<Record<string, number>>({});
@@ -183,6 +187,8 @@ export function DocumentReadingWorkflow() {
   );
   const newShipmentPreview = useMemo(() => nextCzNumber(shipments), [shipments]);
   const { masterJobs } = useMasterJobs();
+  const createMasterJob = useCreateMasterJob();
+  const updateMasterJob = useUpdateMasterJob();
   const masterJobMczs = useMemo(() => masterJobs.map((m) => m.mczNumber), [masterJobs]);
   const newMcz = useMemo(() => nextMczNumber(shipments, masterJobMczs), [shipments, masterJobMczs]);
   const existingMcz = useMemo(() => existingMczNumbers(shipments, masterJobMczs), [shipments, masterJobMczs]);
@@ -336,7 +342,10 @@ export function DocumentReadingWorkflow() {
         setExtractionMethod(result.method);
         setStep("review");
       } else {
-        // masterjob — Phase 1: prepare + classify
+        // masterjob — Phase 1: prepare + classify. A new batch starts on the next free MCZ.
+        setBatchMcz("");
+        setMblFiled(false);
+        setMasterCreatedJobs([]);
         setPipelineStep("idle");
         const prep = await api.extraction.pipelinePrepare({
           files: masterFiles.map((f) => ({ fileBase64: f.base64, fileName: f.name })),
@@ -443,20 +452,28 @@ export function DocumentReadingWorkflow() {
   };
 
   // ─── Commit: booking confirmation ────────────────────────────────
-  const commitBooking = async () => {
+  const handleCommitBooking = async () => {
+    if (bookingSaving) return;
     const approved = fieldsToLabelValues(fields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
+    // Checked before anything is created, so a bad date never leaves an empty master job behind.
+    const badDates = invalidBookingDates(approved);
+    if (badDates.length > 0) {
+      return toast.error(`Not a full date (DD.MM.YYYY): ${badDates.join(", ")}. Correct it or untick it.`);
+    }
+    setBookingSaving(true);
     try {
-      const target = bookingMasterJob ?? (await api.shipments.masterJobCreate()).masterJob;
+      const target = bookingMasterJob ?? bookingCreated ?? (await createMasterJob.mutateAsync()).masterJob;
+      if (!bookingMasterJob) setBookingCreated({ id: target.id, mczNumber: target.mczNumber });
       // The master job saves its details onto its shipments too (masterJobSync).
       const data = bookingToMasterJobUpdate(approved);
-      if (Object.keys(data).length > 0) await api.shipments.masterJobUpdate(target.id, data);
-      queryClient.invalidateQueries({ queryKey: ["master-jobs"] });
-      queryClient.invalidateQueries({ queryKey: ["shipments"] });
+      if (Object.keys(data).length > 0) await updateMasterJob.mutateAsync({ id: target.id, data });
       setCommittedJobNumber(target.mczNumber);
       setStep("committed");
     } catch (err) {
       toast.error(`Failed to save the booking: ${err instanceof Error ? err.message : "unknown error"}`);
+    } finally {
+      setBookingSaving(false);
     }
   };
 
@@ -635,6 +652,7 @@ export function DocumentReadingWorkflow() {
     setCustomsShipmentId("");
     setBookingMode("new");
     setBookingMcz("");
+    setBookingCreated(null);
     setInvoiceData({});
     setInvoiceCategory("");
     setInvoiceTargetShipmentId("");
@@ -679,6 +697,8 @@ export function DocumentReadingWorkflow() {
               onChange={(v) => {
                 setDestination(v as Destination);
                 setError(null);
+                setBatchMcz("");
+                setBookingCreated(null);
               }}
               options={DESTINATION_OPTIONS as unknown as { value: string; label: string }[]}
             />
@@ -762,7 +782,14 @@ export function DocumentReadingWorkflow() {
           {destination === "booking" && (
             <div className="mb-4">
               <div className="text-xs font-medium text-slate-500 mb-1.5">Master Job Number</div>
-              <Radio.Group value={bookingMode} onChange={(e) => setBookingMode(e.target.value)} className="mb-2">
+              <Radio.Group
+                value={bookingMode}
+                onChange={(e) => {
+                  setBookingMode(e.target.value);
+                  setBookingCreated(null);
+                }}
+                className="mb-2"
+              >
                 <Radio value="new">Create new Master Job</Radio>
                 <Radio value="existing">Add to existing</Radio>
               </Radio.Group>
@@ -788,7 +815,14 @@ export function DocumentReadingWorkflow() {
           {destination === "masterjob" && (
             <div className="mb-4">
               <div className="text-xs font-medium text-slate-500 mb-1.5">Master Job Number</div>
-              <Radio.Group value={masterMode} onChange={(e) => setMasterMode(e.target.value)} className="mb-2">
+              <Radio.Group
+                value={masterMode}
+                onChange={(e) => {
+                  setMasterMode(e.target.value);
+                  setBatchMcz("");
+                }}
+                className="mb-2"
+              >
                 <Radio value="new">Create new Master Job</Radio>
                 <Radio value="existing">Add to existing</Radio>
               </Radio.Group>
@@ -931,13 +965,14 @@ export function DocumentReadingWorkflow() {
                   : destination === "customs"
                     ? commitCustoms
                     : destination === "booking"
-                      ? commitBooking
+                      ? handleCommitBooking
                       : commitShipment
               }
+              loading={destination === "booking" && bookingSaving}
             >
               Write {approvedCount} field{approvedCount !== 1 ? "s" : ""} to{" "}
               {destination === "booking"
-                ? bookingMasterJob?.mczNumber ?? `${newMcz} (new master job)`
+                ? bookingMasterJob?.mczNumber ?? bookingCreated?.mczNumber ?? `${newMcz} (new master job)`
                 : destination === "quote"
                 ? quoteNumber
                 : destination === "customs"
