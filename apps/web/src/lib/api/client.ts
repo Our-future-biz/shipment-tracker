@@ -670,6 +670,7 @@ export namespace extraction {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.extractBooking = this.extractBooking.bind(this)
             this.extractCustoms = this.extractCustoms.bind(this)
             this.extractDocument = this.extractDocument.bind(this)
             this.extractInvoice = this.extractInvoice.bind(this)
@@ -679,6 +680,12 @@ export namespace extraction {
             this.pipelineExtractMbl = this.pipelineExtractMbl.bind(this)
             this.pipelinePrepare = this.pipelinePrepare.bind(this)
             this.resolvePlaces = this.resolvePlaces.bind(this)
+        }
+
+        public async extractBooking(params: controllers.ExtractBookingRequest): Promise<interfaces.ExtractionResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/extraction/booking`, JSON.stringify(params))
+            return await resp.json() as interfaces.ExtractionResult
         }
 
         public async extractCustoms(params: controllers.ExtractCustomsRequest): Promise<interfaces.ExtractionResult> {
@@ -2084,6 +2091,11 @@ export namespace controllers {
         }[]
     }
 
+    export interface ExtractBookingRequest {
+        fileBase64: string
+        fileName: string
+    }
+
     export interface ExtractCustomsRequest {
         fileBase64: string
         fileName: string
@@ -2296,6 +2308,10 @@ export namespace controllers {
         actualArrival?: string
         etaWarehouse?: string
         warehouseReceivedDate?: string
+        equipment?: string
+        vgmClosing?: string
+        siClosing?: string
+        releaseReference?: string
         releaseDepot?: string
         redeliveryReference?: string
         redeliveryDepot?: string
@@ -3616,6 +3632,14 @@ export namespace interfaces {
         actualArrival: string | null
         etaWarehouse: string | null
         warehouseReceivedDate: string | null
+        /**
+         * Booked equipment, e.g. "2 x 40' HC, 1 x 20' GP" (master job only).
+         */
+        equipment: string
+
+        vgmClosing: string | null
+        siClosing: string | null
+        releaseReference: string
         releaseDepot: string
         redeliveryReference: string
         redeliveryDepot: string

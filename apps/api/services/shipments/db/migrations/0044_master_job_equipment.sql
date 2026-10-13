@@ -1,0 +1,1 @@
+ALTER TABLE "master_job" ADD COLUMN "equipment" text DEFAULT '' NOT NULL;

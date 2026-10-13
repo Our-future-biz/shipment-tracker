@@ -33,6 +33,17 @@ export const INVOICE_FIELDS = [
   "invoice_date", "due_date", "description", "service_type",
 ];
 
+// A carrier's booking confirmation, filed to a master job (named as the operators call them).
+export const BOOKING_FIELDS = [
+  "Booking Number", "Vessel", "Voyage", "POL", "POD", "MBL Number", "ETS", "ETA",
+  "Cargo Closing", "VGM Closing", "SI Closing",
+  "Release Reference", "Release Depot", "Redelivery Reference", "Redelivery Depot",
+  "CNTR count [1]", "CNTR length [1]", "CNTR type [1]",
+  "CNTR count [2]", "CNTR length [2]", "CNTR type [2]",
+  "CNTR count [3]", "CNTR length [3]", "CNTR type [3]",
+  "CNTR count [4]", "CNTR length [4]", "CNTR type [4]",
+];
+
 export const CUSTOMS_FIELDS = ["MRN Number", "Shipper", "Consignee", "Total Weight In Tons", "Container Number"];
 
 export function filterExtracted(

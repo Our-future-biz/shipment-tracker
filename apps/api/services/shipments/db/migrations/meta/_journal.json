@@ -302,6 +302,20 @@
       "when": 1791827361862,
       "tag": "0042_hub_cfs",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791873187385,
+      "tag": "0043_master_job_booking",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791876478702,
+      "tag": "0044_master_job_equipment",
+      "breakpoints": true
     }
   ]
 }

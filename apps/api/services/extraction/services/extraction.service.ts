@@ -1,8 +1,8 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { getClient, MODEL } from "../lib/anthropic";
 import { extractTextFromPdf, isImageType, isPdfType, detectMediaType } from "../lib/pdf";
-import { filterExtracted, parseJsonFromResponse, SHIPMENT_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
-import { SHIPMENT_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT } from "../lib/prompts";
+import { filterExtracted, parseJsonFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
+import { SHIPMENT_PROMPT, BOOKING_PROMPT, INVOICE_PROMPT, QUOTE_PROMPT, CUSTOMS_PROMPT } from "../lib/prompts";
 import type { ExtractionResult } from "../interfaces/interfaces";
 import { canonicalizeRecords } from "./places.service";
 
@@ -152,6 +152,13 @@ export async function extractQuoteFromFile(fileBase64: string, fileName: string)
   );
 }
 
+export async function extractBookingFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
+  const mediaType = detectMediaType(fileName);
+  return withCanonicalPlaces(
+    extractFromDocument(fileBase64, fileName, mediaType, BOOKING_PROMPT, BOOKING_FIELDS, "Extract the booking details from this booking confirmation."),
+  );
+}
+
 export async function extractCustomsFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
   return extractFromDocument(fileBase64, fileName, mediaType, CUSTOMS_PROMPT, CUSTOMS_FIELDS, "Extract the MRN number and shipment data from this customs document.", 512);
@@ -172,6 +179,11 @@ export async function extractFromTextByDestination(text: string, destination: st
       systemPrompt = CUSTOMS_PROMPT;
       fields = CUSTOMS_FIELDS;
       userPrompt = "Extract the MRN number and shipment data from this text:";
+      break;
+    case "booking":
+      systemPrompt = BOOKING_PROMPT;
+      fields = BOOKING_FIELDS;
+      userPrompt = "Extract the booking details from this booking confirmation:";
       break;
     case "quote":
       systemPrompt = QUOTE_PROMPT;

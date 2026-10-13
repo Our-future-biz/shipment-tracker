@@ -17,8 +17,6 @@ export const masterJobTable = pgTable(
     tradeDirection: text("trade_direction").notNull().default(""),
     incotermOrigin: text("incoterm_origin").notNull().default(""),
     incotermDestination: text("incoterm_destination").notNull().default(""),
-    bookingNumber: text("booking_number").notNull().default(""),
-    closingDate: date("closing_date", { mode: "string" }),
     destination: text("destination").notNull().default(""),
     shipper: text("shipper").notNull().default(""),
     // CRM customer ids (customers database), so no FK — same as on shipment.
@@ -43,6 +41,15 @@ export const masterJobTable = pgTable(
     actualArrival: date("actual_arrival", { mode: "string" }),
     etaWarehouse: date("eta_warehouse", { mode: "string" }),
     warehouseReceivedDate: date("warehouse_received_date", { mode: "string" }),
+    // Booked equipment as read from the booking confirmation, e.g. "2 x 40' HC, 1 x 20' GP".
+    // The container list itself needs numbers, which come later with the MBL.
+    equipment: text("equipment").notNull().default(""),
+    // From the booking confirmation (copied onto the linked shipments).
+    bookingNumber: text("booking_number").notNull().default(""),
+    closingDate: date("closing_date", { mode: "string" }),
+    vgmClosing: date("vgm_closing", { mode: "string" }),
+    siClosing: date("si_closing", { mode: "string" }),
+    releaseReference: text("release_reference").notNull().default(""),
     releaseDepot: text("release_depot").notNull().default(""),
     redeliveryReference: text("redelivery_reference").notNull().default(""),
     redeliveryDepot: text("redelivery_depot").notNull().default(""),

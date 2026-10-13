@@ -5,7 +5,7 @@ import { extractContainerNumbers } from "@/lib/container";
 import { CONTAINER_TYPES, PACK_TYPES } from "@/lib/cargo";
 import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 
-export type Destination = "shipment" | "invoicing" | "quote" | "masterjob" | "customs";
+export type Destination = "shipment" | "invoicing" | "quote" | "masterjob" | "customs" | "booking";
 export type InputMode = "file" | "text";
 export type Step = "upload" | "extracting" | "review" | "committed";
 export type TargetMode = "existing" | "new";
@@ -262,6 +262,67 @@ export function withPackageType(
   if (out.containers?.length) out.containers = out.containers.map((c) => ({ ...c, packageType }));
   const items = out.cargoItems?.length ? out.cargoItems : cargoItems;
   if (items.length > 0) out.cargoItems = items.map((i) => ({ ...i, packageType }));
+  return out;
+}
+
+// ─── Booking confirmation → master job ─────────────────────────────
+
+/** Booking confirmation labels (apps/api/services/extraction/lib/fields.ts) and the master-job field each fills. */
+export const BOOKING_TO_MASTER_JOB: Record<string, keyof interfaces.MasterJobItem> = {
+  "Booking Number": "bookingNumber",
+  Equipment: "equipment",
+  Vessel: "vessel",
+  Voyage: "voyage",
+  POL: "pol",
+  POD: "pod",
+  "MBL Number": "masterBolNumber",
+  ETS: "estimatedDeparture",
+  ETA: "estimatedArrival",
+  "Cargo Closing": "closingDate",
+  "VGM Closing": "vgmClosing",
+  "SI Closing": "siClosing",
+  "Release Reference": "releaseReference",
+  "Release Depot": "releaseDepot",
+  "Redelivery Reference": "redeliveryReference",
+  "Redelivery Depot": "redeliveryDepot",
+};
+
+/** The master job's current value for a booking label, to show conflicts in the review. */
+export function bookingExistingValue(masterJob: interfaces.MasterJobItem | undefined, label: string): string {
+  const field = BOOKING_TO_MASTER_JOB[label];
+  if (!masterJob || !field) return "";
+  const value = masterJob[field];
+  return typeof value === "string" ? value : "";
+}
+
+/** The master-job update for the approved booking values. */
+export function bookingToMasterJobUpdate(approved: Record<string, string>): controllers.MasterJobUpdateRequest {
+  const out: Record<string, string> = {};
+  for (const [label, field] of Object.entries(BOOKING_TO_MASTER_JOB)) {
+    const value = (approved[label] ?? "").trim();
+    if (value) out[field] = value;
+  }
+  return out as controllers.MasterJobUpdateRequest;
+}
+
+/**
+ * Folds a booking's CNTR count/length/type groups into one Equipment value, the form the
+ * master job keeps: "2 x 40' HC, 1 x 20' GP". Groups that don't make a known type stay as read.
+ */
+export function withBookingEquipment(extracted: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  const parts: string[] = [];
+  for (const [label, value] of Object.entries(extracted)) {
+    if (!/^CNTR (count|length|type) \[\d\]$/.test(label)) out[label] = value;
+  }
+  for (const i of [1, 2, 3, 4]) {
+    const length = extracted[`CNTR length [${i}]`] ?? "";
+    const kind = extracted[`CNTR type [${i}]`] ?? "";
+    const count = (extracted[`CNTR count [${i}]`] ?? "").trim();
+    const type = containerTypeFrom(length, kind) || [length, kind].filter(Boolean).join(" ");
+    if (type) parts.push(count ? `${count} x ${type}` : type);
+  }
+  if (parts.length > 0) out.Equipment = parts.join(", ");
   return out;
 }
 

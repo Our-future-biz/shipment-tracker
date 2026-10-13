@@ -31,6 +31,10 @@ interface MasterJobUpdateRequest {
   actualArrival?: string;
   etaWarehouse?: string;
   warehouseReceivedDate?: string;
+  equipment?: string;
+  vgmClosing?: string;
+  siClosing?: string;
+  releaseReference?: string;
   releaseDepot?: string;
   redeliveryReference?: string;
   redeliveryDepot?: string;

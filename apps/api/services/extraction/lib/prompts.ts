@@ -53,6 +53,21 @@ Rules:
 - Leave out any field that is not on the document. If nothing is found, return an empty JSON object.
 - Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
 
+export const BOOKING_PROMPT = `You are a booking confirmation data extractor. You read a shipping line's or coloader's booking confirmation (booking note, booking acknowledgement, release order).
+
+Rules:
+- Date format: YYYY-MM-DD (e.g., 2025-03-15). Read day and month as the document means them: a month name (APR) settles it; for numbers only, follow the convention of the country that issued the document. For a closing with a time (e.g. "20-NOV 12:00"), return the date only
+- ETS: estimated time of sailing (departure) from the POL. ETA: estimated arrival at the POD
+- Cargo Closing: the cargo / CY / FCL closing (cut-off) date. VGM Closing: the VGM cut-off. SI Closing: the shipping instruction / documentation cut-off
+- Release Reference / Release Depot: the reference and depot to pick up the empty equipment. Redelivery Reference / Redelivery Depot: the reference and depot (terminal) to deliver the full container to. Depot names as printed
+- MBL Number: the master B/L number, only if the document prints one as a B/L number
+- Equipment: one CNTR group per equipment type, e.g. "2 x 40HC" → CNTR count [1] "2", CNTR length [1] "40HC", CNTR type [1] "DRY"
+- CNTR length: "20", "40", "40HC", "45"
+- CNTR type: "DRY", "REEFER", "OT" (Open Top), "FR" (Flat Rack), "TANK"
+- Leave out anything the document does not state
+${PLACE_RULES}
+- Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
+
 export const QUOTE_PROMPT = `You are a shipping quote/rate request data extractor. You extract structured data from:
 - Rate Requests, Booking Inquiries, Quotation Requests
 - Bills of Lading, Sea Waybills, Booking Confirmations

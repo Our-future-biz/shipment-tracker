@@ -128,9 +128,13 @@ export function MblDetailsTab({
             <IncotermRow label="Incoterm Origin" fieldKey="incotermOrigin" value={mj.incotermOrigin} onCommit={handleCommit} />
             <IncotermRow label="Incoterm Destination" fieldKey="incotermDestination" value={mj.incotermDestination} onCommit={handleCommit} />
             <FieldRow label="Trade Direction" fieldKey="tradeDirection" value={mj.tradeDirection} onCommit={handleCommit} />
-            <FieldRow label="Booking Number" fieldKey="bookingNumber" value={mj.bookingNumber} onCommit={handleCommit} />
+            <FieldRow label="Booking Number" fieldKey="bookingNumber" value={mj.bookingNumber} onCommit={handleCommit} synced />
+            <FieldRow label="Equipment" fieldKey="equipment" value={mj.equipment} onCommit={handleCommit} />
             <FieldRow label="Shipping line / Coloader" fieldKey="shippingLine" value={mj.shippingLine} onCommit={handleCommit} synced />
-            <FieldRow label="Closing Date" fieldKey="closingDate" value={mj.closingDate} onCommit={handleCommit} />
+            <FieldRow label="Closing Date" fieldKey="closingDate" value={mj.closingDate} onCommit={handleCommit} synced />
+            <FieldRow label="VGM Closing" fieldKey="vgmClosing" value={mj.vgmClosing} onCommit={handleCommit} synced />
+            <FieldRow label="SI Closing" fieldKey="siClosing" value={mj.siClosing} onCommit={handleCommit} synced />
+            <FieldRow label="Release Reference" fieldKey="releaseReference" value={mj.releaseReference} onCommit={handleCommit} synced />
             <FieldRow label="Release Depot" fieldKey="releaseDepot" value={mj.releaseDepot} onCommit={handleCommit} synced />
             <FieldRow label="POL" fieldKey="pol" value={mj.pol} onCommit={handleCommit} synced />
             <FieldRow label="POD" fieldKey="pod" value={mj.pod} onCommit={handleCommit} synced />
