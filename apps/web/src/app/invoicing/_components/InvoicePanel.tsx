@@ -164,7 +164,8 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
   const customerOptions = customers.map((c) => ({ value: c.id, label: `${c.companyName}${c.ico ? ` · ${c.ico}` : ""}` }));
 
   return (
-    <div className="bg-white border border-slate-200 rounded-xl overflow-hidden mb-4">
+    // overflow-clip, not overflow-hidden: hidden makes the card a scroll container and the sticky Issue bar would not stick
+    <div className="bg-white border border-slate-200 rounded-xl overflow-clip mb-4">
       <div className="h-[38px] px-4 flex items-center gap-3 text-[12.5px] font-bold uppercase tracking-[.05em] bg-indigo-50 text-indigo-700">
         <span>Invoice</span>
         <span className="ml-auto flex items-center gap-2 normal-case tracking-normal font-medium text-[12.5px] text-slate-600">
@@ -373,8 +374,8 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
           </div>
         )}
 
-        {/* ── Issue ── */}
-        <div className="flex items-center gap-3 mt-4 flex-wrap">
+        {/* ── Issue: stays visible at the bottom of the screen while scrolling ── */}
+        <div className="sticky bottom-0 z-10 -mx-4 mt-4 px-4 py-3 bg-white/95 backdrop-blur border-t border-slate-200 flex items-center gap-3 flex-wrap">
           <Input
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -383,6 +384,11 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
             className="!w-[360px] max-w-full"
             aria-label="Invoice note"
           />
+          <span className="ml-auto text-[13px] text-slate-500 tabular-nums">
+            {p && p.lines.length > 0 && (
+              <>Total due <strong className="text-[16px] text-slate-900">{moneyCz(p.gross)} {p.currency}</strong></>
+            )}
+          </span>
           <Tooltip title={canIssue ? "" : problems[0] ?? ""}>
             <Button type="primary" icon={<SendOutlined />} disabled={!canIssue} onClick={() => setConfirmKey(newKey())}>
               Issue invoice…
