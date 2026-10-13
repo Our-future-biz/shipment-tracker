@@ -823,7 +823,6 @@ export namespace invoicing {
             this.invoicingDeleteBuyingCost = this.invoicingDeleteBuyingCost.bind(this)
             this.invoicingDeleteCharge = this.invoicingDeleteCharge.bind(this)
             this.invoicingDeleteSellingCost = this.invoicingDeleteSellingCost.bind(this)
-            this.invoicingGenerate = this.invoicingGenerate.bind(this)
             this.invoicingGet = this.invoicingGet.bind(this)
             this.invoicingUpdateBuyingCost = this.invoicingUpdateBuyingCost.bind(this)
             this.invoicingUpdateCharge = this.invoicingUpdateCharge.bind(this)
@@ -973,12 +972,6 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/invoicing/${encodeURIComponent(shipmentId)}/selling/${encodeURIComponent(sellingId)}`)
             return await resp.json() as controllers.DeleteSellingResponse
-        }
-
-        public async invoicingGenerate(shipmentId: string, params: controllers.GenerateInvoiceRequest): Promise<controllers.GenerateInvoiceResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/generate`, JSON.stringify(params))
-            return await resp.json() as controllers.GenerateInvoiceResponse
         }
 
         public async invoicingGet(shipmentId: string): Promise<controllers.InvoicingGetResponse> {
@@ -2239,21 +2232,6 @@ export namespace controllers {
     export interface ExtractTextRequest {
         text: string
         destination: string
-    }
-
-    export interface GenerateInvoiceRequest {
-        /**
-         * Ignored - the job number is read from the shipment on the server. Kept for older clients.
-         */
-        jobNumber?: string
-
-        invoiceType: string
-        billingCurrency: string
-        totalAmount: string
-    }
-
-    export interface GenerateInvoiceResponse {
-        invoice: interfaces.GeneratedInvoiceItem
     }
 
     export interface GetProfileResponse {
