@@ -74,7 +74,8 @@ export function CustomerInvoicesCard({ customerId, currency }: CustomerInvoicesC
         );
       },
     },
-    { title: "Amount", dataIndex: "amount", align: "right", render: (v: number) => fmtMoney(v, currency) },
+    // Each invoice in its own currency (issued invoices can be EUR for a CZK customer and vice versa).
+    { title: "Amount", dataIndex: "amount", align: "right", render: (v: number, r) => fmtMoney(v, r.currency || currency) },
     { title: "Issued", dataIndex: "issuedAt", render: (v: string) => formatDate(v) || EMPTY_CELL },
     { title: "Due", dataIndex: "dueDate", render: (v: string) => formatDate(v) || EMPTY_CELL },
     {
