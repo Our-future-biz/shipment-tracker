@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { Table, Button, Dropdown } from "antd";
 import { PlusOutlined, EditOutlined, DeleteOutlined, EllipsisOutlined, PaperClipOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
@@ -13,6 +14,8 @@ interface NoticeBoardCardProps {
   // The reader's own unit on this board, shown next to the title.
   caption?: string;
   posts: Announcement[];
+  // Shown above the notices, e.g. the filters.
+  toolbar?: ReactNode;
   isLoading: boolean;
   emptyText: string;
   // Posts on this board are addressed to more than the reader's own unit, so say to whom.
@@ -28,6 +31,7 @@ export function NoticeBoardCard({
   title,
   caption,
   posts,
+  toolbar,
   isLoading,
   emptyText,
   showTarget,
@@ -123,6 +127,7 @@ export function NoticeBoardCard({
         )
       }
     >
+      {toolbar}
       <Table<Announcement>
         size="small"
         rowKey="id"

@@ -42,6 +42,10 @@ export interface AnnouncementInfo {
   scope: string;
   // Who the post is addressed to, e.g. "Czechia · Prague Office · Accounting", or "All".
   target: string;
+  // The same audience as ids, each null for "all", so the board can be filtered by it.
+  countryCode: string | null;
+  branchId: string | null;
+  departmentId: string | null;
   severity: string;
   title: string;
   body: string;
@@ -168,6 +172,9 @@ class AnnouncementService {
       id: r.id,
       scope: r.scope,
       target: [r.country, r.branchName, r.departmentName].filter(Boolean).join(" · ") || "All",
+      countryCode: r.countryCode,
+      branchId: r.branchId,
+      departmentId: r.departmentId,
       severity: r.severity,
       title: r.title,
       body: r.body,

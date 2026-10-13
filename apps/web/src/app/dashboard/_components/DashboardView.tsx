@@ -8,6 +8,10 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useNoticeboard } from "@/hooks/useNoticeboard";
 import type { Announcement } from "@/hooks/useNoticeboard";
+import { useBranches } from "@/hooks/useOrgUnits";
+import { filterNotices, hasFilters } from "../_lib/noticeFilters";
+import type { NoticeFilters } from "../_lib/noticeFilters";
+import { NoticeFiltersBar } from "./NoticeFiltersBar";
 import { NoticeBoardCard } from "./NoticeBoardCard";
 import { NoticeDetailModal } from "./NoticeDetailModal";
 import { NoticePostModal } from "./NoticePostModal";
@@ -88,6 +92,11 @@ export function DashboardView() {
   };
 
   const canPost = !!user && POSTING_ROLES.includes(user.role);
+  const [filters, setFilters] = useState<NoticeFilters>({});
+  const { branches } = useBranches();
+  const branchCountry = branches.find((b) => b.id === filters.branchId)?.countryCode;
+  const shownNotices = filterNotices(announcements, filters, branchCountry);
+  const filtered = hasFilters(filters);
   // Until the list has arrived or failed — including while the request is held back offline.
   const isLoading = !hasLoaded && !isError;
 
@@ -116,9 +125,10 @@ export function DashboardView() {
         {/* One board: every notice addressed to the reader, each tagged with whom it is for. */}
         <NoticeBoardCard
           title="Noticeboard"
-          posts={announcements}
+          posts={shownNotices}
+          toolbar={<NoticeFiltersBar value={filters} onChange={setFilters} shown={shownNotices.length} total={announcements.length} />}
           isLoading={isLoading}
-          emptyText={isError ? "Could not load notices." : "No notices."}
+          emptyText={isError ? "Could not load notices." : filtered ? "No notices match these filters." : "No notices."}
           showTarget
           canPost={canPost}
           onPost={() => openPostDialog("new")}

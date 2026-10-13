@@ -3745,6 +3745,13 @@ export namespace services {
          */
         target: string
 
+        /**
+         * The same audience as ids, each null for "all", so the board can be filtered by it.
+         */
+        countryCode: string | null
+
+        branchId: string | null
+        departmentId: string | null
         severity: string
         title: string
         body: string
