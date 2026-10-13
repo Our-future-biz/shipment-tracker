@@ -8,6 +8,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { formatWeekLabel } from "@/lib/isoWeek";
+import { normaliseAmount } from "@/lib/money";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
 
@@ -70,6 +71,25 @@ function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: stri
                  [&_.ant-select-selection-item]:!text-[13px] [&_.ant-select-selection-search-input]:!text-[13px]"
     />
   );
+}
+
+/** Ciselna pole radku - databaze (numeric) prijme jen "4999.5", ne "4 999,50". */
+const AMOUNT_FIELDS = ["estQty", "estAmount", "realQty", "realAmount", "qty", "amount"];
+
+/**
+ * Prevede zadane castky do tvaru pro API ("4 999,50" -> "4999.5"). Neplatnou castku
+ * neposle - vyhodi chybu, kterou onError ukaze. Drive server vratil 500 a na obrazovce
+ * zustala castka, ktera se nikdy neulozila.
+ */
+function cleanAmounts<T extends Record<string, unknown>>(params: T): T {
+  const out: Record<string, unknown> = { ...params };
+  for (const key of AMOUNT_FIELDS) {
+    if (typeof out[key] !== "string") continue;
+    const clean = normaliseAmount(out[key] as string);
+    if (clean === null) throw new Error(`"${out[key]}" is not a valid amount (max. 2 decimals)`);
+    out[key] = clean;
+  }
+  return out as T;
 }
 
 /* ── sdilene tridy dle mockupu (--cb-field-h 30px, --cb-cell-x 6px) ── */
@@ -183,8 +203,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     onError: showError("Could not add the buying cost"),
   });
   const updateBuy = useMutation({
-    mutationFn: ({ id, ...params }: { id: string } & Record<string, unknown>) =>
-      api.invoicing.invoicingUpdateBuyingCost(shipment.id, id, params),
+    mutationFn: async ({ id, ...params }: { id: string } & Record<string, unknown>) =>
+      api.invoicing.invoicingUpdateBuyingCost(shipment.id, id, cleanAmounts(params)),
     onSuccess: invalidate,
     onError: showError("Could not save the change"),
   });
@@ -197,17 +217,17 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   /* ── Selling costs ── */
   // novy radek dle mockupu: Qty = 1, mena podle billing meny, Invoice zaskrtnuto
   const addSell = useMutation({
-    mutationFn: (params: Record<string, unknown> = {}) =>
-      api.invoicing.invoicingAddSellingCost(shipment.id, {
+    mutationFn: async (params: Record<string, unknown> = {}) =>
+      api.invoicing.invoicingAddSellingCost(shipment.id, cleanAmounts({
         qty: "1", currency: billingCur, invoice: true,
         sortOrder: sellRows.length, ...params,
-      } as never),
+      }) as never),
     onSuccess: (res) => { unlock(res.sellingCost.id); invalidate(); },
     onError: showError("Could not add the selling cost"),
   });
   const updateSell = useMutation({
-    mutationFn: ({ id, ...params }: { id: string } & Record<string, unknown>) =>
-      api.invoicing.invoicingUpdateSellingCost(shipment.id, id, params),
+    mutationFn: async ({ id, ...params }: { id: string } & Record<string, unknown>) =>
+      api.invoicing.invoicingUpdateSellingCost(shipment.id, id, cleanAmounts(params)),
     onSuccess: invalidate,
     onError: showError("Could not save the change"),
   });
@@ -413,16 +433,16 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         const currency = (c.realAmount ? c.realCurrency : c.estCurrency) || billingCur;
         const qty = (c.realAmount ? c.realQty : c.estQty) || "1";
         return target === "buy"
-          ? api.invoicing.invoicingAddBuyingCost(shipment.id, {
+          ? api.invoicing.invoicingAddBuyingCost(shipment.id, cleanAmounts({
               category: c.category ?? "", vendor: c.vendor ?? "",
               estQty: qty, estAmount: amount, estCurrency: currency,
               realQty: "1", realCurrency: currency,
               sortOrder: buyRows.length + i,
-            })
-          : api.invoicing.invoicingAddSellingCost(shipment.id, {
+            }))
+          : api.invoicing.invoicingAddSellingCost(shipment.id, cleanAmounts({
               category: c.category ?? "", qty, amount, currency, invoice: true,
               sortOrder: sellRows.length + i,
-            } as never);
+            }) as never);
       }));
       const imported = usable.length;
       const qBilling = quoteData.billingSettings;

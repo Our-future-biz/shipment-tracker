@@ -54,6 +54,16 @@ export function parseMoney(text: string | null | undefined): number | null {
 }
 
 /**
+ * Turns a typed amount into the form the API stores ("4 999,50" -> "4999.5").
+ * Empty text stays "" (clears the field); text that is not a valid amount gives null.
+ */
+export function normaliseAmount(text: string | null | undefined): string | null {
+  if (String(text ?? "").trim() === "") return "";
+  const n = parseMoney(text);
+  return n === null ? null : String(n);
+}
+
+/**
  * Rounds to 2 decimals, half away from zero (1.005 -> 1.01, -1.005 -> -1.01).
  * The toPrecision step removes binary noise first: 1.005 * 100 is 100.49999999999999.
  */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { money, moneyCz, num, parseMoney, round2, sumRounded } from "./money";
+import { money, moneyCz, normaliseAmount, num, parseMoney, round2, sumRounded } from "./money";
 
 describe("num", () => {
   it.each([
@@ -47,6 +47,20 @@ describe("parseMoney", () => {
   it.each(["abc", "12a", "1,234", "1.2.3", "1,005", "--5", "1e5"])("rejects %j", (input) => {
     // "1,234" is ambiguous (thousands or decimal?) and has 3 decimals, so it is rejected
     expect(parseMoney(input)).toBeNull();
+  });
+});
+
+describe("normaliseAmount", () => {
+  it("converts typed amounts to the API form", () => {
+    expect(normaliseAmount("4 999,50")).toBe("4999.5");
+    expect(normaliseAmount("1.250,00")).toBe("1250");
+    expect(normaliseAmount("-150")).toBe("-150");
+  });
+
+  it("keeps empty text empty and rejects invalid text", () => {
+    expect(normaliseAmount("")).toBe("");
+    expect(normaliseAmount("  ")).toBe("");
+    expect(normaliseAmount("12a")).toBeNull();
   });
 });
 
