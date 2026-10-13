@@ -156,7 +156,7 @@ export function CustomsView() {
                 </div>
               )}
               {openShipment && detailTab === "invoicing" ? (
-                <CustomsInvoicing shipmentId={openShipment.id} />
+                <CustomsInvoicing shipment={openShipment} />
               ) : openShipment ? (
                 <div className="flex flex-col gap-3">
                   {detailTab === "details" && <CustomsSummary shipment={openShipment} />}

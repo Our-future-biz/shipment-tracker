@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Button, Spin } from "antd";
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EyeOutlined, PlusOutlined } from "@ant-design/icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { CURRENCIES } from "@/lib/enums";
 import { AppCard } from "@/components/AppCard";
 import { GridHeader, GridInput, GridSelect } from "@/app/invoicing/_components/gridControls";
+import { type ShipmentItem } from "@/hooks/useShipments";
+import { CustomsInvoicePreview, type CustomsInvoiceLine } from "./CustomsInvoicePreview";
 
 // Offered in the Category field; any other text can be typed in as well.
 const CUSTOMS_CATEGORIES = ["Customs clearance", "Duty", "VAT", "T1 document", "Other"];
@@ -31,7 +33,8 @@ const fmt = (n: number) => n.toLocaleString("cs-CZ", { minimumFractionDigits: 2,
 
 // Invoicing tab of a shipment opened in Customs: lines of Category, Currency and Value,
 // and one Issued Invoice Number for the whole shipment. Each field saves when it is left.
-export function CustomsInvoicing({ shipmentId }: { shipmentId: string }) {
+export function CustomsInvoicing({ shipment }: { shipment: ShipmentItem }) {
+  const shipmentId = shipment.id;
   const queryClient = useQueryClient();
   const queryKey = ["customs-invoicing", shipmentId];
   const query = useQuery({ queryKey, queryFn: () => api.invoicing.customsInvoicingGet(shipmentId) });
@@ -39,6 +42,7 @@ export function CustomsInvoicing({ shipmentId }: { shipmentId: string }) {
 
   const [rows, setRows] = useState<LineRow[]>([]);
   const [issuedNumber, setIssuedNumber] = useState("");
+  const [previewOpen, setPreviewOpen] = useState(false);
 
   useEffect(() => {
     if (!query.data) return;
@@ -89,6 +93,14 @@ export function CustomsInvoicing({ shipmentId }: { shipmentId: string }) {
     return [...sums.entries()];
   }, [rows]);
 
+  // What the preview shows: every line that has anything filled in, a missing value as 0.
+  const previewLines: CustomsInvoiceLine[] = rows
+    .filter((r) => r.category.trim() !== "" || r.value.trim() !== "")
+    .map((r) => {
+      const n = Number(toNumberText(r.value));
+      return { category: r.category, currency: r.currency, value: Number.isFinite(n) ? n : 0 };
+    });
+
   if (query.isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -102,9 +114,14 @@ export function CustomsInvoicing({ shipmentId }: { shipmentId: string }) {
       <AppCard
         title="Customs Invoicing"
         extra={
-          <Button size="small" icon={<PlusOutlined />} loading={addLine.isPending} onClick={() => addLine.mutate()}>
-            Add line
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button size="small" icon={<EyeOutlined />} onClick={() => setPreviewOpen(true)}>
+              Preview
+            </Button>
+            <Button size="small" icon={<PlusOutlined />} loading={addLine.isPending} onClick={() => addLine.mutate()}>
+              Add line
+            </Button>
+          </div>
         }
       >
         {rows.length === 0 ? (
@@ -187,6 +204,14 @@ export function CustomsInvoicing({ shipmentId }: { shipmentId: string }) {
           </div>
         </div>
       </AppCard>
+
+      <CustomsInvoicePreview
+        open={previewOpen}
+        shipment={shipment}
+        issuedNumber={issuedNumber.trim()}
+        lines={previewLines}
+        onClose={() => setPreviewOpen(false)}
+      />
     </div>
   );
 }
