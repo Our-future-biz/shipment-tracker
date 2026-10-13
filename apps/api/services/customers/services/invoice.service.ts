@@ -3,6 +3,7 @@ import { customerInvoiceRepository } from "../repositories/customerInvoice.repos
 interface InvoiceInput {
   invoiceNumber: string;
   amount?: number;
+  currency?: string;
   dueDate?: string;
   status?: string;
   issuedAt?: string;
@@ -18,6 +19,7 @@ class InvoiceService {
       customerId,
       invoiceNumber: input.invoiceNumber,
       amount: input.amount ?? 0,
+      currency: input.currency || "CZK",
       dueDate: input.dueDate ?? "",
       status: input.status ?? "Open",
       issuedAt: input.issuedAt ?? "",

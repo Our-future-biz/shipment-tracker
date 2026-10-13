@@ -25,6 +25,8 @@ export interface SellingCostItem {
   currency: string;
   invoice: boolean;
   sourceBuyId: string | null;
+  /** VAT code on the invoice; null = default by trade direction */
+  vatCode: string | null;
   sortOrder: number;
 }
 
@@ -126,4 +128,95 @@ export interface InvoiceProfileItem {
   footerNote: string;
   /** What must still be filled in before an invoice can be issued; empty = ready. */
   missingForIssue: string[];
+}
+
+/** One line of an issued invoice / credit note, or of a preview */
+export interface InvoiceDocLineItem {
+  description: string;
+  qty: string;
+  unitPrice: string;
+  unitCurrency: string;
+  /** Line total in the invoice currency */
+  net: string;
+  vatCode: string;
+  vatRate: string;
+  sourceSellingCostId: string | null;
+}
+
+export interface InvoiceVatSummaryItem {
+  vatCode: string;
+  vatRate: number;
+  base: number;
+  vat: number;
+  baseCzk: number;
+  vatCzk: number;
+}
+
+/** Party details printed on the invoice (snapshot taken when it was issued) */
+export interface InvoicePartyItem {
+  companyName: string;
+  address: string;
+  city: string;
+  postalCode: string;
+  country: string;
+  ico: string;
+  dic: string;
+}
+
+/** An issued invoice or credit note (immutable) */
+export interface InvoiceDocItem {
+  id: string;
+  shipmentId: string;
+  /** invoice | credit_note */
+  kind: string;
+  /** issued | credited */
+  status: string;
+  number: string;
+  correctsInvoiceId: string | null;
+  creditReason: string;
+  customerId: string;
+  issueDate: string;
+  duzp: string;
+  dueDate: string;
+  currency: string;
+  fxRate: string;
+  fxWeek: string;
+  net: string;
+  vat: string;
+  gross: string;
+  netCzk: string;
+  vatCzk: string;
+  grossCzk: string;
+  vatSummary: InvoiceVatSummaryItem[];
+  supplier: InvoicePartyItem;
+  customer: InvoicePartyItem;
+  jobNumber: string;
+  note: string;
+  hasPdf: boolean;
+  createdAt: string;
+  lines: InvoiceDocLineItem[];
+}
+
+/** What issuing would produce right now - no number yet, nothing stored */
+export interface InvoicePreviewItem {
+  customerId: string | null;
+  customer: InvoicePartyItem | null;
+  issueDate: string;
+  duzp: string;
+  dueDate: string;
+  currency: string;
+  fxRate: number;
+  fxWeek: string;
+  /** exact | older | newest | none */
+  fxSource: string;
+  net: number;
+  vat: number;
+  gross: number;
+  netCzk: number;
+  vatCzk: number;
+  grossCzk: number;
+  vatSummary: InvoiceVatSummaryItem[];
+  lines: InvoiceDocLineItem[];
+  /** Everything that blocks issuing; empty = ready to issue */
+  problems: string[];
 }

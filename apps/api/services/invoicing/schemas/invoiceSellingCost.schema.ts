@@ -21,6 +21,8 @@ export const invoiceSellingCostTable = pgTable(
     invoice: boolean("invoice").notNull().default(true),
     /** vazba na zdrojovy buying radek (mockup: data-src) - brani opakovanemu kopirovani */
     sourceBuyId: uuid("source_buy_id"),
+    /** DPH kod radku na fakture (S21 | Z69 | RC | OUT); null = vychozi podle smeru zasilky */
+    vatCode: text("vat_code"),
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (table) => [

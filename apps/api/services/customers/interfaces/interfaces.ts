@@ -74,6 +74,7 @@ export interface InvoiceItem {
   customerId: string;
   invoiceNumber: string;
   amount: number;
+  currency: string;
   dueDate: string;
   status: string;
   issuedAt: string;
