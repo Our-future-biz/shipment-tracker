@@ -2191,7 +2191,11 @@ export namespace controllers {
     }
 
     export interface GenerateInvoiceRequest {
-        jobNumber: string
+        /**
+         * Ignored - the job number is read from the shipment on the server. Kept for older clients.
+         */
+        jobNumber?: string
+
         invoiceType: string
         billingCurrency: string
         totalAmount: string

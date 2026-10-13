@@ -1,9 +1,11 @@
+import { shipments } from "~encore/clients";
 import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
 import { additionalChargeRepository } from "../repositories/additionalCharge.repository";
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
 import { billingOverrideRepository } from "../repositories/billingOverride.repository";
 import { generatedInvoiceRepository } from "../repositories/generatedInvoice.repository";
 import { sellingCostRepository } from "../repositories/sellingCost.repository";
+import { formatInvoiceNumber, invoiceSeriesPrefix, jobYear, nextSequence } from "../lib/invoiceNumber";
 
 // Numeric columns (est/real amounts) reject "" in Postgres — coerce blanks to null
 // so amounts can be cleared instead of erroring or sticking to a stale value.
@@ -82,8 +84,16 @@ class InvoicingService {
     return billingOverrideRepository.upsert(shipmentId, companyId, rowKey, billingAmount === "" ? null : billingAmount);
   }
 
-  async generateInvoice(shipmentId: string, companyId: string, jobNumber: string, invoiceType: string, billingCurrency: string, totalAmount: string) {
-    const invoiceNumber = await generatedInvoiceRepository.getNextInvoiceNumber(jobNumber, shipmentId, companyId);
+  /**
+   * Number: INV + year of the job + job number + sequence, e.g. INV2026CZ00000028-001.
+   * Job number and year come from the shipments service, never from the request.
+   */
+  async generateInvoice(shipmentId: string, companyId: string, invoiceType: string, billingCurrency: string, totalAmount: string) {
+    const { shipment } = await shipments.shipmentGet({ shipmentId });
+    const year = jobYear(shipment.createdAt);
+    const existing = await generatedInvoiceRepository.listNumbersByShipmentId(shipmentId, companyId);
+    const seq = nextSequence(existing, invoiceSeriesPrefix("INV", year, shipment.jobNumber));
+    const invoiceNumber = formatInvoiceNumber("INV", year, shipment.jobNumber, seq);
     return generatedInvoiceRepository.create({ companyId, shipmentId, invoiceNumber, invoiceType, billingCurrency, totalAmount });
   }
 }

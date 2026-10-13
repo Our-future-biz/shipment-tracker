@@ -55,7 +55,6 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
     if (blocked) return;
     try {
       const res = await generateInvoice({
-        jobNumber: shipment.jobNumber,
         invoiceType,
         billingCurrency: billingCur,
         totalAmount: draft.total.toFixed(2),

@@ -1,4 +1,4 @@
-import { eq, and, asc, count as drizzleCount } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { db } from "../db/db";
 import { generatedInvoiceTable } from "../schemas/generatedInvoice.schema";
 
@@ -11,13 +11,13 @@ class GeneratedInvoiceRepository {
       .orderBy(asc(generatedInvoiceTable.createdAt));
   }
 
-  async getNextInvoiceNumber(jobNumber: string, shipmentId: string, companyId: string): Promise<string> {
-    const [{ value: existing }] = await db
-      .select({ value: drizzleCount() })
+  /** All invoice numbers of a shipment, to find the next number in its series. */
+  async listNumbersByShipmentId(shipmentId: string, companyId: string): Promise<string[]> {
+    const rows = await db
+      .select({ invoiceNumber: generatedInvoiceTable.invoiceNumber })
       .from(generatedInvoiceTable)
       .where(and(eq(generatedInvoiceTable.companyId, companyId), eq(generatedInvoiceTable.shipmentId, shipmentId)));
-    const nextSeq = Number(existing) + 1;
-    return `${jobNumber}-${String(nextSeq).padStart(3, "0")}`;
+    return rows.map((r) => r.invoiceNumber);
   }
 
   async create(data: { companyId: string; shipmentId: string; invoiceNumber: string; invoiceType: string; billingCurrency: string; totalAmount: string }) {
