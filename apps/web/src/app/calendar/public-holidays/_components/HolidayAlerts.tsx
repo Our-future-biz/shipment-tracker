@@ -6,6 +6,7 @@ import { CalendarFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { formatDate } from "@/lib/date";
 import { type Occurrence, overlaps, thisWeek, todayIso } from "../_lib/holidays";
+import { dash } from "./holidayCells";
 
 // A card lists only the first few; the count shows the total and the link opens them all.
 const VISIBLE_ROWS = 3;
@@ -26,8 +27,6 @@ const CARDS: Record<CardKey, { title: string; empty: string; linkLabel: string; 
     tone: { border: "border-amber-200", header: "bg-amber-50", icon: "text-amber-500", link: "text-orange-500" },
   },
 };
-
-const dash = <span className="text-slate-300">—</span>;
 
 const dateLabel = (o: Occurrence) => (o.start === o.end ? formatDate(o.start) : `${formatDate(o.start)} – ${formatDate(o.end)}`);
 
@@ -73,7 +72,12 @@ const DIALOG_COLUMNS: ColumnsType<Occurrence> = [
 
 // Public holidays today and this week across all countries, above the list so they
 // cannot be missed — the same two-card look as Needs Attention on Shipments.
-export function HolidayAlerts({ items, loading }: { items: Occurrence[]; loading: boolean }) {
+interface HolidayAlertsProps {
+  items: Occurrence[];
+  loading: boolean;
+}
+
+export function HolidayAlerts({ items, loading }: HolidayAlertsProps) {
   const [openCard, setOpenCard] = useState<CardKey | null>(null);
   const today = todayIso();
   const week = thisWeek();

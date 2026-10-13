@@ -8,7 +8,7 @@ import { MONTHS, WEEKDAYS, czechHolidays, holidayKey, monthWeeks } from "./_lib/
 const YEARS = Array.from({ length: 100 }, (_, i) => 1951 + i);
 
 // Year calendar: 12 months with ISO week numbers; weekends and Czech public holidays in red,
-// today highlighted. Print prints only the calendar.
+// today highlighted. Print prints only the calendar (the controls and app navigation are print:hidden).
 export function CalendarView() {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -19,15 +19,7 @@ export function CalendarView() {
 
   return (
     <div className="flex flex-col gap-5">
-      {/* Only the calendar is printed, without the app's menu and top bar. */}
-      <style>{`@media print {
-        body * { visibility: hidden; }
-        #year-calendar, #year-calendar * { visibility: visible; }
-        #year-calendar { position: absolute; left: 0; top: 0; width: 100%; }
-        @page { margin: 10mm; }
-      }`}</style>
-
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-3 flex-wrap print:hidden">
         <Button icon={<LeftOutlined />} onClick={() => setYear((y) => y - 1)} aria-label="Previous year" />
         <Select
           value={year}
@@ -44,7 +36,7 @@ export function CalendarView() {
         </Button>
       </div>
 
-      <div id="year-calendar" className="flex flex-col gap-5">
+      <div className="flex flex-col gap-5">
         <h2 className="text-3xl font-bold text-slate-900 text-center m-0">{year}</h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 print:grid-cols-3 gap-4">

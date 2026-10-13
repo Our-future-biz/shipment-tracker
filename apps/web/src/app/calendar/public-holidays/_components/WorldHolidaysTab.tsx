@@ -1,35 +1,32 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button, DatePicker, Input, Popconfirm, Select, Table, message } from "antd";
 import { DeleteOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
-import { api } from "@/lib/api";
-import { formatDate } from "@/lib/date";
+import { usePublicHolidays } from "@/hooks/usePublicHolidays";
 import { type HolidayItem, occurrences, overlaps } from "../_lib/holidays";
 import { HolidayAlerts } from "./HolidayAlerts";
+import { dash, dateCell, textCell } from "./holidayCells";
 
-const dash = <span className="text-slate-300">—</span>;
-const text = (v: string) => v || dash;
-const date = (v: string) => (v ? <span className="tabular-nums">{formatDate(v)}</span> : dash);
 const byText = (k: keyof HolidayItem) => (a: HolidayItem, b: HolidayItem) => String(a[k] ?? "").localeCompare(String(b[k] ?? ""));
 
 type Kind = "all" | "national" | "regional";
 
-export function WorldHolidaysTab({ items, loading }: { items: HolidayItem[]; loading: boolean }) {
-  const queryClient = useQueryClient();
+interface WorldHolidaysTabProps {
+  items: HolidayItem[];
+  loading: boolean;
+}
+
+export function WorldHolidaysTab({ items, loading }: WorldHolidaysTabProps) {
+  const { deleteHoliday } = usePublicHolidays();
   const [search, setSearch] = useState("");
   const [countries, setCountries] = useState<string[]>([]);
   const [kind, setKind] = useState<Kind>("all");
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
 
-  const remove = useMutation({
-    mutationFn: (id: string) => api.holidays.holidayDelete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["public-holidays"] }),
-    onError: () => message.error("Could not delete the holiday"),
-  });
+  const handleDelete = (id: string) => deleteHoliday(id).catch(() => message.error("Could not delete the holiday"));
 
   const countryOptions = useMemo(
     () =>
@@ -62,22 +59,22 @@ export function WorldHolidaysTab({ items, loading }: { items: HolidayItem[]; loa
   const filtering = !!(search.trim() || countries.length || kind !== "all" || range);
 
   const columns: ColumnsType<HolidayItem> = [
-    { title: "Country", dataIndex: "country", width: 160, fixed: "left", sorter: byText("country"), render: (v: string) => <span className="font-semibold">{text(v)}</span> },
+    { title: "Country", dataIndex: "country", width: 160, fixed: "left", sorter: byText("country"), render: (v: string) => <span className="font-semibold">{textCell(v)}</span> },
     { title: "Country code", dataIndex: "countryCode", width: 110, sorter: byText("countryCode"), render: (v: string) => (v ? <span className="font-mono">{v}</span> : dash) },
-    { title: "National holiday", dataIndex: "nationalHoliday", width: 220, sorter: byText("nationalHoliday"), render: text },
-    { title: "National start date", dataIndex: "nationalStart", width: 140, sorter: byText("nationalStart"), defaultSortOrder: "ascend", render: date },
-    { title: "National end date", dataIndex: "nationalEnd", width: 140, sorter: byText("nationalEnd"), render: date },
-    { title: "Regional holiday", dataIndex: "regionalHoliday", width: 220, sorter: byText("regionalHoliday"), render: text },
-    { title: "Regional start date", dataIndex: "regionalStart", width: 140, sorter: byText("regionalStart"), render: date },
-    { title: "Regional end date", dataIndex: "regionalEnd", width: 140, sorter: byText("regionalEnd"), render: date },
-    { title: "Region(s) / subdivision(s)", dataIndex: "regions", width: 260, sorter: byText("regions"), render: text },
+    { title: "National holiday", dataIndex: "nationalHoliday", width: 220, sorter: byText("nationalHoliday"), render: textCell },
+    { title: "National start date", dataIndex: "nationalStart", width: 140, sorter: byText("nationalStart"), defaultSortOrder: "ascend", render: dateCell },
+    { title: "National end date", dataIndex: "nationalEnd", width: 140, sorter: byText("nationalEnd"), render: dateCell },
+    { title: "Regional holiday", dataIndex: "regionalHoliday", width: 220, sorter: byText("regionalHoliday"), render: textCell },
+    { title: "Regional start date", dataIndex: "regionalStart", width: 140, sorter: byText("regionalStart"), render: dateCell },
+    { title: "Regional end date", dataIndex: "regionalEnd", width: 140, sorter: byText("regionalEnd"), render: dateCell },
+    { title: "Region(s) / subdivision(s)", dataIndex: "regions", width: 260, sorter: byText("regions"), render: textCell },
     {
       title: "",
       key: "actions",
       width: 56,
       fixed: "right",
       render: (_: unknown, h: HolidayItem) => (
-        <Popconfirm title="Delete this holiday?" okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => remove.mutate(h.id)}>
+        <Popconfirm title="Delete this holiday?" okText="Delete" okButtonProps={{ danger: true }} onConfirm={() => handleDelete(h.id)}>
           <Button type="text" size="small" icon={<DeleteOutlined />} aria-label="Delete holiday" className="text-slate-400 hover:!text-red-500" />
         </Popconfirm>
       ),

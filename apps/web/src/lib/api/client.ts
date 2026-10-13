@@ -688,10 +688,10 @@ export namespace holidays {
             return await resp.json() as controllers.HolidayDeleteResponse
         }
 
-        public async holidayImport(params: controllers.HolidayImportRequest): Promise<controllers.HolidayImportResponse> {
+        public async holidayImport(params: controllers.HolidayImportRequest): Promise<interfaces.HolidayImportResult> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/holidays/import`, JSON.stringify(params))
-            return await resp.json() as controllers.HolidayImportResponse
+            return await resp.json() as interfaces.HolidayImportResult
         }
 
         public async holidayList(): Promise<controllers.HolidayListResponse> {
@@ -703,10 +703,10 @@ export namespace holidays {
         /**
          * Reads holidays out of an uploaded file for review; nothing is saved yet.
          */
-        public async holidayRead(params: controllers.HolidayReadRequest): Promise<controllers.HolidayReadResponse> {
+        public async holidayRead(params: controllers.HolidayReadRequest): Promise<interfaces.HolidayReadResult> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/holidays/read`, JSON.stringify(params))
-            return await resp.json() as controllers.HolidayReadResponse
+            return await resp.json() as interfaces.HolidayReadResult
         }
     }
 }
@@ -1956,11 +1956,6 @@ export namespace controllers {
         source: string
     }
 
-    export interface HolidayImportResponse {
-        added: number
-        skipped: number
-    }
-
     export interface HolidayListResponse {
         holidays: interfaces.HolidayItem[]
     }
@@ -1968,16 +1963,6 @@ export namespace controllers {
     export interface HolidayReadRequest {
         fileBase64: string
         fileName: string
-    }
-
-    export interface HolidayReadResponse {
-        rows: interfaces.HolidayRowInput[]
-        /**
-         * "spreadsheet" when the file's columns matched and were read directly, "ai" otherwise.
-         */
-        method: string
-
-        warning?: string
     }
 
     export interface InvoiceCreateRequest {
@@ -3227,6 +3212,11 @@ export namespace interfaces {
         createdAt: string
     }
 
+    export interface HolidayImportResult {
+        added: number
+        skipped: number
+    }
+
     export interface HolidayItem {
         id: string
         source: string
@@ -3242,6 +3232,20 @@ export namespace interfaces {
         regions: string
     }
 
+    /**
+     * "spreadsheet" when the file's columns matched and were read directly, "ai" otherwise.
+     */
+    export type HolidayReadMethod = "spreadsheet" | "ai"
+
+    export interface HolidayReadResult {
+        rows: HolidayRowInput[]
+        method: HolidayReadMethod
+        warning?: string
+    }
+
+    /**
+     * One row of the World Holidays list, as read from a file. Dates are yyyy-mm-dd or "".
+     */
     export interface HolidayRowInput {
         country: string
         countryCode: string

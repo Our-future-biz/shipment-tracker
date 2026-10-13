@@ -1,6 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { secret } from "encore.dev/config";
 import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
+import type { HolidayReadResult as ReadResult } from "../interfaces/interfaces";
 import { HOLIDAY_KEYS, type HolidayRow, cleanRow, isUsableRow, parseRowsJson } from "../lib/rows";
 import { parseCsv, readWorkbook, rowsFromTable, toText } from "../lib/spreadsheet";
 
@@ -15,11 +17,6 @@ const IMAGE_TYPES: Record<string, "image/png" | "image/jpeg" | "image/gif" | "im
   webp: "image/webp",
 };
 
-export interface ReadResult {
-  rows: HolidayRow[];
-  method: "spreadsheet" | "ai";
-  warning?: string;
-}
 
 const PROMPT = `You read public holiday lists (tables, calendars, screenshots, spreadsheets) and return them as data.
 Return ONLY a JSON array. One object per holiday, with exactly these keys:
@@ -43,7 +40,8 @@ async function askModel(content: Anthropic.ContentBlockParam[]): Promise<{ rows:
       .messages.stream({ model: MODEL, max_tokens: 32000, system: PROMPT, messages: [{ role: "user", content }] })
       .finalMessage();
   } catch (err) {
-    throw APIError.unavailable(`The AI could not read the file: ${err instanceof Error ? err.message : String(err)}`);
+    log.error(err, "holiday file: AI read failed", { model: MODEL });
+    throw APIError.unavailable("The AI could not read the file. Try again, or upload it as a spreadsheet.");
   }
   const text = message.content
     .filter((b): b is Anthropic.TextBlock => b.type === "text")

@@ -1,4 +1,4 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { holidaysService } from "../services/holidays.service";
 
@@ -13,8 +13,7 @@ interface HolidayDeleteResponse {
 export const holidayDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/holidays/:id" },
   async (req: HolidayDeleteRequest): Promise<HolidayDeleteResponse> => {
-    const row = await holidaysService.remove(req.id, getAuthData()!.companyID);
-    if (!row) throw APIError.notFound("Holiday not found");
+    await holidaysService.remove(req.id, getAuthData()!.companyID);
     return { ok: true };
   },
 );

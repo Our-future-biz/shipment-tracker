@@ -1,31 +1,27 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { publicHolidayTable, type NewPublicHolidayRecord } from "../schemas/publicHoliday.schema";
+import { publicHolidayTable, type NewPublicHolidayRecord, type PublicHolidayRecord } from "../schemas/publicHoliday.schema";
 
-class PublicHolidayRepository {
-  async listForCompany(companyId: string) {
-    return db
+class PublicHolidayRepository extends TenantRepository<typeof publicHolidayTable> {
+  constructor() {
+    super(db as never, publicHolidayTable, "public_holiday");
+  }
+
+  // The whole list (no row cap), by country and date.
+  async listAllForCompany(companyId: string): Promise<PublicHolidayRecord[]> {
+    return this.db
       .select()
       .from(publicHolidayTable)
       .where(and(eq(publicHolidayTable.companyId, companyId), isNull(publicHolidayTable.deletedAt)))
       .orderBy(asc(publicHolidayTable.country), asc(publicHolidayTable.nationalStart), asc(publicHolidayTable.regionalStart));
   }
 
-  async insertMany(rows: NewPublicHolidayRecord[]) {
-    if (!rows.length) return;
+  async insertMany(rows: NewPublicHolidayRecord[]): Promise<void> {
     // Batches keep each statement well under Postgres' parameter limit.
     for (let i = 0; i < rows.length; i += 500) {
-      await db.insert(publicHolidayTable).values(rows.slice(i, i + 500));
+      await this.db.insert(publicHolidayTable).values(rows.slice(i, i + 500));
     }
-  }
-
-  async softDelete(id: string, companyId: string) {
-    const [row] = await db
-      .update(publicHolidayTable)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(publicHolidayTable.id, id), eq(publicHolidayTable.companyId, companyId), isNull(publicHolidayTable.deletedAt)))
-      .returning();
-    return row ?? null;
   }
 }
 

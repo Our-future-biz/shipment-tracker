@@ -206,7 +206,7 @@ export function AppSidebar() {
 
   return (
     <aside
-      className="bg-white border-r border-slate-200 flex flex-col shrink-0 transition-[width] duration-200 ease-in-out overflow-hidden"
+      className="print:hidden bg-white border-r border-slate-200 flex flex-col shrink-0 transition-[width] duration-200 ease-in-out overflow-hidden"
       style={{ width }}
     >
       {/* Header with logo + collapse toggle */}

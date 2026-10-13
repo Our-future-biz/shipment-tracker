@@ -13,6 +13,9 @@ export interface ColumnDef {
 
 // ─── Dropdown Options ─────────────────────────────────────────────────
 
+// Destination warehouses: a shipment's HUB and its CFS are picked from the same list.
+const WAREHOUSE_LOCATIONS = ["Budapest", "Bratislava", "Brno", "Dunajska Streda", "Plzen", "Prague", "Ostrava", "Vienna"];
+
 export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Department": ["Operation Department", "Custom Department", "Administration Department", "Road Department"],
   "Customs Status": [
@@ -52,8 +55,8 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Insurance": ["Yes", "Pending", "No"],
   "Credit Check": ["Green", "Yellow", "Red"],
   "Freight Payable At": ["Origin", "Destination"],
-  "HUB": ["Budapest", "Bratislava", "Brno", "Dunajska Streda", "Plzen", "Prague", "Ostrava", "Vienna"],
-  "CFS": ["Budapest", "Bratislava", "Brno", "Dunajska Streda", "Plzen", "Prague", "Ostrava", "Vienna"],
+  "HUB": WAREHOUSE_LOCATIONS,
+  "CFS": WAREHOUSE_LOCATIONS,
   "Validity Status": ["Ok", "Check"],
   "Switch BoL": ["YES", "NO"],
   "House BoL Type": ["OBL", "SWB", "Telex", "OHBL ok", "Direct MBL"],

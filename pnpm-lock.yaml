@@ -23,7 +23,7 @@ importers:
         specifier: ^1.58.6
         version: 1.58.6
       exceljs:
-        specifier: 4.4.0
+        specifier: ^4.4.0
         version: 4.4.0
       jose:
         specifier: ^6.0.0

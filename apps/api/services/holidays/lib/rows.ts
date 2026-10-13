@@ -1,17 +1,9 @@
 // Holiday rows as read from a file: the columns of the World Holidays spreadsheet.
 // Pure helpers (no I/O) so they can be unit-tested.
 
-export interface HolidayRow {
-  country: string;
-  countryCode: string;
-  nationalHoliday: string;
-  nationalStart: string; // yyyy-mm-dd or ""
-  nationalEnd: string;
-  regionalHoliday: string;
-  regionalStart: string;
-  regionalEnd: string;
-  regions: string;
-}
+import type { HolidayRowInput } from "../interfaces/interfaces";
+
+export type HolidayRow = HolidayRowInput;
 
 export const HOLIDAY_KEYS: (keyof HolidayRow)[] = [
   "country",
