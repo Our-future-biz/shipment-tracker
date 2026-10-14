@@ -3,6 +3,10 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as warehouseTaskSchema from "../schemas/warehouseTask.schema";
 import * as warehouseSectionSchema from "../schemas/warehouseSection.schema";
+import * as gateMovementSchema from "../schemas/gateMovement.schema";
+import * as gateFileSchema from "../schemas/gateFile.schema";
+import * as warehouseRecordsSchema from "../schemas/warehouseRecords.schema";
+import * as warehouseStockSchema from "../schemas/warehouseStock.schema";
 
 const { Pool } = pg;
 
@@ -18,5 +22,9 @@ export const db = drizzle(pool, {
   schema: {
     ...warehouseTaskSchema,
     ...warehouseSectionSchema,
+    ...gateMovementSchema,
+    ...gateFileSchema,
+    ...warehouseRecordsSchema,
+    ...warehouseStockSchema,
   },
 });

@@ -10,25 +10,13 @@ class WarehouseService {
     return warehouseTaskRepository.listByShipmentId(shipmentId, companyId);
   }
 
-  /** Warehouse references are WHCZ + the calendar year + a per-company sequence. */
-  async ensureForShipments(companyId: string, shipmentIds: string[], now = new Date()) {
-    const prefix = `WHCZ${now.getFullYear()}`;
-    const out: { shipmentId: string; reference: string }[] = [];
-    for (const shipmentId of new Set(shipmentIds)) {
-      const task = await warehouseTaskRepository.ensureForShipment(companyId, shipmentId, prefix);
-      out.push({ shipmentId, reference: task.taskId });
-    }
-    return out;
+  async addShipment(companyId: string, shipmentId: string, now = new Date()) {
+    return warehouseTaskRepository.createForShipment(companyId, shipmentId, warehouseRefPrefix(now));
   }
 
-  /** Truck references are TCZ + the calendar year + a per-company sequence. */
-  async createTruck(companyId: string, now = new Date()) {
-    const truck = await warehouseTaskRepository.createTruck(companyId, `TCZ${now.getFullYear()}`);
-    return truck.taskId;
-  }
-
-  async create(companyId: string, taskId: string, shipmentId?: string) {
-    return warehouseTaskRepository.create({ companyId, taskId, shipmentId });
+  // A position created in the warehouse itself: its own WCZ reference, no shipment job.
+  async createPosition(companyId: string, now = new Date()) {
+    return (await warehouseTaskRepository.createForShipment(companyId, null, warehouseRefPrefix(now))).task;
   }
 
   async update(id: string, companyId: string, data: Record<string, unknown>) {
@@ -50,3 +38,10 @@ class WarehouseService {
 }
 
 export const warehouseService = new WarehouseService();
+
+// Warehouse references are WCZ + the Prague calendar date (YYYYMMDD) + a daily sequence.
+export function warehouseRefPrefix(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Prague", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)!.value;
+  return `WCZ${get("year")}${get("month")}${get("day")}`;
+}

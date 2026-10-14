@@ -1,13 +1,21 @@
-import { eq, desc, isNull, and, like, sql } from "drizzle-orm";
+import { eq, ne, desc, isNull, and, like, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { warehouseTaskTable } from "../schemas/warehouseTask.schema";
+
+/** Type of the old truck-reference rows (TCZ…); no longer created, kept out of the positions list. */
+export const TRUCK_TYPE = "Truck";
 
 class WarehouseTaskRepository {
   async listAll(companyId: string) {
     return db
       .select()
       .from(warehouseTaskTable)
-      .where(and(eq(warehouseTaskTable.companyId, companyId), isNull(warehouseTaskTable.deletedAt)))
+      .where(and(
+        eq(warehouseTaskTable.companyId, companyId),
+        isNull(warehouseTaskTable.deletedAt),
+        // Truck references (TCZ…) live in the same table but are not warehouse positions.
+        ne(warehouseTaskTable.type, TRUCK_TYPE),
+      ))
       .orderBy(desc(warehouseTaskTable.createdAt));
   }
 
@@ -22,62 +30,41 @@ class WarehouseTaskRepository {
       ));
   }
 
-  /**
-   * The warehouse reference of a shipment, creating it on first use: WHCZ + year + a
-   * per-company sequence of that year (WHCZ2026001). An advisory lock keeps two parallel
-   * calls from handing out the same number; deleted rows still hold their number, so one
-   * is never reused.
-   */
-  async ensureForShipment(companyId: string, shipmentId: string, prefix: string) {
-    const existing = await db
-      .select()
-      .from(warehouseTaskTable)
-      .where(and(eq(warehouseTaskTable.companyId, companyId), eq(warehouseTaskTable.shipmentId, shipmentId), isNull(warehouseTaskTable.deletedAt)))
-      .limit(1);
-    if (existing[0]) return existing[0];
-
+  // Creates a warehouse position under the next reference for the given day prefix
+  // (WCZYYYYMMDD + 01, 02, …). Numbers are counted over deleted tasks too, so a reference is
+  // never reused; the per-company advisory lock stops two concurrent adds taking the same one.
+  // With a shipment, returns its existing live task instead if it is already in the warehouse;
+  // without one (null) the position stands on its own — no shipment job behind it.
+  async createForShipment(companyId: string, shipmentId: string | null, prefix: string) {
     return db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`warehouse-ref:${companyId}`}))`);
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`warehouse_ref:${companyId}`}))`);
 
-      const again = await tx
-        .select()
+      if (shipmentId) {
+        const [existing] = await tx
+          .select()
+          .from(warehouseTaskTable)
+          .where(and(
+            eq(warehouseTaskTable.companyId, companyId),
+            eq(warehouseTaskTable.shipmentId, shipmentId),
+            isNull(warehouseTaskTable.deletedAt),
+          ));
+        if (existing) return { task: existing, created: false };
+      }
+
+      const sameDay = await tx
+        .select({ taskId: warehouseTaskTable.taskId })
         .from(warehouseTaskTable)
-        .where(and(eq(warehouseTaskTable.companyId, companyId), eq(warehouseTaskTable.shipmentId, shipmentId), isNull(warehouseTaskTable.deletedAt)))
-        .limit(1);
-      if (again[0]) return again[0];
+        .where(and(eq(warehouseTaskTable.companyId, companyId), like(warehouseTaskTable.taskId, `${prefix}%`)));
+      let max = 0;
+      for (const { taskId } of sameDay) {
+        const n = parseInt(taskId.slice(prefix.length), 10);
+        if (!isNaN(n) && n > max) max = n;
+      }
+      const taskId = `${prefix}${String(max + 1).padStart(2, "0")}`;
 
-      const taskId = await this.nextRef(tx, companyId, prefix);
-      const [row] = await tx.insert(warehouseTaskTable).values({ companyId, shipmentId, taskId }).returning();
-      return row!;
+      const [row] = await tx.insert(warehouseTaskTable).values({ companyId, taskId, shipmentId }).returning();
+      return { task: row!, created: true };
     });
-  }
-
-  /**
-   * A new truck leaving the warehouse: a row of its own holding the next reference of the
-   * `prefix` sequence (TCZ2026001), numbered the same way as the shipments' references.
-   */
-  async createTruck(companyId: string, prefix: string) {
-    return db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`warehouse-ref:${companyId}`}))`);
-      const taskId = await this.nextRef(tx, companyId, prefix);
-      const [row] = await tx.insert(warehouseTaskTable).values({ companyId, taskId, type: "Truck" }).returning();
-      return row!;
-    });
-  }
-
-  /** The next free reference of a prefix; call it holding the company's reference lock. */
-  private async nextRef(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], companyId: string, prefix: string) {
-    const used = await tx
-      .select({ taskId: warehouseTaskTable.taskId })
-      .from(warehouseTaskTable)
-      .where(and(eq(warehouseTaskTable.companyId, companyId), like(warehouseTaskTable.taskId, `${prefix}%`)));
-    const highest = used.reduce((max, r) => Math.max(max, parseInt(r.taskId.slice(prefix.length), 10) || 0), 0);
-    return `${prefix}${String(highest + 1).padStart(3, "0")}`;
-  }
-
-  async create(data: { companyId: string; taskId: string; shipmentId?: string; type?: string; priority?: string; status?: string }) {
-    const [row] = await db.insert(warehouseTaskTable).values(data).returning();
-    return row!;
   }
 
   async update(id: string, companyId: string, data: Record<string, unknown>) {

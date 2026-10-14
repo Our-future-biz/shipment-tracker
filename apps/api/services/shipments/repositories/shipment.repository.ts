@@ -102,10 +102,9 @@ const TILE_PREDICATES = {
 export type TileId = keyof typeof TILE_PREDICATES;
 
 /**
- * Which shipments each Warehouse page lists, by the two dates a shipment carries:
- * In Warehouse → (received) → Stock → (released) → Out Warehouse. In Warehouse holds the
+ * The shipments list's warehouse filter, by the two dates a shipment carries (written back
+ * by the warehouse Gate Log): in → (received) → stock → (released) → out. "in" holds the
  * ones not yet received whose ETA Warehouse/HUB is less than 7 days away (or passed).
- * The web app applies the same rules (warehouseRules.ts) to its cached rows.
  */
 const WAREHOUSE_PREDICATES = {
   in: sql`${shipmentTable.warehouseReceivedDate} IS NULL

@@ -57,11 +57,7 @@ const NAV_ITEMS: NavItem[] = [
     label: "Warehouse",
     icon: <InboxOutlined />,
     ownPage: true,
-    children: [
-      { path: "/warehouse/in", label: "In Warehouse" },
-      { path: "/warehouse/stock", label: "Stock" },
-      { path: "/warehouse/out", label: "Out Warehouse" },
-    ],
+    children: [{ path: "/warehouse/gate-log", label: "Gate Log" }],
   },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
