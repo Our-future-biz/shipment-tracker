@@ -1,12 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { RightOutlined, WarningFilled } from "@ant-design/icons";
 import { useCustomerDocuments } from "@/hooks/useCustomerDocuments";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
-import { useCustomerQuotes } from "@/hooks/useCustomerQuotes";
 import { useCustomer } from "@/hooks/useCustomers";
 import { useLatestRates } from "@/lib/fx";
 import { buildCustomerAttention } from "../../_lib/customerAttention";
@@ -61,27 +59,25 @@ interface CustomerAttentionCardProps {
   onSelectTab: (key: string) => void;
 }
 
-// What needs somebody's attention on this customer right now — overdue money, expiring quotes,
+// What needs somebody's attention on this customer right now — overdue money,
 // missing paperwork, lapsed contact — each row leading to where it is dealt with. The card is absent when there is nothing.
 export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAttentionCardProps) {
   const { customer, isLoading: customerLoading } = useCustomer(customerId);
   const { invoices, isLoading: invoicesLoading } = useCustomerInvoices(customerId);
   const { rates } = useLatestRates();
-  const { quotes, isLoading: quotesLoading } = useCustomerQuotes(customerId);
   const { documents, isLoading: documentsLoading, isError: documentsError } = useCustomerDocuments(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
   // Remembered per customer, so an unfolded list does not carry over to the next customer opened.
   const [expandedFor, setExpandedFor] = useState<string | null>(null);
 
   // Until every source is in, the list would appear half-built and then grow or reorder under the reader.
-  const isLoading = customerLoading || invoicesLoading || quotesLoading || documentsLoading || notesLoading;
+  const isLoading = customerLoading || invoicesLoading || documentsLoading || notesLoading;
 
   const items = useMemo(() => {
     if (isLoading || !customer) return [];
     const built = buildCustomerAttention({
       customer,
       invoices,
-      quotes,
       documents,
       notes,
       rates,
@@ -89,7 +85,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
     // For documents and notes an empty list is itself a finding, but a list that could not be loaded is
     // not an empty one: its "nothing on file" row would be untrue.
     return built.filter((item) => !(documentsError && item.key === "documents-missing") && !(notesError && item.key === "no-interaction"));
-  }, [isLoading, customer, invoices, quotes, documents, notes, rates, documentsError, notesError]);
+  }, [isLoading, customer, invoices, documents, notes, rates, documentsError, notesError]);
 
   if (items.length === 0) return null;
 
@@ -100,7 +96,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
   const handleToggleExpanded = () => setExpandedFor(expanded ? null : customerId);
 
   const renderRow = (item: AttentionItem) => {
-    const { tab, href } = item;
+    const { tab } = item;
     const style = SEVERITY_STYLE[item.severity];
     const content = (
       <>
@@ -112,7 +108,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
           {item.detail && <span className="text-slate-600"> {item.detail}</span>}
         </span>
         {item.meta && <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums text-slate-800">{item.meta}</span>}
-        {(tab || href) && (
+        {tab && (
           <span className="flex h-5 shrink-0 items-center text-[10px] text-slate-400">
             <RightOutlined aria-hidden />
           </span>
@@ -125,13 +121,6 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
         <button type="button" onClick={() => onSelectTab(tab)} className={CLICKABLE_ROW_CLASS}>
           {content}
         </button>
-      );
-    }
-    if (href) {
-      return (
-        <Link href={href} className={CLICKABLE_ROW_CLASS}>
-          {content}
-        </Link>
       );
     }
     return <div className={ROW_CLASS}>{content}</div>;

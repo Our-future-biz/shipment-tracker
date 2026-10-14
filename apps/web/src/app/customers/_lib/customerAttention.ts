@@ -1,6 +1,4 @@
 import dayjs from "dayjs";
-import { quoteHref } from "@/app/sales/_lib/quoteHref";
-import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import type { DocumentItem } from "@/hooks/useCustomerDocuments";
 import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
 import type { NoteItem } from "@/hooks/useCustomerNotes";
@@ -11,18 +9,15 @@ import { daysSince } from "./customerDates";
 import { daysOverdue, summarizeInvoices } from "./customerInvoices";
 import type { Rates } from "@/lib/fx";
 import { fmtMoney, roundCents } from "./customerMoney";
-import { quoteBucket } from "./customerQuotes";
 
 // What on a customer needs somebody's attention right now, for the "Needs attention" list of the Overview.
-// Only the customer itself: shipment deadlines (VGM, SI, cut-offs…) belong to Shipments, not to the customer card.
+// Only the customer itself: shipment deadlines (VGM, SI, cut-offs…) and quote validity belong to Shipments and Sales.
 // One pure function over data the page has already loaded, so the rules can be read and tested in one place.
 
 // The thresholds the product owner approved.
 export const ATTENTION_RULES = {
   // More days than this since the last logged interaction counts as "no contact".
   noContactDays: 30,
-  // An open quote is listed once its validity ends within this many days.
-  quoteExpiryDays: 7,
   // Document types every customer is expected to have on file.
   requiredDocumentTypes: ["Power of attorney", "Contract"],
 } as const;
@@ -32,22 +27,19 @@ export type AttentionSeverity = "critical" | "warning";
 export interface AttentionItem {
   key: string;
   severity: AttentionSeverity;
-  // The bold lead of the row: a count, a quote number.
+  // The bold lead of the row: a count or a short finding.
   title: string;
   // Finishes the line.
   detail: string;
   // Right-aligned extra, e.g. an amount.
   meta?: string;
-  // Where the row leads: `tab` is a tab of the customer page, `href` another page. At most one of them is set;
-  // with neither the row is not clickable.
+  // The tab of the customer page the row leads to; without it the row is not clickable.
   tab?: string;
-  href?: string;
 }
 
 export interface AttentionInput {
   customer: CustomerItem;
   invoices: InvoiceItem[];
-  quotes: SalesQuote[];
   documents: DocumentItem[];
   notes: NoteItem[];
   // Today's exchange rates: invoices in another currency are compared with the limit in the customer's currency.
@@ -57,45 +49,6 @@ export interface AttentionInput {
 }
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-
-// Whole calendar days from today to a date on the viewer's clock — negative once the date has passed —
-// so a quote valid until today stays "today" until midnight. Null when the date is unreadable.
-function daysUntil(date: string, now: number): number | null {
-  const day = dayjs(date);
-  if (!day.isValid()) return null;
-  // Rounded, not truncated, as daysSince does: across a DST change two local midnights are 23 or 25 hours apart.
-  return Math.round(day.startOf("day").diff(dayjs(now).startOf("day"), "day", true));
-}
-
-function validityDetail(date: string, daysLeft: number): string {
-  if (daysLeft < 0) return `Validity ended ${formatDate(date)}.`;
-  if (daysLeft === 0) return "Valid until today.";
-  if (daysLeft === 1) return "Valid until tomorrow.";
-  return `Valid for ${daysLeft} more days.`;
-}
-
-// Quotes still in play whose validity has ended or is about to, soonest first. A quote that
-// expired while it was with the customer is among them: it waits for somebody to revise or close it.
-// The quote opens knowing it was opened from this customer, so its back link returns here.
-function quoteItems(quotes: SalesQuote[], customerId: string, now: number): AttentionItem[] {
-  return quotes
-    .flatMap((quote) => {
-      const bucket = quoteBucket(quote);
-      if (bucket !== "open" && bucket !== "expired") return [];
-      const date = quote.validUntil;
-      const daysLeft = date ? daysUntil(date, now) : null;
-      if (!date || daysLeft === null || daysLeft > ATTENTION_RULES.quoteExpiryDays) return [];
-      return [{ quote, date, daysLeft }];
-    })
-    .sort((a, b) => a.daysLeft - b.daysLeft)
-    .map(({ quote, date, daysLeft }) => ({
-      key: `quote-${quote.quoteNumber}`,
-      severity: "warning",
-      title: quote.quoteNumber,
-      detail: validityDetail(date, daysLeft),
-      href: quoteHref(quote.quoteNumber, { from: "customer", customerId }),
-    }));
-}
 
 function contactItem(notes: NoteItem[], now: number): AttentionItem | null {
   if (notes.length === 0) {
@@ -134,7 +87,7 @@ const documentTypeKey = (type: string) => type.trim().toLowerCase();
 // Everything that needs attention, most serious first: all critical items, then all warnings,
 // each group in a fixed order of rules.
 export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
-  const { customer, invoices, quotes, documents, notes, rates, now = Date.now() } = input;
+  const { customer, invoices, documents, notes, rates, now = Date.now() } = input;
   const { creditLimit, currency } = customer;
   const items: AttentionItem[] = [];
 
@@ -177,7 +130,6 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
   }
 
   // Warnings.
-  items.push(...quoteItems(quotes, customer.id, now));
 
   const typesOnFile = new Set(documents.map((document) => documentTypeKey(document.type)));
   const missingTypes = ATTENTION_RULES.requiredDocumentTypes.map(documentTypeKey).filter((type) => !typesOnFile.has(type));
