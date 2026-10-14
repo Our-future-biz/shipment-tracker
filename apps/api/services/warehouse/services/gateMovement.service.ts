@@ -372,6 +372,18 @@ class GateMovementService {
     const m = await this.load(id, companyId);
     const patch = await this.fields(input, companyId);
 
+    // Direction is held twice — handling (Import/Export) and the gate visit (výdej/příjem) the
+    // gate rules follow — so they change together, and only until the first gate stamp.
+    const handlingChanged = input.handling !== undefined && input.handling !== m.handling;
+    const visitChanged = input.visit !== undefined && input.visit !== m.visit;
+    if (handlingChanged || visitChanged) {
+      if (m.gateIn || m.gateOut || m.impRelease || m.expDraft || m.expReceipt) {
+        throw APIError.failedPrecondition("Direction cannot change once a gate stamp is recorded");
+      }
+      if (handlingChanged && input.visit === undefined) patch.visit = input.handling === "Import" ? "výdej" : "příjem";
+      if (visitChanged && input.handling === undefined) patch.handling = input.visit === "výdej" ? "Import" : "Export";
+    }
+
     // The UN number only exists for dangerous goods.
     if (input.dangerousGoods === false) patch.unNumber = "";
     // Customs status drives the Customs line of the release gate.
@@ -498,9 +510,10 @@ class GateMovementService {
       throw APIError.failedPrecondition(stampBlocked(cur, kind) ?? `${kind} could not be stamped — reload and try again`);
     }
 
-    // Write back only what this very update stamped. (A výdej gate-out of its own happens only
-    // on an already released row whose release left the gate-out empty.)
-    if (sameTime(row.gateIn, now)) await this.writeBackToShipment(m, "received", now);
+    // Write back only what this very update stamped. Received means inbound cargo arriving: an
+    // outbound (výdej) gate-in is the pickup truck, not a receipt. (A výdej gate-out of its own
+    // happens only on an already released row whose release left the gate-out empty.)
+    if (sameTime(row.gateIn, now) && m.visit !== "výdej") await this.writeBackToShipment(m, "received", now);
     if ((kind === "impRelease" && sameTime(row.gateOut, now)) || (kind === "gateOut" && row.visit === "výdej")) {
       await this.writeBackToShipment(m, "released", now);
     }

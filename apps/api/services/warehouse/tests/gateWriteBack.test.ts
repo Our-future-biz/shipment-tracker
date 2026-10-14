@@ -27,6 +27,13 @@ async function linkedRow() {
   return { c, shipmentId, task, row };
 }
 
+// An incoming (příjem) linked row: only inbound arrival writes the received date back.
+async function inboundRow() {
+  const r = await linkedRow();
+  await gateMovementRepository.update(r.row.id, r.c, { visit: "příjem", handling: "Export" });
+  return r;
+}
+
 // Linked tasks come in as outgoing (výdej); this ticks every release gate so it is armed.
 async function armedRow(plate = "3AB 1234") {
   const r = await linkedRow();
@@ -38,7 +45,7 @@ describe("gate stamps write back to the shipment", () => {
   beforeEach(() => shipmentUpdate.mockClear());
 
   it("sets the received date and the WCZ reference on gate-in, once", async () => {
-    const { c, shipmentId, task, row } = await linkedRow();
+    const { c, shipmentId, task, row } = await inboundRow();
     await gateMovementService.stamp(row.id, c, user, "gateIn");
     expect(shipmentUpdate).toHaveBeenCalledTimes(1);
     expect(shipmentUpdate).toHaveBeenCalledWith(
@@ -49,7 +56,7 @@ describe("gate stamps write back to the shipment", () => {
   });
 
   it("treats the first export arrival stamp as the gate-in", async () => {
-    const { c, shipmentId, task, row } = await linkedRow();
+    const { c, shipmentId, task, row } = await inboundRow();
     await gateMovementService.stamp(row.id, c, user, "expDraft");
     expect(shipmentUpdate).toHaveBeenCalledTimes(1);
     expect(shipmentUpdate).toHaveBeenCalledWith(expect.objectContaining({ shipmentId, warehouseReference: task.taskId }));
@@ -58,7 +65,7 @@ describe("gate stamps write back to the shipment", () => {
   });
 
   it("writes back once when ten clerks stamp gate-in together", async () => {
-    const { c, row } = await linkedRow();
+    const { c, row } = await inboundRow();
     await Promise.allSettled(Array.from({ length: 10 }, () => gateMovementService.stamp(row.id, c, user, "gateIn")));
     expect(shipmentUpdate).toHaveBeenCalledTimes(1);
   });
@@ -79,6 +86,12 @@ describe("gate stamps write back to the shipment", () => {
     const { c, row } = await armedRow();
     await Promise.allSettled(Array.from({ length: 5 }, () => gateMovementService.stamp(row.id, c, user, "impRelease")));
     expect(shipmentUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("writes nothing back when the pickup truck gates in for outgoing cargo", async () => {
+    const { c, row } = await linkedRow();
+    await gateMovementService.stamp(row.id, c, user, "gateIn");
+    expect(shipmentUpdate).not.toHaveBeenCalled();
   });
 
   it("does not release an outgoing shipment through gate-out", async () => {

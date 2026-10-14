@@ -171,8 +171,9 @@ export function GateJobView({ id }: { id: string }) {
     }
   };
   // What the stamp writes to the linked shipment, for the confirmation text.
+  // Only inbound arrival is a receipt; an outbound gate-in is the pickup truck.
   const writesBack = (kind: GateStampKind) =>
-    kind === "gateIn" || ((kind === "expDraft" || kind === "expReceipt") && !m.gateIn)
+    !isOutbound(m) && (kind === "gateIn" || ((kind === "expDraft" || kind === "expReceipt") && !m.gateIn))
       ? "received date"
       : kind === "impRelease" || (kind === "gateOut" && isOutbound(m))
         ? "released date and plate"

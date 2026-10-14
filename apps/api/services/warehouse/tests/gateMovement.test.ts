@@ -180,6 +180,19 @@ describe("gate movement flow", () => {
   });
 });
 
+describe("direction", () => {
+  it("moves the gate visit with the trade direction until the first stamp, then locks", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091640", visit: "výdej", handling: "Import" });
+    const flipped = await gateMovementService.update(m.id, c, user, { handling: "Export" });
+    expect(flipped).toMatchObject({ handling: "Export", visit: "příjem" });
+    const back = await gateMovementService.update(m.id, c, user, { visit: "výdej" });
+    expect(back).toMatchObject({ handling: "Import", visit: "výdej" });
+    await gateMovementService.stamp(m.id, c, user, "gateIn");
+    await expect(gateMovementService.update(m.id, c, user, { handling: "Export" })).rejects.toThrow(/cannot change/);
+  });
+});
+
 describe("release gate lines", () => {
   it("arms an import release once every line is ticked, and logs each tick", async () => {
     const c = company();

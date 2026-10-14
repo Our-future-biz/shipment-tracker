@@ -15,6 +15,7 @@ import { reportBulk, runBulk } from "@/app/warehouse/_components/tabs/shared";
 import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOfVisit, releaseGatesText } from "@/app/warehouse/_lib/glossary";
 import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, GATE_STATUSES, OPERATION_TYPES, PACKINGS, isFcl, isLcl, nf } from "../_lib/gate";
 import { PrintLabelsModal } from "./PrintLabelsModal";
+import { gateSteps } from "../_lib/steps";
 
 type BubbleId = "attention" | "lcl" | "fcl";
 
@@ -107,44 +108,29 @@ const BUBBLES: { id: BubbleId; label: string; hint: string; danger?: boolean; ma
   { id: "fcl", label: "FCL shipments", hint: "FCL stuffing · stripping · transload", match: (m) => isFcl(m.operationType) },
 ];
 
-// The toolbar stamp buttons: the same stamps as the steps in the gate job header, applied to the
-// rows selected in the grid, in process order. A movement already stamped is skipped. The
-// receipts are for inbound cargo only (the receipt needs the draft receipt first); WH release
-// is for outbound cargo whose release gates are clear (every gate OK, or overridden on its
-// job). Outbound cargo leaves only through WH release, which stamps its gate-out too, so its
-// own Gate-out is skipped. `shipment` says what the stamp writes to the linked shipment.
-type StampAction = { kind: GateStampKind; label: string; ready?: (m: GateMovement) => boolean; primary?: boolean; skipHint: string; shipment?: string };
+// Bulk stamps follow the same step order as the gate job (see _lib/steps): a movement is
+// stamped only when this stamp is its next step — inbound: Gate-in, Draft receipt, Receipt,
+// Gate-out; outbound: Gate-in (truck), WH release (once the release gates are clear), Gate-out.
+// Everything else is skipped, with the reason. `shipment` says what the stamp writes to the
+// linked shipment.
+type StampAction = { kind: GateStampKind; label: string; primary?: boolean; skipHint: string; shipment?: string };
 
 const STAMP_ACTIONS: StampAction[] = [
-  { kind: "gateIn", label: TERMS.gateIn, skipHint: "already gated in", shipment: "received date" },
-  {
-    kind: "expDraft",
-    label: TERMS.draftReceipt,
-    ready: (m) => m.visit !== "výdej",
-    skipHint: "already stamped, or outbound",
-    shipment: "received date, if not gated in yet",
-  },
-  {
-    kind: "expReceipt",
-    label: TERMS.receipt,
-    ready: (m) => m.visit !== "výdej" && !!m.expDraft,
-    skipHint: "already stamped, outbound, or without a draft receipt",
-  },
+  { kind: "gateIn", label: TERMS.gateIn, skipHint: "already gated in", shipment: "received date (inbound cargo only)" },
+  { kind: "expDraft", label: TERMS.draftReceipt, skipHint: "outbound, already stamped, or not gated in yet" },
+  { kind: "expReceipt", label: TERMS.receipt, skipHint: "outbound, already stamped, or without a draft receipt" },
   {
     kind: "impRelease",
     label: TERMS.whRelease,
-    ready: (m) => m.visit === "výdej" && m.armed,
     primary: true,
-    skipHint: "already released, inbound, or release gates blocked",
+    skipHint: "inbound, already released, not gated in yet, or release gates blocked",
     shipment: "released date and plate",
   },
-  {
-    kind: "gateOut",
-    label: TERMS.gateOut,
-    ready: (m) => m.visit !== "výdej" || !!m.impRelease,
-    skipHint: "already gated out, or outbound and not released yet (WH release stamps its gate-out)",
-  },
+  { kind: "gateOut", label: TERMS.gateOut, skipHint: "already gated out, or an earlier step is not stamped yet" },
 ];
+
+// True when `kind` is the movement's next step in the job's step bar.
+const isNextStep = (m: GateMovement, kind: GateStampKind) => gateSteps(m).some((s) => s.kind === kind && s.state === "next");
 
 // The gate clerk's workstation: one row per expected movement, on the app's standard grid.
 // `embedded` shows it as the Warehouse page's Gate Log tab, under the module tabs (`header`).
@@ -168,7 +154,7 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
   const onSelectionChange = useCallback((rows: GateMovement[], clear: () => void) => setSelection({ rows, clear }), []);
 
   // Each action stamps the selected movements, the same stamp as the button in the job header.
-  const eligible = (a: StampAction) => selection.rows.filter((m) => !m[a.kind] && (!a.ready || a.ready(m)));
+  const eligible = (a: StampAction) => selection.rows.filter((m) => isNextStep(m, a.kind));
   // Stamps row by row: one rejected movement does not stop the others, and the toast reports
   // how many were stamped and why the rest were not. Failed rows stay ticked to retry.
   const runStamp = async (a: StampAction) => {

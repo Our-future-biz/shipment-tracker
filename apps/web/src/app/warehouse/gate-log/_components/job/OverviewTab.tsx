@@ -1,7 +1,7 @@
 "use client";
 
 import dayjs from "dayjs";
-import { Input } from "antd";
+import { Input, Tooltip } from "antd";
 import {
   CarOutlined,
   CheckSquareOutlined,
@@ -183,14 +183,21 @@ export function OverviewTab({
                 <FieldRow label={TERMS.warehouseRef}>
                   <span className="font-mono font-semibold text-slate-900">{m.gateRef}</span>
                 </FieldRow>
-                {/* Saves the stored handling (Import / Export), shown as Outbound / Inbound. */}
+                {/* Saves the stored handling (Import / Export), shown as Outbound / Inbound; the server
+                    moves the gate visit with it. Locked once anything is stamped. */}
                 <FieldRow label={TERMS.direction}>
-                  <InlineSelect
-                    value={m.handling}
-                    options={HANDLINGS}
-                    labels={directionOfHandling}
-                    onSave={(v) => save({ handling: v })}
-                  />
+                  {m.gateIn || m.gateOut || m.impRelease || m.expDraft || m.expReceipt ? (
+                    <Tooltip title="Direction is locked once a gate stamp is recorded">
+                      <span className="text-xs font-medium text-slate-900">{directionOfHandling(m.handling)}</span>
+                    </Tooltip>
+                  ) : (
+                    <InlineSelect
+                      value={m.handling}
+                      options={HANDLINGS}
+                      labels={directionOfHandling}
+                      onSave={(v) => save({ handling: v })}
+                    />
+                  )}
                 </FieldRow>
                 <FieldRow label="Freight mode">
                   <InlineSelect
