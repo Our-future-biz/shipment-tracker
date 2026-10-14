@@ -102,6 +102,7 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
 // Warehouse module tabs.
 const MODULE_TABS = [
   { key: "positions", label: "Positions" },
+  { key: "remeasurement", label: "Remeasurement / Release" },
   { key: "containers", label: "Containers" },
   { key: "dock", label: "Dock & Yard" },
   { key: "reports", label: "Reports" },
@@ -195,6 +196,16 @@ function FilterBubbles({ active, counts, onSelect }: { active: BubbleId | null; 
   );
 }
 
+// Remeasurement / Release: the tab is in place; its content comes later.
+function RemeasurementReleaseTab() {
+  return (
+    <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center">
+      <div className="text-sm font-semibold text-slate-700">Remeasurement / Release</div>
+      <div className="text-xs text-slate-400 mt-1">Coming soon.</div>
+    </div>
+  );
+}
+
 // Positions grid: every warehouse position with its own data (the gate movement record).
 export const WarehouseView = () => {
   const router = useRouter();
@@ -275,6 +286,7 @@ export const WarehouseView = () => {
             <h1 className="text-2xl font-bold text-slate-900">Warehouse</h1>
             {moduleTabs}
           </div>
+          {activeTab === "remeasurement" && <RemeasurementReleaseTab />}
           {activeTab === "stock" && <StockTab />}
           {activeTab === "containers" && <ContainersTab />}
           {activeTab === "dock" && <DockYardTab />}
