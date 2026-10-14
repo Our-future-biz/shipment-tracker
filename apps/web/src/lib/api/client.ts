@@ -109,6 +109,23 @@ export namespace lib {
     export interface AuthParams {
         authorization: string
     }
+
+    export interface JobProfitRow {
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        freightMode: string
+        status: string
+        direction: "import" | "export"
+        basis: "ata" | "atd" | "eta" | "etd"
+        date: string
+        month: string
+        provisional: boolean
+        revenueCzk: number
+        costCzk: number
+        profitCzk: number
+        unconverted: string[]
+    }
 }
 
 export namespace auth {
@@ -961,6 +978,7 @@ export namespace invoicing {
             this.invoicingUpsertBillingOverride = this.invoicingUpsertBillingOverride.bind(this)
             this.invoicingUpsertBillingSettings = this.invoicingUpsertBillingSettings.bind(this)
             this.invoicingUpsertCost = this.invoicingUpsertCost.bind(this)
+            this.jobProfitReportGet = this.jobProfitReportGet.bind(this)
         }
 
         public async customsInvoicingAddLine(shipmentId: string, params: controllers.AddCustomsLineRequest): Promise<controllers.CustomsLineResponse> {
@@ -1099,6 +1117,21 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/costs`, JSON.stringify(params))
             return await resp.json() as controllers.UpsertCostResponse
+        }
+
+        /**
+         * Job revenue, cost and profit in CZK at each month's fixed ČNB average (Shipment Reports).
+         */
+        public async jobProfitReportGet(params: controllers.JobProfitReportRequest): Promise<services.JobProfitReport> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                from: params.from,
+                to:   params.to,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/reports/job-profit`, undefined, {query})
+            return await resp.json() as services.JobProfitReport
         }
     }
 }
@@ -2416,6 +2449,11 @@ export namespace controllers {
         billingSettings: interfaces.BillingSettingsItem | null
         billingOverrides: interfaces.BillingOverrideItem[]
         generatedInvoices: interfaces.GeneratedInvoiceItem[]
+    }
+
+    export interface JobProfitReportRequest {
+        from: string
+        to: string
     }
 
     export interface LinkMasterJobRequest {
@@ -4646,6 +4684,14 @@ export namespace services {
         role?: string
     }
 
+    export interface JobProfitReport {
+        from: string
+        to: string
+        rows: lib.JobProfitRow[]
+        months: MonthSummary[]
+        undated: number
+    }
+
     /**
      * A UN/LOCODE place as the city pickers list it.
      */
@@ -4655,6 +4701,19 @@ export namespace services {
         name: string
         nameAscii: string
         subdivisionName: string | null
+    }
+
+    export interface MonthSummary {
+        month: string
+        jobs: number
+        revenueCzk: number
+        costCzk: number
+        profitCzk: number
+        final: boolean
+        averages: {
+            currency: string
+            average: number
+        }[]
     }
 
     /**
