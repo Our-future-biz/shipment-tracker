@@ -8,6 +8,8 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { useEffect, useState } from "react";
 
 const PUBLIC_PATHS = ["/login"];
+// Signed-in pages shown full screen, without the sidebar and top bar (the warehouse phone floor mode).
+const FULL_SCREEN_PATHS = ["/warehouse/floor"];
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -75,6 +77,11 @@ export const AppShell = ({ children }: AppShellProps) => {
         <Spin size="large" />
       </div>
     );
+  }
+
+  // Authenticated, full-screen page → no sidebar or top bar
+  if (FULL_SCREEN_PATHS.some((p) => pathname.startsWith(p))) {
+    return <main className="min-h-screen bg-slate-50">{children}</main>;
   }
 
   // Authenticated → show app

@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Drawer, Modal } from "antd";
@@ -75,39 +75,15 @@ function QueueRow({ item }: { item: QueueItem }) {
   );
 }
 
-/**
- * While floor mode is open, the desk layout around it (sidebar, top bar) is taken out of the page
- * — set to display: none and put back on leaving. Covering it is not enough on a phone: a layout
- * wider than the screen makes the browser zoom the whole page out. Elements directly in <body>
- * (antd dialogs, messages) are left alone. A workaround from within the Warehouse files: the
- * proper fix is a route check in the global AppShell. Done before paint (layout effect), so the
- * desk layout does not flash.
- */
-function useHideDeskLayout(root: RefObject<HTMLElement | null>) {
-  useLayoutEffect(() => {
-    const hidden: { el: HTMLElement; display: string }[] = [];
-    for (let node = root.current; node?.parentElement && node.parentElement !== document.body; node = node.parentElement) {
-      for (const sib of Array.from(node.parentElement.children)) {
-        if (sib === node || !(sib instanceof HTMLElement)) continue;
-        hidden.push({ el: sib, display: sib.style.display });
-        sib.style.display = "none";
-      }
-    }
-    return () => hidden.forEach(({ el, display }) => (el.style.display = display));
-  }, [root]);
-}
-
 export function FloorShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const q = useFloorQueue();
   const [sheet, setSheet] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-  useHideDeskLayout(rootRef);
   const home = pathname.replace(/\/$/, "") === "/warehouse/floor";
   const n = q.items.length;
 
   return (
-    <div ref={rootRef} className="fixed inset-0 z-[900] flex flex-col bg-slate-50 text-slate-900">
+    <div className="fixed inset-0 z-[900] flex flex-col bg-slate-50 text-slate-900">
       <header className="flex h-14 shrink-0 items-center gap-1 border-b border-slate-200 bg-white px-1">
         {home ? (
           <span className="w-12" aria-hidden />
