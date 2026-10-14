@@ -960,10 +960,6 @@ export namespace invoicing {
             this.customsInvoicingGet = this.customsInvoicingGet.bind(this)
             this.customsInvoicingSetNumber = this.customsInvoicingSetNumber.bind(this)
             this.customsInvoicingUpdateLine = this.customsInvoicingUpdateLine.bind(this)
-            this.exchangeRateCreate = this.exchangeRateCreate.bind(this)
-            this.exchangeRateDelete = this.exchangeRateDelete.bind(this)
-            this.exchangeRateList = this.exchangeRateList.bind(this)
-            this.exchangeRateUpdate = this.exchangeRateUpdate.bind(this)
             this.invoiceDocCredit = this.invoiceDocCredit.bind(this)
             this.invoiceDocGet = this.invoiceDocGet.bind(this)
             this.invoiceDocIssue = this.invoiceDocIssue.bind(this)
@@ -1017,30 +1013,6 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/customs-invoicing/${encodeURIComponent(shipmentId)}/lines/${encodeURIComponent(lineId)}`, JSON.stringify(params))
             return await resp.json() as controllers.CustomsLineResponse
-        }
-
-        public async exchangeRateCreate(params: controllers.CreateRateRequest): Promise<controllers.CreateRateResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/exchange-rates`, JSON.stringify(params))
-            return await resp.json() as controllers.CreateRateResponse
-        }
-
-        public async exchangeRateDelete(rateId: string): Promise<controllers.DeleteRateResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/exchange-rates/${encodeURIComponent(rateId)}`)
-            return await resp.json() as controllers.DeleteRateResponse
-        }
-
-        public async exchangeRateList(): Promise<controllers.ListRatesResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/exchange-rates`)
-            return await resp.json() as controllers.ListRatesResponse
-        }
-
-        public async exchangeRateUpdate(rateId: string, params: controllers.UpdateRateRequest): Promise<controllers.UpdateRateResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/exchange-rates/${encodeURIComponent(rateId)}`, JSON.stringify(params))
-            return await resp.json() as controllers.UpdateRateResponse
         }
 
         public async invoiceDocCredit(invoiceId: string, params: controllers.CreditRequest): Promise<controllers.InvoiceDocResponse> {
@@ -2216,19 +2188,6 @@ export namespace controllers {
         code: string
     }
 
-    export interface CreateRateRequest {
-        week: string
-        validFrom: string
-        validTo: string
-        rateEur?: string
-        rateUsd?: string
-        note?: string
-    }
-
-    export interface CreateRateResponse {
-        rate: interfaces.ExchangeRateItem
-    }
-
     export interface CreditRequest {
         reason: string
         idempotencyKey?: string
@@ -2350,10 +2309,6 @@ export namespace controllers {
     }
 
     export interface DeleteCustomsLineResponse {
-        ok: boolean
-    }
-
-    export interface DeleteRateResponse {
         ok: boolean
     }
 
@@ -2558,10 +2513,6 @@ export namespace controllers {
 
     export interface ListColumnTemplatesResponse {
         templates: ColumnTemplateItem[]
-    }
-
-    export interface ListRatesResponse {
-        rates: interfaces.ExchangeRateItem[]
     }
 
     export interface ListResponse {
@@ -3466,16 +3417,6 @@ export namespace controllers {
         value?: string
     }
 
-    export interface UpdateRateRequest {
-        rateEur?: string
-        rateUsd?: string
-        note?: string
-    }
-
-    export interface UpdateRateResponse {
-        rate: interfaces.ExchangeRateItem
-    }
-
     export interface UpdateSellingRequest {
         category?: string
         customer?: string
@@ -4058,19 +3999,6 @@ export namespace interfaces {
         fileSize: number
         createdAt: string
         updatedAt: string
-    }
-
-    /**
-     * Kurzovni listek s tydenni platnosti (stranka Exchange)
-     */
-    export interface ExchangeRateItem {
-        id: string
-        week: string
-        validFrom: string
-        validTo: string
-        rateEur: string | null
-        rateUsd: string | null
-        note: string
     }
 
     export interface ExtractHblResult {

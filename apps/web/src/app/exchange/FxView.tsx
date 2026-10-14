@@ -12,7 +12,6 @@ import { DailyTab } from "./_components/DailyTab";
 import { AveragesTab } from "./_components/AveragesTab";
 import { RoeHistoryTab } from "./_components/RoeHistoryTab";
 import { ImportLogTab } from "./_components/ImportLogTab";
-import { ExchangeView } from "./ExchangeView";
 
 const SYNC_ROLES = ["superadmin", "admin", "manager"];
 
@@ -141,19 +140,6 @@ export function FxView() {
             { key: "averages", label: "Period averages", children: <AveragesTab initialYear={Number(data.today.slice(0, 4))} /> },
             { key: "roe", label: "ROE history", children: <RoeHistoryTab /> },
             { key: "log", label: "Import log", children: <ImportLogTab /> },
-            {
-              key: "weekly",
-              label: "Weekly sheet (old)",
-              children: (
-                <div className="flex flex-col gap-4 pt-1">
-                  <p className="text-[13px] text-slate-500 m-0">
-                    The old hand-entered weekly rates. Nothing uses them any more — Costs Breakdown now takes the ČNB
-                    rate by ATA / ATD. Kept for comparison until the sheet is retired.
-                  </p>
-                  <ExchangeView />
-                </div>
-              ),
-            },
           ]}
         />
       </div>

@@ -2,6 +2,10 @@ import { pgTable, text, numeric, uniqueIndex, index } from "drizzle-orm/pg-core"
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 /**
+ * RETIRED (Exchange phase 8, 14 Oct 2026): nothing reads or writes this table any more —
+ * rates come from ČNB (fx service). The schema stays only so drizzle does not generate a
+ * DROP TABLE before the owner decides to drop it; remove it together with that migration.
+ *
  * Kurzovni listek s tydenni platnosti - zadava se rucne na strance Exchange.
  * Kurzy jsou vzdy v CZK za 1 jednotku meny (CZK je zaklad = 1).
  *
