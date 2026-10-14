@@ -102,7 +102,7 @@ function ExportPdfButton({
   company,
 }: {
   quote: SalesQuote;
-  exchange: Pick<CurrentExchangeRates, "rates" | "isError">;
+  exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">;
   company: StoredCompanyDetails;
 }) {
   const toast = useToast();
@@ -395,7 +395,7 @@ export function QuotesList() {
             : {}),
           // A heading can be dragged once the stored columns are known: only a cell with an id is draggable.
           onHeaderCell: () => (columnsKnown ? { id: c.key } : {}) as React.HTMLAttributes<HTMLTableCellElement>,
-          render: (_: unknown, record: SalesQuote) => c.render(record, exchange.rates),
+          render: (_: unknown, record: SalesQuote) => c.render(record, exchange),
         },
       ];
     });
@@ -432,7 +432,7 @@ export function QuotesList() {
   }, [visibleKeys, columnsKnown, sortedBy, sortDirection, exchange, company]);
 
   // CSV respects the visible columns and their order.
-  const csvColumns = () => quoteCsvColumns(visibleKeys, exchange.rates);
+  const csvColumns = () => quoteCsvColumns(visibleKeys, exchange);
 
   // Drag-to-reorder columns (same interaction as the shipments table).
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
@@ -484,7 +484,7 @@ export function QuotesList() {
   const bulkStatus = async () => {
     if (!statusTarget) return;
     const { status, quotes: confirmed } = statusTarget;
-    const request = transitionRequest({ status }, exchange);
+    const request = transitionRequest({ status });
     const shown = new Map(confirmed.map((q) => [q.quoteNumber, q.status]));
     await runAndReport(
       confirmed.map((q) => q.quoteNumber),

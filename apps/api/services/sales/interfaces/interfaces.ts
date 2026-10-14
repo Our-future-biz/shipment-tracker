@@ -50,7 +50,9 @@ export interface PipelineOpenQuote {
   validUntil: string | null;
   /** The quote's currency as stored; "" when it stores none. */
   currency: string;
-  /** The rates the quote stores (data.rates), as stored. */
+  /** ČNB rates and ROE % stored when the quote was sent (data.fx), as stored; null for a draft. */
+  fx: unknown;
+  /** Rates older quotes stored from the retired weekly sheet (data.rates), as stored. */
   rates: unknown;
   /** The selling lines (data.sellingLines), as stored. */
   sellingLines: unknown;

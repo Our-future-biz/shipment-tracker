@@ -5,7 +5,7 @@ import { companyTable } from "../schemas/company.schema";
 
 class CompanyRepository extends BaseRepository<typeof companyTable> {
   constructor() {
-    super(db as never, companyTable, "company");
+    super(db, companyTable, "company");
   }
 
   async findBySlug(slug: string) {

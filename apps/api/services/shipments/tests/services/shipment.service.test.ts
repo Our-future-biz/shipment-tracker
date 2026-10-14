@@ -8,7 +8,7 @@ vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn() },
   customers: { customerUpdate: vi.fn(), customerGet: vi.fn() },
-  invoicing: { invoicingImportQuote: vi.fn() },
+  invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
 }));
 vi.mock("../../repositories/shipment.repository", () => ({
@@ -30,6 +30,8 @@ vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository:
 vi.mock("../../repositories/container.repository", () => ({ containerRepository: { syncForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
 vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
 vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
+vi.mock("../../repositories/commercialInvoice.repository", () => ({ commercialInvoiceRepository: { listByShipmentId: vi.fn(async () => []), syncForShipment: vi.fn() } }));
+vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() } }));
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 
 import log from "encore.dev/log";
@@ -59,7 +61,21 @@ const OTHER_REF = "QCZ20261010002";
 /** The shipments the repository holds, by id. */
 let stored: Map<string, ShipmentRecord>;
 const row = (over: Record<string, unknown> = {}) =>
-  ({ id: SHIPMENT, companyId: COMPANY, jobNumber: "CZ00000101", salesNumber: "", salesPerson: "", customerId: null, masterJobId: null, customsStatus: "", warehouseTruck: "", ...over }) as unknown as ShipmentRecord;
+  ({
+    id: SHIPMENT,
+    companyId: COMPANY,
+    jobNumber: "CZ00000101",
+    salesNumber: "",
+    salesPerson: "",
+    customerId: null,
+    masterJobId: null,
+    customsStatus: "",
+    warehouseTruck: "",
+    createdAt: new Date("2026-10-13T10:00:00Z"),
+    updatedAt: new Date("2026-10-13T10:00:00Z"),
+    deletedAt: null,
+    ...over,
+  }) as unknown as ShipmentRecord;
 
 const synced = (over: Partial<QuoteSyncResult> = {}): QuoteSyncResult => ({
   quoteNumber: REF,
@@ -94,6 +110,7 @@ beforeEach(() => {
   });
   repository.softDeleteForCompany.mockImplementation(async (id) => stored.get(id) ?? null);
   vi.mocked(shipmentAttachmentRepository.documentTypesByShipmentIds).mockResolvedValue([]);
+  vi.mocked(invoicing.openInvoiceCount).mockResolvedValue({ count: 0 });
   vi.mocked(containerRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoItemRepository.listByShipmentId).mockResolvedValue([]);
   vi.mocked(cargoDimensionRepository.listByShipmentId).mockResolvedValue([]);
@@ -367,7 +384,7 @@ describe("softDelete", () => {
   it("is deleted also when the quote could not be told", async () => {
     stored.set(SHIPMENT, row({ salesNumber: REF }));
     links.syncReference.mockRejectedValue(new Error("quotes is unreachable"));
-    await expect(shipmentService.softDelete(SHIPMENT, COMPANY, USER)).resolves.toMatchObject({ id: SHIPMENT });
+    await expect(shipmentService.softDelete(SHIPMENT, COMPANY, USER)).resolves.toBeUndefined();
     expect(links.markDirty).toHaveBeenCalledWith(COMPANY);
   });
 });
@@ -386,8 +403,8 @@ describe("linkQuote", () => {
     expect(links.syncReference).toHaveBeenCalledWith(COMPANY, REF, { wonByShipmentId: SHIPMENT });
   });
 
-  it("is null for a shipment that does not exist, and refused for a Sales Number that is no quote reference", async () => {
-    await expect(shipmentService.linkQuote(SHIPMENT, COMPANY, false)).resolves.toBeNull();
+  it("is not found for a shipment that does not exist, and refused for a Sales Number that is no quote reference", async () => {
+    await expect(shipmentService.linkQuote(SHIPMENT, COMPANY, false)).rejects.toMatchObject({ code: "not_found" });
     stored.set(SHIPMENT, row({ salesNumber: "PO 4411" }));
     links.syncReference.mockResolvedValue(null);
     await expect(shipmentService.linkQuote(SHIPMENT, COMPANY, false)).rejects.toMatchObject({

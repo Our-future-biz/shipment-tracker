@@ -14,7 +14,7 @@ interface AttachmentDeleteResponse {
 export const attachmentDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/shipments/:shipmentId/attachments/:attachmentId" },
   async (req: AttachmentDeleteRequest): Promise<AttachmentDeleteResponse> => {
-    await attachmentService.delete(req.attachmentId, getAuthData()!.companyID);
+    await attachmentService.delete(req.shipmentId, req.attachmentId, getAuthData()!.companyID);
     return { ok: true };
   },
 );

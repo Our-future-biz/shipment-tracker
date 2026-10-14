@@ -1,9 +1,9 @@
-import { and, eq, max, sql } from "drizzle-orm";
+import { and, eq, isNull, max, sql } from "drizzle-orm";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
 import { billingSettingsTable } from "../schemas/billingSettings.schema";
-import { invoiceCostTable } from "../schemas/invoiceCost.schema";
-import { invoiceSellingCostTable } from "../schemas/invoiceSellingCost.schema";
+import { invoiceCostTable, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
+import { invoiceSellingCostTable, type NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
 import type { QuoteBuyingRow, QuoteSellingRow } from "../utils/quoteCostImport.utils";
 
 type ImportTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -39,20 +39,21 @@ class QuoteCostImportRepository {
 
       const from = { companyId, shipmentId, sourceQuoteNumber: quoteNumber };
       if (buying?.rows.length) {
-        await tx.insert(invoiceCostTable).values(buying.rows.map((row, i) => ({ ...row, ...from, sortOrder: buying.next + i })));
+        const values: NewInvoiceCostRecord[] = buying.rows.map((row, i) => ({ ...row, ...from, sortOrder: buying.next + i }));
+        await tx.insert(invoiceCostTable).values(values);
       }
       if (selling?.rows.length) {
-        await tx.insert(invoiceSellingCostTable).values(selling.rows.map((row, i) => ({ ...row, ...from, sortOrder: selling.next + i })));
+        // vatCode stays null: the default by the shipment's trade direction, as for a row typed in.
+        const values: NewInvoiceSellingCostRecord[] = selling.rows.map((row, i) => ({ ...row, ...from, sortOrder: selling.next + i }));
+        await tx.insert(invoiceSellingCostTable).values(values);
       }
-      // One settings row per shipment (unique shipment_id). A row of another company under that
-      // id is none of the caller's business and stays as it is.
+      // One settings row per (company, shipment).
       await tx
         .insert(billingSettingsTable)
         .values({ companyId, shipmentId, quoteRef: quoteNumber })
         .onConflictDoUpdate({
-          target: billingSettingsTable.shipmentId,
-          set: { quoteRef: quoteNumber, updatedAt: new Date() },
-          setWhere: eq(billingSettingsTable.companyId, companyId),
+          target: [billingSettingsTable.companyId, billingSettingsTable.shipmentId],
+          set: { quoteRef: quoteNumber, updatedAt: new Date(), deletedAt: null },
         });
       return { buying: buying?.rows.length ?? 0, selling: selling?.rows.length ?? 0 };
     });
@@ -73,7 +74,7 @@ class QuoteCostImportRepository {
         last: max(table.sortOrder),
       })
       .from(table as PgTable)
-      .where(and(eq(table.companyId, companyId), eq(table.shipmentId, shipmentId)));
+      .where(and(eq(table.companyId, companyId), eq(table.shipmentId, shipmentId), isNull(table.deletedAt)));
     return { copied: Number(found?.copied ?? 0), next: found?.last == null ? 0 : found.last + 1 };
   }
 }

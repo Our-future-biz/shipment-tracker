@@ -1,38 +1,23 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { invoicingService } from "../services/invoicing.service";
-import type { InvoiceCostItem } from "../interfaces/interfaces";
+import type { BuyingCostInput, InvoiceCostItem } from "../interfaces/interfaces";
 
-/**
- * Buying costs jako volne pridavatelne radky (mockup: "Add buying cost").
- * Puvodni invoicingUpsertCost klicovany kategorii zustava zachovan.
- */
-interface AddBuyingRequest {
+// Buying costs as free lines of the Costs Breakdown (mockup: "Add buying cost"). The older
+// per-category invoicingUpsertCost stays for the shipment wizard.
+
+interface AddBuyingRequest extends BuyingCostInput {
   shipmentId: string;
-  category?: string;
-  description?: string;
-  vendor?: string;
-  estQty?: string;
-  estAmount?: string;
-  estCurrency?: string;
-  realQty?: string;
-  realAmount?: string;
-  realCurrency?: string;
-  invoiceNumber?: string;
-  received?: boolean;
-  sortOrder?: number;
 }
 
-interface AddBuyingResponse {
+interface BuyingResponse {
   cost: InvoiceCostItem;
 }
 
 export const invoicingAddBuyingCost = api(
   { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/buying" },
-  async (req: AddBuyingRequest): Promise<AddBuyingResponse> => {
-    const { shipmentId, ...data } = req;
-    const row = await invoicingService.addBuyingCost(shipmentId, getAuthData()!.companyID, data);
-    return { cost: row as unknown as InvoiceCostItem };
+  async ({ shipmentId, ...input }: AddBuyingRequest): Promise<BuyingResponse> => {
+    return { cost: await invoicingService.addBuyingCost(shipmentId, getAuthData()!.companyID, input) };
   },
 );
 
@@ -50,19 +35,14 @@ interface UpdateBuyingRequest {
   realCurrency?: string;
   invoiceNumber?: string;
   received?: boolean;
-}
-
-interface UpdateBuyingResponse {
-  cost: InvoiceCostItem;
+  /** position in the list (undo / re-insert keeps a line where it was) */
+  sortOrder?: number;
 }
 
 export const invoicingUpdateBuyingCost = api(
   { expose: true, auth: true, method: "PATCH", path: "/invoicing/:shipmentId/buying/:costId" },
-  async (req: UpdateBuyingRequest): Promise<UpdateBuyingResponse> => {
-    const { shipmentId, costId, ...data } = req;
-    const row = await invoicingService.updateBuyingCost(costId, getAuthData()!.companyID, shipmentId, data);
-    if (!row) throw APIError.notFound("Buying cost not found");
-    return { cost: row as unknown as InvoiceCostItem };
+  async ({ shipmentId, costId, ...input }: UpdateBuyingRequest): Promise<BuyingResponse> => {
+    return { cost: await invoicingService.updateBuyingCost(costId, getAuthData()!.companyID, shipmentId, input) };
   },
 );
 
@@ -78,8 +58,7 @@ interface DeleteBuyingResponse {
 export const invoicingDeleteBuyingCost = api(
   { expose: true, auth: true, method: "DELETE", path: "/invoicing/:shipmentId/buying/:costId" },
   async (req: DeleteBuyingRequest): Promise<DeleteBuyingResponse> => {
-    const deleted = await invoicingService.deleteBuyingCost(req.costId, getAuthData()!.companyID, req.shipmentId);
-    if (!deleted) throw APIError.notFound("Buying cost not found");
+    await invoicingService.deleteBuyingCost(req.costId, getAuthData()!.companyID, req.shipmentId);
     return { ok: true };
   },
 );

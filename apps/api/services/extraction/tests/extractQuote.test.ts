@@ -6,6 +6,7 @@ const pdfText = vi.hoisted(() => ({ value: "" }));
 // A failing lookup is a plain function: vitest reports an error thrown by a vi.fn even when
 // the code under test catches it.
 const lookup = vi.hoisted(() => ({ fails: false }));
+vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("~encore/clients", () => ({
   auth: {
     placeLookup: async (req: unknown) => {

@@ -39,8 +39,10 @@ import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAc
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import type { SalesQuoteData, PackageLine, CostLine } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
-import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, CURRENCIES, PACKING_TYPES } from "../../_lib/types";
-import { cargoReadyDay, computeTotals, computeCargo, documentBlock, ratesFromSheet, stripProtected, type QuoteTotals } from "../../_lib/salesQuote";
+import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES } from "../../_lib/types";
+import { CURRENCIES } from "@/lib/enums";
+import { useListKeys } from "@/hooks/useListKeys";
+import { cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, stripProtected, type QuoteTotals } from "../../_lib/salesQuote";
 import { NO_CUSTOMER, changesCustomer, customerContactFields, customerLinkFields, withCustomerUnit } from "../../_lib/quoteCustomer";
 import { useQuoteListHref } from "../../_lib/quoteListHref";
 import { useQuoteOrigin } from "../../_lib/useQuoteOrigin";
@@ -172,8 +174,9 @@ export function QuoteWorkflow() {
     if (changesCustomer(draft, editable)) pickedCustomer.current = null;
     const own = withCustomerUnit(draft, editable);
     if (!Object.keys(own).length) return;
-    const pricing = "buyingLines" in own || "sellingLines" in own || "currency" in own || "rates" in own;
-    change(pricing ? { ...own, rates: ratesFromSheet({ ...draft, ...own }, exchange) } : own);
+    // Rates are not copied onto the quote here: a draft is priced at today's ČNB fixing and the
+    // server stores the rates when the quote is sent.
+    change(own);
   };
 
   // A customer picked in the Customer box: the link at once, with the contact fields emptied in
@@ -194,7 +197,7 @@ export function QuoteWorkflow() {
   // Resolves with why the server refused, or with null.
   const changeStatus = (change: StatusChange) =>
     act(
-      (expectedDataVersion) => api.quotes.salesQuoteTransition(ref, { ...transitionRequest(change, exchange), expectedDataVersion }),
+      (expectedDataVersion) => api.quotes.salesQuoteTransition(ref, { ...transitionRequest(change), expectedDataVersion }),
       { versioned: true },
     );
 
@@ -248,6 +251,7 @@ export function QuoteWorkflow() {
 
   // Packages
   const packages = draft.packages ?? [];
+  const packageKeys = useListKeys(packages.length);
   const cargo = useMemo(() => computeCargo(draft), [draft]);
   // The quote's own weight and volume - typed into an inquiry, for cargo without package lines -
   // are not the editor's to write: they count while there are no lines and are still there when
@@ -269,7 +273,9 @@ export function QuoteWorkflow() {
   );
 
   // Pricing
-  const totals = useMemo(() => computeTotals(draft, exchange.rates), [draft, exchange.rates]);
+  const totals = useMemo(() => computeTotals(draft, exchange.rates, exchange), [draft, exchange]);
+  // ČNB's fixing for today should be stored but isn't (the import failed): today's rates are stale.
+  const liveRatesMissing = !draft.fx && exchange.missing;
   const updateLines = (kind: "buyingLines" | "sellingLines", lines: CostLine[]) => set({ [kind]: lines } as Partial<SalesQuoteData>);
 
   // The customer's document goes out only with a complete total; until then the reason is shown.
@@ -632,7 +638,7 @@ export function QuoteWorkflow() {
                 </thead>
                 <tbody>
                   {packages.map((p, i) => (
-                    <tr key={i}>
+                    <tr key={packageKeys.keys[i]}>
                       {/* Width needs "!": antd's own input-number width is unlayered CSS and would win over a plain utility. */}
                       <td className={LINE_TD_CLASS}>
                         <InputNumber size="small" className="!w-full" aria-label="Quantity" min={1} precision={0} parser={moneyInputParser} value={p.qty} onChange={(v) => patchPackage(i, { qty: v ?? 1 })} />
@@ -663,7 +669,11 @@ export function QuoteWorkflow() {
                         <Checkbox aria-label="Stackable" checked={p.stackable !== false} onChange={(e) => patchPackage(i, { stackable: e.target.checked })} />
                       </td>
                       <td className={`${LINE_TD_CLASS} pl-0`}>
-                        <RemoveLineButton label={`Remove package ${i + 1}`} onClick={() => updatePackages(packages.filter((_, j) => j !== i))} />
+                        <RemoveLineButton label={`Remove package ${i + 1}`} onClick={() => {
+                            packageKeys.remove(i);
+                            updatePackages(packages.filter((_, j) => j !== i));
+                          }}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -703,13 +713,14 @@ export function QuoteWorkflow() {
             />
             <span className="min-w-0 text-xs text-slate-500">The totals and the customer&apos;s document are in this currency. Every line keeps its own.</span>
           </div>
-          <CostLinesEditor kind="buying" title="Buying (cost)" lines={draft.buyingLines ?? []} quote={draft} sheet={exchange.rates} onChange={(l) => updateLines("buyingLines", l)} />
+          <CostLinesEditor kind="buying" title="Buying (cost)" lines={draft.buyingLines ?? []} quote={draft} sheet={exchange.rates} live={exchange} onChange={(l) => updateLines("buyingLines", l)} />
           <CostLinesEditor
             kind="selling"
             title="Selling (rate)"
             lines={draft.sellingLines ?? []}
             quote={draft}
             sheet={exchange.rates}
+            live={exchange}
             onChange={(l) => updateLines("sellingLines", l)}
             actions={
               <MiniButton
@@ -722,9 +733,9 @@ export function QuoteWorkflow() {
               </MiniButton>
             }
           />
-          <QuoteRatesEditor data={draft} exchange={exchange} onChange={(rates) => set({ rates })} />
-          {/* A sheet that could not be read leaves lines out just the same, but its rates are not
-              missing: the user gets a Retry, not the advice to type them. */}
+          <QuoteRatesEditor data={draft} exchange={exchange} />
+          {/* Rates that could not be read leave lines out just the same, but they are not missing:
+              the user gets a Retry. */}
           {totals.missingRates.length > 0 &&
             (exchange.isError ? (
               <ExchangeRatesError exchange={exchange} />
@@ -732,8 +743,8 @@ export function QuoteWorkflow() {
               <Alert
                 type="warning"
                 showIcon
-                message={`No exchange rate for ${totals.missingRates.join(", ")}`}
-                description="Lines that cannot be converted are left out of the totals below. Type the missing rate under Exchange rates above."
+                message={`ČNB publishes no rate for ${totals.missingRates.join(", ")}`}
+                description="Lines in those currencies are left out of the totals below. Price them in a currency ČNB publishes."
               />
             ))}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -745,6 +756,13 @@ export function QuoteWorkflow() {
               tone={marginTone(totals)}
             />
           </div>
+          {/* Which rates the totals use: stored on the quote once sent, today's until then. */}
+          <div className="text-[12.5px] text-slate-500">{fxNote(totals)}</div>
+          {liveRatesMissing && (
+            <div className="text-[12.5px] text-danger bg-danger-soft border border-danger/30 rounded-lg px-3 py-2">
+              Today&apos;s ČNB rates have not been imported — prices use an older fixing. Sync them on the Exchange page before sending.
+            </div>
+          )}
         </div>
       ),
     },

@@ -1,11 +1,11 @@
 import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { termsService } from "../services/terms.service";
-import { toTermsItem } from "../utils/termsItem.utils";
 import type { TermsConditionItem } from "../interfaces/interfaces";
 
 interface TermsCreateRequest {
-  name: string;
+  name: string & MinLen<1> & MaxLen<200>;
 }
 
 interface TermsCreateResponse {
@@ -15,7 +15,6 @@ interface TermsCreateResponse {
 export const termsCreate = api(
   { expose: true, auth: true, method: "POST", path: "/terms-conditions" },
   async (req: TermsCreateRequest): Promise<TermsCreateResponse> => {
-    const terms = await termsService.create(getAuthData()!, req.name);
-    return { terms: toTermsItem(terms) };
+    return { terms: await termsService.create(getAuthData()!, req.name) };
   },
 );

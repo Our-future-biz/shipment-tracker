@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantIndex } from "../../../lib/db/defaults";
 import { companyTable } from "./company.schema";
 import { departmentTable, branchTable } from "./orgUnit.schema";
@@ -21,6 +21,8 @@ export const userTable = pgTable(
   (table) => [
     ...defaultTableIndexes("app_user", table),
     tenantIndex("app_user", table),
+    index("app_user_department_id_idx").on(table.departmentId),
+    index("app_user_branch_id_idx").on(table.branchId),
     // Login is by email alone (no company context on the login form), so an address
     // maps to exactly one live user. One person = one account = one company; a soft
     // deleted user frees their address for reuse.

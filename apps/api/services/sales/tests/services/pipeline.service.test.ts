@@ -16,7 +16,7 @@ const customerList = vi.mocked(customers._internalCustomerPipelineList);
 const quoteFacts = vi.mocked(quotes._internalSalesQuoteCustomerFacts);
 const shipmentFacts = vi.mocked(shipments._internalShipmentCustomerFacts);
 
-const customer = (id: string, status: string, createdAt: string) => ({ id, companyName: `${id} s.r.o.`, status, label: "STANDARD", salesOwner: "Martin", createdAt });
+const customer = (id: string, status: "Active" | "Prospect" | "Inactive", createdAt: string) => ({ id, companyName: `${id} s.r.o.`, status, label: "STANDARD" as const, salesOwner: "Martin", createdAt });
 const prospects = (n: number) => Array.from({ length: n }, (_, i) => customer(`p${String(i).padStart(3, "0")}`, "Prospect", new Date(Date.UTC(2026, 0, 1 + i)).toISOString()));
 
 beforeEach(() => {
@@ -29,7 +29,7 @@ beforeEach(() => {
     customers: [
       { customerId: "ittec", hasSentQuote: true, sentQuotes: 1, firstSentAt: "2026-10-10T19:17:10.056Z", firstSentAtKnown: true, sentQuotesWithoutDate: 0, lastActivityAt: "2026-10-10T19:17:34.487Z" },
     ],
-    openQuotes: [{ customerId: "ittec", quoteNumber: "QCZ20261010001", status: "quoted", validUntil: "2026-10-25", currency: "EUR", rates: null, sellingLines: [] }],
+    openQuotes: [{ customerId: "ittec", quoteNumber: "QCZ20261010001", status: "quoted", validUntil: "2026-10-25", currency: "EUR", fx: null, rates: null, sellingLines: [] }],
     quotesWithoutCustomer: 0,
   });
   shipmentFacts.mockResolvedValue({

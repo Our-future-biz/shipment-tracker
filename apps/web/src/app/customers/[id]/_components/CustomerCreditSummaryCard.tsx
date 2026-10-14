@@ -5,6 +5,7 @@ import { Progress } from "antd";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomer } from "@/hooks/useCustomers";
+import { useLatestRates } from "@/lib/fx";
 import { summarizeInvoices } from "../../_lib/customerInvoices";
 import { fmtMoney, roundCents } from "../../_lib/customerMoney";
 import { BAR_COLOR, utilizationTone } from "./CustomerCreditCard";
@@ -26,12 +27,13 @@ interface CustomerCreditSummaryCardProps {
 export function CustomerCreditSummaryCard({ customerId, onSelectTab }: CustomerCreditSummaryCardProps) {
   const { customer } = useCustomer(customerId);
   const { invoices, isLoading, isError } = useCustomerInvoices(customerId);
+  const { rates } = useLatestRates();
 
   if (!customer) return null;
 
   const { creditLimit, currency } = customer;
   // Derived the same way as in the Finance tab, so the two always show the same figures.
-  const { outstanding } = summarizeInvoices(invoices);
+  const { outstanding } = summarizeInvoices(invoices, { currency, rates });
   const utilization = creditLimit > 0 ? Math.round((outstanding / creditLimit) * 100) : null;
 
   let content: ReactNode;

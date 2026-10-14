@@ -1,11 +1,9 @@
 "use client";
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useInvoicing } from "@/hooks/useInvoicing";
+import { useJobFxRates } from "@/hooks/useFx";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
-import { exchangeRatesFor } from "@/lib/exchangeRates";
-import { weekKeyFromDate } from "@/lib/isoWeek";
 import { computeCosts, type BuyingRow, type Rates, type SellingRow } from "./costsCalc";
 
 /**
@@ -14,53 +12,29 @@ import { computeCosts, type BuyingRow, type Rates, type SellingRow } from "./cos
  * Quote card on the detail page share this, so they always show the same numbers.
  */
 
-/** Shipment date the rates follow: import by ETA, export by ETD. */
-function rateDateOf(shipment: ShipmentItem, basis: "eta" | "etd") {
-  const raw = getFieldValue(shipment, basis === "etd" ? "estimatedDeparture" : "estimatedArrival");
-  const txt = String(raw ?? "").trim();
-  if (!txt) return "";
-  if (/^\d{4}-\d{2}-\d{2}/.test(txt)) return txt.slice(0, 10);
-  // the grid stores dates as MM/DD/YY or MM/DD/YYYY
-  const m = txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
-  if (m) {
-    const [, mm, dd, yy] = m;
-    const year = yy!.length === 2 ? `20${yy}` : yy!;
-    return `${year}-${mm!.padStart(2, "0")}-${dd!.padStart(2, "0")}`;
-  }
-  const parsed = new Date(txt);
-  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
-}
+/** Without rates only CZK is known. */
+const CZK_ONLY: Rates = { CZK: 1 };
 
 export function useCostsData(shipment: ShipmentItem | undefined) {
-  // Same query key as the detail page, so the data is already in memory when a tab opens.
-  const { data } = useQuery({
-    queryKey: ["invoicing", shipment?.id],
-    queryFn: () => api.invoicing.invoicingGet(shipment!.id),
-    enabled: !!shipment,
-    placeholderData: (prev) => prev,
-    refetchOnMount: false,
-  });
+  // The one shared invoicing query, so the data is already in memory when a tab opens.
+  const { data } = useInvoicing(shipment?.id ?? null);
 
   const billingCur = data?.billingSettings?.billingCurrency || "CZK";
 
-  const tradeDirection = (shipment ? getFieldValue(shipment, "tradeDirection") : "").trim().toLowerCase();
-  const rateBasis: "eta" | "etd" = tradeDirection === "export" ? "etd" : "eta";
-  const rateDate = useMemo(() => (shipment ? rateDateOf(shipment, rateBasis) : ""), [shipment, rateBasis]);
-  const weekKey = useMemo(() => (rateDate ? weekKeyFromDate(rateDate) : ""), [rateDate]);
+  // ČNB rates for this job, chosen on the server: locked at ATA (import) / ATD (export),
+  // provisional by ETA / ETD until then. The key carries the dates, so editing one refetches.
+  const dateKey = shipment
+    ? ["tradeDirection", "estimatedArrival", "estimatedDeparture", "actualArrival", "actualDeparture"].map((f) =>
+        String(getFieldValue(shipment, f) ?? ""),
+      )
+    : [];
+  const ratesQuery = useJobFxRates(shipment?.id, dateKey);
+  const fx = ratesQuery.data ?? null;
 
-  // Rates come from the sheet entered on the Exchange page.
-  const ratesQuery = useQuery({
-    queryKey: ["exchange-rates"],
-    queryFn: () => api.invoicing.exchangeRateList(),
-    staleTime: 10 * 60 * 1000,
-    placeholderData: (prev) => prev,
-    refetchOnMount: false,
-  });
-
-  /** Rates of the ETA/ETD week; the closest older week when that one is missing. */
-  const fx = useMemo(() => exchangeRatesFor(ratesQuery.data?.rates ?? [], rateDate), [ratesQuery.data?.rates, rateDate]);
-
-  const rates: Rates = fx.rates;
+  const rates: Rates = useMemo(
+    () => (fx ? { CZK: 1, ...Object.fromEntries(fx.rates.map((r) => [r.currency, r.rate])) } : CZK_ONLY),
+    [fx],
+  );
 
   const buyRows: BuyingRow[] = useMemo(
     () =>
@@ -99,5 +73,5 @@ export function useCostsData(shipment: ShipmentItem | undefined) {
 
   const totals = useMemo(() => computeCosts(buyRows, sellRows, billingCur, rates), [buyRows, sellRows, billingCur, rates]);
 
-  return { data, billingCur, rateBasis, rateDate, weekKey, fx, rates, ratesLoading: ratesQuery.isLoading, buyRows, sellRows, totals };
+  return { data, billingCur, fx, rates, ratesLoading: ratesQuery.isLoading, ratesError: ratesQuery.isError, buyRows, sellRows, totals };
 }

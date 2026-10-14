@@ -7,7 +7,7 @@ import dayjs from "dayjs";
 import { Alert, Button, Select, Spin, Tooltip } from "antd";
 import { LoadingOutlined } from "@ant-design/icons";
 import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAccountTypeBadge";
-import { asData, businessDay, businessToday, computeTotals, sellingSum } from "@/app/sales/_lib/salesQuote";
+import { asData, businessDay, businessToday, computeTotals, sellingSum, type LivePricing } from "@/app/sales/_lib/salesQuote";
 import { LINK_CLASS } from "@/components/linkClass";
 import { Pill } from "@/components/Pill";
 import { CountChip, SectionCard } from "@/components/SectionCard";
@@ -119,12 +119,20 @@ function stageFact(card: PipelineCard): ReactNode {
 
 // One customer on the board. The whole card opens the customer's page, as a row of the Customer
 // Database does; the name is the real link, for the keyboard and for a new tab.
-function CustomerCard({ card, sheet }: { card: PipelineCard; sheet: ExchangeRates }) {
+function CustomerCard({ card, sheet, live }: { card: PipelineCard; sheet: ExchangeRates; live: LivePricing }) {
   const router = useRouter();
   // The value of the open quotes, worked out where every other screen works it out: each quote's
-  // lines converted into the quote's currency with the rates it stores (else the Exchange sheet),
+  // lines converted into the quote's currency at its stored ČNB rates (a draft at today's),
   // then one sum per currency - never one across currencies.
-  const open = sellingSum(card.openQuotes.map((quote) => computeTotals(asData({ currency: quote.currency, rates: quote.rates, sellingLines: quote.sellingLines }), sheet)));
+  const open = sellingSum(
+    card.openQuotes.map((quote) =>
+      computeTotals(
+        asData({ quoteStatus: quote.status, currency: quote.currency, fx: quote.fx, rates: quote.rates, sellingLines: quote.sellingLines }),
+        sheet,
+        live,
+      ),
+    ),
+  );
   const fact = stageFact(card);
   const openQuotes = card.openQuotes.length ? plural(card.openQuotes.length, "open quote", "open quotes") : "No open quotes";
   const won = card.stage === "won";
@@ -183,6 +191,7 @@ interface StageColumnProps {
   // The cards on screen are those of the period before; the ones asked for are on their way.
   waiting: boolean;
   sheet: ExchangeRates;
+  live: LivePricing;
   // "Show more": whether this column's next cards are on their way, and whether any may be asked for now.
   loadingMore: boolean;
   canShowMore: boolean;
@@ -190,7 +199,7 @@ interface StageColumnProps {
 }
 
 // One column of the board: the customers that stand on a stage, in the order the server gives them.
-function StageColumn({ title, cards, total, waiting, sheet, loadingMore, canShowMore, onShowMore }: StageColumnProps) {
+function StageColumn({ title, cards, total, waiting, sheet, live, loadingMore, canShowMore, onShowMore }: StageColumnProps) {
   return (
     <SectionCard
       title={title}
@@ -201,7 +210,7 @@ function StageColumn({ title, cards, total, waiting, sheet, loadingMore, canShow
         <ul className="list-none m-0 p-3 flex flex-col gap-2">
           {cards.length === 0 && <li className="text-xs text-slate-400">No customers</li>}
           {cards.map((card) => (
-            <CustomerCard key={card.customerId} card={card} sheet={sheet} />
+            <CustomerCard key={card.customerId} card={card} sheet={sheet} live={live} />
           ))}
         </ul>
       </Spin>
@@ -257,7 +266,7 @@ export function PipelineTab() {
       />
     );
   } else if (isLoading || !board || exchange.isLoading) {
-    // Quotes that store no rates are converted with the Exchange sheet, so the cards wait for it.
+    // Drafts are priced at today's ČNB rates, so the cards wait for them.
     content = (
       <div className="flex flex-col items-center justify-center gap-3 py-16">
         <Spin />
@@ -283,6 +292,7 @@ export function PipelineTab() {
                 total={board.totals[stage]}
                 waiting={ofPeriod && isChangingPeriod}
                 sheet={exchange.rates}
+                live={exchange}
                 loadingMore={loadingMore === stage}
                 // One column at a time, and none while the board of another period is on its way.
                 canShowMore={!isChangingPeriod && loadingMore === null}

@@ -21,12 +21,24 @@ export interface CostLine {
   value?: number;
 }
 
-// One exchange rate a quote keeps for itself.
+// One exchange rate an older quote kept for itself (the weekly Exchange sheet's, or typed). Read
+// only: today a sent quote's rates are its ČNB snapshot (`fx`), stored by the server.
 export interface QuoteRate {
-  // CZK per 1 unit of the currency, as on the Exchange sheet.
+  // CZK per 1 unit of the currency.
   rate: number;
   // The Exchange week the rate was taken from ("2026-W41"); absent when it was typed on the quote.
   week?: string;
+}
+
+// The ČNB rates (CZK per 1 unit) and company ROE % a quote is priced with. Live (today's)
+// until the quote is sent; the server stores them on the quote when it is sent and never
+// changes them after (a protected key: a save never writes it).
+export interface QuoteFx {
+  date: string; // the date the rates are for
+  fixingDate: string | null; // the ČNB fixing used
+  roePct: number; // 100 = pure ČNB
+  rates: Record<string, number>;
+  lockedAt?: string; // set when the quote was sent
 }
 
 // One line of a quote's history. The server writes them; the browser only shows them.
@@ -71,6 +83,8 @@ export const PROTECTED_KEYS = [
   "salesOwner",
   "lifecycleUnreadable",
   "timelineUnreadable",
+  "fx",
+  "rates",
 ] as const satisfies readonly (keyof SalesQuoteData)[];
 
 // Every other key is one the Sales editor writes. The server stores those as a save sends them
@@ -135,6 +149,8 @@ export interface SalesQuoteData {
   sentAt?: string;
   // When the quote was marked Won or Lost.
   decidedAt?: string;
+  // ČNB rates + ROE % stored by the server when the quote was sent; see QuoteFx.
+  fx?: QuoteFx;
   timeline?: TimelineEntry[];
   // Old values of the lifecycle keys the server could not read, kept as they were.
   lifecycleUnreadable?: Record<string, unknown>;
@@ -191,10 +207,9 @@ export const LOST_REASONS: Record<string, string[]> = {
 };
 
 export const PACKING_TYPES = ["Pallets", "Colli", "Cartons", "Boxes", "Wooden boxes", "Crates", "Drums"] as const;
-export const INCOTERMS = ["EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP", "FAS", "FOB", "CFR", "CIF"] as const;
+export { INCOTERMS } from "@/lib/incoterms";
 export const SERVICE_TYPES = ["Air", "Sea FCL", "Sea LCL", "Rail", "Road"] as const;
 export const DIRECTIONS = ["Export", "Import"] as const;
-export const CURRENCIES = ["EUR", "USD", "CZK", "GBP", "CHF"] as const;
 export const VALIDITY_OPTIONS = [7, 10, 15, 21, 30] as const;
 
 export const COST_LINE_TYPES = [
@@ -221,4 +236,12 @@ export function winProbColor(p: number): string {
   if (p >= 50) return "#d97706";
   if (p >= 20) return "#2563eb";
   return "#dc2626";
+}
+
+/** Statuses before a quote goes to the customer: priced with today's rates, never stored ones. */
+export const FX_DRAFT_STATUSES: ReadonlySet<string> = new Set(UNSENT_QUOTE_STATUSES);
+
+/** A quote's rates follow its status: a draft (or one reopened for revision) carries none. */
+export function withFxRule(data: SalesQuoteData): SalesQuoteData {
+  return data.fx && FX_DRAFT_STATUSES.has(data.quoteStatus ?? "draft") ? { ...data, fx: undefined } : data;
 }

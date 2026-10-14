@@ -35,6 +35,7 @@ export interface CustomerQuoteFeed {
     status: string;
     validUntil: string | null;
     currency: string;
+    fx: unknown;
     rates: unknown;
     sellingLines: unknown;
   }[];

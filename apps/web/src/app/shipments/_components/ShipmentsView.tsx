@@ -3,13 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useDebounced } from "@/hooks/useDebounced";
-import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
+import { useShipments } from "@/hooks/useShipments";
 import { useToast } from "@/lib/toast";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { ShipmentsTable } from "./ShipmentsTable";
 import { CreateShipmentWizard } from "./CreateShipmentWizard";
 import { MasterJobDialog } from "./MasterJobDialog";
-import { ConfirmModal } from "@/components/ConfirmModal";
 
 // Search/status live in the URL (?q= / ?status=), written by the table's toolbar and read
 // here to drive the server-side query — so filtering covers the whole company dataset
@@ -23,15 +22,13 @@ export const ShipmentsView = () => {
   // "Create shipment" on a quote's page leads here with ?fromQuote=QCZ...
   const fromQuote = searchParams.get("fromQuote");
 
-  const { shipments, isLoading, createShipment, deleteShipment, linkMasterJob, isCreating, isDeleting } =
+  const { shipments, isLoading, createShipment, linkMasterJob, isCreating } =
     useShipments({ search, statusBucket, tile });
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [masterJobOpen, setMasterJobOpen] = useState(false);
   // Shipments ticked in the table when "Add to Master Job" was pressed.
   const [masterJobPreselected, setMasterJobPreselected] = useState<string[]>([]);
-  const [deleteTarget, setDeleteTarget] = useState<ShipmentItem | null>(null);
-
   // An address that names a quote opens New Shipment for that quote.
   useEffect(() => {
     if (fromQuote) setCreateOpen(true);
@@ -56,17 +53,6 @@ export const ShipmentsView = () => {
     if (fromQuote) router.replace(quoteHref(fromQuote));
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      await deleteShipment(deleteTarget.id);
-      toast.success("Order deleted");
-      setDeleteTarget(null);
-    } catch {
-      toast.error("Failed to archive order");
-    }
-  };
-
   const handleLinkMasterJob = async (shipmentIds: string[], mczNumber: string) => {
     try {
       await Promise.all(shipmentIds.map((id) => linkMasterJob({ shipmentId: id, mczNumber })));
@@ -84,7 +70,6 @@ export const ShipmentsView = () => {
         shipments={shipments}
         isLoading={isLoading}
         onCreateClick={() => setCreateOpen(true)}
-        onDelete={(shipment) => setDeleteTarget(shipment)}
         onAddMasterJob={(ids) => {
           setMasterJobPreselected(ids);
           setMasterJobOpen(true);
@@ -106,17 +91,6 @@ export const ShipmentsView = () => {
         isCreating={isCreating}
         existingShipments={shipments}
         fromQuote={fromQuote}
-      />
-
-      <ConfirmModal
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
-        title="Delete order"
-        description={`Delete order ${deleteTarget?.jobNumber || ""}? It will be archived with all its details (not erased), its reference can never be reused, and the action is recorded against your account.`}
-        confirmLabel="Delete"
-        danger
-        loading={isDeleting}
       />
       </div>
     </div>

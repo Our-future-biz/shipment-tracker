@@ -17,6 +17,8 @@ import { isActiveStatus } from "@/lib/enums";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { ATTENTION_RULES } from "../../_lib/customerAttention";
 import { daysSince, relativeDayLabel } from "../../_lib/customerDates";
+import { useLatestRates, type Rates } from "@/lib/fx";
+import type { LivePricing } from "@/app/sales/_lib/salesQuote";
 import { summarizeInvoices } from "../../_lib/customerInvoices";
 import { fmtMoney } from "../../_lib/customerMoney";
 import { quoteBucket, sellingByCurrency } from "../../_lib/customerQuotes";
@@ -62,10 +64,10 @@ function activeShipmentsTile(shipments: ShipmentItem[]): TileContent {
   return { value: active.length, hint: eta ? `Next ETA ${formatDate(eta)}` : "No upcoming arrival" };
 }
 
-function openQuotesTile(quotes: SalesQuote[], sheet: ExchangeRates): TileContent {
+function openQuotesTile(quotes: SalesQuote[], sheet: ExchangeRates, live: LivePricing): TileContent {
   const open = quotes.filter((quote) => quoteBucket(quote) === "open");
   if (open.length === 0) return { value: 0, hint: "None open" };
-  const selling = sellingByCurrency(open, sheet);
+  const selling = sellingByCurrency(open, sheet, live);
   if (selling.incomplete) {
     // Lines without an exchange rate are not in the sum. Said first, where a narrow tile cannot
     // cut it off; the tooltip adds why.
@@ -80,8 +82,8 @@ function openQuotesTile(quotes: SalesQuote[], sheet: ExchangeRates): TileContent
   return { value: open.length, hint: selling.text ? <span title={selling.text}>{selling.text}</span> : "No value yet" };
 }
 
-function outstandingTile(invoices: InvoiceItem[], currency?: string): TileContent {
-  const { outstanding, overdueAmount } = summarizeInvoices(invoices);
+function outstandingTile(invoices: InvoiceItem[], currency: string, rates: Rates): TileContent {
+  const { outstanding, overdueAmount } = summarizeInvoices(invoices, { currency, rates });
   const value = fmtMoney(outstanding, currency);
   if (overdueAmount > 0) return { value, hint: `${fmtMoney(overdueAmount, currency)} overdue`, hintTone: "red" };
   return { value, hint: "Nothing overdue" };
@@ -112,14 +114,16 @@ export function CustomerSnapshotTiles({ customerId, onSelectTab }: CustomerSnaps
   const { quotes, isLoading: quotesLoading, isError: quotesError } = useCustomerQuotes(customerId);
   const { invoices, isLoading: invoicesLoading, isError: invoicesError } = useCustomerInvoices(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
-  // The value of the open quotes needs the Exchange sheet as well: Sales converts with it.
+  // The value of the open quotes needs today's ČNB rates as well: Sales converts with them.
   const exchange = useCurrentExchangeRates();
+  // The outstanding invoices are summed in the customer's currency at today's rates.
+  const { rates } = useLatestRates();
 
   const shipmentsTile = placeholderTile(shipmentsLoading, shipmentsError) ?? activeShipmentsTile(shipments);
-  const quotesTile = placeholderTile(quotesLoading || exchange.isLoading, quotesError) ?? openQuotesTile(quotes, exchange.rates);
+  const quotesTile = placeholderTile(quotesLoading || exchange.isLoading, quotesError) ?? openQuotesTile(quotes, exchange.rates, exchange);
   // The amounts are in the customer's currency, so this tile needs the customer as well as the invoices.
   const financeTile =
-    placeholderTile(customerLoading || invoicesLoading, invoicesError || !customer) ?? outstandingTile(invoices, customer?.currency);
+    placeholderTile(customerLoading || invoicesLoading, invoicesError || !customer) ?? outstandingTile(invoices, customer!.currency, rates);
   const contactTile = placeholderTile(notesLoading, notesError) ?? lastContactTile(notes);
 
   return (

@@ -1,3 +1,5 @@
+// Plain interfaces for controllers. Never import Drizzle table types here.
+
 /**
  * A sales quote as the Sales screens get it: the document, and the lifecycle facts the server
  * owns, as typed fields. Times are ISO strings, days are YYYY-MM-DD.
@@ -5,6 +7,11 @@
 export interface SalesQuoteItem {
   id: string;
   quoteNumber: string;
+  /**
+   * The quote's fields. Two shapes share this column: sales quotes (QCZ…, keyed by field name
+   * like `quoteStatus`, `buyingLines`) and older quotes keyed by column label ("POL", …), so it
+   * stays an open object here; each client reads the shape it wrote.
+   */
   data: unknown;
   terms: string;
   createdAt: string;
@@ -102,7 +109,9 @@ export interface CustomerOpenQuote {
   validUntil: string | null;
   /** The quote's currency as stored; "" when it stores none. */
   currency: string;
-  /** The rates the quote stores (data.rates), as stored. */
+  /** ČNB rates and ROE % stored when the quote was sent (data.fx), as stored; null for a draft. */
+  fx: unknown;
+  /** Rates older quotes stored from the retired weekly sheet (data.rates), as stored. */
   rates: unknown;
   /** The selling lines (data.sellingLines), as stored. */
   sellingLines: unknown;

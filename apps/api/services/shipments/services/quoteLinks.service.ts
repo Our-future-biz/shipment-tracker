@@ -1,4 +1,6 @@
+import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
+import { canManageSales } from "../../../lib/salesPolicy";
 import { quotes } from "~encore/clients";
 import { SALES_REFERENCE_PATTERN, isSalesReference } from "../../../lib/salesReference";
 import type { QuoteLinksSyncResult, QuoteSyncResult } from "../interfaces/interfaces";
@@ -169,7 +171,8 @@ class QuoteLinksService {
    * not asked whether one is due: everything is compared anew, and run after run until no
    * reference is left.
    */
-  async sync(companyId: string, force: boolean): Promise<QuoteLinksSyncResult & { ran: boolean }> {
+  async sync(companyId: string, role: string, force: boolean): Promise<QuoteLinksSyncResult & { ran: boolean }> {
+    if (force && !canManageSales(role)) throw APIError.permissionDenied("Only a manager can force the sync of quote links");
     const company = this.of(companyId);
     if (!force && !this.isDue(company, Date.now())) return { ran: false, ...NOTHING };
     if (force) company.left = [];

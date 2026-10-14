@@ -1,5 +1,5 @@
 {
-  "id": "fcf9da5d-f458-41a5-94c8-21aa2ce93fcb",
+  "id": "ecad3d31-f1ca-400a-81cf-5f8cf3692b57",
   "prevId": "89c1cdaf-9a08-4480-b65a-ba6dd07f2d25",
   "version": "7",
   "dialect": "postgresql",
@@ -117,6 +117,33 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "billing_override_company_shipment_row_unique": {
+          "name": "billing_override_company_shipment_row_unique",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "shipment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "row_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -254,19 +281,32 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "billing_settings_company_shipment_unique": {
+          "name": "billing_settings_company_shipment_unique",
+          "columns": [
+            {
+              "expression": "company_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "shipment_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "billing_settings_shipment_id_unique": {
-          "name": "billing_settings_shipment_id_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "shipment_id"
-          ]
-        }
-      },
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -597,13 +637,13 @@
         },
         "valid_from": {
           "name": "valid_from",
-          "type": "text",
+          "type": "date",
           "primaryKey": false,
           "notNull": true
         },
         "valid_to": {
           "name": "valid_to",
-          "type": "text",
+          "type": "date",
           "primaryKey": false,
           "notNull": true
         },
@@ -690,6 +730,7 @@
             }
           ],
           "isUnique": true,
+          "where": "deleted_at IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -872,7 +913,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "generated_invoice_invoice_type_check": {
+          "name": "generated_invoice_invoice_type_check",
+          "value": "\"generated_invoice\".\"invoice_type\" IN ('breakdown', 'total')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.invoice_additional_charge": {
@@ -1092,13 +1138,6 @@
           "notNull": true,
           "default": "''"
         },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
         "est_qty": {
           "name": "est_qty",
           "type": "numeric(14, 2)",
@@ -1164,13 +1203,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
-        },
-        "source_quote_number": {
-          "name": "source_quote_number",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
         }
       },
       "indexes": {
@@ -1292,13 +1324,6 @@
           "notNull": true,
           "default": "''"
         },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
         "customer": {
           "name": "customer",
           "type": "text",
@@ -1344,13 +1369,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
-        },
-        "source_quote_number": {
-          "name": "source_quote_number",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
         }
       },
       "indexes": {

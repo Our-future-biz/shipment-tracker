@@ -1,6 +1,6 @@
 {
-  "id": "b55756a7-73de-49a0-919d-59c992a809da",
-  "prevId": "857e9e7b-5b90-46d1-ba86-6e8da4d4cc76",
+  "id": "857e9e7b-5b90-46d1-ba86-6e8da4d4cc76",
+  "prevId": "72884d24-6a57-4d5d-9a0e-77689f5d22d2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -165,8 +165,8 @@
           "primaryKey": false,
           "notNull": false,
           "generated": {
-            "type": "stored",
-            "as": "CASE WHEN (data->>'customerId') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' THEN (data->>'customerId')::uuid END"
+            "as": "CASE WHEN (data->>'customerId') ~ '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' THEN (data->>'customerId')::uuid END",
+            "type": "stored"
           }
         }
       },
@@ -182,9 +182,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_deleted_at_idx": {
           "name": "quote_deleted_at_idx",
@@ -197,9 +197,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_company_id_idx": {
           "name": "quote_company_id_idx",
@@ -212,9 +212,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_company_number_unique": {
           "name": "quote_company_number_unique",
@@ -233,9 +233,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_company_status_idx": {
           "name": "quote_company_status_idx",
@@ -254,9 +254,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_customer_id_idx": {
           "name": "quote_customer_id_idx",
@@ -269,9 +269,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_owner_user_id_idx": {
           "name": "quote_owner_user_id_idx",
@@ -284,9 +284,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_unadopted_idx": {
           "name": "quote_unadopted_idx",
@@ -299,10 +299,10 @@
             }
           ],
           "isUnique": false,
-          "with": {},
-          "method": "btree",
           "where": "status IS NULL AND jsonb_typeof(data->'quoteStatus') = 'string' AND btrim(data->>'quoteStatus') <> ''",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -395,9 +395,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_attachment_deleted_at_idx": {
           "name": "quote_attachment_deleted_at_idx",
@@ -410,9 +410,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_attachment_company_id_idx": {
           "name": "quote_attachment_company_id_idx",
@@ -425,9 +425,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_attachment_quote_number_idx": {
           "name": "quote_attachment_quote_number_idx",
@@ -440,9 +440,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -515,9 +515,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_ref_sequence_deleted_at_idx": {
           "name": "quote_ref_sequence_deleted_at_idx",
@@ -530,9 +530,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_ref_sequence_company_id_idx": {
           "name": "quote_ref_sequence_company_id_idx",
@@ -545,9 +545,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "quote_ref_sequence_company_number_unique": {
           "name": "quote_ref_sequence_company_number_unique",
@@ -566,10 +566,10 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "deleted_at IS NULL",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -582,10 +582,10 @@
   },
   "enums": {},
   "schemas": {},
-  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
+  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},

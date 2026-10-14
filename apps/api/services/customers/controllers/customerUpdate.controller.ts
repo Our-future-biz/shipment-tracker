@@ -1,29 +1,28 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, Min, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { customerService } from "../services/customer.service";
-import type { CustomerItem } from "../interfaces/interfaces";
+import type { CustomerItem, CustomerLabel, CustomerStatus } from "../interfaces/interfaces";
 
+// The rollups (totalRevenue, totalProfit, totalShipments, lastActivityDate) are not here:
+// they are computed from shipments and written only through customerRollupsUpdate.
 interface CustomerUpdateRequest {
   id: string;
-  companyName?: string;
-  dic?: string;
-  status?: string;
-  salesOwner?: string;
-  label?: string;
-  creditLimit?: number;
-  currency?: string;
-  paymentTerms?: string;
-  freightPaymentTerms?: string;
-  dutyPaymentTerms?: string;
-  companyWebsite?: string;
-  city?: string;
-  country?: string;
-  registeredAddress?: string;
-  nace?: string;
-  totalRevenue?: number;
-  totalProfit?: number;
-  totalShipments?: number;
-  lastActivityDate?: string;
+  companyName?: string & MinLen<1> & MaxLen<300>;
+  dic?: string & MaxLen<20>;
+  status?: CustomerStatus;
+  salesOwner?: string & MaxLen<200>;
+  label?: CustomerLabel;
+  creditLimit?: number & Min<0>;
+  currency?: string & MaxLen<3>;
+  paymentTerms?: string & MaxLen<100>;
+  freightPaymentTerms?: string & MaxLen<100>;
+  dutyPaymentTerms?: string & MaxLen<100>;
+  companyWebsite?: string & MaxLen<300>;
+  city?: string & MaxLen<200>;
+  country?: string & MaxLen<100>;
+  registeredAddress?: string & MaxLen<500>;
+  nace?: string & MaxLen<500>;
 }
 
 interface CustomerUpdateResponse {
@@ -32,12 +31,7 @@ interface CustomerUpdateResponse {
 
 export const customerUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/customers/:id" },
-  async (req: CustomerUpdateRequest): Promise<CustomerUpdateResponse> => {
-    const { id, ...patch } = req;
-    const customer = await customerService.update(id, getAuthData()!.companyID, patch);
-    if (!customer) {
-      throw APIError.notFound("Customer not found");
-    }
-    return { customer: customer as unknown as CustomerItem };
+  async ({ id, ...patch }: CustomerUpdateRequest): Promise<CustomerUpdateResponse> => {
+    return { customer: await customerService.update(id, getAuthData()!.companyID, patch) };
   },
 );

@@ -7,8 +7,6 @@ import {
   carryKeys,
   isPlainObject,
   newDocument,
-  ratesNeeded,
-  ratesToStamp,
   stripProtected,
 } from "../../utils/quoteDocument.utils";
 
@@ -134,74 +132,5 @@ describe("PROTECTED_KEYS", () => {
     const list = webTypes().match(/export const PROTECTED_KEYS = \[([^\]]*)\]/);
     expect(list, "PROTECTED_KEYS not found in types.ts").not.toBeNull();
     expect([...list![1]!.matchAll(/"(\w+)"/g)].map((m) => m[1])).toEqual([...PROTECTED_KEYS]);
-  });
-});
-
-describe("ratesNeeded", () => {
-  it("needs no rate when every line is in the quote's currency", () => {
-    expect(ratesNeeded({ currency: "EUR", sellingLines: [{ currency: "EUR", amount: 100 }] })).toEqual([]);
-    // A quote without a currency is in EUR; a line without one is in the quote's.
-    expect(ratesNeeded({ sellingLines: [{ amount: 100 }, { currency: "EUR", amount: 5 }] })).toEqual([]);
-    expect(ratesNeeded({})).toEqual([]);
-  });
-
-  it("needs the rate of the line and of the quote: conversion goes through CZK", () => {
-    expect(ratesNeeded({ currency: "EUR", sellingLines: [{ currency: "USD", amount: 100 }] })).toEqual(["EUR", "USD"]);
-    expect(ratesNeeded({ buyingLines: [{ currency: "GBP", amount: 100 }], sellingLines: [{ currency: "USD", amount: 1 }] })).toEqual(["EUR", "GBP", "USD"]);
-  });
-
-  it("never needs a rate for CZK", () => {
-    expect(ratesNeeded({ currency: "CZK", sellingLines: [{ currency: "USD", amount: 100 }] })).toEqual(["USD"]);
-    expect(ratesNeeded({ currency: "EUR", buyingLines: [{ currency: "CZK", amount: 100 }] })).toEqual(["EUR"]);
-  });
-
-  it("survives a document that is not shaped as expected", () => {
-    expect(ratesNeeded({ currency: 7, sellingLines: "abc", buyingLines: [null, 5, "x", { currency: 9 }, { currency: "USD" }] })).toEqual(["EUR", "USD"]);
-  });
-});
-
-describe("ratesToStamp", () => {
-  const exchange = { rates: { CZK: 1, EUR: 25.1, USD: 23.4 }, week: "2026-W41" };
-  const doc = { currency: "EUR", sellingLines: [{ currency: "USD", amount: 100 }] };
-
-  it("takes the sheet's rate for every currency the quote converts and stores none for", () => {
-    expect(ratesToStamp(doc, exchange)).toEqual({
-      EUR: { rate: 25.1, week: "2026-W41" },
-      USD: { rate: 23.4, week: "2026-W41" },
-    });
-  });
-
-  it("never replaces a rate the quote already stores", () => {
-    const withRate = { ...doc, rates: { USD: { rate: 22 } } };
-    expect(ratesToStamp(withRate, exchange)).toEqual({ USD: { rate: 22 }, EUR: { rate: 25.1, week: "2026-W41" } });
-  });
-
-  it("is null when there is nothing to store", () => {
-    expect(ratesToStamp({ currency: "EUR", sellingLines: [{ currency: "EUR", amount: 1 }] }, exchange)).toBeNull();
-    expect(ratesToStamp({ ...doc, rates: { EUR: { rate: 25 }, USD: { rate: 23 } } }, exchange)).toBeNull();
-    // A currency the sheet does not carry is left without a rate.
-    expect(ratesToStamp({ currency: "CZK", sellingLines: [{ currency: "GBP", amount: 1 }] }, exchange)).toBeNull();
-  });
-
-  it("does not store rates of currencies the quote does not convert", () => {
-    expect(ratesToStamp({ currency: "CZK", sellingLines: [{ currency: "USD", amount: 1 }] }, exchange)).toEqual({
-      USD: { rate: 23.4, week: "2026-W41" },
-    });
-  });
-
-  it("takes only a usable rate", () => {
-    expect(ratesToStamp(doc, { rates: { EUR: 0, USD: Number.NaN }, week: "2026-W41" })).toBeNull();
-    expect(ratesToStamp(doc, { rates: { EUR: -1, USD: Number.POSITIVE_INFINITY } })).toBeNull();
-  });
-
-  it("leaves the week out when the caller names none", () => {
-    expect(ratesToStamp(doc, { rates: { EUR: 25.1, USD: 23.4 } })).toEqual({ EUR: { rate: 25.1 }, USD: { rate: 23.4 } });
-  });
-
-  it("starts afresh when the stored rates are not an object", () => {
-    expect(ratesToStamp({ ...doc, rates: "abc" }, exchange)).toEqual({
-      EUR: { rate: 25.1, week: "2026-W41" },
-      USD: { rate: 23.4, week: "2026-W41" },
-    });
   });
 });

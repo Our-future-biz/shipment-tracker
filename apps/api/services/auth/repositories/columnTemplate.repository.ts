@@ -1,50 +1,57 @@
-import { eq, and, isNull, asc } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { columnTemplateTable } from "../schemas/columnTemplate.schema";
+import { columnTemplateTable, type ColumnTemplateRecord } from "../schemas/columnTemplate.schema";
 
-class ColumnTemplateRepository {
-  async listByUser(userId: string, scope: string) {
-    return db
-      .select()
-      .from(columnTemplateTable)
-      .where(
-        and(eq(columnTemplateTable.userId, userId), eq(columnTemplateTable.scope, scope), isNull(columnTemplateTable.deletedAt)),
-      )
-      .orderBy(asc(columnTemplateTable.name));
+// Templates are personal: every query matches the company and the user.
+class ColumnTemplateRepository extends TenantRepository<typeof columnTemplateTable> {
+  constructor() {
+    super(db, columnTemplateTable, "column_template");
   }
 
-  // Insert, or overwrite the existing template with the same (userId, scope, name).
-  async upsert(userId: string, scope: string, name: string, columns: string[]) {
-    const [existing] = await db
+  async listForUser(companyId: string, userId: string, scope: string): Promise<ColumnTemplateRecord[]> {
+    return this.db
       .select()
       .from(columnTemplateTable)
       .where(
         and(
+          eq(columnTemplateTable.companyId, companyId),
           eq(columnTemplateTable.userId, userId),
           eq(columnTemplateTable.scope, scope),
-          eq(columnTemplateTable.name, name),
           isNull(columnTemplateTable.deletedAt),
         ),
       )
-      .limit(1);
+      .orderBy(asc(columnTemplateTable.name));
+  }
 
-    if (existing) {
-      const [row] = await db
-        .update(columnTemplateTable)
-        .set({ columns, updatedAt: new Date() })
-        .where(eq(columnTemplateTable.id, existing.id))
-        .returning();
-      return row!;
-    }
-
-    const [row] = await db.insert(columnTemplateTable).values({ userId, scope, name, columns }).returning();
+  // Insert, or overwrite the template with the same (user, scope, name) — also one deleted
+  // earlier, which the unique key still holds.
+  async upsert(companyId: string, userId: string, scope: string, name: string, columns: string[]): Promise<ColumnTemplateRecord> {
+    const [row] = await this.db
+      .insert(columnTemplateTable)
+      .values({ companyId, userId, scope, name, columns })
+      .onConflictDoUpdate({
+        target: [columnTemplateTable.userId, columnTemplateTable.scope, columnTemplateTable.name],
+        set: { columns, deletedAt: null, updatedAt: new Date() },
+      })
+      .returning();
     return row!;
   }
 
-  async deleteForUser(userId: string, id: string) {
-    await db
-      .delete(columnTemplateTable)
-      .where(and(eq(columnTemplateTable.id, id), eq(columnTemplateTable.userId, userId)));
+  async softDeleteForUser(companyId: string, userId: string, id: string): Promise<ColumnTemplateRecord | null> {
+    const [row] = await this.db
+      .update(columnTemplateTable)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(columnTemplateTable.id, id),
+          eq(columnTemplateTable.companyId, companyId),
+          eq(columnTemplateTable.userId, userId),
+          isNull(columnTemplateTable.deletedAt),
+        ),
+      )
+      .returning();
+    return row ?? null;
   }
 }
 

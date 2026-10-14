@@ -44,7 +44,7 @@ export function QuotesTab({ customerId }: QuotesTabProps) {
   const { quotes: rows, isLoading, isError } = useCustomerQuotes(customerId);
   // A quote opened or created here knows it, so its back link returns to this customer.
   const origin: QuoteOrigin = { from: "customer", customerId };
-  // Sales converts a quote's lines into the quote's currency; quotes that store no rates use this sheet.
+  // Sales converts a quote's lines into the quote's currency at today's ČNB rates unless it stores its own.
   const exchange = useCurrentExchangeRates();
   const [filter, setFilter] = useState("all");
   const [page, setPage] = useState(1);
@@ -66,9 +66,9 @@ export function QuotesTab({ customerId }: QuotesTabProps) {
       conversion: decided > 0 ? `${Math.round((won / decided) * 100)}%` : null,
       // Not known before the Exchange sheet is: without it the sum would first show short of
       // every line that needs converting.
-      wonRevenue: exchange.isLoading ? null : sellingByCurrency(rows.filter((q) => quoteBucket(q) === "won"), exchange.rates),
+      wonRevenue: exchange.isLoading ? null : sellingByCurrency(rows.filter((q) => quoteBucket(q) === "won"), exchange.rates, exchange),
     };
-  }, [rows, exchange.rates, exchange.isLoading]);
+  }, [rows, exchange]);
 
   // A dash when nothing won has a price; "…" while the sum is not known yet.
   let wonRevenueValue: React.ReactNode = EMPTY_CELL;
@@ -124,7 +124,7 @@ export function QuotesTab({ customerId }: QuotesTabProps) {
       align: "right",
       className: "tabular-nums",
       render: (_: unknown, r) => {
-        const totals = computeTotals(r.data, exchange.rates);
+        const totals = computeTotals(r.data, exchange.rates, exchange);
         // A quote without a price shows a dash - unless the price is only missing an exchange rate.
         return totals.selling || totals.missingSellingRates.length ? <QuoteSelling totals={totals} /> : EMPTY_CELL;
       },

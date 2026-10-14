@@ -1,14 +1,15 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { contactService } from "../services/contact.service";
-import type { ContactItem } from "../interfaces/interfaces";
+import type { ContactItem, ContactRole } from "../interfaces/interfaces";
 
 interface ContactCreateRequest {
   customerId: string;
-  name: string;
-  email?: string;
-  phone?: string;
-  role?: string;
+  name: string & MinLen<1> & MaxLen<200>;
+  email?: string & MaxLen<320>;
+  phone?: string & MaxLen<50>;
+  role?: ContactRole;
   isMain?: boolean;
 }
 
@@ -18,12 +19,7 @@ interface ContactCreateResponse {
 
 export const contactCreate = api(
   { expose: true, auth: true, method: "POST", path: "/customers/:customerId/contacts" },
-  async (req: ContactCreateRequest): Promise<ContactCreateResponse> => {
-    if (!req.name) {
-      throw APIError.invalidArgument("name is required");
-    }
-    const { customerId, ...input } = req;
-    const contact = await contactService.create(getAuthData()!.companyID, customerId, input);
-    return { contact: contact as unknown as ContactItem };
+  async ({ customerId, ...input }: ContactCreateRequest): Promise<ContactCreateResponse> => {
+    return { contact: await contactService.create(getAuthData()!.companyID, customerId, input) };
   },
 );

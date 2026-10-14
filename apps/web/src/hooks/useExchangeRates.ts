@@ -1,35 +1,41 @@
 "use client";
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { exchangeRatesFor } from "@/lib/exchangeRates";
+import { useFxRatesToday } from "@/hooks/useFx";
+import type { ExchangeRates } from "@/lib/exchangeRates";
 
-// The Exchange sheet's rates of the current week, picked by the rule shipment costs use for their
-// ETA/ETD week. Sales converts quote lines with them wherever a quote stores no rate of its own.
+// Today's ČNB rates (CZK per 1 unit), for converting quote lines wherever a quote stores no rate
+// of its own. The weekly Exchange sheet this used to read is retired; ČNB is the only source.
 export const useCurrentExchangeRates = () => {
-  // Same key and freshness as the shipment costs, so both read one copy of the sheet.
-  const query = useQuery({
-    queryKey: ["exchange-rates"],
-    queryFn: () => api.invoicing.exchangeRateList(),
-    staleTime: 10 * 60 * 1000,
-  });
+  const query = useFxRatesToday();
+  const data = query.data;
 
-  // The same day the Exchange page calls "current".
-  const today = new Date().toISOString().slice(0, 10);
-
-  return useMemo(
-    () => ({
-      ...exchangeRatesFor(query.data?.rates ?? [], today),
+  return useMemo(() => {
+    const rates: ExchangeRates = {
+      CZK: 1,
+      ...Object.fromEntries((data?.rates ?? []).filter((r) => r.rate > 0).map((r) => [r.currency, r.rate])),
+    };
+    const fixingDate = data?.fixingDate ?? "";
+    return {
+      rates,
+      /** The ČNB fixing the rates come from (YYYY-MM-DD); "" until loaded. */
+      fixingDate,
+      /** Company ROE % a draft's selling lines in another currency carry (100 = pure ČNB). */
+      roePct: data?.roePct ?? 100,
+      /** exact: today's fixing; older: an earlier fixing stands in (weekend, holiday, not yet published); none: no rates. */
+      source: (!data || data.rates.length === 0 ? "none" : data.fixingDate === data.date ? "exact" : "older") as
+        | "exact"
+        | "older"
+        | "none",
+      /** A fixing that should exist was never imported: the rates are stale, not just older. */
+      missing: !!data?.missing,
       isLoading: query.isLoading,
-      // The sheet could not be read. `rates` then knows only CZK, exactly as with an empty sheet,
-      // but the two are not the same: a rate that did not arrive must not be reported as one that
-      // nobody entered - the user would be told to type a rate the sheet has.
+      // The rates could not be read. `rates` then knows only CZK, but that is not the same as no
+      // rate existing: the user must not be told to type a rate ČNB has.
       isError: query.isLoadingError,
       reload: query.refetch,
-    }),
-    [query.data?.rates, today, query.isLoading, query.isLoadingError, query.refetch],
-  );
+    };
+  }, [data, query.isLoading, query.isLoadingError, query.refetch]);
 };
 
 export type CurrentExchangeRates = ReturnType<typeof useCurrentExchangeRates>;

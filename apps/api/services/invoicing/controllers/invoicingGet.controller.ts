@@ -1,24 +1,15 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { invoicingService } from "../services/invoicing.service";
-import type { InvoiceCostItem, SellingCostItem, AdditionalChargeItem, BillingSettingsItem, BillingOverrideItem, GeneratedInvoiceItem } from "../interfaces/interfaces";
+import type { InvoicingData } from "../interfaces/interfaces";
 
 interface InvoicingGetRequest {
   shipmentId: string;
 }
 
-interface InvoicingGetResponse {
-  costs: InvoiceCostItem[];
-  sellingCosts: SellingCostItem[];
-  additionalCharges: AdditionalChargeItem[];
-  billingSettings: BillingSettingsItem | null;
-  billingOverrides: BillingOverrideItem[];
-  generatedInvoices: GeneratedInvoiceItem[];
-}
-
 export const invoicingGet = api(
   { expose: true, auth: true, method: "GET", path: "/invoicing/:shipmentId" },
-  async (req: InvoicingGetRequest): Promise<InvoicingGetResponse> => {
-    return invoicingService.getInvoicingData(req.shipmentId, getAuthData()!.companyID) as unknown as Promise<InvoicingGetResponse>;
+  async (req: InvoicingGetRequest): Promise<InvoicingData> => {
+    return invoicingService.getInvoicingData(req.shipmentId, getAuthData()!.companyID);
   },
 );

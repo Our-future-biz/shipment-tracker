@@ -1,4 +1,5 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
 import type {
@@ -8,11 +9,12 @@ import type {
   CargoDimensionLine,
   CommercialInvoiceLine,
   CostImportOutcome,
+  CustomsPriority,
   QuoteLinkOutcome,
 } from "../interfaces/interfaces";
 
 interface ShipmentCreateRequest {
-  jobNumber: string;
+  jobNumber: string & MinLen<1>;
   shipper?: string;
   consignee?: string;
   pol?: string;
@@ -108,7 +110,8 @@ interface ShipmentCreateRequest {
   approvedBy?: string;
   bookingConfirmation?: string;
   customsProcedure?: string;
-  customsPriority?: string;
+  /** "" counts as Standard. */
+  customsPriority?: CustomsPriority | "";
   customsDeadline?: string;
   equipmentDelivery?: string;
   equipmentDeliveryDate?: string;
@@ -162,7 +165,7 @@ interface ShipmentCreateRequest {
    * the quote the request is refused with HTTP 409 and details { shipmentId, jobNumber } of that
    * shipment - unless allowSecondShipment is sent.
    */
-  fromQuoteNumber?: string;
+  fromQuoteNumber?: string & MaxLen<50>;
   /** With fromQuoteNumber: create the shipment although the quote already has one. */
   allowSecondShipment?: boolean;
 
@@ -184,10 +187,6 @@ interface ShipmentCreateResponse {
 export const shipmentCreate = api(
   { expose: true, auth: true, method: "POST", path: "/shipments" },
   async (req: ShipmentCreateRequest): Promise<ShipmentCreateResponse> => {
-    if (!req.jobNumber) {
-      throw APIError.invalidArgument("jobNumber is required");
-    }
-    const { shipment, ...outcome } = await shipmentService.create(getAuthData()!.companyID, req);
-    return { shipment: shipment as unknown as ShipmentItem, ...outcome };
+    return shipmentService.create(getAuthData()!.companyID, req);
   },
 );

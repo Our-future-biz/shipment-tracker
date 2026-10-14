@@ -93,8 +93,8 @@ export const MasterJobDialog = ({ open, onClose, shipments, onLink, initialSelec
       width={540}
       destroyOnHidden
       footer={
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 12, color: "#64748b" }}>{selected.size} shipment{selected.size !== 1 ? "s" : ""} selected</span>
+        <div className="flex justify-between items-center">
+          <span className="text-xs text-slate-500">{selected.size} shipment{selected.size !== 1 ? "s" : ""} selected</span>
           <Space>
             <Button onClick={handleClose}>Cancel</Button>
             <Button
@@ -111,23 +111,23 @@ export const MasterJobDialog = ({ open, onClose, shipments, onLink, initialSelec
     >
       {/* Mode toggle (only if existing MCZs exist) */}
       {existingMCZs.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
+        <div className="mb-4">
           <Radio.Group value={mode} onChange={(e) => setMode(e.target.value)} size="small">
             <Radio.Button value="new">Create New ({nextMCZ})</Radio.Button>
             <Radio.Button value="existing">Link to Existing</Radio.Button>
           </Radio.Group>
 
           {mode === "existing" && (
-            <div style={{ marginTop: 8, maxHeight: 100, overflowY: "auto" }}>
+            <div className="mt-2 max-h-[100px] overflow-y-auto">
               <Radio.Group
                 value={selectedExistingMCZ}
                 onChange={(e) => setSelectedExistingMCZ(e.target.value)}
-                style={{ display: "flex", flexDirection: "column", gap: 4 }}
+                className="flex flex-col gap-1"
               >
                 {existingMCZs.map(([mcz, count]) => (
                   <Radio key={mcz} value={mcz}>
-                    <span style={{ fontFamily: "monospace", color: "#f59e0b", fontWeight: 500 }}>{mcz}</span>
-                    <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 8 }}>({count} shipment{count !== 1 ? "s" : ""})</span>
+                    <span className="font-mono text-amber-500 font-medium">{mcz}</span>
+                    <span className="text-[11px] text-slate-400 ml-2">({count} shipment{count !== 1 ? "s" : ""})</span>
                   </Radio>
                 ))}
               </Radio.Group>
@@ -138,8 +138,8 @@ export const MasterJobDialog = ({ open, onClose, shipments, onLink, initialSelec
 
       {/* No existing — just show the new MCZ info */}
       {existingMCZs.length === 0 && (
-        <p style={{ fontSize: 12, color: "#64748b", marginBottom: 12 }}>
-          New Master Job: <strong style={{ fontFamily: "monospace", color: "#f59e0b" }}>{nextMCZ}</strong>
+        <p className="text-xs text-slate-500 mb-3">
+          New Master Job: <strong className="font-mono text-amber-500">{nextMCZ}</strong>
         </p>
       )}
 
@@ -151,38 +151,34 @@ export const MasterJobDialog = ({ open, onClose, shipments, onLink, initialSelec
         onChange={(e) => setSearch(e.target.value)}
         size="small"
         allowClear
-        style={{ marginBottom: 8 }}
+        className="mb-2"
       />
 
       {/* Shipment selection list */}
-      <div style={{ maxHeight: 320, overflowY: "auto", border: "1px solid #f0f0f0", borderRadius: 6 }}>
+      <div className="max-h-[320px] overflow-y-auto border border-neutral-100 rounded-md">
         {filteredShipments.map((s) => {
           const isChecked = selected.has(s.id);
           return (
             <div
               key={s.id}
               onClick={() => toggleShipment(s.id)}
-              style={{
-                display: "flex", alignItems: "center", gap: 10, padding: "7px 12px", cursor: "pointer",
-                borderBottom: "1px solid #fafafa",
-                background: isChecked ? "rgba(245, 158, 11, 0.04)" : undefined,
-              }}
+              className={`flex items-center gap-2.5 px-3 py-[7px] cursor-pointer border-b border-neutral-50 ${isChecked ? "bg-amber-500/[0.04]" : ""}`}
             >
               <Checkbox checked={isChecked} />
-              <span style={{ fontFamily: "monospace", color: "#0d9488", fontWeight: 500, fontSize: 12, width: 100, flexShrink: 0 }}>
+              <span className="font-mono text-teal-600 font-medium text-xs w-[100px] shrink-0">
                 {s.jobNumber}
               </span>
-              <span style={{ fontSize: 12, color: "#6b7280", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              <span className="text-xs text-gray-500 flex-1 truncate">
                 {s.shipper || s.consignee || "—"}
               </span>
               {s.masterJobMczNumber && (
-                <Tag color="gold" style={{ fontSize: 10, margin: 0 }}>{s.masterJobMczNumber}</Tag>
+                <Tag color="gold" className="!text-[10px] !m-0">{s.masterJobMczNumber}</Tag>
               )}
             </div>
           );
         })}
         {filteredShipments.length === 0 && (
-          <p style={{ textAlign: "center", color: "#94a3b8", fontSize: 12, padding: 24 }}>No shipments found</p>
+          <p className="text-center text-slate-400 text-xs p-6">No shipments found</p>
         )}
       </div>
     </Modal>

@@ -1,37 +1,38 @@
-import { eq, and } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { billingOverrideTable } from "../schemas/billingOverride.schema";
+import { billingOverrideTable as t, type BillingOverrideRecord } from "../schemas/billingOverride.schema";
 
-class BillingOverrideRepository {
-  async listByShipmentId(shipmentId: string, companyId: string) {
-    return db
-      .select()
-      .from(billingOverrideTable)
-      .where(and(eq(billingOverrideTable.companyId, companyId), eq(billingOverrideTable.shipmentId, shipmentId)));
+class BillingOverrideRepository extends TenantRepository<typeof t> {
+  constructor() {
+    super(db, t, "billing_override");
   }
 
-  async upsert(shipmentId: string, companyId: string, rowKey: string, billingAmount: string | null) {
-    const [existing] = await db
+  async listByShipmentId(shipmentId: string, companyId: string): Promise<BillingOverrideRecord[]> {
+    return this.db
       .select()
-      .from(billingOverrideTable)
-      .where(and(
-        eq(billingOverrideTable.companyId, companyId),
-        eq(billingOverrideTable.shipmentId, shipmentId),
-        eq(billingOverrideTable.rowKey, rowKey),
-      ))
-      .limit(1);
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)));
+  }
 
-    if (existing) {
-      const [row] = await db
-        .update(billingOverrideTable)
-        .set({ billingAmount, updatedAt: new Date() })
-        .where(eq(billingOverrideTable.id, existing.id))
-        .returning();
-      return row!;
-    }
-
-    const [row] = await db.insert(billingOverrideTable).values({ companyId, shipmentId, rowKey, billingAmount }).returning();
+  // One statement on the (company, shipment, row) key, so two saves can't both insert.
+  async upsert(shipmentId: string, companyId: string, rowKey: string, billingAmount: string | null): Promise<BillingOverrideRecord> {
+    const [row] = await this.db
+      .insert(t)
+      .values({ companyId, shipmentId, rowKey, billingAmount })
+      .onConflictDoUpdate({
+        target: [t.companyId, t.shipmentId, t.rowKey],
+        set: { billingAmount, updatedAt: new Date(), deletedAt: null },
+      })
+      .returning();
     return row!;
+  }
+
+  async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {
+    await this.db
+      .update(t)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)));
   }
 }
 

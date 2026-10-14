@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { partyUpdate, type PartyField } from "@/app/shipments/_lib/parties";
+import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Spin, Dropdown, message, Modal, Tag, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
 import dayjs from "dayjs";
@@ -20,8 +21,10 @@ import {
   PaperClipOutlined,
   FileTextOutlined,
   EditOutlined,
+  DollarOutlined,
 } from "@ant-design/icons";
 import { useShipment } from "@/hooks/useShipment";
+import { useInvoicing } from "@/hooks/useInvoicing";
 import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
@@ -199,9 +202,9 @@ function SectionHeader({
             {/* .sec-all z mockupu */}
             <button
               onClick={() => setShowAll(true)}
-              className="h-[26px] px-2.5 text-[11.5px] font-semibold rounded-md border border-[#d8dce6]
-                         bg-white text-slate-600 cursor-pointer hover:bg-[#f4f5f9] hover:text-[#46506b]
-                         hover:border-[#c3c9d6] transition-colors whitespace-nowrap"
+              className="h-[26px] px-2.5 text-[11.5px] font-semibold rounded-md border border-line-soft
+                         bg-white text-slate-600 cursor-pointer hover:bg-surface-2 hover:text-ink-soft
+                         hover:border-line-dim transition-colors whitespace-nowrap"
             >
               Show all ({allKeys.length})
             </button>
@@ -213,7 +216,7 @@ function SectionHeader({
                             transition-colors ${
                   isCustomised(cardId!)
                     ? "bg-indigo-500 border-indigo-500 text-white"
-                    : "border-[#d8dce6] bg-white text-slate-600 hover:bg-[#f4f5f9] hover:text-indigo-500 hover:border-[#c3c9d6]"
+                    : "border-line-soft bg-white text-slate-600 hover:bg-surface-2 hover:text-indigo-500 hover:border-line-dim"
                 }`}
               >
                 <EditOutlined className="text-[12px]" />
@@ -268,8 +271,8 @@ function SectionHeader({
               </span>
               <button
                 onClick={() => resetCard(cardId!)}
-                className="h-8 px-3 text-[12.5px] font-semibold rounded-md border border-[#d8dce6]
-                           bg-white text-slate-600 cursor-pointer hover:bg-[#f4f5f9]"
+                className="h-8 px-3 text-[12.5px] font-semibold rounded-md border border-line-soft
+                           bg-white text-slate-600 cursor-pointer hover:bg-surface-2"
               >
                 Show all fields
               </button>
@@ -752,7 +755,7 @@ function CargoRow({
           className={`flex-1 min-w-0 ${
             value
               ? field.highlight
-                ? "text-slate-900 font-medium bg-[#eaf6ee] px-1.5 py-px rounded"
+                ? "text-slate-900 font-medium bg-ok-softer px-1.5 py-px rounded"
                 : "text-slate-900 font-medium"
               : "text-slate-300"
           }`}
@@ -774,7 +777,7 @@ function CargoRow({
         placeholder="—"
         displayClassName={
           field.highlight
-            ? "text-slate-900 font-medium bg-[#eaf6ee] px-1.5 py-px rounded"
+            ? "text-slate-900 font-medium bg-ok-softer px-1.5 py-px rounded"
             : "text-slate-900 font-medium"
         }
         emptyClassName="text-slate-300"
@@ -873,26 +876,14 @@ export function ShipmentDetailContent() {
   // shipment opened by link need not be one of the newest.
   const { shipment, isLoading, notFound, error, reload } = useShipment(jobNumber, { shipments, isLoading: listLoading });
 
-  // Fakturacni data se nactou uz pri otevreni zakazky, takze zalozka
-  // Costs Breakdown je pri prokliku ma hned k dispozici a nic nedonacita.
-  const { data: invoicingData } = useQuery({
-    queryKey: ["invoicing", shipment?.id],
-    queryFn: () => api.invoicing.invoicingGet(shipment!.id),
-    enabled: !!shipment,
-  });
+  // The invoicing data loads with the shipment, so the Costs Breakdown tab has it at once.
+  const { data: invoicingData } = useInvoicing(shipment?.id ?? null);
   // The quote the costs were copied from, as the billing settings remember it.
   const costsQuoteRef = (invoicingData?.billingSettings?.quoteRef ?? "").trim();
 
   // Totals of the Costs Breakdown tab, shown on the Quote card.
   const costs = useCostsData(shipment);
 
-  // Kurzovni listek se predava dopredu ze stejneho duvodu - Costs Breakdown
-  // ho pak nacita z pameti, ne ze serveru.
-  useQuery({
-    queryKey: ["exchange-rates"],
-    queryFn: () => api.invoicing.exchangeRateList(),
-    staleTime: 10 * 60 * 1000,
-  });
 
   const TAB_KEYS = TABS.map((t) => t.key);
   const rawTab = searchParams.get("tab");
@@ -941,8 +932,8 @@ export function ShipmentDetailContent() {
   const handleCommit: CommitFn = (fieldKey, value) => updateField(shipment.id, fieldKey, value, shipment);
 
   // Update a party's name + its CRM customer link together.
-  const linkParty = (nameKey: string, idKey: string, name: string, customerId: string | null) => {
-    updateShipment({ id: shipment.id, data: { [nameKey]: name, [idKey]: customerId } as controllers.ShipmentUpdateRequest });
+  const linkParty = (party: PartyField, name: string, customerId: string | null) => {
+    updateShipment({ id: shipment.id, data: partyUpdate(party, name, customerId) });
   };
 
   // Persist a field that isn't part of the shipments table's column config.
@@ -1036,7 +1027,7 @@ export function ShipmentDetailContent() {
             <button
               type="button"
               onClick={() => router.push("/shipments")}
-              className="inline-flex items-center gap-2 h-10 px-4 mr-1.5 rounded-lg border border-[#d8dce6] bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-[#f4f5f9] hover:text-[#46506b] transition-colors"
+              className="inline-flex items-center gap-2 h-10 px-4 mr-1.5 rounded-lg border border-line-soft bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-surface-2 hover:text-ink-soft transition-colors"
             >
               <ArrowLeftOutlined /> Shipments
             </button>
@@ -1059,6 +1050,15 @@ export function ShipmentDetailContent() {
             <span className="text-xs text-slate-500">
               ETD {formatDate(shipment.estimatedDeparture) || "--"} / ETA {formatDate(shipment.estimatedArrival) || "--"}
             </span>
+
+            {/* Invoicing of this shipment, opened with the shipment already selected */}
+            <Link
+              href={`/invoicing?shipment=${shipment.id}`}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-600"
+            >
+              <DollarOutlined />
+              Invoice
+            </Link>
 
             {/* The shipment's quote, shown once: the sales quote in its Sales Number, with a link
                 to its page. A shipment without one may still carry the reference its costs were
@@ -1207,13 +1207,13 @@ export function ShipmentDetailContent() {
                       </div>
                     ),
                     customer: (
-                      <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", "customerId", n, id)} />
+                      <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", n, id)} />
                     ),
                     shipper: (
-                      <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
+                      <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", n, id)} />
                     ),
                     consignee: (
-                      <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
+                      <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", n, id)} />
                     ),
                     // Not a column of the Shipments grid, so getFieldValue knows no such key: read
                     // from the shipment itself. It is changed in the Quote card below.
@@ -1282,7 +1282,7 @@ export function ShipmentDetailContent() {
 
                   const custom: Record<string, React.ReactNode> = {
                     shipper: (
-                      <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
+                      <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", n, id)} />
                     ),
                     shipperContact: (
                       <PartyContactField label="Contact" fieldKey="shipperContact" value={shipment.shipperContact} customerId={shipment.shipperId} onCommit={commitDirect} />
@@ -1295,7 +1295,7 @@ export function ShipmentDetailContent() {
                       />
                     ),
                     consignee: (
-                      <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
+                      <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", n, id)} />
                     ),
                     consigneeContact: (
                       <PartyContactField label="Contact" fieldKey="consigneeContact" value={shipment.consigneeContact} customerId={shipment.consigneeId} onCommit={commitDirect} />

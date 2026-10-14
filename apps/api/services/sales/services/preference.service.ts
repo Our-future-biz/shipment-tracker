@@ -32,11 +32,11 @@ const WRITABLE: ReadonlyMap<string, (value: unknown) => boolean> = new Map([
 const MAX_VALUE_BYTES = 64 * 1024;
 
 class PreferenceService {
-  async get(prefKey: string, companyId: string) {
+  async get(prefKey: string, companyId: string): Promise<unknown | null> {
     return salesPreferenceRepository.get(prefKey, companyId);
   }
 
-  async set(prefKey: string, actor: Actor, value: unknown) {
+  async set(prefKey: string, actor: Actor, value: unknown): Promise<void> {
     if (prefKey === FOLLOWUP_TASKS_KEY) throw APIError.failedPrecondition("follow-up tasks have moved - reload the page");
     const hasForm = WRITABLE.get(prefKey);
     if (!hasForm) throw APIError.invalidArgument(`there is no preference "${prefKey}" to store`);

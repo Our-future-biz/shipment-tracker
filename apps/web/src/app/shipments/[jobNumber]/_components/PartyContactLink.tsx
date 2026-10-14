@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Modal, Spin } from "antd";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { FadeText } from "@/components/FadeText";
 
 const TH = "text-left text-[11px] font-bold text-slate-500 uppercase tracking-wide px-2 py-1.5 border-b border-slate-200 whitespace-nowrap";
@@ -17,13 +17,11 @@ const DASH = <span className="text-slate-300">—</span>;
 export function PartyContactLink({ name, customerId }: { name: string; customerId: string }) {
   const [open, setOpen] = useState(false);
 
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["customer-contacts", customerId],
-    queryFn: () => api.customers.contactList(customerId),
-    enabled: open,
-    staleTime: 60_000,
-  });
-  const contact = (data?.data ?? []).find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase());
+  // Loaded only once the preview opens ("" keeps the query off).
+  const { contacts, isLoading } = useCustomerContacts(open ? customerId : "");
+  // The hook has no error flag; its query state tells whether loading failed.
+  const isError = useQueryClient().getQueryState(["customer-contacts", customerId])?.status === "error";
+  const contact = contacts.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase());
 
   return (
     <>

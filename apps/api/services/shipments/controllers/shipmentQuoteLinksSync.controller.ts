@@ -1,6 +1,5 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
-import { canManageSales } from "../../../lib/salesPolicy";
 import { quoteLinksService } from "../services/quoteLinks.service";
 import type { QuoteLinksSyncResult } from "../interfaces/interfaces";
 
@@ -24,9 +23,6 @@ export const shipmentQuoteLinksSync = api(
   { expose: true, auth: true, method: "POST", path: "/shipment-quote-links/sync" },
   async (req: ShipmentQuoteLinksSyncRequest): Promise<ShipmentQuoteLinksSyncResponse> => {
     const auth = getAuthData()!;
-    if (req.force && !canManageSales(auth.role)) {
-      throw APIError.permissionDenied("only a manager can force the sync of quote links");
-    }
-    return quoteLinksService.sync(auth.companyID, req.force === true);
+    return quoteLinksService.sync(auth.companyID, auth.role, req.force === true);
   },
 );

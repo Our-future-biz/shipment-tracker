@@ -17,6 +17,8 @@ export const SALES_PAGES = {
   followup: { label: "Follow-up", path: "/sales/followup" },
   pipeline: { label: "Pipeline", path: "/sales/pipeline" },
   report: { label: "Sales Report", path: "/sales/report" },
+  // Job profit in CZK at the month's ČNB average; the page keeps the old Shipment Reports address.
+  jobProfit: { label: "Job Profit", path: "/sales/shipments" },
   // Not daily work, and only a manager can change anything on it. Everybody may still read it:
   // the quote page links here.
   settings: { label: "Settings", path: "/sales/settings", managersOnly: true, divided: true },

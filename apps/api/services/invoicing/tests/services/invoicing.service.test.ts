@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // stand-in for the quotes service and for the repository that writes the rows.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("~encore/clients", () => ({ quotes: { salesQuoteGet: vi.fn() } }));
+vi.mock("../../repositories/customsInvoice.repository", () => ({ customsInvoiceLineRepository: {}, customsInvoiceRepository: {} }));
+vi.mock("../../../../lib/shipmentRefs", () => ({ assertShipmentExists: vi.fn(async () => ({ jobNumber: "CZ00000001" })) }));
 vi.mock("../../repositories/invoiceCost.repository", () => ({ invoiceCostRepository: {} }));
 vi.mock("../../repositories/additionalCharge.repository", () => ({ additionalChargeRepository: {} }));
 vi.mock("../../repositories/billingSettings.repository", () => ({ billingSettingsRepository: {} }));

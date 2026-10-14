@@ -22,8 +22,7 @@ export const commentMentions = api(
   { expose: true, auth: true, method: "GET", path: "/shipment-comments/mentions" },
   async (): Promise<{ mentions: CommentMentionItem[] }> => {
     const { companyID, userID } = getAuthData()!;
-    const mentions = await commentService.unreadMentions(companyID, userID);
-    return { mentions: mentions as unknown as CommentMentionItem[] };
+    return { mentions: await commentService.unreadMentions(companyID, userID) };
   },
 );
 

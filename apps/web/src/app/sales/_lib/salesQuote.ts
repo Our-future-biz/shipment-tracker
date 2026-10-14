@@ -1,10 +1,11 @@
 import dayjs from "dayjs";
 import type { interfaces } from "@/lib/api/client";
 import { downloadCsv } from "@/lib/csv";
-import type { ExchangeRates, WeekRates } from "@/lib/exchangeRates";
+import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, roundCents } from "@/lib/money";
-import type { SalesQuoteData, CostLine, PackageLine, QuoteRate, TimelineEntry } from "./types";
-import { PROTECTED_KEYS } from "./types";
+import type { SalesQuoteData, CostLine, PackageLine, TimelineEntry } from "./types";
+import { formatDate } from "@/lib/date";
+import { FX_DRAFT_STATUSES, PROTECTED_KEYS } from "./types";
 
 // A sales quote as the lists, reports and pickers work with it: its document, and next to it what
 // the server keeps and works out about the quote. Those facts are read from here and not from the
@@ -154,42 +155,70 @@ export function fmtDimensions(p: PackageLine): string {
 // ── Money ──
 // Every cost line keeps its own currency; the quote is presented in one (quoteCurrency) and its
 // totals are the lines converted into it. Rates are CZK per 1 unit and conversions go through CZK,
-// as in the shipment costs. `sheet` in the functions below is the current Exchange sheet
-// (useCurrentExchangeRates).
+// as in the shipment costs. `sheet` in the functions below is today's ČNB fixing and `live` today's
+// fixing date and company ROE % (both from useCurrentExchangeRates). A quote that was sent carries
+// its own ČNB snapshot (`fx`, stored by the server), which wins over both.
+
+/** Today's pricing a draft is shown with: the ČNB fixing date and the company ROE %. */
+export interface LivePricing {
+  roePct: number;
+  fixingDate: string;
+}
+
+/** Today's ČNB rates with their fixing date and ROE % - what a list prices its quotes with. */
+export interface QuotePricing extends LivePricing {
+  rates: ExchangeRates;
+}
 
 // A quote whose currency was never changed stores none and is in EUR.
 export function quoteCurrency(data: SalesQuoteData): string {
   return data.currency || "EUR";
 }
 
-// CZK per 1 unit of `currency` for this quote. The rate the quote stores wins, so a quote that was
-// sent keeps its numbers when next week's sheet is entered; a quote that stores none - every quote
-// from before rates existed - follows the sheet. Null when neither knows the currency: it is then
-// left out, never converted at 1.
+// CZK per 1 unit of `currency` for this quote. A sent quote uses its ČNB snapshot (`fx`); one sent
+// before snapshots existed keeps the rates it stored (`rates`, the weekly sheet's back then). A
+// draft is priced at today's ČNB fixing, its own `rates` only filling a currency ČNB does not
+// publish. Null when none knows the currency: it is then left out, never converted at 1.
 function rateOf(currency: string, data: SalesQuoteData, sheet: ExchangeRates): number | null {
   if (currency === "CZK") return 1;
-  const rate = data.rates?.[currency]?.rate ?? sheet[currency];
+  const own = data.rates?.[currency]?.rate;
+  const draft = FX_DRAFT_STATUSES.has(data.quoteStatus ?? "draft");
+  const rate = data.fx?.rates?.[currency] ?? (draft ? (sheet[currency] ?? own) : (own ?? sheet[currency]));
   return typeof rate === "number" && Number.isFinite(rate) && rate > 0 ? rate : null;
 }
 
+// The company ROE % a quote's selling lines in another currency carry: the one stored with a sent
+// quote's rates, today's on a draft. 100 = pure ČNB.
+function roeOf(data: SalesQuoteData, live?: LivePricing): number {
+  return data.fx?.roePct ?? live?.roePct ?? 100;
+}
+
 // One cost line in the quote's currency, rounded to cents on its own, so the lines a screen shows
-// add up to exactly the total it shows. Null when a rate it needs is missing.
-export function convertLine(line: CostLine, data: SalesQuoteData, sheet: ExchangeRates): number | null {
+// add up to exactly the total it shows. A selling line made in another currency also carries the
+// ROE % (the FX buffer); a buying line never does. Null when a rate it needs is missing.
+export function convertLine(
+  line: CostLine,
+  data: SalesQuoteData,
+  sheet: ExchangeRates,
+  opts: { selling?: boolean; live?: LivePricing } = {},
+): number | null {
   const to = quoteCurrency(data);
   const from = line.currency || to;
   const amount = Number(line.amount) || 0;
   if (from === to) return roundCents(amount);
   const fromRate = rateOf(from, data, sheet);
   const toRate = rateOf(to, data, sheet);
-  return fromRate === null || toRate === null ? null : roundCents((amount * fromRate) / toRate);
+  if (fromRate === null || toRate === null) return null;
+  const roe = opts.selling ? roeOf(data, opts.live) / 100 : 1;
+  return roundCents(((amount * fromRate) / toRate) * roe);
 }
 
-function sumLines(lines: CostLine[] | undefined, data: SalesQuoteData, sheet: ExchangeRates) {
+function sumLines(lines: CostLine[] | undefined, data: SalesQuoteData, sheet: ExchangeRates, selling: boolean, live?: LivePricing) {
   const to = quoteCurrency(data);
   const missingRates = new Set<string>();
   let total = 0;
   for (const line of lines ?? []) {
-    const converted = convertLine(line, data, sheet);
+    const converted = convertLine(line, data, sheet, { selling, live });
     if (converted !== null) {
       total += converted;
       continue;
@@ -217,11 +246,19 @@ export interface QuoteTotals {
   missingSellingRates: string[];
   /** Those of them that keep a buying line out. */
   missingBuyingRates: string[];
+  /** ROE % applied to selling lines in another currency (100 = pure ČNB). */
+  roePct: number;
+  /** The ČNB fixing the rates come from; null while today's are loading. */
+  fixingDate: string | null;
+  /** The rates are the quote's own, stored by the server when it was sent. */
+  fxLocked: boolean;
+  /** When they were stored. */
+  lockedAt: string | null;
 }
 
-export function computeTotals(data: SalesQuoteData, sheet: ExchangeRates): QuoteTotals {
-  const selling = sumLines(data.sellingLines, data, sheet);
-  const buying = sumLines(data.buyingLines, data, sheet);
+export function computeTotals(data: SalesQuoteData, sheet: ExchangeRates, live?: LivePricing): QuoteTotals {
+  const selling = sumLines(data.sellingLines, data, sheet, true, live);
+  const buying = sumLines(data.buyingLines, data, sheet, false, live);
   const profit = roundCents(selling.total - buying.total);
   return {
     currency: quoteCurrency(data),
@@ -232,7 +269,30 @@ export function computeTotals(data: SalesQuoteData, sheet: ExchangeRates): Quote
     missingRates: [...new Set([...selling.missingRates, ...buying.missingRates])].sort(),
     missingSellingRates: selling.missingRates,
     missingBuyingRates: buying.missingRates,
+    roePct: roeOf(data, live),
+    fixingDate: data.fx?.fixingDate ?? (live?.fixingDate || null),
+    fxLocked: !!data.fx,
+    lockedAt: data.fx?.lockedAt ?? null,
   };
+}
+
+// One line saying which rates a quote's totals use - for the people pricing it.
+export function fxNote(totals: QuoteTotals): string {
+  const currency = totals.currency;
+  if (!totals.fixingDate) return `Totals in ${currency}. Loading today's ČNB rates…`;
+  const roe = totals.roePct !== 100 ? ` · selling lines in another currency × ROE ${totals.roePct} %` : "";
+  return totals.fxLocked
+    ? `Totals in ${currency} at the ČNB rates of ${formatDate(totals.fixingDate)}${roe} — stored when the quote was sent ${formatDate(totals.lockedAt ?? "")}.`
+    : `Totals in ${currency} at today's ČNB rates (${formatDate(totals.fixingDate)})${roe} — stored on the quote when it is sent.`;
+}
+
+// The clause for the customer's document when charges in another currency were converted.
+export function fxClause(data: SalesQuoteData, totals: QuoteTotals): string {
+  const currency = quoteCurrency(data);
+  const foreign = (data.sellingLines ?? []).some((l) => (l.currency || currency) !== currency);
+  if (!foreign || !totals.fixingDate) return "";
+  const buffer = totals.roePct !== 100 ? ` (+${Math.round((totals.roePct - 100) * 1000) / 1000} %)` : "";
+  return `Charges in other currencies converted to ${currency} at the ČNB rate of ${formatDate(totals.fixingDate)}${buffer}. Rates subject to ROE fluctuation; final amounts at the ČNB rate on the invoice date.`;
 }
 
 // The currencies whose rate the quote's totals depend on. A line in another currency than the
@@ -248,31 +308,15 @@ export function ratesNeeded(data: SalesQuoteData): string[] {
   return [...needed].sort();
 }
 
-// The quote's rates after taking the Exchange sheet's for the currencies it converts: only where it
-// has none yet, or - `replaceStored` - over the ones it has as well. A currency the sheet does not
-// carry (GBP, CHF) is left as it is.
-export function ratesFromSheet(
-  data: SalesQuoteData,
-  exchange: Pick<WeekRates, "rates" | "usedWeek">,
-  replaceStored = false,
-): Record<string, QuoteRate> | undefined {
-  const taken: Record<string, QuoteRate> = {};
-  for (const currency of ratesNeeded(data)) {
-    const rate = exchange.rates[currency];
-    if (rate !== undefined && (replaceStored || !data.rates?.[currency])) taken[currency] = { rate, week: exchange.usedWeek };
-  }
-  return Object.keys(taken).length ? { ...data.rates, ...taken } : data.rates;
-}
-
 // Why the customer's document must not be printed or sent, or null when it may be: a total that
 // leaves selling lines out would offer the customer a wrong price. `sheetFailed`: the Exchange
 // sheet could not be read, so the rates are not known to be missing and nobody is told to type one.
 export function documentBlock(totals: QuoteTotals, sheetFailed: boolean): string | null {
   if (!totals.missingSellingRates.length) return null;
   if (sheetFailed) {
-    return "The exchange rates could not be loaded, so the total for the customer cannot be worked out. Try again in a moment.";
+    return "Today's ČNB rates could not be loaded, so the total for the customer cannot be worked out. Try again in a moment.";
   }
-  return `No exchange rate for ${totals.missingSellingRates.join(", ")}, so the total for the customer cannot be worked out. Enter the rate in the quote's Pricing section first.`;
+  return `ČNB publishes no rate for ${totals.missingSellingRates.join(", ")}, so the total for the customer cannot be worked out. Price those lines in a currency ČNB publishes.`;
 }
 
 export type CurrencyAmount = [currency: string, amount: number];

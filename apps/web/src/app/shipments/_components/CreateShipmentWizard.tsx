@@ -239,7 +239,7 @@ export const CreateShipmentWizard = ({
         originValue = val;
         continue;
       }
-      (request as unknown as Record<string, string>)[key] = val;
+      request[key] = val;
     }
 
     try {

@@ -5,10 +5,10 @@ import { termsConditionTable, type NewTermsConditionRecord, type TermsConditionR
 
 class TermsConditionRepository extends TenantRepository<typeof termsConditionTable> {
   constructor() {
-    super(db as never, termsConditionTable, "terms_condition");
+    super(db, termsConditionTable, "terms_condition");
   }
 
-  async listAll(companyId: string) {
+  async listAll(companyId: string): Promise<TermsConditionRecord[]> {
     return this.db
       .select()
       .from(termsConditionTable)
@@ -16,7 +16,7 @@ class TermsConditionRepository extends TenantRepository<typeof termsConditionTab
       .orderBy(asc(termsConditionTable.name));
   }
 
-  async findByNameInsensitive(name: string, companyId: string) {
+  async findByNameInsensitive(name: string, companyId: string): Promise<TermsConditionRecord | null> {
     const [row] = await this.db
       .select()
       .from(termsConditionTable)
@@ -31,19 +31,19 @@ class TermsConditionRepository extends TenantRepository<typeof termsConditionTab
 
   // How many templates the company has had so far, the deleted ones included: 0 only for a
   // company that never had one.
-  async countEver(companyId: string) {
-    const [{ value }] = await this.db
+  async countEver(companyId: string): Promise<number> {
+    const [row] = await this.db
       .select({ value: count() })
       .from(termsConditionTable)
       .where(eq(termsConditionTable.companyId, companyId));
-    return Number(value);
+    return Number(row?.value ?? 0);
   }
 
   // Gives a company its first templates, empty, in one statement. A name the company already has
   // among its live templates is left out instead of failing - the unique index on the name
   // (terms_condition_company_name_unique) is the only rule an insert here can run into - so two
   // requests that both find the company without templates cannot fail each other.
-  async seed(companyId: string, names: readonly string[]) {
+  async seed(companyId: string, names: readonly string[]): Promise<void> {
     await this.db
       .insert(termsConditionTable)
       .values(names.map((name) => ({ companyId, name })))

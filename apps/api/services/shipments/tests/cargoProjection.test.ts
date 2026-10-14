@@ -8,7 +8,7 @@ import {
   num,
   projectCargo,
   teuForType,
-} from "../services/cargoProjection";
+} from "../lib/cargoProjection";
 import type { CargoDimensionLine, CargoItemLine, ContainerLine } from "../interfaces/interfaces";
 
 const container = (over: Partial<ContainerLine> = {}): ContainerLine => ({

@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import { APIError } from "encore.dev/api";
 import { getClient, MODEL } from "../lib/anthropic";
 import { extractTextFromPdf, isImageType, isPdfType, detectMediaType } from "../lib/pdf";
 import { filterExtracted, parseJsonFromResponse, parseJsonObjectFromResponse, SHIPMENT_FIELDS, BOOKING_FIELDS, INVOICE_FIELDS, QUOTE_FIELDS, CUSTOMS_FIELDS } from "../lib/fields";
@@ -167,6 +168,10 @@ export async function extractInvoiceFromFile(fileBase64: string, fileName: strin
 
 export async function extractQuoteFromFile(fileBase64: string, fileName: string): Promise<ExtractionResult> {
   const mediaType = detectMediaType(fileName);
+  // A type the reader cannot open is refused by name, not answered as a document with nothing in it.
+  if (!isImageType(mediaType) && !isPdfType(mediaType)) {
+    throw APIError.invalidArgument("This file type cannot be read - only PDF, JPG and PNG files can. Save the email as PDF or paste its text.");
+  }
   return asQuoteFields(
     await extractFromDocument(fileBase64, fileName, mediaType, QUOTE_PROMPT, QUOTE_FIELDS, "Extract the customer's request from this document."),
   );
@@ -184,7 +189,13 @@ export async function extractCustomsFromFile(fileBase64: string, fileName: strin
   return extractFromDocument(fileBase64, fileName, mediaType, CUSTOMS_PROMPT, CUSTOMS_FIELDS, "Extract the MRN number and shipment data from this customs document.", 512);
 }
 
+// A customer's e-mail, with its signature and the mail it answers, is longer than a line of shipping data.
+const MAX_TEXT = 1500;
+export const MAX_QUOTE_TEXT = 6000;
+
 export async function extractFromTextByDestination(text: string, destination: string): Promise<ExtractionResult> {
+  const maxLength = destination === "quote" ? MAX_QUOTE_TEXT : MAX_TEXT;
+  if (text.length > maxLength) throw APIError.invalidArgument(`text must be at most ${maxLength} characters`);
   let systemPrompt: string;
   let fields: string[];
   let userPrompt: string;

@@ -3,7 +3,7 @@ import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../schemas/shipment.schema";
-import { CANCELLED_STATUS } from "../services/fieldDefaults";
+import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 
 /**
  * Predicates behind the Shipments overview tiles. Shared by the list filter and
@@ -145,11 +145,22 @@ export interface ShipmentListFilters {
   warehouse?: string;
   /** Customs page: urgent */
   customs?: string;
+  /** Invoicing page: billing (Shipment Status Billing) | not-invoiced | invoiced (Invoicing Status) */
+  invoicing?: string;
   search?: string;
   limit: number;
   offset: number;
   sortDirection: "asc" | "desc";
 }
+
+// Invoicing page queue. "Billing" is the Shipment Status operations set when a job is ready to
+// be invoiced (stored with its direction); Invoicing Status is Invoiced / Not Invoiced.
+type InvoicingFilterId = "billing" | "not-invoiced" | "invoiced";
+const INVOICING_PREDICATES: Record<InvoicingFilterId, ReturnType<typeof sql>> = {
+  billing: sql`${shipmentTable.status} IN ('Billing [IMP]', 'Billing [EXP]')`,
+  "not-invoiced": sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced' AND ${NOT_CANCELLED}`,
+  invoiced: sql`${shipmentTable.invoicingStatus} = 'Invoiced'`,
+};
 
 // The status column holds long free-text labels ("Booked For Further Transport [IMP]", …).
 // The shipments UI groups them into coarse buckets; each bucket matches if the status
@@ -185,7 +196,7 @@ const SALES_NUMBER = sql<string>`btrim(${shipmentTable.salesNumber})`;
 
 class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   constructor() {
-    super(db as never, shipmentTable, "shipment");
+    super(db, shipmentTable, "shipment");
   }
 
   // The live shipments of the company whose Sales Number is `reference`, the oldest first - the
@@ -223,7 +234,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   }
 
   /**
-   * Inserts the shipment made from a quote - unless a live shipment already names that quote and
+   * Inserts the shipment made from a quote (its Sales Number is the quote's reference) - unless a live shipment already names that quote and
    * a second one is not allowed: then nothing is inserted and that shipment (the oldest) is
    * returned. Check and insert are one transaction under an advisory lock on the reference, so
    * of two requests at the same moment the second finds the shipment of the first.
@@ -231,7 +242,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   async createFromQuote(
     companyId: string,
     reference: string,
-    data: Omit<NewShipmentRecord, "companyId" | "salesNumber">,
+    data: Omit<NewShipmentRecord, "companyId">,
     allowSecond: boolean,
   ): Promise<{ created: ShipmentRecord } | { existing: NamingShipment }> {
     return this.db.transaction(async (tx) => {
@@ -366,6 +377,10 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     }
     if (f.customs) {
       const predicate = CUSTOMS_PREDICATES[f.customs as CustomsFilterId];
+      if (predicate) clauses.push(predicate);
+    }
+    if (f.invoicing) {
+      const predicate = INVOICING_PREDICATES[f.invoicing as InvoicingFilterId];
       if (predicate) clauses.push(predicate);
     }
     if (f.search) {

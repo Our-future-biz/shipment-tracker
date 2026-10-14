@@ -2,6 +2,7 @@ import { api } from "encore.dev/api";
 import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { warehouseService } from "../services/warehouse.service";
+import type { WarehouseRef } from "../interfaces/interfaces";
 
 interface EnsureRefsRequest {
   /** Shipments shown in a warehouse section; each gets its WHCZ reference. */
@@ -9,7 +10,7 @@ interface EnsureRefsRequest {
 }
 
 interface EnsureRefsResponse {
-  refs: { shipmentId: string; reference: string }[];
+  refs: WarehouseRef[];
 }
 
 // A shipment gets its warehouse reference the moment it shows up in the warehouse;
@@ -17,6 +18,6 @@ interface EnsureRefsResponse {
 export const warehouseEnsureRefs = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-refs" },
   async (req: EnsureRefsRequest): Promise<EnsureRefsResponse> => ({
-    refs: await warehouseService.ensureForShipments(getAuthData()!.companyID, req.shipmentIds ?? []),
+    refs: await warehouseService.ensureForShipments(getAuthData()!.companyID, req.shipmentIds),
   }),
 );

@@ -1,216 +1,195 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Select, Button, Tag } from "antd";
-import { PrinterOutlined, PlusOutlined } from "@ant-design/icons";
-import { useShipments } from "@/hooks/useShipments";
-import { useInvoicing } from "@/hooks/useInvoicing";
-import { CURRENCIES } from "@/lib/enums";
-import type { interfaces } from "@/lib/api/client";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Select, Tag } from "antd";
+import { DownOutlined, RightOutlined } from "@ant-design/icons";
+import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
+import { useShipment } from "@/hooks/useShipment";
+import { useDebounced } from "@/hooks/useDebounced";
+import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
 import { PageHeader } from "@/components/PageHeader";
 import { AppCard } from "@/components/AppCard";
+import { formatDate } from "@/lib/date";
+import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
+import { moneyCz } from "@/lib/money";
 import { useToast } from "@/lib/toast";
-import { CostGrid } from "./CostGrid";
-import { AdditionalChargesGrid } from "./AdditionalChargesGrid";
-import {
-  billingAmount,
-  COST_CATEGORIES,
-  type ChargeRow,
-  type CostRow,
-  fmt,
-  overrideKeyForCharge,
-  parseNum,
-  resolveBilledParty,
-} from "../_lib/billing";
-import { generateInvoicePDF } from "../_lib/invoicePdf";
+import { CostsTab } from "@/app/shipments/[jobNumber]/tabs/CostsTab";
+import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
+import { InvoicePanel } from "./InvoicePanel";
+import { BillingQueue, InvoicingStatusTag } from "./BillingQueue";
 
-const chargeFromServer = (c: interfaces.AdditionalChargeItem): ChargeRow => ({
-  id: c.id,
-  description: c.description,
-  estAmount: c.estAmount ?? "",
-  estCurrency: c.estCurrency,
-  realAmount: c.realAmount ?? "",
-  realCurrency: c.realCurrency,
-  invoiceNumber: c.invoiceNumber,
-  vendor: c.vendor,
-  sortOrder: c.sortOrder,
-});
+/** Remembered per browser: whether the Costs section is collapsed. */
+const COSTS_COLLAPSED_KEY = "invoicing.costsCollapsed";
 
-export const InvoicingView = () => {
+const readCollapsed = () => {
+  try {
+    return localStorage.getItem(COSTS_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+
+const INVOICING_STATUSES = ["Not Invoiced", "Invoiced"];
+
+interface SummaryItemProps {
+  label: string;
+  children: React.ReactNode;
+}
+
+function SummaryItem({ label, children }: SummaryItemProps) {
+  return (
+    <div className="min-w-0">
+      <div className="text-[11px] font-bold uppercase tracking-[.04em] text-slate-500">{label}</div>
+      <div className="text-[13px] text-slate-900 flex items-center flex-wrap gap-x-2 gap-y-1 break-words">{children}</div>
+    </div>
+  );
+}
+
+interface ShipmentProps {
+  shipment: ShipmentItem;
+}
+
+/**
+ * Job facts at a glance with its two statuses: Shipment Status ("Billing" puts the job in the
+ * queue) and Invoicing Status, which issuing sets automatically and which can also be changed
+ * here by hand (e.g. for a job invoiced outside the app).
+ */
+function ShipmentSummary({ shipment }: ShipmentProps) {
   const toast = useToast();
-  const { shipments } = useShipments();
-  const [selectedShipmentId, setSelectedShipmentId] = useState<string | null>(null);
-  const selectedShipment = shipments.find((s) => s.id === selectedShipmentId);
-  const {
-    data,
-    isLoading,
-    upsertCost,
-    addCharge,
-    updateCharge,
-    deleteCharge,
-    upsertOverride,
-    upsertBilling,
-    generateInvoice,
-    isGenerating,
-  } = useInvoicing(selectedShipmentId);
+  const { updateShipment } = useShipments();
+  const [saving, setSaving] = useState(false);
+  const { data } = useInvoiceDocList(shipment.id);
+  const open = (data?.invoices ?? []).filter((d) => d.kind === "invoice" && d.status === "issued");
+  const route = [shipment.pol, shipment.pod, shipment.destination].filter(Boolean).join(" → ");
+  const status = shipment.status ?? "";
 
-  const [costs, setCosts] = useState<CostRow[]>([]);
-  const [charges, setCharges] = useState<ChargeRow[]>([]);
-  const [overrides, setOverrides] = useState<Record<string, string>>({});
-  const [billingCurrency, setBillingCurrency] = useState("CZK");
-  const [roe, setRoe] = useState("1");
-  const [generatedInvoices, setGeneratedInvoices] = useState<interfaces.GeneratedInvoiceItem[]>([]);
-  const seededRef = useRef<string | null>(null);
-
-  // Seed local state once per shipment; local state stays authoritative afterwards
-  // so save-triggered refetches don't clobber in-progress edits.
-  useEffect(() => {
-    if (!selectedShipmentId || isLoading || !data) return;
-    if (seededRef.current === selectedShipmentId) return;
-
-    const stored = new Map(data.costs.map((c) => [c.category, c]));
-    setCosts(
-      COST_CATEGORIES.map((cat) => {
-        const s = stored.get(cat.key);
-        return {
-          category: cat.key,
-          label: cat.label,
-          estAmount: s?.estAmount ?? "",
-          estCurrency: s?.estCurrency ?? "CZK",
-          realAmount: s?.realAmount ?? "",
-          realCurrency: s?.realCurrency ?? "CZK",
-          invoiceNumber: s?.invoiceNumber ?? "",
-          vendor: s?.vendor ?? "",
-        };
-      }),
-    );
-    setCharges(data.additionalCharges.map(chargeFromServer));
-    const ov: Record<string, string> = {};
-    for (const o of data.billingOverrides) ov[o.rowKey] = o.billingAmount ?? "";
-    setOverrides(ov);
-    setBillingCurrency(data.billingSettings?.billingCurrency ?? "CZK");
-    setRoe(data.billingSettings?.roe ?? "1");
-    setGeneratedInvoices(data.generatedInvoices);
-    seededRef.current = selectedShipmentId;
-  }, [selectedShipmentId, isLoading, data]);
-
-  const roeNum = parseNum(roe) || 1;
-
-  // ─── Cost handlers ───────────────────────────────────────────────
-  const onCostField = (index: number, field: keyof CostRow, value: string) =>
-    setCosts((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
-
-  const saveCost = (row: CostRow) =>
-    upsertCost({
-      category: row.category,
-      estAmount: row.estAmount,
-      estCurrency: row.estCurrency,
-      realAmount: row.realAmount,
-      realCurrency: row.realCurrency,
-      invoiceNumber: row.invoiceNumber,
-      vendor: row.vendor,
-    }).catch(() => toast.error("Failed to save cost"));
-
-  // ─── Additional charge handlers ──────────────────────────────────
-  const onChargeField = (index: number, field: keyof ChargeRow, value: string) =>
-    setCharges((prev) => prev.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
-
-  const saveCharge = (row: ChargeRow) =>
-    updateCharge({
-      chargeId: row.id,
-      params: {
-        description: row.description,
-        vendor: row.vendor,
-        invoiceNumber: row.invoiceNumber,
-        estAmount: row.estAmount,
-        estCurrency: row.estCurrency,
-        realAmount: row.realAmount,
-        realCurrency: row.realCurrency,
-      },
-    }).catch(() => toast.error("Failed to save charge"));
-
-  const addChargeRow = async () => {
+  const handleInvoicingStatus = async (value: string) => {
+    setSaving(true);
     try {
-      const res = await addCharge({ description: "", estCurrency: "CZK", realCurrency: "CZK", sortOrder: charges.length });
-      setCharges((prev) => [...prev, chargeFromServer(res.charge)]);
+      await updateShipment({ id: shipment.id, data: { invoicingStatus: value } });
+      toast.success(`Invoicing Status of ${shipment.jobNumber} set to ${value}`);
     } catch {
-      toast.error("Failed to add charge");
+      toast.error("Failed to change the Invoicing Status");
+    } finally {
+      setSaving(false);
     }
   };
 
-  const deleteChargeRow = async (index: number) => {
-    const row = charges[index];
-    if (!row) return;
-    try {
-      await deleteCharge(row.id);
-      setCharges((prev) => prev.filter((_, i) => i !== index));
-    } catch {
-      toast.error("Failed to delete charge");
-    }
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-x-6 gap-y-3 mt-4 pt-4 border-t border-slate-100">
+      <SummaryItem label="Job">
+        <Link href={`/shipments/${shipment.id}`} className="font-semibold text-indigo-600 hover:underline">
+          {shipment.jobNumber}
+        </Link>
+        <span className="text-slate-500">{shipment.tradeDirection}</span>
+      </SummaryItem>
+      <SummaryItem label="Customer">{shipment.customer || <span className="text-slate-500">Not linked</span>}</SummaryItem>
+      <SummaryItem label="Route">{route || "—"}</SummaryItem>
+      <SummaryItem label="ETD / ETA">
+        {formatDate(shipment.estimatedDeparture) || "—"} / {formatDate(shipment.estimatedArrival) || "—"}
+      </SummaryItem>
+      <SummaryItem label="Shipment Status">
+        {status ? <Tag color={statusTagColor(status)} className="!m-0 !text-[11px]">{statusLabel(status)}</Tag> : "—"}
+      </SummaryItem>
+      <SummaryItem label="Invoicing Status">
+        <Select
+          size="small"
+          value={shipment.invoicingStatus || "Not Invoiced"}
+          onChange={(v) => void handleInvoicingStatus(v)}
+          loading={saving}
+          options={INVOICING_STATUSES.map((v) => ({ value: v, label: <InvoicingStatusTag value={v} /> }))}
+          className="w-[140px]"
+          aria-label="Invoicing Status"
+        />
+        {open.length > 0 && (
+          <span className="text-[12px] text-slate-500 tabular-nums">
+            {open.length === 1 ? `${open[0]!.number} · ${moneyCz(Number(open[0]!.gross))} ${open[0]!.currency}` : `${open.length} open invoices`}
+          </span>
+        )}
+      </SummaryItem>
+    </div>
+  );
+}
+
+/** The Costs section (the shipment's own Costs tab), collapsible to a one-line summary. */
+function CostsSection({ shipment }: ShipmentProps) {
+  // null until read after mount (localStorage does not exist during server rendering), so the
+  // heavy Costs editor is not mounted and then collapsed again on every visit
+  const [collapsed, setCollapsed] = useState<boolean | null>(null);
+  const { billingCur, totals: t } = useCostsData(shipment);
+
+  useEffect(() => setCollapsed(readCollapsed()), []);
+
+  const handleToggle = () => {
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem(COSTS_COLLAPSED_KEY, c ? "0" : "1");
+      } catch {
+        // private mode: the choice just isn't remembered
+      }
+      return !c;
+    });
   };
 
-  // ─── Override handlers ───────────────────────────────────────────
-  const onOverride = (rowKey: string, value: string) => setOverrides((prev) => ({ ...prev, [rowKey]: value }));
-  const saveOverride = (rowKey: string) =>
-    upsertOverride({ rowKey, billingAmount: overrides[rowKey] ?? "" }).catch(() => toast.error("Failed to save override"));
+  return (
+    <section className="mb-4">
+      <button
+        type="button"
+        onClick={handleToggle}
+        aria-expanded={collapsed === false}
+        className="w-full flex items-center gap-3 px-4 h-10 mb-2 bg-white border border-slate-200 rounded-xl cursor-pointer text-left hover:bg-slate-50"
+      >
+        {collapsed ? <RightOutlined className="text-slate-500 text-[11px]" /> : <DownOutlined className="text-slate-500 text-[11px]" />}
+        <span className="text-[12.5px] font-bold uppercase tracking-[.05em] text-slate-700">Costs</span>
+        <span className="ml-auto flex items-center gap-4 text-[12.5px] text-slate-600 tabular-nums">
+          <span>Buying <strong className="text-slate-900">{moneyCz(t.buyTotal)}</strong></span>
+          <span>Selling <strong className="text-slate-900">{moneyCz(t.sellTotal)}</strong></span>
+          <span>
+            Profit{" "}
+            <strong className={t.sellTotal - t.buyTotal >= 0 ? "text-ok" : "text-danger"}>
+              {moneyCz(t.sellTotal - t.buyTotal)}
+            </strong>
+          </span>
+          <span className="text-slate-500">{billingCur}</span>
+        </span>
+      </button>
+      {/* key: a fresh Costs editor per shipment, so no row state carries over between shipments */}
+      {collapsed === false && <CostsTab key={shipment.id} shipment={shipment} />}
+    </section>
+  );
+}
 
-  // ─── Billing settings ────────────────────────────────────────────
-  const saveBilling = (currency: string, roeVal: string) =>
-    upsertBilling({ billingCurrency: currency, roe: roeVal }).catch(() => toast.error("Failed to save billing"));
+/**
+ * Invoicing works on the same buying / selling rows as the shipment's Costs tab:
+ * the Costs section here IS that tab, and the invoice is built from the selling rows
+ * ticked for Invoice. The chosen shipment is kept in the URL (?shipment=…), so the
+ * page can be linked to and survives a reload.
+ */
+export const InvoicingView = () => {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const selectedShipmentId = searchParams.get("shipment");
+  // By id from the API: the shipments list only holds the newest rows, the queue spans all.
+  const { shipment: selectedShipment, isLoading: shipmentLoading, isError: shipmentError } = useShipment(
+    selectedShipmentId ?? undefined,
+  );
+  // The picker searches on the server too, so any job can be found, not just the newest.
+  const [pickerSearch, setPickerSearch] = useState("");
+  const debouncedSearch = useDebounced(pickerSearch.trim(), 300);
+  const { shipments: found } = useShipments({ search: debouncedSearch });
+  const pickerShipments =
+    selectedShipment && !found.some((s) => s.id === selectedShipment.id) ? [selectedShipment, ...found] : found;
 
-  // ─── Totals ──────────────────────────────────────────────────────
-  const totals = useMemo(() => {
-    const estCosts = costs.reduce((s, r) => s + parseNum(r.estAmount), 0);
-    const realCosts = costs.reduce((s, r) => s + parseNum(r.realAmount), 0);
-    const billingCosts = costs.reduce((s, r) => s + billingAmount(overrides[r.category], r.realAmount, roeNum), 0);
-    const estCharges = charges.reduce((s, r) => s + parseNum(r.estAmount), 0);
-    const realCharges = charges.reduce((s, r) => s + parseNum(r.realAmount), 0);
-    const billingCharges = charges.reduce(
-      (s, r) => s + billingAmount(overrides[overrideKeyForCharge(r.id)], r.realAmount, roeNum),
-      0,
-    );
-    return {
-      est: estCosts + estCharges,
-      real: realCosts + realCharges,
-      billing: billingCosts + billingCharges,
-    };
-  }, [costs, charges, overrides, roeNum]);
-
-  // ─── Generate ────────────────────────────────────────────────────
-  const handleGenerate = async (invoiceType: "breakdown" | "total") => {
-    if (!selectedShipment) return;
-    try {
-      const res = await generateInvoice({
-        jobNumber: selectedShipment.jobNumber,
-        invoiceType,
-        billingCurrency,
-        totalAmount: fmt(totals.billing),
-      });
-      setGeneratedInvoices((prev) => [...prev, res.invoice]);
-
-      const lineItems: { label: string; amount: number }[] = [];
-      for (const r of costs) {
-        const amt = billingAmount(overrides[r.category], r.realAmount, roeNum);
-        if (amt > 0) lineItems.push({ label: r.label, amount: amt });
-      }
-      for (const r of charges) {
-        const amt = billingAmount(overrides[overrideKeyForCharge(r.id)], r.realAmount, roeNum);
-        if (amt > 0) lineItems.push({ label: r.description || "Additional charge", amount: amt });
-      }
-
-      generateInvoicePDF({
-        invoiceNumber: res.invoice.invoiceNumber,
-        jobNumber: selectedShipment.jobNumber,
-        billedPartyName: resolveBilledParty(selectedShipment),
-        billingCurrency,
-        invoiceType,
-        lineItems,
-        totalAmount: totals.billing,
-      });
-      toast.success(`Invoice ${res.invoice.invoiceNumber} generated`);
-    } catch {
-      toast.error("Failed to generate invoice");
-    }
+  const handleSelect = (id: string | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (id) params.set("shipment", id);
+    else params.delete("shipment");
+    const qs = params.toString();
+    // push, not replace: Back returns from a job to the "Ready to bill" queue
+    router.push(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
   return (
@@ -219,118 +198,36 @@ export const InvoicingView = () => {
         <PageHeader title="Invoicing" />
 
         <AppCard className="mb-5">
-          <div className="flex items-center gap-4">
-            <Select
-              placeholder="Select a shipment..."
-              value={selectedShipmentId}
-              onChange={setSelectedShipmentId}
-              style={{ width: 400 }}
-              showSearch
-              filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-              options={shipments.map((s) => ({ value: s.id, label: `${s.jobNumber} — ${s.shipper} → ${s.consignee}` }))}
-            />
-            {selectedShipment && (
-              <Tag bordered={false} className="bg-indigo-100 text-indigo-500 rounded-xl font-medium text-xs px-2.5 py-0.5">
-                {selectedShipment.jobNumber}
-              </Tag>
-            )}
-          </div>
+          <Select
+            placeholder="Select a shipment..."
+            value={selectedShipmentId}
+            onChange={handleSelect}
+            allowClear
+            className="w-full max-w-xl"
+            showSearch
+            filterOption={false}
+            onSearch={setPickerSearch}
+            options={pickerShipments.map((s) => ({ value: s.id, label: `${s.jobNumber} — ${s.shipper} → ${s.consignee}` }))}
+            aria-label="Shipment to invoice"
+          />
+          {selectedShipment && <ShipmentSummary shipment={selectedShipment} />}
         </AppCard>
 
-        {!selectedShipmentId ? (
-          <AppCard>
-            <div className="flex items-center justify-center h-[200px] text-slate-400 text-sm">
-              Select a shipment to view invoicing
-            </div>
-          </AppCard>
-        ) : isLoading ? (
-          <AppCard>
-            <div className="flex items-center justify-center h-[200px] text-slate-400 text-sm">Loading...</div>
-          </AppCard>
+        {!selectedShipment ? (
+          selectedShipmentId && (shipmentLoading || shipmentError) ? (
+            <AppCard>
+              <div className="flex items-center justify-center h-[120px] text-slate-500 text-sm">
+                {shipmentLoading ? "Loading the shipment…" : "Shipment not found"}
+              </div>
+            </AppCard>
+          ) : (
+            <BillingQueue onOpen={handleSelect} />
+          )
         ) : (
-          <div className="flex flex-col gap-5 max-w-[1150px]">
-            <AppCard title="Costs">
-              <CostGrid
-                rows={costs}
-                roe={roeNum}
-                overrides={overrides}
-                onField={onCostField}
-                onFieldBlur={(i) => saveCost(costs[i]!)}
-                onOverride={onOverride}
-                onOverrideBlur={saveOverride}
-              />
-            </AppCard>
-
-            <AppCard
-              title="Additional Charges"
-              extra={<Button size="small" icon={<PlusOutlined />} onClick={addChargeRow}>Add charge</Button>}
-            >
-              <AdditionalChargesGrid
-                rows={charges}
-                roe={roeNum}
-                overrides={overrides}
-                onField={onChargeField}
-                onFieldBlur={(i) => saveCharge(charges[i]!)}
-                onOverride={(id, v) => onOverride(overrideKeyForCharge(id), v)}
-                onOverrideBlur={(id) => saveOverride(overrideKeyForCharge(id))}
-                onDelete={deleteChargeRow}
-              />
-            </AppCard>
-
-            <AppCard title="Billing Settings">
-              <div className="flex items-center gap-3 flex-wrap">
-                <label className="text-xs text-slate-500">Billing currency:</label>
-                <select
-                  value={billingCurrency}
-                  onChange={(e) => { setBillingCurrency(e.target.value); saveBilling(e.target.value, roe); }}
-                  className="bg-white border border-slate-200 rounded-md text-xs px-2 py-1 text-slate-700 outline-none"
-                >
-                  {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <label className="text-xs text-slate-500">ROE:</label>
-                <input
-                  value={roe}
-                  onChange={(e) => setRoe(e.target.value)}
-                  onBlur={() => saveBilling(billingCurrency, roe)}
-                  className="bg-white border border-slate-200 rounded-md text-xs px-2 py-1 w-24 text-slate-700 outline-none"
-                />
-                <div className="ml-auto flex items-center gap-4 text-xs">
-                  <span className="text-slate-400">Est: <span className="text-slate-600 font-medium">{fmt(totals.est)}</span></span>
-                  <span className="text-slate-400">Real: <span className="text-slate-600 font-medium">{fmt(totals.real)}</span></span>
-                  <span className="text-slate-500">Billing: <span className="text-indigo-600 font-semibold">{billingCurrency} {fmt(totals.billing)}</span></span>
-                </div>
-              </div>
-            </AppCard>
-
-            <AppCard title="Generate Invoice">
-              <div className="flex items-center gap-2">
-                <Button icon={<PrinterOutlined />} loading={isGenerating} onClick={() => handleGenerate("breakdown")}>
-                  Breakdown PDF
-                </Button>
-                <Button icon={<PrinterOutlined />} loading={isGenerating} onClick={() => handleGenerate("total")}>
-                  Total Only PDF
-                </Button>
-              </div>
-
-              {generatedInvoices.length > 0 && (
-                <div className="mt-4 border-t border-slate-100 pt-3">
-                  <div className="text-[10px] font-medium text-slate-400 uppercase tracking-wider mb-1.5">
-                    Generated Invoices
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    {generatedInvoices.map((inv) => (
-                      <div key={inv.id} className="flex items-center gap-3 text-xs text-slate-600">
-                        <span className="font-mono font-medium text-slate-700">{inv.invoiceNumber}</span>
-                        <Tag bordered={false} className="text-[10px]">{inv.invoiceType}</Tag>
-                        <span className="text-slate-500">{inv.billingCurrency} {inv.totalAmount}</span>
-                        <span className="text-slate-400 ml-auto">{new Date(inv.createdAt).toLocaleString("en-GB")}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </AppCard>
-          </div>
+          <>
+            <CostsSection key={`costs-${selectedShipment.id}`} shipment={selectedShipment} />
+            <InvoicePanel key={`inv-${selectedShipment.id}`} shipment={selectedShipment} />
+          </>
         )}
       </div>
     </div>

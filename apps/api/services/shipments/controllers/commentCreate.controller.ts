@@ -1,4 +1,4 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { commentService } from "../services/comment.service";
 import type { CommentItem } from "../interfaces/interfaces";
@@ -20,13 +20,13 @@ interface CommentCreateResponse {
 export const commentCreate = api(
   { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/comments" },
   async (req: CommentCreateRequest): Promise<CommentCreateResponse> => {
-    const attachmentIds = req.attachmentIds ?? [];
-    if (!req.message && attachmentIds.length === 0) {
-      throw APIError.invalidArgument("message or attachment is required");
-    }
     const auth = getAuthData()!;
     // Author is the authenticated user — never trusted from the client.
-    const comment = await commentService.create(req.shipmentId, auth.companyID, auth.userID, req.message ?? "", attachmentIds, req.mentionedUserIds ?? []);
-    return { comment: comment as unknown as CommentItem };
+    const comment = await commentService.create(req.shipmentId, auth.companyID, auth.userID, {
+      message: req.message ?? "",
+      attachmentIds: req.attachmentIds ?? [],
+      mentionedUserIds: req.mentionedUserIds ?? [],
+    });
+    return { comment };
   },
 );

@@ -4,18 +4,14 @@ import { announcementRepository } from "../repositories/announcement.repository"
 import { announcementAttachmentRepository } from "../repositories/announcementAttachment.repository";
 import { departmentRepository, branchRepository, countryRepository } from "../repositories/orgUnit.repository";
 import { userRepository } from "../repositories/user.repository";
-import { MAX_ATTACHMENT_BYTES, parseAttachmentDataUrl } from "../attachmentDataUrl";
-import { type AnnouncementScope, audienceCountryCode, audienceLabel, isAddressedTo } from "../announcementAudience";
+import type { AnnouncementRecord } from "../schemas/announcement.schema";
+import { MAX_ATTACHMENT_BYTES, parseAttachmentDataUrl } from "../lib/attachmentDataUrl";
+import { type AnnouncementScope, audienceCountryCode, audienceLabel, isAddressedTo } from "../lib/announcementAudience";
 
-export { ANNOUNCEMENT_SCOPES, type AnnouncementScope } from "../announcementAudience";
+export { ANNOUNCEMENT_SCOPES, type AnnouncementScope } from "../lib/announcementAudience";
 
 export const ANNOUNCEMENT_SEVERITIES = ["info", "warning", "critical"] as const;
 
-// The same limits the post dialog enforces; the whole list is polled, so text stays bounded.
-const MAX_TITLE_LENGTH = 200;
-const MAX_BODY_LENGTH = 20000;
-const MAX_FILE_NAME_LENGTH = 255;
-const MAX_COUNTRY_LENGTH = 100;
 
 export interface AnnouncementAttachmentInfo {
   id: string;
@@ -99,17 +95,11 @@ interface AnnouncementPatch {
   body?: string;
 }
 
+// Lengths are bounded by the request validators; a title of only spaces still counts as none.
 function checkTitle(value: string | undefined): string {
   const title = value?.trim();
   if (!title) throw APIError.invalidArgument("title is required");
-  if (title.length > MAX_TITLE_LENGTH) throw APIError.invalidArgument(`title can be at most ${MAX_TITLE_LENGTH} characters`);
   return title;
-}
-
-function checkBody(value: string | undefined): string {
-  const body = value?.trim() ?? "";
-  if (body.length > MAX_BODY_LENGTH) throw APIError.invalidArgument(`details can be at most ${MAX_BODY_LENGTH} characters`);
-  return body;
 }
 
 function checkSeverity(severity: string): string {
@@ -118,6 +108,9 @@ function checkSeverity(severity: string): string {
   }
   return severity;
 }
+
+const postNotFound = () => APIError.notFound("Post not found");
+const attachmentNotFound = () => APIError.notFound("Attachment not found");
 
 class AnnouncementService {
   async list(actor: Actor): Promise<{ viewer: NoticeboardViewer; announcements: AnnouncementInfo[] }> {
@@ -167,32 +160,30 @@ class AnnouncementService {
   // Returns the new post's id and whom it went to, worded as on the board.
   async create(actor: Actor, input: AnnouncementInput): Promise<{ id: string; target: string }> {
     const title = checkTitle(input.title);
-    const body = checkBody(input.body);
     const { label, ...columns } = await this.#resolveTarget(actor.companyID, input);
     const row = await announcementRepository.createForCompany(actor.companyID, {
       ...columns,
       severity: checkSeverity(input.severity ?? "info"),
       title,
-      body,
+      body: input.body?.trim() ?? "",
       authorId: actor.userID,
-    } as never);
+    });
     return { id: row.id, target: label };
   }
 
-  async update(actor: Actor, id: string, patch: AnnouncementPatch): Promise<boolean> {
-    if (!(await this.#editable(actor, id))) return false;
+  async update(actor: Actor, id: string, patch: AnnouncementPatch): Promise<void> {
+    await this.#editable(actor, id);
     const changes: AnnouncementPatch = {};
     if (patch.title !== undefined) changes.title = checkTitle(patch.title);
-    if (patch.body !== undefined) changes.body = checkBody(patch.body);
+    if (patch.body !== undefined) changes.body = patch.body.trim();
     if (patch.severity !== undefined) changes.severity = checkSeverity(patch.severity);
-    return !!(await announcementRepository.updateForCompany(id, actor.companyID, changes));
+    if (!(await announcementRepository.updateForCompany(id, actor.companyID, changes))) throw postNotFound();
   }
 
-  async addAttachment(actor: Actor, id: string, input: AnnouncementAttachmentInput): Promise<AnnouncementAttachmentInfo | null> {
-    if (!(await this.#editable(actor, id))) return null;
-    const fileName = input.fileName?.trim();
-    if (!fileName || !input.fileData) throw APIError.invalidArgument("fileName and fileData are required");
-    if (fileName.length > MAX_FILE_NAME_LENGTH) throw APIError.invalidArgument("fileName is too long");
+  async addAttachment(actor: Actor, id: string, input: AnnouncementAttachmentInput): Promise<AnnouncementAttachmentInfo> {
+    await this.#editable(actor, id);
+    const fileName = input.fileName.trim();
+    if (!fileName) throw APIError.invalidArgument("fileName is required");
     // The type and size come from the content itself, not from what the client claims.
     const content = parseAttachmentDataUrl(input.fileData);
     if (!content) throw APIError.invalidArgument("fileData must be a base64 data URL");
@@ -204,37 +195,36 @@ class AnnouncementService {
       fileType: content.fileType,
       fileSize: content.fileSize,
       fileData: input.fileData,
-    } as never);
+    });
     return { id: row.id, fileName: row.fileName, fileType: row.fileType, fileSize: row.fileSize };
   }
 
-  async removeAttachment(actor: Actor, attachmentId: string): Promise<boolean> {
+  async removeAttachment(actor: Actor, attachmentId: string): Promise<void> {
     const attachment = await announcementAttachmentRepository.getByIdForCompany(attachmentId, actor.companyID);
-    if (!attachment || !(await this.#editable(actor, attachment.announcementId))) return false;
-    return !!(await announcementAttachmentRepository.softDeleteForCompany(attachmentId, actor.companyID));
+    if (!attachment) throw attachmentNotFound();
+    await this.#editable(actor, attachment.announcementId);
+    if (!(await announcementAttachmentRepository.softDeleteForCompany(attachmentId, actor.companyID))) throw attachmentNotFound();
   }
 
   // Only readers of the post get its documents, so a raw attachment id from another
   // company, another board or a deleted post can't be read.
-  async attachmentContent(actor: Actor, attachmentId: string): Promise<AnnouncementAttachmentContent | null> {
+  async attachmentContent(actor: Actor, attachmentId: string): Promise<AnnouncementAttachmentContent> {
     const attachment = await announcementAttachmentRepository.getByIdForCompany(attachmentId, actor.companyID);
-    if (!attachment || !(await this.#visible(actor, attachment.announcementId))) return null;
+    if (!attachment || !(await this.#visible(actor, attachment.announcementId))) throw attachmentNotFound();
     return { fileName: attachment.fileName, fileType: attachment.fileType, fileData: attachment.fileData };
   }
 
   // The reader has opened this post.
-  async markRead(actor: Actor, id: string): Promise<boolean> {
-    if (!(await this.#visible(actor, id))) return false;
+  async markRead(actor: Actor, id: string): Promise<void> {
+    if (!(await this.#visible(actor, id))) throw postNotFound();
     await announcementRepository.markRead(id, actor.userID);
-    return true;
   }
 
   // For whoever manages the post: which of the people it is addressed to have opened it.
   // The audience is the board's members (everyone for the company board), without the
   // author; admins who merely moderate another department's board are not counted.
-  async readReceipts(actor: Actor, id: string): Promise<AnnouncementReadReceipts | null> {
-    if (!(await this.#editable(actor, id))) return null;
-    const post = (await announcementRepository.getByIdForCompany(id, actor.companyID))!;
+  async readReceipts(actor: Actor, id: string): Promise<AnnouncementReadReceipts> {
+    const post = await this.#editable(actor, id);
     const [users, branches, reads] = await Promise.all([
       userRepository.listByCompany(actor.companyID),
       branchRepository.listForCompany(actor.companyID),
@@ -262,9 +252,9 @@ class AnnouncementService {
     };
   }
 
-  async delete(actor: Actor, id: string): Promise<boolean> {
-    if (!(await this.#editable(actor, id))) return false;
-    return !!(await announcementRepository.softDeleteForCompany(id, actor.companyID));
+  async delete(actor: Actor, id: string): Promise<void> {
+    await this.#editable(actor, id);
+    if (!(await announcementRepository.softDeleteForCompany(id, actor.companyID))) throw postNotFound();
   }
 
   // Whether the post is live and on a board the reader sees — the same rule as list().
@@ -275,14 +265,14 @@ class AnnouncementService {
     return isAddressedTo(post, await this.#viewer(actor));
   }
 
-  // Authors manage their own posts; company admins manage every post.
-  async #editable(actor: Actor, id: string): Promise<boolean> {
+  // Authors manage their own posts; company admins manage every post. Returns the post.
+  async #editable(actor: Actor, id: string): Promise<AnnouncementRecord> {
     const existing = await announcementRepository.getByIdForCompany(id, actor.companyID);
-    if (!existing) return false;
+    if (!existing) throw postNotFound();
     if (!isAdminLevel(actor.role) && existing.authorId !== actor.userID) {
       throw APIError.permissionDenied("You can only change your own posts");
     }
-    return true;
+    return existing;
   }
 
   // Validates the board + addressee and returns exactly the columns that board uses, with the
@@ -326,7 +316,6 @@ class AnnouncementService {
       case "country": {
         const country = input.country?.trim();
         if (!country) throw APIError.invalidArgument("Choose a country");
-        if (country.length > MAX_COUNTRY_LENGTH) throw APIError.invalidArgument("country is too long");
         return { ...empty, scope: "country", country, label: audienceLabel([country]) };
       }
       default:

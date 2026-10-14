@@ -30,7 +30,11 @@ const user = actor("user");
 const manager = actor("manager");
 const EDITORS = ["superadmin", "admin", "manager"];
 const refused = { code: "permission_denied", message: "only managers and admins can change this" };
-const template = { id: ID, name: "AIR IMPORT", includes: "", excludes: "" };
+const CREATED = new Date("2026-10-01T08:00:00.000Z");
+const template = { id: ID, name: "AIR IMPORT", includes: "", excludes: "", createdAt: CREATED, updatedAt: CREATED };
+// The template as the service hands it out: times as ISO strings, nothing else of the row.
+const templateItem = { ...template, createdAt: CREATED.toISOString(), updatedAt: CREATED.toISOString() };
+const notFound = { code: "not_found", message: "Terms & conditions not found" };
 const NAME_TAKEN = { code: "already_exists", message: "A terms & conditions template with this name already exists" };
 
 beforeEach(() => {
@@ -38,12 +42,15 @@ beforeEach(() => {
   repository.countEver.mockResolvedValue(6);
   // No template of that name yet.
   repository.findByNameInsensitive.mockResolvedValue(null as never);
+  // A write that finds the template answers with it.
+  repository.updateForCompany.mockResolvedValue(template as never);
+  repository.softDeleteForCompany.mockResolvedValue(template as never);
 });
 
 describe("reading", () => {
   it("is open to everybody", async () => {
     repository.listAll.mockResolvedValue([template] as never);
-    await expect(termsService.list(COMPANY)).resolves.toEqual([template]);
+    await expect(termsService.list(COMPANY)).resolves.toEqual([templateItem]);
     expect(repository.listAll).toHaveBeenCalledWith(COMPANY);
     expect(repository.seed).not.toHaveBeenCalled();
   });
@@ -73,7 +80,7 @@ describe("create", () => {
     for (const role of EDITORS) {
       repository.createForCompany.mockClear();
       repository.createForCompany.mockResolvedValue(template as never);
-      await expect(termsService.create(actor(role), "  AIR IMPORT "), role).resolves.toEqual(template);
+      await expect(termsService.create(actor(role), "  AIR IMPORT "), role).resolves.toEqual(templateItem);
       expect(repository.createForCompany).toHaveBeenCalledWith(COMPANY, { name: "AIR IMPORT", includes: "", excludes: "" });
     }
   });
@@ -155,9 +162,9 @@ describe("update", () => {
     expect(repository.findByNameInsensitive).not.toHaveBeenCalled();
   });
 
-  it("answers nothing for a template the company does not have", async () => {
+  it("is not found for a template the company does not have", async () => {
     repository.updateForCompany.mockResolvedValue(null);
-    await expect(termsService.update(ID, manager, { includes: "Freight" })).resolves.toBeNull();
+    await expect(termsService.update(ID, manager, { includes: "Freight" })).rejects.toMatchObject(notFound);
   });
 });
 
@@ -165,7 +172,7 @@ describe("update", () => {
 // change made on that version - compared in milliseconds, as the real one compares - and stamps
 // the moment of the write.
 describe("update with the version the change was made on", () => {
-  let stored: { id: string; name: string; includes: string; excludes: string; updatedAt: Date } | null;
+  let stored: { id: string; name: string; includes: string; excludes: string; createdAt: Date; updatedAt: Date } | null;
   let now: number;
 
   beforeEach(() => {
@@ -183,7 +190,7 @@ describe("update with the version the change was made on", () => {
   it("writes a save made on the current version and returns a newer one", async () => {
     const saved = await termsService.update(ID, manager, { includes: "Freight", expectedUpdatedAt: "2026-10-12T08:00:00.000Z" });
     expect(saved).toMatchObject({ includes: "Freight" });
-    expect(saved!.updatedAt.getTime()).toBeGreaterThan(Date.parse("2026-10-12T08:00:00.000Z"));
+    expect(Date.parse(saved.updatedAt)).toBeGreaterThan(Date.parse("2026-10-12T08:00:00.000Z"));
     expect(repository.updateIfUnchanged).toHaveBeenCalledWith(ID, COMPANY, { includes: "Freight" }, new Date("2026-10-12T08:00:00.000Z"));
     // The unconditional write is not used for it.
     expect(repository.updateForCompany).not.toHaveBeenCalled();
@@ -203,7 +210,7 @@ describe("update with the version the change was made on", () => {
     let version = "2026-10-12T08:00:00.000Z";
     for (let i = 1; i <= 10; i++) {
       const saved = await termsService.update(ID, manager, { includes: `Freight ${i}`, expectedUpdatedAt: version });
-      version = saved!.updatedAt.toISOString();
+      version = saved.updatedAt;
     }
     expect(stored).toMatchObject({ includes: "Freight 10" });
   });
@@ -216,9 +223,9 @@ describe("update with the version the change was made on", () => {
     expect(repository.getByIdForCompany).not.toHaveBeenCalled();
   });
 
-  it("answers nothing - not a conflict - when the template is gone", async () => {
+  it("is not found - not a conflict - when the template is gone", async () => {
     stored = null;
-    await expect(termsService.update(ID, manager, { includes: "Freight", expectedUpdatedAt: "2026-10-12T08:00:00.000Z" })).resolves.toBeNull();
+    await expect(termsService.update(ID, manager, { includes: "Freight", expectedUpdatedAt: "2026-10-12T08:00:00.000Z" })).rejects.toMatchObject(notFound);
     expect(repository.getByIdForCompany).toHaveBeenCalledWith(ID, COMPANY);
   });
 
@@ -245,6 +252,11 @@ describe("softDelete", () => {
       await termsService.softDelete(ID, actor(role));
       expect(repository.softDeleteForCompany, role).toHaveBeenCalledWith(ID, COMPANY);
     }
+  });
+
+  it("is not found for a template the company does not have", async () => {
+    repository.softDeleteForCompany.mockResolvedValue(null);
+    await expect(termsService.softDelete(ID, manager)).rejects.toMatchObject(notFound);
   });
 
   it("refuses a plain user and deletes nothing", async () => {

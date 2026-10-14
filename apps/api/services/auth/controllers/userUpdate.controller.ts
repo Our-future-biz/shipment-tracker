@@ -1,4 +1,4 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
 import { authService } from "../services/auth.service";
 import type { AuthUserInfo } from "../services/auth.service";
@@ -22,10 +22,6 @@ export const userUpdate = api(
   async (req: UserUpdateRequest): Promise<UserUpdateResponse> => {
     const actor = requireRole("admin", "manager");
     const { id, ...patch } = req;
-    const user = await authService.updateUser(id, actor.companyID, actor, patch);
-    if (!user) {
-      throw APIError.notFound("User not found");
-    }
-    return { user };
+    return { user: await authService.updateUser(id, actor.companyID, actor, patch) };
   },
 );

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { LINK_CLASS } from "@/components/linkClass";
 import { formatDate } from "@/lib/date";
-import type { ExchangeRates } from "@/lib/exchangeRates";
 import {
   businessDay,
   businessToday,
@@ -15,6 +14,7 @@ import {
   quoteCurrency,
   type CsvColumn,
   type SalesQuote,
+  type QuotePricing,
 } from "../_lib/salesQuote";
 import { QUOTE_STATUS_MAP } from "../_lib/types";
 import { CustomerLink } from "./CustomerLink";
@@ -35,8 +35,8 @@ export interface QuoteColumn {
   sortBy?: string;
   // The direction of the first click: dates start with the newest, everything else with A or the earliest.
   firstSort?: SortDirection;
-  // `sheet` is the current Exchange sheet, which money columns convert with.
-  render: (q: SalesQuote, sheet: ExchangeRates) => React.ReactNode;
+  // `pricing` is today's ČNB fixing and ROE %, which money columns convert a draft with.
+  render: (q: SalesQuote, pricing: QuotePricing) => React.ReactNode;
 }
 
 // How a quote's validity reads in the list. Red is for a quote that is Expired - the status a
@@ -134,8 +134,8 @@ export const QUOTE_COLUMNS: QuoteColumn[] = [
     key: "selling",
     title: "Selling total",
     width: 104,
-    render: (q, sheet) => {
-      const totals = computeTotals(q.data, sheet);
+    render: (q, pricing) => {
+      const totals = computeTotals(q.data, pricing.rates, pricing);
       // A quote without a price shows a dash - unless the price is only missing an exchange rate.
       if (!totals.selling && !totals.missingSellingRates.length) return EMPTY_CELL;
       return (
@@ -216,7 +216,7 @@ export function shownColumns(stored: string[]): string[] {
 }
 
 // What the CSV holds for a column, as text.
-const CSV_TEXT: Record<string, (q: SalesQuote, sheet: ExchangeRates) => string> = {
+const CSV_TEXT: Record<string, (q: SalesQuote, pricing: QuotePricing) => string> = {
   reference: (q) => q.quoteNumber,
   customer: (q) => q.data.customerName ?? "",
   status: (q) => QUOTE_STATUS_MAP[q.status]?.label ?? q.status,
@@ -224,8 +224,8 @@ const CSV_TEXT: Record<string, (q: SalesQuote, sheet: ExchangeRates) => string> 
   owner: (q) => q.ownerName,
   // A plain number for the spreadsheet. A total with lines left out for want of a rate is not
   // exported at all: in a file it would carry no mark and be summed as if it were the price.
-  selling: (q, sheet) => {
-    const totals = computeTotals(q.data, sheet);
+  selling: (q, pricing) => {
+    const totals = computeTotals(q.data, pricing.rates, pricing);
     return totals.missingSellingRates.length ? "" : totals.selling.toFixed(2);
   },
   shipment: (q) => q.shipmentJobNumber ?? "",
@@ -247,7 +247,7 @@ const CSV_TEXT: Record<string, (q: SalesQuote, sheet: ExchangeRates) => string> 
 
 // The CSV of the given columns, in their order. A file is sorted, filtered and added up by
 // column, so what the screen draws as one piece is two columns where it is two facts.
-export function quoteCsvColumns(keys: string[], sheet: ExchangeRates): CsvColumn[] {
+export function quoteCsvColumns(keys: string[], pricing: QuotePricing): CsvColumn[] {
   return keys.flatMap((key): CsvColumn[] => {
     if (key === "route") {
       return [
@@ -258,7 +258,7 @@ export function quoteCsvColumns(keys: string[], sheet: ExchangeRates): CsvColumn
     const text = CSV_TEXT[key];
     const title = QUOTE_COLUMNS.find((column) => column.key === key)?.title;
     if (!text || !title) return [];
-    const column: CsvColumn = { title, accessor: (q) => text(q, sheet) };
+    const column: CsvColumn = { title, accessor: (q) => text(q, pricing) };
     // Quotes differ in currency, and an amount without one cannot be read or added up.
     return key === "selling" ? [column, { title: "Currency", accessor: (q) => quoteCurrency(q.data) }] : [column];
   });

@@ -193,7 +193,8 @@ export interface CustomerOpenQuoteRow {
   validUntil: string | null;
   /** The quote's currency as its document stores it; "" when it stores none. */
   currency: string;
-  /** data.rates and data.sellingLines as stored. */
+  /** data.fx (ČNB rates stored when sent), data.rates (legacy weekly-sheet rates) and data.sellingLines, as stored. */
+  fx: unknown;
   rates: unknown;
   sellingLines: unknown;
 }
@@ -463,6 +464,7 @@ class SalesQuoteRepository {
         status: quoteTable.status,
         validUntil: quoteTable.validUntil,
         currency: sql<string>`coalesce(${quoteTable.data}->>'currency', '')`,
+        fx: sql<unknown>`${quoteTable.data}->'fx'`,
         rates: sql<unknown>`${quoteTable.data}->'rates'`,
         sellingLines: sql<unknown>`${quoteTable.data}->'sellingLines'`,
       })

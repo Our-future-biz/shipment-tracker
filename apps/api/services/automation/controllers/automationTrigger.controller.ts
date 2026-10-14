@@ -1,38 +1,29 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { automationService } from "../services/automation.service";
 import type { AutomationLogItem } from "../interfaces/interfaces";
 
 interface AutomationTriggerRequest {
-  shipmentId: string;
-  column: string;
+  shipmentId: string & MinLen<1>;
+  column: string & MinLen<1> & MaxLen<200>;
   oldValue: string;
   newValue: string;
   shipmentData?: Record<string, string>;
 }
 
 interface AutomationTriggerResponse {
+  /** Actions the rules took; empty while no rules are configured. */
   actions: string[];
   logs: AutomationLogItem[];
 }
 
+// A watched field of a shipment changed. Only recorded in the automation log for now: the rule
+// engine isn't ported yet, so no actions run. The actor comes from the token, never the client.
 export const automationTrigger = api(
   { expose: true, auth: true, method: "POST", path: "/automation/trigger" },
-  async (req: AutomationTriggerRequest): Promise<AutomationTriggerResponse> => {
-    if (!req.shipmentId || !req.column) {
-      throw APIError.invalidArgument("shipmentId and column are required");
-    }
+  async ({ shipmentId, column, oldValue, newValue, shipmentData }: AutomationTriggerRequest): Promise<AutomationTriggerResponse> => {
     const auth = getAuthData()!;
-    // TODO: Port the 24-rule automation engine from POC
-    // For now, just log the trigger. Actor comes from the token, never the client.
-    const log = await automationService.logAction(
-      req.shipmentId,
-      auth.companyID,
-      `field_change:${req.column}`,
-      "triggered",
-      { column: req.column, oldValue: req.oldValue, newValue: req.newValue, shipmentData: req.shipmentData },
-      auth.userID,
-    );
-    return { actions: ["triggered"], logs: [log as unknown as AutomationLogItem] };
+    return automationService.recordFieldChange(auth.companyID, auth.userID, { shipmentId, column, oldValue, newValue, shipmentData });
   },
 );

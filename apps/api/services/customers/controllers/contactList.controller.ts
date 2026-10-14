@@ -14,7 +14,6 @@ interface ContactListResponse {
 export const contactList = api(
   { expose: true, auth: true, method: "GET", path: "/customers/:customerId/contacts" },
   async (req: ContactListRequest): Promise<ContactListResponse> => {
-    const data = await contactService.listByCustomer(req.customerId, getAuthData()!.companyID);
-    return { data: data as unknown as ContactItem[] };
+    return { data: await contactService.listByCustomer(req.customerId, getAuthData()!.companyID) };
   },
 );

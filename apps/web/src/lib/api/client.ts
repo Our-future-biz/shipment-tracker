@@ -36,6 +36,7 @@ export default class Client {
     public readonly automation: automation.ServiceClient
     public readonly customers: customers.ServiceClient
     public readonly extraction: extraction.ServiceClient
+    public readonly fx: fx.ServiceClient
     public readonly holidays: holidays.ServiceClient
     public readonly invoicing: invoicing.ServiceClient
     public readonly quotes: quotes.ServiceClient
@@ -60,6 +61,7 @@ export default class Client {
         this.automation = new automation.ServiceClient(base)
         this.customers = new customers.ServiceClient(base)
         this.extraction = new extraction.ServiceClient(base)
+        this.fx = new fx.ServiceClient(base)
         this.holidays = new holidays.ServiceClient(base)
         this.invoicing = new invoicing.ServiceClient(base)
         this.quotes = new quotes.ServiceClient(base)
@@ -260,47 +262,26 @@ export namespace auth {
             return await resp.json() as controllers.BranchResponse
         }
 
-        public async columnTemplatesDelete(id: string, params: controllers.DeleteColumnTemplateRequest): Promise<controllers.DeleteColumnTemplateResponse> {
-            // Convert our params into the objects we need for the request
-            const headers = makeRecord<string, string>({
-                authorization: params.authorization,
-            })
-
+        public async columnTemplatesDelete(id: string): Promise<controllers.DeleteColumnTemplateResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/column-templates/${encodeURIComponent(id)}`, undefined, {headers})
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/column-templates/${encodeURIComponent(id)}`)
             return await resp.json() as controllers.DeleteColumnTemplateResponse
         }
 
         public async columnTemplatesList(params: controllers.ListColumnTemplatesRequest): Promise<controllers.ListColumnTemplatesResponse> {
             // Convert our params into the objects we need for the request
-            const headers = makeRecord<string, string>({
-                authorization: params.authorization,
-            })
-
             const query = makeRecord<string, string | string[]>({
                 scope: params.scope,
             })
 
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/column-templates`, undefined, {headers, query})
+            const resp = await this.baseClient.callTypedAPI("GET", `/column-templates`, undefined, {query})
             return await resp.json() as controllers.ListColumnTemplatesResponse
         }
 
         public async columnTemplatesUpsert(params: controllers.UpsertColumnTemplateRequest): Promise<controllers.UpsertColumnTemplateResponse> {
-            // Convert our params into the objects we need for the request
-            const headers = makeRecord<string, string>({
-                authorization: params.authorization,
-            })
-
-            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
-            const body: Record<string, any> = {
-                columns: params.columns,
-                name:    params.name,
-                scope:   params.scope,
-            }
-
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/column-templates`, JSON.stringify(body), {headers})
+            const resp = await this.baseClient.callTypedAPI("POST", `/column-templates`, JSON.stringify(params))
             return await resp.json() as controllers.UpsertColumnTemplateResponse
         }
 
@@ -468,6 +449,10 @@ export namespace automation {
             return await resp.json() as controllers.AutomationLogsResponse
         }
 
+        /**
+         * A watched field of a shipment changed. Only recorded in the automation log for now: the rule
+         * engine isn't ported yet, so no actions run. The actor comes from the token, never the client.
+         */
         public async automationTrigger(params: controllers.AutomationTriggerRequest): Promise<controllers.AutomationTriggerResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/automation/trigger`, JSON.stringify(params))
@@ -545,6 +530,9 @@ export namespace customers {
             return await resp.json() as controllers.CustomerCreateResponse
         }
 
+        /**
+         * Removes the customer with its contacts, notes, documents and invoices: managers and up only.
+         */
         public async customerDelete(id: string): Promise<controllers.CustomerDeleteResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/customers/${encodeURIComponent(id)}`)
@@ -561,9 +549,9 @@ export namespace customers {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 country: params.country,
-                label:   params.label,
+                label:   params.label === undefined ? undefined : String(params.label),
                 search:  params.search,
-                status:  params.status,
+                status:  params.status === undefined ? undefined : String(params.status),
             })
 
             // Now make the actual call to the API
@@ -751,6 +739,142 @@ export namespace extraction {
     }
 }
 
+/**
+ * Exchange rates: the official ČNB daily fixing (imported and stored, never fetched
+ * while a page waits), the company ROE % and period averages for reports.
+ */
+export namespace fx {
+
+    export class ServiceClient {
+        private baseClient: BaseClient
+
+        constructor(baseClient: BaseClient) {
+            this.baseClient = baseClient
+            this.fxAlerts = this.fxAlerts.bind(this)
+            this.fxAverages = this.fxAverages.bind(this)
+            this.fxDaily = this.fxDaily.bind(this)
+            this.fxImportRuns = this.fxImportRuns.bind(this)
+            this.fxJobRates = this.fxJobRates.bind(this)
+            this.fxOverview = this.fxOverview.bind(this)
+            this.fxRatesOn = this.fxRatesOn.bind(this)
+            this.fxResolve = this.fxResolve.bind(this)
+            this.fxRoeList = this.fxRoeList.bind(this)
+            this.fxRoeSet = this.fxRoeSet.bind(this)
+            this.fxSync = this.fxSync.bind(this)
+        }
+
+        /**
+         * Open "ČNB rates missing" alerts for the bell — admins only; everyone else gets none.
+         */
+        public async fxAlerts(): Promise<controllers.AlertsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/alerts`)
+            return await resp.json() as controllers.AlertsResponse
+        }
+
+        public async fxAverages(params: controllers.AveragesRequest): Promise<controllers.AveragesResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                all:  params.all === undefined ? undefined : String(params.all),
+                year: String(params.year),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/averages`, undefined, {query})
+            return await resp.json() as controllers.AveragesResponse
+        }
+
+        public async fxDaily(params: controllers.DailyRequest): Promise<controllers.DailyResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                all:   params.all === undefined ? undefined : String(params.all),
+                month: params.month,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/daily`, undefined, {query})
+            return await resp.json() as controllers.DailyResponse
+        }
+
+        public async fxImportRuns(params: controllers.ImportRunsRequest): Promise<controllers.ImportRunsResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/import-runs`, undefined, {query})
+            return await resp.json() as controllers.ImportRunsResponse
+        }
+
+        /**
+         * The rates a job is valued at: locked at its ATA (import) / ATD (export), provisional by
+         * ETA/ETD until then. Reading it is what locks a job whose ATA/ATD has passed.
+         */
+        public async fxJobRates(shipmentId: string): Promise<interfaces.JobRates> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/job-rates/${encodeURIComponent(shipmentId)}`)
+            return await resp.json() as interfaces.JobRates
+        }
+
+        public async fxOverview(): Promise<interfaces.FxOverview> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/overview`)
+            return await resp.json() as interfaces.FxOverview
+        }
+
+        /**
+         * Every ČNB rate for a date plus the company ROE % — used to price quotes.
+         */
+        public async fxRatesOn(params: controllers.RatesOnRequest): Promise<interfaces.RatesOnDate> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                date: params.date === undefined ? undefined : String(params.date),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/rates`, undefined, {query})
+            return await resp.json() as interfaces.RatesOnDate
+        }
+
+        public async fxResolve(params: controllers.ResolveRequest): Promise<interfaces.ResolvedRate> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                currency: params.currency,
+                date:     String(params.date),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/resolve`, undefined, {query})
+            return await resp.json() as interfaces.ResolvedRate
+        }
+
+        public async fxRoeList(): Promise<controllers.RoeListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/roe`)
+            return await resp.json() as controllers.RoeListResponse
+        }
+
+        /**
+         * Only admins change the company ROE % (owner decision); every change is kept.
+         */
+        public async fxRoeSet(params: controllers.RoeSetRequest): Promise<controllers.RoeSetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/fx/roe`, JSON.stringify(params))
+            return await resp.json() as controllers.RoeSetResponse
+        }
+
+        /**
+         * "Sync now" on the Exchange page: fetches from ČNB straight away.
+         */
+        public async fxSync(): Promise<interfaces.SyncResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/fx/sync`)
+            return await resp.json() as interfaces.SyncResult
+        }
+    }
+}
+
 export namespace holidays {
 
     export class ServiceClient {
@@ -805,17 +929,21 @@ export namespace invoicing {
             this.customsInvoicingGet = this.customsInvoicingGet.bind(this)
             this.customsInvoicingSetNumber = this.customsInvoicingSetNumber.bind(this)
             this.customsInvoicingUpdateLine = this.customsInvoicingUpdateLine.bind(this)
-            this.exchangeRateCreate = this.exchangeRateCreate.bind(this)
-            this.exchangeRateDelete = this.exchangeRateDelete.bind(this)
-            this.exchangeRateList = this.exchangeRateList.bind(this)
-            this.exchangeRateUpdate = this.exchangeRateUpdate.bind(this)
+            this.invoiceDocCredit = this.invoiceDocCredit.bind(this)
+            this.invoiceDocGet = this.invoiceDocGet.bind(this)
+            this.invoiceDocIssue = this.invoiceDocIssue.bind(this)
+            this.invoiceDocList = this.invoiceDocList.bind(this)
+            this.invoiceDocPdf = this.invoiceDocPdf.bind(this)
+            this.invoiceDocPreview = this.invoiceDocPreview.bind(this)
+            this.invoiceProfileGet = this.invoiceProfileGet.bind(this)
+            this.invoiceProfileSave = this.invoiceProfileSave.bind(this)
+            this.invoiceQueue = this.invoiceQueue.bind(this)
             this.invoicingAddBuyingCost = this.invoicingAddBuyingCost.bind(this)
             this.invoicingAddCharge = this.invoicingAddCharge.bind(this)
             this.invoicingAddSellingCost = this.invoicingAddSellingCost.bind(this)
             this.invoicingDeleteBuyingCost = this.invoicingDeleteBuyingCost.bind(this)
             this.invoicingDeleteCharge = this.invoicingDeleteCharge.bind(this)
             this.invoicingDeleteSellingCost = this.invoicingDeleteSellingCost.bind(this)
-            this.invoicingGenerate = this.invoicingGenerate.bind(this)
             this.invoicingGet = this.invoicingGet.bind(this)
             this.invoicingImportQuote = this.invoicingImportQuote.bind(this)
             this.invoicingUpdateBuyingCost = this.invoicingUpdateBuyingCost.bind(this)
@@ -824,6 +952,7 @@ export namespace invoicing {
             this.invoicingUpsertBillingOverride = this.invoicingUpsertBillingOverride.bind(this)
             this.invoicingUpsertBillingSettings = this.invoicingUpsertBillingSettings.bind(this)
             this.invoicingUpsertCost = this.invoicingUpsertCost.bind(this)
+            this.jobProfitReportGet = this.jobProfitReportGet.bind(this)
         }
 
         public async customsInvoicingAddLine(shipmentId: string, params: controllers.AddCustomsLineRequest): Promise<controllers.CustomsLineResponse> {
@@ -856,46 +985,89 @@ export namespace invoicing {
             return await resp.json() as controllers.CustomsLineResponse
         }
 
-        public async exchangeRateCreate(params: controllers.CreateRateRequest): Promise<controllers.CreateRateResponse> {
+        public async invoiceDocCredit(invoiceId: string, params: controllers.CreditRequest): Promise<controllers.InvoiceDocResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/exchange-rates`, JSON.stringify(params))
-            return await resp.json() as controllers.CreateRateResponse
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoices/${encodeURIComponent(invoiceId)}/credit-note`, JSON.stringify(params))
+            return await resp.json() as controllers.InvoiceDocResponse
         }
 
-        public async exchangeRateDelete(rateId: string): Promise<controllers.DeleteRateResponse> {
+        public async invoiceDocGet(invoiceId: string): Promise<controllers.InvoiceDocResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/exchange-rates/${encodeURIComponent(rateId)}`)
-            return await resp.json() as controllers.DeleteRateResponse
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoices/${encodeURIComponent(invoiceId)}`)
+            return await resp.json() as controllers.InvoiceDocResponse
         }
 
-        public async exchangeRateList(): Promise<controllers.ListRatesResponse> {
+        public async invoiceDocIssue(shipmentId: string, params: controllers.IssueRequest): Promise<controllers.InvoiceDocResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/exchange-rates`)
-            return await resp.json() as controllers.ListRatesResponse
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/invoices`, JSON.stringify(params))
+            return await resp.json() as controllers.InvoiceDocResponse
         }
 
-        public async exchangeRateUpdate(rateId: string, params: controllers.UpdateRateRequest): Promise<controllers.UpdateRateResponse> {
+        public async invoiceDocList(shipmentId: string): Promise<controllers.ListResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/exchange-rates/${encodeURIComponent(rateId)}`, JSON.stringify(params))
-            return await resp.json() as controllers.UpdateRateResponse
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/${encodeURIComponent(shipmentId)}/invoices`)
+            return await resp.json() as controllers.ListResponse
         }
 
-        public async invoicingAddBuyingCost(shipmentId: string, params: controllers.AddBuyingRequest): Promise<controllers.AddBuyingResponse> {
+        /**
+         * The stored PDF of an invoice / credit note. Behind login and scoped to the company
+         * (unlike shipment attachments, invoices are never served by a public URL).
+         */
+        public async invoiceDocPdf(invoiceId: string): Promise<controllers.PdfResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoices/${encodeURIComponent(invoiceId)}/pdf`)
+            return await resp.json() as controllers.PdfResponse
+        }
+
+        public async invoiceDocPreview(shipmentId: string, params: controllers.PreviewRequest): Promise<controllers.PreviewResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/invoices/preview`, JSON.stringify(params))
+            return await resp.json() as controllers.PreviewResponse
+        }
+
+        public async invoiceProfileGet(): Promise<controllers.GetProfileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/profile`)
+            return await resp.json() as controllers.GetProfileResponse
+        }
+
+        public async invoiceProfileSave(params: controllers.SaveProfileRequest): Promise<controllers.GetProfileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/invoicing/profile`, JSON.stringify(params))
+            return await resp.json() as controllers.GetProfileResponse
+        }
+
+        /**
+         * The Invoicing queue: shipments by Shipment Status Billing / Invoicing Status, with the amounts to bill.
+         */
+        public async invoiceQueue(params: controllers.QueueRequest): Promise<controllers.QueueResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                search: params.search,
+                view:   params.view === undefined ? undefined : String(params.view),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/queue`, undefined, {query})
+            return await resp.json() as controllers.QueueResponse
+        }
+
+        public async invoicingAddBuyingCost(shipmentId: string, params: controllers.AddBuyingRequest): Promise<controllers.BuyingResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/buying`, JSON.stringify(params))
-            return await resp.json() as controllers.AddBuyingResponse
+            return await resp.json() as controllers.BuyingResponse
         }
 
-        public async invoicingAddCharge(shipmentId: string, params: controllers.AddChargeRequest): Promise<controllers.AddChargeResponse> {
+        public async invoicingAddCharge(shipmentId: string, params: controllers.AddChargeRequest): Promise<controllers.ChargeResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/additional`, JSON.stringify(params))
-            return await resp.json() as controllers.AddChargeResponse
+            return await resp.json() as controllers.ChargeResponse
         }
 
-        public async invoicingAddSellingCost(shipmentId: string, params: controllers.AddSellingRequest): Promise<controllers.AddSellingResponse> {
+        public async invoicingAddSellingCost(shipmentId: string, params: controllers.AddSellingRequest): Promise<controllers.SellingResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/selling`, JSON.stringify(params))
-            return await resp.json() as controllers.AddSellingResponse
+            return await resp.json() as controllers.SellingResponse
         }
 
         public async invoicingDeleteBuyingCost(shipmentId: string, costId: string): Promise<controllers.DeleteBuyingResponse> {
@@ -916,50 +1088,47 @@ export namespace invoicing {
             return await resp.json() as controllers.DeleteSellingResponse
         }
 
-        public async invoicingGenerate(shipmentId: string, params: controllers.GenerateInvoiceRequest): Promise<controllers.GenerateInvoiceResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/generate`, JSON.stringify(params))
-            return await resp.json() as controllers.GenerateInvoiceResponse
-        }
-
-        public async invoicingGet(shipmentId: string): Promise<controllers.InvoicingGetResponse> {
+        public async invoicingGet(shipmentId: string): Promise<interfaces.InvoicingData> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/${encodeURIComponent(shipmentId)}`)
-            return await resp.json() as controllers.InvoicingGetResponse
+            return await resp.json() as interfaces.InvoicingData
         }
 
         /**
          * Copies the cost lines of a sales quote into a shipment's Costs Breakdown: one buying row per
          * buying line and one selling row per selling line, in the quote's order and each in its own
          * currency, read from the quote as it is stored. All rows or none. The same quote is copied to
-         * a side only once - "costs from QCZ... were already copied to this shipment" - unless `force`
+         * a side only once - "Costs from QCZ... were already copied to this shipment" - unless `force`
          * says to copy it again. Used when a shipment is created from a quote and by "Copy from quote"
          * on the Costs tab.
          */
-        public async invoicingImportQuote(shipmentId: string, params: controllers.ImportQuoteRequest): Promise<controllers.ImportQuoteResponse> {
+        public async invoicingImportQuote(shipmentId: string, params: controllers.ImportQuoteRequest): Promise<interfaces.QuoteImportResult> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/import-quote`, JSON.stringify(params))
-            return await resp.json() as controllers.ImportQuoteResponse
+            return await resp.json() as interfaces.QuoteImportResult
         }
 
-        public async invoicingUpdateBuyingCost(shipmentId: string, costId: string, params: controllers.UpdateBuyingRequest): Promise<controllers.UpdateBuyingResponse> {
+        public async invoicingUpdateBuyingCost(shipmentId: string, costId: string, params: controllers.UpdateBuyingRequest): Promise<controllers.BuyingResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/invoicing/${encodeURIComponent(shipmentId)}/buying/${encodeURIComponent(costId)}`, JSON.stringify(params))
-            return await resp.json() as controllers.UpdateBuyingResponse
+            return await resp.json() as controllers.BuyingResponse
         }
 
-        public async invoicingUpdateCharge(shipmentId: string, chargeId: string, params: controllers.UpdateChargeRequest): Promise<controllers.UpdateChargeResponse> {
+        public async invoicingUpdateCharge(shipmentId: string, chargeId: string, params: controllers.UpdateChargeRequest): Promise<controllers.ChargeResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/invoicing/${encodeURIComponent(shipmentId)}/additional/${encodeURIComponent(chargeId)}`, JSON.stringify(params))
-            return await resp.json() as controllers.UpdateChargeResponse
+            return await resp.json() as controllers.ChargeResponse
         }
 
-        public async invoicingUpdateSellingCost(shipmentId: string, sellingId: string, params: controllers.UpdateSellingRequest): Promise<controllers.UpdateSellingResponse> {
+        public async invoicingUpdateSellingCost(shipmentId: string, sellingId: string, params: controllers.UpdateSellingRequest): Promise<controllers.SellingResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/invoicing/${encodeURIComponent(shipmentId)}/selling/${encodeURIComponent(sellingId)}`, JSON.stringify(params))
-            return await resp.json() as controllers.UpdateSellingResponse
+            return await resp.json() as controllers.SellingResponse
         }
 
+        /**
+         * Overriding a billed amount changes what the customer is invoiced: managers and up only.
+         */
         public async invoicingUpsertBillingOverride(shipmentId: string, params: controllers.UpsertBillingOverrideRequest): Promise<controllers.UpsertBillingOverrideResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/billing/overrides`, JSON.stringify(params))
@@ -972,10 +1141,28 @@ export namespace invoicing {
             return await resp.json() as controllers.UpsertBillingSettingsResponse
         }
 
+        /**
+         * The older per-category buying cost (one line per category); the Costs Breakdown uses free lines.
+         */
         public async invoicingUpsertCost(shipmentId: string, params: controllers.UpsertCostRequest): Promise<controllers.UpsertCostResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/costs`, JSON.stringify(params))
             return await resp.json() as controllers.UpsertCostResponse
+        }
+
+        /**
+         * Job revenue, cost and profit in CZK at each month's fixed ČNB average (Shipment Reports).
+         */
+        public async jobProfitReportGet(params: controllers.JobProfitReportRequest): Promise<interfaces.JobProfitReport> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                from: params.from,
+                to:   params.to,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/reports/job-profit`, undefined, {query})
+            return await resp.json() as interfaces.JobProfitReport
         }
     }
 }
@@ -1315,7 +1502,7 @@ export namespace shipments {
         /**
          * Streams the raw file bytes. Inline (viewable) only for allow-listed safe types;
          * otherwise served as an attachment download.
-         * Path: /shipments/:shipmentId/attachments/:id/content
+         * Path: /shipments/:shipmentId/attachments/:id/content?t=<token>[&download=1]
          */
         public async attachmentContent(method: "GET", shipmentId: string, id: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
             return this.baseClient.callAPI(method, `/shipments/${encodeURIComponent(shipmentId)}/attachments/${encodeURIComponent(id)}/content`, body, options)
@@ -1457,10 +1644,10 @@ export namespace shipments {
             return await resp.json() as controllers.MasterJobCreateResponse
         }
 
-        public async masterJobGet(masterJobId: string): Promise<controllers.MasterJobGetResponse> {
+        public async masterJobGet(masterJobId: string): Promise<interfaces.MasterJobDetail> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/master-jobs/${encodeURIComponent(masterJobId)}`)
-            return await resp.json() as controllers.MasterJobGetResponse
+            return await resp.json() as interfaces.MasterJobDetail
         }
 
         /**
@@ -1505,10 +1692,10 @@ export namespace shipments {
             return await resp.json() as controllers.ShipmentCreateResponse
         }
 
-        public async shipmentDashboard(): Promise<controllers.DashboardResponse> {
+        public async shipmentDashboard(): Promise<interfaces.ShipmentDashboard> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/dashboard`)
-            return await resp.json() as controllers.DashboardResponse
+            return await resp.json() as interfaces.ShipmentDashboard
         }
 
         /**
@@ -1542,6 +1729,7 @@ export namespace shipments {
             const query = makeRecord<string, string | string[]>({
                 customerId:    params.customerId,
                 customs:       params.customs,
+                invoicing:     params.invoicing,
                 limit:         params.limit === undefined ? undefined : String(params.limit),
                 offset:        params.offset === undefined ? undefined : String(params.offset),
                 search:        params.search,
@@ -1612,10 +1800,10 @@ export namespace shipments {
             return await resp.json() as controllers.ReleaseHouseBolResponse
         }
 
-        public async shipmentTileCounts(): Promise<controllers.ShipmentTileCountsResponse> {
+        public async shipmentTileCounts(): Promise<interfaces.ShipmentTileCounts> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/tile-counts`)
-            return await resp.json() as controllers.ShipmentTileCountsResponse
+            return await resp.json() as interfaces.ShipmentTileCounts
         }
 
         public async shipmentUnlinkMasterJob(shipmentId: string): Promise<controllers.UnlinkMasterJobResponse> {
@@ -1737,13 +1925,13 @@ export namespace warehouse {
 }
 
 export namespace controllers {
-    /**
-     * Buying costs jako volne pridavatelne radky (mockup: "Add buying cost").
-     * Puvodni invoicingUpsertCost klicovany kategorii zustava zachovan.
-     */
     export interface AddBuyingRequest {
         category?: string
+        /**
+         * what is charged, in words (from the quote)
+         */
         description?: string
+
         vendor?: string
         estQty?: string
         estAmount?: string
@@ -1754,10 +1942,6 @@ export namespace controllers {
         invoiceNumber?: string
         received?: boolean
         sortOrder?: number
-    }
-
-    export interface AddBuyingResponse {
-        cost: interfaces.InvoiceCostItem
     }
 
     export interface AddChargeRequest {
@@ -1771,10 +1955,6 @@ export namespace controllers {
         sortOrder?: number
     }
 
-    export interface AddChargeResponse {
-        charge: interfaces.AdditionalChargeItem
-    }
-
     export interface AddCustomsLineRequest {
         category?: string
         currency?: string
@@ -1784,7 +1964,11 @@ export namespace controllers {
 
     export interface AddSellingRequest {
         category?: string
+        /**
+         * what is charged, in words (from the quote); the printed line text is `customer` ("Invoice text")
+         */
         description?: string
+
         customer?: string
         qty?: string
         amount?: string
@@ -1792,10 +1976,14 @@ export namespace controllers {
         invoice?: boolean
         sourceBuyId?: string
         sortOrder?: number
+        /**
+         * VAT code on the invoice; "" = default by trade direction
+         */
+        vatCode?: interfaces.SellingVatCode | ""
     }
 
-    export interface AddSellingResponse {
-        sellingCost: interfaces.SellingCostItem
+    export interface AlertsResponse {
+        alerts: interfaces.FxAlertItem[]
     }
 
     export interface AnnouncementAttachmentCreateRequest {
@@ -1821,7 +2009,11 @@ export namespace controllers {
         country?: string
         countryCode?: string
         severity?: string
+        /**
+         * The same limits the post dialog enforces; the whole list is polled, so text stays bounded.
+         */
         title: string
+
         body?: string
     }
 
@@ -1852,7 +2044,7 @@ export namespace controllers {
     }
 
     export interface AttachmentClassifyResponse {
-        attachment: interfaces.AttachmentItem | null
+        attachment: interfaces.AttachmentItem
     }
 
     export interface AttachmentCreateRequest {
@@ -1879,16 +2071,16 @@ export namespace controllers {
     }
 
     /**
-     * Customs review of a document. status: "approved" | "declined" | "" (back to pending).
-     * A declined document carries a reason the operations team sees in the Documents tab.
+     * Customs review of a document; "" puts it back to pending. A declined document carries a
+     * reason the operations team sees in the Documents tab.
      */
     export interface AttachmentReviewRequest {
-        status: string
+        status: interfaces.AttachmentCustomsStatus
         note?: string
     }
 
     export interface AttachmentReviewResponse {
-        attachment: interfaces.AttachmentItem | null
+        attachment: interfaces.AttachmentItem
     }
 
     export interface AuthLoginRequest {
@@ -1902,10 +2094,8 @@ export namespace controllers {
     }
 
     /**
-     * NOTE: kept auth:false with manual JWT verification (not gateway auth:true) so the
-     * generated web client's request shape stays unchanged. Security is equivalent — the
-     * token is cryptographically verified here. Migrate to auth:true + getAuthData() when
-     * the Encore client is regenerated.
+     * auth:false with the token verified here (the same check the gateway does): the web passes
+     * the header explicitly, so moving to auth:true would change the generated client call.
      */
     export interface AuthMeRequest {
         authorization: string
@@ -1928,8 +2118,31 @@ export namespace controllers {
     }
 
     export interface AutomationTriggerResponse {
+        /**
+         * Actions the rules took; empty while no rules are configured.
+         */
         actions: string[]
+
         logs: interfaces.AutomationLogItem[]
+    }
+
+    export interface AveragesRequest {
+        year: number
+        all?: boolean
+    }
+
+    export interface AveragesResponse {
+        year: number
+        currencies: string[]
+        periods: interfaces.PeriodAverage[]
+    }
+
+    export interface BankAccountInput {
+        currency: string
+        bankName: string
+        accountNumber: string
+        iban: string
+        swift: string
     }
 
     export interface BranchCreateRequest {
@@ -1952,6 +2165,14 @@ export namespace controllers {
         locationId: number
     }
 
+    export interface BuyingResponse {
+        cost: interfaces.InvoiceCostItem
+    }
+
+    export interface ChargeResponse {
+        charge: interfaces.AdditionalChargeItem
+    }
+
     export interface ClaimCreateRequest {
         kind: interfaces.ClaimKind
         cargoState?: string
@@ -1969,16 +2190,6 @@ export namespace controllers {
         invoiceNumber?: string
         reason?: string
         amount?: string
-    }
-
-    /**
-     * Plain interface — do not import drizzle $inferSelect types into controllers.
-     */
-    export interface ColumnTemplateItem {
-        id: string
-        userId: string
-        name: string
-        columns: string[]
     }
 
     export interface CommentCreateRequest {
@@ -2071,7 +2282,7 @@ export namespace controllers {
         name: string
         email?: string
         phone?: string
-        role?: string
+        role?: interfaces.ContactRole
         isMain?: boolean
     }
 
@@ -2088,11 +2299,15 @@ export namespace controllers {
     }
 
     export interface ContactUpdateRequest {
-        customerId: string
+        /**
+         * Ignored: the contact's own customer is used. Kept so existing clients still validate.
+         */
+        customerId?: string
+
         name?: string
         email?: string
         phone?: string
-        role?: string
+        role?: interfaces.ContactRole
         isMain?: boolean
     }
 
@@ -2119,20 +2334,19 @@ export namespace controllers {
         code: string
     }
 
-    export interface CreateRateRequest {
-        week: string
-        validFrom: string
-        validTo: string
-        rateEur?: string
-        rateUsd?: string
-        note?: string
-    }
+    export interface CreditRequest {
+        /**
+         * Why the invoice is reversed (printed on the credit note)
+         */
+        reason: string
 
-    export interface CreateRateResponse {
-        rate: interfaces.ExchangeRateItem
+        idempotencyKey?: string
     }
 
     export interface CustomerCreateRequest {
+        /**
+         * IČO: exactly 8 digits
+         */
         ico: string
     }
 
@@ -2154,8 +2368,8 @@ export namespace controllers {
          */
         search?: string
 
-        status?: string
-        label?: string
+        status?: interfaces.CustomerStatus
+        label?: interfaces.CustomerLabel
         country?: string
     }
 
@@ -2163,12 +2377,16 @@ export namespace controllers {
         data: interfaces.CustomerItem[]
     }
 
+    /**
+     * The rollups (totalRevenue, totalProfit, totalShipments, lastActivityDate) are not here:
+     * they are computed from shipments and written only through customerRollupsUpdate.
+     */
     export interface CustomerUpdateRequest {
         companyName?: string
         dic?: string
-        status?: string
+        status?: interfaces.CustomerStatus
         salesOwner?: string
-        label?: string
+        label?: interfaces.CustomerLabel
         creditLimit?: number
         currency?: string
         paymentTerms?: string
@@ -2179,10 +2397,6 @@ export namespace controllers {
         country?: string
         registeredAddress?: string
         nace?: string
-        totalRevenue?: number
-        totalProfit?: number
-        totalShipments?: number
-        lastActivityDate?: string
     }
 
     export interface CustomerUpdateResponse {
@@ -2193,31 +2407,15 @@ export namespace controllers {
         line: interfaces.CustomsInvoiceLineItem
     }
 
-    export interface DashboardResponse {
-        kpis: {
-            totalActive: number
-            waitingUnload: number
-            sailedNotOrdered: number
-            sailedOrdered: number
-            waitingDeparture: number
-            missingSailing: number
-        }
-        deadlines: DeadlineGroup[]
+    export interface DailyRequest {
+        month: string
+        all?: boolean
     }
 
-    export interface DeadlineGroup {
-        period: string
-        items: DeadlineItem[]
-    }
-
-    export interface DeadlineItem {
-        id: string
-        jobNumber: string
-        shipper: string
-        consignee: string
-        status: string
-        field: string
-        date: string
+    export interface DailyResponse {
+        month: string
+        currencies: string[]
+        days: interfaces.DailyRow[]
     }
 
     export interface DeleteBuyingResponse {
@@ -2228,19 +2426,11 @@ export namespace controllers {
         ok: boolean
     }
 
-    export interface DeleteColumnTemplateRequest {
-        authorization: string
-    }
-
     export interface DeleteColumnTemplateResponse {
         ok: boolean
     }
 
     export interface DeleteCustomsLineResponse {
-        ok: boolean
-    }
-
-    export interface DeleteRateResponse {
         ok: boolean
     }
 
@@ -2272,7 +2462,7 @@ export namespace controllers {
 
     export interface DocumentCreateRequest {
         name: string
-        type?: string
+        type?: interfaces.DocumentType
         fileName?: string
         fileType?: string
         fileSize?: number
@@ -2280,6 +2470,9 @@ export namespace controllers {
     }
 
     export interface DocumentCreateResponse {
+        /**
+         * Metadata only: the file bytes are not sent back.
+         */
         document: interfaces.DocumentItem
     }
 
@@ -2299,10 +2492,7 @@ export namespace controllers {
     }
 
     export interface EnsureRefsResponse {
-        refs: {
-            shipmentId: string
-            reference: string
-        }[]
+        refs: interfaces.WarehouseRef[]
     }
 
     export interface ExtractBookingRequest {
@@ -2331,7 +2521,11 @@ export namespace controllers {
     }
 
     export interface ExtractTextRequest {
+        /**
+         * up to 6000 characters for a quote request, 1500 otherwise (checked by the service)
+         */
         text: string
+
         destination: string
     }
 
@@ -2452,15 +2646,8 @@ export namespace controllers {
         task: interfaces.FollowupTaskItem
     }
 
-    export interface GenerateInvoiceRequest {
-        jobNumber: string
-        invoiceType: string
-        billingCurrency: string
-        totalAmount: string
-    }
-
-    export interface GenerateInvoiceResponse {
-        invoice: interfaces.GeneratedInvoiceItem
+    export interface GetProfileResponse {
+        profile: interfaces.InvoiceProfileItem
     }
 
     export interface HolidayDeleteResponse {
@@ -2490,7 +2677,7 @@ export namespace controllers {
         /**
          * The side of Costs Breakdown that gets the quote's lines: buying, selling, or both when left out.
          */
-        target?: "buy" | "sell" | "both"
+        target?: interfaces.QuoteImportTarget
 
         /**
          * Copy although lines of this quote were already copied to that side of this shipment.
@@ -2498,23 +2685,31 @@ export namespace controllers {
         force?: boolean
     }
 
-    export interface ImportQuoteResponse {
-        /**
-         * How many buying rows were added.
-         */
-        buying: number
+    export interface ImportRunsRequest {
+        limit?: number
+    }
 
-        /**
-         * How many selling rows were added.
-         */
-        selling: number
+    export interface ImportRunsResponse {
+        runs: interfaces.ImportRunItem[]
     }
 
     export interface InvoiceCreateRequest {
         invoiceNumber: string
         amount?: number
+        /**
+         * Currency the customer pays in; defaults to the customer's own currency
+         */
+        currency?: string
+
+        /**
+         * yyyy-mm-dd, or ""
+         */
         dueDate?: string
-        status?: string
+
+        status?: interfaces.InvoiceStatus
+        /**
+         * yyyy-mm-dd, or ""
+         */
         issuedAt?: string
     }
 
@@ -2526,6 +2721,10 @@ export namespace controllers {
         ok: boolean
     }
 
+    export interface InvoiceDocResponse {
+        invoice: interfaces.InvoiceDocItem
+    }
+
     export interface InvoiceListResponse {
         data: interfaces.InvoiceItem[]
     }
@@ -2533,8 +2732,15 @@ export namespace controllers {
     export interface InvoiceUpdateRequest {
         invoiceNumber?: string
         amount?: number
+        /**
+         * yyyy-mm-dd, or "" to clear
+         */
         dueDate?: string
-        status?: string
+
+        status?: interfaces.InvoiceStatus
+        /**
+         * yyyy-mm-dd, or "" to clear
+         */
         issuedAt?: string
     }
 
@@ -2542,13 +2748,28 @@ export namespace controllers {
         invoice: interfaces.InvoiceItem
     }
 
-    export interface InvoicingGetResponse {
-        costs: interfaces.InvoiceCostItem[]
-        sellingCosts: interfaces.SellingCostItem[]
-        additionalCharges: interfaces.AdditionalChargeItem[]
-        billingSettings: interfaces.BillingSettingsItem | null
-        billingOverrides: interfaces.BillingOverrideItem[]
-        generatedInvoices: interfaces.GeneratedInvoiceItem[]
+    export type IsoDate = string
+
+    export interface IssueRequest {
+        customerId?: string
+        duzp?: string
+        note?: string
+        /**
+         * Sent again on retry / double click: returns the invoice already issued instead of a second one
+         */
+        idempotencyKey?: string
+    }
+
+    export interface JobProfitReportRequest {
+        /**
+         * First month, YYYY-MM
+         */
+        from: string
+
+        /**
+         * Last month, YYYY-MM
+         */
+        to: string
     }
 
     export interface LinkMasterJobRequest {
@@ -2560,16 +2781,15 @@ export namespace controllers {
     }
 
     export interface ListColumnTemplatesRequest {
-        authorization: string
         scope?: string
     }
 
     export interface ListColumnTemplatesResponse {
-        templates: ColumnTemplateItem[]
+        templates: interfaces.ColumnTemplateItem[]
     }
 
-    export interface ListRatesResponse {
-        rates: interfaces.ExchangeRateItem[]
+    export interface ListResponse {
+        invoices: interfaces.InvoiceDocItem[]
     }
 
     export interface LocationListResponse {
@@ -2604,12 +2824,6 @@ export namespace controllers {
 
     export interface MasterJobCreateResponse {
         masterJob: interfaces.MasterJobItem
-    }
-
-    export interface MasterJobGetResponse {
-        masterJob: interfaces.MasterJobItem
-        containers: interfaces.MasterJobContainerLine[]
-        shipments: interfaces.MasterJobShipmentItem[]
     }
 
     export interface MasterJobListResponse {
@@ -2676,7 +2890,7 @@ export namespace controllers {
     }
 
     export interface NoteCreateRequest {
-        type?: string
+        type?: interfaces.NoteType
         content: string
         author?: string
     }
@@ -2699,6 +2913,16 @@ export namespace controllers {
 
     export interface OkResponse {
         ok: boolean
+    }
+
+    export interface PdfResponse {
+        fileName: string
+        /**
+         * The official stored PDF, base64
+         */
+        contentBase64: string
+
+        sha256: string
     }
 
     export interface PipelineExtractHblRequest {
@@ -2738,6 +2962,44 @@ export namespace controllers {
         ok: boolean
     }
 
+    export interface PreviewRequest {
+        /**
+         * Defaults to the customer linked to the shipment
+         */
+        customerId?: string
+
+        /**
+         * YYYY-MM-DD; defaults to ETA (import) / ETD (export) / today
+         */
+        duzp?: string
+    }
+
+    export interface PreviewResponse {
+        preview: interfaces.InvoicePreviewItem
+    }
+
+    export interface QueueRequest {
+        /**
+         * Default to_bill
+         */
+        view?: interfaces.QueueView
+
+        search?: string
+    }
+
+    export interface QueueResponse {
+        queue: interfaces.BillingQueueItem[]
+        counts: interfaces.BillingQueueCounts
+        /**
+         * More shipments match than are listed - narrow it with the search
+         */
+        truncated: boolean
+    }
+
+    export interface RatesOnRequest {
+        date?: IsoDate
+    }
+
     export interface ReleaseHouseBolResponse {
         shipment: interfaces.ShipmentItem
     }
@@ -2751,6 +3013,25 @@ export namespace controllers {
          * Per item, its form in the database ("Hamburg (DEHAM)", "Germany (DE)", "DE"), or null.
          */
         values: (string | null)[]
+    }
+
+    export interface ResolveRequest {
+        currency: string
+        date: IsoDate
+    }
+
+    export interface RoeListResponse {
+        changes: interfaces.RoeChange[]
+    }
+
+    export interface RoeSetRequest {
+        pct: number
+        effectiveFrom: string
+        note: string
+    }
+
+    export interface RoeSetResponse {
+        changes: interfaces.RoeChange[]
     }
 
     export interface SalesPipelineRequest {
@@ -2984,15 +3265,6 @@ export namespace controllers {
         lostReason?: string
 
         /**
-         * To Quoted: the Exchange sheet the sender saw (CZK per 1 unit, and its week). The rates the
-         * quote converts with and does not store yet are stored from it together with the sending.
-         */
-        exchange?: {
-            rates: { [key: string]: number }
-            week?: string
-        }
-
-        /**
          * The status the caller's screen showed - the effective one, so "expired" for a quote whose
          * validity has passed. When sent, the change is refused if the quote is in another by now.
          */
@@ -3021,6 +3293,33 @@ export namespace controllers {
 
     export interface SalesQuoteValidityResponse {
         quote: interfaces.SalesQuoteItem
+    }
+
+    export interface SaveProfileRequest {
+        companyName: string
+        street: string
+        city: string
+        postalCode: string
+        country: string
+        ico: string
+        dic: string
+        vatPayer: boolean
+        registerEntry: string
+        email: string
+        phone: string
+        web: string
+        /**
+         * PNG / JPEG data URL (about 300 KB at most)
+         */
+        logoData: string
+
+        bankAccounts: BankAccountInput[]
+        defaultDueDays: number
+        footerNote: string
+    }
+
+    export interface SellingResponse {
+        sellingCost: interfaces.SellingCostItem
     }
 
     export interface SetIssuedInvoiceNumberRequest {
@@ -3144,7 +3443,11 @@ export namespace controllers {
         approvedBy?: string
         bookingConfirmation?: string
         customsProcedure?: string
-        customsPriority?: string
+        /**
+         * "" counts as Standard.
+         */
+        customsPriority?: interfaces.CustomsPriority | ""
+
         customsDeadline?: string
         equipmentDelivery?: string
         equipmentDeliveryDate?: string
@@ -3282,6 +3585,11 @@ export namespace controllers {
          */
         customs?: string
 
+        /**
+         * Invoicing page filter: billing | not-invoiced | invoiced
+         */
+        invoicing?: string
+
         search?: string
     }
 
@@ -3343,18 +3651,6 @@ export namespace controllers {
          * References the run did not get to: it stops at a limit, and the next run goes on.
          */
         remaining: number
-    }
-
-    /**
-     * Counts behind the Shipments overview tiles, over the whole company dataset.
-     */
-    export interface ShipmentTileCountsResponse {
-        active: number
-        attention: number
-        import: number
-        export: number
-        week: number
-        nextWeek: number
     }
 
     export interface ShipmentUpdateRequest {
@@ -3479,11 +3775,15 @@ export namespace controllers {
         approvedBy?: string
         bookingConfirmation?: string
         customsProcedure?: string
-        customsPriority?: string
+        /**
+         * "" counts as Standard.
+         */
+        customsPriority?: interfaces.CustomsPriority | ""
+
         customsDeadline?: string
         mrn?: string
-        csRecvInvoice?: string
-        csRecvPacking?: string
+        csRecvInvoice?: interfaces.CustomsReceivedOverride
+        csRecvPacking?: interfaces.CustomsReceivedOverride
         equipmentDelivery?: string
         equipmentDeliveryDate?: string
         supplierPic?: string
@@ -3618,10 +3918,10 @@ export namespace controllers {
         realCurrency?: string
         invoiceNumber?: string
         received?: boolean
-    }
-
-    export interface UpdateBuyingResponse {
-        cost: interfaces.InvoiceCostItem
+        /**
+         * position in the list (undo / re-insert keeps a line where it was)
+         */
+        sortOrder?: number
     }
 
     export interface UpdateChargeRequest {
@@ -3634,24 +3934,10 @@ export namespace controllers {
         realCurrency?: string
     }
 
-    export interface UpdateChargeResponse {
-        charge: interfaces.AdditionalChargeItem
-    }
-
     export interface UpdateCustomsLineRequest {
         category?: string
         currency?: string
         value?: string
-    }
-
-    export interface UpdateRateRequest {
-        rateEur?: string
-        rateUsd?: string
-        note?: string
-    }
-
-    export interface UpdateRateResponse {
-        rate: interfaces.ExchangeRateItem
     }
 
     export interface UpdateSellingRequest {
@@ -3662,14 +3948,22 @@ export namespace controllers {
         amount?: string
         currency?: string
         invoice?: boolean
-    }
+        /**
+         * position in the list (undo / re-insert keeps a line where it was)
+         */
+        sortOrder?: number
 
-    export interface UpdateSellingResponse {
-        sellingCost: interfaces.SellingCostItem
+        /**
+         * VAT code on the invoice: S21 | Z69 | RC | OUT; "" = default by trade direction
+         */
+        vatCode?: interfaces.SellingVatCode | ""
     }
 
     export interface UpsertBillingOverrideRequest {
         rowKey: string
+        /**
+         * decimal string; "" removes the override's amount
+         */
         billingAmount: string
     }
 
@@ -3679,7 +3973,11 @@ export namespace controllers {
 
     export interface UpsertBillingSettingsRequest {
         billingCurrency?: string
+        /**
+         * rate of exchange, decimal string
+         */
         roe?: string
+
         quoteRef?: string
     }
 
@@ -3688,14 +3986,13 @@ export namespace controllers {
     }
 
     export interface UpsertColumnTemplateRequest {
-        authorization: string
         scope?: string
         name: string
         columns: string[]
     }
 
     export interface UpsertColumnTemplateResponse {
-        template: ColumnTemplateItem
+        template: interfaces.ColumnTemplateItem
     }
 
     export interface UpsertCostRequest {
@@ -3731,14 +4028,14 @@ export namespace controllers {
 
     export interface UserPrefGetResponse {
         /**
-         * JSON s nastavenim; null kdyz uzivatel jeste nic neulozil
+         * The settings as JSON; null while the user has saved nothing.
          */
         value: string | null
     }
 
     export interface UserPrefSetRequest {
         /**
-         * JSON s nastavenim
+         * The settings as JSON.
          */
         value: string
     }
@@ -3805,7 +4102,11 @@ export namespace controllers {
         priority?: string
         status?: string
         assignee?: string
+        /**
+         * yyyy-mm-dd; "" clears it
+         */
         dueDate?: string
+
         cargo?: string
         weight?: string
         notes?: string
@@ -3856,7 +4157,36 @@ export namespace interfaces {
         companyStatus: string
         registrationDate: string
         nace: string
+        /**
+         * Street and house number, e.g. "Jankovcova 1522/53"
+         */
+        street: string
+
+        /**
+         * City as used in a postal address, e.g. "Praha 7"
+         */
+        postalCity: string
+
+        /**
+         * e.g. "170 00"
+         */
+        postalCode: string
+
+        /**
+         * Registered for VAT (plátce DPH)
+         */
+        vatPayer: boolean
+
+        /**
+         * Commercial register entry, e.g. "B 8573 vedená u Městského soudu v Praze"; "" when none
+         */
+        registerEntry: string
     }
+
+    /**
+     * Customs review of a document: "" while pending.
+     */
+    export type AttachmentCustomsStatus = "" | "approved" | "declined"
 
     export interface AttachmentItem {
         id: string
@@ -3864,18 +4194,18 @@ export namespace interfaces {
         fileName: string
         fileSize: number
         fileType: string
-        storageKey: string
+        /**
+         * Where to open the file: an API path with a short-lived token (append "&download=1" to save it).
+         */
+        contentUrl: string
+
         createdAt: string
         /**
          * Business document type (Invoice, Packing list, …); "" until classified.
          */
         documentType: string
 
-        /**
-         * Customs review: "" (pending) | approved | declined.
-         */
-        customsStatus: string
-
+        customsStatus: AttachmentCustomsStatus
         customsNote: string
         customsReviewedAt: string | null
         /**
@@ -3899,11 +4229,78 @@ export namespace interfaces {
         createdAt: string
     }
 
+    export interface AverageItem {
+        currency: string
+        /**
+         * CZK per 1 unit, unrounded (IDR ≈ 0.00119) — for converting amounts
+         */
+        average: number
+
+        /**
+         * Units ČNB quotes the currency for (1, 100, 1000) and the average per that many, 3 dp — for display
+         */
+        amount: number
+
+        quoted: number
+        fixingDays: number
+    }
+
     export interface BillingOverrideItem {
         id: string
         shipmentId: string
         rowKey: string
         billingAmount: string | null
+    }
+
+    /**
+     * Number of shipments in each queue view
+     */
+    export interface BillingQueueCounts {
+        toBill: number
+        notInvoiced: number
+        invoiced: number
+    }
+
+    /**
+     * One shipment in the Invoicing queue
+     */
+    export interface BillingQueueItem {
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        shipper: string
+        consignee: string
+        tradeDirection: string
+        estimatedDeparture: string | null
+        estimatedArrival: string | null
+        /**
+         * Shipment Status, e.g. "Billing [IMP]" (set by operations)
+         */
+        shipmentStatus: string
+
+        /**
+         * Invoiced | Not Invoiced
+         */
+        invoicingStatus: string
+
+        /**
+         * From the selling lines; none = no selling lines ticked
+         */
+        billingState: BillingState
+
+        billingCurrency: string
+        /**
+         * Ticked selling rows not on an open invoice, at today's rates (an estimate until issued)
+         */
+        amountToBill: number
+
+        rowsToBill: number
+        missingCurrencies: string[]
+        invoiceNumbers: string[]
+        invoiced: {
+            currency: string
+            gross: number
+        }[]
     }
 
     export interface BillingSettingsItem {
@@ -3913,6 +4310,11 @@ export namespace interfaces {
         roe: string
         quoteRef: string
     }
+
+    /**
+     * Where a shipment stands with its ticked selling rows
+     */
+    export type BillingState = "to_bill" | "partly_invoiced" | "invoiced" | "none"
 
     /**
      * A dimension line of the Cargo Dimensions card: `pieces` identical pieces of
@@ -3974,6 +4376,16 @@ export namespace interfaces {
     export type ClaimKind = "cargo" | "cost"
 
     /**
+     * A saved set of visible columns for one screen
+     */
+    export interface ColumnTemplateItem {
+        id: string
+        userId: string
+        name: string
+        columns: string[]
+    }
+
+    /**
      * A file sent with a chat message.
      */
     export interface CommentAttachment {
@@ -3981,6 +4393,10 @@ export namespace interfaces {
         fileName: string
         fileSize: number
         fileType: string
+        /**
+         * Where to open the file: an API path with a short-lived token (append "&download=1" to save it).
+         */
+        contentUrl: string
     }
 
     export interface CommentItem {
@@ -4040,11 +4456,13 @@ export namespace interfaces {
         name: string
         email: string
         phone: string
-        role: string
+        role: ContactRole
         isMain: boolean
         createdAt: string
         updatedAt: string
     }
+
+    export type ContactRole = "Sales" | "Operations" | "Finance"
 
     export interface ContainerLine {
         /**
@@ -4089,13 +4507,17 @@ export namespace interfaces {
         city: string
         country: string
         companyStatus: string
+        /**
+         * yyyy-mm-dd, or "" when unknown
+         */
         registrationDate: string
+
         nace: string
         dataSource: string
         lastRegistryUpdate: string
-        status: string
+        status: CustomerStatus
         salesOwner: string
-        label: string
+        label: CustomerLabel
         creditLimit: number
         currency: string
         paymentTerms: string
@@ -4108,10 +4530,22 @@ export namespace interfaces {
         totalRevenue: number
         totalProfit: number
         totalShipments: number
+        /**
+         * yyyy-mm-dd, or "" when the customer has no shipments
+         */
         lastActivityDate: string
+
         createdAt: string
         updatedAt: string
     }
+
+    export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "PROSPECT" | "RISK"
+
+    /**
+     * The closed sets the database CHECK constraints allow (schemas/*.schema.ts). Spelled out as
+     * literal unions so Encore validates requests against them and the web client gets them.
+     */
+    export type CustomerStatus = "Active" | "Prospect" | "Inactive"
 
     /**
      * Line of the Invoicing tab in Customs
@@ -4133,11 +4567,75 @@ export namespace interfaces {
         issuedInvoiceNumber: string
     }
 
+    /**
+     * Customs priority of a shipment.
+     */
+    export type CustomsPriority = "Standard" | "Urgent"
+
+    /**
+     * Manual override of a Customs "received" tick: "" follows the uploads.
+     */
+    export type CustomsReceivedOverride = "" | "yes" | "no"
+
+    export interface DailyRow {
+        date: string
+        kind: DayKind
+        fixingNo: number | null
+        roePct: number
+        rates: DayRate[]
+    }
+
+    export interface DashboardKpis {
+        totalActive: number
+        waitingUnload: number
+        sailedNotOrdered: number
+        sailedOrdered: number
+        waitingDeparture: number
+        missingSailing: number
+    }
+
+    /**
+     * fixing: ČNB published that day · weekend · no_fixing: a Czech public holiday (no fixing)
+     * · missing: expected but not imported · pending: today before the 15:00 pull · future.
+     */
+    export type DayKind = "fixing" | "weekend" | "no_fixing" | "missing" | "pending" | "future"
+
+    export interface DayRate {
+        currency: string
+        rate: number
+        fixingDate: string
+        carried: boolean
+    }
+
+    export interface DeadlineGroup {
+        period: DeadlinePeriod
+        items: DeadlineItem[]
+    }
+
+    /**
+     * A shipment date on the dashboard's deadline list.
+     */
+    export interface DeadlineItem {
+        id: string
+        jobNumber: string
+        shipper: string
+        consignee: string
+        status: string
+        /**
+         * ETD | ETA | Closing | CRD | Pickup
+         */
+        field: string
+
+        date: string
+    }
+
+    export type DeadlinePeriod = "OVERDUE" | "TODAY" | "THIS_WEEK" | "NEXT_WEEK" | "LATER"
+
     export interface DocumentItem {
         id: string
         customerId: string
         name: string
-        type: string
+        type: DocumentType
         fileName: string
         fileType: string
         fileSize: number
@@ -4145,18 +4643,7 @@ export namespace interfaces {
         updatedAt: string
     }
 
-    /**
-     * Kurzovni listek s tydenni platnosti (stranka Exchange)
-     */
-    export interface ExchangeRateItem {
-        id: string
-        week: string
-        validFrom: string
-        validTo: string
-        rateEur: string | null
-        rateUsd: string | null
-        note: string
-    }
+    export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other"
 
     export interface ExtractHblResult {
         shipments: { [key: string]: string }[]
@@ -4220,6 +4707,29 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    /**
+     * A fixing still missing after the 16:00 pull; open until the fixing is imported.
+     */
+    export interface FxAlertItem {
+        id: string
+        fixingDate: string
+        reason: string
+        raisedAt: string
+        emailedAt: string | null
+        emailError: string
+    }
+
+    export interface FxOverview {
+        today: string
+        rates: TodayRate[]
+        roe: RoeInfo
+        scheduledRoe: RoeChange | null
+        month: string
+        monthAverages: AverageItem[]
+        sync: SyncStatus
+        alerts: FxAlertItem[]
+    }
+
     export interface GeneratedInvoiceItem {
         id: string
         shipmentId: string
@@ -4276,6 +4786,22 @@ export namespace interfaces {
         regions: string
     }
 
+    export interface ImportRunItem {
+        id: string
+        startedAt: string
+        finishedAt: string | null
+        trigger: SyncTrigger
+        status: ImportRunStatus
+        rowsAdded: number
+        latestValidDate: string | null
+        error: string
+    }
+
+    /**
+     * running → ok (new fixings stored) | no_new_data | failed
+     */
+    export type ImportRunStatus = "running" | "ok" | "no_new_data" | "failed"
+
     export interface InvoiceCostItem {
         id: string
         shipmentId: string
@@ -4293,16 +4819,271 @@ export namespace interfaces {
         sortOrder: number
     }
 
+    /**
+     * An issued invoice or credit note (immutable)
+     */
+    export interface InvoiceDocItem {
+        id: string
+        shipmentId: string
+        kind: InvoiceDocKind
+        status: InvoiceDocStatus
+        number: string
+        correctsInvoiceId: string | null
+        creditReason: string
+        customerId: string
+        issueDate: string
+        duzp: string
+        dueDate: string
+        currency: string
+        /**
+         * Statutory ČNB rate on the DUZP, CZK per 1 unit of the invoice currency
+         */
+        fxRate: string
+
+        /**
+         * Older invoices: the weekly-sheet week; "" for ČNB-rated ones
+         */
+        fxWeek: string
+
+        /**
+         * The ČNB fixing the rate came from (null on older invoices)
+         */
+        fxFixingDate: string | null
+
+        /**
+         * Company ROE % applied to lines in another currency (null on older invoices)
+         */
+        roePct: string | null
+
+        net: string
+        vat: string
+        gross: string
+        netCzk: string
+        vatCzk: string
+        grossCzk: string
+        vatSummary: InvoiceVatSummaryItem[]
+        supplier: InvoicePartyItem
+        customer: InvoicePartyItem
+        jobNumber: string
+        note: string
+        hasPdf: boolean
+        createdAt: string
+        lines: InvoiceDocLineItem[]
+    }
+
+    /**
+     * A tax document is an invoice or a credit note that reverses one.
+     */
+    export type InvoiceDocKind = "invoice" | "credit_note"
+
+    /**
+     * One line of an issued invoice / credit note, or of a preview
+     */
+    export interface InvoiceDocLineItem {
+        description: string
+        qty: string
+        unitPrice: string
+        unitCurrency: string
+        /**
+         * Line total in the invoice currency
+         */
+        net: string
+
+        vatCode: VatCode
+        vatRate: string
+        sourceSellingCostId: string | null
+    }
+
+    /**
+     * issued; an invoice reversed by a credit note becomes credited
+     */
+    export type InvoiceDocStatus = "issued" | "credited"
+
     export interface InvoiceItem {
         id: string
         customerId: string
         invoiceNumber: string
         amount: number
+        currency: string
+        /**
+         * yyyy-mm-dd, or ""
+         */
         dueDate: string
-        status: string
+
+        status: InvoiceStatus
+        /**
+         * yyyy-mm-dd, or ""
+         */
         issuedAt: string
+
         createdAt: string
         updatedAt: string
+    }
+
+    /**
+     * Party details printed on the invoice (snapshot taken when it was issued)
+     */
+    export interface InvoicePartyItem {
+        companyName: string
+        address: string
+        city: string
+        postalCode: string
+        country: string
+        ico: string
+        dic: string
+    }
+
+    /**
+     * What issuing would produce right now - no number yet, nothing stored
+     */
+    export interface InvoicePreviewItem {
+        customerId: string | null
+        customer: InvoicePartyItem | null
+        issueDate: string
+        duzp: string
+        dueDate: string
+        currency: string
+        fxRate: number
+        /**
+         * The ČNB fixing valid on the DUZP (null when there is none yet)
+         */
+        fxFixingDate: string | null
+
+        /**
+         * Company ROE % on the DUZP, applied to lines in another currency
+         */
+        roePct: number
+
+        net: number
+        vat: number
+        gross: number
+        netCzk: number
+        vatCzk: number
+        grossCzk: number
+        vatSummary: InvoiceVatSummaryItem[]
+        lines: InvoiceDocLineItem[]
+        /**
+         * Everything that blocks issuing; empty = ready to issue
+         */
+        problems: string[]
+    }
+
+    /**
+     * Issuer details printed on invoices (Settings → Organization → Invoicing details)
+     */
+    export interface InvoiceProfileItem {
+        companyName: string
+        street: string
+        city: string
+        postalCode: string
+        country: string
+        ico: string
+        dic: string
+        vatPayer: boolean
+        registerEntry: string
+        email: string
+        phone: string
+        web: string
+        logoData: string
+        bankAccounts: {
+            currency: string
+            bankName: string
+            accountNumber: string
+            iban: string
+            swift: string
+        }[]
+        defaultDueDays: number
+        footerNote: string
+        /**
+         * What must still be filled in before an invoice can be issued; empty = ready.
+         */
+        missingForIssue: string[]
+    }
+
+    /**
+     * Credited = reversed by a credit note; like Paid, it no longer counts as owed.
+     */
+    export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited"
+
+    export interface InvoiceVatSummaryItem {
+        vatCode: VatCode
+        vatRate: number
+        base: number
+        vat: number
+        baseCzk: number
+        vatCzk: number
+    }
+
+    /**
+     * Everything the Costs / Invoicing views of one shipment show
+     */
+    export interface InvoicingData {
+        costs: InvoiceCostItem[]
+        sellingCosts: SellingCostItem[]
+        additionalCharges: AdditionalChargeItem[]
+        billingSettings: BillingSettingsItem | null
+        billingOverrides: BillingOverrideItem[]
+        generatedInvoices: GeneratedInvoiceItem[]
+    }
+
+    /**
+     * Job revenue, cost and profit in CZK per month (Shipment Reports)
+     */
+    export interface JobProfitReport {
+        from: string
+        to: string
+        rows: JobProfitRow[]
+        months: MonthSummary[]
+        /**
+         * Jobs with neither ATA/ATD nor ETA/ETD — not in any period
+         */
+        undated: number
+    }
+
+    /**
+     * One job in the job-profit report (CZK at the month's fixed ČNB average)
+     */
+    export interface JobProfitRow {
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        freightMode: string
+        status: string
+        direction: "import" | "export"
+        basis: "ata" | "atd" | "eta" | "etd"
+        date: string
+        month: string
+        provisional: boolean
+        revenueCzk: number
+        costCzk: number
+        profitCzk: number
+        unconverted: string[]
+    }
+
+    /**
+     * The rates a job is valued at. locked: fixed at the job's ATA (import) / ATD (export).
+     * provisional: the job has no ATA/ATD yet, or ČNB has not published that day's fixing —
+     * valued by ETA/ETD (or today when that is blank too) and still moving.
+     */
+    export interface JobRates {
+        shipmentId: string
+        direction: "import" | "export"
+        directionAssumed: boolean
+        status: "locked" | "provisional"
+        /**
+         * The tax-date fixing should be stored but isn't (import failed), so the job can't lock yet
+         */
+        ratesMissing: boolean
+
+        basis: "ata" | "atd" | "eta" | "etd" | "today"
+        rateDate: string
+        lockedAt: string | null
+        previousRateDate: string | null
+        rates: {
+            currency: string
+            rate: number
+            fixingDate: string
+        }[]
     }
 
     /**
@@ -4318,6 +5099,15 @@ export namespace interfaces {
         type: string
 
         shipmentIds: string[]
+    }
+
+    /**
+     * A master job with its containers and house shipments.
+     */
+    export interface MasterJobDetail {
+        masterJob: MasterJobItem
+        containers: MasterJobContainerLine[]
+        shipments: MasterJobShipmentItem[]
     }
 
     export interface MasterJobItem {
@@ -4403,14 +5193,48 @@ export namespace interfaces {
         containerNumber: string
     }
 
+    /**
+     * A month of the job-profit report
+     */
+    export interface MonthSummary {
+        month: string
+        jobs: number
+        revenueCzk: number
+        costCzk: number
+        profitCzk: number
+        /**
+         * The month's average is final (month ended); else provisional
+         */
+        final: boolean
+
+        /**
+         * EUR and USD averages, for reference
+         */
+        averages: {
+            currency: string
+            average: number
+        }[]
+    }
+
     export interface NoteItem {
         id: string
         customerId: string
-        type: string
+        type: NoteType
         content: string
         author: string
         createdAt: string
         updatedAt: string
+    }
+
+    export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit"
+
+    export interface PeriodAverage {
+        type: "month" | "quarter" | "year"
+        key: string
+        from: string
+        to: string
+        final: boolean
+        averages: AverageItem[]
     }
 
     /**
@@ -4526,7 +5350,12 @@ export namespace interfaces {
         currency: string
 
         /**
-         * The rates the quote stores (data.rates), as stored.
+         * ČNB rates and ROE % stored when the quote was sent (data.fx), as stored; null for a draft.
+         */
+        fx: any
+
+        /**
+         * Rates older quotes stored from the retired weekly sheet (data.rates), as stored.
          */
         rates: any
 
@@ -4569,6 +5398,24 @@ export namespace interfaces {
          */
         fileName: string
     }
+
+    /**
+     * Views of the Invoicing queue: to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status)
+     */
+    export type QueueView = "to_bill" | "not_invoiced" | "invoiced"
+
+    /**
+     * How many rows a copy from a quote added to each side.
+     */
+    export interface QuoteImportResult {
+        buying: number
+        selling: number
+    }
+
+    /**
+     * Which side of the Costs Breakdown gets a quote's lines.
+     */
+    export type QuoteImportTarget = "buy" | "sell" | "both"
 
     /**
      * How telling the quote went when a shipment was created from it.
@@ -4634,6 +5481,61 @@ export namespace interfaces {
     }
 
     /**
+     * Every ČNB rate valid on a date plus the company ROE % in force — what a quote is priced
+     * with (live until it is sent, then stored on the quote).
+     */
+    export interface RatesOnDate {
+        date: string
+        fixingDate: string | null
+        provisional: boolean
+        /**
+         * A fixing for the date should already be stored but isn't (import failed): don't price or invoice with it
+         */
+        missing: boolean
+
+        roePct: number
+        rates: {
+            currency: string
+            rate: number
+        }[]
+    }
+
+    export interface ResolvedRate {
+        currency: string
+        date: string
+        rate: number | null
+        fixingDate: string | null
+        carried: boolean
+        provisional: boolean
+        /**
+         * A newer fixing should already be stored but isn't (import failed): the rate is stale — don't use it
+         */
+        missing: boolean
+
+        roePct: number
+        reason: string
+    }
+
+    export interface RoeChange {
+        id: string
+        effectiveFrom: string
+        changedAt: string
+        current: boolean
+        scheduled: boolean
+        pct: number
+        changedByName: string
+        note: string
+    }
+
+    export interface RoeInfo {
+        pct: number
+        effectiveFrom: string | null
+        changedByName: string
+        changedAt: string | null
+        note: string
+    }
+
+    /**
      * What the signed-in user may do in Sales beyond a single quote, which carries its own permissions.
      */
     export interface SalesPermissions {
@@ -4660,7 +5562,13 @@ export namespace interfaces {
     export interface SalesQuoteItem {
         id: string
         quoteNumber: string
+        /**
+         * The quote's fields. Two shapes share this column: sales quotes (QCZ…, keyed by field name
+         * like `quoteStatus`, `buyingLines`) and older quotes keyed by column label ("POL", …), so it
+         * stays an open object here; each client reads the shape it wrote.
+         */
         data: any
+
         terms: string
         createdAt: string
         updatedAt: string
@@ -4738,7 +5646,7 @@ export namespace interfaces {
     }
 
     /**
-     * Selling costs z Costs Breakdownu (mockup: #sellTable)
+     * Selling cost line of the Costs Breakdown (mockup: #sellTable)
      */
     export interface SellingCostItem {
         id: string
@@ -4751,7 +5659,25 @@ export namespace interfaces {
         currency: string
         invoice: boolean
         sourceBuyId: string | null
+        /**
+         * VAT code on the invoice; null = default by trade direction
+         */
+        vatCode: SellingVatCode | null
+
         sortOrder: number
+    }
+
+    /**
+     * VAT code a selling line can be set to; "NP" is only ever derived, never chosen.
+     */
+    export type SellingVatCode = "S21" | "Z69" | "RC" | "OUT"
+
+    /**
+     * The operations dashboard: status KPIs and upcoming shipment dates.
+     */
+    export interface ShipmentDashboard {
+        kpis: DashboardKpis
+        deadlines: DeadlineGroup[]
     }
 
     /**
@@ -4922,11 +5848,7 @@ export namespace interfaces {
         approvedBy: string
         bookingConfirmation: string
         customsProcedure: string
-        /**
-         * Standard | Urgent.
-         */
-        customsPriority: string
-
+        customsPriority: CustomsPriority
         /**
          * Deadline of an Urgent shipment, "YYYY-MM-DD HH:mm"; "" for Standard.
          */
@@ -4938,11 +5860,11 @@ export namespace interfaces {
         mrn: string
 
         /**
-         * Manual override of the Customs "received" ticks: "" | "yes" | "no".
+         * Manual override of the Customs "received" ticks.
          */
-        csRecvInvoice: string
+        csRecvInvoice: CustomsReceivedOverride
 
-        csRecvPacking: string
+        csRecvPacking: CustomsReceivedOverride
         /**
          * Business document types present on the shipment (Invoice, Packing list, …).
          */
@@ -5030,6 +5952,44 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    /**
+     * Counts behind the Shipments overview tiles, over the whole company dataset.
+     */
+    export interface ShipmentTileCounts {
+        active: number
+        attention: number
+        import: number
+        export: number
+        week: number
+        nextWeek: number
+    }
+
+    export interface SyncResult {
+        skipped: boolean
+        status?: "ok" | "no_new_data" | "failed"
+        rowsAdded?: number
+        latestValidDate?: string | null
+        error?: string
+    }
+
+    /**
+     * ok: up to date · waiting: the expected fixing is not stored yet (ČNB late, or the next
+     * pull is due) · failed: the last import failed and data is behind · empty: nothing yet.
+     */
+    export type SyncState = "ok" | "waiting" | "failed" | "empty"
+
+    export interface SyncStatus {
+        state: SyncState
+        latestFixing: string | null
+        expectedFixing: string
+        lastRunAt: string | null
+        lastRunStatus: ImportRunStatus | null
+        lastSuccessAt: string | null
+        lastError: string
+    }
+
+    export type SyncTrigger = "startup" | "schedule" | "cron" | "manual" | "backfill"
+
     export interface TaskItem {
         id: string
         shipmentId: string
@@ -5046,6 +6006,24 @@ export namespace interfaces {
         excludes: string
         createdAt: string
         updatedAt: string
+    }
+
+    export interface TodayRate {
+        currency: string
+        rate: number | null
+        fixingDate: string | null
+        previousRate: number | null
+        previousFixingDate: string | null
+    }
+
+    /**
+     * VAT code of an invoice line: the ones a line can be set to, or NP (issuer not a VAT payer).
+     */
+    export type VatCode = SellingVatCode | "NP"
+
+    export interface WarehouseRef {
+        shipmentId: string
+        reference: string
     }
 
     export interface WarehouseSectionItem {
@@ -5065,7 +6043,11 @@ export namespace interfaces {
         priority: string
         status: string
         assignee: string
-        dueDate: string
+        /**
+         * yyyy-mm-dd, or null when not set
+         */
+        dueDate: string | null
+
         cargo: string
         weight: string
         notes: string

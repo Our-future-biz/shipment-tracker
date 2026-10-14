@@ -20,7 +20,7 @@ const lineOf = (id: string, companyId: string, shipmentId: string) =>
 
 class CustomsInvoiceLineRepository extends TenantRepository<typeof customsInvoiceLineTable> {
   constructor() {
-    super(db as never, customsInvoiceLineTable, "customs_invoice_line");
+    super(db, customsInvoiceLineTable, "customs_invoice_line");
   }
 
   async listLines(shipmentId: string, companyId: string): Promise<CustomsInvoiceLineRecord[]> {
@@ -59,11 +59,24 @@ class CustomsInvoiceLineRepository extends TenantRepository<typeof customsInvoic
       .returning();
     return row ?? null;
   }
+
+  async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {
+    await this.db
+      .update(customsInvoiceLineTable)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(customsInvoiceLineTable.companyId, companyId),
+          eq(customsInvoiceLineTable.shipmentId, shipmentId),
+          isNull(customsInvoiceLineTable.deletedAt),
+        ),
+      );
+  }
 }
 
 class CustomsInvoiceRepository extends TenantRepository<typeof customsInvoiceTable> {
   constructor() {
-    super(db as never, customsInvoiceTable, "customs_invoice");
+    super(db, customsInvoiceTable, "customs_invoice");
   }
 
   async getInvoice(shipmentId: string, companyId: string): Promise<CustomsInvoiceRecord | null> {
@@ -81,6 +94,19 @@ class CustomsInvoiceRepository extends TenantRepository<typeof customsInvoiceTab
       })
       .returning();
     return row!;
+  }
+
+  async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {
+    await this.db
+      .update(customsInvoiceTable)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(customsInvoiceTable.companyId, companyId),
+          eq(customsInvoiceTable.shipmentId, shipmentId),
+          isNull(customsInvoiceTable.deletedAt),
+        ),
+      );
   }
 }
 

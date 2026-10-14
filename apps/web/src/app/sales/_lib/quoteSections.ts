@@ -33,8 +33,8 @@ export const SECTION_FIELDS: Record<SectionKey, (keyof SalesQuoteData)[]> = {
   shipment: ["direction", "serviceType", "incoterm", "readyDate"],
   routing: ["origin", "destination", "pickup", "delivery"],
   cargo: ["commodity", "stackable", "dangerous", "packages", "weight", "cbm"],
-  // The rates travel with the lines they convert, so copied prices keep their totals.
-  pricing: ["buyingLines", "sellingLines", "currency", "rates"],
+  // Rates are not copied: the copy is priced at today's ČNB rates until it is sent.
+  pricing: ["buyingLines", "sellingLines", "currency"],
   terms: ["shippingTerms", "shippingIncludes", "shippingExcludes"],
 };
 

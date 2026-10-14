@@ -4,7 +4,9 @@
 
 /**
  * Keys only the server writes: the reference, the lifecycle (status, dates, validity, owner,
- * history) and what the lifecycle keeps aside. A save of the document never changes them.
+ * history), what the lifecycle keeps aside, and the rates a sent quote is priced with (`fx`, the
+ * ČNB rates stamped on sending; `rates`, what older quotes stored from the retired weekly
+ * sheet). A save of the document never changes them.
  */
 export const PROTECTED_KEYS = [
   "reference",
@@ -21,6 +23,8 @@ export const PROTECTED_KEYS = [
   "salesOwner",
   "lifecycleUnreadable",
   "timelineUnreadable",
+  "fx",
+  "rates",
 ] as const;
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -52,50 +56,4 @@ export function newDocument(
  */
 export function carryKeys(): string[] {
   return [...PROTECTED_KEYS];
-}
-
-function quoteCurrency(doc: Record<string, unknown>): string {
-  return typeof doc.currency === "string" && doc.currency ? doc.currency : "EUR";
-}
-
-function costLines(value: unknown): Record<string, unknown>[] {
-  return Array.isArray(value) ? value.filter(isPlainObject) : [];
-}
-
-/**
- * The currencies whose rate a quote's totals depend on, sorted. A line in another currency
- * than the quote's is converted through CZK, which takes the rate of both; CZK is the base and
- * needs none. Same rule as ratesNeeded in the web (app/sales/_lib/salesQuote.ts) - the server
- * only decides which rates to store and never converts an amount.
- */
-export function ratesNeeded(doc: Record<string, unknown>): string[] {
-  const to = quoteCurrency(doc);
-  const needed = new Set<string>();
-  for (const line of [...costLines(doc.sellingLines), ...costLines(doc.buyingLines)]) {
-    const from = typeof line.currency === "string" && line.currency ? line.currency : to;
-    if (from !== to) needed.add(from).add(to);
-  }
-  needed.delete("CZK");
-  return [...needed].sort();
-}
-
-/**
- * The quote's rates after taking, from the Exchange sheet the sender saw, the rate of every
- * currency it converts and stores none for; null when there is nothing to take. Stored when
- * the quote is sent, so next week's sheet does not change what the customer was given. A
- * stored rate is never replaced.
- */
-export function ratesToStamp(
-  doc: Record<string, unknown>,
-  exchange: { rates: Record<string, number>; week?: string },
-): Record<string, unknown> | null {
-  const stored = isPlainObject(doc.rates) ? doc.rates : {};
-  // CZK per 1 unit, with the Exchange week the rate was entered for.
-  const taken: Record<string, { rate: number; week?: string }> = {};
-  for (const currency of ratesNeeded(doc)) {
-    const rate = exchange.rates[currency];
-    if (stored[currency] || typeof rate !== "number" || !Number.isFinite(rate) || rate <= 0) continue;
-    taken[currency] = exchange.week ? { rate, week: exchange.week } : { rate };
-  }
-  return Object.keys(taken).length ? { ...stored, ...taken } : null;
 }

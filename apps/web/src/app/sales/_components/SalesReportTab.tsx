@@ -7,6 +7,7 @@ import { useAllSalesQuotes } from "@/hooks/useAllSalesQuotes";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { computeTotals, fmtByCurrency, newestFirst, type CurrencyAmount, type QuoteTotals, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
+import { toCzkAt, usePeriodAverages } from "@/app/sales/_lib/usePeriodAverages";
 import { ExchangeRatesError } from "./ExchangeRatesError";
 import { QuotesLoadError } from "./QuotesLoadError";
 import { QuotesLoading } from "./QuotesLoading";
@@ -16,8 +17,8 @@ interface Kpi {
   value: string;
 }
 
-// Money in the rows below is a sum over quotes in different currencies, so it is kept as text with
-// one figure per currency ("12,000 EUR · 3,000 USD") - there is no single number to hold.
+// Money in the rows below is in CZK: each quote's figures converted at the ČNB average of the month
+// it was sent (or created, if never sent) - fixed rates, no ROE %. Kept as formatted text.
 interface ServiceRow {
   serviceType: string;
   quotes: number;
@@ -43,10 +44,15 @@ interface OwnerRow {
   conversion: number;
 }
 
-// A quote with its totals, which are in the quote's own currency.
+// A quote with its totals, which are in the quote's own currency, and those in CZK (null when the
+// month's ČNB average for its currency is not known).
 interface PricedQuote extends SalesQuote {
   totals: QuoteTotals;
+  czk: { selling: number; profit: number } | null;
 }
+
+// The month whose ČNB average converts a quote: when it was sent, or created if never sent.
+const monthOf = (q: SalesQuote) => (q.data.sentAt || q.createdAt || "").slice(0, 7);
 
 // The quotes of one table row, added up.
 interface Group {
@@ -70,8 +76,10 @@ function groupQuotes(priced: PricedQuote[], keyOf: (q: PricedQuote) => string): 
     group.quotes += 1;
     if (q.status === "won") group.won += 1;
     if (q.status === "lost") group.lost += 1;
-    group.selling.push([q.totals.currency, q.totals.selling]);
-    group.profit.push([q.totals.currency, q.totals.profit]);
+    if (q.czk) {
+      group.selling.push(["CZK", q.czk.selling]);
+      group.profit.push(["CZK", q.czk.profit]);
+    }
     group.marginSum += marginOf(q);
     groups.set(key, group);
   }
@@ -86,20 +94,30 @@ export function SalesReportTab() {
   // added up, and the rows below keep the order of a list that is newest first.
   const { quotes, isLoading, progress, isError, reload } = useAllSalesQuotes();
   const exchange = useCurrentExchangeRates();
+  const avg = usePeriodAverages(quotes.map((q) => Number(monthOf(q).slice(0, 4))).filter(Boolean));
 
   const priced = useMemo<PricedQuote[]>(
-    () => [...quotes].sort(newestFirst).map((q) => ({ ...q, totals: computeTotals(q.data, exchange.rates) })),
-    [quotes, exchange.rates],
+    () =>
+      [...quotes].sort(newestFirst).map((q) => {
+        const totals = computeTotals(q.data, exchange.rates, exchange);
+        const month = monthOf(q);
+        const selling = toCzkAt(totals.selling, totals.currency, month, avg);
+        const profit = toCzkAt(totals.profit, totals.currency, month, avg);
+        return { ...q, totals, czk: selling === null || profit === null ? null : { selling, profit } };
+      }),
+    [quotes, exchange, avg],
   );
 
   // Their figures leave lines out; the report says so instead of passing partial sums for whole ones.
   const incomplete = priced.filter((q) => q.totals.missingRates.length > 0);
+  // Quotes whose month has no ČNB average for their currency are not in the CZK sums.
+  const unconvertible = priced.filter((q) => q.czk === null);
 
   const kpis = useMemo<Kpi[]>(() => {
     const total = priced.length;
     const won = priced.filter((q) => q.status === "won");
     const lost = priced.filter((q) => q.status === "lost");
-    const wonRevenue = fmtByCurrency(won.map((q) => [q.totals.currency, q.totals.selling]));
+    const wonRevenue = fmtByCurrency(won.flatMap((q): CurrencyAmount[] => (q.czk ? [["CZK", q.czk.selling]] : [])));
     const avgMargin = total ? Math.round(priced.reduce((sum, q) => sum + marginOf(q), 0) / total) : 0;
     const decided = won.length + lost.length;
     const conversion = decided ? Math.round((won.length / decided) * 100) : 0;
@@ -202,8 +220,8 @@ export function SalesReportTab() {
   if (isError) return <QuotesLoadError onRetry={() => reload()} />;
   if (isLoading) return <QuotesLoading progress={progress} />;
 
-  // Quotes that store no rates are converted with the Exchange sheet, so the figures wait for it.
-  if (exchange.isLoading) {
+  // Drafts are priced at today's ČNB rates and the sums use the monthly averages: both must be in.
+  if (exchange.isLoading || avg.loading) {
     return (
       <div className="flex items-center justify-center py-16">
         <Spin />
@@ -215,14 +233,23 @@ export function SalesReportTab() {
     <div className="space-y-4">
       {/* What the figures cover: the quotes that were really loaded - all of them, or the report would not be shown. */}
       <div className="text-xs text-slate-500">All {quotes.length.toLocaleString("en-US")} quotes</div>
-      {/* A sheet that could not be read leaves the same lines out, but there is no rate to enter. */}
+      <div className="text-xs text-slate-500">Amounts in CZK at the ČNB average of the month each quote was sent (or created).</div>
+      {/* Rates that could not be read leave the same lines out, but nothing is missing. */}
       <ExchangeRatesError exchange={exchange} />
       {!exchange.isError && incomplete.length > 0 && (
         <Alert
           type="warning"
           showIcon
-          message="Lines without an exchange rate are not in the figures below"
-          description={`Enter the missing rate in the Pricing section of ${incomplete.map((q) => q.quoteNumber).join(", ")}.`}
+          message="Lines in a currency ČNB does not publish are not in the figures below"
+          description={`Quotes: ${incomplete.map((q) => q.quoteNumber).join(", ")}.`}
+        />
+      )}
+      {unconvertible.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message="Quotes without a ČNB monthly average for their currency are not in the CZK sums"
+          description={`Quotes: ${unconvertible.map((q) => q.quoteNumber).join(", ")}.`}
         />
       )}
       <div className="grid grid-cols-6 gap-3 mb-4">

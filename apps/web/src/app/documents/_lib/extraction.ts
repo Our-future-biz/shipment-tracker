@@ -29,9 +29,14 @@ export interface InvoiceExtracted {
   service_type?: string;
 }
 
+/** The fields of a request type that hold free text (a plain `string`), so any text can go in. */
+type TextFields<T> = { [K in keyof T]-?: string extends NonNullable<T[K]> ? (NonNullable<T[K]> extends string ? K : never) : never }[keyof T];
+type ShipmentTextField = TextFields<controllers.ShipmentUpdateRequest>;
+type MasterJobTextField = TextFields<controllers.MasterJobUpdateRequest>;
+
 // Extracted label → ShipmentUpdateRequest field name.
 // Labels are the ones the backend emits (apps/api/services/extraction/lib/fields.ts).
-export const SHIPMENT_FIELD_MAP: Record<string, string> = {
+export const SHIPMENT_FIELD_MAP: Record<string, ShipmentTextField> = {
   Shipper: "shipper",
   Consignee: "consignee",
   "Personal Reference": "personalReference",
@@ -176,12 +181,12 @@ export function containerRowsFromNumbers(numbers: string[]): interfaces.Containe
 // Map approved {label: value} pairs to a ShipmentUpdateRequest, dropping unknown
 // labels and empty values.
 export function toShipmentUpdate(labelValues: Record<string, string>): controllers.ShipmentUpdateRequest {
-  const out: Record<string, string> = {};
+  const out: controllers.ShipmentUpdateRequest = {};
   for (const [label, value] of Object.entries(labelValues)) {
     const apiField = SHIPMENT_FIELD_MAP[label];
     if (apiField && value) out[apiField] = value;
   }
-  return out as controllers.ShipmentUpdateRequest;
+  return out;
 }
 
 export function normalizeCurrency(raw?: string): string {
@@ -268,7 +273,7 @@ export function withPackageType(
 // ─── Booking confirmation → master job ─────────────────────────────
 
 /** Booking confirmation labels (apps/api/services/extraction/lib/fields.ts) and the master-job field each fills. */
-export const BOOKING_TO_MASTER_JOB: Record<string, keyof interfaces.MasterJobItem> = {
+export const BOOKING_TO_MASTER_JOB: Record<string, MasterJobTextField & keyof interfaces.MasterJobItem> = {
   "Booking Number": "bookingNumber",
   Equipment: "equipment",
   Vessel: "vessel",
@@ -329,12 +334,12 @@ export function invalidBookingDates(approved: Record<string, string>): string[] 
 
 /** The master-job update for the approved booking values, dates as "YYYY-MM-DD". */
 export function bookingToMasterJobUpdate(approved: Record<string, string>): controllers.MasterJobUpdateRequest {
-  const out: Record<string, string> = {};
+  const out: controllers.MasterJobUpdateRequest = {};
   for (const [label, field] of Object.entries(BOOKING_TO_MASTER_JOB)) {
     const value = (approved[label] ?? "").trim();
     if (value) out[field] = BOOKING_DATE_LABELS.has(label) ? toIsoDate(value) : value;
   }
-  return out as controllers.MasterJobUpdateRequest;
+  return out;
 }
 
 /**
@@ -361,7 +366,7 @@ export function withBookingEquipment(extracted: Record<string, string>): Record<
 // ─── MBL shared info → master job ──────────────────────────────────
 
 /** MBL detail labels and the master-job field each one is filed to. */
-export const MBL_TO_MASTER_JOB: Record<string, string> = {
+export const MBL_TO_MASTER_JOB: Record<string, MasterJobTextField> = {
   "Booking Number": "bookingNumber",
   "Shipping line / Coloader": "shippingLine",
   "Load Type": "loadType",
@@ -434,12 +439,12 @@ export function mblToMasterJobUpdate(
   info: Record<string, string>,
   ticked: Record<string, boolean>,
 ): controllers.MasterJobUpdateRequest {
-  const out: Record<string, string> = {};
+  const out: controllers.MasterJobUpdateRequest = {};
   for (const [label, field] of Object.entries(MBL_TO_MASTER_JOB)) {
     const value = (info[label] ?? "").trim();
     if (ticked[label] && value) out[field] = value;
   }
-  return out as controllers.MasterJobUpdateRequest;
+  return out;
 }
 
 // MBL details that must be one of the app's options to be valid on the master job.

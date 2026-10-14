@@ -1,14 +1,14 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { termsService } from "../services/terms.service";
-import { toTermsItem } from "../utils/termsItem.utils";
 import type { TermsConditionItem } from "../interfaces/interfaces";
 
 interface TermsUpdateRequest {
   id: string;
-  name?: string;
-  includes?: string;
-  excludes?: string;
+  name?: string & MinLen<1> & MaxLen<200>;
+  includes?: string & MaxLen<20000>;
+  excludes?: string & MaxLen<20000>;
   /**
    * The updatedAt of the copy the change was made on, as the API handed it out. When the stored
    * template is no longer that version - somebody saved it since - nothing is written and the
@@ -30,10 +30,6 @@ export const termsUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/terms-conditions/:id" },
   async (req: TermsUpdateRequest): Promise<TermsUpdateResponse> => {
     const { id, ...change } = req;
-    const terms = await termsService.update(id, getAuthData()!, change);
-    if (!terms) {
-      throw APIError.notFound("Terms & conditions not found");
-    }
-    return { terms: toTermsItem(terms) };
+    return { terms: await termsService.update(id, getAuthData()!, change) };
   },
 );

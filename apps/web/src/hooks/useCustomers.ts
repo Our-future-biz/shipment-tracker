@@ -9,8 +9,8 @@ export type CustomerItem = interfaces.CustomerItem;
 export interface CustomerQueryParams {
   /** Free-text search, executed server-side across company name, IČO, DIČ and city. */
   search?: string;
-  status?: string;
-  label?: string;
+  status?: interfaces.CustomerStatus;
+  label?: interfaces.CustomerLabel;
   country?: string;
 }
 

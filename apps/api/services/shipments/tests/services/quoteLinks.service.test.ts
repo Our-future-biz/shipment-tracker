@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The service is run for real against a stand-in for the shipments table - with the lock on a
 // reference the real one reads under - and for the quotes service, which here keeps one link per
 // quote the way the real one does: the oldest shipment it is told, or none.
+vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   quotes: { _internalSalesQuoteShipmentSync: vi.fn(), _internalSalesQuoteShipmentLinks: vi.fn() },
@@ -491,53 +492,53 @@ describe("ensureQuoteLinksSynced", () => {
 
 describe("sync", () => {
   it("says that it did not run when no run is due", async () => {
-    await expect(quoteLinksService.sync(company, false)).resolves.toEqual({ ran: true, linked: 0, unlinked: 0, unchanged: 0, quoteNotFound: 0, remaining: 0 });
+    await expect(quoteLinksService.sync(company, "admin", false)).resolves.toEqual({ ran: true, linked: 0, unlinked: 0, unchanged: 0, quoteNotFound: 0, remaining: 0 });
     shipments = [shipment(1, ref(1))];
     links.set(ref(1), null);
-    await expect(quoteLinksService.sync(company, false)).resolves.toEqual({ ran: false, linked: 0, unlinked: 0, unchanged: 0, quoteNotFound: 0, remaining: 0 });
+    await expect(quoteLinksService.sync(company, "admin", false)).resolves.toEqual({ ran: false, linked: 0, unlinked: 0, unchanged: 0, quoteNotFound: 0, remaining: 0 });
     expect(links.get(ref(1))).toBeNull();
   });
 
   it("shares the hour with the list of shipments: whichever runs first, the other waits", async () => {
     await quoteLinksService.ensureQuoteLinksSynced(company);
-    await expect(quoteLinksService.sync(company, false)).resolves.toMatchObject({ ran: false });
+    await expect(quoteLinksService.sync(company, "admin", false)).resolves.toMatchObject({ ran: false });
     vi.setSystemTime(NOW.getTime() + 60 * MINUTE);
-    await expect(quoteLinksService.sync(company, false)).resolves.toMatchObject({ ran: true });
+    await expect(quoteLinksService.sync(company, "admin", false)).resolves.toMatchObject({ ran: true });
     await quoteLinksService.ensureQuoteLinksSynced(company);
     expect(linksCall).toHaveBeenCalledTimes(2);
   });
 
   it("forced, runs although none is due and goes on until nothing is left, adding up what it did", async () => {
-    await quoteLinksService.sync(company, false);
+    await quoteLinksService.sync(company, "admin", false);
     shipments = Array.from({ length: 900 }, (_, i) => shipment(i + 1, ref(i + 1)));
     for (const s of shipments.slice(0, 850)) links.set(s.reference, null);
     links.set(ref(999), "shipment-999");
 
-    await expect(quoteLinksService.sync(company, true)).resolves.toEqual({ ran: true, linked: 850, unlinked: 1, unchanged: 0, quoteNotFound: 50, remaining: 0 });
+    await expect(quoteLinksService.sync(company, "admin", true)).resolves.toEqual({ ran: true, linked: 850, unlinked: 1, unchanged: 0, quoteNotFound: 50, remaining: 0 });
     // Three runs of at most 400 references.
     expect(linksCall).toHaveBeenCalledTimes(4);
   });
 
   it("forced, ends although more quotes are missing than one run handles", async () => {
     shipments = Array.from({ length: 900 }, (_, i) => shipment(i + 1, ref(i + 1)));
-    await expect(quoteLinksService.sync(company, true)).resolves.toEqual({ ran: true, linked: 0, unlinked: 0, unchanged: 0, quoteNotFound: 900, remaining: 0 });
+    await expect(quoteLinksService.sync(company, "admin", true)).resolves.toEqual({ ran: true, linked: 0, unlinked: 0, unchanged: 0, quoteNotFound: 900, remaining: 0 });
     expect(sentRefs()).toHaveLength(900);
   });
 
   it("forced, compares everything anew instead of going on where a run stopped", async () => {
     shipments = Array.from({ length: 450 }, (_, i) => shipment(i + 1, ref(i + 1)));
     for (const s of shipments) links.set(s.reference, null);
-    await quoteLinksService.sync(company, false);
+    await quoteLinksService.sync(company, "admin", false);
     // A link is lost again among the references the first run already handled.
     links.set(ref(1), null);
-    await expect(quoteLinksService.sync(company, true)).resolves.toMatchObject({ ran: true, linked: 51, remaining: 0 });
+    await expect(quoteLinksService.sync(company, "admin", true)).resolves.toMatchObject({ ran: true, linked: 51, remaining: 0 });
     expect(links.get(ref(1))).toBe("shipment-1");
   });
 
   it("answers a failure as a failure - and the next run waits the minute", async () => {
     linksCall.mockRejectedValueOnce(new Error("quotes is unreachable"));
-    await expect(quoteLinksService.sync(company, false)).rejects.toThrow("quotes is unreachable");
-    await expect(quoteLinksService.sync(company, false)).resolves.toMatchObject({ ran: false });
-    await expect(quoteLinksService.sync(company, true)).resolves.toMatchObject({ ran: true });
+    await expect(quoteLinksService.sync(company, "admin", false)).rejects.toThrow("quotes is unreachable");
+    await expect(quoteLinksService.sync(company, "admin", false)).resolves.toMatchObject({ ran: false });
+    await expect(quoteLinksService.sync(company, "admin", true)).resolves.toMatchObject({ ran: true });
   });
 });

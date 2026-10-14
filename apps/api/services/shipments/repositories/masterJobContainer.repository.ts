@@ -1,24 +1,37 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { masterJobContainerTable } from "../schemas/masterJobContainer.schema";
-import { normalizeContainerNumber } from "../services/cargoProjection";
+import { masterJobContainerTable, type MasterJobContainerRecord } from "../schemas/masterJobContainer.schema";
+import { normalizeContainerNumber } from "../lib/cargoProjection";
 import type { MasterJobContainerLine } from "../interfaces/interfaces";
 
-class MasterJobContainerRepository {
-  async listByMasterJobId(masterJobId: string) {
-    return db
+class MasterJobContainerRepository extends TenantRepository<typeof masterJobContainerTable> {
+  constructor() {
+    super(db, masterJobContainerTable, "master_job_container");
+  }
+
+  async listByMasterJobId(masterJobId: string, companyId: string): Promise<MasterJobContainerRecord[]> {
+    return this.db
       .select()
       .from(masterJobContainerTable)
-      .where(eq(masterJobContainerTable.masterJobId, masterJobId))
+      .where(
+        and(
+          eq(masterJobContainerTable.companyId, companyId),
+          eq(masterJobContainerTable.masterJobId, masterJobId),
+          isNull(masterJobContainerTable.deletedAt),
+        ),
+      )
       .orderBy(asc(masterJobContainerTable.position), asc(masterJobContainerTable.createdAt));
   }
 
   // Replace-all: nothing points at these rows (the houses hold their own copies),
   // so the list is simply rewritten in the given order.
-  async replaceForMasterJob(masterJobId: string, companyId: string, lines: MasterJobContainerLine[]) {
-    await db.delete(masterJobContainerTable).where(eq(masterJobContainerTable.masterJobId, masterJobId));
+  async replaceForMasterJob(masterJobId: string, companyId: string, lines: MasterJobContainerLine[]): Promise<void> {
+    await this.db
+      .delete(masterJobContainerTable)
+      .where(and(eq(masterJobContainerTable.companyId, companyId), eq(masterJobContainerTable.masterJobId, masterJobId)));
     if (lines.length === 0) return;
-    await db.insert(masterJobContainerTable).values(
+    await this.db.insert(masterJobContainerTable).values(
       lines.map((line, i) => ({
         companyId,
         masterJobId,

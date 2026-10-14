@@ -29,6 +29,34 @@
       "when": 1786387139818,
       "tag": "0003_huge_sentinels",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791992735659,
+      "tag": "0004_customer_dates",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791920407441,
+      "tag": "0005_panoramic_khan",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791924112525,
+      "tag": "0006_customer_invoice_currency_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791995756292,
+      "tag": "0007_invoice_credited_status",
+      "breakpoints": true
     }
   ]
 }

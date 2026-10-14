@@ -23,6 +23,10 @@ export function teuForType(type: string): number {
 
 export const PACK_TYPES = ["Pallet(s)", "Cartons", "Colli", "Boxes", "Wooden boxes", "Drums"];
 
+/** Package types matching what is typed, for the package-type autocompletes. */
+export const packTypeOptions = (query: string) =>
+  PACK_TYPES.filter((p) => p.toLowerCase().includes((query ?? "").toLowerCase().trim())).map((p) => ({ value: p }));
+
 export const STACKABLE_OPTIONS = ["Stackable", "Non-stackable", "Overstowable", "Non-overstowable"];
 
 export const CURRENCIES: { code: string; name: string }[] = [

@@ -1,5 +1,5 @@
 import type { ExchangeRates } from "@/lib/exchangeRates";
-import { computeTotals, sellingSum, type SalesQuote } from "@/app/sales/_lib/salesQuote";
+import { computeTotals, sellingSum, type LivePricing, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { OPEN_QUOTE_STATUSES } from "@/app/sales/_lib/types";
 
 // How a customer's sales quotes are grouped and totalled, for the Quotes tab and the Overview.
@@ -17,9 +17,9 @@ export function quoteBucket(quote: SalesQuote): string {
 
 // Quotes are priced in their own currency, so their selling value is summed per currency, never
 // across: "12,000 EUR · 3,000 USD" as `text`, empty when there is nothing to add up. Inside a
-// quote, Sales converts the lines into the quote's currency; `sheet` is the current Exchange sheet
+// quote, Sales converts the lines into the quote's currency; `sheet` is today's ČNB fixing
 // it falls back on for quotes that store no rates. Lines no rate is known for are in no sum:
 // `incomplete` then tells the view to say that its figure is short.
-export function sellingByCurrency(quotes: SalesQuote[], sheet: ExchangeRates) {
-  return sellingSum(quotes.map((quote) => computeTotals(quote.data, sheet)));
+export function sellingByCurrency(quotes: SalesQuote[], sheet: ExchangeRates, live?: LivePricing) {
+  return sellingSum(quotes.map((quote) => computeTotals(quote.data, sheet, live)));
 }

@@ -5,7 +5,7 @@ import { customerDocumentTable } from "../schemas/customerDocument.schema";
 
 class CustomerDocumentRepository extends TenantRepository<typeof customerDocumentTable> {
   constructor() {
-    super(db as never, customerDocumentTable, "customer_document");
+    super(db, customerDocumentTable, "customer_document");
   }
 
   // Note: fileData is deliberately excluded from list projections.

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { App } from "antd";
 import { invalidateQuoteLists } from "./useSalesQuotes";
 import { NEEDS_ATTENTION_KEY } from "./useShipmentsNeedingAttention";
@@ -71,6 +71,21 @@ export interface ShipmentQueryParams {
 // Fields that trigger automation when changed
 const AUTOMATION_FIELDS = new Set(["department", "status", "holidayCover"]);
 
+/** Views computed from shipments (needs-attention list, tiles) — stale after any status change. */
+export function invalidateShipmentDerivedViews(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
+  queryClient.invalidateQueries({ queryKey: ["shipment-tile-counts"] });
+}
+
+/** Customer pages that show a customer's shipments and their rollups. */
+export function invalidateShipmentCustomerViews(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: ["customer"] });
+  queryClient.invalidateQueries({ queryKey: ["customer-shipments"] });
+  // Only marked stale: the shipment page keeps the customers list mounted (CustomerLinkField)
+  // and it must not be downloaded again on every cell edit.
+  queryClient.invalidateQueries({ queryKey: ["customers"], refetchType: "none" });
+}
+
 export const useShipments = (params: ShipmentQueryParams = {}) => {
   const queryClient = useQueryClient();
   const { message } = App.useApp();
@@ -93,18 +108,8 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
   // Shipment writes recompute the linked customer's rollups server-side and change the rows of
   // the customer page, so its caches must not keep serving the old copy.
   // Any shipment write can also move it onto or off the Needs Attention cards and tiles.
-  const invalidateDerivedViews = () => {
-    queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
-    queryClient.invalidateQueries({ queryKey: ["shipment-tile-counts"] });
-  };
-
-  const invalidateCustomerViews = () => {
-    queryClient.invalidateQueries({ queryKey: ["customer"] });
-    queryClient.invalidateQueries({ queryKey: ["customer-shipments"] });
-    // Only marked stale: the shipment page keeps the customers list mounted (CustomerLinkField)
-    // and it must not be downloaded again on every cell edit.
-    queryClient.invalidateQueries({ queryKey: ["customers"], refetchType: "none" });
-  };
+  const invalidateDerivedViews = () => invalidateShipmentDerivedViews(queryClient);
+  const invalidateCustomerViews = () => invalidateShipmentCustomerViews(queryClient);
 
   // A sales quote remembers the shipment that carries its number, and may become Won by it: a
   // shipment created, deleted or given another Sales Number changes what Sales shows of its quote.
@@ -132,7 +137,7 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     onMutate: async ({ id, data }) => {
       await queryClient.cancelQueries({ queryKey: ["shipments"] });
       const prev = queryClient.getQueriesData<CachedShipments>({ queryKey: ["shipments"] });
-      const patched = (s: ShipmentItem) => {
+      const patched = (s: ShipmentItem): ShipmentItem => {
         if (s.id !== id) return s;
         // Merge update request into shipment using Object.assign for type safety
         const updated: ShipmentItem = { ...s };

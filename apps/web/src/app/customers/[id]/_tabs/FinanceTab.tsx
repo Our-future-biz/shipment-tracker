@@ -6,6 +6,7 @@ import { PillTabs } from "@/components/SectionCard";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomer } from "@/hooks/useCustomers";
 import { summarizeInvoices } from "../../_lib/customerInvoices";
+import { useLatestRates } from "@/lib/fx";
 import { fmtMoney, roundCents } from "../../_lib/customerMoney";
 import { CustomerAgingCard, invoiceCountLabel } from "../_components/CustomerAgingCard";
 import { CustomerCreditCard, utilizationTone } from "../_components/CustomerCreditCard";
@@ -34,6 +35,7 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
   const searchParams = useSearchParams();
   const { customer } = useCustomer(customerId);
   const { invoices, isLoading, isError, refetch } = useCustomerInvoices(customerId);
+  const { rates, fixingLabel } = useLatestRates();
 
   // The sub-view lives in the URL (?view=) next to ?tab=, so it survives a reload and can be linked to.
   const rawView = searchParams.get("view") ?? DEFAULT_VIEW;
@@ -51,7 +53,13 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
 
   const { creditLimit, currency } = customer;
   // One summary feeds the tiles, the bar and the aging buckets, so they cannot disagree with each other.
-  const summary = summarizeInvoices(invoices);
+  // Invoices in other currencies are converted into the customer's currency at today's rates.
+  const summary = summarizeInvoices(invoices, { currency, rates });
+  // Shown when anything is owed in a currency other than the customer's: what the converted total is made of.
+  // (A currency that nets to zero, e.g. an invoice and its credit note, adds nothing to the breakdown.)
+  const owed = summary.byCurrency.filter((c) => roundCents(c.amount) !== 0);
+  const mixed = owed.some((c) => c.currency !== currency);
+  const breakdown = owed.map((c) => fmtMoney(c.amount, c.currency)).join(" + ");
   // A limit of 0 means none was set: there is nothing to be "available" or "used" then.
   const hasLimit = creditLimit > 0;
   const available = roundCents(creditLimit - summary.outstanding);
@@ -81,8 +89,20 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
           ) : (
             <Spin spinning={isLoading}>
               <div className="space-y-5">
+                {summary.unconverted.length > 0 && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message={`ČNB publishes no rate for ${summary.unconverted.map((u) => u.currency).join(", ")}`}
+                    description={`${summary.unconverted.map((u) => fmtMoney(u.amount, u.currency)).join(" + ")} is left out of the totals below.`}
+                  />
+                )}
                 <div className={KPI_GRID_CLASS}>
-                  <CustomerKpiTile label="Outstanding" value={fmtMoney(summary.outstanding, currency)} />
+                  <CustomerKpiTile
+                    label="Outstanding"
+                    value={fmtMoney(summary.outstanding, currency)}
+                    hint={mixed ? <span title={`${breakdown} — converted at the rates of ${fixingLabel || "today"}`}>{breakdown}</span> : undefined}
+                  />
                   <CustomerKpiTile
                     label="Available"
                     value={hasLimit ? fmtMoney(available, currency) : EMPTY_CELL}

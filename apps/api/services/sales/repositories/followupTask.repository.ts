@@ -38,7 +38,7 @@ const IN_ORDER = [
 
 class FollowupTaskRepository extends TenantRepository<typeof followupTaskTable> {
   constructor() {
-    super(db as never, followupTaskTable, "followup_task");
+    super(db, followupTaskTable, "followup_task");
   }
 
   /**

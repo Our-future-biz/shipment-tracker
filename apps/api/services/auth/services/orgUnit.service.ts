@@ -1,4 +1,5 @@
 import { APIError } from "encore.dev/api";
+import { isUniqueViolation } from "../../../lib/db/errors";
 import { countryName } from "../../../lib/geo/format";
 import { departmentRepository, branchRepository, countryRepository, locationRepository } from "../repositories/orgUnit.repository";
 import type { Place } from "../../../lib/geo/place";
@@ -88,7 +89,7 @@ async function guardDuplicate<T>(what: string, write: () => Promise<T>): Promise
   try {
     return await write();
   } catch (err) {
-    if ((err as { code?: string }).code === "23505") {
+    if (isUniqueViolation(err)) {
       throw APIError.alreadyExists(`A ${what} with this name already exists`);
     }
     throw err;

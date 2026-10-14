@@ -1,6 +1,14 @@
 import Client, { ErrCode, isAPIError } from "./client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
+export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4001";
+
+/**
+ * A file link the browser opens itself (<a href>, <img src>): the API returns `contentUrl` as a
+ * relative path carrying a short-lived signed token, so no auth header is needed. `download`
+ * asks for it as a download instead of inline.
+ */
+export const apiFileUrl = (contentUrl: string, download = false): string =>
+  `${API_BASE}${contentUrl}${download ? `${contentUrl.includes("?") ? "&" : "?"}download=1` : ""}`;
 
 // Attach the logged-in user's bearer token so authenticated endpoints can
 // derive the actor (e.g. who deleted a shipment) server-side.

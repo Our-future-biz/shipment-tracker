@@ -1,5 +1,6 @@
 import { index, integer, pgTable, text, uuid } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { masterJobTable } from "./masterJob.schema";
 
 // A container on the master BL. Each one is assigned to the house shipments
 // whose cargo travels in it; assigned containers are copied onto those houses'
@@ -9,7 +10,7 @@ export const masterJobContainerTable = pgTable(
   {
     ...defaultTableColumns,
     ...tenantColumns,
-    masterJobId: uuid("master_job_id").notNull(),
+    masterJobId: uuid("master_job_id").notNull().references(() => masterJobTable.id, { onDelete: "cascade" }),
     position: integer("position").notNull().default(0),
     containerNumber: text("container_number").notNull().default(""),
     sealNumber: text("seal_number").notNull().default(""),

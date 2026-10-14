@@ -14,7 +14,6 @@ interface LogoDeleteResponse {
 export const logoDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/customers/:id/logo" },
   async (req: LogoDeleteRequest): Promise<LogoDeleteResponse> => {
-    const customer = await customerService.deleteLogo(req.id, getAuthData()!.companyID);
-    return { customer: customer as unknown as CustomerItem };
+    return { customer: await customerService.deleteLogo(req.id, getAuthData()!.companyID) };
   },
 );

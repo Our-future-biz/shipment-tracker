@@ -6,8 +6,10 @@ import { PlusOutlined } from "@ant-design/icons";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, moneyInputParser } from "@/lib/money";
 import type { CostLine, SalesQuoteData } from "@/app/sales/_lib/types";
-import { COST_LINE_TYPES, CURRENCIES } from "@/app/sales/_lib/types";
-import { convertLine, quoteCurrency } from "@/app/sales/_lib/salesQuote";
+import { COST_LINE_TYPES } from "@/app/sales/_lib/types";
+import { CURRENCIES } from "@/lib/enums";
+import { useListKeys } from "@/hooks/useListKeys";
+import { convertLine, quoteCurrency, type LivePricing } from "@/app/sales/_lib/salesQuote";
 import { MiniButton, RemoveLineButton } from "./QuoteButtons";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./LineBlock";
 
@@ -38,6 +40,7 @@ export function CostLinesEditor({
   lines,
   quote,
   sheet,
+  live,
   onChange,
   actions,
 }: {
@@ -46,6 +49,8 @@ export function CostLinesEditor({
   lines: CostLine[];
   quote: SalesQuoteData;
   sheet: ExchangeRates;
+  // Today's ČNB fixing and ROE %, which a draft's selling lines in another currency carry.
+  live: LivePricing;
   onChange: (lines: CostLine[]) => void;
   // More actions of the block, drawn before its "Add" button.
   actions?: ReactNode;
@@ -53,6 +58,7 @@ export function CostLinesEditor({
   const buying = kind === "buying";
   const currency = quoteCurrency(quote);
   const patch = (i: number, p: Partial<CostLine>) => onChange(lines.map((x, j) => (j === i ? { ...x, ...p } : x)));
+  const lineKeys = useListKeys(lines.length);
 
   return (
     <LineBlock
@@ -94,9 +100,9 @@ export function CostLinesEditor({
           </thead>
           <tbody>
             {lines.map((l, i) => {
-              const converted = convertLine(l, quote, sheet);
+              const converted = convertLine(l, quote, sheet, { selling: !buying, live });
               return (
-                <tr key={i}>
+                <tr key={lineKeys.keys[i]}>
                   <td className={LINE_TD_CLASS}>
                     <Select
                       size="small"
@@ -155,7 +161,11 @@ export function CostLinesEditor({
                     />
                   </td>
                   <td className={`${LINE_TD_CLASS} pl-0`}>
-                    <RemoveLineButton label={`Remove ${kind} line ${i + 1}`} onClick={() => onChange(lines.filter((_, j) => j !== i))} />
+                    <RemoveLineButton label={`Remove ${kind} line ${i + 1}`} onClick={() => {
+                        lineKeys.remove(i);
+                        onChange(lines.filter((_, j) => j !== i));
+                      }}
+                    />
                   </td>
                 </tr>
               );

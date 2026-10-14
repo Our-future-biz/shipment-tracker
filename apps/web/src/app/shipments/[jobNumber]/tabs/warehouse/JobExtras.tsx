@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Input, Button, Space, Tag, Modal, Upload } from "antd";
 import { InboxOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
@@ -25,8 +25,10 @@ export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi:
   const { data, save, isSaving } = useWarehouseSection(ownerId, "job");
   const section = asJob(data);
   const savedNotes = section.notes ?? "";
-  const [notes, setNotes] = useState(savedNotes);
-  useEffect(() => setNotes(section.notes ?? ""), [section.notes]);
+  // What is typed belongs to the saved text it was typed over; a newly saved text replaces it.
+  const [typed, setTyped] = useState({ over: savedNotes, text: savedNotes });
+  const notes = typed.over === savedNotes ? typed.text : savedNotes;
+  const setNotes = (text: string) => setTyped({ over: savedNotes, text });
   const dirty = notes !== savedNotes;
 
   return (

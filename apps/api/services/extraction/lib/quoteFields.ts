@@ -8,7 +8,8 @@ import { QUOTE_FIELDS } from "./fields";
 // Twins of DIRECTIONS, SERVICE_TYPES and INCOTERMS in the web's Sales types; a test compares them.
 export const QUOTE_DIRECTIONS = ["Export", "Import"] as const;
 export const QUOTE_FREIGHT_MODES = ["Air", "Sea FCL", "Sea LCL", "Rail", "Road"] as const;
-export const QUOTE_INCOTERMS = ["EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP", "FAS", "FOB", "CFR", "CIF"] as const;
+// The order of the rules (E, F, C, D groups), as the web's one list in lib/incoterms.ts.
+export const QUOTE_INCOTERMS = ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DPU", "DAP", "DDP"] as const;
 
 const MAX_TEXT = 300;
 const MAX_PHONE = 50;

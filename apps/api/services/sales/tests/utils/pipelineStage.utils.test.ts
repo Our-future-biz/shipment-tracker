@@ -70,6 +70,7 @@ const openQuote = (customerId: string, quoteNumber: string): CustomerQuoteFeed["
   status: "quoted",
   validUntil: "2026-10-25",
   currency: "EUR",
+  fx: null,
   rates: { USD: { rate: 23.1, week: "2026-W41" } },
   sellingLines: [{ type: "Ocean freight", currency: "USD", amount: 2400 }],
 });
@@ -122,7 +123,7 @@ describe("buildBoard", () => {
       lastActivityAt: "2026-10-04T09:00:00.000Z",
       // The quote as the feed gave it, without the customer id the card already carries.
       openQuotes: [
-        { quoteNumber: "QCZ20261010001", status: "quoted", validUntil: "2026-10-25", currency: "EUR", rates: { USD: { rate: 23.1, week: "2026-W41" } }, sellingLines: [{ type: "Ocean freight", currency: "USD", amount: 2400 }] },
+        { quoteNumber: "QCZ20261010001", status: "quoted", validUntil: "2026-10-25", currency: "EUR", fx: null, rates: { USD: { rate: 23.1, week: "2026-W41" } }, sellingLines: [{ type: "Ocean freight", currency: "USD", amount: 2400 }] },
       ],
     });
     expect(board.cards.prospect[0]).toMatchObject({ stage: "prospect", firstQuoteSentAt: null, firstQuoteSentAtKnown: false, lastActivityAt: null, openQuotes: [] });

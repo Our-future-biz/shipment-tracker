@@ -120,10 +120,14 @@ describe("copy", () => {
     const [cost, sellingCost] = fake.state.reads;
     expect(sent(cost!.fields.copied)).toEqual({ sql: 'count(*) filter (where "invoice_cost"."source_quote_number" = $1)', params: [REF] });
     expect(sent(cost!.fields.last).sql).toBe('max("invoice_cost"."sort_order")');
-    expect(sent(cost!.where)).toEqual({ sql: '("invoice_cost"."company_id" = $1 and "invoice_cost"."shipment_id" = $2)', params: [COMPANY, SHIPMENT] });
+    // Live rows only: a deleted row neither counts as copied nor holds a place in the order.
+    expect(sent(cost!.where)).toEqual({
+      sql: '("invoice_cost"."company_id" = $1 and "invoice_cost"."shipment_id" = $2 and "invoice_cost"."deleted_at" is null)',
+      params: [COMPANY, SHIPMENT],
+    });
     expect(sent(sellingCost!.fields.copied).sql).toBe('count(*) filter (where "invoice_selling_cost"."source_quote_number" = $1)');
     expect(sent(sellingCost!.where)).toEqual({
-      sql: '("invoice_selling_cost"."company_id" = $1 and "invoice_selling_cost"."shipment_id" = $2)',
+      sql: '("invoice_selling_cost"."company_id" = $1 and "invoice_selling_cost"."shipment_id" = $2 and "invoice_selling_cost"."deleted_at" is null)',
       params: [COMPANY, SHIPMENT],
     });
   });
@@ -177,12 +181,12 @@ describe("copy", () => {
     expect(steps()).toEqual(["begin", "lock", "read invoice_cost", "read invoice_selling_cost", "insert invoice_selling_cost", "upsert billing_settings", "commit"]);
   });
 
-  it("sets the quote reference of the shipment's one settings row and nothing else of it - and only when the row is the caller's company's", async () => {
+  it("sets the quote reference of the shipment's one settings row of the caller's company and nothing else of it", async () => {
     await copy({ buying: BUYING });
     const [{ row, conflict }] = fake.state.upserts as [(typeof fake.state.upserts)[number]];
     expect(row).toEqual({ companyId: COMPANY, shipmentId: SHIPMENT, quoteRef: REF });
-    expect(conflict.target).toBe(billingSettingsTable.shipmentId);
-    expect(conflict.set).toEqual({ quoteRef: REF, updatedAt: expect.any(Date) });
-    expect(sent(conflict.setWhere)).toEqual({ sql: '"billing_settings"."company_id" = $1', params: [COMPANY] });
+    // The settings row is unique per (company, shipment): another company's row is another row.
+    expect(conflict.target).toEqual([billingSettingsTable.companyId, billingSettingsTable.shipmentId]);
+    expect(conflict.set).toEqual({ quoteRef: REF, updatedAt: expect.any(Date), deletedAt: null });
   });
 });

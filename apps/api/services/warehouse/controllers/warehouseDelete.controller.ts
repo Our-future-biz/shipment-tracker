@@ -1,5 +1,5 @@
 import { api } from "encore.dev/api";
-import { getAuthData } from "~encore/auth";
+import { requireRole } from "../../../lib/rbac";
 import { warehouseService } from "../services/warehouse.service";
 
 interface WarehouseDeleteRequest {
@@ -13,7 +13,8 @@ interface WarehouseDeleteResponse {
 export const warehouseDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/warehouse/:taskId" },
   async (req: WarehouseDeleteRequest): Promise<WarehouseDeleteResponse> => {
-    await warehouseService.softDelete(req.taskId, getAuthData()!.companyID);
+    const actor = requireRole("superadmin", "admin", "manager");
+    await warehouseService.softDelete(req.taskId, actor.companyID);
     return { ok: true };
   },
 );

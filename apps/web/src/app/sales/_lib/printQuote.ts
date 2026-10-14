@@ -4,11 +4,11 @@ import { fmtMoney } from "@/lib/money";
 import type { SalesQuoteData, PackageLine, CostLine } from "./types";
 import { UNSENT_QUOTE_STATUSES } from "./types";
 import { hasCompanyDetails, type StoredCompanyDetails } from "./companyDetails";
-import { cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fmtDimensions, quoteValidUntil } from "./salesQuote";
+import { escapeHtml } from "@/lib/html";
+import { cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fmtDimensions, fxClause, quoteValidUntil, ratesNeeded } from "./salesQuote";
 
 // Whatever a user typed is text on the document, never markup.
-const esc = (s: unknown) =>
-  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] ?? c));
+const esc = escapeHtml;
 
 // The stored company details belong on every quotation. While they are not known - which is not
 // the same as none being stored - the document would go out without saying who it is from.
@@ -26,15 +26,21 @@ type QuoteDocument = { html: string; blocked: null } | { html: null; blocked: st
 // The one definition of the client-facing quotation: the preview shows this HTML and Export PDF
 // prints it, so what is checked on screen is what the customer receives. Never shows
 // buying/cost/margin. A total that cannot be worked out must not reach the customer, so such a
-// quote has no document. `exchange` is the current Exchange sheet (useCurrentExchangeRates).
+// quote has no document. `exchange` is today's ČNB fixing and ROE % (useCurrentExchangeRates); a
+// sent quote is priced at the rates stored on it.
 export function quoteDocument(
   quoteNumber: string,
   data: SalesQuoteData,
-  exchange: Pick<CurrentExchangeRates, "rates" | "isError">,
+  exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">,
   company: StoredCompanyDetails,
 ): QuoteDocument {
+  // A draft with lines in other currencies is priced at today's rates: not before they are in.
+  if (!data.fx && exchange.isLoading && ratesNeeded(data).length) {
+    return { html: null, blocked: "Today's ČNB rates are still loading. Try again in a moment." };
+  }
   const sheet = exchange.rates;
-  const totals = computeTotals(data, sheet);
+  const totals = computeTotals(data, sheet, exchange);
+  const clause = fxClause(data, totals);
   const blocked = senderBlock(company) ?? documentBlock(totals, exchange.isError);
   if (blocked) return { html: null, blocked };
 
@@ -129,7 +135,7 @@ export function quoteDocument(
       (l: CostLine) => `<tr>
         <td>${esc(l.type)}</td>
         <td>${esc(l.description)}</td>
-        <td style="text-align:right">${money(convertLine(l, data, sheet))}</td>
+        <td style="text-align:right">${money(convertLine(l, data, sheet, { selling: true, live: exchange }))}</td>
       </tr>`,
     )
     .join("");
@@ -142,7 +148,7 @@ export function quoteDocument(
         <thead><tr><th>Service</th><th>Description</th><th style="text-align:right">Amount</th></tr></thead>
         <tbody>${sellingRows}</tbody>
         <tfoot><tr class="totals"><td colspan="2">Total</td><td style="text-align:right">${money(totals.selling)}</td></tr></tfoot>
-      </table>`
+      </table>${clause ? `<p class="fx-clause">${esc(clause)}</p>` : ""}`
     : "";
 
   const signature = [data.salesOwner, from.name].filter(Boolean).join(" · ");
@@ -163,6 +169,7 @@ export function quoteDocument(
     th, td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; }
     th { background: #f8fafc; }
     tr.totals td { background: #f1f5f9; font-weight: bold; }
+    .fx-clause { font-size: 11px; color: #64748b; margin-top: 6px; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 13px; }
     .grid div span { color: #64748b; display: inline-block; width: 120px; }
     /* Text typed on several lines keeps its lines. */
@@ -254,7 +261,7 @@ export function quoteDocument(
 export function printQuote(
   quoteNumber: string,
   data: SalesQuoteData,
-  exchange: Pick<CurrentExchangeRates, "rates" | "isError">,
+  exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">,
   company: StoredCompanyDetails,
 ): string | null {
   const doc = quoteDocument(quoteNumber, data, exchange, company);

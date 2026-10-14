@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -22,7 +22,7 @@ import { DeleteOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@an
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
-import { fileToBase64 } from "@/lib/files";
+import { fileToBase64, formatFileSize } from "@/lib/files";
 import { FULL_LOAD } from "@/lib/enums";
 import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -499,7 +499,8 @@ export function DocumentReadingWorkflow() {
     }
   };
 
-  const loadNextBatch = async () => {
+  // Reads the current session and batch, so the prefetch below always asks for the right one.
+  const loadNextBatch = useCallback(async () => {
     if (hblLoading || hblBatchIndex >= hblTotalBatches) return;
     setHblLoading(true);
     setError(null);
@@ -511,7 +512,7 @@ export function DocumentReadingWorkflow() {
       setError(err instanceof Error ? err.message : "Failed to load next batch.");
     }
     setHblLoading(false);
-  };
+  }, [hblLoading, hblBatchIndex, hblTotalBatches, pipelineSessionId]);
 
   const advanceMaster = () => {
     const nextIdx = masterIdx + 1;
@@ -534,10 +535,9 @@ export function DocumentReadingWorkflow() {
   useEffect(() => {
     if (pipelineStep !== "ready" || hblLoading || hblBatchIndex >= hblTotalBatches) return;
     if (masterShipments.length - masterIdx <= HBL_PREFETCH_AHEAD) {
-      loadNextBatch();
+      void loadNextBatch();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipelineStep, hblLoading, hblBatchIndex, hblTotalBatches, masterShipments.length, masterIdx]);
+  }, [pipelineStep, hblLoading, hblBatchIndex, hblTotalBatches, masterShipments.length, masterIdx, loadNextBatch]);
 
   // Resolve a "waiting for next batch" pause once more shipments arrive (or finish).
   useEffect(() => {
@@ -875,7 +875,7 @@ export function DocumentReadingWorkflow() {
               className="mt-3"
               type="warning"
               showIcon
-              message={`The files add up to ${formatSize(masterFilesSize)}; at most ${formatSize(MASTER_FILES_MAX_BYTES)} can be read in one go. Remove some and read them as a second batch with "Add to existing".`}
+              message={`The files add up to ${formatFileSize(masterFilesSize)}; at most ${formatFileSize(MASTER_FILES_MAX_BYTES)} can be read in one go. Remove some and read them as a second batch with "Add to existing".`}
             />
           )}
 
@@ -1168,22 +1168,19 @@ interface MasterFile {
   base64: string;
 }
 
-const formatSize = (bytes: number) =>
-  bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} kB`;
-
 // The files picked for one pre-alert, so it is clear exactly what will be read.
 function MasterFileList({ files, onRemove }: { files: MasterFile[]; onRemove: (uid: string) => void }) {
   return (
     <div className="mt-3 border border-slate-200 rounded-lg">
       <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-        Uploaded files ({files.length}) · {formatSize(files.reduce((sum, f) => sum + f.size, 0))}
+        Uploaded files ({files.length}) · {formatFileSize(files.reduce((sum, f) => sum + f.size, 0))}
       </div>
       <ul className="m-0 p-0 list-none">
         {files.map((f) => (
           <li key={f.uid} className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 last:border-b-0 text-xs">
             <FileOutlined className="text-indigo-400" />
             <span className="flex-1 min-w-0 truncate text-slate-800 font-medium">{f.name}</span>
-            <span className="shrink-0 text-slate-400">{formatSize(f.size)}</span>
+            <span className="shrink-0 text-slate-400">{formatFileSize(f.size)}</span>
             <Button
               size="small"
               type="text"

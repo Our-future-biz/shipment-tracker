@@ -1,23 +1,17 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { extractFromTextByDestination } from "../services/extraction.service";
 import type { ExtractionResult } from "../interfaces/interfaces";
 
 interface ExtractTextRequest {
-  text: string;
+  /** up to 6000 characters for a quote request, 1500 otherwise (checked by the service) */
+  text: string & MinLen<10> & MaxLen<6000>;
   destination: string; // "shipment" | "invoicing" | "quote" | "customs" | "booking"
 }
 
 export const extractText = api(
   { expose: true, auth: true, method: "POST", path: "/extraction/text" },
   async (req: ExtractTextRequest): Promise<ExtractionResult> => {
-    if (!req.text || req.text.length < 10) {
-      throw APIError.invalidArgument("text must be at least 10 characters");
-    }
-    // A customer's e-mail, with its signature and the mail it answers, is longer than a line of shipping data.
-    const maxLength = req.destination === "quote" ? 6000 : 1500;
-    if (req.text.length > maxLength) {
-      throw APIError.invalidArgument(`text must be at most ${maxLength} characters`);
-    }
     return extractFromTextByDestination(req.text, req.destination);
   },
 );

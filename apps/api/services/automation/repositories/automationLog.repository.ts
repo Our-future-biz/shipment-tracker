@@ -1,20 +1,20 @@
-import { eq, and, desc } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { automationLogTable } from "../schemas/automationLog.schema";
+import { automationLogTable as t, type AutomationLogRecord } from "../schemas/automationLog.schema";
 
-class AutomationLogRepository {
-  async listByShipmentId(shipmentId: string, companyId: string, limit = 100) {
-    return db
-      .select()
-      .from(automationLogTable)
-      .where(and(eq(automationLogTable.companyId, companyId), eq(automationLogTable.shipmentId, shipmentId)))
-      .orderBy(desc(automationLogTable.createdAt))
-      .limit(limit);
+class AutomationLogRepository extends TenantRepository<typeof t> {
+  constructor() {
+    super(db, t, "automation_log");
   }
 
-  async create(data: { companyId: string; shipmentId: string; ruleName: string; action: string; details?: unknown; triggeredById?: string | null }) {
-    const [row] = await db.insert(automationLogTable).values(data as never).returning();
-    return row!;
+  async listByShipmentId(shipmentId: string, companyId: string, limit = 100): Promise<AutomationLogRecord[]> {
+    return this.db
+      .select()
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)))
+      .orderBy(desc(t.createdAt))
+      .limit(limit);
   }
 }
 

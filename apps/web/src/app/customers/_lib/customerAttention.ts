@@ -11,6 +11,7 @@ import { deadlineDayLabel, deadlineLabel } from "@/lib/shipmentDeadlines";
 import { getNaceInfo, isNewCompany, isRegistryActive, parseNaceCodes } from "./companyAnalysis";
 import { daysSince } from "./customerDates";
 import { daysOverdue, summarizeInvoices } from "./customerInvoices";
+import type { Rates } from "@/lib/fx";
 import { fmtMoney, roundCents } from "./customerMoney";
 import { quoteBucket } from "./customerQuotes";
 
@@ -52,6 +53,8 @@ export interface AttentionInput {
   quotes: SalesQuote[];
   documents: DocumentItem[];
   notes: NoteItem[];
+  // Today's exchange rates: invoices in another currency are compared with the limit in the customer's currency.
+  rates: Rates;
   // The viewer's clock in milliseconds; given explicitly in tests.
   now?: number;
 }
@@ -153,7 +156,7 @@ const documentTypeKey = (type: string) => type.trim().toLowerCase();
 // Everything that needs attention, most serious first: all critical items, then all warnings,
 // each group in a fixed order of rules.
 export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
-  const { customer, invoices, dueWithin24h, dueWithin48h, quotes, documents, notes, now = Date.now() } = input;
+  const { customer, invoices, dueWithin24h, dueWithin48h, quotes, documents, notes, rates, now = Date.now() } = input;
   const { creditLimit, currency } = customer;
   const items: AttentionItem[] = [];
 
@@ -168,7 +171,7 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
   }
 
   // The same summary the Finance tab shows, so the count and the amount match its Overdue tile.
-  const summary = summarizeInvoices(invoices, now);
+  const summary = summarizeInvoices(invoices, { currency, rates }, now);
   if (summary.overdueCount > 0) {
     // 0 when every overdue invoice was only marked so by hand (no due date, or one not passed yet).
     const oldestDays = invoices.reduce((max, invoice) => Math.max(max, daysOverdue(invoice, now)), 0);

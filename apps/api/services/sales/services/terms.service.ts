@@ -1,11 +1,15 @@
 import { APIError } from "encore.dev/api";
 import type { Actor } from "../../../lib/rbac";
 import { termsConditionRepository } from "../repositories/termsCondition.repository";
+import type { NewTermsConditionRecord } from "../schemas/termsCondition.schema";
+import type { TermsConditionItem } from "../interfaces/interfaces";
+import { toTermsItem } from "../utils/termsItem.utils";
 import { permissionsService } from "./permissions.service";
 
 const DEFAULT_TEMPLATES = ["AIR IMPORT", "AIR EXPORT", "FCL IMPORT", "FCL EXPORT", "LCL IMPORT", "LCL EXPORT"];
 
 const NAME_TAKEN = "A terms & conditions template with this name already exists";
+const notFound = () => APIError.notFound("Terms & conditions not found");
 
 /** What a change of a template may carry: only the fields that are sent are written. */
 export interface TermsChange {
@@ -21,29 +25,29 @@ export interface TermsChange {
 class TermsService {
   // Each company gets its own set of default templates on first use - and only then: a company
   // that deleted all its templates keeps an empty list.
-  async ensureSeeded(companyId: string) {
+  async ensureSeeded(companyId: string): Promise<void> {
     if ((await termsConditionRepository.countEver(companyId)) > 0) return;
     await termsConditionRepository.seed(companyId, DEFAULT_TEMPLATES);
   }
 
-  async list(companyId: string) {
+  async list(companyId: string): Promise<TermsConditionItem[]> {
     await this.ensureSeeded(companyId);
-    return termsConditionRepository.listAll(companyId);
+    return (await termsConditionRepository.listAll(companyId)).map(toTermsItem);
   }
 
-  async create(actor: Actor, name: string) {
+  async create(actor: Actor, name: string): Promise<TermsConditionItem> {
     permissionsService.requireSettingsEditor(actor);
     const trimmed = name.trim();
     if (!trimmed) throw APIError.invalidArgument("name is required");
     const existing = await termsConditionRepository.findByNameInsensitive(trimmed, actor.companyID);
     if (existing) throw APIError.alreadyExists(NAME_TAKEN);
-    return termsConditionRepository.createForCompany(actor.companyID, { name: trimmed, includes: "", excludes: "" } as never);
+    return toTermsItem(await termsConditionRepository.createForCompany(actor.companyID, { name: trimmed, includes: "", excludes: "" }));
   }
 
-  // Returns the template as written, or null when the company has no such template.
-  async update(id: string, actor: Actor, data: TermsChange) {
+  // The template as written; not found when the company has no such live template.
+  async update(id: string, actor: Actor, data: TermsChange): Promise<TermsConditionItem> {
     permissionsService.requireSettingsEditor(actor);
-    const patch: { name?: string; includes?: string; excludes?: string } = {};
+    const patch: Partial<NewTermsConditionRecord> = {};
     if (data.name !== undefined) {
       // A new name answers to the rules of a new template's name; the template's own name, in
       // whatever capitals, is not "taken".
@@ -55,23 +59,27 @@ class TermsService {
     }
     if (data.includes !== undefined) patch.includes = data.includes;
     if (data.excludes !== undefined) patch.excludes = data.excludes;
-    if (data.expectedUpdatedAt === undefined) return termsConditionRepository.updateForCompany(id, actor.companyID, patch as never);
+    if (data.expectedUpdatedAt === undefined) {
+      const row = await termsConditionRepository.updateForCompany(id, actor.companyID, patch);
+      if (!row) throw notFound();
+      return toTermsItem(row);
+    }
 
     const expected = new Date(data.expectedUpdatedAt);
     if (Number.isNaN(expected.getTime())) throw APIError.invalidArgument("expectedUpdatedAt is not a time");
     const written = await termsConditionRepository.updateIfUnchanged(id, actor.companyID, patch, expected);
-    if (written) return written;
+    if (written) return toTermsItem(written);
     // Nothing was written: the template is gone, or it is no longer the version the change was
     // made on. Only the second is a conflict.
     if (await termsConditionRepository.getByIdForCompany(id, actor.companyID)) {
       throw APIError.aborted("the template was changed by someone else - load the latest version");
     }
-    return null;
+    throw notFound();
   }
 
-  async softDelete(id: string, actor: Actor) {
+  async softDelete(id: string, actor: Actor): Promise<void> {
     permissionsService.requireSettingsEditor(actor);
-    return termsConditionRepository.softDeleteForCompany(id, actor.companyID);
+    if (!(await termsConditionRepository.softDeleteForCompany(id, actor.companyID))) throw notFound();
   }
 }
 

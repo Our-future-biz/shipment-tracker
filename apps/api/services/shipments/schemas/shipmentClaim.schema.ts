@@ -1,5 +1,8 @@
-import { pgTable, text, uuid, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, uuid, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { shipmentTable } from "./shipment.schema";
+import type { ClaimKind } from "../interfaces/interfaces";
 
 // Claims of a shipment. "cargo" is a claim on the shipment itself (the state the cargo
 // arrived in); "cost" is a claim we raise against a supplier's invoice. A shipment can
@@ -9,8 +12,8 @@ export const shipmentClaimTable = pgTable(
   {
     ...defaultTableColumns,
     ...tenantColumns,
-    shipmentId: uuid("shipment_id").notNull(),
-    kind: text("kind").notNull(), // cargo | cost
+    shipmentId: uuid("shipment_id").notNull().references(() => shipmentTable.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<ClaimKind>().notNull(),
 
     // Claim on the shipment
     cargoState: text("cargo_state").notNull().default(""), // Damaged | Incomplete | Undamaged | Lost
@@ -26,7 +29,9 @@ export const shipmentClaimTable = pgTable(
     ...defaultTableIndexes("shipment_claim", table),
     tenantIndex("shipment_claim", table),
     index("shipment_claim_shipment_id_idx").on(table.shipmentId),
+    check("shipment_claim_kind_check", sql`${table.kind} IN ('cargo', 'cost')`),
   ],
 );
 
 export type ShipmentClaimRecord = typeof shipmentClaimTable.$inferSelect;
+export type NewShipmentClaimRecord = typeof shipmentClaimTable.$inferInsert;

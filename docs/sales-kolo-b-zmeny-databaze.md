@@ -29,10 +29,10 @@ git diff main...SALES-1.0 -- 'apps/api/services/*/db/migrations/*.sql'
 
 | Služba | Soubor | Co dělá |
 |---|---|---|
-| quotes | `0003_quote_columns.sql` | 17 nových sloupců a 4 indexy na tabulce `quote` |
-| quotes | `0004_quote_lifecycle_adopt.sql` | 6 SQL funkcí a první naplnění nových sloupců z JSON |
-| quotes | `0005_quote_lifecycle_catchup.sql` | jeden příkaz, zopakuje naplnění |
-| invoicing | `0008_cost_line_description.sql` | 2 nové sloupce na `invoice_cost` a 2 na `invoice_selling_cost` |
+| quotes | `0004_quote_columns.sql` | 17 nových sloupců a 4 indexy na tabulce `quote` |
+| quotes | `0005_quote_lifecycle_adopt.sql` | 6 SQL funkcí a první naplnění nových sloupců z JSON |
+| quotes | `0006_quote_lifecycle_catchup.sql` | jeden příkaz, zopakuje naplnění |
+| invoicing | `0014_cost_line_description.sql` | 2 nové sloupce na `invoice_cost` a 2 na `invoice_selling_cost` |
 | sales | `0002_followup_task.sql` | nová tabulka `followup_task` a 6 indexů |
 | sales | `0003_followup_task_import_fn.sql` | 2 SQL funkce; samy nic nekopírují |
 
@@ -40,7 +40,7 @@ Verze `schema_migrations` v lokální databázi po aplikaci: quotes 5, invoicing
 
 Migrace zásilek `0035` až `0037` jsou na větvi také, ale přišly sloučením `main` (práce na Customs). V lokální databázi už byly.
 
-### quotes `0003`: sloupce tabulky `quote`
+### quotes `0004`: sloupce tabulky `quote`
 
 | Sloupec | Typ | K čemu |
 |---|---|---|
@@ -57,18 +57,18 @@ Migrace zásilek `0035` až `0037` jsou na větvi také, ale přišly sloučení
 
 Indexy: `quote_company_status_idx`, `quote_customer_id_idx`, `quote_owner_user_id_idx`, `quote_unadopted_idx` (částečný).
 
-### quotes `0004` a `0005`: funkce a naplnění
+### quotes `0005` a `0006`: funkce a naplnění
 
 - `quote_try_timestamptz`, `quote_try_date`, `quote_try_int`: převody, které na nečitelné hodnotě vrátí NULL místo chyby.
 - `quote_lifecycle_of(jsonb)`: z dokumentu nabídky odvodí stav, data, platnost a obchodníka.
 - `quote_adopt_lifecycle(company, include_drifted, id)`: zapíše odvozené hodnoty do nových sloupců. Opakované volání nic nezmění.
 - `quote_lifecycle_drift(company)`: vrátí nabídky, u kterých se sloupce liší od dokumentu. Má vracet prázdný výsledek.
 
-`0004` na konci jednou zavolá `quote_adopt_lifecycle`. Sloupec `data`, `updated_at` ani `terms` tím nemění. Řádky starého modulu `/quotes` (bez `quoteStatus` v JSON) zůstávají s NULL.
+`0005` na konci jednou zavolá `quote_adopt_lifecycle`. Sloupec `data`, `updated_at` ani `terms` tím nemění. Řádky starého modulu `/quotes` (bez `quoteStatus` v JSON) zůstávají s NULL.
 
-### invoicing `0008`
+### invoicing `0014`
 
-Na větvi `SALES-1.0` nesla tato migrace číslo `0006`. Při přenosu Sales na aktuální `main` (větev `SALES-1.1`, 13. 10. 2026) dostala číslo `0008`, protože `main` mezitím získal vlastní `0006_customs_invoicing` a `0007_customs_invoice_unique_per_company`. Obsah souboru se nezměnil.
+Na větvi `SALES-1.0` nesla tato migrace číslo `0006`. Při přenosu Sales na aktuální `main` (větev `SALES-1.1`, 13. 10. 2026) dostala číslo `0008`, protože `main` mezitím získal vlastní `0006_customs_invoicing` a `0007_customs_invoice_unique_per_company`. Při sloučení s `main` (14. 10. 2026) dostala číslo `0014`, protože `main` mezitím přidal `0008`–`0013` (fakturace a ČNB kurzy). Ze stejného důvodu se migrace quotes posunuly o jedno číslo (`0004`–`0007`) za `main`ovu `0003_quote_attachment_company_index`. Obsah souborů se nezměnil.
 
 `description` a `source_quote_number` (obojí `text NOT NULL DEFAULT ''`) na `invoice_cost` a `invoice_selling_cost`. Existující řádky dostaly prázdný řetězec.
 
@@ -90,7 +90,7 @@ Funkce `sales_try_date` a `sales_import_followup_tasks(company)`. Migrace žádn
 
 ## Na co myslet při nasazení
 
-- **Zámek na tabulce `quote`:** přidání generovaného sloupce `customer_id` tabulku jednou přepíše a `0004` projde jedním UPDATE všechny nabídky. Na tisících řádků jde o krátkou chvíli, ale je to výhradní zámek.
+- **Zámek na tabulce `quote`:** přidání generovaného sloupce `customer_id` tabulku jednou přepíše a `0005` projde jedním UPDATE všechny nabídky. Na tisících řádků jde o krátkou chvíli, ale je to výhradní zámek.
 - **Verze Postgresu:** hledání v nabídkách používá `normalize()`, tedy Postgres 13 nebo novější a databázi v UTF-8. Lokálně běží 18.3, `en_US.utf8`. Produkční verze ověřena nebyla.
 - **Po nasazení zkontrolovat:**
   - `SELECT version, dirty FROM schema_migrations;` v databázích quotes, invoicing a sales,
@@ -155,11 +155,11 @@ Pokud `old_rows_live`, `live_attachments` nebo `live_with_old_cost_grid` nevyjdo
 
 ## Dodatek 2: sedmá migrace (12. 10. 2026)
 
-Po kole C přibyla jedna migrace, na přání majitele: **quotes `0006_quote_substatus_clear.sql`**.
+Po kole C přibyla jedna migrace, na přání majitele: **quotes `0007_quote_substatus_clear.sql`**.
 
 - Podstav stavu Feedback („Under Review", „Negotiation"…) se už nezadává, nezobrazuje ani neukládá. Migrace smaže, co z něj bylo uložené: hodnotu sloupce `quote.substatus`, klíč `substatus` v JSON dokumentu a klíče `substatus` a `fromSubstatus` v řádcích historie (`data->'timeline'`).
 - **Je to jediná migrace, která maže data**, a smazání nejde vrátit jinak než ze zálohy. Týká se jen nabídek Sales (`status IS NOT NULL`).
-- Nemění `updated_at`, `data_version` ani žádný jiný klíč dokumentu. Sloupec `substatus` zůstává (od teď vždy NULL), aby funkce z `0004` fungovaly dál. Druhé spuštění nic nezmění.
+- Nemění `updated_at`, `data_version` ani žádný jiný klíč dokumentu. Sloupec `substatus` zůstává (od teď vždy NULL), aby funkce z `0005` fungovaly dál. Druhé spuštění nic nezmění.
 - Lokálně změnila 2 nabídky (jen řádky historie); `quote_lifecycle_drift()` je po ní prázdné. Verze `schema_migrations` v quotes je teď 6.
 - Lokální záloha těsně před ní: `~/Documents/Shipment Tracker/zalohy/2026-10-12_15-45`.
 

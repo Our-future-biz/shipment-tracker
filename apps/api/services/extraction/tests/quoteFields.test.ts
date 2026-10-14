@@ -177,7 +177,10 @@ describe("the quote's lists and the web's", () => {
   it("offer the same options as the Sales quote page", () => {
     expect(list("DIRECTIONS")).toEqual([...QUOTE_DIRECTIONS]);
     expect(list("SERVICE_TYPES")).toEqual([...QUOTE_FREIGHT_MODES]);
-    expect(list("INCOTERMS")).toEqual([...QUOTE_INCOTERMS]);
+    // The web keeps the Incoterms in one list for every picker: the codes of INCOTERM_NAMES.
+    const names = webFile("lib/incoterms.ts").match(/export const INCOTERM_NAMES[^{]*\{([^}]*)\}/);
+    expect(names, "INCOTERM_NAMES not found in lib/incoterms.ts").not.toBeNull();
+    expect([...names![1]!.matchAll(/^\s*([A-Z]{3}):/gm)].map((m) => m[1])).toEqual([...QUOTE_INCOTERMS]);
   });
 
   /**

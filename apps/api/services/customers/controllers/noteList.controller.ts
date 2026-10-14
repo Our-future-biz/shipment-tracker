@@ -14,7 +14,6 @@ interface NoteListResponse {
 export const noteList = api(
   { expose: true, auth: true, method: "GET", path: "/customers/:customerId/notes" },
   async (req: NoteListRequest): Promise<NoteListResponse> => {
-    const data = await noteService.listByCustomer(req.customerId, getAuthData()!.companyID);
-    return { data: data as unknown as NoteItem[] };
+    return { data: await noteService.listByCustomer(req.customerId, getAuthData()!.companyID) };
   },
 );

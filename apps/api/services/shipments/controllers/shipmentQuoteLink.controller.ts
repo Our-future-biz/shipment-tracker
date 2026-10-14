@@ -1,6 +1,5 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
-import { isUuid } from "../../../lib/uuid";
 import { shipmentService } from "../services/shipment.service";
 import type { QuoteSyncResult } from "../interfaces/interfaces";
 
@@ -20,12 +19,6 @@ interface ShipmentQuoteLinkRequest {
 export const shipmentQuoteLink = api(
   { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/quote-link" },
   async (req: ShipmentQuoteLinkRequest): Promise<QuoteSyncResult> => {
-    // What is not an id names no shipment, and is kept from SQL: Postgres would answer it with an
-    // error of its own.
-    const synced = isUuid(req.shipmentId) ? await shipmentService.linkQuote(req.shipmentId, getAuthData()!.companyID, req.markWon === true) : null;
-    if (!synced) {
-      throw APIError.notFound("Shipment not found");
-    }
-    return synced;
+    return shipmentService.linkQuote(req.shipmentId, getAuthData()!.companyID, req.markWon === true);
   },
 );

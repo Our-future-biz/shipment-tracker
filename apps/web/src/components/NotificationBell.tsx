@@ -8,7 +8,10 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { useNoticeboard } from "@/hooks/useNoticeboard";
+import { useFxAlerts, useInvalidateFx } from "@/hooks/useFx";
 import { NoticeSeverityTag } from "@/app/dashboard/_components/NoticeSeverityTag";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { formatDate } from "@/lib/date";
 
 const formatTime = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -30,6 +33,13 @@ export function NotificationBell() {
     refetchInterval: 15000,
   });
   const mentions = mentionData?.mentions ?? [];
+  // ČNB rates still missing after the 16:00 pull — admins only; they clear themselves once
+  // the rates arrive.
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "superadmin";
+  const { data: fxAlertData } = useFxAlerts(isAdmin);
+  const invalidateFx = useInvalidateFx();
+  const fxAlerts = isAdmin ? (fxAlertData?.alerts ?? []) : [];
   const { announcements, viewer, hasLoaded: noticesLoaded } = useNoticeboard();
   const [open, setOpen] = useState(false);
   // "Unread" is what still needs attention; "All" keeps the recent notices in reach after
@@ -51,6 +61,19 @@ export function NotificationBell() {
       });
     }
   }, [mentionData, toast]);
+
+  const seenFxAlerts = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!fxAlertData) return;
+    const before = seenFxAlerts.current;
+    const fresh = before ? fxAlertData.alerts.filter((a) => !before.has(a.id)) : [];
+    seenFxAlerts.current = new Set(fxAlertData.alerts.map((a) => a.id));
+    for (const a of fresh) {
+      toast.notify({ title: `ČNB exchange rates missing for ${formatDate(a.fixingDate)}`, description: a.reason, type: "error" });
+    }
+    // The missing rates arrived: everything priced from rates (previews, queue) is stale.
+    if (before && before.size > 0 && fxAlertData.alerts.length === 0) invalidateFx();
+  }, [fxAlertData, toast, invalidateFx]);
 
   // The notices this tab has accounted for; null until the list first arrives. Only ones not
   // seen before are announced — by id, so a notice whose timestamp is older than one already
@@ -82,7 +105,7 @@ export function NotificationBell() {
     router.push(href);
   };
 
-  const total = mentions.length + notices.length;
+  const total = mentions.length + notices.length + fxAlerts.length;
   const rowClass = "block w-full text-left px-4 py-2.5 border-b border-slate-100 last:border-b-0 bg-white hover:bg-slate-50 cursor-pointer";
   const headingClass = "px-4 py-2 border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500";
 
@@ -106,7 +129,21 @@ export function NotificationBell() {
           ))}
         </span>
       </div>
-      {listed.length + mentions.length === 0 && (
+      {fxAlerts.length > 0 && <div className={headingClass}>Exchange rates</div>}
+      {fxAlerts.map((a) => (
+        <button key={a.id} type="button" onClick={() => go("/exchange")} className={rowClass}>
+          <span className="flex items-center gap-2">
+            <span role="img" aria-label="Unresolved" className="shrink-0 w-2 h-2 rounded-full bg-red-500" />
+            <span className="min-w-0 flex-1 text-[13px] font-semibold text-slate-800 truncate">
+              ČNB rates missing for {formatDate(a.fixingDate)}
+            </span>
+            <NoticeSeverityTag severity="critical" />
+          </span>
+          <span className="text-[12px] line-clamp-2 text-slate-600">{a.reason}</span>
+          <span className="block text-[11px] text-slate-400 mt-0.5">System · {formatTime(a.raisedAt)}</span>
+        </button>
+      ))}
+      {listed.length + mentions.length + fxAlerts.length === 0 && (
         <p className="px-4 py-6 text-center text-xs text-slate-400">{view === "unread" ? "Nothing new." : "No notifications yet."}</p>
       )}
       {listed.length > 0 && <div className={headingClass}>Noticeboard</div>}
@@ -146,7 +183,7 @@ export function NotificationBell() {
         aria-label={total ? `Notifications — ${total} unread` : "Notifications"}
         className="flex items-center justify-center w-9 h-9 rounded-md bg-transparent border-none cursor-pointer text-slate-500 hover:bg-slate-50 hover:text-slate-700"
       >
-        <Badge count={total} size="small" color="#ef4444">
+        <Badge count={total} size="small" color="red">
           <BellOutlined className="text-[18px]" />
         </Badge>
       </button>

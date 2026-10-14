@@ -3,17 +3,17 @@
 import { useRef, useState } from "react";
 import { Input, Modal, Tooltip, message } from "antd";
 import { DeleteOutlined, DownloadOutlined, EyeOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { attachmentContentUrl, fileToBase64 } from "@/lib/files";
+import { useMutation } from "@tanstack/react-query";
+import { api, apiFileUrl } from "@/lib/api";
+import { fileToBase64, formatFileSize } from "@/lib/files";
+import { useShipmentAttachments } from "@/hooks/useShipmentAttachments";
 import { guessDocumentType } from "@/lib/documentTypes";
-import { formatFileSize, ExtBadge } from "@/app/shipments/[jobNumber]/tabs/docsShared";
+import { ExtBadge } from "@/app/shipments/[jobNumber]/tabs/docsShared";
 
 // The shipment's documents, as a side panel: just the list, with drag & drop and "+".
 // The full page with the required-document checklist lives in the Documents tab.
 
 export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
-  const queryClient = useQueryClient();
   const [messageApi, contextHolder] = message.useMessage();
   const [search, setSearch] = useState("");
   const [dragOver, setDragOver] = useState(false);
@@ -23,17 +23,8 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
   const [preview, setPreview] = useState<{ name: string; url: string; type: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["shipment-attachments", shipmentId],
-    queryFn: () => api.shipments.attachmentList(shipmentId),
-  });
-  const files = (data?.attachments ?? []).filter((a) => a.fileName.toLowerCase().includes(search.trim().toLowerCase()));
-
-  // The list rows carry the shipment's document types (the Customs "received" ticks follow them).
-  const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: ["shipments"] });
-    return queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipmentId] });
-  };
+  const { attachments, isLoading, refresh } = useShipmentAttachments(shipmentId);
+  const files = attachments.filter((a) => a.fileName.toLowerCase().includes(search.trim().toLowerCase()));
 
   const remove = useMutation({
     mutationFn: (id: string) => api.shipments.attachmentDelete(shipmentId, id),
@@ -68,9 +59,9 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
     else messageApi.success(picked.length === 1 ? "Document added" : `${picked.length} documents added`);
   };
 
-  const openPreview = async (f: { id: string; fileName: string; fileType: string }) => {
+  const openPreview = async (f: { fileName: string; fileType: string; contentUrl: string }) => {
     try {
-      const resp = await fetch(attachmentContentUrl(shipmentId, f.id));
+      const resp = await fetch(apiFileUrl(f.contentUrl));
       if (!resp.ok) throw new Error(String(resp.status));
       const blob = await resp.blob();
       setPreview({ name: f.fileName, url: URL.createObjectURL(blob), type: f.fileType });
@@ -155,7 +146,7 @@ export function DocumentsPanel({ shipmentId }: { shipmentId: string }) {
             </Tooltip>
             <Tooltip title="Download">
               <a
-                href={attachmentContentUrl(shipmentId, f.id, true)}
+                href={apiFileUrl(f.contentUrl, true)}
                 className="text-slate-400 hover:text-indigo-500 p-1"
                 aria-label={`Download ${f.fileName}`}
               >

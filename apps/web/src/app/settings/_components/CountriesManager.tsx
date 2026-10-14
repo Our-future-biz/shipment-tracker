@@ -33,7 +33,10 @@ export function CountriesManager({ search }: CountriesManagerProps) {
 
   const handleSubmit = async () => {
     if (!editing) return;
-    const { code } = await form.validateFields();
+    // antd marks the invalid fields itself; a failed check just stops here.
+    const values = await form.validateFields().catch(() => null);
+    if (!values) return;
+    const { code } = values;
     setSaving(true);
     try {
       if (editing === "new") await createCountry({ code });

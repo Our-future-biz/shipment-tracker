@@ -1,0 +1,34 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1791959219950,
+      "tag": "0000_fx_init",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1791960650560,
+      "tag": "0001_fx_alert",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791961383235,
+      "tag": "0002_job_rate",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791995907989,
+      "tag": "0003_fx_constraints",
+      "breakpoints": true
+    }
+  ]
+}

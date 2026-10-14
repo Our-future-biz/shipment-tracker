@@ -15,7 +15,8 @@ export const quoteAttachmentTable = pgTable(
   (table) => [
     ...defaultTableIndexes("quote_attachment", table),
     tenantIndex("quote_attachment", table),
-    index("quote_attachment_quote_number_idx").on(table.quoteNumber),
+    // Attachments are always looked up within a company (quote numbers repeat across companies).
+    index("quote_attachment_company_quote_number_idx").on(table.companyId, table.quoteNumber),
   ],
 );
 

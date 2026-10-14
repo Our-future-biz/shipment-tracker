@@ -1,5 +1,7 @@
 import { pgTable, text, uuid, integer, index } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { shipmentTable } from "./shipment.schema";
+import { containerTable } from "./container.schema";
 
 // One dimension line (pieces of identical size/weight) of a shipment.
 // containerId is null for shipments without containers (LCL/air). Volume per
@@ -9,8 +11,8 @@ export const cargoDimensionTable = pgTable(
   {
     ...defaultTableColumns,
     ...tenantColumns,
-    shipmentId: uuid("shipment_id").notNull(),
-    containerId: uuid("container_id"),
+    shipmentId: uuid("shipment_id").notNull().references(() => shipmentTable.id, { onDelete: "cascade" }),
+    containerId: uuid("container_id").references(() => containerTable.id, { onDelete: "cascade" }),
     position: integer("position").notNull().default(0),
     pieces: text("pieces").notNull().default(""),
     lengthCm: text("length_cm").notNull().default(""),

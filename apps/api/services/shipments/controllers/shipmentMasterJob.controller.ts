@@ -1,4 +1,5 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
 import { masterJobService } from "../services/masterJob.service";
@@ -6,7 +7,7 @@ import type { ShipmentItem } from "../interfaces/interfaces";
 
 interface LinkMasterJobRequest {
   shipmentId: string;
-  mczNumber: string;
+  mczNumber: string & MinLen<1>;
 }
 
 interface LinkMasterJobResponse {
@@ -17,13 +18,9 @@ interface LinkMasterJobResponse {
 export const shipmentLinkMasterJob = api(
   { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/master-job" },
   async (req: LinkMasterJobRequest): Promise<LinkMasterJobResponse> => {
-    if (!req.mczNumber) {
-      throw APIError.invalidArgument("mczNumber is required");
-    }
     const auth = getAuthData()!;
     await masterJobService.attachShipment(req.shipmentId, auth.companyID, req.mczNumber, auth.userID);
-    const shipment = await shipmentService.getById(req.shipmentId, auth.companyID);
-    return { shipment: shipment as unknown as ShipmentItem };
+    return { shipment: await shipmentService.get(req.shipmentId, auth.companyID) };
   },
 );
 
@@ -40,7 +37,6 @@ export const shipmentUnlinkMasterJob = api(
   async (req: UnlinkMasterJobRequest): Promise<UnlinkMasterJobResponse> => {
     const companyId = getAuthData()!.companyID;
     await masterJobService.detachShipment(req.shipmentId, companyId);
-    const shipment = await shipmentService.getById(req.shipmentId, companyId);
-    return { shipment: shipment as unknown as ShipmentItem };
+    return { shipment: await shipmentService.get(req.shipmentId, companyId) };
   },
 );

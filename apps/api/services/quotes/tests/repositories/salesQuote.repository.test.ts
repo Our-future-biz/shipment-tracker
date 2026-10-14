@@ -939,8 +939,9 @@ describe("openCustomerQuotes", () => {
   it("takes of the document only what a quote's value is worked out from", async () => {
     await salesQuoteRepository.openCustomerQuotes(COMPANY, "2026-10-12");
     const { fields } = fake.state.openQuoteReads[0]!;
-    expect(Object.keys(fields)).toEqual(["customerId", "quoteNumber", "status", "validUntil", "currency", "rates", "sellingLines"]);
+    expect(Object.keys(fields)).toEqual(["customerId", "quoteNumber", "status", "validUntil", "currency", "fx", "rates", "sellingLines"]);
     expect(rendered(fields.currency).sql).toBe(`coalesce("quote"."data"->>'currency', '')`);
+    expect(rendered(fields.fx).sql).toBe(`"quote"."data"->'fx'`);
     expect(rendered(fields.rates).sql).toBe(`"quote"."data"->'rates'`);
     expect(rendered(fields.sellingLines).sql).toBe(`"quote"."data"->'sellingLines'`);
   });

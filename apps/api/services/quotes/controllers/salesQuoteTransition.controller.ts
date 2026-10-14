@@ -13,11 +13,6 @@ interface SalesQuoteTransitionRequest {
   /** To Lost: "Category: reason". */
   lostReason?: string;
   /**
-   * To Quoted: the Exchange sheet the sender saw (CZK per 1 unit, and its week). The rates the
-   * quote converts with and does not store yet are stored from it together with the sending.
-   */
-  exchange?: { rates: Record<string, number>; week?: string };
-  /**
    * The status the caller's screen showed - the effective one, so "expired" for a quote whose
    * validity has passed. When sent, the change is refused if the quote is in another by now.
    */

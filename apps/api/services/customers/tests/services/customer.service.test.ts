@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The service is run for real against a stand-in for the repository.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("../../db/db", () => ({ db: {} }));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("../../repositories/customer.repository", () => ({ customerRepository: { pipelineList: vi.fn() } }));
 
 import { customerRepository } from "../../repositories/customer.repository";

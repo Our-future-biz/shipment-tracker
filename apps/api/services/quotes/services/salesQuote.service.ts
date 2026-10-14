@@ -1,5 +1,5 @@
 import { APIError } from "encore.dev/api";
-import { auth } from "~encore/clients";
+import { auth, fx } from "~encore/clients";
 import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import type { PaginatedResponse } from "../../../lib/db/interface";
 import type { Actor } from "../../../lib/rbac";
@@ -11,7 +11,8 @@ import { quoteAttachmentRepository } from "../repositories/quoteAttachment.repos
 import { salesQuoteRepository, type NewSalesQuote, type SalesQuoteFilter, type SalesQuotePage } from "../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { matchOwnerLabel } from "../utils/ownerMatch.utils";
-import { carryKeys, isPlainObject, newDocument, ratesToStamp } from "../utils/quoteDocument.utils";
+import { carryKeys, isPlainObject, newDocument } from "../utils/quoteDocument.utils";
+import { planQuoteFx, type StoredFx } from "../lib/quoteFx";
 import {
   LifecycleError,
   SHOWN_STATUSES,
@@ -39,8 +40,6 @@ import { nameOf, userNames } from "./userNames";
 
 /** A change of status as the API takes it: the choice, and what the user's screen showed when it was made. */
 export interface TransitionRequest extends StatusChange {
-  /** The Exchange sheet the user saw. To Quoted, the rates the quote converts with and does not store yet are taken from it. */
-  exchange?: { rates: Record<string, number>; week?: string };
   /** The status the user saw - the one shown, so "expired" for a quote whose validity has passed. */
   expectedStatus?: string;
   /** The version of the document the user saw. */
@@ -178,6 +177,27 @@ function newRow(ctx: LifecycleContext, fields: Record<string, unknown>): (refere
   });
 }
 
+// The rates a quote stores after moving to `status`: the ones already stored on a sent quote, today's
+// ČNB rates and ROE % for one sent now, none for a draft. Undefined when the document keeps what it
+// has. A Lost quote that was never sent gets no rates. Rates are stamped even when ČNB's latest
+// fixing is missing (fxRatesOn then answers with the last one it has); the stamp says which day it is.
+async function fxDocumentFor(status: string, stored: unknown): Promise<{ fx: StoredFx | null } | undefined> {
+  const previous = isPlainObject(stored) ? stored : {};
+  const plan = planQuoteFx({ quoteStatus: status, ...("fx" in previous ? { fx: previous.fx } : {}) }, previous);
+  if (plan.action === "clear") return previous.fx === null ? undefined : { fx: null };
+  if (plan.action !== "stamp" || status === "lost") return undefined;
+  const r = await fx.fxRatesOn({});
+  return {
+    fx: {
+      date: r.date,
+      fixingDate: r.fixingDate,
+      roePct: r.roePct,
+      rates: Object.fromEntries(r.rates.map((x) => [x.currency, x.rate])),
+      lockedAt: new Date().toISOString(),
+    },
+  };
+}
+
 class SalesQuoteService {
   // What every read of sales quotes starts with: quotes written by code from before the server
   // owned the lifecycle get their columns, and owner texts nobody compared with the users yet
@@ -294,15 +314,14 @@ class SalesQuoteService {
         return applyTransition(state, request, ctx);
       });
       if (!change.changed) return { quote, changed: false };
-      // The customer is given totals worked out with the rates of this moment: those the quote
-      // does not store yet are stored with the sending, so next week's sheet cannot change what
-      // was sent. That writes the document, hence a new version of it - and only then.
-      const rates =
-        request.to === "quoted" && request.exchange ? ratesToStamp(isPlainObject(quote.data) ? quote.data : {}, request.exchange) : null;
+      // The customer is given totals worked out with the ČNB rates and ROE % of the moment it is
+      // sent: they are stored then and never change; back in a draft status they are dropped
+      // (see lib/quoteFx). That writes the document, hence a new version of it - and only then.
+      const document = await fxDocumentFor(change.state.status, quote.data);
       const written = await salesQuoteRepository.writeLifecycle(tx, quote, {
         state: change.state,
         entries: [change.entry],
-        document: rates ? { rates } : undefined,
+        document,
       });
       return { quote: written, changed: true };
     });

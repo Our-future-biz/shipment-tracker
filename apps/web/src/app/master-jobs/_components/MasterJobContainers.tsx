@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { App, Button, Input, Select } from "antd";
 import { ContainerOutlined, DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import { CONTAINER_TYPES } from "@/lib/cargo";
@@ -26,11 +27,16 @@ const TH = "px-2 py-2 text-left text-[11px] font-bold text-slate-500 uppercase t
 // assigned containers onto that house.
 export function MasterJobContainers({ id, fromShipments, containers, shipments, onSave }: MasterJobContainersProps) {
   const { message } = App.useApp();
-  const [draft, setDraft] = useState<MasterJobContainerLine[]>(containers);
+  // The draft belongs to the server copy it was edited from: a fresh copy (after any save)
+  // replaces it.
+  const [edit, setEdit] = useState({ base: containers, rows: containers });
+  const draft = edit.base === containers ? edit.rows : containers;
+  const setDraft = (next: MasterJobContainerLine[] | ((rows: MasterJobContainerLine[]) => MasterJobContainerLine[])) =>
+    setEdit((e) => {
+      const rows = e.base === containers ? e.rows : containers;
+      return { base: containers, rows: typeof next === "function" ? next(rows) : next };
+    });
   const [saving, setSaving] = useState(false);
-
-  // A fresh server copy (after any save) replaces the draft.
-  useEffect(() => setDraft(containers), [containers]);
 
   const dirty = JSON.stringify(draft) !== JSON.stringify(containers);
   const houseOptions = shipments.map((s) => ({ value: s.id, label: s.jobNumber }));
@@ -91,7 +97,7 @@ export function MasterJobContainers({ id, fromShipments, containers, shipments, 
             </thead>
             <tbody>
               {draft.map((c, i) => (
-                <tr key={c.id ?? `new-${i}`} className="border-b border-slate-100 last:border-b-0">
+                <tr key={c.id ?? rowKey(c)} className="border-b border-slate-100 last:border-b-0">
                   <td className="px-2 py-1.5">
                     <Input
                       size="small"

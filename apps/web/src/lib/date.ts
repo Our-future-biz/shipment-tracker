@@ -28,3 +28,9 @@ export function formatDateTime(value?: string | null): string {
   const d = toDayjs(value);
   return d.isValid() ? d.format("DD.MM.YYYY HH:mm") : value;
 }
+
+/** Today as the API stores dates (YYYY-MM-DD), in local time. */
+export function todayIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}

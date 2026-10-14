@@ -1,4 +1,4 @@
-import { pgTable, text, numeric, uuid, index } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, uuid, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const billingSettingsTable = pgTable(
@@ -6,8 +6,7 @@ export const billingSettingsTable = pgTable(
   {
     ...defaultTableColumns,
     ...tenantColumns,
-    // shipment_id is a globally-unique UUID, so one settings row per shipment holds across companies.
-    shipmentId: uuid("shipment_id").notNull().unique(),
+    shipmentId: uuid("shipment_id").notNull(),
     billingCurrency: text("billing_currency").notNull().default("CZK"),
     roe: numeric("roe", { precision: 14, scale: 6 }).notNull().default("1"),
     quoteRef: text("quote_ref").notNull().default(""),
@@ -16,6 +15,8 @@ export const billingSettingsTable = pgTable(
     ...defaultTableIndexes("billing_settings", table),
     tenantIndex("billing_settings", table),
     index("billing_settings_shipment_id_idx").on(table.shipmentId),
+    // One settings row per shipment, unique per company so another company's row never blocks it.
+    uniqueIndex("billing_settings_company_shipment_unique").on(table.companyId, table.shipmentId),
   ],
 );
 

@@ -1,13 +1,14 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { noteService } from "../services/note.service";
-import type { NoteItem } from "../interfaces/interfaces";
+import type { NoteItem, NoteType } from "../interfaces/interfaces";
 
 interface NoteCreateRequest {
   customerId: string;
-  type?: string;
-  content: string;
-  author?: string;
+  type?: NoteType;
+  content: string & MinLen<1> & MaxLen<20000>;
+  author?: string & MaxLen<200>;
 }
 
 interface NoteCreateResponse {
@@ -16,12 +17,7 @@ interface NoteCreateResponse {
 
 export const noteCreate = api(
   { expose: true, auth: true, method: "POST", path: "/customers/:customerId/notes" },
-  async (req: NoteCreateRequest): Promise<NoteCreateResponse> => {
-    if (!req.content) {
-      throw APIError.invalidArgument("content is required");
-    }
-    const { customerId, ...input } = req;
-    const note = await noteService.create(getAuthData()!.companyID, customerId, input);
-    return { note: note as unknown as NoteItem };
+  async ({ customerId, ...input }: NoteCreateRequest): Promise<NoteCreateResponse> => {
+    return { note: await noteService.create(getAuthData()!.companyID, customerId, input) };
   },
 );

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // repository's statements do to stored rows is not checked here.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
-vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() } }));
+vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() }, fx: { fxRatesOn: vi.fn() } }));
 vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmentRepository: { deleteForQuote: vi.fn() } }));
 vi.mock("../../repositories/salesQuote.repository", () => ({
   salesQuoteRepository: {
@@ -27,7 +27,7 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
 }));
 
 import log from "encore.dev/log";
-import { auth } from "~encore/clients";
+import { auth, fx } from "~encore/clients";
 import type { Actor } from "../../../../lib/rbac";
 import { quoteAttachmentRepository } from "../../repositories/quoteAttachment.repository";
 import { salesQuoteRepository, type LifecycleWrite, type QuoteTransaction } from "../../repositories/salesQuote.repository";
@@ -39,6 +39,7 @@ import { columnsOf } from "../../utils/quoteLifecycle.utils";
 const repository = vi.mocked(salesQuoteRepository);
 const attachments = vi.mocked(quoteAttachmentRepository);
 const usersList = vi.mocked(auth.usersList);
+const fxRatesOn = vi.mocked(fx.fxRatesOn);
 
 // 10 October 2026, noon in Prague.
 const NOW = new Date("2026-10-10T10:00:00.000Z");
@@ -516,33 +517,53 @@ describe("transition", () => {
     });
   });
 
-  describe("rates", () => {
-    const exchange = { rates: { EUR: 25.1, USD: 23.4, GBP: 29.9 }, week: "2026-W41" };
-    const converting = { reference: REF, quoteStatus: "draft", currency: "EUR", sellingLines: [{ currency: "USD", amount: 100 }] };
+  describe("ČNB rates (data.fx)", () => {
+    const TODAY_FX = {
+      date: "2026-10-10",
+      fixingDate: "2026-10-09",
+      provisional: false,
+      missing: false,
+      roePct: 102,
+      rates: [
+        { currency: "EUR", rate: 24.375 },
+        { currency: "USD", rate: 21.04 },
+      ],
+    };
+    const STORED_FX = { date: "2026-10-01", fixingDate: "2026-10-01", roePct: 100, rates: { EUR: 25 }, lockedAt: "2026-10-01T10:00:00.000Z" };
 
-    it("stores, with the sending, the rates the quote converts with and has none for", async () => {
-      stored = quote({ data: converting });
-      await salesQuoteService.transition(martin, REF, { to: "quoted", validityDays: 15, exchange });
-      const write = written();
-      expect(write.state).toMatchObject({ status: "quoted", sentAt: NOW, firstSentAt: NOW, validUntil: "2026-10-25" });
-      expect(write.document).toEqual({ rates: { EUR: { rate: 25.1, week: "2026-W41" }, USD: { rate: 23.4, week: "2026-W41" } } });
+    beforeEach(() => fxRatesOn.mockResolvedValue(TODAY_FX as never));
+
+    it("stamps today's ČNB rates and ROE % when the quote is sent", async () => {
+      stored = quote({ data: { reference: REF, quoteStatus: "draft", currency: "EUR" } });
+      await salesQuoteService.transition(martin, REF, { to: "quoted", validityDays: 15 });
+      expect(written().document).toEqual({
+        fx: { date: "2026-10-10", fixingDate: "2026-10-09", roePct: 102, rates: { EUR: 24.375, USD: 21.04 }, lockedAt: NOW.toISOString() },
+      });
     });
 
-    it("writes no document key when the quote is sent without a sheet", async () => {
-      stored = quote({ data: converting });
-      await salesQuoteService.transition(martin, REF, { to: "quoted" });
+    it("keeps the rates a sent quote stores, and asks ČNB for none", async () => {
+      stored = quote({ status: "quoted", data: { reference: REF, quoteStatus: "quoted", fx: STORED_FX } });
+      await salesQuoteService.transition(martin, REF, { to: "won" });
       expect(written().document).toBeUndefined();
+      expect(fxRatesOn).not.toHaveBeenCalled();
     });
 
-    it("writes no document key when no rate is missing", async () => {
-      await salesQuoteService.transition(martin, REF, { to: "quoted", exchange });
-      expect(written().document).toBeUndefined();
+    it("drops the rates of a quote that is revised", async () => {
+      stored = quote({ status: "quoted", data: { reference: REF, quoteStatus: "quoted", fx: STORED_FX } });
+      await salesQuoteService.transition(martin, REF, { to: "revised" });
+      expect(written().document).toEqual({ fx: null });
     });
 
-    it("writes no document key for any other change, sheet or not", async () => {
-      stored = quote({ data: converting });
-      await salesQuoteService.transition(martin, REF, { to: "ready_to_send", exchange });
+    it("writes no rates for a draft change", async () => {
+      await salesQuoteService.transition(martin, REF, { to: "ready_to_send" });
       expect(written().document).toBeUndefined();
+      expect(fxRatesOn).not.toHaveBeenCalled();
+    });
+
+    it("writes no rates for a quote lost before it was sent", async () => {
+      await salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" });
+      expect(written().document).toBeUndefined();
+      expect(fxRatesOn).not.toHaveBeenCalled();
     });
   });
 
@@ -800,7 +821,7 @@ describe("shipmentLinks", () => {
 
 describe("customerFacts", () => {
   const CUSTOMER = "946e01e8-a4ed-4aa7-932b-2c5d5e991c30";
-  const OPEN = [{ customerId: CUSTOMER, quoteNumber: REF, status: "quoted", validUntil: "2026-10-25", currency: "EUR", rates: null, sellingLines: [] }];
+  const OPEN = [{ customerId: CUSTOMER, quoteNumber: REF, status: "quoted", validUntil: "2026-10-25", currency: "EUR", fx: null, rates: null, sellingLines: [] }];
 
   beforeEach(() => {
     repository.customerFacts.mockResolvedValue({ customers: [], quotesWithoutCustomer: 0 });

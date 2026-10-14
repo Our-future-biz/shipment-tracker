@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Button, Form, Input } from "antd";
 import { FilePdfOutlined } from "@ant-design/icons";
 import { LINK_CLASS } from "@/components/linkClass";
@@ -62,19 +62,17 @@ export function EmailQuoteModal({
 
   const defaultMessage = `Dear ${data.customerContact || "Sir/Madam"},\n\nPlease find our quotation ${quoteNumber} for your shipment ${data.origin || ""} → ${data.destination || ""}.\n\nBest regards,\n${data.salesOwner || "Sales"}`;
 
+  // Each time the dialog opens it starts from the quote's current values (and only then: what is
+  // typed while it is open stays). The values are read through a ref for that reason.
+  const prefill = useRef({ to: data.customerEmail ?? "", subject: `Freight quotation ${quoteNumber}`, message: defaultMessage });
+  prefill.current = { to: data.customerEmail ?? "", subject: `Freight quotation ${quoteNumber}`, message: defaultMessage };
   useEffect(() => {
     if (open) {
       setOpened(false);
       setRefusal(null);
-      form.setFieldsValue({
-        to: data.customerEmail ?? "",
-        cc: "",
-        subject: `Freight quotation ${quoteNumber}`,
-        message: defaultMessage,
-      });
+      form.setFieldsValue({ ...prefill.current, cc: "" });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, form]);
 
   // Whether the message may go out is known before the click: the button that hands it over is a
   // real link, and a link has to be stopped in the click itself, not after an asynchronous

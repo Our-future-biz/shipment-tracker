@@ -2,23 +2,10 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { services } from "@/lib/api/client";
 
-export interface ManagedUser {
-  id: string;
-  companyId: string;
-  email: string;
-  displayName: string;
-  role: string;
-  departmentId: string | null;
-  branchId: string | null;
-}
-
-export interface CompanyRow {
-  id: string;
-  name: string;
-  slug: string;
-  createdAt: string;
-}
+export type ManagedUser = services.AuthUserInfo;
+export type CompanyRow = services.CompanyInfo;
 
 export interface NewUserInput {
   email: string;
@@ -52,7 +39,7 @@ export const useCompanyUsers = () => {
   const remove = useMutation({ mutationFn: (id: string) => api.auth.userDelete(id), onSuccess: invalidate });
 
   return {
-    users: (query.data?.users ?? []) as ManagedUser[],
+    users: query.data?.users ?? [],
     isLoading: query.isLoading,
     createUser: create.mutateAsync,
     updateUser: update.mutateAsync,
@@ -78,7 +65,7 @@ export const usePlatformCompanies = () => {
   });
 
   return {
-    companies: (query.data?.companies ?? []) as CompanyRow[],
+    companies: query.data?.companies ?? [],
     isLoading: query.isLoading,
     provisionCompany: provision.mutateAsync,
     isProvisioning: provision.isPending,
@@ -111,7 +98,7 @@ export const usePlatformCompanyUsers = (companyId: string) => {
   });
 
   return {
-    users: (query.data?.users ?? []) as ManagedUser[],
+    users: query.data?.users ?? [],
     isLoading: query.isLoading,
     createUser: create.mutateAsync,
     updateUser: update.mutateAsync,
