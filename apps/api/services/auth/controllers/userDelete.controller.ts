@@ -1,4 +1,4 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
 import { authService } from "../services/auth.service";
 
@@ -16,13 +16,7 @@ export const userDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/auth/users/:id" },
   async (req: UserDeleteRequest): Promise<UserDeleteResponse> => {
     const actor = requireRole("admin", "manager");
-    if (req.id === actor.userID) {
-      throw APIError.invalidArgument("You cannot deactivate your own account");
-    }
-    const ok = await authService.deactivateUser(req.id, actor.companyID, actor);
-    if (!ok) {
-      throw APIError.notFound("User not found");
-    }
+    await authService.deactivateUser(req.id, actor.companyID, actor);
     return { ok: true };
   },
 );

@@ -38,13 +38,19 @@ export function TermsTab() {
     }
   }, [terms, selectedId]);
 
-  // Keep the editor's local state synced with the selected template.
+  // Load the selected template into the editor when another one is picked (or first arrives).
+  // Keyed by id, not the object: a refetch after a save brings a new object, and resetting then
+  // would throw away what was typed while the save was on its way.
+  const selectedRef = useRef(selected);
+  selectedRef.current = selected;
+  const selectedKey = selected?.id;
   useEffect(() => {
-    setName(selected?.name ?? "");
-    setIncludes(selected?.includes ?? "");
-    setExcludes(selected?.excludes ?? "");
+    const current = selectedRef.current;
+    setName(current?.name ?? "");
+    setIncludes(current?.includes ?? "");
+    setExcludes(current?.excludes ?? "");
     setSaveState("idle");
-  }, [selected]);
+  }, [selectedKey]);
 
   // Clear the "Saved" flash timer on unmount.
   useEffect(() => {
@@ -68,26 +74,27 @@ export function TermsTab() {
       includes !== selected.includes ||
       excludes !== selected.excludes);
 
+  // The latest save + feedback functions, so the debounced save below never calls an old one.
+  const saveFns = useRef({ updateTerms, flashSaved, toast });
+  saveFns.current = { updateTerms, flashSaved, toast };
+
   // Debounced autosave: fires 600ms after a change, guarded against initial
   // load/selection by comparing local state against the selected template.
   useEffect(() => {
-    if (!selected || !isDirty) return;
-
-    const id = selected.id;
+    if (!selectedKey || !isDirty) return;
     const timer = setTimeout(async () => {
       setSaveState("saving");
       try {
-        await updateTerms({ id, params: { name, includes, excludes } });
-        flashSaved();
-      } catch {
+        await saveFns.current.updateTerms({ id: selectedKey, params: { name, includes, excludes } });
+        saveFns.current.flashSaved();
+      } catch (e) {
         setSaveState("idle");
-        toast.error("Failed to save");
+        saveFns.current.toast.error(e instanceof Error && e.message ? e.message : "Failed to save");
       }
     }, 600);
 
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [name, includes, excludes, selected, isDirty]);
+  }, [name, includes, excludes, selectedKey, isDirty]);
 
   const openCreate = () => {
     setNewName("");

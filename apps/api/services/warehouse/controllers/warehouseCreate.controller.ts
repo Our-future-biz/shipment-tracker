@@ -1,10 +1,11 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { warehouseService } from "../services/warehouse.service";
 import type { WarehouseTaskItem } from "../interfaces/interfaces";
 
 interface WarehouseCreateRequest {
-  taskId: string;
+  taskId: string & MinLen<1> & MaxLen<50>;
   shipmentId?: string;
 }
 
@@ -15,10 +16,6 @@ interface WarehouseCreateResponse {
 export const warehouseCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse" },
   async (req: WarehouseCreateRequest): Promise<WarehouseCreateResponse> => {
-    if (!req.taskId) {
-      throw APIError.invalidArgument("taskId is required");
-    }
-    const task = await warehouseService.create(getAuthData()!.companyID, req.taskId, req.shipmentId);
-    return { task: task as unknown as WarehouseTaskItem };
+    return { task: await warehouseService.create(getAuthData()!.companyID, req.taskId, req.shipmentId) };
   },
 );

@@ -5,7 +5,7 @@ import { customerInvoiceTable } from "../schemas/customerInvoice.schema";
 
 class CustomerInvoiceRepository extends TenantRepository<typeof customerInvoiceTable> {
   constructor() {
-    super(db as never, customerInvoiceTable, "customer_invoice");
+    super(db, customerInvoiceTable, "customer_invoice");
   }
 
   async findByCustomer(customerId: string, companyId: string) {

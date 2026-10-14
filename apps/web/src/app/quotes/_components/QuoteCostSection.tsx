@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Tag } from "antd";
 import { PrinterOutlined, PlusOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
@@ -57,8 +57,12 @@ export function QuoteCostSection({ quote }: { quote: interfaces.QuoteItem }) {
 
   const data = useMemo(() => (quote.data && typeof quote.data === "object" ? (quote.data as Record<string, unknown>) : {}), [quote.data]);
 
-  // Seed local state when opened on a different quote.
+  // Seed local state when opened on a different quote (only then: later refetches of the same
+  // quote must not overwrite rows being edited). The data is read through a ref for that reason.
+  const dataRef = useRef(data);
+  dataRef.current = data;
   useEffect(() => {
+    const data = dataRef.current;
     const stored = new Map((Array.isArray(data.costs) ? (data.costs as CostRow[]) : []).map((c) => [c.category, c]));
     setCosts(
       COST_CATEGORIES.map((cat) => {
@@ -83,7 +87,6 @@ export function QuoteCostSection({ quote }: { quote: interfaces.QuoteItem }) {
     setBillingCurrency(billing?.billingCurrency ?? "CZK");
     setRoe(billing?.roe ?? "1");
     setGeneratedInvoices(Array.isArray(data.generatedInvoices) ? (data.generatedInvoices as GeneratedQuoteInvoice[]) : []);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [quote.id]);
 
   const persist = useCallback(

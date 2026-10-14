@@ -1,5 +1,6 @@
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { getFieldValue } from "@/hooks/useShipments";
+import { toNumber } from "@/lib/number";
 
 export const COST_CATEGORIES = [
   { key: "freight", label: "Freight" },
@@ -33,10 +34,7 @@ export interface ChargeRow {
   sortOrder: number;
 }
 
-export function parseNum(v: string | null | undefined): number {
-  const n = parseFloat(v ?? "");
-  return isNaN(n) ? 0 : n;
-}
+export const parseNum = toNumber;
 
 export function fmt(n: number): string {
   return n.toFixed(2);

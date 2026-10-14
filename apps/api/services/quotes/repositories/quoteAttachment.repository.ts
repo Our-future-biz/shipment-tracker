@@ -1,10 +1,15 @@
-import { eq, and, isNull, asc } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { quoteAttachmentTable } from "../schemas/quoteAttachment.schema";
+import { quoteAttachmentTable, type QuoteAttachmentRecord } from "../schemas/quoteAttachment.schema";
 
-class QuoteAttachmentRepository {
-  async listByQuoteNumber(quoteNumber: string, companyId: string) {
-    return db
+class QuoteAttachmentRepository extends TenantRepository<typeof quoteAttachmentTable> {
+  constructor() {
+    super(db, quoteAttachmentTable, "quote_attachment");
+  }
+
+  async listByQuoteNumber(quoteNumber: string, companyId: string): Promise<QuoteAttachmentRecord[]> {
+    return this.db
       .select()
       .from(quoteAttachmentTable)
       .where(and(
@@ -15,36 +20,18 @@ class QuoteAttachmentRepository {
       .orderBy(asc(quoteAttachmentTable.createdAt));
   }
 
-  // Company-agnostic lookup for the PUBLIC raw content endpoint (bare-URL download, no
-  // token). The caller must still verify the attachment's quoteNumber matches the URL.
-  async getById(id: string) {
-    const [row] = await db
-      .select()
-      .from(quoteAttachmentTable)
-      .where(and(eq(quoteAttachmentTable.id, id), isNull(quoteAttachmentTable.deletedAt)))
-      .limit(1);
-    return row ?? null;
-  }
-
-  async getByIdForCompany(id: string, companyId: string) {
-    const [row] = await db
-      .select()
-      .from(quoteAttachmentTable)
-      .where(and(eq(quoteAttachmentTable.id, id), eq(quoteAttachmentTable.companyId, companyId), isNull(quoteAttachmentTable.deletedAt)))
-      .limit(1);
-    return row ?? null;
-  }
-
-  async create(data: { companyId: string; quoteNumber: string; fileName: string; fileSize: number; fileType: string; storageKey: string }) {
-    const [row] = await db.insert(quoteAttachmentTable).values(data).returning();
-    return row!;
-  }
-
-  async delete(id: string, companyId: string) {
-    await db
+  /** Soft-deletes every attachment of a quote; returns their storage keys. */
+  async softDeleteByQuoteNumber(quoteNumber: string, companyId: string): Promise<string[]> {
+    const rows = await this.db
       .update(quoteAttachmentTable)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(quoteAttachmentTable.id, id), eq(quoteAttachmentTable.companyId, companyId), isNull(quoteAttachmentTable.deletedAt)));
+      .where(and(
+        eq(quoteAttachmentTable.companyId, companyId),
+        eq(quoteAttachmentTable.quoteNumber, quoteNumber),
+        isNull(quoteAttachmentTable.deletedAt),
+      ))
+      .returning({ storageKey: quoteAttachmentTable.storageKey });
+    return rows.map((r) => r.storageKey).filter(Boolean);
   }
 }
 

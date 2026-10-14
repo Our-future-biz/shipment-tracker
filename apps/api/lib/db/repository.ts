@@ -10,6 +10,10 @@ import {
   type InferInsertModel,
 } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
+
+// Any service's drizzle instance, whatever schema it was created with.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- the schema type parameter is irrelevant here
+export type AnyDb = NodePgDatabase<any>;
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 
 import type { PaginatedResponse, PaginationRequest } from "./interface";
@@ -30,12 +34,12 @@ export interface PaginationOptions {
 }
 
 export abstract class BaseRepository<TTable extends TableWithDefaults> {
-  protected readonly db: NodePgDatabase<Record<string, never>>;
+  protected readonly db: AnyDb;
   protected readonly table: TTable;
   protected readonly tableName: string;
 
   constructor(
-    db: NodePgDatabase<Record<string, never>>,
+    db: AnyDb,
     table: TTable,
     tableName: string,
   ) {
@@ -116,6 +120,12 @@ type TenantTable = TableWithDefaults & { companyId: PgColumn };
  * companyId always comes from the authenticated request (getAuthData), never from the
  * client. Prefer these methods over the inherited unscoped ones on tenant tables.
  */
+// A row to insert without its companyId (the repository adds it). A key-remapping mapped type
+// rather than Omit<>, which loses the optional fields of drizzle's insert type.
+export type InsertForCompany<TTable extends PgTable> = {
+  [K in keyof InferInsertModel<TTable> as K extends "companyId" ? never : K]: InferInsertModel<TTable>[K];
+};
+
 export abstract class TenantRepository<TTable extends TenantTable> extends BaseRepository<TTable> {
   async listForCompany(companyId: string, limit = 1000): Promise<InferSelectModel<TTable>[]> {
     const rows = await this.db.select().from(this.table as PgTable)
@@ -147,7 +157,7 @@ export abstract class TenantRepository<TTable extends TenantTable> extends BaseR
   // Injects companyId so it can never be forgotten or overridden by the caller's payload.
   async createForCompany(
     companyId: string,
-    data: Omit<InferInsertModel<TTable>, "companyId">,
+    data: InsertForCompany<TTable>,
   ): Promise<InferSelectModel<TTable>> {
     return this.create({ ...data, companyId } as InferInsertModel<TTable>);
   }

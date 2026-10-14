@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseAttachmentDataUrl } from "../attachmentDataUrl";
+import { parseAttachmentDataUrl } from "../lib/attachmentDataUrl";
 
 describe("parseAttachmentDataUrl", () => {
   it("reads the type and decoded size of a browser-made data URL", () => {

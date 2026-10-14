@@ -22,7 +22,9 @@ export default function PlatformCompaniesPage() {
   }
 
   const submit = async () => {
-    const v = await form.validateFields();
+    // antd marks the invalid fields itself; a failed check just stops here.
+    const v = await form.validateFields().catch(() => null);
+    if (!v) return;
     try {
       await provisionCompany({
         companyName: v.companyName,

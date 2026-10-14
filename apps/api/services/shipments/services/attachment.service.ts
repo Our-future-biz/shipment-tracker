@@ -1,100 +1,134 @@
 import { randomUUID } from "node:crypto";
+import log from "encore.dev/log";
+import { APIError } from "encore.dev/api";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
+import type { ShipmentAttachmentRecord } from "../schemas/shipmentAttachment.schema";
 import { attachmentBucket } from "../storage/attachmentBucket";
-import { userNames } from "./userNames";
+import { userNames } from "../lib/userNames";
+import { attachmentContentUrl, companyOfContentToken } from "../lib/contentToken";
+import { iso, isoOrNull } from "../../../lib/db/serialize";
+import type { FileContent } from "../../../lib/fileContent";
+import type { AttachmentCustomsStatus, AttachmentItem } from "../interfaces/interfaces";
+import { shipmentService } from "./shipment.service";
 
-/** An attachment row plus the display names its user ids resolve to. */
-type AttachmentRow = Awaited<ReturnType<typeof shipmentAttachmentRepository.getById>>;
+/** An attachment row as the API shows it: display names and a download link, no storage key. */
+function toItem(row: ShipmentAttachmentRecord, names: Map<string, string>): AttachmentItem {
+  return {
+    id: row.id,
+    shipmentId: row.shipmentId,
+    fileName: row.fileName,
+    fileSize: row.fileSize,
+    fileType: row.fileType,
+    contentUrl: attachmentContentUrl(row.shipmentId, row.id, row.companyId),
+    createdAt: iso(row.createdAt),
+    documentType: row.documentType,
+    customsStatus: row.customsStatus,
+    customsNote: row.customsNote,
+    customsReviewedAt: isoOrNull(row.customsReviewedAt),
+    uploadedByName: row.uploadedById ? names.get(row.uploadedById) || "Unknown" : "Unknown",
+    customsReviewedByName: row.customsReviewedById ? names.get(row.customsReviewedById) || "Unknown" : "",
+  };
+}
+
+export interface NewAttachment {
+  fileName: string;
+  fileSize: number;
+  fileType: string;
+  contentBase64: string;
+  documentType: string;
+}
 
 class AttachmentService {
-  private withNames<T extends NonNullable<AttachmentRow>>(row: T, names: Map<string, string>) {
-    return {
-      ...row,
-      uploadedByName: row.uploadedById ? names.get(row.uploadedById) || "Unknown" : "Unknown",
-      customsReviewedByName: row.customsReviewedById
-        ? names.get(row.customsReviewedById) || "Unknown"
-        : "",
-    };
-  }
-
-  async list(shipmentId: string, companyId: string) {
+  async list(shipmentId: string, companyId: string): Promise<AttachmentItem[]> {
+    await shipmentService.requireLive(shipmentId, companyId);
     const [rows, names] = await Promise.all([
       shipmentAttachmentRepository.listByShipmentId(shipmentId, companyId),
       userNames(),
     ]);
-    return rows.map((r) => this.withNames(r, names));
+    return rows.map((r) => toItem(r, names));
   }
 
-  async create(
-    shipmentId: string,
-    companyId: string,
-    fileName: string,
-    fileSize: number,
-    fileType: string,
-    contentBase64: string,
-    documentType = "",
-    uploadedById?: string,
-  ) {
+  async create(shipmentId: string, companyId: string, file: NewAttachment, uploadedById: string): Promise<AttachmentItem> {
+    await shipmentService.requireLive(shipmentId, companyId);
     let storageKey = "";
-    if (contentBase64) {
-      const buffer = Buffer.from(contentBase64, "base64");
+    if (file.contentBase64) {
       storageKey = `${shipmentId}/${randomUUID()}`;
-      await attachmentBucket.upload(storageKey, buffer, {
-        contentType: fileType || "application/octet-stream",
+      await attachmentBucket.upload(storageKey, Buffer.from(file.contentBase64, "base64"), {
+        contentType: file.fileType || "application/octet-stream",
       });
     }
-    const row = await shipmentAttachmentRepository.create({
-      companyId, shipmentId, fileName, fileSize, fileType, storageKey, documentType,
-      uploadedById: uploadedById ?? null,
+    const row = await shipmentAttachmentRepository.createForCompany(companyId, {
+      shipmentId,
+      fileName: file.fileName,
+      fileSize: file.fileSize,
+      fileType: file.fileType,
+      storageKey,
+      documentType: file.documentType,
+      uploadedById,
     });
-    return this.withNames(row, await userNames());
+    return toItem(row, await userNames());
   }
 
-  // Public path (no token): relies on the caller checking shipmentId matches the URL.
-  async getContent(
-    id: string,
-  ): Promise<{ shipmentId: string; fileName: string; fileType: string; buffer: Buffer } | null> {
-    const row = await shipmentAttachmentRepository.getById(id);
-    if (!row || !row.storageKey) return null;
+  /**
+   * The bytes of a file for the public content endpoint. Served only with a valid token for
+   * this file, and only from the company and shipment the token and the path name.
+   */
+  async getContent(shipmentId: string, id: string, token: string | null): Promise<FileContent | null> {
+    const companyId = companyOfContentToken(token, id);
+    if (!companyId) return null;
+    const row = await shipmentAttachmentRepository.getForShipment(id, shipmentId, companyId);
+    if (!row?.storageKey) return null;
     try {
       const buffer = await attachmentBucket.download(row.storageKey);
-      return { shipmentId: row.shipmentId, fileName: row.fileName, fileType: row.fileType, buffer };
-    } catch {
+      return { fileName: row.fileName, fileType: row.fileType, buffer };
+    } catch (err) {
+      log.warn(err, "attachment file missing from storage", { attachmentId: id });
       return null;
     }
   }
 
   /** Set the business document type (Invoice, Packing list, …). */
-  async classify(id: string, companyId: string, documentType: string) {
-    const row = await shipmentAttachmentRepository.update(id, companyId, { documentType });
-    return row ? this.withNames(row, await userNames()) : null;
+  async classify(shipmentId: string, id: string, companyId: string, documentType: string): Promise<AttachmentItem> {
+    const row = await shipmentAttachmentRepository.updateReview(id, shipmentId, companyId, { documentType });
+    if (!row) throw APIError.notFound("Attachment not found");
+    return toItem(row, await userNames());
   }
 
   /**
    * Customs review. status "" clears the review back to pending; "declined"
    * keeps the reason so operations can see what to fix.
    */
-  async review(id: string, companyId: string, status: string, note: string, userId: string) {
-    const clear = status !== "approved" && status !== "declined";
-    const row = await shipmentAttachmentRepository.update(id, companyId, {
-      customsStatus: clear ? "" : status,
+  async review(
+    shipmentId: string,
+    id: string,
+    companyId: string,
+    status: AttachmentCustomsStatus,
+    note: string,
+    userId: string,
+  ): Promise<AttachmentItem> {
+    const clear = status === "";
+    const row = await shipmentAttachmentRepository.updateReview(id, shipmentId, companyId, {
+      customsStatus: status,
       customsNote: status === "declined" ? note : "",
       customsReviewedAt: clear ? null : new Date(),
       customsReviewedById: clear ? null : userId,
     });
-    return row ? this.withNames(row, await userNames()) : null;
+    if (!row) throw APIError.notFound("Attachment not found");
+    return toItem(row, await userNames());
   }
 
-  async delete(id: string, companyId: string) {
-    const row = await shipmentAttachmentRepository.getByIdForCompany(id, companyId);
-    if (row?.storageKey) {
+  async delete(shipmentId: string, id: string, companyId: string): Promise<void> {
+    const row = await shipmentAttachmentRepository.getForShipment(id, shipmentId, companyId);
+    if (!row) throw APIError.notFound("Attachment not found");
+    if (row.storageKey) {
       try {
         await attachmentBucket.remove(row.storageKey);
-      } catch {
-        /* bucket object already gone — proceed with metadata delete */
+      } catch (err) {
+        // The stored object may already be gone; the record is removed either way.
+        log.warn(err, "attachment file could not be removed from storage", { attachmentId: id });
       }
     }
-    return shipmentAttachmentRepository.delete(id, companyId);
+    await shipmentAttachmentRepository.softDeleteForCompany(id, companyId);
   }
 }
 

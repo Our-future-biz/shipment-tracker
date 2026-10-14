@@ -1,14 +1,17 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { invoiceService } from "../services/invoice.service";
-import type { InvoiceItem } from "../interfaces/interfaces";
+import type { InvoiceItem, InvoiceStatus } from "../interfaces/interfaces";
 
 interface InvoiceUpdateRequest {
   id: string;
-  invoiceNumber?: string;
+  invoiceNumber?: string & MinLen<1> & MaxLen<100>;
   amount?: number;
+  /** yyyy-mm-dd, or "" to clear */
   dueDate?: string;
-  status?: string;
+  status?: InvoiceStatus;
+  /** yyyy-mm-dd, or "" to clear */
   issuedAt?: string;
 }
 
@@ -18,12 +21,7 @@ interface InvoiceUpdateResponse {
 
 export const invoiceUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/customer-invoices/:id" },
-  async (req: InvoiceUpdateRequest): Promise<InvoiceUpdateResponse> => {
-    const { id, ...input } = req;
-    const invoice = await invoiceService.update(id, getAuthData()!.companyID, input);
-    if (!invoice) {
-      throw APIError.notFound("Invoice not found");
-    }
-    return { invoice: invoice as unknown as InvoiceItem };
+  async ({ id, ...input }: InvoiceUpdateRequest): Promise<InvoiceUpdateResponse> => {
+    return { invoice: await invoiceService.update(id, getAuthData()!.companyID, input) };
   },
 );

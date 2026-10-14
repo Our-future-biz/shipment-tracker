@@ -1,8 +1,8 @@
 import type { SalesQuoteData, PackageLine, CostLine, QuoteFx } from "./types";
 import { computeTotals, computeCargo, fmt, fxClause } from "./salesQuote";
+import { escapeHtml } from "@/lib/html";
 
-const esc = (s: unknown) =>
-  String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] ?? c));
+const esc = escapeHtml;
 
 // Client-facing PDF via the browser print dialog. Never shows buying/cost/margin.
 export function printQuote(quoteNumber: string, data: SalesQuoteData, liveFx?: QuoteFx | null): void {

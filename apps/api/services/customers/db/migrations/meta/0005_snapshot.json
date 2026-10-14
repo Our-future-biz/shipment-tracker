@@ -1,6 +1,6 @@
 {
-  "id": "408f19d5-8157-43f0-aa01-f2cfacadede9",
-  "prevId": "54492f13-0fbc-4bb8-a0d0-795c87289cd8",
+  "id": "54492f13-0fbc-4bb8-a0d0-795c87289cd8",
+  "prevId": "7da5874c-3f3a-4afc-9ff9-5cf475a32c9e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -94,9 +94,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "contact_deleted_at_idx": {
           "name": "contact_deleted_at_idx",
@@ -109,9 +109,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "contact_company_id_idx": {
           "name": "contact_company_id_idx",
@@ -124,9 +124,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "contact_customer_id_idx": {
           "name": "contact_customer_id_idx",
@@ -139,24 +139,24 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "contact_customer_id_customer_id_fk": {
           "name": "contact_customer_id_customer_id_fk",
           "tableFrom": "contact",
+          "tableTo": "customer",
           "columnsFrom": [
             "customer_id"
           ],
-          "tableTo": "customer",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -414,9 +414,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_deleted_at_idx": {
           "name": "customer_deleted_at_idx",
@@ -429,9 +429,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_company_id_idx": {
           "name": "customer_company_id_idx",
@@ -444,9 +444,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_status_idx": {
           "name": "customer_status_idx",
@@ -459,9 +459,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_company_ico_unique": {
           "name": "customer_company_ico_unique",
@@ -480,10 +480,10 @@
             }
           ],
           "isUnique": true,
-          "with": {},
-          "method": "btree",
           "where": "deleted_at IS NULL",
-          "concurrently": false
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -599,9 +599,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_document_deleted_at_idx": {
           "name": "customer_document_deleted_at_idx",
@@ -614,9 +614,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_document_company_id_idx": {
           "name": "customer_document_company_id_idx",
@@ -629,9 +629,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_document_customer_id_idx": {
           "name": "customer_document_customer_id_idx",
@@ -644,24 +644,24 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "customer_document_customer_id_customer_id_fk": {
           "name": "customer_document_customer_id_customer_id_fk",
           "tableFrom": "customer_document",
+          "tableTo": "customer",
           "columnsFrom": [
             "customer_id"
           ],
-          "tableTo": "customer",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -772,9 +772,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_invoice_deleted_at_idx": {
           "name": "customer_invoice_deleted_at_idx",
@@ -787,9 +787,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_invoice_company_id_idx": {
           "name": "customer_invoice_company_id_idx",
@@ -802,9 +802,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_invoice_customer_id_idx": {
           "name": "customer_invoice_customer_id_idx",
@@ -817,9 +817,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_invoice_status_idx": {
           "name": "customer_invoice_status_idx",
@@ -832,24 +832,24 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "customer_invoice_customer_id_customer_id_fk": {
           "name": "customer_invoice_customer_id_customer_id_fk",
           "tableFrom": "customer_invoice",
+          "tableTo": "customer",
           "columnsFrom": [
             "customer_id"
           ],
-          "tableTo": "customer",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -939,9 +939,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_note_deleted_at_idx": {
           "name": "customer_note_deleted_at_idx",
@@ -954,9 +954,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_note_company_id_idx": {
           "name": "customer_note_company_id_idx",
@@ -969,9 +969,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customer_note_customer_id_idx": {
           "name": "customer_note_customer_id_idx",
@@ -984,24 +984,24 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "customer_note_customer_id_customer_id_fk": {
           "name": "customer_note_customer_id_customer_id_fk",
           "tableFrom": "customer_note",
+          "tableTo": "customer",
           "columnsFrom": [
             "customer_id"
           ],
-          "tableTo": "customer",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "cascade"
+          "onDelete": "cascade",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1018,10 +1018,10 @@
   },
   "enums": {},
   "schemas": {},
-  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
+  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},

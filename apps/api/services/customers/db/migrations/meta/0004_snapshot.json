@@ -1,5 +1,5 @@
 {
-  "id": "54492f13-0fbc-4bb8-a0d0-795c87289cd8",
+  "id": "7da5874c-3f3a-4afc-9ff9-5cf475a32c9e",
   "prevId": "734bea08-5db8-4473-a34d-df8074599694",
   "version": "7",
   "dialect": "postgresql",
@@ -263,10 +263,9 @@
         },
         "registration_date": {
           "name": "registration_date",
-          "type": "text",
+          "type": "date",
           "primaryKey": false,
-          "notNull": true,
-          "default": "''"
+          "notNull": false
         },
         "nace": {
           "name": "nace",
@@ -396,10 +395,9 @@
         },
         "last_activity_date": {
           "name": "last_activity_date",
-          "type": "text",
+          "type": "date",
           "primaryKey": false,
-          "notNull": true,
-          "default": "''"
+          "notNull": false
         }
       },
       "indexes": {
@@ -731,19 +729,11 @@
           "notNull": true,
           "default": 0
         },
-        "currency": {
-          "name": "currency",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'CZK'"
-        },
         "due_date": {
           "name": "due_date",
-          "type": "text",
+          "type": "date",
           "primaryKey": false,
-          "notNull": true,
-          "default": "''"
+          "notNull": false
         },
         "status": {
           "name": "status",
@@ -754,10 +744,9 @@
         },
         "issued_at": {
           "name": "issued_at",
-          "type": "text",
+          "type": "date",
           "primaryKey": false,
-          "notNull": true,
-          "default": "''"
+          "notNull": false
         }
       },
       "indexes": {

@@ -4,16 +4,15 @@ import { useRef, useState } from "react";
 import { Button, Empty, Spin } from "antd";
 import { InboxOutlined, FileTextOutlined, DeleteOutlined, DownloadOutlined } from "@ant-design/icons";
 import { useQuoteAttachments } from "@/hooks/useQuoteAttachments";
-import { fileToBase64, quoteAttachmentContentUrl } from "@/lib/files";
+import { apiFileUrl } from "@/lib/api";
+import { fileToBase64, formatFileSize } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+interface QuoteDocumentsTabProps {
+  quoteNumber: string;
 }
 
-export function QuoteDocumentsTab({ quoteNumber }: { quoteNumber: string }) {
+export function QuoteDocumentsTab({ quoteNumber }: QuoteDocumentsTabProps) {
   const { attachments, isLoading, upload, isUploading, remove } = useQuoteAttachments(quoteNumber);
   const toast = useToast();
   const [dragOver, setDragOver] = useState(false);
@@ -76,16 +75,16 @@ export function QuoteDocumentsTab({ quoteNumber }: { quoteNumber: string }) {
               <FileTextOutlined className="!text-slate-400" />
               <div className="flex-1 min-w-0">
                 <a
-                  href={quoteAttachmentContentUrl(quoteNumber, att.id)}
+                  href={apiFileUrl(att.contentUrl)}
                   target="_blank"
                   rel="noreferrer"
                   className="text-xs text-slate-700 hover:text-indigo-500 truncate block"
                 >
                   {att.fileName}
                 </a>
-                <span className="text-[10px] text-slate-400">{formatSize(att.fileSize)}</span>
+                <span className="text-[10px] text-slate-400">{formatFileSize(att.fileSize)}</span>
               </div>
-              <a href={quoteAttachmentContentUrl(quoteNumber, att.id, true)} className="text-slate-400 hover:text-indigo-500" title="Download">
+              <a href={apiFileUrl(att.contentUrl, true)} className="text-slate-400 hover:text-indigo-500" title="Download">
                 <DownloadOutlined />
               </a>
               <Button

@@ -1,41 +1,52 @@
 import { eq, and, isNull, asc, sql } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { shipmentClaimTable } from "../schemas/shipmentClaim.schema";
+import { shipmentClaimTable, type NewShipmentClaimRecord, type ShipmentClaimRecord } from "../schemas/shipmentClaim.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
 
-type ClaimFields = Partial<typeof shipmentClaimTable.$inferInsert>;
+/** The fields of a claim a user fills in. */
+export type ClaimFields = Partial<
+  Pick<NewShipmentClaimRecord, "cargoState" | "note" | "supplier" | "invoiceNumber" | "reason" | "amount">
+>;
 
-class ShipmentClaimRepository {
-  async listByShipmentId(shipmentId: string, companyId: string) {
-    return db
+const claimOf = (id: string, shipmentId: string, companyId: string) =>
+  and(
+    eq(shipmentClaimTable.id, id),
+    eq(shipmentClaimTable.shipmentId, shipmentId),
+    eq(shipmentClaimTable.companyId, companyId),
+    isNull(shipmentClaimTable.deletedAt),
+  );
+
+class ShipmentClaimRepository extends TenantRepository<typeof shipmentClaimTable> {
+  constructor() {
+    super(db, shipmentClaimTable, "shipment_claim");
+  }
+
+  async listByShipmentId(shipmentId: string, companyId: string): Promise<ShipmentClaimRecord[]> {
+    return this.db
       .select()
       .from(shipmentClaimTable)
       .where(and(eq(shipmentClaimTable.companyId, companyId), eq(shipmentClaimTable.shipmentId, shipmentId), isNull(shipmentClaimTable.deletedAt)))
       .orderBy(asc(shipmentClaimTable.createdAt));
   }
 
-  async create(data: { companyId: string; shipmentId: string; kind: string } & ClaimFields) {
-    const [row] = await db.insert(shipmentClaimTable).values(data).returning();
-    return row!;
-  }
-
-  async update(id: string, companyId: string, data: ClaimFields) {
-    const [row] = await db
+  async updateClaim(id: string, shipmentId: string, companyId: string, data: ClaimFields): Promise<ShipmentClaimRecord | null> {
+    const [row] = await this.db
       .update(shipmentClaimTable)
       .set({ ...data, updatedAt: new Date() })
-      .where(and(eq(shipmentClaimTable.id, id), eq(shipmentClaimTable.companyId, companyId), isNull(shipmentClaimTable.deletedAt)))
+      .where(claimOf(id, shipmentId, companyId))
       .returning();
     return row ?? null;
   }
 
-  /** Returns the shipment the deleted claim belonged to (null when nothing was deleted). */
-  async delete(id: string, companyId: string) {
-    const [row] = await db
+  /** Whether a claim was deleted. */
+  async deleteClaim(id: string, shipmentId: string, companyId: string): Promise<boolean> {
+    const rows = await this.db
       .update(shipmentClaimTable)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(shipmentClaimTable.id, id), eq(shipmentClaimTable.companyId, companyId), isNull(shipmentClaimTable.deletedAt)))
-      .returning({ shipmentId: shipmentClaimTable.shipmentId });
-    return row?.shipmentId ?? null;
+      .where(claimOf(id, shipmentId, companyId))
+      .returning({ id: shipmentClaimTable.id });
+    return rows.length > 0;
   }
 
   /**
@@ -43,8 +54,8 @@ class ShipmentClaimRepository {
    * least one claim row has something filled in, No otherwise. A row freshly
    * added with "+" is still blank and does not count.
    */
-  async syncShipmentFlag(shipmentId: string, companyId: string) {
-    await db
+  async syncShipmentFlag(shipmentId: string, companyId: string): Promise<void> {
+    await this.db
       .update(shipmentTable)
       .set({
         claim: sql`CASE WHEN EXISTS (

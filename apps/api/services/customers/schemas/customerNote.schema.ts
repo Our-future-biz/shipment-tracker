@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, uuid, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { customerTable } from "./customer.schema";
+import type { NoteType } from "../interfaces/interfaces";
 
 export const customerNoteTable = pgTable(
   "customer_note",
@@ -11,7 +12,7 @@ export const customerNoteTable = pgTable(
     customerId: uuid("customer_id")
       .notNull()
       .references(() => customerTable.id, { onDelete: "cascade" }),
-    type: text("type").notNull().default("Note"), // Note / Email / Call / Follow-up / Visit
+    type: text("type").$type<NoteType>().notNull().default("Note"),
     content: text("content").notNull(),
     author: text("author").notNull().default(""),
   },

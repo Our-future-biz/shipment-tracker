@@ -3,8 +3,8 @@ import { masterJobRepository } from "../repositories/masterJob.repository";
 import { masterJobContainerRepository } from "../repositories/masterJobContainer.repository";
 import { shipmentRepository } from "../repositories/shipment.repository";
 import { containerRepository } from "../repositories/container.repository";
-import { shipmentService } from "./shipment.service";
-import { isValidContainerNumber, normalizeContainerNumber } from "./cargoProjection";
+import { shipmentService, type ShipmentUpdateData } from "./shipment.service";
+import { isValidContainerNumber, normalizeContainerNumber } from "../lib/cargoProjection";
 import {
   FULL_LOAD,
   containersFromHouses,
@@ -14,7 +14,7 @@ import {
   legacyContainerGroups,
   syncedShipmentData,
   type MasterContainer,
-} from "./masterJobSync";
+} from "../lib/masterJobSync";
 import type { MasterJobRecord, NewMasterJobRecord } from "../schemas/masterJob.schema";
 import type { MasterJobContainerRecord } from "../schemas/masterJobContainer.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
@@ -23,6 +23,7 @@ import type {
   MasterJobContainerLine,
   MasterJobItem,
   MasterJobShipmentItem,
+  MasterJobDetail,
 } from "../interfaces/interfaces";
 
 /** Editable master-job fields (everything but the id, MCZ number and bookkeeping). */
@@ -88,13 +89,13 @@ class MasterJobService {
     return rows.map((r) => toItem(r, counts.get(r.id) ?? 0));
   }
 
-  async get(id: string, companyId: string) {
+  async get(id: string, companyId: string): Promise<MasterJobDetail> {
     const row = await this.require(id, companyId);
     const [houses, containers] = await Promise.all([
       shipmentRepository.findByMasterJobId(id, companyId),
-      masterJobContainerRepository.listByMasterJobId(id),
+      masterJobContainerRepository.listByMasterJobId(id, companyId),
     ]);
-    const houseContainers = await containerRepository.listByShipmentIds(houses.map((h) => h.id));
+    const houseContainers = await containerRepository.listByShipmentIds(houses.map((h) => h.id), companyId);
     // A Full Load master job shows its houses' containers live; any other load
     // type keeps its own list, assigned out to the houses. An assignment to a
     // shipment that has since left the master job or was archived is not shown.
@@ -155,13 +156,14 @@ class MasterJobService {
     if (Object.keys(synced).length > 0) {
       const houses = await shipmentRepository.findByMasterJobId(id, companyId);
       for (const house of houses) {
-        await shipmentService.update(house.id, companyId, synced as never, userId);
+        // The synced keys are shipment columns; blanks clear them (null on a date).
+        await shipmentService.update(house.id, companyId, synced as ShipmentUpdateData, userId);
       }
     }
     return toItem(row, await this.countShipments(id, companyId));
   }
 
-  async setContainers(id: string, companyId: string, lines: MasterJobContainerLine[], userId: string) {
+  async setContainers(id: string, companyId: string, lines: MasterJobContainerLine[], userId: string): Promise<MasterJobDetail> {
     const row = await this.require(id, companyId);
     const numbers = lines.map((l) => normalizeContainerNumber(l.containerNumber));
     const bad = lines.find((l, i) => !numbers[i] || !isValidContainerNumber(l.containerNumber));
@@ -182,8 +184,8 @@ class MasterJobService {
     // own containers, otherwise the master job's stored list.
     const previous: MasterContainer[] =
       row.loadType === FULL_LOAD
-        ? containersFromHouses(await containerRepository.listByShipmentIds([...houseIds]))
-        : (await masterJobContainerRepository.listByMasterJobId(id)).map(toMasterContainerLine);
+        ? containersFromHouses(await containerRepository.listByShipmentIds([...houseIds], companyId))
+        : (await masterJobContainerRepository.listByMasterJobId(id, companyId)).map(toMasterContainerLine);
     // A Full Load has no list of its own (it is read from the houses), so nothing is stored.
     if (row.loadType !== FULL_LOAD) await masterJobContainerRepository.replaceForMasterJob(id, companyId, cleaned);
 
@@ -199,7 +201,7 @@ class MasterJobService {
     return this.get(id, companyId);
   }
 
-  async linkShipments(id: string, companyId: string, shipmentIds: string[], userId: string) {
+  async linkShipments(id: string, companyId: string, shipmentIds: string[], userId: string): Promise<MasterJobDetail> {
     const row = await this.require(id, companyId);
     for (const shipmentId of shipmentIds) {
       const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
@@ -216,7 +218,7 @@ class MasterJobService {
    * the master job's values onto it. A shipment moved off another master job is taken
    * out of that one's container assignments.
    */
-  async attachShipment(shipmentId: string, companyId: string, mczNumber: string, userId: string) {
+  async attachShipment(shipmentId: string, companyId: string, mczNumber: string, userId: string): Promise<void> {
     const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
     if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
     const linked = await shipmentService.linkMasterJob(shipmentId, companyId, mczNumber);
@@ -226,7 +228,7 @@ class MasterJobService {
     await this.syncShipment(shipmentId, companyId, userId);
   }
 
-  async unlinkShipment(id: string, companyId: string, shipmentId: string) {
+  async unlinkShipment(id: string, companyId: string, shipmentId: string): Promise<MasterJobDetail> {
     await this.require(id, companyId);
     const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
     if (!shipment || shipment.masterJobId !== id) throw APIError.notFound("Shipment is not on this master job");
@@ -235,7 +237,7 @@ class MasterJobService {
   }
 
   /** Takes a shipment off its master job. It keeps its data; it just stops being assigned to any container. */
-  async detachShipment(shipmentId: string, companyId: string) {
+  async detachShipment(shipmentId: string, companyId: string): Promise<void> {
     const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
     if (!shipment) throw APIError.notFound(`Shipment ${shipmentId} not found`);
     await shipmentService.unlinkMasterJob(shipmentId, companyId);
@@ -243,14 +245,14 @@ class MasterJobService {
   }
 
   /** Copy the master job's filled-in values onto a shipment that was just linked to it. */
-  private async syncShipment(shipmentId: string, companyId: string, userId: string) {
+  private async syncShipment(shipmentId: string, companyId: string, userId: string): Promise<void> {
     const shipment = await shipmentRepository.getByIdForCompany(shipmentId, companyId);
     if (!shipment?.masterJobId) return;
     const row = await masterJobRepository.getByIdForCompany(shipment.masterJobId, companyId);
     if (!row) return;
     // On a Full Load the house is where containers come from, so its own list stays as it is.
     const containers =
-      row.loadType === FULL_LOAD ? [] : (await masterJobContainerRepository.listByMasterJobId(row.id)).map(toMasterContainerLine);
+      row.loadType === FULL_LOAD ? [] : (await masterJobContainerRepository.listByMasterJobId(row.id, companyId)).map(toMasterContainerLine);
     await this.applyToHouse(shipmentId, companyId, userId, syncedShipmentData(row), containers);
   }
 
@@ -262,8 +264,8 @@ class MasterJobService {
     userId: string,
     fields: Record<string, unknown>,
     masterContainers: MasterContainer[],
-  ) {
-    const house = (await containerRepository.listByShipmentId(shipmentId)).map(toContainerLine);
+  ): Promise<void> {
+    const house = (await containerRepository.listByShipmentId(shipmentId, companyId)).map(toContainerLine);
     const containers = houseContainerLines(shipmentId, house, masterContainers);
     const data: Record<string, unknown> = { ...fields };
     if (containers) {
@@ -271,11 +273,11 @@ class MasterJobService {
       Object.assign(data, legacyContainerGroups(containers.map((c) => c.type)));
     }
     if (Object.keys(data).length === 0) return;
-    await shipmentService.update(shipmentId, companyId, data as never, userId);
+    await shipmentService.update(shipmentId, companyId, data as ShipmentUpdateData, userId);
   }
 
-  private async unassignFromContainers(id: string, companyId: string, shipmentId: string) {
-    const containers = await masterJobContainerRepository.listByMasterJobId(id);
+  private async unassignFromContainers(id: string, companyId: string, shipmentId: string): Promise<void> {
+    const containers = await masterJobContainerRepository.listByMasterJobId(id, companyId);
     if (!containers.some((c) => c.shipmentIds.includes(shipmentId))) return;
     await masterJobContainerRepository.replaceForMasterJob(
       id,

@@ -1,5 +1,6 @@
 import { pgTable, timestamp, uuid, index, unique } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { shipmentTable } from "./shipment.schema";
 
 // How far each user has read the chat of a shipment; what came later counts as unread.
 export const shipmentCommentReadTable = pgTable(
@@ -7,7 +8,7 @@ export const shipmentCommentReadTable = pgTable(
   {
     ...defaultTableColumns,
     ...tenantColumns,
-    shipmentId: uuid("shipment_id").notNull(),
+    shipmentId: uuid("shipment_id").notNull().references(() => shipmentTable.id, { onDelete: "cascade" }),
     userId: uuid("user_id").notNull(),
     readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -1,10 +1,18 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
-import type { ShipmentItem, ContainerLine, CargoItemLine, CargoDimensionLine, CommercialInvoiceLine } from "../interfaces/interfaces";
+import type {
+  ShipmentItem,
+  ContainerLine,
+  CargoItemLine,
+  CargoDimensionLine,
+  CommercialInvoiceLine,
+  CustomsPriority,
+} from "../interfaces/interfaces";
 
 interface ShipmentCreateRequest {
-  jobNumber: string;
+  jobNumber: string & MinLen<1>;
   shipper?: string;
   consignee?: string;
   pol?: string;
@@ -100,7 +108,8 @@ interface ShipmentCreateRequest {
   approvedBy?: string;
   bookingConfirmation?: string;
   customsProcedure?: string;
-  customsPriority?: string;
+  /** "" counts as Standard. */
+  customsPriority?: CustomsPriority | "";
   customsDeadline?: string;
   equipmentDelivery?: string;
   equipmentDeliveryDate?: string;
@@ -159,10 +168,6 @@ interface ShipmentCreateResponse {
 export const shipmentCreate = api(
   { expose: true, auth: true, method: "POST", path: "/shipments" },
   async (req: ShipmentCreateRequest): Promise<ShipmentCreateResponse> => {
-    if (!req.jobNumber) {
-      throw APIError.invalidArgument("jobNumber is required");
-    }
-    const shipment = await shipmentService.create(getAuthData()!.companyID, req);
-    return { shipment: shipment as unknown as ShipmentItem };
+    return { shipment: await shipmentService.create(getAuthData()!.companyID, req) };
   },
 );

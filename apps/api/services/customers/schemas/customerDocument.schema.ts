@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, uuid, bigint, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { customerTable } from "./customer.schema";
+import type { DocumentType } from "../interfaces/interfaces";
 
 export const customerDocumentTable = pgTable(
   "customer_document",
@@ -12,7 +13,7 @@ export const customerDocumentTable = pgTable(
       .notNull()
       .references(() => customerTable.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    type: text("type").notNull().default("Other"), // Contract / NDA / Power of attorney / Customs / Other
+    type: text("type").$type<DocumentType>().notNull().default("Other"),
     fileName: text("file_name").notNull().default(""),
     fileType: text("file_type").notNull().default(""),
     fileSize: bigint("file_size", { mode: "number" }).notNull().default(0),

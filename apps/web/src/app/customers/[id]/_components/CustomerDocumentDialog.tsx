@@ -6,6 +6,7 @@ import { Button, Form, Input, Modal, Select } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
 import { fileToDataUrl, formatFileSize } from "@/lib/files";
 import { useToast } from "@/lib/toast";
+import type { interfaces } from "@/lib/api/client";
 import { DOCUMENT_TYPES } from "../../_lib/constants";
 
 // The API accepts 20 MiB per request and base64 makes the file about a third larger.
@@ -13,7 +14,7 @@ const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 export interface CustomerDocumentInput {
   name: string;
-  type: string;
+  type: interfaces.DocumentType;
   fileName: string;
   fileType: string;
   fileSize: number;
@@ -28,7 +29,7 @@ interface CustomerDocumentDialogProps {
 
 interface CustomerDocumentFormValues {
   name: string;
-  type: string;
+  type: interfaces.DocumentType;
 }
 
 const INITIAL_VALUES: CustomerDocumentFormValues = { name: "", type: "Other" };

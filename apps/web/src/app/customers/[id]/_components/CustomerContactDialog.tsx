@@ -2,13 +2,14 @@
 
 import { Checkbox, Form, Input, Modal, Select } from "antd";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
+import type { interfaces } from "@/lib/api/client";
 import { CONTACT_ROLES } from "../../_lib/constants";
 
 export interface CustomerContactFormValues {
   name: string;
   email: string;
   phone: string;
-  role: string;
+  role: interfaces.ContactRole;
   isMain: boolean;
 }
 

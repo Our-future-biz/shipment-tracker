@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { audienceCountryCode, audienceLabel, isAddressedTo, type Addressee } from "../announcementAudience";
+import { audienceCountryCode, audienceLabel, isAddressedTo, type Addressee } from "../lib/announcementAudience";
 
 const nobody: Addressee = { departmentId: null, branchId: null, country: null, countryCode: null };
 const pragueAccountant: Addressee = { departmentId: "acc", branchId: "prg", country: "Czechia", countryCode: "CZ" };

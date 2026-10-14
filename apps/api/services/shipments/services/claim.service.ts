@@ -1,56 +1,57 @@
 import { APIError } from "encore.dev/api";
 import { shipmentClaimRepository } from "../repositories/shipmentClaim.repository";
-import { shipmentRepository } from "../repositories/shipment.repository";
+import type { ShipmentClaimRecord } from "../schemas/shipmentClaim.schema";
+import { iso } from "../../../lib/db/serialize";
 import type { ClaimInput, ClaimItem, ClaimKind } from "../interfaces/interfaces";
+import { shipmentService } from "./shipment.service";
 
-const CLAIM_KINDS: ClaimKind[] = ["cargo", "cost"];
 const CARGO_STATES = ["Damaged", "Incomplete", "Undamaged", "Lost"];
 
-const item = (r: Awaited<ReturnType<typeof shipmentClaimRepository.listByShipmentId>>[number]): ClaimItem => ({
+const item = (r: ShipmentClaimRecord): ClaimItem => ({
   id: r.id,
   shipmentId: r.shipmentId,
-  kind: r.kind as ClaimKind,
+  kind: r.kind,
   cargoState: r.cargoState,
   note: r.note,
   supplier: r.supplier,
   invoiceNumber: r.invoiceNumber,
   reason: r.reason,
   amount: r.amount,
-  createdAt: r.createdAt.toISOString(),
+  createdAt: iso(r.createdAt),
 });
 
-function check(input: ClaimInput) {
+function check(input: ClaimInput): void {
   if (input.cargoState && !CARGO_STATES.includes(input.cargoState)) {
     throw APIError.invalidArgument(`Cargo state must be one of: ${CARGO_STATES.join(", ")}`);
   }
 }
 
 class ClaimService {
-  async list(shipmentId: string, companyId: string) {
+  async list(shipmentId: string, companyId: string): Promise<ClaimItem[]> {
+    await shipmentService.requireLive(shipmentId, companyId);
     return (await shipmentClaimRepository.listByShipmentId(shipmentId, companyId)).map(item);
   }
 
-  async create(shipmentId: string, companyId: string, kind: ClaimKind, input: ClaimInput) {
-    if (!CLAIM_KINDS.includes(kind)) throw APIError.invalidArgument(`Claim kind must be one of: ${CLAIM_KINDS.join(", ")}`);
+  async create(shipmentId: string, companyId: string, kind: ClaimKind, input: ClaimInput): Promise<ClaimItem> {
     check(input);
     // A claim can only be raised on one of the company's own shipments.
-    if (!(await shipmentRepository.getByIdForCompany(shipmentId, companyId))) throw APIError.notFound("Shipment not found");
-    const row = await shipmentClaimRepository.create({ companyId, shipmentId, kind, ...input });
+    await shipmentService.requireLive(shipmentId, companyId);
+    const row = await shipmentClaimRepository.createForCompany(companyId, { shipmentId, kind, ...input });
     await shipmentClaimRepository.syncShipmentFlag(shipmentId, companyId);
     return item(row);
   }
 
-  async update(id: string, companyId: string, input: ClaimInput) {
+  async update(shipmentId: string, id: string, companyId: string, input: ClaimInput): Promise<ClaimItem> {
     check(input);
-    const row = await shipmentClaimRepository.update(id, companyId, input);
+    const row = await shipmentClaimRepository.updateClaim(id, shipmentId, companyId, input);
     if (!row) throw APIError.notFound("Claim not found");
-    await shipmentClaimRepository.syncShipmentFlag(row.shipmentId, companyId);
+    await shipmentClaimRepository.syncShipmentFlag(shipmentId, companyId);
     return item(row);
   }
 
-  async delete(id: string, companyId: string) {
-    const shipmentId = await shipmentClaimRepository.delete(id, companyId);
-    if (shipmentId) await shipmentClaimRepository.syncShipmentFlag(shipmentId, companyId);
+  async delete(shipmentId: string, id: string, companyId: string): Promise<void> {
+    if (!(await shipmentClaimRepository.deleteClaim(id, shipmentId, companyId))) throw APIError.notFound("Claim not found");
+    await shipmentClaimRepository.syncShipmentFlag(shipmentId, companyId);
   }
 }
 

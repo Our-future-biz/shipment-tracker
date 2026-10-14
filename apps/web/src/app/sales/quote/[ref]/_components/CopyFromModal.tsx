@@ -5,46 +5,7 @@ import { Modal, Select, Checkbox, Button } from "antd";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { useShipments } from "@/hooks/useShipments";
-
-type SectionKey =
-  | "customer"
-  | "shipment"
-  | "routing"
-  | "cargo"
-  | "pricing"
-  | "terms";
-
-interface Section {
-  key: SectionKey;
-  label: string;
-}
-
-const SECTIONS: Section[] = [
-  { key: "customer", label: "Customer" },
-  { key: "shipment", label: "Shipment details" },
-  { key: "routing", label: "Routing" },
-  { key: "cargo", label: "Cargo" },
-  { key: "pricing", label: "Pricing" },
-  { key: "terms", label: "Shipping terms" },
-];
-
-// Fields that belong to each section of a SalesQuoteData record.
-const SECTION_FIELDS: Record<SectionKey, (keyof SalesQuoteData)[]> = {
-  customer: [
-    "customerName",
-    "customerId",
-    "customerContact",
-    "customerEmail",
-    "customerPhone",
-    "customerLabel",
-    "salesOwner",
-  ],
-  shipment: ["direction", "serviceType", "incoterm", "readyDate"],
-  routing: ["origin", "destination", "pickup", "delivery"],
-  cargo: ["commodity", "stackable", "dangerous", "packages", "weight", "cbm"],
-  pricing: ["buyingLines", "sellingLines", "currency"],
-  terms: ["shippingTerms", "shippingIncludes", "shippingExcludes"],
-};
+import { SECTIONS, pickSections, type Section, type SectionKey } from "@/app/sales/_lib/quoteSections";
 
 // Sections that can be sourced from a shipment (shipments carry no pricing/terms).
 const SHIPMENT_SECTIONS: Section[] = SECTIONS.filter(
@@ -64,23 +25,6 @@ function serviceTypeFromFreightMode(mode: string): string | undefined {
     default:
       return undefined;
   }
-}
-
-// Pick only the fields of the checked sections from a source SalesQuoteData.
-function pickSections(
-  source: Partial<SalesQuoteData>,
-  checked: SectionKey[],
-): Partial<SalesQuoteData> {
-  const patch: Partial<SalesQuoteData> = {};
-  for (const section of checked) {
-    for (const field of SECTION_FIELDS[section]) {
-      const value = source[field];
-      if (value === undefined) continue;
-      // Assign field-by-field; each key maps to its own value type in SalesQuoteData.
-      (patch as Record<string, unknown>)[field] = value;
-    }
-  }
-  return patch;
 }
 
 export function CopyFromModal({

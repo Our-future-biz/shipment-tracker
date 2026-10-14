@@ -17,7 +17,7 @@ export const invoiceCostTable = pgTable(
     realAmount: numeric("real_amount", { precision: 14, scale: 2 }),
     realCurrency: text("real_currency").notNull().default("CZK"),
     invoiceNumber: text("invoice_number").notNull().default(""),
-    /** prijata faktura obdrzena */
+    /** the vendor's invoice has been received */
     received: boolean("received").notNull().default(false),
     vendor: text("vendor").notNull().default(""),
     sortOrder: integer("sort_order").notNull().default(0),

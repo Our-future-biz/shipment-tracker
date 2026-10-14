@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
 import { classifyPages, extractFromPages } from "./extraction.service";
 import { splitPdfToPages, detectMediaType } from "../lib/pdf";
 import { SHIPMENT_FIELDS } from "../lib/fields";
@@ -17,7 +20,14 @@ interface PipelinePage {
   mediaType: string;
 }
 
+/** Who started a session; only they can continue it. */
+export interface SessionOwner {
+  companyId: string;
+  userId: string;
+}
+
 interface PipelineSession {
+  owner: SessionOwner;
   pages: PipelinePage[];
   mblInfo: Record<string, string> | null;
   shipments: Record<string, string>[];
@@ -25,6 +35,8 @@ interface PipelineSession {
   createdAt: number;
 }
 
+// Sessions live in this process's memory: they are lost on a restart and not shared between
+// instances, so the pipeline assumes one API instance (and a restart means uploading again).
 const sessions = new Map<string, PipelineSession>();
 const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const BATCH_SIZE = 3;
@@ -40,10 +52,14 @@ function cleanup() {
   }
 }
 
-function getSessionOrThrow(sessionId: string): PipelineSession {
+export const ownsSession = (session: { owner: SessionOwner }, who: SessionOwner): boolean =>
+  session.owner.companyId === who.companyId && session.owner.userId === who.userId;
+
+// Another user's (or company's) session is reported exactly like a missing one.
+function getSessionOrThrow(sessionId: string, who: SessionOwner): PipelineSession {
   cleanup();
   const session = sessions.get(sessionId);
-  if (!session) throw new Error("Pipeline session not found or expired");
+  if (!session || !ownsSession(session, who)) throw APIError.notFound("Pipeline session not found or expired");
   return session;
 }
 
@@ -53,7 +69,7 @@ function getPagesByType(session: PipelineSession, type: string): PipelinePage[] 
 
 // All files of one pre-alert go into a single session, so their pages are
 // classified and extracted together and end up under one master job.
-export async function prepare(files: PipelineFile[]): Promise<PrepareResult> {
+export async function prepare(files: PipelineFile[], owner: SessionOwner): Promise<PrepareResult> {
   const rawPages: { base64: string; mediaType: string; fileName: string }[] = [];
   const fileSummary: { fileName: string; pageCount: number }[] = [];
   for (const { fileBase64, fileName } of files) {
@@ -82,7 +98,9 @@ export async function prepare(files: PipelineFile[]): Promise<PrepareResult> {
         types.push((classified[j]?.type || "HBL").toUpperCase());
         refs.push(String(classified[j]?.ref ?? ""));
       }
-    } catch {
+    } catch (err) {
+      // Unclassified pages are read as House B/Ls, the most common kind.
+      log.warn("pipeline: page classification failed", { error: err instanceof Error ? err.message : String(err), pages: chunk.length });
       for (let j = 0; j < chunk.length; j++) {
         types.push("HBL");
         refs.push("");
@@ -100,8 +118,9 @@ export async function prepare(files: PipelineFile[]): Promise<PrepareResult> {
   }));
 
   cleanup();
-  const sessionId = `pipe-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+  const sessionId = `pipe-${randomUUID()}`;
   sessions.set(sessionId, {
+    owner,
     pages: sessionPages,
     mblInfo: null,
     shipments: [],
@@ -126,8 +145,8 @@ export async function prepare(files: PipelineFile[]): Promise<PrepareResult> {
   };
 }
 
-export async function extractMbl(sessionId: string): Promise<ExtractMblResult> {
-  const session = getSessionOrThrow(sessionId);
+export async function extractMbl(sessionId: string, who: SessionOwner): Promise<ExtractMblResult> {
+  const session = getSessionOrThrow(sessionId, who);
   const mblPages = getPagesByType(session, "MBL");
 
   if (mblPages.length === 0) {
@@ -155,8 +174,8 @@ const MBL_SHARED_KEYS = [
   "Shipping line / Coloader", "Booking Number", "Load Type",
 ];
 
-export async function extractHblBatch(sessionId: string, batchIndex: number): Promise<ExtractHblResult> {
-  const session = getSessionOrThrow(sessionId);
+export async function extractHblBatch(sessionId: string, batchIndex: number, who: SessionOwner): Promise<ExtractHblResult> {
+  const session = getSessionOrThrow(sessionId, who);
   // One entry per House B/L: all its pages (continuation pages, other copies) together.
   const hbls = groupHblPages(getPagesByType(session, "HBL"));
   const totalBatches = Math.ceil(hbls.length / BATCH_SIZE);

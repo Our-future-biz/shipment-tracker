@@ -1,5 +1,6 @@
 import type { GeoKind } from "./places";
-import { CANCELLED_STATUS, LOAD_TYPES } from "./enums";
+import { CANCELLED_STATUS, LOAD_TYPES, STATUS_COLORS } from "./enums";
+import { INCOTERMS } from "./incoterms";
 
 // "place" / "country" / "countryCode" are picked from the location database (see lib/places.ts).
 export type ColumnType = "text" | "dropdown" | "date" | "checkbox" | "computed" | "popup" | GeoKind;
@@ -56,8 +57,8 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
   "Trade Direction": ["Import", "Export"],
   "Freight Mode": ["Air Freight", "Sea Freight", "Rail Freight", "Road Freight"],
   "Service Type": ["Direct", "In-Direct/Nominated"],
-  "Incoterm Origin": ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DPU", "DAP", "DDP"],
-  "Incoterm Destination": ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DPU", "DAP", "DDP"],
+  "Incoterm Origin": INCOTERMS,
+  "Incoterm Destination": INCOTERMS,
   "Insurance": ["Yes", "Pending", "No"],
   "Credit Check": ["Green", "Yellow", "Red"],
   "Freight Payable At": ["Origin", "Destination"],
@@ -637,28 +638,6 @@ export function getComputedValue(key: string, rowData: Record<string, string>): 
       return "";
   }
 }
-
-// ─── Status Badge Colors ──────────────────────────────────────────────
-
-export const STATUS_COLORS: Record<string, string> = {
-  "Billed [IMP]": "#4CAF50",
-  "Billed [EXP]": "#4CAF50",
-  "Delivery Date Pending From Customer [IMP]": "#FFC107",
-  "Pre-Alert Received - Further Transport To Be Booked [IMP]": "#FF9800",
-  "Booked For Further Transport [IMP]": "#FFD54F",
-  "All Done - Waiting To Be Shipped [IMP]": "#2196F3",
-  "All Done - Waiting To Be Shipped [EXP]": "#2196F3",
-  "Booking Confirmation Pending [IMP]": "#F44336",
-  "Booking Confirmation Pending [EXP]": "#F44336",
-  "Pick Up Date Pending From Customer [EXP]": "#CE93D8",
-  "Billing [IMP]": "#66BB6A",
-  "Billing [EXP]": "#66BB6A",
-  "Arrival Notice Sent - Waiting For Instructions [IMP]": "#9E9E9E",
-  "Customs Clearance Pending [IMP]": "#F48FB1",
-  "Loaded - Customs Clearance In Progress [EXP]": "#F48FB1",
-  "Pre-Alert Sent [EXP]": "#9CCC65",
-  [CANCELLED_STATUS]: "#78909C",
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 

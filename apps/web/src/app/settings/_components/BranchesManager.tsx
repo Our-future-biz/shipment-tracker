@@ -48,7 +48,9 @@ export function BranchesManager({ search }: BranchesManagerProps) {
 
   const handleSubmit = async () => {
     if (!editing) return;
-    const input = await form.validateFields();
+    // antd marks the invalid fields itself; a failed check just stops here.
+    const input = await form.validateFields().catch(() => null);
+    if (!input) return;
     setSaving(true);
     try {
       if (editing === "new") await createBranch(input);

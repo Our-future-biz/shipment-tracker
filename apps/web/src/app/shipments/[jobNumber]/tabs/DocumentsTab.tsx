@@ -14,9 +14,10 @@ import {
   UploadOutlined,
   UnorderedListOutlined,
 } from "@ant-design/icons";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { fileToBase64, attachmentContentUrl } from "@/lib/files";
+import { useMutation } from "@tanstack/react-query";
+import { useShipmentAttachments, type AttachmentItem } from "@/hooks/useShipmentAttachments";
+import { api, apiFileUrl } from "@/lib/api";
+import { fileToBase64 } from "@/lib/files";
 import { formatFileSize, ExtBadge, CustomsPill } from "./docsShared";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { formatDate } from "@/lib/date";
@@ -31,19 +32,7 @@ import {
   documentGroupOf,
 } from "@/lib/documentTypes";
 
-interface AttachmentFile {
-  id: string;
-  fileName: string;
-  fileSize: number;
-  fileType: string;
-  createdAt: string;
-  documentType: string;
-  customsStatus: string;
-  customsNote: string;
-  customsReviewedAt: string | null;
-  uploadedByName: string;
-  customsReviewedByName: string;
-}
+type AttachmentFile = AttachmentItem;
 
 
 
@@ -60,12 +49,12 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-white border border-[#E4E7F0] rounded-[11px] shadow-[0_1px_2px_rgba(21,27,43,.05)] overflow-hidden">
-      <div className="flex items-center gap-[11px] flex-wrap bg-[#EDEFFC] px-[18px] py-[13px]">
-        <span className="w-[22px] h-[22px] rounded-[6px] grid place-items-center text-[#4457D6] border-[1.5px] border-[#4457D6] flex-none text-[12px]">
+    <div className="bg-white border border-line rounded-[11px] shadow-[0_1px_2px_rgba(21,27,43,.05)] overflow-hidden">
+      <div className="flex items-center gap-[11px] flex-wrap bg-accent-softer px-[18px] py-[13px]">
+        <span className="w-[22px] h-[22px] rounded-[6px] grid place-items-center text-accent border-[1.5px] border-accent flex-none text-[12px]">
           {icon}
         </span>
-        <h2 className="m-0 text-[14.5px] font-extrabold tracking-[.06em] uppercase text-[#151B2B] leading-tight">
+        <h2 className="m-0 text-[14.5px] font-extrabold tracking-[.06em] uppercase text-ink leading-tight">
           {title}
         </h2>
         {right && <div className="ml-auto flex items-center gap-[10px] flex-wrap">{right}</div>}
@@ -98,33 +87,33 @@ function ReqRow({
     <Tag
       {...(clickable ? { type: "button" as const, onClick: () => onPick!(label) } : {})}
       className={[
-        "flex items-center gap-[11px] w-full px-[18px] py-[9px] text-left text-[#5A6478] border-0 bg-transparent transition-colors",
-        clickable ? "cursor-pointer hover:bg-[#E7EAFC]" : "cursor-default",
+        "flex items-center gap-[11px] w-full px-[18px] py-[9px] text-left text-subtle border-0 bg-transparent transition-colors",
+        clickable ? "cursor-pointer hover:bg-accent-soft" : "cursor-default",
       ].join(" ")}
     >
       <span
         className={[
           "w-[19px] h-[19px] rounded-[5px] flex-none grid place-items-center border-[1.5px] text-[10px]",
           done
-            ? "bg-[#4457D6] border-[#4457D6] text-white"
+            ? "bg-accent border-accent text-white"
             : optional
-              ? "bg-white border-[#D3D8E5] text-transparent"
-              : "bg-white border-[#C3392B] border-dashed text-transparent",
+              ? "bg-white border-line-strong text-transparent"
+              : "bg-white border-danger border-dashed text-transparent",
         ].join(" ")}
       >
         <CheckOutlined />
       </span>
-      <span className={`text-[13.5px] font-semibold flex-1 min-w-0 ${done ? "text-[#5A6478]" : "text-[#151B2B]"}`}>
+      <span className={`text-[13.5px] font-semibold flex-1 min-w-0 ${done ? "text-subtle" : "text-ink"}`}>
         {label}
       </span>
       {done ? (
         <Tooltip title={file!.fileName}>
-          <span className="text-[11.5px] text-[#8B94A7] font-medium flex-none max-w-[120px] truncate">
+          <span className="text-[11.5px] text-muted font-medium flex-none max-w-[120px] truncate">
             {file!.fileName}
           </span>
         </Tooltip>
       ) : optional ? null : (
-        <span className="text-[10.5px] font-extrabold tracking-[.05em] uppercase text-[#C3392B] bg-[#FBE6E4] px-[7px] py-[3px] rounded-[5px] flex-none">
+        <span className="text-[10.5px] font-extrabold tracking-[.05em] uppercase text-danger bg-danger-soft px-[7px] py-[3px] rounded-[5px] flex-none">
           Missing
         </span>
       )}
@@ -144,13 +133,9 @@ interface PendingFile {
 }
 
 export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
-  const queryClient = useQueryClient();
   // A document added, removed or classified also changes the shipment itself: its customs
   // status follows the invoice and the packing list, and so do the "received" ticks.
-  const refreshDocuments = () => {
-    queryClient.invalidateQueries({ queryKey: ["shipments"] });
-    return queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
-  };
+  const { attachments, refresh: refreshDocuments } = useShipmentAttachments(shipment.id);
   const [search, setSearch] = useState("");
 
   // Files are classified BEFORE they are uploaded — nothing reaches the list
@@ -177,11 +162,6 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     presetRef.current = preset ?? null;
     fileInputRef.current?.click();
   };
-
-  const attachmentsQuery = useQuery({
-    queryKey: ["shipment-attachments", shipment.id],
-    queryFn: () => api.shipments.attachmentList(shipment.id),
-  });
 
   const deleteAttachment = useMutation({
     mutationFn: (attachmentId: string) => api.shipments.attachmentDelete(shipment.id, attachmentId),
@@ -233,13 +213,6 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     onError: () => message.error("Could not save the document type"),
   });
 
-  // Memoised so the `?? []` fallback does not hand the memos below a new array
-  // (and therefore a new dependency) on every render.
-  const attachments: AttachmentFile[] = useMemo(
-    () => (attachmentsQuery.data?.attachments ?? []) as AttachmentFile[],
-    [attachmentsQuery.data?.attachments],
-  );
-  const contentUrl = (id: string, download = false) => attachmentContentUrl(shipment.id, id, download);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -292,16 +265,16 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
               onClick={() => openPicker()}
               className={[
                 "border-[1.5px] border-dashed rounded-[9px] p-5 cursor-pointer transition-colors",
-                dragOver ? "border-[#4457D6] bg-[#E7EAFC]" : "border-[#D3D8E5] bg-[#FAFBFD]",
+                dragOver ? "border-accent bg-accent-soft" : "border-line-strong bg-surface",
               ].join(" ")}
             >
               <div className="flex items-center gap-4 flex-wrap px-2 py-1">
-                <span className="w-10 h-10 rounded-[9px] bg-[#E7EAFC] text-[#4457D6] grid place-items-center flex-none text-[19px]">
+                <span className="w-10 h-10 rounded-[9px] bg-accent-soft text-accent grid place-items-center flex-none text-[19px]">
                   <InboxOutlined />
                 </span>
                 <span className="flex-1 min-w-[190px] text-left">
-                  <b className="block text-[14.5px] font-bold text-[#151B2B]">Drag files here</b>
-                  <span className="text-[12.5px] text-[#8B94A7]">
+                  <b className="block text-[14.5px] font-bold text-ink">Drag files here</b>
+                  <span className="text-[12.5px] text-muted">
                     PDF, XLSX, DOCX, JPG · max 25 MB per file
                   </span>
                 </span>
@@ -311,7 +284,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                     e.stopPropagation();
                     openPicker();
                   }}
-                  className="text-[13.5px] font-semibold px-[15px] py-2 rounded-lg bg-[#4457D6] text-white border-0 cursor-pointer hover:brightness-110"
+                  className="text-[13.5px] font-semibold px-[15px] py-2 rounded-lg bg-accent text-white border-0 cursor-pointer hover:brightness-110"
                 >
                   Browse files
                 </button>
@@ -319,25 +292,25 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
             </div>
 
             {pending.length > 0 && (
-              <div className="mt-4 border border-[#4457D6] rounded-[9px] overflow-hidden">
-                <div className="px-4 py-2.5 bg-[#E7EAFC] border-b border-[#E4E7F0] text-[12.5px] font-extrabold tracking-[.06em] uppercase text-[#4457D6]">
+              <div className="mt-4 border border-accent rounded-[9px] overflow-hidden">
+                <div className="px-4 py-2.5 bg-accent-soft border-b border-line text-[12.5px] font-extrabold tracking-[.06em] uppercase text-accent">
                   {pending.length} {pending.length === 1 ? "file" : "files"} to classify
                 </div>
                 <div>
                   {pending.map((p, i) => (
                     <div
                       key={`${p.name}-${i}`}
-                      className="flex items-center gap-[13px] px-4 py-[11px] flex-wrap border-b border-[#E4E7F0] last:border-b-0"
+                      className="flex items-center gap-[13px] px-4 py-[11px] flex-wrap border-b border-line last:border-b-0"
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-[190px]">
                         <ExtBadge fileName={p.name} />
                         <span className="min-w-0">
-                          <span className="font-semibold text-[#151B2B] truncate block">{p.name}</span>
-                          <span className="text-[12px] text-[#8B94A7] font-medium">{formatFileSize(p.size)}</span>
+                          <span className="font-semibold text-ink truncate block">{p.name}</span>
+                          <span className="text-[12px] text-muted font-medium">{formatFileSize(p.size)}</span>
                         </span>
                       </div>
                       {p.guessed && p.type && (
-                        <span className="text-[10.5px] font-bold tracking-[.05em] uppercase text-[#177245] bg-[#E1F3E9] px-[7px] py-[3px] rounded-[5px]">
+                        <span className="text-[10.5px] font-bold tracking-[.05em] uppercase text-ok bg-ok-soft px-[7px] py-[3px] rounded-[5px]">
                           guessed from name
                         </span>
                       )}
@@ -358,7 +331,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                         <button
                           type="button"
                           onClick={() => setPending((list) => list.filter((_, xi) => xi !== i))}
-                          className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer"
+                          className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-subtle hover:bg-danger-soft hover:text-danger border-0 bg-transparent cursor-pointer"
                         >
                           <CloseOutlined />
                         </button>
@@ -366,8 +339,8 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                     </div>
                   ))}
                 </div>
-                <div className="flex items-center gap-2.5 flex-wrap px-4 py-3 bg-[#FAFBFD] border-t border-[#E4E7F0]">
-                  <span className="text-[12.5px] text-[#95620B] font-semibold mr-auto">
+                <div className="flex items-center gap-2.5 flex-wrap px-4 py-3 bg-surface border-t border-line">
+                  <span className="text-[12.5px] text-warn font-semibold mr-auto">
                     {pending.filter((p) => !p.type).length === 0
                       ? ""
                       : pending.filter((p) => !p.type).length === 1
@@ -377,7 +350,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                   <button
                     type="button"
                     onClick={() => setPending([])}
-                    className="text-[13.5px] font-semibold px-[15px] py-2 rounded-lg border border-[#D3D8E5] bg-white text-[#151B2B] cursor-pointer hover:bg-[#F6F7FB]"
+                    className="text-[13.5px] font-semibold px-[15px] py-2 rounded-lg border border-line-strong bg-white text-ink cursor-pointer hover:bg-surface-3"
                   >
                     Cancel
                   </button>
@@ -385,7 +358,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                     type="button"
                     disabled={saving || pending.some((p) => !p.type)}
                     onClick={savePending}
-                    className="text-[13.5px] font-semibold px-[15px] py-2 rounded-lg bg-[#4457D6] text-white border-0 cursor-pointer hover:brightness-110 disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:brightness-100"
+                    className="text-[13.5px] font-semibold px-[15px] py-2 rounded-lg bg-accent text-white border-0 cursor-pointer hover:brightness-110 disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:brightness-100"
                   >
                     {saving ? "Adding…" : "Add to list"}
                   </button>
@@ -407,18 +380,18 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
             title={group.title}
             right={
               <>
-                <span className="text-[13px] text-[#5A6478] font-semibold">
+                <span className="text-[13px] text-subtle font-semibold">
                   {all.length} {all.length === 1 ? "file" : "files"}
                 </span>
                 {/* One search for all three lists, kept in the first card. */}
                 {first && (
-                <span className="flex items-center gap-2 border border-[#D3D8E5] bg-white rounded-lg px-[11px] py-[7px] text-[13px] min-w-[210px]">
-                  <SearchOutlined className="text-[#8B94A7]" />
+                <span className="flex items-center gap-2 border border-line-strong bg-white rounded-lg px-[11px] py-[7px] text-[13px] min-w-[210px]">
+                  <SearchOutlined className="text-muted" />
                   <input
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search by file name"
-                    className="border-0 bg-transparent outline-none w-full text-[#151B2B]"
+                    className="border-0 bg-transparent outline-none w-full text-ink"
                   />
                 </span>
                 )}
@@ -438,7 +411,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                     ].map(([label, w]) => (
                       <th
                         key={label || "acts"}
-                        className={`text-left text-[11px] font-extrabold tracking-[.07em] uppercase text-[#4E5769] px-[18px] py-3 border-b border-[#E4E7F0] bg-white ${w}`}
+                        className={`text-left text-[11px] font-extrabold tracking-[.07em] uppercase text-ink-muted px-[18px] py-3 border-b border-line bg-white ${w}`}
                       >
                         {label}
                       </th>
@@ -447,32 +420,32 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                 </thead>
                 <tbody>
                   {rows.map((file) => (
-                    <tr key={file.id} className="hover:bg-[#FAFBFD] transition-colors group">
-                      <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
+                    <tr key={file.id} className="hover:bg-surface transition-colors group">
+                      <td className="px-[18px] py-[13px] border-b border-line align-middle">
                         <div className="flex items-center gap-3 min-w-0">
                           <ExtBadge fileName={file.fileName} />
                           <span className="min-w-0">
                             <a
-                              href={contentUrl(file.id)}
+                              href={apiFileUrl(file.contentUrl)}
                               target="_blank"
                               rel="noreferrer"
-                              className="font-semibold text-[#4457D6] truncate block"
+                              className="font-semibold text-accent truncate block"
                             >
                               {file.fileName}
                             </a>
-                            <span className="text-[12px] text-[#8B94A7] font-medium">
+                            <span className="text-[12px] text-muted font-medium">
                               {formatFileSize(file.fileSize)}
                             </span>
                           </span>
                         </div>
                       </td>
-                      <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
+                      <td className="px-[18px] py-[13px] border-b border-line align-middle">
                         {/* The type stays editable until customs has reviewed the file, so a wrong
                             guess (or a legacy / missing type) can still be corrected. Once approved
                             or declined it is fixed. The Select follows the saved value, so a failed
                             save snaps back. */}
                         {file.customsStatus && isKnownDocumentType(file.documentType) ? (
-                          <span className="text-[13.5px] font-semibold text-[#5A6478]">{file.documentType}</span>
+                          <span className="text-[13.5px] font-semibold text-subtle">{file.documentType}</span>
                         ) : (
                           <Select
                             size="small"
@@ -487,46 +460,46 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                           />
                         )}
                       </td>
-                      <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
-                        <span className="text-[13.5px] font-semibold text-[#C3392B] whitespace-nowrap">
+                      <td className="px-[18px] py-[13px] border-b border-line align-middle">
+                        <span className="text-[13.5px] font-semibold text-danger whitespace-nowrap">
                           {file.uploadedByName || "Unknown"}
-                          <small className="block text-[12px] font-medium text-[#8B94A7]">
+                          <small className="block text-[12px] font-medium text-muted">
                             {formatDate(file.createdAt)}
                           </small>
                         </span>
                       </td>
-                      <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
+                      <td className="px-[18px] py-[13px] border-b border-line align-middle">
                         <div className="flex flex-col gap-[3px] items-start">
                           {/* Commercial and customs documents go to customs for review; shipping ones do not. A file
                               that was reviewed under another type still shows its verdict (and note). */}
                           {isReviewedDocumentType(file.documentType) || file.customsStatus ? (
                             <CustomsPill status={file.customsStatus} />
                           ) : (
-                            <span className="text-[13.5px] font-semibold text-[#8B94A7]">—</span>
+                            <span className="text-[13.5px] font-semibold text-muted">—</span>
                           )}
                           {file.customsStatus === "declined" && file.customsNote && (
-                            <span className="text-[12px] text-[#5A6478] max-w-[210px]">
+                            <span className="text-[12px] text-subtle max-w-[210px]">
                               “{file.customsNote}”
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="px-[18px] py-[13px] border-b border-[#E4E7F0] align-middle">
+                      <td className="px-[18px] py-[13px] border-b border-line align-middle">
                         <div className="flex gap-[2px] justify-end opacity-60 group-hover:opacity-100 transition-opacity">
                           <Tooltip title="Preview">
                             <a
-                              href={contentUrl(file.id)}
+                              href={apiFileUrl(file.contentUrl)}
                               target="_blank"
                               rel="noreferrer"
-                              className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#E7EAFC] hover:text-[#4457D6]"
+                              className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-subtle hover:bg-accent-soft hover:text-accent"
                             >
                               <EyeOutlined />
                             </a>
                           </Tooltip>
                           <Tooltip title="Download">
                             <a
-                              href={contentUrl(file.id, true)}
-                              className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#E7EAFC] hover:text-[#4457D6]"
+                              href={apiFileUrl(file.contentUrl, true)}
+                              className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-subtle hover:bg-accent-soft hover:text-accent"
                             >
                               <DownloadOutlined />
                             </a>
@@ -534,7 +507,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                           <Tooltip title="Delete">
                             <button
                               onClick={() => deleteAttachment.mutate(file.id)}
-                              className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-[#5A6478] hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer"
+                              className="w-[30px] h-[30px] rounded-[7px] grid place-items-center text-subtle hover:bg-danger-soft hover:text-danger border-0 bg-transparent cursor-pointer"
                             >
                               <DeleteOutlined />
                             </button>
@@ -546,7 +519,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
                 </tbody>
               </table>
               {rows.length === 0 && (
-                <div className="px-[18px] py-9 text-center text-[#8B94A7] text-[13.5px]">
+                <div className="px-[18px] py-9 text-center text-muted text-[13.5px]">
                   {all.length === 0
                     ? `No ${group.title.toLowerCase()} yet. Drag a file into the area above.`
                     : `No file matches “${search}”.`}
@@ -563,7 +536,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
         icon={<UnorderedListOutlined />}
         title="Required documents"
         right={
-          <span className="text-[13.5px] font-extrabold text-[#5A6478] tabular-nums">
+          <span className="text-[13.5px] font-extrabold text-subtle tabular-nums">
             {have} / {REQUIRED_DOCUMENT_TYPES.length}
           </span>
         }
@@ -572,7 +545,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
           {REQUIRED_DOCUMENT_TYPES.map((t) => (
             <ReqRow key={t} label={t} file={byType.get(t)} onPick={openPicker} />
           ))}
-          <div className="px-[18px] pt-[9px] pb-1 text-[11px] font-extrabold tracking-[.07em] uppercase text-[#4E5769]">
+          <div className="px-[18px] pt-[9px] pb-1 text-[11px] font-extrabold tracking-[.07em] uppercase text-ink-muted">
             Optional
           </div>
           {OPTIONAL_DOCUMENT_TYPES.map((t) => (
@@ -580,8 +553,8 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
           ))}
         </div>
         <div
-          className={`px-[18px] py-[11px] border-t border-[#E4E7F0] bg-[#FAFBFD] text-[12.5px] font-semibold ${
-            left ? "text-[#5A6478]" : "text-[#177245]"
+          className={`px-[18px] py-[11px] border-t border-line bg-surface text-[12.5px] font-semibold ${
+            left ? "text-subtle" : "text-ok"
           }`}
         >
           {left

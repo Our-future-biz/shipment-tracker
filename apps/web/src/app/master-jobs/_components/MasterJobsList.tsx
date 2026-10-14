@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button, DatePicker, Input, Select } from "antd";
@@ -38,8 +38,10 @@ export function MasterJobsList({ masterJobs, isLoading, creating, onCreate }: Ma
   // The box keeps what is typed (spaces included); it follows the URL when that changes
   // from outside, e.g. "Clear filters" or back/forward.
   const urlQuery = get("q");
-  const [query, setQuery] = useState(urlQuery);
-  useEffect(() => setQuery(urlQuery), [urlQuery]);
+  // What is typed belongs to the URL value it was typed over; a new URL value replaces it.
+  const [typed, setTyped] = useState({ over: urlQuery, text: urlQuery });
+  const query = typed.over === urlQuery ? typed.text : urlQuery;
+  const setQuery = (text: string) => setTyped({ over: urlQuery, text });
 
   const setFilter = (key: FilterKey, value: string) => {
     const params = new URLSearchParams(searchParams.toString());

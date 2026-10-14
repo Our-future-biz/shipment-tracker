@@ -1,5 +1,6 @@
 import { LABEL_GEO_FIELDS, type GeoKind } from "@/lib/places";
 import { LOAD_TYPES } from "@/lib/enums";
+import { INCOTERMS } from "@/lib/incoterms";
 
 export const QUOTE_COLUMNS = [
   "Shipper",
@@ -50,7 +51,6 @@ export const COPYABLE_FIELDS: string[] = [
   "Cargo Description",
 ];
 
-const INCOTERMS = ["EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DPU", "DAP", "DDP"];
 
 export const QUOTE_DROPDOWNS: Record<string, string[]> = {
   "Load Type": [...LOAD_TYPES],

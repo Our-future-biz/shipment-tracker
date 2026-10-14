@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Input, Button, AutoComplete, Select, Tag } from "antd";
 import {
   PlusOutlined,
@@ -25,6 +26,7 @@ import {
   type CargoItemLine,
   type CargoDimensionLine,
   type ContainerLine,
+  packTypeOptions,
 } from "@/lib/cargo";
 
 // Panel key: the container row id, or "none" for cargo that belongs to the
@@ -65,9 +67,6 @@ function withPanelRows<T>(rows: T[], panelKeys: string[], keyFn: (r: T) => strin
   const missing = panelKeys.filter((k) => !present.has(k));
   return missing.length === 0 ? rows : [...rows, ...missing.map((k) => mk(k === NONE ? null : k))];
 }
-
-const packTypeOptions = (query: string) =>
-  PACK_TYPES.filter((p) => p.toLowerCase().includes((query ?? "").toLowerCase().trim())).map((p) => ({ value: p }));
 
 const currencyOptions = (query: string) => {
   const q = (query ?? "").toLowerCase().trim();
@@ -350,7 +349,7 @@ export function CargoDetailsTab({
                           if (!dimIsOpen(idx)) {
                             return (
                               <div
-                                key={idx}
+                                key={rowKey(l)}
                                 className={`${DIM_COLS} px-1 py-1.5 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
                                 onDoubleClick={() => openDims.open(idx)}
                                 title="Double-click to edit"
@@ -369,7 +368,7 @@ export function CargoDetailsTab({
                           }
                           return (
                             <div
-                              key={idx}
+                              key={rowKey(l)}
                               className={`${DIM_COLS} px-1 py-1 border-b border-slate-100`}
                               onBlur={openDims.onRowBlur(idx)}
                               onKeyDown={openDims.onRowKeyDown(idx)}
@@ -450,7 +449,7 @@ export function CargoDetailsTab({
                         {panelItems.map(({ l, idx }) =>
                           !itemIsOpen(idx) ? (
                             <div
-                              key={idx}
+                              key={rowKey(l)}
                               className={`${DESC_COLS} px-1 py-1.5 border-b border-slate-100 text-[13px] text-slate-700 cursor-pointer hover:bg-slate-50/60`}
                               onDoubleClick={() => openItems.open(idx)}
                               title="Double-click to edit"
@@ -466,7 +465,7 @@ export function CargoDetailsTab({
                             </div>
                           ) : (
                           <div
-                            key={idx}
+                            key={rowKey(l)}
                             className={`${DESC_COLS} px-1 py-1 border-b border-slate-100`}
                             onBlur={openItems.onRowBlur(idx)}
                             onKeyDown={openItems.onRowKeyDown(idx)}

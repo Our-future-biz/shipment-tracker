@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Spin } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useShipments } from "@/hooks/useShipments";
+import { useShipment } from "@/hooks/useShipment";
 import { useDebounced } from "@/hooks/useDebounced";
 import { ShipmentsTable } from "@/app/shipments/_components/ShipmentsTable";
 import { CustomsSummary, CustomsShipmentInfo } from "./CustomsOverview";
@@ -73,15 +74,13 @@ export function CustomsView() {
 
   // The list holds the newest 200; a shipment opened by link may be older, so it is fetched on its own.
   const listed = openId ? shipments.find((x) => x.id === openId) : undefined;
-  const openQuery = useQuery({
-    queryKey: ["shipments", "one", openId],
-    queryFn: () => api.shipments.shipmentGet(openId as string),
-    enabled: !!openId && !isLoading && !listed,
-  });
-  const openShipment = listed ?? openQuery.data?.shipment ?? null;
-  const [detailTab, setDetailTab] = useState<(typeof CUSTOMS_DETAIL_TABS)[number]["key"]>("details");
-  // Every shipment opens on its first tab.
-  useEffect(() => setDetailTab("details"), [openId]);
+  const fetched = useShipment(!isLoading && !listed ? (openId ?? undefined) : undefined);
+  const openShipment = listed ?? fetched.shipment ?? null;
+  // Every shipment opens on its first tab: the chosen tab belongs to the shipment it was picked on.
+  type DetailTab = (typeof CUSTOMS_DETAIL_TABS)[number]["key"];
+  const [tabPick, setTabPick] = useState<{ id: string | null; tab: DetailTab }>({ id: openId, tab: "details" });
+  const detailTab: DetailTab = tabPick.id === openId ? tabPick.tab : "details";
+  const setDetailTab = (tab: DetailTab) => setTabPick({ id: openId, tab });
 
   // The count of those shipments, over all of them whatever the list is searched by. Kept under
   // ["shipments"] so every shipment write refreshes it, and re-counted as the clock moves.
@@ -125,12 +124,12 @@ export function CustomsView() {
                 <button
                   type="button"
                   onClick={backToList}
-                  className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-[#d8dce6] bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-[#f4f5f9] hover:text-[#46506b] transition-colors"
+                  className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-line-soft bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-surface-2 hover:text-ink-soft transition-colors"
                 >
                   <ArrowLeftOutlined /> Customs
                 </button>
                 {openShipment && (
-                  <span className="font-mono text-[18px] font-bold tracking-[.02em] text-[#10141f]">
+                  <span className="font-mono text-[18px] font-bold tracking-[.02em] text-ink-strong">
                     {openShipment.jobNumber}
                   </span>
                 )}
@@ -164,11 +163,11 @@ export function CustomsView() {
                     canReview
                     section={detailTab === "documents" ? "documents" : "details"}
                     shipment={openShipment}
-                    onCommit={(fieldKey, value) => updateField(openShipment.id, fieldKey, value)}
+                    onCommit={(fieldKey, value) => updateField(openShipment.id, fieldKey, value, openShipment)}
                   />
                   {detailTab === "details" && <CustomsShipmentInfo shipment={openShipment} />}
                 </div>
-              ) : isLoading || openQuery.isFetching ? (
+              ) : isLoading || fetched.isLoading ? (
                 <div className="flex items-center justify-center py-20">
                   <Spin />
                 </div>

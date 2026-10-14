@@ -1,26 +1,31 @@
-import { eq, inArray, asc } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { containerTable } from "../schemas/container.schema";
-import { cargoItemTable } from "../schemas/cargoItem.schema";
-import { cargoDimensionTable } from "../schemas/cargoDimension.schema";
-import { normalizeContainerNumber, teuForType } from "../services/cargoProjection";
+import { containerTable, type ContainerRecord } from "../schemas/container.schema";
+import { normalizeContainerNumber, teuForType } from "../lib/cargoProjection";
 import type { ContainerLine } from "../interfaces/interfaces";
 
-class ContainerRepository {
-  async listByShipmentId(shipmentId: string) {
-    return db
-      .select()
-      .from(containerTable)
-      .where(eq(containerTable.shipmentId, shipmentId))
-      .orderBy(asc(containerTable.position), asc(containerTable.createdAt));
+class ContainerRepository extends TenantRepository<typeof containerTable> {
+  constructor() {
+    super(db, containerTable, "container");
   }
 
-  async listByShipmentIds(shipmentIds: string[]) {
+  async listByShipmentId(shipmentId: string, companyId: string): Promise<ContainerRecord[]> {
+    return this.listByShipmentIds([shipmentId], companyId);
+  }
+
+  async listByShipmentIds(shipmentIds: string[], companyId: string): Promise<ContainerRecord[]> {
     if (shipmentIds.length === 0) return [];
-    return db
+    return this.db
       .select()
       .from(containerTable)
-      .where(inArray(containerTable.shipmentId, shipmentIds))
+      .where(
+        and(
+          eq(containerTable.companyId, companyId),
+          inArray(containerTable.shipmentId, shipmentIds),
+          isNull(containerTable.deletedAt),
+        ),
+      )
       .orderBy(asc(containerTable.position), asc(containerTable.createdAt));
   }
 
@@ -29,9 +34,9 @@ class ContainerRepository {
   // be updated in place, not replaced. Lines are matched to existing rows by id;
   // id-less lines adopt the unclaimed existing row at the same position (clients
   // like the create wizard or document extraction don't echo ids). Existing rows
-  // no line claims are deleted together with their cargo lines.
-  async syncForShipment(shipmentId: string, companyId: string, lines: ContainerLine[]) {
-    const existing = await this.listByShipmentId(shipmentId);
+  // no line claims are deleted; their cargo lines go with them (ON DELETE CASCADE).
+  async syncForShipment(shipmentId: string, companyId: string, lines: ContainerLine[]): Promise<void> {
+    const existing = await this.listByShipmentId(shipmentId, companyId);
     const existingIds = new Set(existing.map((r) => r.id));
     const claimed = new Set<string>();
 
@@ -53,13 +58,13 @@ class ContainerRepository {
 
     const removedIds = existing.filter((r) => !claimed.has(r.id)).map((r) => r.id);
     if (removedIds.length > 0) {
-      await db.delete(cargoItemTable).where(inArray(cargoItemTable.containerId, removedIds));
-      await db.delete(cargoDimensionTable).where(inArray(cargoDimensionTable.containerId, removedIds));
-      await db.delete(containerTable).where(inArray(containerTable.id, removedIds));
+      await this.db
+        .delete(containerTable)
+        .where(and(eq(containerTable.companyId, companyId), inArray(containerTable.id, removedIds)));
     }
 
     for (let i = 0; i < resolved.length; i++) {
-      const { line, id } = resolved[i];
+      const { line, id } = resolved[i]!;
       const values = {
         companyId,
         shipmentId,
@@ -74,9 +79,12 @@ class ContainerRepository {
         volume: line.volume,
       };
       if (id) {
-        await db.update(containerTable).set(values).where(eq(containerTable.id, id));
+        await this.db
+          .update(containerTable)
+          .set({ ...values, updatedAt: new Date() })
+          .where(and(eq(containerTable.companyId, companyId), eq(containerTable.id, id)));
       } else {
-        await db.insert(containerTable).values(values);
+        await this.db.insert(containerTable).values(values);
       }
     }
   }

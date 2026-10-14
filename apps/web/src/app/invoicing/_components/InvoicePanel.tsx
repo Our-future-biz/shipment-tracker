@@ -7,6 +7,7 @@ import { Alert, Button, DatePicker, Input, Modal, Select, Tag, Tooltip } from "a
 import { FilePdfOutlined, RollbackOutlined, SendOutlined, WarningOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { interfaces } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipments } from "@/hooks/useShipments";
 import { useCustomers } from "@/hooks/useCustomers";
@@ -20,7 +21,7 @@ import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 const BILLING_CURRENCIES = ["CZK", "EUR", "USD"];
 
 /** VAT codes a line can be switched to (NP is set automatically for a non-VAT-payer). */
-const VAT_OPTIONS = [
+const VAT_OPTIONS: { value: interfaces.SellingVatCode; label: string }[] = [
   { value: "Z69", label: "0 % §69" },
   { value: "S21", label: "21 %" },
   { value: "RC", label: "Reverse charge" },
@@ -89,7 +90,7 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
     }
   };
 
-  const setLineVat = async (sellingId: string | null, vatCode: string) => {
+  const setLineVat = async (sellingId: string | null, vatCode: interfaces.SellingVatCode) => {
     if (!sellingId) return;
     try {
       await api.invoicing.invoicingUpdateSellingCost(shipment.id, sellingId, { vatCode });
@@ -286,9 +287,9 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
                       {l.vatCode === "NP" ? (
                         <span className="text-slate-500">{VAT_LABEL.NP}</span>
                       ) : (
-                        <Select
+                        <Select<interfaces.SellingVatCode>
                           size="small"
-                          value={l.vatCode}
+                          value={l.vatCode as interfaces.SellingVatCode}
                           onChange={(v) => void setLineVat(l.sourceSellingCostId, v)}
                           options={VAT_OPTIONS}
                           className="w-[140px]"

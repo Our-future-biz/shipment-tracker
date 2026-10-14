@@ -1,16 +1,19 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { invoiceService } from "../services/invoice.service";
-import type { InvoiceItem } from "../interfaces/interfaces";
+import type { InvoiceItem, InvoiceStatus } from "../interfaces/interfaces";
 
 interface InvoiceCreateRequest {
   customerId: string;
-  invoiceNumber: string;
+  invoiceNumber: string & MinLen<1> & MaxLen<100>;
   amount?: number;
-  /** Currency the customer pays in (default CZK) */
-  currency?: string;
+  /** Currency the customer pays in; defaults to the customer's own currency */
+  currency?: string & MinLen<3> & MaxLen<3>;
+  /** yyyy-mm-dd, or "" */
   dueDate?: string;
-  status?: string;
+  status?: InvoiceStatus;
+  /** yyyy-mm-dd, or "" */
   issuedAt?: string;
 }
 
@@ -20,12 +23,7 @@ interface InvoiceCreateResponse {
 
 export const invoiceCreate = api(
   { expose: true, auth: true, method: "POST", path: "/customers/:customerId/invoices" },
-  async (req: InvoiceCreateRequest): Promise<InvoiceCreateResponse> => {
-    if (!req.invoiceNumber) {
-      throw APIError.invalidArgument("invoiceNumber is required");
-    }
-    const { customerId, ...input } = req;
-    const invoice = await invoiceService.create(getAuthData()!.companyID, customerId, input);
-    return { invoice: invoice as unknown as InvoiceItem };
+  async ({ customerId, ...input }: InvoiceCreateRequest): Promise<InvoiceCreateResponse> => {
+    return { invoice: await invoiceService.create(getAuthData()!.companyID, customerId, input) };
   },
 );

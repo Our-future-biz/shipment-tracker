@@ -7,7 +7,7 @@ import {
   legacyContainerGroups,
   mczSequence,
   syncedShipmentData,
-} from "../services/masterJobSync";
+} from "../lib/masterJobSync";
 import type { ContainerLine } from "../interfaces/interfaces";
 
 const line = (containerNumber: string, extra: Partial<ContainerLine> = {}): ContainerLine => ({

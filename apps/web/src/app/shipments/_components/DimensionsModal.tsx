@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Button, Input, Modal, Select } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ShipmentItem } from "@/hooks/useShipments";
@@ -110,7 +111,7 @@ export function DimensionsModal({
           {lines.map((l, idx) => {
             const vpc = dimensionVolumePerPiece(l);
             return (
-              <div key={idx} className={`${COLS} px-1 py-1 border-b border-slate-100`}>
+              <div key={rowKey(l)} className={`${COLS} px-1 py-1 border-b border-slate-100`}>
                 {field(idx, "pieces")}
                 {field(idx, "lengthCm")}
                 {field(idx, "widthCm")}

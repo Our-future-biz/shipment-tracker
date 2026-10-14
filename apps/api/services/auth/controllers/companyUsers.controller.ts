@@ -1,4 +1,4 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
 import { authService } from "../services/auth.service";
 import type { AuthUserInfo } from "../services/auth.service";
@@ -62,9 +62,7 @@ export const companyUserUpdate = api(
   async (req: CompanyUserUpdateRequest): Promise<CompanyUserUpdateResponse> => {
     const actor = requireRole("superadmin");
     const { companyId, id, ...patch } = req;
-    const user = await authService.updateUser(id, companyId, actor, patch);
-    if (!user) throw APIError.notFound("User not found");
-    return { user };
+    return { user: await authService.updateUser(id, companyId, actor, patch) };
   },
 );
 
@@ -79,12 +77,7 @@ interface CompanyUserDeleteResponse {
 export const companyUserDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/companies/:companyId/users/:id" },
   async (req: CompanyUserDeleteRequest): Promise<CompanyUserDeleteResponse> => {
-    const actor = requireRole("superadmin");
-    if (req.id === actor.userID) {
-      throw APIError.invalidArgument("You cannot deactivate your own account");
-    }
-    const ok = await authService.deactivateUser(req.id, req.companyId, actor);
-    if (!ok) throw APIError.notFound("User not found");
+    await authService.deactivateUser(req.id, req.companyId, requireRole("superadmin"));
     return { ok: true };
   },
 );

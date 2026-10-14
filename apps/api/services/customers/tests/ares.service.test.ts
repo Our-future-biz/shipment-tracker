@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
 vi.mock("encore.dev/api", () => ({ APIError: {} }));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import { parseAres, registerEntryFrom, type AresResponse } from "../services/ares.service";
 

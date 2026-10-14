@@ -124,6 +124,13 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
   const fileInput = useRef<HTMLInputElement>(null);
   // Documents picked in this dialog, uploaded on save; and stored ones marked for removal.
   const [newFiles, setNewFiles] = useState<File[]>([]);
+  // A key per picked file (the same file can be picked twice, so not its name).
+  const fileKeys = useRef(new WeakMap<File, string>());
+  const fileKey = (f: File) => {
+    let key = fileKeys.current.get(f);
+    if (!key) fileKeys.current.set(f, (key = `file-${Math.random().toString(36).slice(2)}`));
+    return key;
+  };
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   // A new post that saved but whose documents did not: a retry must not post it twice.
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -363,9 +370,9 @@ export function NoticePostModal({ target, onClose, onCreate, onUpdate, onAddAtta
                 onRemove={() => setRemovedIds((ids) => [...ids, a.id])}
               />
             ))}
-            {newFiles.map((f, i) => (
+            {newFiles.map((f) => (
               <DocumentRow
-                key={i}
+                key={fileKey(f)}
                 fileName={f.name}
                 fileType={f.type}
                 fileSize={f.size}

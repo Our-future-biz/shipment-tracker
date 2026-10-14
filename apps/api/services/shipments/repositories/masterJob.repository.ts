@@ -3,11 +3,11 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { masterJobTable } from "../schemas/masterJob.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
-import { mczSequence } from "../services/masterJobSync";
+import { mczSequence } from "../lib/masterJobSync";
 
 class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
   constructor() {
-    super(db as never, masterJobTable, "master_job");
+    super(db, masterJobTable, "master_job");
   }
 
   async findByMczNumber(mczNumber: string, companyId: string) {

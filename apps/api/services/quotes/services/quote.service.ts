@@ -1,7 +1,12 @@
 import { APIError } from "encore.dev/api";
 import { quoteRepository } from "../repositories/quote.repository";
 import { quoteRefSequenceRepository } from "../repositories/quoteRefSequence.repository";
+import type { NewQuoteRecord } from "../schemas/quote.schema";
 import type { PaginationRequest } from "../../../lib/db/interface";
+import type { QuoteItem, QuotePage } from "../interfaces/interfaces";
+import { toQuoteItem } from "../lib/mappers";
+import { baseRef, nextDuplicateRef, nextSalesRef, salesRefPrefix, subLineRef } from "../lib/refs";
+import { quoteAttachmentService } from "./quoteAttachment.service";
 import { fx } from "~encore/clients";
 import { fxActionFor, type StoredFx } from "../lib/quoteFx";
 
@@ -34,87 +39,70 @@ async function withQuoteFx(data: unknown, previous?: unknown): Promise<unknown> 
 }
 
 class QuoteService {
-  async list(companyId: string, request: PaginationRequest & { customerId?: string }) {
+  async list(companyId: string, request: PaginationRequest & { customerId?: string }): Promise<QuotePage> {
     const limit = Math.min(request.limit ?? 100, 1000);
-    const fetchLimit = limit + (request.offset ?? 0);
+    const offset = request.offset ?? 0;
+    const fetchLimit = limit + offset;
     const rows = request.customerId
       ? await quoteRepository.listForCustomer(companyId, request.customerId, fetchLimit)
       : await quoteRepository.listForCompany(companyId, fetchLimit);
-    // listForCompany returns newest-first; apply offset/limit window here.
-    const offset = request.offset ?? 0;
-    const data = rows.slice(offset, offset + limit);
-    return { pagination: { total: rows.length, offset, limit }, data };
+    // Both lists are newest-first; the offset/limit window is applied here.
+    return { pagination: { total: rows.length, offset, limit }, data: rows.slice(offset, offset + limit).map(toQuoteItem) };
   }
 
-  async getByQuoteNumber(quoteNumber: string, companyId: string) {
-    return quoteRepository.findByQuoteNumber(quoteNumber, companyId);
+  async get(quoteNumber: string, companyId: string): Promise<QuoteItem> {
+    const row = await quoteRepository.findByQuoteNumber(quoteNumber, companyId);
+    if (!row) throw APIError.notFound("Quote not found");
+    return toQuoteItem(row);
   }
 
-  async create(companyId: string, quoteNumber: string, data: unknown, terms?: string) {
+  async create(companyId: string, quoteNumber: string, data: unknown, terms?: string): Promise<QuoteItem> {
     // A quote reference is permanent and can never be reused (within the company).
-    const existing = await quoteRepository.getByColumnForCompany(
-      quoteRepository["table"].quoteNumber,
-      quoteNumber,
-      companyId,
-      { includeDeleted: true },
-    );
-    if (existing) {
+    if (await quoteRepository.findByQuoteNumber(quoteNumber, companyId, { includeDeleted: true })) {
       throw APIError.alreadyExists(`Quote reference ${quoteNumber} already exists and cannot be reused`);
     }
-    return quoteRepository.createForCompany(companyId, { quoteNumber, data: await withQuoteFx(data), terms: terms ?? "" } as never);
+    return this.insert(companyId, quoteNumber, data, terms ?? "");
   }
 
-  async updateData(quoteNumber: string, companyId: string, data: unknown) {
-    const existing = await quoteRepository.findByQuoteNumber(quoteNumber, companyId);
-    return quoteRepository.updateData(quoteNumber, companyId, await withQuoteFx(data, existing?.data));
+  async update(quoteNumber: string, companyId: string, changes: { data?: unknown; terms?: string }): Promise<QuoteItem> {
+    let row = await quoteRepository.findByQuoteNumber(quoteNumber, companyId);
+    if (!row) throw APIError.notFound("Quote not found");
+    if (changes.data !== undefined) {
+      row = (await quoteRepository.updateData(quoteNumber, companyId, await withQuoteFx(changes.data, row.data))) ?? row;
+    }
+    if (changes.terms !== undefined) row = (await quoteRepository.updateForCompany(row.id, companyId, { terms: changes.terms })) ?? row;
+    return toQuoteItem(row);
   }
 
-  async updateTerms(id: string, companyId: string, terms: string) {
-    return quoteRepository.updateForCompany(id, companyId, { terms } as never);
-  }
-
-  async softDelete(id: string, companyId: string) {
-    return quoteRepository.softDeleteForCompany(id, companyId);
+  // The quote and its attachments go together.
+  async softDelete(quoteNumber: string, companyId: string): Promise<void> {
+    const row = await quoteRepository.findByQuoteNumber(quoteNumber, companyId);
+    if (!row) throw APIError.notFound("Quote not found");
+    await quoteRepository.softDeleteForCompany(row.id, companyId);
+    await quoteAttachmentService.removeAllOfQuote(quoteNumber, companyId);
   }
 
   async allocateSubLineRef(quoteNumber: string, companyId: string): Promise<string> {
-    const subLine = await quoteRefSequenceRepository.getNextSubLine(quoteNumber, companyId);
-    return `${quoteNumber}-${String(subLine).padStart(3, "0")}`;
+    return subLineRef(quoteNumber, await quoteRefSequenceRepository.takeNextSubLine(quoteNumber, companyId));
   }
 
-  // Sales-module quote reference: QCZ{YYYYMMDD}{NNN}, a per-company sequence per day.
+  // Sales-module quote reference: QCZ{YYYYMMDD}{NNN}, a per-company sequence per day. Soft-deleted
+  // quotes count too: a reference is never reused.
   async nextSalesReference(companyId: string): Promise<string> {
-    const now = new Date();
-    const datePart = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(
-      now.getDate(),
-    ).padStart(2, "0")}`;
-    const prefix = `QCZ${datePart}`;
-    const numbers = await quoteRepository.findNumbersByPrefix(prefix, companyId);
-    let max = 0;
-    for (const n of numbers) {
-      const rest = n.slice(prefix.length);
-      // Ignore duplicate suffixes (contain "-"); only base sequences count.
-      if (rest.includes("-")) continue;
-      const seq = parseInt(rest, 10);
-      if (!Number.isNaN(seq) && seq > max) max = seq;
-    }
-    return `${prefix}${String(max + 1).padStart(3, "0")}`;
+    const prefix = salesRefPrefix(new Date());
+    return nextSalesRef(prefix, await quoteRepository.findNumbersByPrefix(prefix, companyId));
   }
 
-  // Duplicate a sales quote: never reuse the reference, append -2, -3, ...
-  async duplicateSalesQuote(companyId: string, baseRef: string, data: unknown): Promise<{ quoteNumber: string; quote: unknown }> {
-    // Strip any existing duplicate suffix so branches always come off the base.
-    const base = baseRef.replace(/-\d+$/, "");
-    const existing = await quoteRepository.findNumbersByPrefix(`${base}-`, companyId);
-    let max = 1;
-    for (const n of existing) {
-      const suffix = n.slice(base.length + 1);
-      const seq = parseInt(suffix, 10);
-      if (!Number.isNaN(seq) && seq > max) max = seq;
-    }
-    const newRef = `${base}-${max + 1}`;
-    const quote = await quoteRepository.createForCompany(companyId, { quoteNumber: newRef, data: await withQuoteFx(data), terms: "" } as never);
-    return { quoteNumber: newRef, quote };
+  // Duplicate a sales quote: never reuse the reference, append -2, -3, … to the base reference.
+  async duplicateSalesQuote(companyId: string, ref: string, data: unknown): Promise<{ quoteNumber: string; quote: QuoteItem }> {
+    const base = baseRef(ref);
+    const quoteNumber = nextDuplicateRef(base, await quoteRepository.findNumbersByPrefix(`${base}-`, companyId));
+    return { quoteNumber, quote: await this.insert(companyId, quoteNumber, data, "") };
+  }
+
+  private async insert(companyId: string, quoteNumber: string, data: unknown, terms: string): Promise<QuoteItem> {
+    const values: Omit<NewQuoteRecord, "companyId"> = { quoteNumber, data: await withQuoteFx(data), terms };
+    return toQuoteItem(await quoteRepository.createForCompany(companyId, values));
   }
 }
 

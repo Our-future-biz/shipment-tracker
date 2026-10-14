@@ -128,10 +128,9 @@ export const LOST_REASONS: Record<string, string[]> = {
 };
 
 export const PACKING_TYPES = ["Pallets", "Colli", "Cartons", "Boxes", "Wooden boxes", "Crates", "Drums"] as const;
-export const INCOTERMS = ["EXW", "FCA", "CPT", "CIP", "DAP", "DPU", "DDP", "FAS", "FOB", "CFR", "CIF"] as const;
+export { INCOTERMS } from "@/lib/incoterms";
 export const SERVICE_TYPES = ["Air", "Sea FCL", "Sea LCL", "Rail", "Road"] as const;
 export const DIRECTIONS = ["Export", "Import"] as const;
-export const CURRENCIES = ["EUR", "USD", "CZK", "GBP", "CHF"] as const;
 export const VALIDITY_OPTIONS = [7, 10, 15, 21, 30] as const;
 
 export const COST_LINE_TYPES = [

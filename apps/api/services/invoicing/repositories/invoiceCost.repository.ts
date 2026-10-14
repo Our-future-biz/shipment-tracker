@@ -1,70 +1,59 @@
-import { eq, and, asc } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { invoiceCostTable } from "../schemas/invoiceCost.schema";
+import { invoiceCostTable as t, type InvoiceCostRecord, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 
-class InvoiceCostRepository {
-  async listByShipmentId(shipmentId: string, companyId: string) {
-    return db
+// Every query on a line also matches its shipment, so a line can only be written through its
+// own shipment's URL.
+const lineOf = (id: string, companyId: string, shipmentId: string) =>
+  and(eq(t.id, id), eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt));
+
+class InvoiceCostRepository extends TenantRepository<typeof t> {
+  constructor() {
+    super(db, t, "invoice_cost");
+  }
+
+  async listByShipmentId(shipmentId: string, companyId: string): Promise<InvoiceCostRecord[]> {
+    return this.db
       .select()
-      .from(invoiceCostTable)
-      .where(and(eq(invoiceCostTable.companyId, companyId), eq(invoiceCostTable.shipmentId, shipmentId)))
-      .orderBy(asc(invoiceCostTable.sortOrder), asc(invoiceCostTable.createdAt));
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)))
+      .orderBy(asc(t.sortOrder), asc(t.createdAt));
   }
 
-  /** Costs Breakdown pracuje s volne pridavatelnymi radky, ne s pevnymi kategoriemi. */
-  async create(data: { companyId: string; shipmentId: string } & Record<string, unknown>) {
-    const [row] = await db.insert(invoiceCostTable).values(data as never).returning();
-    return row!;
-  }
-
-  /** shipmentId is part of the where clause so a row can only be written through its own shipment's URL. */
-  async updateById(id: string, companyId: string, shipmentId: string, data: Record<string, unknown>) {
-    const [row] = await db
-      .update(invoiceCostTable)
+  async updateLine(id: string, companyId: string, shipmentId: string, data: Partial<NewInvoiceCostRecord>): Promise<InvoiceCostRecord | null> {
+    const [row] = await this.db
+      .update(t)
       .set({ ...data, updatedAt: new Date() })
-      .where(and(
-        eq(invoiceCostTable.id, id),
-        eq(invoiceCostTable.companyId, companyId),
-        eq(invoiceCostTable.shipmentId, shipmentId),
-      ))
+      .where(lineOf(id, companyId, shipmentId))
       .returning();
     return row ?? null;
   }
 
-  async deleteById(id: string, companyId: string, shipmentId: string) {
-    const deleted = await db
-      .delete(invoiceCostTable)
-      .where(and(
-        eq(invoiceCostTable.id, id),
-        eq(invoiceCostTable.companyId, companyId),
-        eq(invoiceCostTable.shipmentId, shipmentId),
-      ))
-      .returning({ id: invoiceCostTable.id });
-    return deleted.length > 0;
+  async softDeleteLine(id: string, companyId: string, shipmentId: string): Promise<boolean> {
+    const rows = await this.db
+      .update(t)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(lineOf(id, companyId, shipmentId))
+      .returning({ id: t.id });
+    return rows.length > 0;
   }
 
-  async upsert(shipmentId: string, companyId: string, category: string, data: Partial<{ estAmount: string; estCurrency: string; realAmount: string; realCurrency: string; invoiceNumber: string; vendor: string }>) {
-    const [existing] = await db
+  /** The live line of a category of a shipment (the older per-category costs). */
+  async findByCategory(shipmentId: string, companyId: string, category: string): Promise<InvoiceCostRecord | null> {
+    const [row] = await this.db
       .select()
-      .from(invoiceCostTable)
-      .where(and(
-        eq(invoiceCostTable.companyId, companyId),
-        eq(invoiceCostTable.shipmentId, shipmentId),
-        eq(invoiceCostTable.category, category),
-      ))
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), eq(t.category, category), isNull(t.deletedAt)))
       .limit(1);
+    return row ?? null;
+  }
 
-    if (existing) {
-      const [row] = await db
-        .update(invoiceCostTable)
-        .set({ ...data, updatedAt: new Date() })
-        .where(eq(invoiceCostTable.id, existing.id))
-        .returning();
-      return row!;
-    }
-
-    const [row] = await db.insert(invoiceCostTable).values({ companyId, shipmentId, category, ...data }).returning();
-    return row!;
+  async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {
+    await this.db
+      .update(t)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)));
   }
 }
 
