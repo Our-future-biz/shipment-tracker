@@ -23,10 +23,11 @@ import {
   type InvoiceLineCalc,
   type VatCode,
 } from "../lib/invoiceCalc";
-import type { InvoiceDocItem, InvoiceDocLineItem, InvoicePartyItem, InvoicePreviewItem } from "../interfaces/interfaces";
+import type { BillingQueueCounts, BillingQueueItem, InvoiceDocItem, InvoiceDocLineItem, InvoicePartyItem, InvoicePreviewItem } from "../interfaces/interfaces";
 import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
 import { buildBillingQueue, type QueueEntry } from "../lib/billingQueue";
+import { statusesAfterCredit, statusesAfterIssue, type StatusPatch } from "../lib/shipmentStatus";
 import { invoiceBucket } from "../storage/invoiceBucket";
 
 /**
@@ -297,6 +298,27 @@ async function storePdfQuietly(inv: InvoiceRecord, lines: InvoiceLineRecord[], c
   }
 }
 
+/**
+ * Moves the shipment's statuses after issuing / crediting (Billing -> Billed, Invoiced ...).
+ * Goes through the shipments service, so the change is in the shipment's audit history.
+ * Never fails the invoice: the document is already issued.
+ */
+async function applyStatusPatch(shipmentId: string, patch: StatusPatch, number: string) {
+  if (!patch.status && !patch.invoicingStatus) return;
+  try {
+    await shipments.shipmentUpdate({ shipmentId, ...patch });
+  } catch (err) {
+    log.error(err, "could not update the shipment statuses after invoicing", { number });
+  }
+}
+
+/** Queue views and the shipments-list filter behind each. */
+export const QUEUE_VIEWS = { to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced" } as const;
+export type QueueView = keyof typeof QUEUE_VIEWS;
+
+/** How many shipments one queue view shows at most (shipments are fetched 200 per page). */
+const QUEUE_MAX = 1000;
+
 class InvoiceDocumentService {
   async preview(shipmentId: string, companyId: string, params: IssueParams): Promise<InvoicePreviewItem> {
     const ctx = await loadContext(shipmentId, companyId, params);
@@ -368,6 +390,7 @@ class InvoiceDocumentService {
       lineRows(ctx.calc.lines),
     );
     await postToCustomer(invoice);
+    await applyStatusPatch(shipmentId, statusesAfterIssue(ctx.shipment), invoice.number);
     const stored = await storePdfQuietly(invoice, lines, companyId);
     return { ...toDocItem(invoice, lines), hasPdf: stored };
   }
@@ -439,6 +462,13 @@ class InvoiceDocumentService {
       },
     );
     await postToCustomer(invoice);
+    try {
+      const { shipment } = await shipments.shipmentGet({ shipmentId: original.shipmentId });
+      const openLeft = await invoiceRepository.countOpenInvoices(original.shipmentId, companyId);
+      await applyStatusPatch(original.shipmentId, statusesAfterCredit(shipment, openLeft), invoice.number);
+    } catch (err) {
+      log.error(err, "could not read the shipment after the credit note", { number: invoice.number });
+    }
     const stored = await storePdfQuietly(invoice, lines, companyId);
     return { ...toDocItem(invoice, lines), hasPdf: stored };
   }
@@ -465,20 +495,66 @@ class InvoiceDocumentService {
     };
   }
 
-  async queue(companyId: string): Promise<QueueEntry[]> {
-    const [rows, openInvoices, settings, rateRows] = await Promise.all([
+  /**
+   * The Invoicing queue. Which shipments are listed comes from the shipment itself
+   * (owner's decision): "To bill" = Shipment Status Billing; "Not invoiced" / "Invoiced" =
+   * Invoicing Status. The selling lines add the amount still to bill and the invoices issued.
+   */
+  async queue(
+    companyId: string,
+    view: QueueView,
+    search?: string,
+  ): Promise<{ queue: BillingQueueItem[]; counts: BillingQueueCounts; truncated: boolean }> {
+    const q = search?.trim() || undefined;
+    const countOf = async (filter: string) => (await shipments.shipmentList({ invoicing: filter, search: q, limit: 1 })).pagination.total;
+
+    // the shipments of this view, 200 per page (the list endpoint's maximum)
+    const listed: Awaited<ReturnType<typeof shipments.shipmentList>>["data"] = [];
+    let total = 0;
+    do {
+      const page = await shipments.shipmentList({ invoicing: QUEUE_VIEWS[view], search: q, limit: 200, offset: listed.length, sortDirection: "asc" });
+      total = page.pagination.total;
+      listed.push(...page.data);
+      if (page.data.length === 0) break;
+    } while (listed.length < total && listed.length < QUEUE_MAX);
+
+    const [rows, openInvoices, settings, rateRows, toBill, notInvoiced, invoiced] = await Promise.all([
       sellingCostRepository.listTickedByCompany(companyId),
       invoiceRepository.listOpenInvoicesWithSources(companyId),
       billingSettingsRepository.listByCompany(companyId),
       exchangeRateRepository.listByCompany(companyId),
+      countOf(QUEUE_VIEWS.to_bill),
+      countOf(QUEUE_VIEWS.not_invoiced),
+      countOf(QUEUE_VIEWS.invoiced),
     ]);
-    return buildBillingQueue({
-      rows,
-      openInvoices,
-      billingCurrencies: new Map(settings.map((x) => [x.shipmentId, x.billingCurrency])),
-      rateRows,
-      today: pragueToday(),
+    const settingsById = new Map(settings.map((x) => [x.shipmentId, x.billingCurrency]));
+    const billing = new Map<string, QueueEntry>(
+      buildBillingQueue({ rows, openInvoices, billingCurrencies: settingsById, rateRows, today: pragueToday() }).map((e) => [e.shipmentId, e]),
+    );
+
+    const queue: BillingQueueItem[] = listed.map((s) => {
+      const b = billing.get(s.id);
+      return {
+        shipmentId: s.id,
+        jobNumber: s.jobNumber,
+        customer: s.customer,
+        shipper: s.shipper,
+        consignee: s.consignee,
+        tradeDirection: s.tradeDirection,
+        estimatedDeparture: s.estimatedDeparture,
+        estimatedArrival: s.estimatedArrival,
+        shipmentStatus: s.status ?? "",
+        invoicingStatus: s.invoicingStatus,
+        billingState: b?.status ?? "none",
+        billingCurrency: b?.billingCurrency ?? settingsById.get(s.id) ?? "CZK",
+        amountToBill: b?.amountToBill ?? 0,
+        rowsToBill: b?.rowsToBill ?? 0,
+        missingCurrencies: b?.missingCurrencies ?? [],
+        invoiceNumbers: b?.invoiceNumbers ?? [],
+        invoiced: b?.invoiced ?? [],
+      };
     });
+    return { queue, counts: { toBill, notInvoiced, invoiced }, truncated: total > listed.length };
   }
 
   async list(shipmentId: string, companyId: string): Promise<InvoiceDocItem[]> {

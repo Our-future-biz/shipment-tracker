@@ -940,11 +940,17 @@ export namespace invoicing {
         }
 
         /**
-         * "Ready to bill": shipments with selling rows ticked for Invoice and how much of it is invoiced.
+         * The Invoicing queue: shipments by Shipment Status Billing / Invoicing Status, with the amounts to bill.
          */
-        public async invoiceQueue(): Promise<controllers.QueueResponse> {
+        public async invoiceQueue(params: controllers.QueueRequest): Promise<controllers.QueueResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                search: params.search,
+                view:   params.view,
+            })
+
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/queue`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/queue`, undefined, {query})
             return await resp.json() as controllers.QueueResponse
         }
 
@@ -1473,6 +1479,7 @@ export namespace shipments {
             const query = makeRecord<string, string | string[]>({
                 customerId:    params.customerId,
                 customs:       params.customs,
+                invoicing:     params.invoicing,
                 limit:         params.limit === undefined ? undefined : String(params.limit),
                 offset:        params.offset === undefined ? undefined : String(params.offset),
                 search:        params.search,
@@ -2543,8 +2550,22 @@ export namespace controllers {
         preview: interfaces.InvoicePreviewItem
     }
 
+    export interface QueueRequest {
+        /**
+         * to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status); default to_bill
+         */
+        view?: string
+
+        search?: string
+    }
+
     export interface QueueResponse {
         queue: interfaces.BillingQueueItem[]
+        counts: interfaces.BillingQueueCounts
+        /**
+         * More shipments match than are listed - narrow it with the search
+         */
+        truncated: boolean
     }
 
     export interface QuoteAllocateRefResponse {
@@ -2893,6 +2914,11 @@ export namespace controllers {
          * Customs page filter: urgent
          */
         customs?: string
+
+        /**
+         * Invoicing page filter: billing | not-invoiced | invoiced
+         */
+        invoicing?: string
 
         search?: string
     }
@@ -3497,14 +3523,40 @@ export namespace interfaces {
     }
 
     /**
-     * One shipment in the "Ready to bill" queue
+     * Number of shipments in each queue view
+     */
+    export interface BillingQueueCounts {
+        toBill: number
+        notInvoiced: number
+        invoiced: number
+    }
+
+    /**
+     * One shipment in the Invoicing queue
      */
     export interface BillingQueueItem {
         shipmentId: string
+        jobNumber: string
+        customer: string
+        shipper: string
+        consignee: string
+        tradeDirection: string
+        estimatedDeparture: string | null
+        estimatedArrival: string | null
         /**
-         * to_bill | partly_invoiced | invoiced
+         * Shipment Status, e.g. "Billing [IMP]" (set by operations)
          */
-        status: string
+        shipmentStatus: string
+
+        /**
+         * Invoiced | Not Invoiced
+         */
+        invoicingStatus: string
+
+        /**
+         * From the selling lines: to_bill | partly_invoiced | invoiced | none (no selling lines ticked)
+         */
+        billingState: string
 
         billingCurrency: string
         /**

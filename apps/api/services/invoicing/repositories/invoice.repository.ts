@@ -60,6 +60,19 @@ class InvoiceRepository {
     }));
   }
 
+  async countOpenInvoices(shipmentId: string, companyId: string): Promise<number> {
+    const rows = await db
+      .select({ id: invoiceTable.id })
+      .from(invoiceTable)
+      .where(and(
+        eq(invoiceTable.companyId, companyId),
+        eq(invoiceTable.shipmentId, shipmentId),
+        eq(invoiceTable.kind, "invoice"),
+        eq(invoiceTable.status, "issued"),
+      ));
+    return rows.length;
+  }
+
   async getByIdempotencyKey(companyId: string, key: string) {
     const [row] = await db
       .select()

@@ -1,7 +1,7 @@
-import { api } from "encore.dev/api";
+import { api, APIError } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
-import { invoiceDocumentService } from "../services/invoiceDocument.service";
-import type { BillingQueueItem, InvoiceDocItem, InvoicePreviewItem } from "../interfaces/interfaces";
+import { invoiceDocumentService, QUEUE_VIEWS, type QueueView } from "../services/invoiceDocument.service";
+import type { BillingQueueCounts, BillingQueueItem, InvoiceDocItem, InvoicePreviewItem } from "../interfaces/interfaces";
 
 /**
  * Tax documents of a shipment: preview (nothing stored), issue, list, detail and credit
@@ -116,15 +116,26 @@ export const invoiceDocPdf = api(
   },
 );
 
-interface QueueResponse {
-  queue: BillingQueueItem[];
+interface QueueRequest {
+  /** to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status); default to_bill */
+  view?: string;
+  search?: string;
 }
 
-/** "Ready to bill": shipments with selling rows ticked for Invoice and how much of it is invoiced. */
+interface QueueResponse {
+  queue: BillingQueueItem[];
+  counts: BillingQueueCounts;
+  /** More shipments match than are listed - narrow it with the search */
+  truncated: boolean;
+}
+
+/** The Invoicing queue: shipments by Shipment Status Billing / Invoicing Status, with the amounts to bill. */
 export const invoiceQueue = api(
   { expose: true, auth: true, method: "GET", path: "/invoicing/queue" },
-  async (): Promise<QueueResponse> => {
+  async (req: QueueRequest): Promise<QueueResponse> => {
     const actor = requireRole();
-    return { queue: await invoiceDocumentService.queue(actor.companyID) };
+    const view = (req.view || "to_bill") as QueueView;
+    if (!(view in QUEUE_VIEWS)) throw APIError.invalidArgument(`Unknown queue view: ${req.view}`);
+    return invoiceDocumentService.queue(actor.companyID, view, req.search);
   },
 );

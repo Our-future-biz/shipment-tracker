@@ -13,6 +13,7 @@ import { useCustomers } from "@/hooks/useCustomers";
 import { downloadInvoicePdf, useInvoiceDocs, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
 import { useToast } from "@/lib/toast";
 import { moneyCz, round2 } from "@/lib/money";
+import { statusLabel } from "@/lib/shipmentStatus";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 
 /** Billing currencies we have exchange rates for (Exchange page: EUR, USD; CZK is the base). */
@@ -26,6 +27,9 @@ const VAT_OPTIONS = [
   { value: "OUT", label: "Outside VAT" },
 ];
 const VAT_LABEL: Record<string, string> = { ...Object.fromEntries(VAT_OPTIONS.map((o) => [o.value, o.label])), NP: "Not VAT payer" };
+
+/** Operations release a job for billing by setting its Shipment Status to Billing (either direction). */
+const isBillingStatus = (status: string | null | undefined) => /^Billing \[(IMP|EXP)\]$/.test((status ?? "").trim());
 
 /** §28 ZDPH: a tax document must be issued within 15 days of the DUZP. */
 const MAX_DAYS_AFTER_DUZP = 15;
@@ -153,7 +157,16 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
   const marginPct = p && p.net ? (profit / p.net) * 100 : null;
   const profitTone = profit > 0 ? "text-[#177245]" : profit < 0 ? "text-[#C3392B]" : "text-slate-700";
 
+  // Issuing is allowed before the job reaches Billing (owner's decision), but it is flagged.
+  const releasedForBilling = isBillingStatus(shipment.status);
+  const notReleasedWarning = releasedForBilling
+    ? ""
+    : shipment.status
+      ? `Shipment Status is "${statusLabel(shipment.status)}", not Billing — operations has not released this job for billing yet.`
+      : "The job has no Shipment Status — it is not released for billing (Billing) yet.";
+
   const warnings: string[] = [];
+  if (notReleasedWarning) warnings.push(notReleasedWarning);
   if (p) {
     const late = dayjs(p.issueDate).diff(dayjs(p.duzp), "day");
     if (late > MAX_DAYS_AFTER_DUZP) warnings.push(`DUZP is ${late} days before today — a tax document must be issued within ${MAX_DAYS_AFTER_DUZP} days of the DUZP (§28 ZDPH).`);
@@ -451,6 +464,7 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
               <strong className="tabular-nums">{moneyCz(p.gross)} {p.currency}</strong>
               {foreign && <> (= {moneyCz(p.grossCzk)} CZK)</>}, DUZP {czDate(p.duzp)}, due {czDate(p.dueDate)}.
             </p>
+            {notReleasedWarning && <Alert type="warning" showIcon message={notReleasedWarning} />}
             <p className="m-0 text-slate-500">
               It gets the next number of {shipment.jobNumber} and a PDF. An issued invoice can never be changed or deleted —
               a mistake is corrected with a credit note.

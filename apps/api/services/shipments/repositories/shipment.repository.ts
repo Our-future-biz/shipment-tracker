@@ -145,11 +145,22 @@ export interface ShipmentListFilters {
   warehouse?: string;
   /** Customs page: urgent */
   customs?: string;
+  /** Invoicing page: billing (Shipment Status Billing) | not-invoiced | invoiced (Invoicing Status) */
+  invoicing?: string;
   search?: string;
   limit: number;
   offset: number;
   sortDirection: "asc" | "desc";
 }
+
+// Invoicing page queue. "Billing" is the Shipment Status operations set when a job is ready to
+// be invoiced (stored with its direction); Invoicing Status is Invoiced / Not Invoiced.
+type InvoicingFilterId = "billing" | "not-invoiced" | "invoiced";
+const INVOICING_PREDICATES: Record<InvoicingFilterId, ReturnType<typeof sql>> = {
+  billing: sql`${shipmentTable.status} IN ('Billing [IMP]', 'Billing [EXP]')`,
+  "not-invoiced": sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced' AND ${NOT_CANCELLED}`,
+  invoiced: sql`${shipmentTable.invoicingStatus} = 'Invoiced'`,
+};
 
 // The status column holds long free-text labels ("Booked For Further Transport [IMP]", …).
 // The shipments UI groups them into coarse buckets; each bucket matches if the status
@@ -256,6 +267,10 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     }
     if (f.customs) {
       const predicate = CUSTOMS_PREDICATES[f.customs as CustomsFilterId];
+      if (predicate) clauses.push(predicate);
+    }
+    if (f.invoicing) {
+      const predicate = INVOICING_PREDICATES[f.invoicing as InvoicingFilterId];
       if (predicate) clauses.push(predicate);
     }
     if (f.search) {

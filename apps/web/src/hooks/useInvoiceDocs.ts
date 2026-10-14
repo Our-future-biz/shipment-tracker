@@ -35,6 +35,8 @@ export function useInvoiceDocs(shipmentId: string, params: { customerId?: string
     void queryClient.invalidateQueries({ queryKey: docsKey });
     void queryClient.invalidateQueries({ queryKey: ["invoice-preview", shipmentId] });
     void queryClient.invalidateQueries({ queryKey: ["invoice-queue"] });
+    // issuing / crediting moves the shipment's Shipment Status and Invoicing Status
+    void queryClient.invalidateQueries({ queryKey: ["shipments"] });
     // the customer's invoice list (aging) got a new row
     void queryClient.invalidateQueries({ queryKey: ["customer-invoices"] });
   };

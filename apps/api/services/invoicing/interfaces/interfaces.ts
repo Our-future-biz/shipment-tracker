@@ -221,11 +221,22 @@ export interface InvoicePreviewItem {
   problems: string[];
 }
 
-/** One shipment in the "Ready to bill" queue */
+/** One shipment in the Invoicing queue */
 export interface BillingQueueItem {
   shipmentId: string;
-  /** to_bill | partly_invoiced | invoiced */
-  status: string;
+  jobNumber: string;
+  customer: string;
+  shipper: string;
+  consignee: string;
+  tradeDirection: string;
+  estimatedDeparture: string | null;
+  estimatedArrival: string | null;
+  /** Shipment Status, e.g. "Billing [IMP]" (set by operations) */
+  shipmentStatus: string;
+  /** Invoiced | Not Invoiced */
+  invoicingStatus: string;
+  /** From the selling lines: to_bill | partly_invoiced | invoiced | none (no selling lines ticked) */
+  billingState: string;
   billingCurrency: string;
   /** Ticked selling rows not on an open invoice, at today's rates (an estimate until issued) */
   amountToBill: number;
@@ -233,4 +244,11 @@ export interface BillingQueueItem {
   missingCurrencies: string[];
   invoiceNumbers: string[];
   invoiced: { currency: string; gross: number }[];
+}
+
+/** Number of shipments in each queue view */
+export interface BillingQueueCounts {
+  toBill: number;
+  notInvoiced: number;
+  invoiced: number;
 }

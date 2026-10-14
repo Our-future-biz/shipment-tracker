@@ -13,10 +13,11 @@ import { AppCard } from "@/components/AppCard";
 import { formatDate } from "@/lib/date";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { moneyCz } from "@/lib/money";
+import { useToast } from "@/lib/toast";
 import { CostsTab } from "@/app/shipments/[jobNumber]/tabs/CostsTab";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 import { InvoicePanel } from "./InvoicePanel";
-import { BillingQueue } from "./BillingQueue";
+import { BillingQueue, InvoicingStatusTag } from "./BillingQueue";
 
 /** Remembered per browser: whether the Costs section is collapsed. */
 const COSTS_COLLAPSED_KEY = "invoicing.costsCollapsed";
@@ -29,16 +30,36 @@ const readCollapsed = () => {
   }
 };
 
-/** Job facts at a glance, and whether it is invoiced already. */
+const INVOICING_STATUSES = ["Not Invoiced", "Invoiced"];
+
+/**
+ * Job facts at a glance with its two statuses: Shipment Status ("Billing" puts the job in the
+ * queue) and Invoicing Status, which issuing sets automatically and which can also be changed
+ * here by hand (e.g. for a job invoiced outside the app).
+ */
 function ShipmentSummary({ shipment }: { shipment: ShipmentItem }) {
+  const toast = useToast();
+  const { updateShipment } = useShipments();
+  const [saving, setSaving] = useState(false);
   const { data } = useQuery({
     queryKey: ["invoice-docs", shipment.id],
     queryFn: () => api.invoicing.invoiceDocList(shipment.id),
   });
-  const docs = data?.invoices ?? [];
-  const open = docs.filter((d) => d.kind === "invoice" && d.status === "issued");
+  const open = (data?.invoices ?? []).filter((d) => d.kind === "invoice" && d.status === "issued");
   const route = [shipment.pol, shipment.pod, shipment.destination].filter(Boolean).join(" → ");
   const status = shipment.status ?? "";
+
+  const setInvoicingStatus = async (value: string) => {
+    setSaving(true);
+    try {
+      await updateShipment({ id: shipment.id, data: { invoicingStatus: value } });
+      toast.success(`Invoicing Status of ${shipment.jobNumber} set to ${value}`);
+    } catch {
+      toast.error("Failed to change the Invoicing Status");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const Item = ({ label, children }: { label: string; children: React.ReactNode }) => (
     <div className="min-w-0">
@@ -53,23 +74,29 @@ function ShipmentSummary({ shipment }: { shipment: ShipmentItem }) {
         <Link href={`/shipments/${shipment.id}`} className="font-semibold text-indigo-600 hover:underline">
           {shipment.jobNumber}
         </Link>
+        <span className="text-slate-500">{shipment.tradeDirection}</span>
       </Item>
       <Item label="Customer">{shipment.customer || <span className="text-slate-500">Not linked</span>}</Item>
-      <Item label="Direction · Status">
-        {shipment.tradeDirection || "—"}
-        {status && <Tag color={statusTagColor(status)} className="!m-0 !text-[11px]">{statusLabel(status)}</Tag>}
-      </Item>
       <Item label="Route">{route || "—"}</Item>
       <Item label="ETD / ETA">
         {formatDate(shipment.estimatedDeparture) || "—"} / {formatDate(shipment.estimatedArrival) || "—"}
       </Item>
-      <Item label="Invoiced">
-        {open.length === 0 ? (
-          <Tag color="orange" bordered={false} className="!m-0">Not invoiced</Tag>
-        ) : (
-          <span className="tabular-nums">
-            <Tag color="green" bordered={false} className="!m-0">{open.length === 1 ? open[0]!.number : `${open.length} invoices`}</Tag>
-            {open.length === 1 && `${moneyCz(Number(open[0]!.gross))} ${open[0]!.currency}`}
+      <Item label="Shipment Status">
+        {status ? <Tag color={statusTagColor(status)} className="!m-0 !text-[11px]">{statusLabel(status)}</Tag> : "—"}
+      </Item>
+      <Item label="Invoicing Status">
+        <Select
+          size="small"
+          value={shipment.invoicingStatus || "Not Invoiced"}
+          onChange={(v) => void setInvoicingStatus(v)}
+          loading={saving}
+          options={INVOICING_STATUSES.map((v) => ({ value: v, label: <InvoicingStatusTag value={v} /> }))}
+          className="w-[140px]"
+          aria-label="Invoicing Status"
+        />
+        {open.length > 0 && (
+          <span className="text-[12px] text-slate-500 tabular-nums">
+            {open.length === 1 ? `${open[0]!.number} · ${moneyCz(Number(open[0]!.gross))} ${open[0]!.currency}` : `${open.length} open invoices`}
           </span>
         )}
       </Item>
@@ -173,7 +200,7 @@ export const InvoicingView = () => {
               <div className="flex items-center justify-center h-[120px] text-slate-500 text-sm">Shipment not found</div>
             </AppCard>
           ) : (
-            <BillingQueue shipments={shipments} onOpen={select} />
+            <BillingQueue onOpen={select} />
           )
         ) : (
           <>

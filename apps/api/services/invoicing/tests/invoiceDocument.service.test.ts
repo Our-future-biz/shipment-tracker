@@ -8,14 +8,18 @@ const repo = vi.hoisted(() => ({
   listByShipment: vi.fn(),
   markCredited: vi.fn(),
   setPdfIfMissing: vi.fn(),
+  countOpenInvoices: vi.fn(),
+  listOpenInvoicesWithSources: vi.fn(),
 }));
 const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: vi.fn() }));
 const pdf = vi.hoisted(() => ({ render: vi.fn() }));
 const profiles = vi.hoisted(() => ({ getByCompany: vi.fn() }));
-const selling = vi.hoisted(() => ({ listByShipmentId: vi.fn() }));
-const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn() }));
+const selling = vi.hoisted(() => ({ listByShipmentId: vi.fn(), listTickedByCompany: vi.fn() }));
+const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn(), listByCompany: vi.fn() }));
 const rates = vi.hoisted(() => ({ listByCompany: vi.fn() }));
-const clients = vi.hoisted(() => ({ shipmentGet: vi.fn(), customerGet: vi.fn(), invoiceCreate: vi.fn() }));
+const clients = vi.hoisted(() => ({
+  shipmentGet: vi.fn(), shipmentUpdate: vi.fn(), shipmentList: vi.fn(), customerGet: vi.fn(), invoiceCreate: vi.fn(),
+}));
 
 vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo }));
 vi.mock("../repositories/invoiceProfile.repository", () => ({ invoiceProfileRepository: profiles }));
@@ -23,7 +27,7 @@ vi.mock("../repositories/sellingCost.repository", () => ({ sellingCostRepository
 vi.mock("../repositories/billingSettings.repository", () => ({ billingSettingsRepository: settings }));
 vi.mock("../repositories/exchangeRate.repository", () => ({ exchangeRateRepository: rates }));
 vi.mock("~encore/clients", () => ({
-  shipments: { shipmentGet: clients.shipmentGet },
+  shipments: { shipmentGet: clients.shipmentGet, shipmentUpdate: clients.shipmentUpdate, shipmentList: clients.shipmentList },
   customers: { customerGet: clients.customerGet, invoiceCreate: clients.invoiceCreate },
 }));
 vi.mock("encore.dev/log", () => ({ default: { error: vi.fn() } }));
@@ -49,6 +53,7 @@ const CUSTOMER = "00000000-0000-0000-0000-0000000000cc";
 
 const shipment = {
   id: SHIPMENT, jobNumber: "CZ00000028", createdAt: "2026-04-02T09:00:00.000Z", tradeDirection: "Import",
+  status: "Billing [IMP]", invoicingStatus: "Not Invoiced",
   estimatedArrival: "10/14/26", estimatedDeparture: "09/20/26", customerId: CUSTOMER,
   shipper: "Shipper Ltd", consignee: "Consignee s.r.o.", bookingNumber: "BK1", containerNumber: "MSCU1234567", personalReference: "PO-9",
 };
@@ -71,6 +76,7 @@ beforeEach(() => {
   clients.shipmentGet.mockResolvedValue({ shipment });
   clients.customerGet.mockResolvedValue({ customer });
   clients.invoiceCreate.mockResolvedValue({});
+  clients.shipmentUpdate.mockResolvedValue({});
   profiles.getByCompany.mockResolvedValue(profile);
   selling.listByShipmentId.mockResolvedValue([sellRow({}), sellRow({ id: "s2", category: "THC Destination", amount: "4999.50", currency: "CZK" })]);
   settings.getByShipmentId.mockResolvedValue({ billingCurrency: "CZK" });
@@ -134,6 +140,8 @@ describe("issue", () => {
     expect(bucket.upload).toHaveBeenCalledWith(expect.stringMatching(/^00000000-0000-0000-0000-000000000001\/INV2026CZ00000028-001-.+\.pdf$/), expect.any(Buffer), { contentType: "application/pdf" });
     expect(repo.setPdfIfMissing).toHaveBeenCalledWith("inv1", COMPANY, expect.any(String), expect.stringMatching(/^[0-9a-f]{64}$/));
     expect(inv.hasPdf).toBe(true);
+    // Billing -> Billed and Invoiced, through the shipments service (audited there)
+    expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Invoiced", status: "Billed [IMP]" });
     expect(clients.invoiceCreate).toHaveBeenCalledWith(expect.objectContaining({
       customerId: CUSTOMER, invoiceNumber: "INV2026CZ00000028-001", amount: 29999.5, currency: "CZK", status: "Open",
     }));
@@ -164,6 +172,12 @@ describe("issue", () => {
     expect(inv.hasPdf).toBe(false);
   });
 
+  it("still issues when the shipment statuses cannot be updated", async () => {
+    clients.shipmentUpdate.mockRejectedValue(new Error("shipments down"));
+    const inv = await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {});
+    expect(inv.number).toBe("INV2026CZ00000028-001");
+  });
+
   it("still issues when posting to the customer's list fails", async () => {
     clients.invoiceCreate.mockRejectedValue(new Error("customers down"));
     const inv = await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {});
@@ -180,6 +194,8 @@ describe("credit", () => {
   const line = { description: "Customs clearance", qty: "1.00", unitPrice: "100.00", unitCurrency: "EUR", net: "100.00", vatCode: "S21", vatRate: "21.00", sourceSellingCostId: "s1" };
 
   it("reverses the whole invoice as CN + job year + job number and marks the original credited", async () => {
+    clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, status: "Billed [IMP]", invoicingStatus: "Invoiced" } });
+    repo.countOpenInvoices.mockResolvedValue(0);
     repo.getById.mockResolvedValue(original);
     repo.getLines.mockResolvedValue([line]);
     repo.markCredited.mockResolvedValue(true);
@@ -198,6 +214,8 @@ describe("credit", () => {
     expect(lines[0]).toMatchObject({ qty: "-1.00", net: "-100.00", vatCode: "S21" });
     expect(repo.markCredited).toHaveBeenCalledWith({}, "inv1", COMPANY);
     expect(cn.number).toBe("CN2026CZ00000028-001");
+    // no open invoice left: the job goes back to Billing / Not Invoiced
+    expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Not Invoiced", status: "Billing [IMP]" });
   });
 
   it("needs a reason and an invoice that is not credited yet", async () => {
@@ -257,5 +275,32 @@ describe("pdf", () => {
   it("is scoped to the company", async () => {
     repo.getById.mockResolvedValue(null);
     await expect(invoiceDocumentService.pdf("inv1", COMPANY)).rejects.toThrow(/not found/);
+  });
+});
+
+describe("queue", () => {
+  const listed = (over: Record<string, unknown>) => ({
+    id: SHIPMENT, jobNumber: "CZ00000028", customer: "Alza.cz a.s.", shipper: "S", consignee: "C", tradeDirection: "Export",
+    estimatedDeparture: "04/07/26", estimatedArrival: null, status: "Billing [EXP]", invoicingStatus: "Not Invoiced", ...over,
+  });
+
+  it("lists the shipments of the view and adds the amount still to bill from the selling lines", async () => {
+    clients.shipmentList.mockImplementation(async (req: { invoicing: string; limit: number }) => {
+      if (req.limit === 1) return { pagination: { total: { billing: 2, "not-invoiced": 5, invoiced: 1 }[req.invoicing] }, data: [] };
+      return { pagination: { total: 2 }, data: [listed({}), listed({ id: "s2", jobNumber: "CZ00000030" })] };
+    });
+    selling.listTickedByCompany.mockResolvedValue([{ id: "r1", shipmentId: SHIPMENT, qty: "1.00", amount: "1000.00", currency: "EUR" }]);
+    repo.listOpenInvoicesWithSources.mockResolvedValue([]);
+    settings.listByCompany.mockResolvedValue([{ shipmentId: SHIPMENT, billingCurrency: "CZK" }]);
+
+    const r = await invoiceDocumentService.queue(COMPANY, "to_bill");
+    expect(clients.shipmentList).toHaveBeenCalledWith(expect.objectContaining({ invoicing: "billing", limit: 200, offset: 0 }));
+    expect(r.counts).toEqual({ toBill: 2, notInvoiced: 5, invoiced: 1 });
+    expect(r.truncated).toBe(false);
+    expect(r.queue.map((x) => [x.jobNumber, x.shipmentStatus, x.billingState, x.amountToBill])).toEqual([
+      ["CZ00000028", "Billing [EXP]", "to_bill", 25000],
+      // a Billing job without selling lines is still listed, flagged as having none
+      ["CZ00000030", "Billing [EXP]", "none", 0],
+    ]);
   });
 });
