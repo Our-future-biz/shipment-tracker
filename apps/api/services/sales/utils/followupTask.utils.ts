@@ -2,7 +2,14 @@ import type { FollowupTaskItem } from "../interfaces/interfaces";
 import type { FollowupTaskRecord } from "../schemas/followupTask.schema";
 
 /** What a follow-up task can be. */
-export const TASK_TYPES: readonly string[] = ["Call", "Email", "Visit"];
+/** What kind of contact a follow-up task is. Spelled out: Encore's parser takes no indexed access type. */
+export type TaskType = "Call" | "Email" | "Visit";
+
+export const TASK_TYPES: readonly TaskType[] = ["Call", "Email", "Visit"];
+
+export function isTaskType(value: string): value is TaskType {
+  return (TASK_TYPES as readonly string[]).includes(value);
+}
 
 /**
  * Whether a task is overdue on the business day `today` (YYYY-MM-DD): it has a due day, that day

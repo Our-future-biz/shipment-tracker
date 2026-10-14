@@ -9,6 +9,8 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import { COLUMN_MAP } from "@/lib/columnConfig";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
+import { useNextJobNumber } from "@/hooks/useNextJobNumber";
+import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { invalidateQuoteLists } from "@/hooks/useSalesQuotes";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { quoteProblem } from "@/app/sales/_lib/quoteProblem";
@@ -91,8 +93,6 @@ export const CreateShipmentWizard = ({
   // The sales quote picked in "Copy from Quote", whole, as the picker found it: any quote of the
   // company, in any lifecycle status.
   const [selectedQuote, setSelectedQuote] = useState<SalesQuote | null>(null);
-  // How reading the quote the wizard was opened for is going.
-  const [preset, setPreset] = useState({ loading: false, error: "" });
   // The shipment the server refused to add another to: the picked quote already has it (HTTP 409).
   const [refusedFor, setRefusedFor] = useState<{ id: string; jobNumber: string } | null>(null);
   // "Create another shipment from this quote" is ticked.
@@ -106,43 +106,20 @@ export const CreateShipmentWizard = ({
 
   // The next job number is generated on the server so it accounts for archived
   // (soft-deleted) shipments and never reuses a reference.
-  const [nextJobNumber, setNextJobNumber] = useState("");
-  useEffect(() => {
-    if (!open) return;
-    let active = true;
-    api.shipments
-      .shipmentNextJobNumber()
-      .then((r) => {
-        if (active) setNextJobNumber(r.jobNumber);
-      })
-      .catch(() => {
-        if (active) setNextJobNumber("");
-      });
-    return () => {
-      active = false;
-    };
-  }, [open]);
+  const { nextJobNumber } = useNextJobNumber(open);
 
   // Opened for one quote: it is read as it is stored now and picked, as if found in the picker.
+  const presetQuery = useSalesQuoteByRef(fromQuote, { enabled: open });
+  const preset = {
+    loading: !!fromQuote && presetQuery.isLoading,
+    error: presetQuery.error ? quoteProblem(presetQuery.error).reason : "",
+  };
+  const presetQuote = presetQuery.data?.quote;
   useEffect(() => {
     if (!open || !fromQuote) return;
-    let active = true;
     setCopyMode("quote");
-    setPreset({ loading: true, error: "" });
-    api.quotes.salesQuoteGet(fromQuote).then(
-      ({ quote }) => {
-        if (!active) return;
-        setSelectedQuote(toSalesQuote(quote));
-        setPreset({ loading: false, error: "" });
-      },
-      (err) => {
-        if (active) setPreset({ loading: false, error: quoteProblem(err).reason });
-      },
-    );
-    return () => {
-      active = false;
-    };
-  }, [open, fromQuote]);
+    if (presetQuote) setSelectedQuote(toSalesQuote(presetQuote));
+  }, [open, fromQuote, presetQuote]);
 
   // Another quote is another question: what was answered or ticked for the last one goes.
   const pickQuote = (quote: SalesQuote | null) => {
@@ -177,7 +154,6 @@ export const CreateShipmentWizard = ({
     setCopyMode("shipment");
     setCopyFromId("");
     pickQuote(null);
-    setPreset({ loading: false, error: "" });
     setCreated(null);
     setSelectedFields(new Set(COPYABLE_FIELDS));
     setCopyEstimatedCosts(false);
@@ -218,8 +194,8 @@ export const CreateShipmentWizard = ({
       const result = await createShipment(baseRequest());
       toast.success("Shipment created");
       closeAndOpen(result.shipment.id);
-    } catch {
-      toast.error("Failed to create shipment");
+    } catch (err) {
+      toast.error(`Failed to create shipment - ${apiErrorMessage(err)}`);
     } finally {
       setSubmitting(false);
     }
@@ -242,31 +218,35 @@ export const CreateShipmentWizard = ({
       request[key] = val;
     }
 
+    let newId: string;
     try {
-      const result = await createShipment(request);
-      const newId = result.shipment.id;
-
-      if (originValue) {
-        await api.shipments.shipmentUpdate(newId, { origin: originValue });
-      }
-
-      if (copyEstimatedCosts) {
-        try {
-          await copyEstimates(source.id, newId);
-        } catch {
-          toast.error("Shipment created, but copying estimated costs failed");
-          closeAndOpen(newId);
-          return;
-        }
-      }
-
-      toast.success("Shipment created");
-      closeAndOpen(newId);
-    } catch {
-      toast.error("Failed to create shipment");
-    } finally {
+      newId = (await createShipment(request)).shipment.id;
+    } catch (err) {
+      toast.error(`Failed to create shipment - ${apiErrorMessage(err)}`);
       setSubmitting(false);
+      return;
     }
+    // The shipment exists from here on: a later step that fails is reported as such, so nobody
+    // creates it a second time.
+    const failed: string[] = [];
+    if (originValue) {
+      try {
+        await api.shipments.shipmentUpdate(newId, { origin: originValue });
+      } catch {
+        failed.push("setting the origin");
+      }
+    }
+    if (copyEstimatedCosts) {
+      try {
+        await copyEstimates(source.id, newId);
+      } catch {
+        failed.push("copying estimated costs");
+      }
+    }
+    setSubmitting(false);
+    if (failed.length) toast.error(`Shipment created, but ${failed.join(" and ")} failed`);
+    else toast.success("Shipment created");
+    closeAndOpen(newId);
   };
 
   // Create a shipment from the quote: the mapped fields and cargo lines go in the create call,

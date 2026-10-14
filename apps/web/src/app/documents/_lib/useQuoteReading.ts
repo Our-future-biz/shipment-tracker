@@ -9,6 +9,7 @@ import { quoteProblem } from "@/app/sales/_lib/quoteProblem";
 import { asData, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 import type { TargetMode } from "./extraction";
 import { EMPTY_QUOTE_REVIEW, quoteAfterReading, quoteReadingPatch, quoteReviewRows, type QuoteReview } from "./quoteReading";
+import { salesQuoteKeys } from "@/hooks/salesQueryKeys";
 
 /** What is read: an uploaded file or pasted text. */
 export type QuoteSource = { fileBase64: string; fileName: string } | { text: string };
@@ -86,7 +87,7 @@ export function useQuoteReading() {
     const ref = base.quoteNumber;
     if (kind !== "conflict") return `Nothing was written to ${ref} - ${reason}.`;
     // The remembered copy is now known to be older than the stored quote.
-    queryClient.removeQueries({ queryKey: ["sales-quote", ref] });
+    queryClient.removeQueries({ queryKey: salesQuoteKeys.one(ref) });
     try {
       const { quote } = await api.quotes.salesQuoteGet(ref);
       const next = quoteReviewRows(extracted, asData(quote.data), review.fields);
@@ -125,7 +126,7 @@ export function useQuoteReading() {
         expectedDataVersion: base.dataVersion,
       });
       // As the quote page does after a save (adopt in useSalesQuoteDraft).
-      queryClient.setQueryData(["sales-quote", quote.quoteNumber], { quote });
+      queryClient.setQueryData(salesQuoteKeys.one(quote.quoteNumber), { quote });
       invalidateQuoteLists(queryClient);
       setWritten({ quoteNumber: quote.quoteNumber, created: false, count });
       return true;

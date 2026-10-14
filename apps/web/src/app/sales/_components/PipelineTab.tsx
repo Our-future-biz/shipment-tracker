@@ -117,9 +117,15 @@ function stageFact(card: PipelineCard): ReactNode {
   );
 }
 
+interface CustomerCardProps {
+  card: PipelineCard;
+  sheet: ExchangeRates;
+  live: LivePricing;
+}
+
 // One customer on the board. The whole card opens the customer's page, as a row of the Customer
 // Database does; the name is the real link, for the keyboard and for a new tab.
-function CustomerCard({ card, sheet, live }: { card: PipelineCard; sheet: ExchangeRates; live: LivePricing }) {
+function CustomerCard({ card, sheet, live }: CustomerCardProps) {
   const router = useRouter();
   // The value of the open quotes, worked out where every other screen works it out: each quote's
   // lines converted into the quote's currency at its stored ČNB rates (a draft at today's),

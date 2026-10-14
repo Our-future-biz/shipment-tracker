@@ -1,6 +1,6 @@
 import dayjs from "dayjs";
 import { DEFAULT_PAGE_SIZE, PAGE_SIZE_OPTIONS } from "@/components/DataTable";
-import type { SalesQuoteFilter } from "@/hooks/useAllSalesQuotes";
+import type { SalesQuoteFilter } from "@/hooks/salesQueryKeys";
 import { isUuid } from "@/lib/uuid";
 import { OPEN_QUOTE_STATUSES, QUOTE_STATUSES } from "./types";
 

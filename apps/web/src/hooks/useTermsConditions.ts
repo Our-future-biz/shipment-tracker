@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, clientForBody } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 
 export type TermsConditionItem = interfaces.TermsConditionItem;
@@ -11,13 +11,6 @@ const TERMS_KEY = ["terms-conditions"];
 // One list for "none yet": a new one with every render would look like new templates to whoever
 // follows the list.
 const NO_TERMS: TermsConditionItem[] = [];
-
-// The same client, except that its requests outlive the page (fetch keepalive), as a quote is
-// saved (useSalesQuoteDraft): a template change that is on its way when the tab closes still
-// arrives. Browsers take such a request only with a small body, so a longer text is saved the
-// ordinary way.
-const keepaliveApi = api.with({ requestInit: { keepalive: true } });
-const KEEPALIVE_MAX_BYTES = 60 * 1024;
 
 export const useTermsConditions = () => {
   const queryClient = useQueryClient();
@@ -37,8 +30,8 @@ export const useTermsConditions = () => {
   const updateMutation = useMutation({
     mutationFn: ({ id, params }: { id: string; params: controllers.TermsUpdateRequest }) => {
       // Measured in bytes, as the browser counts: a Czech letter takes two.
-      const outlivesPage = new Blob([JSON.stringify(params)]).size <= KEEPALIVE_MAX_BYTES;
-      return (outlivesPage ? keepaliveApi : api).sales.termsUpdate(id, params);
+      // A template change on its way when the tab closes still arrives (keepalive, when it fits).
+      return clientForBody(params).sales.termsUpdate(id, params);
     },
     onSuccess: ({ terms }) => {
       // The answer is the template as it is stored now: the list shows it at once. The list is

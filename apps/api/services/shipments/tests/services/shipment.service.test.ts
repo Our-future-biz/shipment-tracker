@@ -390,24 +390,38 @@ describe("softDelete", () => {
 });
 
 describe("linkQuote", () => {
+  const USER_ACTOR = { userID: "00000000-0000-0000-0000-0000000000u1", companyID: COMPANY, role: "user" };
+
   it("tells the quote in the shipment's Sales Number about it and answers what the quote says", async () => {
     stored.set(SHIPMENT, row({ salesNumber: `${REF} ` }));
     links.syncReference.mockResolvedValue(synced());
-    await expect(shipmentService.linkQuote(SHIPMENT, COMPANY, false)).resolves.toEqual(synced());
+    await expect(shipmentService.linkQuote(SHIPMENT, USER_ACTOR, false)).resolves.toEqual(synced());
     expect(links.syncReference).toHaveBeenCalledWith(COMPANY, REF, {});
   });
 
-  it("with markWon says that the shipment was created from the quote", async () => {
-    stored.set(SHIPMENT, row({ salesNumber: REF }));
-    await shipmentService.linkQuote(SHIPMENT, COMPANY, true);
+  it("with markWon says that the shipment was created from the quote - when the server made it from that quote", async () => {
+    stored.set(SHIPMENT, row({ salesNumber: REF, createdFromQuote: true }));
+    await shipmentService.linkQuote(SHIPMENT, USER_ACTOR, true);
+    expect(links.syncReference).toHaveBeenCalledWith(COMPANY, REF, { wonByShipmentId: SHIPMENT });
+  });
+
+  it("links without marking Won when a plain user names a quote the shipment was not created from", async () => {
+    stored.set(SHIPMENT, row({ salesNumber: REF, createdFromQuote: false }));
+    await shipmentService.linkQuote(SHIPMENT, USER_ACTOR, true);
+    expect(links.syncReference).toHaveBeenCalledWith(COMPANY, REF, {});
+  });
+
+  it("lets a sales manager mark the quote Won for any shipment that names it", async () => {
+    stored.set(SHIPMENT, row({ salesNumber: REF, createdFromQuote: false }));
+    await shipmentService.linkQuote(SHIPMENT, { ...USER_ACTOR, role: "manager" }, true);
     expect(links.syncReference).toHaveBeenCalledWith(COMPANY, REF, { wonByShipmentId: SHIPMENT });
   });
 
   it("is not found for a shipment that does not exist, and refused for a Sales Number that is no quote reference", async () => {
-    await expect(shipmentService.linkQuote(SHIPMENT, COMPANY, false)).rejects.toMatchObject({ code: "not_found" });
+    await expect(shipmentService.linkQuote(SHIPMENT, USER_ACTOR, false)).rejects.toMatchObject({ code: "not_found" });
     stored.set(SHIPMENT, row({ salesNumber: "PO 4411" }));
     links.syncReference.mockResolvedValue(null);
-    await expect(shipmentService.linkQuote(SHIPMENT, COMPANY, false)).rejects.toMatchObject({
+    await expect(shipmentService.linkQuote(SHIPMENT, USER_ACTOR, false)).rejects.toMatchObject({
       code: "failed_precondition",
       message: "the Sales Number of this shipment is not the reference of a sales quote",
     });
@@ -416,7 +430,7 @@ describe("linkQuote", () => {
   it("hands a failure to the caller instead of swallowing it", async () => {
     stored.set(SHIPMENT, row({ salesNumber: REF }));
     links.syncReference.mockRejectedValue(new Error("quotes is unreachable"));
-    await expect(shipmentService.linkQuote(SHIPMENT, COMPANY, true)).rejects.toThrow("quotes is unreachable");
+    await expect(shipmentService.linkQuote(SHIPMENT, USER_ACTOR, true)).rejects.toThrow("quotes is unreachable");
     expect(links.markDirty).not.toHaveBeenCalled();
   });
 });

@@ -4,32 +4,16 @@ import { useState, useMemo, type ReactNode } from "react";
 import { Select, Checkbox, Button, Form } from "antd";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
-import { customerQuoteFields } from "@/app/sales/_lib/quoteCustomer";
+import { useQuoteCustomerFields } from "@/hooks/useQuoteCustomerFields";
 import { SECTIONS, hasSection, pickCarried, pickSections, type SectionKey } from "@/app/sales/_lib/quoteSections";
 import { QuotePicker } from "@/app/sales/_components/QuotePicker";
 import { SalesDialog } from "@/app/sales/_components/SalesDialog";
 import { shipmentToQuoteData } from "@/app/shipments/_components/quoteToShipment";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
-import { api, isNotFound } from "@/lib/api";
 
 // Sections that can be sourced from a shipment (shipments carry no pricing/terms).
 const SHIPMENT_SECTIONS = SECTIONS.filter((s) => s.key !== "pricing" && s.key !== "terms");
-
-// What a shipment carries of its customer, completed from the Customer Database where the
-// shipment is linked to it: the name and account type as they are today and the main contact,
-// as a quote made for that customer starts with. When the customer cannot be read, what the
-// shipment itself says is all there is.
-async function withCustomerRecord(carried: SalesQuoteData): Promise<SalesQuoteData> {
-  if (!carried.customerId) return carried;
-  try {
-    const { customer } = await api.customers.customerGet(carried.customerId);
-    return { ...carried, ...(await customerQuoteFields(customer)) };
-  } catch (err) {
-    // The customer was deleted since: its name stays, a link that leads nowhere does not.
-    return isNotFound(err) ? { ...carried, customerId: undefined } : carried;
-  }
-}
 
 // A shipment in one line of plain text: what a row of the list says in full when it is too long
 // to fit, as its tooltip.
@@ -44,10 +28,15 @@ const shipmentLabel = (shipment: ShipmentItem) => (
   </>
 );
 
+interface ShipmentPickerProps {
+  value: ShipmentItem | null;
+  onChange: (shipment: ShipmentItem | null) => void;
+}
+
 // Picks one shipment out of all the company has. The server looks for what is typed - in the job
 // number, the parties and the ports, as on the Shipments page - so an old shipment can be found
 // too; the list itself holds the newest that match and says when there are more.
-function ShipmentPicker({ value, onChange }: { value: ShipmentItem | null; onChange: (shipment: ShipmentItem | null) => void }) {
+function ShipmentPicker({ value, onChange }: ShipmentPickerProps) {
   const [typed, setTyped] = useState("");
   // The request waits until typing pauses.
   const search = useDebounced(typed, 300);
@@ -88,19 +77,17 @@ function ShipmentPicker({ value, onChange }: { value: ShipmentItem | null; onCha
   );
 }
 
-export function CopyFromModal({
-  open,
-  mode,
-  currentRef,
-  onClose,
-  onApply,
-}: {
+interface CopyFromModalProps {
   open: boolean;
   mode: "quote" | "shipment";
   currentRef: string;
   onClose: () => void;
   onApply: (patch: Partial<SalesQuoteData>) => void;
-}) {
+}
+
+export function CopyFromModal({ open, mode, currentRef, onClose, onApply }: CopyFromModalProps) {
+  // What a shipment carries of its customer, completed from the Customer Database where linked.
+  const { withCustomerRecord } = useQuoteCustomerFields();
   // What is copied from: the quote or the shipment picked, whole, as the picker found it.
   const [sourceQuote, setSourceQuote] = useState<SalesQuote | null>(null);
   const [sourceShipment, setSourceShipment] = useState<ShipmentItem | null>(null);

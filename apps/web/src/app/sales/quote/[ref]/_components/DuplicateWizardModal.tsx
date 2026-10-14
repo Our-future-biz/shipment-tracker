@@ -11,19 +11,21 @@ import { SalesDialog } from "@/app/sales/_components/SalesDialog";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { useToast } from "@/lib/toast";
 
+interface DuplicateWizardModalProps {
+  open: boolean;
+  baseRef: string;
+  data: SalesQuoteData;
+  onClose: () => void;
+  onDone: (newRef: string) => void;
+}
+
 export function DuplicateWizardModal({
   open,
   baseRef,
   data,
   onClose,
   onDone,
-}: {
-  open: boolean;
-  baseRef: string;
-  data: SalesQuoteData;
-  onClose: () => void;
-  onDone: (newRef: string) => void;
-}) {
+}: DuplicateWizardModalProps) {
   const { duplicateQuote } = useSalesQuotes();
   const toast = useToast();
 

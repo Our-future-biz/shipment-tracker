@@ -1,5 +1,5 @@
 import { APIError } from "encore.dev/api";
-import { auth, fx } from "~encore/clients";
+import { auth, fx, shipments } from "~encore/clients";
 import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import type { PaginatedResponse } from "../../../lib/db/interface";
 import type { Actor } from "../../../lib/rbac";
@@ -12,10 +12,10 @@ import { salesQuoteRepository, type NewSalesQuote, type SalesQuoteFilter, type S
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { matchOwnerLabel } from "../utils/ownerMatch.utils";
 import { carryKeys, isPlainObject, newDocument } from "../utils/quoteDocument.utils";
-import { planQuoteFx, type StoredFx } from "../lib/quoteFx";
+import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
 import {
   LifecycleError,
-  SHOWN_STATUSES,
+  isShownStatus,
   applyFollowUp,
   applyOwner,
   applyShipmentLinks,
@@ -36,7 +36,7 @@ import {
 import { searchTokens } from "../utils/quoteSearch.utils";
 import { toItem } from "../utils/salesQuoteItem.utils";
 import { ownerBackfillService } from "./ownerBackfill.service";
-import { nameOf, userNames } from "./userNames";
+import { nameOf, userNames } from "../../../lib/userNames";
 
 /** A change of status as the API takes it: the choice, and what the user's screen showed when it was made. */
 export interface TransitionRequest extends StatusChange {
@@ -102,7 +102,7 @@ function filterOf(actor: Actor, request: SalesQuoteListRequest): SalesQuoteFilte
     .split(",")
     .map((status) => status.trim())
     .filter(Boolean);
-  const unknown = statuses.find((status) => !SHOWN_STATUSES.includes(status));
+  const unknown = statuses.find((status) => !isShownStatus(status));
   if (unknown !== undefined) throw APIError.invalidArgument(`"${unknown}" is not a quote status`);
 
   let ownerUserId: string | null | undefined;
@@ -177,24 +177,18 @@ function newRow(ctx: LifecycleContext, fields: Record<string, unknown>): (refere
   });
 }
 
-// The rates a quote stores after moving to `status`: the ones already stored on a sent quote, today's
-// ČNB rates and ROE % for one sent now, none for a draft. Undefined when the document keeps what it
-// has. A Lost quote that was never sent gets no rates. Rates are stamped even when ČNB's latest
-// fixing is missing (fxRatesOn then answers with the last one it has); the stamp says which day it is.
-async function fxDocumentFor(status: string, stored: unknown): Promise<{ fx: StoredFx | null } | undefined> {
-  const previous = isPlainObject(stored) ? stored : {};
-  const plan = planQuoteFx({ quoteStatus: status, ...("fx" in previous ? { fx: previous.fx } : {}) }, previous);
-  if (plan.action === "clear") return previous.fx === null ? undefined : { fx: null };
-  if (plan.action !== "stamp" || status === "lost") return undefined;
+// Today's ČNB rates and ROE % as a quote stores them when it is sent. Fetched before a quote is
+// locked: a slow answer from the fx service must not hold the row lock and block every save of
+// the quote. Rates are stamped even when ČNB's latest fixing is missing (fxRatesOn then answers
+// with the last one it has); the stamp says which day it is.
+async function todaysFx(): Promise<StoredFx> {
   const r = await fx.fxRatesOn({});
   return {
-    fx: {
-      date: r.date,
-      fixingDate: r.fixingDate,
-      roePct: r.roePct,
-      rates: Object.fromEntries(r.rates.map((x) => [x.currency, x.rate])),
-      lockedAt: new Date().toISOString(),
-    },
+    date: r.date,
+    fixingDate: r.fixingDate,
+    roePct: r.roePct,
+    rates: Object.fromEntries(r.rates.map((x) => [x.currency, x.rate])),
+    lockedAt: new Date().toISOString(),
   };
 }
 
@@ -302,10 +296,15 @@ class SalesQuoteService {
 
   // A change of status, with everything it stamps and its history line. Setting the status the
   // quote already has changes nothing and says so.
+  // OPEN DECISION (product owner): status, validity and follow-up writes check no role, so any
+  // user of the company may move a colleague's quote. Only owner change and delete go through
+  // salesPolicy. Add a canChangeLifecycle rule there if that is not intended.
   async transition(actor: Actor, quoteNumber: string, request: TransitionRequest): Promise<{ quote: SalesQuoteItem; changed: boolean }> {
     const at = new Date();
     const names = await userNames();
     const ctx = contextOf(actor, at, names);
+    // Only a status the quote may be sent with can need them; read before the lock (see todaysFx).
+    const today = mayStampFx(request.to) ? await todaysFx() : undefined;
     const result = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (request.expectedDataVersion !== undefined && request.expectedDataVersion !== quote.dataVersion) throw conflict();
       const state = stateOf(quote);
@@ -317,7 +316,7 @@ class SalesQuoteService {
       // The customer is given totals worked out with the ČNB rates and ROE % of the moment it is
       // sent: they are stored then and never change; back in a draft status they are dropped
       // (see lib/quoteFx). That writes the document, hence a new version of it - and only then.
-      const document = await fxDocumentFor(change.state.status, quote.data);
+      const document = fxWriteFor(change.state.status, quote.data, today);
       const written = await salesQuoteRepository.writeLifecycle(tx, quote, {
         state: change.state,
         entries: [change.entry],
@@ -373,6 +372,9 @@ class SalesQuoteService {
     const at = new Date();
     // A repair is recorded as the system's: nobody's name is looked up for it.
     const ctx = contextOf(actor, at, automatic ? new Map() : await userNames());
+    // A quote a shipment was created from becomes Won here, and a Won quote is a sent one: it
+    // keeps the rates stored when it was sent, or gets today's (read before any lock).
+    const today = items.some((item) => item.wonByShipmentId) ? await todaysFx() : undefined;
     const results: QuoteShipmentsResult[] = [];
     for (const item of items) {
       const synced = await salesQuoteRepository.withLockedQuote(actor.companyID, item.quoteNumber, async (quote, tx) => {
@@ -383,7 +385,10 @@ class SalesQuoteService {
           { wonByShipmentId: item.wonByShipmentId, automatic },
           ctx,
         );
-        if (change.changed) await salesQuoteRepository.writeLifecycle(tx, quote, { state: change.state, entries: change.entries });
+        if (change.changed) {
+          const document = change.becameWon ? fxWriteFor("won", quote.data, today) : undefined;
+          await salesQuoteRepository.writeLifecycle(tx, quote, { state: change.state, entries: change.entries, document });
+        }
         return change;
       });
       results.push({
@@ -466,6 +471,15 @@ class SalesQuoteService {
   // is the policy's call, made on the quote as locked; while a shipment is linked to it, nobody
   // may. Its attachments go in the same transaction.
   async delete(actor: Actor, quoteNumber: string): Promise<void> {
+    // A shipment that names the quote in its Sales Number blocks the delete even when the quote's
+    // own link is empty (a call that should have set it failed). Asked before the lock: the
+    // shipments service is not called while the row is held.
+    const { shipments: naming } = await shipments._internalShipmentsNamingQuote({ reference: quoteNumber });
+    if (naming.length > 0) {
+      throw APIError.failedPrecondition(
+        `shipment ${naming.map((s) => s.jobNumber).join(", ")} names this quote in its Sales Number - change that first`,
+      );
+    }
     const at = new Date();
     const ctx = contextOf(actor, at, await userNames());
     const deleted = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {

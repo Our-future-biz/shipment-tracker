@@ -1,4 +1,6 @@
 import { APIError, ErrCode } from "encore.dev/api";
+import type { Actor } from "../../../lib/rbac";
+import { canManageSales } from "../../../lib/salesPolicy";
 import log from "encore.dev/log";
 import { auth, customers, invoicing, quotes } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
@@ -391,9 +393,6 @@ class ShipmentService {
     companyId: string,
     filters: ShipmentListFilters,
   ): Promise<{ pagination: { total: number; offset: number; limit: number }; data: ShipmentItem[] }> {
-    // The one place every user passes regularly: the links between quotes and shipments are
-    // compared here when that is due - at most once an hour unless something needs repair.
-    await quoteLinksService.ensureQuoteLinksSynced(companyId);
     const result = await shipmentRepository.listFiltered(companyId, filters);
 
     // Enrich with master job MCZ numbers
@@ -815,6 +814,11 @@ class ShipmentService {
 
   // What the company's shipments say about its customers, for the pipeline of the sales service:
   // for each customer its first shipment - what "ordered" means there - its newest, and how many.
+  /** The live shipments that name a quote reference in their Sales Number, the oldest first. */
+  async shipmentsNamingQuote(companyId: string, reference: string): Promise<{ id: string; jobNumber: string }[]> {
+    return shipmentRepository.liveBySalesNumber(companyId, reference.trim());
+  }
+
   async customerFacts(companyId: string): Promise<{ customers: CustomerShipmentFacts[]; shipmentsWithoutCustomer: number }> {
     const facts = await shipmentRepository.customerFacts(companyId);
     return {
@@ -831,11 +835,18 @@ class ShipmentService {
   // answers or why it could not be asked: the retry after a create that could not tell the
   // quote (`markWon`: the shipment was created from it), and "Link now" on a shipment whose
   // quote does not know it.
-  async linkQuote(id: string, companyId: string, markWon: boolean): Promise<QuoteSyncResult> {
+  /**
+   * markWon - "the shipment was created from the quote, make it Won" - is taken only when that is
+   * a fact: the server created this shipment from its Sales Number quote, or a sales manager says
+   * so. Anyone else gets the link alone, so nobody can decide a colleague's quote by naming it.
+   */
+  async linkQuote(id: string, actor: Actor, markWon: boolean): Promise<QuoteSyncResult> {
+    const companyId = actor.companyID;
     // What is not an id names no shipment, and is kept from SQL.
     const existing = isUuid(id) ? await shipmentRepository.getByIdForCompany(id, companyId) : null;
     if (!existing) throw APIError.notFound("Shipment not found");
-    const synced = await quoteLinksService.syncReference(companyId, existing.salesNumber.trim(), markWon ? { wonByShipmentId: id } : {});
+    const won = markWon && (existing.createdFromQuote || canManageSales(actor.role));
+    const synced = await quoteLinksService.syncReference(companyId, existing.salesNumber.trim(), won ? { wonByShipmentId: id } : {});
     if (!synced) throw APIError.failedPrecondition("the Sales Number of this shipment is not the reference of a sales quote");
     return synced;
   }

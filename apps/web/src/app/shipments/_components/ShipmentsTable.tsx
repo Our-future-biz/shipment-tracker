@@ -41,6 +41,8 @@ import { ChatPanel } from "./ChatPanel";
 import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { CustomerCell } from "./CustomerCell";
 import { statusLabel } from "@/lib/shipmentStatus";
+import { downloadCsv } from "@/lib/csv";
+import { businessToday } from "@/lib/date";
 
 // --- Props ---
 
@@ -106,26 +108,15 @@ function cellText(shipment: ShipmentItem, key: string): string {
 }
 
 // Export the given shipments to a CSV of the currently visible columns (respects
-// the column view + order). Mirrors the sales quote-history export.
+// the column view + order).
 function exportShipmentsCsv(rows: ShipmentItem[], visibleKeys: string[]): void {
   const cols = visibleKeys
     .map((k) => COLUMN_MAP.get(k))
     .filter((c): c is NonNullable<typeof c> => !!c && c.type !== "popup");
   const headers = cols.map((c) => c.title);
   const body = rows.map((s) => cols.map((c) => cellText(s, c.key)));
-  const csv = [headers, ...body]
-    .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-    .join("\n");
-  // Prepend a BOM so Excel reads the UTF-8 diacritics correctly.
-  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `shipments-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  // The shared writer: same encoding, and cells that would run as a spreadsheet formula are escaped.
+  downloadCsv(`shipments-${businessToday()}.csv`, [headers, ...body]);
 }
 
 const MAX_RECENT_SEARCHES = 5;

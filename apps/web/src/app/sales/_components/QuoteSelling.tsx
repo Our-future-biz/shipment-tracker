@@ -5,10 +5,14 @@ import { WarningOutlined } from "@ant-design/icons";
 import { fmtMoney } from "@/lib/money";
 import type { QuoteTotals } from "../_lib/salesQuote";
 
+interface QuoteSellingProps {
+  totals: QuoteTotals;
+}
+
 // A quote's selling total as the lists show it. Lines whose exchange rate is known nowhere are not
 // in the figure, so such a quote carries a warning in front of it that names the rate - a partial
 // total must not pass for the price.
-export function QuoteSelling({ totals }: { totals: QuoteTotals }) {
+export function QuoteSelling({ totals }: QuoteSellingProps) {
   const missing = totals.missingSellingRates.join(", ");
   return (
     <span className="inline-flex items-center gap-1 whitespace-nowrap">

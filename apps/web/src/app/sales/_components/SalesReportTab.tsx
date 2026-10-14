@@ -203,10 +203,7 @@ export function SalesReportTab() {
         const def = QUOTE_STATUS_MAP[v];
         return (
           <span className="text-slate-700">
-            <span
-              className="inline-block w-2 h-2 rounded-full mr-1.5"
-              style={{ backgroundColor: def?.color.text }}
-            />
+<span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${def?.tone.dot ?? ""}`} />
             {def?.label ?? v}
           </span>
         );

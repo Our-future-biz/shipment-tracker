@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The service is run for real - with its checks and the mapper - against a stand-in for the
 // repository, for the users of the auth service and for the quotes service.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
-vi.mock("encore.dev/log", () => ({ default: { info: vi.fn() } }));
+vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() }, quotes: { salesQuoteGet: vi.fn() } }));
 vi.mock("../../repositories/followupTask.repository", () => ({
   followupTaskRepository: {

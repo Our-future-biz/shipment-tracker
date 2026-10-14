@@ -23,6 +23,17 @@ const authFetcher: typeof fetch = (input, init) => {
 
 export const api = new Client(API_BASE, { fetcher: authFetcher });
 
+// The same client, except that its requests outlive the page (fetch keepalive), so a save on its
+// way when the tab closes still arrives. Browsers take such a request only with a small body -
+// 64 KiB for all of a page's together - and refuse a bigger one outright.
+export const keepaliveApi = api.with({ requestInit: { keepalive: true } });
+const KEEPALIVE_MAX_BYTES = 60 * 1024;
+
+/** The client for a write of `body`: the keepalive one when the body fits its limit, else the ordinary one. */
+export const clientForBody = (body: unknown): Client =>
+  // Measured in bytes, as the browser counts: a Czech letter takes two.
+  new Blob([JSON.stringify(body)]).size <= KEEPALIVE_MAX_BYTES ? keepaliveApi : api;
+
 // Why a request was refused, in the API's own sentence ("quote QCZ... not found") - or that the
 // server could not be reached, when there is none: no connection, or a reply that did not come
 // from the API, for which the client reports the code "unknown" and a text not worth showing.

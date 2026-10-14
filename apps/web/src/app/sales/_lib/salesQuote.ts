@@ -1,46 +1,44 @@
-import dayjs from "dayjs";
 import type { interfaces } from "@/lib/api/client";
 import { downloadCsv } from "@/lib/csv";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, roundCents } from "@/lib/money";
 import type { SalesQuoteData, CostLine, PackageLine, TimelineEntry } from "./types";
-import { formatDate } from "@/lib/date";
-import { FX_DRAFT_STATUSES, PROTECTED_KEYS } from "./types";
+import { businessDay, businessToday, formatDate } from "@/lib/date";
+import { FX_DRAFT_STATUSES, PROTECTED_KEYS, type QuoteStatus } from "./types";
 
 // A sales quote as the lists, reports and pickers work with it: its document, and next to it what
 // the server keeps and works out about the quote. Those facts are read from here and not from the
 // document's own copies of them (data.quoteStatus, data.validUntil, data.salesOwner): the copies
 // cannot say "expired" and know the owner only as text.
-export interface SalesQuote {
-  quoteNumber: string;
-  createdAt: string;
-  updatedAt: string;
+export type SalesQuote = Pick<
+  interfaces.SalesQuoteItem,
+  "quoteNumber" | "createdAt" | "updatedAt" | "ownerUserId" | "ownerName" | "sentAt" | "validUntil" | "lastContactAt" | "followUpDue" | "shipmentId" | "shipmentJobNumber"
+> & {
   data: SalesQuoteData;
   /** The status to show: "expired" for a Quoted or Feedback quote whose validity has passed. */
-  status: string;
+  status: QuoteStatus;
   /** The status as stored - what an expired quote still is underneath. */
-  storedStatus: string;
-  ownerUserId: string | null;
-  /** The owner's current name; the text an old quote has instead when no user is linked. Empty without an owner. */
-  ownerName: string;
-  /** The last sending. */
-  sentAt: string | null;
-  /** The last day the quote is valid (YYYY-MM-DD). */
-  validUntil: string | null;
-  /** When the customer last heard from us: the last recorded contact, else the last sending. */
-  lastContactAt: string | null;
-  /** The customer should be contacted again - the server's rule, judged when the quote was read. */
-  followUpDue: boolean;
+  storedStatus: QuoteStatus;
   /** The statuses the quote may be set to now. */
-  allowedTransitions: string[];
-  /** The shipment the quote is linked to: the oldest live one that carries it as its Sales Number. */
-  shipmentId: string | null;
-  /** That shipment's job number. */
-  shipmentJobNumber: string | null;
-}
+  allowedTransitions: QuoteStatus[];
+};
 
 export function asData(d: unknown): SalesQuoteData {
-  return d && typeof d === "object" ? (d as SalesQuoteData) : {};
+  return d && typeof d === "object" && !Array.isArray(d) ? (d as SalesQuoteData) : {};
+}
+
+/**
+ * What the user changed in `draft` against the stored document it was based on: every key the
+ * user may edit whose value differs. Re-applied on top of a newer stored version after a conflict.
+ */
+export function unsavedChanges(base: SalesQuoteData, draft: SalesQuoteData): Partial<SalesQuoteData> {
+  const own = stripProtected(draft);
+  const keys = new Set([...Object.keys(stripProtected(base)), ...Object.keys(own)]) as Set<keyof SalesQuoteData>;
+  const changed: Partial<SalesQuoteData> = {};
+  for (const key of keys) {
+    if (JSON.stringify(own[key]) !== JSON.stringify(base[key])) Object.assign(changed, { [key]: own[key] });
+  }
+  return changed;
 }
 
 export function toSalesQuote(item: interfaces.SalesQuoteItem): SalesQuote {
@@ -343,25 +341,15 @@ export function sellingSum(totals: QuoteTotals[]): { text: string; incomplete: b
   };
 }
 
-const businessDayParts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", year: "numeric", month: "2-digit", day: "2-digit" });
-
-// The day (YYYY-MM-DD) of a moment on the company's calendar, which is Prague's wherever the
-// viewer sits. The server counts by that day (apps/api/lib/businessDate.ts) - validity, and the
-// days a list is filtered by - so what a screen says about a day is said by the same one.
-export function businessDay(at: Date): string {
-  const parts = Object.fromEntries(businessDayParts.formatToParts(at).map((part) => [part.type, part.value]));
-  return `${parts.year}-${parts.month}-${parts.day}`;
-}
-
-export function businessToday(): string {
-  return businessDay(new Date());
-}
+export { businessDay, businessToday } from "@/lib/date";
 
 // The last day of validity of a quote sent at `sentAt` as "valid N days": the sent day + N on the
-// viewer's calendar. Null when the sent date cannot be read.
+// company's (Prague) calendar, as the server counts. Null when the sent date cannot be read.
 export function validUntilAfter(sentAt: string | Date, days: number): string | null {
-  const sent = dayjs(sentAt);
-  return sent.isValid() ? sent.add(days, "day").format("YYYY-MM-DD") : null;
+  const sent = new Date(sentAt);
+  if (Number.isNaN(sent.getTime())) return null;
+  const [y, m, d] = businessDay(sent).split("-").map(Number);
+  return new Date(Date.UTC(y!, m! - 1, d! + days)).toISOString().slice(0, 10);
 }
 
 // The "Valid until" date the printed quotation shows: the date written on the quote. A quote sent
@@ -406,5 +394,5 @@ export interface CsvColumn {
 export function exportQuotesCsv(quotes: SalesQuote[], columns: CsvColumn[]): void {
   const headers = columns.map((c) => c.title);
   const rows = quotes.map((q) => columns.map((c) => c.accessor(q)));
-  downloadCsv(`quotes-${new Date().toISOString().slice(0, 10)}.csv`, [headers, ...rows]);
+  downloadCsv(`quotes-${businessToday()}.csv`, [headers, ...rows]);
 }

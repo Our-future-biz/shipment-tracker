@@ -50,10 +50,14 @@ function validityMark(q: SalesQuote): { label: string; dot: string; ring?: strin
   return { label: "Valid until", dot: "bg-green-500", ring: "ring-2 ring-green-100" };
 }
 
+interface ValidityDotProps {
+  quote: SalesQuote;
+}
+
 // The dot in the first column of a row, so that validity is seen at a glance: green while the
 // quote is valid, red once it has expired, grey for a quote without a validity date or with a
 // date that has passed on a quote that is closed or being reworked.
-export function ValidityDot({ quote }: { quote: SalesQuote }) {
+export function ValidityDot({ quote }: ValidityDotProps) {
   if (!quote.validUntil) return <span role="img" aria-label="No validity date" title="No validity date" className="inline-block w-2.5 h-2.5 rounded-full bg-slate-300" />;
   const mark = validityMark(quote);
   return (
@@ -66,8 +70,12 @@ export function ValidityDot({ quote }: { quote: SalesQuote }) {
   );
 }
 
+interface ValidUntilProps {
+  quote: SalesQuote;
+}
+
 // The validity date itself; what it means for the quote is the dot at the start of the row.
-function ValidUntil({ quote }: { quote: SalesQuote }) {
+function ValidUntil({ quote }: ValidUntilProps) {
   if (!quote.validUntil) return EMPTY_CELL;
   return <span className={validityMark(quote).text}>{formatDate(quote.validUntil)}</span>;
 }
@@ -83,12 +91,18 @@ const dayOf = (at: string | null) => formatDate(isoDayOf(at)) || EMPTY_CELL;
 // stated "0 kg".
 const withUnit = (figure: number, unit: string) => (figure ? `${figure} ${unit}` : EMPTY_CELL);
 
+interface CutProps {
+  full?: string;
+  maxWidthClass: string;
+  children: React.ReactNode;
+}
+
 // A name or a route of any length takes no more of a row than its column's width: what the
 // column gets less the cell's padding (16px), which `maxWidthClass` names. A longer one would
 // widen the column and push the last columns of the starting set out of view. The rest is cut
 // with "…", and pointing at the cell shows it in full. It stays in the middle of a column that
 // something else made wider.
-function Cut({ full, maxWidthClass, children }: { full?: string; maxWidthClass: string; children: React.ReactNode }) {
+function Cut({ full, maxWidthClass, children }: CutProps) {
   return (
     <span className={`block mx-auto truncate ${maxWidthClass}`} title={full || undefined}>
       {children}

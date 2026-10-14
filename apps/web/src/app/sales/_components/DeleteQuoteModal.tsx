@@ -5,6 +5,12 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
 import { quoteProblem } from "../_lib/quoteProblem";
 
+interface DeleteQuoteModalProps {
+  quoteNumber: string;
+  onDelete: (quoteNumber: string) => Promise<unknown>;
+  onClose: () => void;
+}
+
 // The confirmation one quote is deleted behind, and what follows it. `onDelete` asks the server
 // and rejects when it refuses. That happens although Delete was offered: the button goes by what
 // the quote was when the screen read it, the server by the quote as it is now - a shipment linked
@@ -13,11 +19,7 @@ export function DeleteQuoteModal({
   quoteNumber,
   onDelete,
   onClose,
-}: {
-  quoteNumber: string;
-  onDelete: (quoteNumber: string) => Promise<unknown>;
-  onClose: () => void;
-}) {
+}: DeleteQuoteModalProps) {
   const toast = useToast();
   // The request is on its way: the dialog waits for the server's answer.
   const [deleting, setDeleting] = useState(false);

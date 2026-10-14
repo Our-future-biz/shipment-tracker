@@ -13,8 +13,12 @@ const TONE_CLASS: Record<PillTone, string> = {
   slate: "bg-slate-100 text-slate-500",
 };
 
+interface PillProps {
+  tone: PillTone;
+}
+
 // A short mark in one of the app's tones: "Overdue", "Incomplete". Everything a span takes goes to
 // the span, so the pill can carry a title or sit inside a Tooltip.
-export function Pill({ tone, className = "", ...span }: { tone: PillTone } & ComponentProps<"span">) {
+export function Pill({ tone, className = "", ...span }: PillProps & ComponentProps<"span">) {
   return <span {...span} className={`${PILL_CLASS} ${TONE_CLASS[tone]} ${className}`} />;
 }

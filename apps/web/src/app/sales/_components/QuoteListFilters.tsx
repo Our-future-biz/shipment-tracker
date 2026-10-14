@@ -31,7 +31,12 @@ const activeCount = (filters: Filters) =>
     !!filters.decidedThisMonth,
   ].filter(Boolean).length;
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+interface FieldProps {
+  label: string;
+  children: ReactNode;
+}
+
+function Field({ label, children }: FieldProps) {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-xs font-medium text-slate-500">{label}</span>
@@ -134,7 +139,7 @@ export function QuoteListFilters({ filters, onChange, onClear, userOptions }: Qu
   return (
     <Popover content={panel} trigger="click" placement="bottomRight">
       <Tooltip title="Filters">
-        <Badge count={active} size="small" color="#4f46e5" offset={[-4, 4]}>
+        <Badge count={active} size="small" offset={[-4, 4]} className="[&_.ant-badge-count]:!bg-indigo-600">
           <button type="button" aria-label={active ? `Filters, ${active} on` : "Filters"} className={toolbarButtonClass("secondary", "square")}>
             <FilterOutlined />
           </button>

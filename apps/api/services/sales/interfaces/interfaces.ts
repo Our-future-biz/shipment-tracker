@@ -1,3 +1,4 @@
+import type { TaskType } from "../utils/followupTask.utils";
 // Plain interfaces for controllers. Never import Drizzle table types here.
 
 export interface TermsConditionItem {
@@ -12,8 +13,7 @@ export interface TermsConditionItem {
 /** A manual follow-up task as the Follow-up screen gets it. Times are ISO strings, days are YYYY-MM-DD. */
 export interface FollowupTaskItem {
   id: string;
-  /** Call, Email or Visit. */
-  type: string;
+  type: TaskType;
   note: string;
   dueDate: string | null;
   assigneeUserId: string | null;

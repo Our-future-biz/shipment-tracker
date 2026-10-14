@@ -1,5 +1,5 @@
-import { api } from "@/lib/api";
 import type { CustomerItem } from "@/hooks/useCustomers";
+import type { ContactItem } from "@/hooks/useCustomerContacts";
 import type { SalesQuoteData } from "./types";
 
 // Who a quote is for is one unit of six keys: the link to the Customer Database, the name and
@@ -56,19 +56,8 @@ export function customerLinkFields(customer: Pick<CustomerItem, "id" | "companyN
 }
 
 // The person a quote for a customer goes to: the customer's main CRM contact, or its first one
-// when none is marked as the main. Nothing for a customer without contacts, or whose contacts
-// cannot be read - the contact fields stay editable on the quote.
-export async function customerContactFields(customerId: string): Promise<SalesQuoteData> {
-  try {
-    const contacts = (await api.customers.contactList(customerId)).data;
-    const main = contacts.find((contact) => contact.isMain) ?? contacts[0];
-    return main ? { customerContact: main.name, customerEmail: main.email, customerPhone: main.phone } : {};
-  } catch {
-    return {};
-  }
-}
-
-// What a new quote for a customer starts with: both of the above.
-export async function customerQuoteFields(customer: Pick<CustomerItem, "id" | "companyName" | "label">): Promise<SalesQuoteData> {
-  return { ...customerLinkFields(customer), ...(await customerContactFields(customer.id)) };
+// when none is marked as the main. Nothing for a customer without contacts.
+export function contactFieldsOf(contacts: Pick<ContactItem, "isMain" | "name" | "email" | "phone">[]): SalesQuoteData {
+  const main = contacts.find((contact) => contact.isMain) ?? contacts[0];
+  return main ? { customerContact: main.name, customerEmail: main.email, customerPhone: main.phone } : {};
 }

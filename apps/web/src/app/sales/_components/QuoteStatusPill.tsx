@@ -1,18 +1,19 @@
 import { PILL_CLASS } from "@/components/Pill";
-import { QUOTE_STATUS_MAP } from "../_lib/types";
+import { NEUTRAL_STATUS_TONE, QUOTE_STATUS_MAP, type QuoteStatus } from "../_lib/types";
 
-// What a status this version has no name for is drawn in.
-const NEUTRAL = { bg: "#f1f5f9", text: "#64748b" };
+interface QuoteStatusPillProps {
+  status: QuoteStatus;
+}
 
 // The status of a quote wherever it is shown - the lists, the quote page, the customer page, the
 // New Shipment wizard - in the Sales colours. It is given the status that counts - Expired for a
 // Quoted or Feedback quote whose validity has passed, which the server works out
 // (SalesQuote.status) - not the one the quote's document still carries.
-export function QuoteStatusPill({ status }: { status: string }) {
+export function QuoteStatusPill({ status }: QuoteStatusPillProps) {
   const def = QUOTE_STATUS_MAP[status];
-  const color = def?.color ?? NEUTRAL;
+  const tone = def?.tone ?? NEUTRAL_STATUS_TONE;
   return (
-    <span className={PILL_CLASS} style={{ backgroundColor: color.bg, color: color.text }}>
+    <span className={`${PILL_CLASS} ${tone.pill}`}>
       {def?.label ?? status}
     </span>
   );

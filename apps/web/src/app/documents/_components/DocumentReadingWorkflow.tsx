@@ -1168,8 +1168,13 @@ interface MasterFile {
   base64: string;
 }
 
+interface MasterFileListProps {
+  files: MasterFile[];
+  onRemove: (uid: string) => void;
+}
+
 // The files picked for one pre-alert, so it is clear exactly what will be read.
-function MasterFileList({ files, onRemove }: { files: MasterFile[]; onRemove: (uid: string) => void }) {
+function MasterFileList({ files, onRemove }: MasterFileListProps) {
   return (
     <div className="mt-3 border border-slate-200 rounded-lg">
       <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wide">

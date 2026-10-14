@@ -5,7 +5,10 @@ import type { QuoteSyncResult } from "../interfaces/interfaces";
 
 interface ShipmentQuoteLinkRequest {
   shipmentId: string;
-  /** The shipment was created from the quote: an open quote becomes Won, as it would have at the create. */
+  /**
+   * The shipment was created from the quote: an open quote becomes Won, as it would have at the
+   * create. Taken only for a shipment the server created from that quote, or from a sales manager.
+   */
   markWon?: boolean;
 }
 
@@ -19,6 +22,6 @@ interface ShipmentQuoteLinkRequest {
 export const shipmentQuoteLink = api(
   { expose: true, auth: true, method: "POST", path: "/shipments/:shipmentId/quote-link" },
   async (req: ShipmentQuoteLinkRequest): Promise<QuoteSyncResult> => {
-    return shipmentService.linkQuote(req.shipmentId, getAuthData()!.companyID, req.markWon === true);
+    return shipmentService.linkQuote(req.shipmentId, getAuthData()!, req.markWon === true);
   },
 );

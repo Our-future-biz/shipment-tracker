@@ -31,6 +31,19 @@ const newCostLine = (quote: SalesQuoteData): CostLine => ({
   amount: 0,
 });
 
+interface CostLinesEditorProps {
+  kind: "buying" | "selling";
+  title: string;
+  lines: CostLine[];
+  quote: SalesQuoteData;
+  sheet: ExchangeRates;
+  // Today's ČNB fixing and ROE %, which a draft's selling lines in another currency carry.
+  live: LivePricing;
+  onChange: (lines: CostLine[]) => void;
+  // More actions of the block, drawn before its "Add" button.
+  actions?: ReactNode;
+}
+
 // The buying or the selling lines of a quote. Every line keeps its own currency; the "In EUR"
 // column says what the line adds to the totals in the quote's currency - or that it adds nothing
 // yet, for want of a rate. Only buying lines name a supplier.
@@ -43,18 +56,7 @@ export function CostLinesEditor({
   live,
   onChange,
   actions,
-}: {
-  kind: "buying" | "selling";
-  title: string;
-  lines: CostLine[];
-  quote: SalesQuoteData;
-  sheet: ExchangeRates;
-  // Today's ČNB fixing and ROE %, which a draft's selling lines in another currency carry.
-  live: LivePricing;
-  onChange: (lines: CostLine[]) => void;
-  // More actions of the block, drawn before its "Add" button.
-  actions?: ReactNode;
-}) {
+}: CostLinesEditorProps) {
   const buying = kind === "buying";
   const currency = quoteCurrency(quote);
   const patch = (i: number, p: Partial<CostLine>) => onChange(lines.map((x, j) => (j === i ? { ...x, ...p } : x)));

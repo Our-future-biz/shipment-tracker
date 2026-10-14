@@ -3062,7 +3062,7 @@ export namespace controllers {
          * The fields the quote starts with. Reference, status, owner and history are assigned by the
          * server; keys of that kind in here are ignored.
          */
-        data?: any
+        data?: { [key: string]: any }
     }
 
     export interface SalesQuoteCreateResponse {
@@ -3078,7 +3078,7 @@ export namespace controllers {
          * The fields the variant starts with. Reference, status, owner and history are assigned by
          * the server; keys of that kind in here are ignored.
          */
-        data?: any
+        data?: { [key: string]: any }
     }
 
     export interface SalesQuoteDuplicateResponse {
@@ -3233,7 +3233,7 @@ export namespace controllers {
          * The whole document as edited. Status, validity, owner and history are not taken from it:
          * they are changed with their own endpoints, and keys of that kind in here are ignored.
          */
-        data: any
+        data: { [key: string]: any }
 
         /**
          * The dataVersion of the document the caller's copy is based on. The quote is written only
@@ -3251,7 +3251,7 @@ export namespace controllers {
         /**
          * The status to set. Expired is not one: a quote expires when its validity date has passed.
          */
-        to: "draft" | "ready_to_send" | "quoted" | "feedback" | "revised" | "won" | "lost"
+        to: interfaces.SettableQuoteStatus
 
         comment?: string
         /**
@@ -3609,7 +3609,8 @@ export namespace controllers {
 
     export interface ShipmentQuoteLinkRequest {
         /**
-         * The shipment was created from the quote: an open quote becomes Won, as it would have at the create.
+         * The shipment was created from the quote: an open quote becomes Won, as it would have at the
+         * create. Taken only for a shipment the server created from that quote, or from a sales manager.
          */
         markWon?: boolean
     }
@@ -4670,11 +4671,7 @@ export namespace interfaces {
      */
     export interface FollowupTaskItem {
         id: string
-        /**
-         * Call, Email or Visit.
-         */
-        type: string
-
+        type: utils.TaskType
         note: string
         dueDate: string | null
         assigneeUserId: string | null
@@ -5673,6 +5670,11 @@ export namespace interfaces {
     export type SellingVatCode = "S21" | "Z69" | "RC" | "OUT"
 
     /**
+     * A status a sales quote can be set to.
+     */
+    export type SettableQuoteStatus = "draft" | "ready_to_send" | "quoted" | "feedback" | "revised" | "won" | "lost"
+
+    /**
      * The operations dashboard: status KPIs and upcoming shipment dates.
      */
     export interface ShipmentDashboard {
@@ -6188,6 +6190,13 @@ export namespace services {
      * A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
      */
     export type PlaceInfo = geo.Place
+}
+
+export namespace utils {
+    /**
+     * What kind of contact a follow-up task is. Spelled out: Encore's parser takes no indexed access type.
+     */
+    export type TaskType = "Call" | "Email" | "Visit"
 }
 
 

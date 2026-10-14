@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
+import { customerQuotesKeys } from "@/hooks/salesQueryKeys";
 
 export type CustomerItem = interfaces.CustomerItem;
 
@@ -22,7 +23,7 @@ const CUSTOMER_RECORD_KEYS = [
   "customer-documents",
   "customer-invoices",
   "customer-shipments",
-  "customer-quotes",
+  customerQuotesKeys.all[0],
 ];
 
 // One shared empty list, so "nothing loaded" does not look like new data on every render.

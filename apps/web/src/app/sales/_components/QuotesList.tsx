@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, Dropdown, Form, Input, Select, Tooltip } from "antd";
 import type { MenuProps, TableProps } from "antd";
 import {
@@ -26,16 +25,15 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { SortableContext, arrayMove, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { DataTable } from "@/components/DataTable";
 import { PillTabs } from "@/components/SectionCard";
-import type { SalesQuoteFilter } from "@/hooks/useAllSalesQuotes";
+import type { SalesQuoteFilter } from "@/hooks/salesQueryKeys";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useQuoteFamily } from "@/hooks/useQuoteFamily";
 import { useSalesQuoteList } from "@/hooks/useSalesQuoteList";
-import { invalidateQuoteLists, useSalesQuotes, type QuoteCall } from "@/hooks/useSalesQuotes";
+import { useSalesQuotes, type QuoteCall } from "@/hooks/useSalesQuotes";
 import { useSalesPref, useCompanyDetails } from "@/hooks/useSalesPrefs";
 import { useCurrentExchangeRates, type CurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { useUsers } from "@/hooks/useUsers";
@@ -67,31 +65,18 @@ import { ExchangeRatesError } from "./ExchangeRatesError";
 import { NewQuoteDialog } from "./NewQuoteDialog";
 import { QuoteColumnPicker } from "./QuoteColumnPicker";
 import { QuoteListFilters } from "./QuoteListFilters";
+import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { QuotesLoadError } from "./QuotesLoadError";
 import { SalesDialog } from "./SalesDialog";
 import { SalesPage } from "./SalesPage";
 import { ToolbarButton, toolbarButtonClass } from "./ToolbarButton";
 import { DEFAULT_QUOTE_COLUMNS, QUOTE_COLUMNS, ValidityDot, quoteCsvColumns, shownColumns, type SortDirection } from "./quoteListColumns";
 
-// Draggable table header cell — id comes from each column's onHeaderCell().
-type HeaderCellProps = React.ThHTMLAttributes<HTMLTableCellElement> & { id?: string };
-
-const DraggableHeaderCell = ({ id, style, ...rest }: HeaderCellProps) => {
-  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: id ?? "" });
-
-  if (!id) return <th style={style} {...rest} />;
-
-  const thStyle: React.CSSProperties = {
-    ...style,
-    transform: CSS.Translate.toString(transform),
-    transition,
-    cursor: "grab",
-    userSelect: "none",
-    ...(isDragging ? { position: "relative", zIndex: 2, background: "#eef2ff" } : {}),
-  };
-
-  return <th ref={setNodeRef} style={thStyle} {...rest} {...attributes} {...listeners} />;
-};
+interface ExportPdfButtonProps {
+  quote: SalesQuote;
+  exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">;
+  company: StoredCompanyDetails;
+}
 
 // The row's PDF action. A document that cannot be produced - its total cannot be worked out, the
 // company details or the exchange rates did not load, the print window was blocked - is not; the
@@ -100,11 +85,7 @@ function ExportPdfButton({
   quote,
   exchange,
   company,
-}: {
-  quote: SalesQuote;
-  exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">;
-  company: StoredCompanyDetails;
-}) {
+}: ExportPdfButtonProps) {
   const toast = useToast();
   return (
     <Button
@@ -226,7 +207,6 @@ export function QuotesList() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const queryClient = useQueryClient();
   const { runOnQuotes, isRunningOnQuotes } = useSalesQuotes();
   // Both are the whole company's. Until one is known ("ready") the list works with its fallback -
   // the columns every list starts with, no saved views - and offers nothing that would store it.
@@ -265,23 +245,6 @@ export function QuotesList() {
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }, [asksForNew, searchParams, pathname, router]);
-
-  // Which shipment a quote belongs to is kept in step by the shipments service, which compares
-  // the two whenever the list of shipments is read. Somebody working in Sales may not open that
-  // list for hours, so the comparison is asked for each time this list opens - the server runs it
-  // only when one is due. When it changed a link the quotes are read again; a failure is not this
-  // screen's to report: the list shows what the quotes say, and the next opening asks again.
-  useEffect(() => {
-    api.shipments.shipmentQuoteLinksSync({}).then(
-      (synced) => {
-        if (synced.linked + synced.unlinked === 0) return;
-        // A first read of the list that is still on its way may be answered from before the links
-        // changed, and would be kept as the answer: it is dropped, and the quotes are asked for anew.
-        queryClient.cancelQueries({ queryKey: ["sales-quotes"] }).then(() => invalidateQuoteLists(queryClient));
-      },
-      () => undefined,
-    );
-  }, [queryClient]);
 
   // The box shows each keystroke at once; the request waits until typing pauses.
   const [search, setSearch] = useState(list.search);
@@ -647,7 +610,7 @@ export function QuotesList() {
         <div className="flex flex-wrap items-center gap-3 ml-auto">
           {/* antd gives the input width: 100% outside Tailwind's cascade layers, where a plain
               w-60 cannot override it — hence the important flag. */}
-          <Tooltip title={SEARCH_TIPS} trigger="focus" placement="bottomLeft" color="white" styles={{ body: { color: "#334155" } }}>
+          <Tooltip title={SEARCH_TIPS} trigger="focus" placement="bottomLeft" color="white" classNames={{ body: "!text-slate-700" }}>
             <Input
               placeholder="Search quotes…"
               aria-label="Search quotes"

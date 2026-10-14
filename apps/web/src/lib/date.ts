@@ -34,3 +34,17 @@ export function todayIso(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+const businessDayParts = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", year: "numeric", month: "2-digit", day: "2-digit" });
+
+// The day (YYYY-MM-DD) of a moment on the company's calendar, which is Prague's wherever the
+// viewer sits. The server counts by that day (apps/api/lib/businessDate.ts) - validity, and the
+// days a list is filtered by - so what a screen says about a day is said by the same one.
+export function businessDay(at: Date): string {
+  const parts = Object.fromEntries(businessDayParts.formatToParts(at).map((part) => [part.type, part.value]));
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function businessToday(): string {
+  return businessDay(new Date());
+}

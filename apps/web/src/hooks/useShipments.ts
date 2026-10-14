@@ -72,6 +72,9 @@ export interface ShipmentQueryParams {
 const AUTOMATION_FIELDS = new Set(["department", "status", "holidayCover"]);
 
 /** Views computed from shipments (needs-attention list, tiles) — stale after any status change. */
+/** Mutation key of every shipment write, so a reader can wait for writes of shipments only. */
+export const SHIPMENT_WRITE_KEY = ["shipment-write"] as const;
+
 export function invalidateShipmentDerivedViews(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
   queryClient.invalidateQueries({ queryKey: ["shipment-tile-counts"] });
@@ -128,6 +131,7 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
   });
 
   const updateMutation = useMutation({
+    mutationKey: SHIPMENT_WRITE_KEY,
     mutationFn: ({ id, data }: { id: string; data: controllers.ShipmentUpdateRequest }) =>
       api.shipments.shipmentUpdate(id, data),
     // Optimistic update for snappy inline editing. The query key now carries the active

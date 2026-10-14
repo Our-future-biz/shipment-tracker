@@ -8,8 +8,12 @@ export type SectionStatus = "empty" | "in-progress" | "completed";
 
 const STATUS_LABEL: Record<SectionStatus, string> = { completed: "Completed", "in-progress": "In progress", empty: "Not completed" };
 
+interface StepMarkProps {
+  status: SectionStatus;
+}
+
 // How far a step is, at a glance: a green tick once it is complete, a red cross until then.
-function StepMark({ status }: { status: SectionStatus }) {
+function StepMark({ status }: StepMarkProps) {
   const done = status === "completed";
   return (
     <span
@@ -29,9 +33,15 @@ export interface QuoteStep {
   status: SectionStatus;
 }
 
+interface QuoteStepTilesProps {
+  steps: QuoteStep[];
+  active: string;
+  onSelect: (key: string) => void;
+}
+
 // The steps of the quote form as one row of tiles above it: each shows with a tick or a cross whether its step is complete, and a
 // click shows that step under the row. One step is on screen at a time.
-export function QuoteStepTiles({ steps, active, onSelect }: { steps: QuoteStep[]; active: string; onSelect: (key: string) => void }) {
+export function QuoteStepTiles({ steps, active, onSelect }: QuoteStepTilesProps) {
   return (
     <div role="tablist" aria-label="Steps of the quote" className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
       {steps.map((step) => {
@@ -58,8 +68,14 @@ export function QuoteStepTiles({ steps, active, onSelect }: { steps: QuoteStep[]
   );
 }
 
+interface QuoteSectionProps {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}
+
 // The step that is on screen: the app's section card with the step's title and what it holds.
-export function QuoteSection({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
+export function QuoteSection({ title, subtitle, children }: QuoteSectionProps) {
   return (
     <SectionCard title={title} extra={<span className="text-xs text-slate-500">{subtitle}</span>}>
       {children}

@@ -1,26 +1,27 @@
 import { api } from "encore.dev/api";
+import type { Max, MaxLen, Min } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { salesQuoteService } from "../services/salesQuote.service";
 import type { SalesQuoteItem } from "../interfaces/interfaces";
 
 interface SalesQuoteListRequest {
   /** Rows per page: 50 when left out, at most 200. */
-  limit?: number;
+  limit?: number & Min<1> & Max<200>;
   /** How many rows of the sorted list to skip. */
-  offset?: number;
+  offset?: number & Min<0>;
   /**
    * For loading everything: the id of the last quote already loaded - for the first page the nil
    * id 00000000-0000-0000-0000-000000000000. The rows are then those with a greater id, in the
    * order of their ids, and offset and sortBy are ignored: no quote is skipped or repeated when
    * quotes are created or deleted meanwhile. A page shorter than the limit is the last one.
    */
-  afterId?: string;
+  afterId?: string & MaxLen<36>;
   /**
    * createdAt (the default) | updatedAt | quoteNumber | customer | status | owner | sentAt |
    * validUntil | decidedAt | lastContactAt. Anything else sorts by createdAt. Quotes without a
    * value come last in both directions.
    */
-  sortBy?: string;
+  sortBy?: string & MaxLen<40>;
   /** desc when left out. */
   sortDirection?: "asc" | "desc";
   /**
@@ -28,16 +29,16 @@ interface SalesQuoteListRequest {
    * direction, origin, destination, commodity, incoterm, owner, job number or status. Case and
    * diacritics do not matter; at most five words are looked for.
    */
-  search?: string;
+  search?: string & MaxLen<200>;
   /**
    * Statuses as shown, separated by commas: draft, ready_to_send, quoted, feedback, revised, won,
    * lost, expired. A quote whose validity has passed is "expired", not "quoted".
    */
-  statuses?: string;
+  statuses?: string & MaxLen<200>;
   /** The service type as the quote stores it, e.g. "Air". */
-  serviceType?: string;
+  serviceType?: string & MaxLen<100>;
   /** "Import" or "Export", as the quote stores it. */
-  direction?: string;
+  direction?: string & MaxLen<50>;
   /** Created on this day or later (YYYY-MM-DD, the day in Prague). */
   createdFrom?: string;
   /** Created on this day or earlier (YYYY-MM-DD, the day in Prague). */
@@ -47,13 +48,13 @@ interface SalesQuoteListRequest {
   /** Won or lost on this day or earlier (YYYY-MM-DD, the day in Prague). */
   decidedTo?: string;
   /** "me" (the signed-in user), "none" (quotes that belong to no user) or the id of a user. */
-  owner?: string;
+  owner?: string & MaxLen<36>;
   /** The id of the customer the quotes are for. */
-  customerId?: string;
+  customerId?: string & MaxLen<36>;
   /** "due": only the quotes whose follow-up is due - the ones that carry followUpDue. */
   followUp?: "due";
   /** A quote reference: that quote's base and all its variants (-2, -3, ...). */
-  familyOf?: string;
+  familyOf?: string & MaxLen<50>;
   /** true: only the quotes a shipment names (shipmentJobNumber is set); false: only the quotes none does. */
   hasShipment?: boolean;
 }

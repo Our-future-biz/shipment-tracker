@@ -5,6 +5,7 @@ import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import { quoteProblem } from "@/app/sales/_lib/quoteProblem";
+import { customerQuotesKeys, salesQuoteKeys } from "@/hooks/salesQueryKeys";
 
 // How many quotes a bulk action changes at the same time.
 const BULK_CONCURRENCY = 4;
@@ -18,15 +19,16 @@ export type QuoteCall = (quoteNumber: string) => Promise<{ quote: interfaces.Sal
 // Every copy of the quotes that is kept outside the quote page has to be read again once a quote
 // was written. Resolves when the copies on screen have been, so whoever wrote can open a list or
 // a quote right after and find it up to date.
-export const invalidateQuoteLists = (queryClient: QueryClient) =>
+// With `refetchType: "none"` they are only marked out of date and read again when next shown.
+export const invalidateQuoteLists = (queryClient: QueryClient, { refetchType }: { refetchType?: "none" } = {}) =>
   Promise.all([
     // The customer page keeps its own, customer-filtered copy of the quotes.
-    queryClient.invalidateQueries({ queryKey: ["customer-quotes"] }),
+    queryClient.invalidateQueries({ queryKey: customerQuotesKeys.all, refetchType }),
     // Every list of Sales: the pages of Quotes and Follow-up, the pickers, the variants of a
     // quote and the complete loads of the reports.
-    queryClient.invalidateQueries({ queryKey: ["sales-quotes"] }),
+    queryClient.invalidateQueries({ queryKey: salesQuoteKeys.lists, refetchType }),
     // The header of a shipment shows the quote its Sales Number names, read one by one.
-    queryClient.invalidateQueries({ queryKey: ["sales-quote"] }),
+    queryClient.invalidateQueries({ queryKey: salesQuoteKeys.quotes, refetchType }),
   ]);
 
 // What Sales does to whole quotes: creating, duplicating and deleting them, and changing them
@@ -65,11 +67,11 @@ export const useSalesQuotes = () => {
           try {
             const answer = await call(quoteNumber);
             // The newest copy there is, whether or not the quote was written.
-            queryClient.setQueryData(["sales-quote", quoteNumber], { quote: answer.quote });
+            queryClient.setQueryData(salesQuoteKeys.one(quoteNumber), { quote: answer.quote });
             outcomes[index] = answer.changed === false ? "unchanged" : "changed";
           } catch (err) {
             // Whatever is remembered about this quote may be older than what is stored.
-            queryClient.removeQueries({ queryKey: ["sales-quote", quoteNumber] });
+            queryClient.removeQueries({ queryKey: salesQuoteKeys.one(quoteNumber) });
             outcomes[index] = { quoteNumber, reason: quoteProblem(err).reason };
           }
         }

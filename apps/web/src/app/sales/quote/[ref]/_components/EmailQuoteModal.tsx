@@ -6,7 +6,6 @@ import { FilePdfOutlined } from "@ant-design/icons";
 import { LINK_CLASS } from "@/components/linkClass";
 import { SalesDialog } from "@/app/sales/_components/SalesDialog";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
-import { UNSENT_QUOTE_STATUSES } from "@/app/sales/_lib/types";
 import { businessToday } from "@/app/sales/_lib/salesQuote";
 
 interface EmailFormValues {
@@ -31,26 +30,31 @@ function mailtoLink({ to = "", cc = "", subject = "", message = "" }: Partial<Em
 
 // The app cannot send email. This dialog prepares the message, hands it to the user's own email
 // program and then asks whether the quote went out - only the user knows that.
-export function EmailQuoteModal({
-  open,
-  quoteNumber,
-  data,
-  validUntil,
-  onExportPdf,
-  onMarkSent,
-  onClose,
-}: {
+interface EmailQuoteModalProps {
   open: boolean;
   quoteNumber: string;
   data: SalesQuoteData;
   // The quote's validity date as the server keeps it.
   validUntil: string | null;
+  // The statuses the server lets the quote move to now.
+  allowedTransitions: readonly string[];
   onExportPdf: () => void;
   // Asks the server to make the quote Quoted. Resolves with why it refused - a sentence that
   // finishes "QCZ… - …" - or with null once the quote is Quoted.
   onMarkSent: () => Promise<string | null>;
   onClose: () => void;
-}) {
+}
+
+export function EmailQuoteModal({
+  open,
+  quoteNumber,
+  data,
+  validUntil,
+  allowedTransitions,
+  onExportPdf,
+  onMarkSent,
+  onClose,
+}: EmailQuoteModalProps) {
   const [form] = Form.useForm<EmailFormValues>();
   const values = Form.useWatch([], form);
   const [valid, setValid] = useState(false);
@@ -117,10 +121,9 @@ export function EmailQuoteModal({
     else onClose();
   };
 
-  // Only a quote that has not gone out yet becomes Quoted by being sent; sending any other
-  // again changes nothing about the quote. Still asked while the answer is on its way, although
-  // the quote on screen may be Quoted by then.
-  const askSent = marking || UNSENT_QUOTE_STATUSES.includes(data.quoteStatus ?? "draft");
+  // Asked only when the server would let the quote become Quoted - the same rule the status menu
+  // follows. Still asked while the answer is on its way, although the quote may be Quoted by then.
+  const askSent = marking || allowedTransitions.includes("quoted");
   // Marking as sent names no new validity, so a quote whose date has passed is refused for that:
   // the date has to be set first.
   const validityPassed = validUntil !== null && validUntil < businessToday();

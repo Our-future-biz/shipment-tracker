@@ -46,7 +46,7 @@ export interface TimelineEntry {
   // What the line records. A line written before kinds existed has none and is a status change;
   // only status changes carry a status.
   kind?: "status" | "validity" | "owner" | "follow_up" | "shipment" | "deleted";
-  status?: string;
+  status?: QuoteStatus;
   at: string;
   // Display name of who made the change. Entries written before names were recorded say "You".
   user?: string;
@@ -56,7 +56,7 @@ export interface TimelineEntry {
   lostReason?: string;
   // The status before: on a Won the system made, and on a line by which a quote left a status
   // that proves it was sent while no sent date says so.
-  from?: string;
+  from?: QuoteStatus;
   shipmentId?: string;
   jobNumber?: string;
   action?: "linked" | "removed";
@@ -134,7 +134,7 @@ export interface SalesQuoteData {
   shippingTermsNotes?: string;
   // Lifecycle - written by the server only (PROTECTED_KEYS). These keys mirror the facts the
   // server keeps, for whoever reads the document: lists, the printed quotation.
-  quoteStatus?: string; // draft / ready_to_send / quoted / feedback / revised / won / lost / expired
+  quoteStatus?: QuoteStatus;
   // No longer written or shown; kept as a protected key so that nothing can bring it back in.
   substatus?: string;
   lostReason?: string;
@@ -157,24 +157,39 @@ export interface SalesQuoteData {
   timelineUnreadable?: unknown;
 }
 
+/** A quote's lifecycle status as the server names it. */
+export type KnownQuoteStatus = "draft" | "ready_to_send" | "quoted" | "feedback" | "revised" | "won" | "lost" | "expired";
+/** A status as stored: one of the known ones, or one a newer version wrote that this one can't name. */
+export type QuoteStatus = KnownQuoteStatus | (string & {});
+
+/** Tailwind classes a status is drawn with: the pill, its dot, and its text on white. */
+export interface QuoteStatusTone {
+  pill: string;
+  dot: string;
+  text: string;
+}
+
 export interface QuoteStatusDef {
-  key: string;
+  key: KnownQuoteStatus;
   label: string;
   winProbability: number;
-  color: { bg: string; text: string };
+  tone: QuoteStatusTone;
 }
+
+/** What a status this version has no name for is drawn in. */
+export const NEUTRAL_STATUS_TONE: QuoteStatusTone = { pill: "bg-slate-100 text-slate-500", dot: "bg-slate-500", text: "text-slate-500" };
 
 // How each status is shown. Which status may follow which is the server's rule: every quote
 // comes with the statuses it may be set to (allowedTransitions).
 export const QUOTE_STATUSES: QuoteStatusDef[] = [
-  { key: "draft", label: "Draft", winProbability: 10, color: { bg: "#f1f5f9", text: "#64748b" } },
-  { key: "ready_to_send", label: "Ready to Send", winProbability: 20, color: { bg: "#e0e7ff", text: "#4f46e5" } },
-  { key: "quoted", label: "Quoted", winProbability: 30, color: { bg: "#dbeafe", text: "#1d4ed8" } },
-  { key: "feedback", label: "Feedback", winProbability: 60, color: { bg: "#fef3c7", text: "#d97706" } },
-  { key: "revised", label: "Revised", winProbability: 50, color: { bg: "#ede9fe", text: "#7c3aed" } },
-  { key: "won", label: "Won", winProbability: 100, color: { bg: "#dcfce7", text: "#16a34a" } },
-  { key: "lost", label: "Lost", winProbability: 0, color: { bg: "#fee2e2", text: "#dc2626" } },
-  { key: "expired", label: "Expired", winProbability: 0, color: { bg: "#f1f5f9", text: "#64748b" } },
+  { key: "draft", label: "Draft", winProbability: 10, tone: NEUTRAL_STATUS_TONE },
+  { key: "ready_to_send", label: "Ready to Send", winProbability: 20, tone: { pill: "bg-indigo-100 text-indigo-600", dot: "bg-indigo-600", text: "text-indigo-600" } },
+  { key: "quoted", label: "Quoted", winProbability: 30, tone: { pill: "bg-blue-100 text-blue-700", dot: "bg-blue-700", text: "text-blue-700" } },
+  { key: "feedback", label: "Feedback", winProbability: 60, tone: { pill: "bg-amber-100 text-amber-600", dot: "bg-amber-600", text: "text-amber-600" } },
+  { key: "revised", label: "Revised", winProbability: 50, tone: { pill: "bg-violet-100 text-violet-600", dot: "bg-violet-600", text: "text-violet-600" } },
+  { key: "won", label: "Won", winProbability: 100, tone: { pill: "bg-green-100 text-green-600", dot: "bg-green-600", text: "text-green-600" } },
+  { key: "lost", label: "Lost", winProbability: 0, tone: { pill: "bg-red-100 text-red-600", dot: "bg-red-600", text: "text-red-600" } },
+  { key: "expired", label: "Expired", winProbability: 0, tone: NEUTRAL_STATUS_TONE },
 ];
 
 export const QUOTE_STATUS_MAP: Record<string, QuoteStatusDef> = Object.fromEntries(
@@ -187,16 +202,16 @@ export const SETTABLE_QUOTE_STATUSES = ["draft", "ready_to_send", "quoted", "fee
 export type SettableQuoteStatus = (typeof SETTABLE_QUOTE_STATUSES)[number];
 
 // A quote is open while it is still in play: neither decided (won / lost) nor expired.
-export const OPEN_QUOTE_STATUSES = ["draft", "ready_to_send", "quoted", "feedback", "revised"];
+export const OPEN_QUOTE_STATUSES: readonly QuoteStatus[] = ["draft", "ready_to_send", "quoted", "feedback", "revised"];
 
 // In these statuses the quote is with the customer and an answer is awaited: the ones a follow-up
 // can be recorded on. A quote whose validity has passed is shown as Expired and is not among them.
-export const AWAITING_QUOTE_STATUSES = ["quoted", "feedback"];
+export const AWAITING_QUOTE_STATUSES: readonly QuoteStatus[] = ["quoted", "feedback"];
 
 // In these statuses the quotation as it stands has not gone to the customer: it was never sent, or
 // it was revised or reopened since. Sending it makes the quote Quoted; in any other status it either
 // went out already or is closed.
-export const UNSENT_QUOTE_STATUSES = ["draft", "ready_to_send", "revised"];
+export const UNSENT_QUOTE_STATUSES: readonly QuoteStatus[] = ["draft", "ready_to_send", "revised"];
 
 export const LOST_REASONS: Record<string, string[]> = {
   Pricing: ["Price too high", "Competitor cheaper", "Margin too low"],
@@ -231,15 +246,16 @@ export const COST_LINE_TYPES = [
   "Other",
 ] as const;
 
-export function winProbColor(p: number): string {
-  if (p >= 80) return "#16a34a";
-  if (p >= 50) return "#d97706";
-  if (p >= 20) return "#2563eb";
-  return "#dc2626";
+/** Background class of the win-probability bar. */
+export function winProbClass(p: number): string {
+  if (p >= 80) return "bg-green-600";
+  if (p >= 50) return "bg-amber-600";
+  if (p >= 20) return "bg-blue-600";
+  return "bg-red-600";
 }
 
 /** Statuses before a quote goes to the customer: priced with today's rates, never stored ones. */
-export const FX_DRAFT_STATUSES: ReadonlySet<string> = new Set(UNSENT_QUOTE_STATUSES);
+export const FX_DRAFT_STATUSES: ReadonlySet<QuoteStatus> = new Set(UNSENT_QUOTE_STATUSES);
 
 /** A quote's rates follow its status: a draft (or one reopened for revision) carries none. */
 export function withFxRule(data: SalesQuoteData): SalesQuoteData {

@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import { toSalesQuote } from "@/app/sales/_lib/salesQuote";
+import { salesQuoteKeys } from "@/hooks/salesQueryKeys";
 
 // One page of the company's sales quotes, as the server filters, searches, sorts and counts them:
 // the rows on screen are that page and `total` is the number of quotes the filter really finds,
@@ -12,7 +13,7 @@ import { toSalesQuote } from "@/app/sales/_lib/salesQuote";
 // With `enabled: false` nothing is asked: the rows read last stay, and are not being replaced.
 export const useSalesQuoteList = (params: controllers.SalesQuoteListRequest, { enabled = true } = {}) => {
   const query = useQuery({
-    queryKey: ["sales-quotes", params],
+    queryKey: salesQuoteKeys.list(params),
     queryFn: () => api.quotes.salesQuoteList(params),
     // The rows of the last page or filter stay on screen until the new ones are there.
     placeholderData: (prev) => prev,

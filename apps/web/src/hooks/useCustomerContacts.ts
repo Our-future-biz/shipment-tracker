@@ -3,12 +3,13 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
+import { customerContactsKey } from "@/hooks/useQuoteCustomerFields";
 
 export type ContactItem = interfaces.ContactItem;
 
 export const useCustomerContacts = (customerId: string) => {
   const queryClient = useQueryClient();
-  const key = ["customer-contacts", customerId];
+  const key = customerContactsKey(customerId);
 
   const query = useQuery({
     queryKey: key,

@@ -10,7 +10,7 @@ vi.mock("~encore/clients", () => ({
   quotes: { _internalSalesQuoteShipmentSync: vi.fn(), _internalSalesQuoteShipmentLinks: vi.fn() },
 }));
 vi.mock("../../repositories/shipment.repository", () => ({
-  shipmentRepository: { withLiveBySalesNumber: vi.fn(), salesReferenceShipments: vi.fn() },
+  shipmentRepository: { withLiveBySalesNumber: vi.fn(), salesReferenceShipments: vi.fn(), companyIds: vi.fn() },
 }));
 
 import log from "encore.dev/log";
@@ -120,6 +120,8 @@ describe("syncReference", () => {
           wonByShipmentId: undefined,
         },
       ],
+      automatic: undefined,
+      companyId: company,
     });
   });
 
@@ -411,82 +413,31 @@ describe("reconcile", () => {
   });
 });
 
-describe("ensureQuoteLinksSynced", () => {
-  const runs = () => linksCall.mock.calls.length;
-
-  it("compares the links the first time a process is asked, then once an hour", async () => {
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    expect(runs()).toBe(1);
-    vi.setSystemTime(NOW.getTime() + 59 * MINUTE);
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    expect(runs()).toBe(1);
-    vi.setSystemTime(NOW.getTime() + 60 * MINUTE);
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    expect(runs()).toBe(2);
+describe("reconcileAll (the hourly cron)", () => {
+  it("runs every company with shipments, telling the quotes service the company with each call", async () => {
+    const other = randomUUID();
+    repository.companyIds.mockResolvedValue([company, other]);
+    await expect(quoteLinksService.reconcileAll()).resolves.toEqual({ companies: 2, failed: 0 });
+    expect(linksCall.mock.calls.map(([request]) => request?.companyId)).toEqual([company, other]);
   });
 
-  it("handles 400 references per run and goes on at the next occasion while some are left", async () => {
-    shipments = Array.from({ length: 900 }, (_, i) => shipment(i + 1, ref(i + 1)));
-    for (const s of shipments) links.set(s.reference, null);
-    for (const linkedSoFar of [400, 800, 900, 900]) {
-      await quoteLinksService.ensureQuoteLinksSynced(company);
-      expect([...links.values()].filter(Boolean)).toHaveLength(linkedSoFar);
-    }
-    expect(runs()).toBe(3);
-  });
-
-  it("runs again at the next occasion after a sync was marked as failed - once", async () => {
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    quoteLinksService.markDirty(company);
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    expect(runs()).toBe(2);
-  });
-
-  it("does not forget a failure that is marked while a run is under way", async () => {
-    linksCall.mockImplementationOnce(async () => {
-      // A shipment write fails to tell its quote after this run has started to compare.
-      quoteLinksService.markDirty(company);
-      return { links: [] };
-    });
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    expect(runs()).toBe(2);
-  });
-
-  it("never fails its caller: a run that fails is logged, left alone for a minute and then tried again", async () => {
+  it("goes on with the other companies when one fails, and logs it", async () => {
+    const other = randomUUID();
+    repository.companyIds.mockResolvedValue([company, other]);
     linksCall.mockRejectedValueOnce(new Error("quotes is unreachable"));
-    await expect(quoteLinksService.ensureQuoteLinksSynced(company)).resolves.toBeUndefined();
+    await expect(quoteLinksService.reconcileAll()).resolves.toEqual({ companies: 2, failed: 1 });
     expect(log.warn).toHaveBeenCalledTimes(1);
-
-    // Not even a sync marked as failed makes it run within that minute.
-    quoteLinksService.markDirty(company);
-    vi.setSystemTime(NOW.getTime() + MINUTE - 1);
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    expect(runs()).toBe(1);
-
-    vi.setSystemTime(NOW.getTime() + MINUTE);
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    expect(runs()).toBe(2);
-    // That one got through: the hour starts.
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    expect(runs()).toBe(2);
+    expect(linksCall).toHaveBeenCalledTimes(2);
   });
 
-  it("starts with a fresh comparison after a run that failed half way", async () => {
-    shipments = Array.from({ length: 5 }, (_, i) => shipment(i + 1, ref(i + 1)));
+  it("handles at most 100 references of a company per run and goes on at the next run", async () => {
+    repository.companyIds.mockResolvedValue([company]);
+    shipments = Array.from({ length: 150 }, (_, i) => shipment(i + 1, ref(i + 1)));
     for (const s of shipments) links.set(s.reference, null);
-    // The first run links two quotes, then the quotes service fails.
-    syncCall.mockImplementationOnce(quotesAnswer).mockImplementationOnce(quotesAnswer).mockRejectedValueOnce(new Error("quotes is unreachable"));
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    expect([...links.values()].filter(Boolean)).toHaveLength(2);
-
-    vi.setSystemTime(NOW.getTime() + MINUTE);
-    syncCall.mockClear();
-    await quoteLinksService.ensureQuoteLinksSynced(company);
-    expect([...links.values()].filter(Boolean)).toHaveLength(5);
-    // Only what still differs is sent.
-    expect(sentRefs()).toEqual([ref(3), ref(4), ref(5)]);
+    await quoteLinksService.reconcileAll();
+    expect([...links.values()].filter(Boolean)).toHaveLength(100);
+    await quoteLinksService.reconcileAll();
+    expect([...links.values()].filter(Boolean)).toHaveLength(150);
   });
 });
 
@@ -499,12 +450,12 @@ describe("sync", () => {
     expect(links.get(ref(1))).toBeNull();
   });
 
-  it("shares the hour with the list of shipments: whichever runs first, the other waits", async () => {
-    await quoteLinksService.ensureQuoteLinksSynced(company);
+  it("shares the hour with the cron: after a run, a manual sync waits for the hour", async () => {
+    repository.companyIds.mockResolvedValue([company]);
+    await quoteLinksService.reconcileAll();
     await expect(quoteLinksService.sync(company, "admin", false)).resolves.toMatchObject({ ran: false });
     vi.setSystemTime(NOW.getTime() + 60 * MINUTE);
     await expect(quoteLinksService.sync(company, "admin", false)).resolves.toMatchObject({ ran: true });
-    await quoteLinksService.ensureQuoteLinksSynced(company);
     expect(linksCall).toHaveBeenCalledTimes(2);
   });
 
@@ -515,8 +466,8 @@ describe("sync", () => {
     links.set(ref(999), "shipment-999");
 
     await expect(quoteLinksService.sync(company, "admin", true)).resolves.toEqual({ ran: true, linked: 850, unlinked: 1, unchanged: 0, quoteNotFound: 50, remaining: 0 });
-    // Three runs of at most 400 references.
-    expect(linksCall).toHaveBeenCalledTimes(4);
+    // 901 references to repair: ten runs of at most 100, after the first one.
+    expect(linksCall).toHaveBeenCalledTimes(11);
   });
 
   it("forced, ends although more quotes are missing than one run handles", async () => {
@@ -531,7 +482,8 @@ describe("sync", () => {
     await quoteLinksService.sync(company, "admin", false);
     // A link is lost again among the references the first run already handled.
     links.set(ref(1), null);
-    await expect(quoteLinksService.sync(company, "admin", true)).resolves.toMatchObject({ ran: true, linked: 51, remaining: 0 });
+    // The first run handled 100; the forced one compares anew: 350 never linked + the lost one.
+    await expect(quoteLinksService.sync(company, "admin", true)).resolves.toMatchObject({ ran: true, linked: 351, remaining: 0 });
     expect(links.get(ref(1))).toBe("shipment-1");
   });
 

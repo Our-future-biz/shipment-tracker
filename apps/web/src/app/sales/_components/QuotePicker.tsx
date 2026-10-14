@@ -39,6 +39,13 @@ function quoteLabel(quote: PickedQuote): ReactNode {
   );
 }
 
+interface QuotePickerProps {
+  value: PickedQuote | null;
+  onChange: (quote: SalesQuote | null) => void;
+  /** A reference that is not offered: the quote the picker is opened from. */
+  exclude?: string;
+}
+
 // Picks one sales quote out of all the company has. The server looks for what is typed - in the
 // reference, customer, route, commodity and the other fields the Quotes list searches - so a quote
 // can be found however old it is; the list itself holds only the newest few that match and says
@@ -47,12 +54,7 @@ export function QuotePicker({
   value,
   onChange,
   exclude,
-}: {
-  value: PickedQuote | null;
-  onChange: (quote: SalesQuote | null) => void;
-  /** A reference that is not offered: the quote the picker is opened from. */
-  exclude?: string;
-}) {
+}: QuotePickerProps) {
   const [typed, setTyped] = useState("");
   // The request waits until typing pauses: every search reads through the company's quotes.
   const search = useDebounced(typed, 300).trim();

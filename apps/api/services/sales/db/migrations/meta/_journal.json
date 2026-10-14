@@ -29,6 +29,13 @@
       "when": 1791712201860,
       "tag": "0003_followup_task_import_fn",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791998903824,
+      "tag": "0004_followup_task_type_check",
+      "breakpoints": true
     }
   ]
 }

@@ -143,7 +143,8 @@ const fake = vi.hoisted(() => {
           const write = () => {
             state.steps.push(`${name} update`);
             state.updates.push({ set, where });
-            return Promise.resolve(state.updated.shift() ?? []);
+            // A lifecycle write (through the transaction) always finds its locked row; a save may not.
+            return Promise.resolve(state.updated.shift() ?? (name === "tx" ? [{ id: "row-1", quoteNumber: "QCZ20261010001", status: "quoted" }] : []));
           };
           return {
             returning: write,
@@ -536,7 +537,10 @@ describe("writeLifecycle", () => {
       shipmentJobNumber: null,
     });
     expect(written().set.updatedAt).toBeInstanceOf(Date);
-    expect(rendered(fake.state.updates[0]!.where)).toMatchObject({ sql: '"quote"."id" = $1', params: [row.id] });
+    expect(rendered(fake.state.updates[0]!.where)).toMatchObject({
+      sql: '("quote"."id" = $1 and "quote"."company_id" = $2)',
+      params: [row.id, row.companyId],
+    });
   });
 
   it("restates the whole mirror in the same statement: keys to set, keys to remove, the history line", async () => {
@@ -573,10 +577,10 @@ describe("writeLifecycle", () => {
 
   it("makes a new document version exactly when the action also writes a document key", async () => {
     const row = quote();
-    const rates = { USD: { rate: 23.4, week: "2026-W41" } };
-    await salesQuoteRepository.writeLifecycle(tx, row, { state: sent(row), entries: [entry], document: { rates } });
+    const fx = { date: "2026-10-10", fixingDate: "2026-10-09", roePct: 100, rates: { USD: 23.4 }, lockedAt: "2026-10-10T10:00:00.000Z" };
+    await salesQuoteRepository.writeLifecycle(tx, row, { state: sent(row), entries: [entry], document: { fx } });
     expect(written().bump).toBe(1);
-    expect(written().mirror).toMatchObject({ quoteStatus: "quoted", rates });
+    expect(written().mirror).toMatchObject({ quoteStatus: "quoted", fx });
   });
 
   it("sets a legacy value the columns could not take aside before its key goes", async () => {
@@ -922,7 +926,7 @@ describe("customerFacts", () => {
 
 describe("openCustomerQuotes", () => {
   it("reads the company's live sales quotes that are open as shown today and are for a customer, the newest first", async () => {
-    const open = [{ customerId: "946e01e8-a4ed-4aa7-932b-2c5d5e991c30", quoteNumber: "QCZ20261010001", status: "quoted", validUntil: "2026-10-25", currency: "EUR", rates: null, sellingLines: [] }];
+    const open = [{ customerId: "946e01e8-a4ed-4aa7-932b-2c5d5e991c30", quoteNumber: "QCZ20261010001", status: "quoted", validUntil: "2026-10-25", currency: "EUR", fx: null, rates: null, sellingLines: [] }];
     fake.state.openQuotes = open;
     await expect(salesQuoteRepository.openCustomerQuotes(COMPANY, "2026-10-12")).resolves.toEqual(open);
     const [read] = fake.state.openQuoteReads;

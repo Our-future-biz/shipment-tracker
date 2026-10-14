@@ -39,3 +39,23 @@ export function planQuoteFx(data: unknown, previous?: unknown): FxPlan {
   const stored = previous && typeof previous === "object" ? (previous as { fx?: unknown }).fx : undefined;
   return isStoredFx(stored) ? { action: "reuse", fx: stored } : { action: "stamp" };
 }
+
+/** Whether a quote moving to `status` may need today's rates stamped (a sent status, not Lost). */
+export function mayStampFx(status: string): boolean {
+  return !DRAFT_STATUSES.has(status) && status !== "lost";
+}
+
+/**
+ * The fx write for a quote moving to `status`, given its stored document and today's rates
+ * (fetched beforehand, outside any row lock): the stored rates stay on a sent quote, today's are
+ * stamped on one sent now, a draft has none. Undefined when the document keeps what it has. A Lost
+ * quote that was never sent gets no rates. `today` must be given whenever mayStampFx(status).
+ */
+export function fxWriteFor(status: string, stored: unknown, today: StoredFx | undefined): { fx: StoredFx | null } | undefined {
+  const previous = stored && typeof stored === "object" ? (stored as Record<string, unknown>) : {};
+  const plan = planQuoteFx({ quoteStatus: status, ...("fx" in previous ? { fx: previous.fx } : {}) }, previous);
+  if (plan.action === "clear") return previous.fx === null ? undefined : { fx: null };
+  if (plan.action !== "stamp" || status === "lost") return undefined;
+  if (!today) throw new Error(`today's rates are needed to send a quote as "${status}"`);
+  return { fx: today };
+}

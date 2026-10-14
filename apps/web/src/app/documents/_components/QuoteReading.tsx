@@ -10,8 +10,12 @@ import { FieldReviewTable } from "./FieldReviewTable";
 
 const counted = (n: number) => `${n} field${n !== 1 ? "s" : ""}`;
 
+interface QuoteTargetProps {
+  reading: QuoteReading;
+}
+
 // Where a reading goes: a new quote, or one found among all the company has.
-export function QuoteTarget({ reading }: { reading: QuoteReading }) {
+export function QuoteTarget({ reading }: QuoteTargetProps) {
   return (
     <div className="mb-4">
       <Radio.Group value={reading.mode} onChange={(e) => reading.setMode(e.target.value)} className="mb-2">
@@ -28,9 +32,14 @@ export function QuoteTarget({ reading }: { reading: QuoteReading }) {
   );
 }
 
+interface QuoteReviewProps {
+  reading: QuoteReading;
+  onBack: () => void; onWritten: () => void;
+}
+
 // What was read, to tick and correct before it is written. Against an existing quote the table
 // shows what the quote holds now; a value that differs starts unticked.
-export function QuoteReview({ reading, onBack, onWritten }: { reading: QuoteReading; onBack: () => void; onWritten: () => void }) {
+export function QuoteReview({ reading, onBack, onWritten }: QuoteReviewProps) {
   const { base, review, problem, writing } = reading;
   const ticked = review.fields.filter((f) => f.approved && f.extractedValue.trim()).length;
   const conflicts = review.fields.filter((f) => f.hasConflict).length;
@@ -82,8 +91,12 @@ export function QuoteReview({ reading, onBack, onWritten }: { reading: QuoteRead
   );
 }
 
+interface QuoteOpenButtonProps {
+  quoteNumber: string;
+}
+
 // From the Done step straight to the quote: prices are not read, so that is where the work goes on.
-export function QuoteOpenButton({ quoteNumber }: { quoteNumber: string }) {
+export function QuoteOpenButton({ quoteNumber }: QuoteOpenButtonProps) {
   const router = useRouter();
   return (
     <Button size="large" onClick={() => router.push(quoteHref(quoteNumber))}>

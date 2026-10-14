@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { fetchAllPages } from "@/lib/fetchAllPages";
+import { followupTaskKeys } from "@/hooks/salesQueryKeys";
 
 export type FollowupTask = interfaces.FollowupTaskItem;
 
@@ -52,7 +53,7 @@ export const useFollowupTasks = ({ assignee, state, page, pageSize }: FollowupTa
   const queryClient = useQueryClient();
 
   const open = useQuery({
-    queryKey: ["followup-tasks", "open", assignee],
+    queryKey: followupTaskKeys.open(assignee),
     queryFn: async () => {
       const tasks = await fetchAllPages((afterId, limit) => api.sales.followupTaskList({ state: "open", assignee, afterId, limit }));
       return tasks.sort(inWorkOrder);
@@ -64,7 +65,7 @@ export const useFollowupTasks = ({ assignee, state, page, pageSize }: FollowupTa
   });
 
   const done = useQuery({
-    queryKey: ["followup-tasks", "done", assignee, page, pageSize],
+    queryKey: followupTaskKeys.done(assignee, page, pageSize),
     queryFn: () => api.sales.followupTaskList({ state: "done", assignee, limit: pageSize, offset: (page - 1) * pageSize }),
     // The rows of the page before stay on screen until the new ones are there - of the same list:
     // somebody else's tasks, and how many of them there are, are not shown under another choice.
@@ -73,7 +74,7 @@ export const useFollowupTasks = ({ assignee, state, page, pageSize }: FollowupTa
     enabled: state === "done",
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["followup-tasks"] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: followupTaskKeys.all });
 
   const createMutation = useMutation({
     mutationFn: (fields: controllers.FollowupTaskCreateRequest) => api.sales.followupTaskCreate(fields),

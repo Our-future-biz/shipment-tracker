@@ -1,11 +1,10 @@
-import dayjs from "dayjs";
 import type { CurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { fmtMoney } from "@/lib/money";
 import type { SalesQuoteData, PackageLine, CostLine } from "./types";
 import { UNSENT_QUOTE_STATUSES } from "./types";
 import { hasCompanyDetails, type StoredCompanyDetails } from "./companyDetails";
 import { escapeHtml } from "@/lib/html";
-import { cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fmtDimensions, fxClause, quoteValidUntil, ratesNeeded } from "./salesQuote";
+import { businessDay, businessToday, cargoReadyDay, computeTotals, computeCargo, convertLine, documentBlock, fmtDimensions, fxClause, quoteValidUntil, ratesNeeded } from "./salesQuote";
 
 // Whatever a user typed is text on the document, never markup.
 const esc = escapeHtml;
@@ -53,10 +52,10 @@ export function quoteDocument(
   // The day the quote was sent, so printing it again later does not date the offer anew; today for
   // a quote that is not sent as it stands - never sent, or revised or reopened since. The sent date
   // such a quote still carries belongs to the document the customer already holds: this one has
-  // other prices, and marking it as sent will stamp a new date. The day on the user's calendar, as
-  // quoteValidUntil counts.
+  // other prices, and marking it as sent will stamp a new date. The day on the company's (Prague)
+  // calendar, as quoteValidUntil counts.
   const sent = !!data.sentAt && !UNSENT_QUOTE_STATUSES.includes(data.quoteStatus ?? "draft");
-  const issueDate = dayjs(sent ? data.sentAt : undefined).format("YYYY-MM-DD");
+  const issueDate = sent && data.sentAt ? businessDay(new Date(data.sentAt)) : businessToday();
   // The one validity the app knows. A quote without a validity date promises none.
   const validUntil = quoteValidUntil(data);
   // The readiness the quote's screens show: a stored day. A text an earlier inquiry import left

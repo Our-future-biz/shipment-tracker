@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, numeric, date, uuid, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, date, uuid, boolean, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { masterJobTable } from "./masterJob.schema";
 import type { CustomsPriority, CustomsReceivedOverride } from "../interfaces/interfaces";
@@ -172,6 +172,9 @@ export const shipmentTable = pgTable(
 
     // — Quote —
     salesNumber: text("sales_number").notNull().default(""),
+    // Set only by the server when the shipment is created from the quote in salesNumber: the one
+    // fact that lets a later retry mark that quote Won (shipmentQuoteLink, markWon).
+    createdFromQuote: boolean("created_from_quote").notNull().default(false),
     // Money as exact numeric rather than text. Drizzle's default string mode keeps the
     // API type a string (matching the rest of the money handling) while letting Postgres
     // SUM/compare these properly.

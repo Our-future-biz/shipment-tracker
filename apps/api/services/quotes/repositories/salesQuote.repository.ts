@@ -1,6 +1,9 @@
 import { and, asc, count, desc, eq, gt, gte, inArray, isNotNull, isNull, like, or, sql, type SQL } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { BUSINESS_TZ } from "../../../lib/businessDate";
+import { isUniqueViolation } from "../../../lib/db/errors";
+import { TenantRepository } from "../../../lib/db/repository";
+import type { StoredFx } from "../lib/quoteFx";
 import { db } from "../db/db";
 import { quoteTable, type NewQuoteRecord, type QuoteRecord, type SalesQuoteRecord } from "../schemas/quote.schema";
 import { isPlainObject } from "../utils/quoteDocument.utils";
@@ -164,10 +167,13 @@ export interface SalesQuotePage {
 // How often an allocation is tried again after losing its reference to somebody else.
 const MAX_REFERENCE_RETRIES = 3;
 
-// Postgres reports a duplicate key as 23505; drizzle hands the driver's error over as `cause`.
-function isUniqueViolation(err: unknown): boolean {
-  const failure = err as { code?: string; cause?: { code?: string } } | null | undefined;
-  return (failure?.cause?.code ?? failure?.code) === "23505";
+// Rows that the query itself restricts to sales quotes (status filled), checked rather than cast:
+// a row without a status here would be a bug in the query, not data to hand on.
+function salesRows(rows: QuoteRecord[]): SalesQuoteRecord[] {
+  return rows.map((row) => {
+    if (!isSalesRow(row)) throw new Error(`quote ${row.quoteNumber} has no lifecycle status`);
+    return row;
+  });
 }
 
 /** What the company's live sales quotes say about one customer. */
@@ -193,8 +199,9 @@ export interface CustomerOpenQuoteRow {
   validUntil: string | null;
   /** The quote's currency as its document stores it; "" when it stores none. */
   currency: string;
-  /** data.fx (ČNB rates stored when sent), data.rates (legacy weekly-sheet rates) and data.sellingLines, as stored. */
-  fx: unknown;
+  /** data.fx: the ČNB rates stored when the quote was sent; null for a draft. */
+  fx: StoredFx | null;
+  /** data.rates (legacy weekly-sheet rates) and data.sellingLines, as stored. */
   rates: unknown;
   sellingLines: unknown;
 }
@@ -216,14 +223,18 @@ export interface LifecycleWrite {
   entries: TimelineEntry[];
   /**
    * Document keys the action stores besides the lifecycle - the rates taken when a quote is
-   * sent. Writing them makes a new version of the document.
+   * sent, or null when they are dropped. Writing them makes a new version of the document.
    */
-  document?: Record<string, unknown>;
+  document?: { fx: StoredFx | null };
   /** Set by the action that deletes the quote: who deletes it, and when. */
   deleted?: { by: string; at: Date };
 }
 
-class SalesQuoteRepository {
+class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
+  constructor() {
+    super(db, quoteTable, "quote");
+  }
+
   // How many times this process adopted quotes of a company (adoptPending, loadLive). It says
   // nothing about the quotes: it is the sign, for whoever remembers what it has seen of the
   // company's adopted quotes (the owner matching), that there may be some it has not.
@@ -327,7 +338,7 @@ class SalesQuoteRepository {
     // An owner chosen by hand is never matched to a user by its text afterwards.
     const ownerChanged = state.ownerUserId !== before.ownerUserId || state.ownerLabel !== before.ownerLabel;
 
-    const [written] = (await tx
+    const written = await tx
       .update(quoteTable)
       .set({
         ...columnsOf(state),
@@ -340,9 +351,11 @@ class SalesQuoteRepository {
           || jsonb_build_object('timeline', (CASE WHEN jsonb_typeof(${quoteTable.data}->'timeline') = 'array' THEN ${quoteTable.data}->'timeline' ELSE '[]'::jsonb END)
             || coalesce(${JSON.stringify(write.entries)}::jsonb, '[]'::jsonb))`,
       })
-      .where(eq(quoteTable.id, quote.id))
-      .returning()) as SalesQuoteRecord[];
-    return written!;
+      .where(and(eq(quoteTable.id, quote.id), eq(quoteTable.companyId, quote.companyId)))
+      .returning();
+    const [row] = salesRows(written);
+    if (!row) throw new Error(`quote ${quote.quoteNumber} was not written`);
+    return row;
   }
 
   /**
@@ -359,7 +372,7 @@ class SalesQuoteRepository {
     expected: SavedVersion,
   ): Promise<SalesQuoteRecord | null> {
     const carry = textArray(save.carry);
-    const [saved] = (await db
+    const saved = await db
       .update(quoteTable)
       .set({
         data: sql`(${JSON.stringify(save.data)}::jsonb - ${carry})
@@ -370,8 +383,8 @@ class SalesQuoteRepository {
         updatedAt: new Date(),
       })
       .where(this.liveSalesQuote(companyId, quoteNumber, expected))
-      .returning()) as SalesQuoteRecord[];
-    return saved ?? null;
+      .returning();
+    return salesRows(saved)[0] ?? null;
   }
 
   /**
@@ -403,7 +416,7 @@ class SalesQuoteRepository {
           .limit(page.limit)
           .offset(page.offset);
     const [found, [{ value: total }]] = await Promise.all([rows, db.select({ value: count() }).from(quoteTable).where(where)]);
-    return { rows: found as SalesQuoteRecord[], total: Number(total) };
+    return { rows: salesRows(found), total: Number(total) };
   }
 
   /**
@@ -415,7 +428,7 @@ class SalesQuoteRepository {
       .select({ quoteNumber: quoteTable.quoteNumber, shipmentId: quoteTable.shipmentId })
       .from(quoteTable)
       .where(and(eq(quoteTable.companyId, companyId), isNull(quoteTable.deletedAt), isSalesQuote, isNotNull(quoteTable.shipmentId)));
-    return rows as { quoteNumber: string; shipmentId: string }[];
+    return rows.flatMap((r) => (r.shipmentId ? [{ quoteNumber: r.quoteNumber, shipmentId: r.shipmentId }] : []));
   }
 
   /**
@@ -448,7 +461,10 @@ class SalesQuoteRepository {
         .from(quoteTable)
         .where(and(live, isNull(quoteTable.customerId), wasSent)),
     ]);
-    return { customers: customers as CustomerQuoteFactsRow[], quotesWithoutCustomer: Number(value) };
+    return {
+      customers: customers.flatMap((c) => (c.customerId ? [{ ...c, customerId: c.customerId }] : [])),
+      quotesWithoutCustomer: Number(value),
+    };
   }
 
   /**
@@ -464,7 +480,8 @@ class SalesQuoteRepository {
         status: quoteTable.status,
         validUntil: quoteTable.validUntil,
         currency: sql<string>`coalesce(${quoteTable.data}->>'currency', '')`,
-        fx: sql<unknown>`${quoteTable.data}->'fx'`,
+        // A document's fx is the server's alone (lib/quoteFx), so it is StoredFx or absent.
+        fx: sql<StoredFx | null>`${quoteTable.data}->'fx'`,
         rates: sql<unknown>`${quoteTable.data}->'rates'`,
         sellingLines: sql<unknown>`${quoteTable.data}->'sellingLines'`,
       })
@@ -479,7 +496,7 @@ class SalesQuoteRepository {
         ),
       )
       .orderBy(desc(quoteTable.createdAt), desc(quoteTable.id));
-    return rows as CustomerOpenQuoteRow[];
+    return rows.flatMap((r) => (r.customerId && r.status ? [{ ...r, customerId: r.customerId, status: r.status, fx: r.fx ?? null }] : []));
   }
 
   /** The owner texts of the company's sales quotes that nobody compared with the users yet. */
@@ -522,13 +539,15 @@ class SalesQuoteRepository {
           const used = await tx
             .select({ quoteNumber: quoteTable.quoteNumber })
             .from(quoteTable)
-            .where(and(eq(quoteTable.companyId, companyId), like(quoteTable.quoteNumber, `${prefix}%`)));
+            .where(and(eq(quoteTable.companyId, companyId), like(quoteTable.quoteNumber, `${escapeLike(prefix)}%`)));
           const reference = pick(used.map((r) => r.quoteNumber));
-          const [row] = (await tx
+          const inserted = await tx
             .insert(quoteTable)
             .values({ ...build(reference), companyId, quoteNumber: reference })
-            .returning()) as SalesQuoteRecord[];
-          return row!;
+            .returning();
+          const [row] = salesRows(inserted);
+          if (!row) throw new Error(`quote ${reference} was not inserted`);
+          return row;
         });
       } catch (err) {
         if (!isUniqueViolation(err) || retries >= MAX_REFERENCE_RETRIES) throw err;

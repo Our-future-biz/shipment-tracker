@@ -84,8 +84,12 @@ const SHIPMENT_STAGES = [
   "Delivered",
 ];
 
+interface ShipmentStepperProps {
+  shipment: ShipmentItem;
+}
+
 /* ── Stepper component (driven by completed tasks) ── */
-function ShipmentStepper({ shipment }: { shipment: ShipmentItem }) {
+function ShipmentStepper({ shipment }: ShipmentStepperProps) {
   const { byKey } = useShipmentTasks(shipment.id);
   const taskList = getTasksForDirection(shipment.tradeDirection);
   const activeIndex = getActiveStageFromTasks(taskList, (key) => !!byKey.get(key)?.completed);
@@ -142,9 +146,7 @@ function ShipmentStepper({ shipment }: { shipment: ShipmentItem }) {
 
 /* ── Shared UI pieces ── */
 
-function SectionHeader({
-  icon, title, cardId, allFields, shipment, onCommit, styleFor, renderField,
-}: {
+interface SectionHeaderProps {
   icon: React.ReactNode;
   title: string;
   /** Kdyz je zadano, hlavicka dostane "Show all" a tuzku pro vyber poli. */
@@ -156,7 +158,11 @@ function SectionHeader({
   /** Vlastni vykresleni pro pole, ktera nejsou obycejny FieldRow
    *  (Master Job s odkazem, Incoterm, propojeni zakazniku). */
   renderField?: Record<string, React.ReactNode>;
-}) {
+}
+
+function SectionHeader({
+  icon, title, cardId, allFields, shipment, onCommit, styleFor, renderField,
+}: SectionHeaderProps) {
   const [showAll, setShowAll] = useState(false);
   const [picking, setPicking] = useState(false);
   const { visibleKeys, toggleField, resetCard, isCustomised } = useCardFields();
@@ -319,6 +325,15 @@ function SectionHeader({
   );
 }
 
+interface FieldRowProps {
+  label: string;
+  value?: string | null;
+  fieldKey: string;
+  onCommit: CommitFn;
+  styleFor?: StyleFor;
+  labelW?: string;
+}
+
 function FieldRow({
   label,
   value,
@@ -326,14 +341,7 @@ function FieldRow({
   onCommit,
   styleFor,
   labelW = "w-[140px]",
-}: {
-  label: string;
-  value?: string | null;
-  fieldKey: string;
-  onCommit: CommitFn;
-  styleFor?: StyleFor;
-  labelW?: string;
-}) {
+}: FieldRowProps) {
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
@@ -350,6 +358,14 @@ function FieldRow({
   );
 }
 
+interface MemberRowProps {
+  label: string;
+  value?: string | null;
+  fieldKey: string;
+  onCommit: CommitFn;
+  labelW?: string;
+}
+
 // Row whose value is picked from the company's members (same list as the sales person).
 function MemberRow({
   label,
@@ -357,13 +373,7 @@ function MemberRow({
   fieldKey,
   onCommit,
   labelW = "w-[140px]",
-}: {
-  label: string;
-  value?: string | null;
-  fieldKey: string;
-  onCommit: CommitFn;
-  labelW?: string;
-}) {
+}: MemberRowProps) {
   const { users } = useUsers();
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0 items-center">
@@ -388,19 +398,21 @@ function MemberRow({
 // the Commercial Invoices dialog (the same one the Shipments table opens).
 const INVOICE_FIELDS = new Set(["commercialInvoice", "commercialInvoiceValue"]);
 
+interface InvoiceRowProps {
+  label: string;
+  fieldKey: string;
+  shipment: ShipmentItem;
+  styleFor?: StyleFor;
+  labelW?: string;
+}
+
 function InvoiceRow({
   label,
   fieldKey,
   shipment,
   styleFor,
   labelW = "w-[140px]",
-}: {
-  label: string;
-  fieldKey: string;
-  shipment: ShipmentItem;
-  styleFor?: StyleFor;
-  labelW?: string;
-}) {
+}: InvoiceRowProps) {
   const { updateShipment } = useShipments();
   const [open, setOpen] = useState(false);
   const value =
@@ -434,8 +446,14 @@ function InvoiceRow({
   );
 }
 
+interface RoRowProps {
+  label: string;
+  value?: string | null;
+  labelW?: string;
+}
+
 // Read-only horizontal row (label | value), matching FieldRow's look.
-function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: string | null; labelW?: string }) {
+function RoRow({ label, value, labelW = "w-[140px]" }: RoRowProps) {
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
@@ -448,6 +466,11 @@ function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: 
   );
 }
 
+interface FieldColumnsProps {
+  fields: FieldDef[];
+  renderRow: (field: FieldDef) => React.ReactNode;
+}
+
 /**
  * The two-column field grid shared by "Show all" and the field picker, so the
  * two modals lay out identically and only differ in how a row is rendered.
@@ -455,10 +478,7 @@ function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: 
 function FieldColumns({
   fields,
   renderRow,
-}: {
-  fields: FieldDef[];
-  renderRow: (field: FieldDef) => React.ReactNode;
-}) {
+}: FieldColumnsProps) {
   const half = Math.ceil(fields.length / 2);
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 max-h-[65vh] overflow-y-auto pr-1">
@@ -475,19 +495,7 @@ function FieldColumns({
 
 type FieldDef = { key: string; label: string; ro?: boolean };
 
-// A card of horizontal rows, optionally split into two columns.
-export function DetailCard({
-  icon,
-  title,
-  cardId,
-  columns,
-  shipment,
-  onCommit,
-  styleFor,
-  renderBefore,
-  renderAfter,
-  children,
-}: {
+interface DetailCardProps {
   icon: React.ReactNode;
   title: string;
   /** Kdyz je zadano, karta dostane "Show all" a tuzku pro vyber poli. */
@@ -500,7 +508,21 @@ export function DetailCard({
   renderBefore?: Record<string, React.ReactNode>;
   renderAfter?: Record<string, React.ReactNode>;
   children?: React.ReactNode;
-}) {
+}
+
+// A card of horizontal rows, optionally split into two columns.
+export function DetailCard({
+  icon,
+  title,
+  cardId,
+  columns,
+  shipment,
+  onCommit,
+  styleFor,
+  renderBefore,
+  renderAfter,
+  children,
+}: DetailCardProps) {
   const { visibleKeys } = useCardFields();
   const allFields = columns.flat();
   const shown = cardId
@@ -556,9 +578,14 @@ export function makeStyleFor(shipment: ShipmentItem): StyleFor {
   };
 }
 
+interface HouseBolReleaseRowProps {
+  releasedAt: string;
+  onRelease: () => void;
+}
+
 // House BoL release: a one-off action rather than an editable field. Until it is
 // released it shows the button; afterwards it shows who released it and when.
-function HouseBolReleaseRow({ releasedAt, onRelease }: { releasedAt: string; onRelease: () => void }) {
+function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) {
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
@@ -580,16 +607,18 @@ function HouseBolReleaseRow({ releasedAt, onRelease }: { releasedAt: string; onR
 }
 
 
+interface OpeningHoursRowProps {
+  from?: string | null;
+  to?: string | null;
+  onChange: (from: string, to: string) => void;
+}
+
 // Opening hours as a plain time range (from–to), no date, rendered as a card row.
 function OpeningHoursRow({
   from,
   to,
   onChange,
-}: {
-  from?: string | null;
-  to?: string | null;
-  onChange: (from: string, to: string) => void;
-}) {
+}: OpeningHoursRowProps) {
   const parse = (v?: string | null) => {
     if (!v) return null;
     const d = dayjs(`1970-01-01T${v}`);
@@ -728,17 +757,19 @@ const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "approvedBy", label: "Approved by" },
 ];
 
+interface CargoRowProps {
+  field: CargoField;
+  shipment: ShipmentItem;
+  onCommit: CommitFn;
+  styleFor?: StyleFor;
+}
+
 function CargoRow({
   field,
   shipment,
   onCommit,
   styleFor,
-}: {
-  field: CargoField;
-  shipment: ShipmentItem;
-  onCommit: CommitFn;
-  styleFor?: StyleFor;
-}) {
+}: CargoRowProps) {
   if (INVOICE_FIELDS.has(field.key)) {
     return <InvoiceRow label={field.label} fieldKey={field.key} shipment={shipment} styleFor={styleFor} labelW="w-[180px]" />;
   }
@@ -787,15 +818,17 @@ function CargoRow({
   );
 }
 
+interface CargoCommercialCardProps {
+  shipment: ShipmentItem;
+  onCommit: CommitFn;
+  styleFor?: StyleFor;
+}
+
 function CargoCommercialCard({
   shipment,
   onCommit,
   styleFor,
-}: {
-  shipment: ShipmentItem;
-  onCommit: CommitFn;
-  styleFor?: StyleFor;
-}) {
+}: CargoCommercialCardProps) {
   const { visibleKeys } = useCardFields();
   const cargoShown = new Set(
     visibleKeys("cargo", [...CARGO_COMMERCIAL_L, ...CARGO_COMMERCIAL_R].map((f) => f.key)),
@@ -825,8 +858,12 @@ function CargoCommercialCard({
   );
 }
 
+interface RouteLineProps {
+  segments: string[];
+}
+
 /* ── Route dots ── */
-function RouteLine({ segments }: { segments: string[] }) {
+function RouteLine({ segments }: RouteLineProps) {
   if (segments.length === 0) return null;
 
   return (

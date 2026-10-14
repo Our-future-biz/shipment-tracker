@@ -6,6 +6,13 @@ import { useUsers } from "@/hooks/useUsers";
 import type { interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 
+interface OwnerTileProps {
+  quote: interfaces.SalesQuoteItem;
+  // The change is on its way: the control waits for the server's answer.
+  changing: boolean;
+  onChange: (ownerUserId: string | null) => void;
+}
+
 // Who owns the quote: one of the company's users. How far the signed-in user may change that is
 // the server's answer (permissions.canChangeOwner) - a manager reassigns freely, the owner may
 // hand the quote over or give it up, anybody may take a quote that belongs to no user, and a
@@ -15,12 +22,7 @@ export function OwnerTile({
   quote,
   changing,
   onChange,
-}: {
-  quote: interfaces.SalesQuoteItem;
-  // The change is on its way: the control waits for the server's answer.
-  changing: boolean;
-  onChange: (ownerUserId: string | null) => void;
-}) {
+}: OwnerTileProps) {
   const { users } = useUsers();
   const { user } = useAuth();
   const right = quote.permissions.canChangeOwner;

@@ -57,6 +57,13 @@
       "when": 1791733011574,
       "tag": "0007_quote_substatus_clear",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791998904228,
+      "tag": "0008_quote_indexes_and_version_check",
+      "breakpoints": true
     }
   ]
 }

@@ -1,3 +1,4 @@
+import type { StoredFx } from "../lib/quoteFx";
 // Plain interfaces for controllers. Never import Drizzle table types here.
 
 /**
@@ -109,10 +110,16 @@ export interface CustomerOpenQuote {
   validUntil: string | null;
   /** The quote's currency as stored; "" when it stores none. */
   currency: string;
-  /** ČNB rates and ROE % stored when the quote was sent (data.fx), as stored; null for a draft. */
-  fx: unknown;
+  /** ČNB rates and ROE % stored when the quote was sent (data.fx); null for a draft. */
+  fx: StoredFx | null;
   /** Rates older quotes stored from the retired weekly sheet (data.rates), as stored. */
   rates: unknown;
   /** The selling lines (data.sellingLines), as stored. */
   sellingLines: unknown;
 }
+
+/** A status a sales quote can be set to. */
+export type SettableQuoteStatus = "draft" | "ready_to_send" | "quoted" | "feedback" | "revised" | "won" | "lost";
+
+/** A status a sales quote can show: one it can be set to, or Expired (its validity has passed). */
+export type ShownQuoteStatus = SettableQuoteStatus | "expired";

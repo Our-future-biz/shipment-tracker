@@ -43,7 +43,8 @@ import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES } from "../../_lib/
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
 import { cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, stripProtected, type QuoteTotals } from "../../_lib/salesQuote";
-import { NO_CUSTOMER, changesCustomer, customerContactFields, customerLinkFields, withCustomerUnit } from "../../_lib/quoteCustomer";
+import { NO_CUSTOMER, changesCustomer, customerLinkFields, withCustomerUnit } from "../../_lib/quoteCustomer";
+import { useQuoteCustomerFields } from "@/hooks/useQuoteCustomerFields";
 import { useQuoteListHref } from "../../_lib/quoteListHref";
 import { useQuoteOrigin } from "../../_lib/useQuoteOrigin";
 import { printQuote } from "../../_lib/printQuote";
@@ -107,7 +108,7 @@ export function QuoteWorkflow() {
   // Loading, autosave and everything about not losing or overwriting data live in the hook.
   // `draft` is the document being edited; `quote` is the quote as the server last returned it,
   // with everything the server owns - status, validity, owner - and what may be done with them.
-  const { draft, quote, change, act, load, reload, discard, save, saveNow } = useSalesQuoteDraft(ref);
+  const { draft, quote, change, act, load, reload, discard, save, saveNow, pending, reapply, dismissPending } = useSalesQuoteDraft(ref);
   const { deleteQuote } = useSalesQuotes();
   const exchange = useCurrentExchangeRates();
   const company = useCompanyDetails();
@@ -131,6 +132,7 @@ export function QuoteWorkflow() {
   const [templateAsked, setTemplateAsked] = useState<string | null>(null);
   // The customer picked last in the Customer box, while its contact person is still being read.
   const pickedCustomer = useRef<string | null>(null);
+  const { customerContactFields } = useQuoteCustomerFields();
   // The steps that are unfolded. Each folds on its own; a new quote starts at the first.
   // The step of the form that is on screen; the others wait behind their tiles.
   const [activeSection, setActiveSection] = useState<SectionKey>("customer");
@@ -276,7 +278,8 @@ export function QuoteWorkflow() {
   const totals = useMemo(() => computeTotals(draft, exchange.rates, exchange), [draft, exchange]);
   // ČNB's fixing for today should be stored but isn't (the import failed): today's rates are stale.
   const liveRatesMissing = !draft.fx && exchange.missing;
-  const updateLines = (kind: "buyingLines" | "sellingLines", lines: CostLine[]) => set({ [kind]: lines } as Partial<SalesQuoteData>);
+  const updateLines = (kind: "buyingLines" | "sellingLines", lines: CostLine[]) =>
+    set(kind === "buyingLines" ? { buyingLines: lines } : { sellingLines: lines });
 
   // The customer's document goes out only with a complete total; until then the reason is shown.
   const documentBlocked = documentBlock(totals, exchange.isError);
@@ -325,7 +328,7 @@ export function QuoteWorkflow() {
             <SignInLink /> again in a new tab, then{" "}
           </>
         )}
-        <Button size="small" onClick={reload}>
+        <Button size="small" onClick={() => reload()}>
           Retry
         </Button>
       </div>
@@ -921,7 +924,27 @@ export function QuoteWorkflow() {
 
         {save.problem && (
           <div className="mt-3">
-            <SaveProblemBanner problem={save.problem} onRetry={handleSave} onLoadLatest={reload} />
+            <SaveProblemBanner problem={save.problem} onRetry={handleSave} onLoadLatest={() => reload({ keepChanges: true })} />
+          </div>
+        )}
+        {pending && !save.problem && (
+          <div className="mt-3">
+            <Alert
+              type="warning"
+              showIcon
+              message="The latest version is loaded - your earlier changes are kept aside"
+              description={`Changed fields: ${Object.keys(pending).join(", ")}. Re-apply them on top of this version, or discard them.`}
+              action={
+                <span className="flex gap-2">
+                  <Button size="small" type="primary" onClick={reapply}>
+                    Re-apply my changes
+                  </Button>
+                  <Button size="small" onClick={dismissPending}>
+                    Discard
+                  </Button>
+                </span>
+              }
+            />
           </div>
         )}
 
@@ -1000,6 +1023,7 @@ export function QuoteWorkflow() {
         quoteNumber={ref}
         data={draft}
         validUntil={quote.validUntil}
+        allowedTransitions={quote.allowedTransitions}
         onExportPdf={exportPdf}
         onMarkSent={markSent}
         onClose={() => setModal(null)}
@@ -1038,6 +1062,13 @@ export function QuoteWorkflow() {
   );
 }
 
+interface CustomerSelectProps {
+  linked: { id: string; name: string } | null;
+  unlinkedName?: string;
+  onPick: (customer: CustomerItem) => void;
+  onClear: () => void;
+}
+
 // The Customer box of a quote. It picks one customer out of the whole Customer Database: the
 // server looks for what is typed - in the name, ICO, DIC and city - so no list is downloaded
 // before anything is typed and no customer is out of reach, however many there are. The box
@@ -1049,12 +1080,7 @@ function CustomerSelect({
   unlinkedName,
   onPick,
   onClear,
-}: {
-  linked: { id: string; name: string } | null;
-  unlinkedName?: string;
-  onPick: (customer: CustomerItem) => void;
-  onClear: () => void;
-}) {
+}: CustomerSelectProps) {
   const [typed, setTyped] = useState("");
   const wanted = typed.trim();
   // The request waits until typing pauses.
@@ -1127,9 +1153,15 @@ function SignInLink() {
   );
 }
 
-// Shown for as long as the server has not accepted the changes on screen. Nothing here discards
-// the draft except "Load latest version", and that one says so.
-function SaveProblemBanner({ problem, onRetry, onLoadLatest }: { problem: QuoteProblem; onRetry: () => void; onLoadLatest: () => void }) {
+// Shown for as long as the server has not accepted the changes on screen. "Load latest version"
+// keeps the user's changes aside, to re-apply on top of the latest version.
+interface SaveProblemBannerProps {
+  problem: QuoteProblem;
+  onRetry: () => void;
+  onLoadLatest: () => void;
+}
+
+function SaveProblemBanner({ problem, onRetry, onLoadLatest }: SaveProblemBannerProps) {
   const retry = (
     <Button size="small" onClick={onRetry}>
       Retry
@@ -1141,7 +1173,7 @@ function SaveProblemBanner({ problem, onRetry, onLoadLatest }: { problem: QuoteP
         type="error"
         showIcon
         message="This quote was changed by someone else or in another tab"
-        description="Your changes on this page were not saved, and nothing more is saved from here. Copy what you still need, then load the latest version - that discards your changes."
+        description="Your changes on this page were not saved, and nothing more is saved from here. Load the latest version: your changes are kept aside and you can re-apply them on top of it."
         action={
           <Button size="small" danger onClick={onLoadLatest}>
             Load latest version

@@ -9,6 +9,7 @@ import { useFxRatesToday } from "@/hooks/useFx";
  * server); this is "today's" picture.
  */
 
+/** CZK per 1 unit of a currency; CZK itself is 1, a currency without a rate is absent (never 1). */
 export type Rates = Record<string, number>;
 
 /** Converts between currencies through CZK; null when either side has no rate. */

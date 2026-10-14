@@ -23,11 +23,16 @@ const COST_CATEGORIES = [
   "Storage", "Demurrage", "Other",
 ];
 
+interface CurrencyPickerProps {
+  value: string;
+  onChange: (v: string) => void;
+}
+
 /**
  * Currency picker, searching by code and name. The currency can be switched even on a
  * locked row: it is a frequent change, not worth unlocking the row with a double-click.
  */
-function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function CurrencyPicker({ value, onChange }: CurrencyPickerProps) {
   return (
     <Select
       value={value || undefined}
@@ -91,14 +96,16 @@ const TH =
   "text-[11.5px] font-bold tracking-[.04em] uppercase text-slate-500 px-[6px] py-2 " +
   "border-b border-slate-200 whitespace-nowrap";
 
-function SectionCard({
-  title, tone, actions, children,
-}: {
+interface SectionCardProps {
   title: string;
   tone: "buy" | "sell";
   actions?: React.ReactNode;
   children: React.ReactNode;
-}) {
+}
+
+function SectionCard({
+  title, tone, actions, children,
+}: SectionCardProps) {
   const bg = {
     buy: "bg-accent-faint text-accent-strong",
     sell: "bg-ok-soft text-ok",
@@ -114,17 +121,19 @@ function SectionCard({
   );
 }
 
-/** small button in a card header (26px high) */
-function HeadBtn({
-  onClick, disabled, title, ariaLabel, children,
-}: {
+interface HeadBtnProps {
   onClick: () => void;
   disabled?: boolean;
   title?: string;
   /** Required when the button renders only an icon. */
   ariaLabel?: string;
   children: React.ReactNode;
-}) {
+}
+
+/** small button in a card header (26px high) */
+function HeadBtn({
+  onClick, disabled, title, ariaLabel, children,
+}: HeadBtnProps) {
   return (
     <button
       onClick={onClick}
@@ -140,7 +149,11 @@ function HeadBtn({
   );
 }
 
-export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
+interface CostsTabProps {
+  shipment: ShipmentItem;
+}
+
+export function CostsTab({ shipment }: CostsTabProps) {
   const queryClient = useQueryClient();
   // Toasts go through the App context: antd's static `message` shows nothing under React 19.
   const { message } = App.useApp();

@@ -16,9 +16,14 @@ export function MiniButton({ icon, children, ...button }: PlainButtonProps) {
   );
 }
 
+interface RemoveLineButtonProps {
+  label: string;
+  onClick: () => void;
+}
+
 // Takes one line out of a block - a package, a cost line. `label` says which one, for those who
 // do not see the row the bin stands in.
-export function RemoveLineButton({ label, onClick }: { label: string; onClick: () => void }) {
+export function RemoveLineButton({ label, onClick }: RemoveLineButtonProps) {
   return (
     <button
       type="button"

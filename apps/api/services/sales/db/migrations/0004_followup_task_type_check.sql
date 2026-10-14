@@ -1,0 +1,1 @@
+ALTER TABLE "followup_task" ADD CONSTRAINT "followup_task_type_check" CHECK ("followup_task"."type" IN ('Call', 'Email', 'Visit'));

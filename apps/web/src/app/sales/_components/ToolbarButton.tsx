@@ -18,10 +18,14 @@ export function toolbarButtonClass(variant: ToolbarButtonVariant = "secondary", 
 // The shape is the button's own: a class from outside would replace it, so none is taken.
 export type PlainButtonProps = { icon?: ReactNode } & Omit<ComponentProps<"button">, "className">;
 
+interface ToolbarButtonProps {
+  variant?: ToolbarButtonVariant;
+}
+
 // An action in that toolbar shape, wherever Sales has one: in the toolbar of a list, in the
 // header of a quote, at the end of a section or of a column. One primary per row at most;
 // "danger" is for Delete.
-export function ToolbarButton({ variant, icon, children, ...button }: { variant?: ToolbarButtonVariant } & PlainButtonProps) {
+export function ToolbarButton({ variant, icon, children, ...button }: ToolbarButtonProps & PlainButtonProps) {
   return (
     <button type="button" {...button} className={toolbarButtonClass(variant)}>
       {icon}

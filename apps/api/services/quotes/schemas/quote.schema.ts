@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, jsonb, uuid, timestamp, date, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, uuid, timestamp, date, integer, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const quoteTable = pgTable(
@@ -49,11 +49,18 @@ export const quoteTable = pgTable(
     // soft-delete (a reference is never reused), so this is a plain unique on (company, ref).
     uniqueIndex("quote_company_number_unique").on(table.companyId, table.quoteNumber),
     index("quote_company_status_idx").on(table.companyId, table.status),
-    index("quote_customer_id_idx").on(table.customerId),
-    index("quote_owner_user_id_idx").on(table.ownerUserId),
+    // Every read is per company: the company leads.
+    index("quote_company_customer_id_idx").on(table.companyId, table.customerId),
+    index("quote_company_owner_user_id_idx").on(table.companyId, table.ownerUserId),
+    // The quotes a shipment is linked to (shipmentLinks).
+    index("quote_company_linked_idx").on(table.companyId).where(sql`shipment_id IS NOT NULL`),
+    // References that start with a prefix (createWithReference, a family): LIKE 'prefix%' can use
+    // a btree only with pattern ops under a non-C collation.
+    index("quote_company_number_pattern_idx").on(table.companyId, table.quoteNumber.op("text_pattern_ops")),
     // Holds exactly the sales quotes whose columns are not filled yet, so "is anything waiting
     // to be adopted" is an index probe that normally finds nothing. quote_adopt_lifecycle
     // repeats this predicate word for word.
+    check("quote_data_version_check", sql`${table.dataVersion} >= 1`),
     index("quote_unadopted_idx")
       .on(table.companyId)
       .where(sql`status IS NULL AND jsonb_typeof(data->'quoteStatus') = 'string' AND btrim(data->>'quoteStatus') <> ''`),

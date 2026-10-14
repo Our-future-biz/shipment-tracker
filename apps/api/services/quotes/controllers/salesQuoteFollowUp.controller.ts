@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { salesQuoteService } from "../services/salesQuote.service";
 import type { SalesQuoteItem } from "../interfaces/interfaces";
@@ -6,7 +7,7 @@ import type { SalesQuoteItem } from "../interfaces/interfaces";
 interface SalesQuoteFollowUpRequest {
   quoteNumber: string;
   /** What was said or agreed, for the quote's history; at most 2000 characters. */
-  note?: string;
+  note?: string & MaxLen<8000>;
 }
 
 interface SalesQuoteFollowUpResponse {

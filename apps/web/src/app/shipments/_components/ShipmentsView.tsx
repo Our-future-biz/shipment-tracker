@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useShipments } from "@/hooks/useShipments";
@@ -29,10 +29,10 @@ export const ShipmentsView = () => {
   const [masterJobOpen, setMasterJobOpen] = useState(false);
   // Shipments ticked in the table when "Add to Master Job" was pressed.
   const [masterJobPreselected, setMasterJobPreselected] = useState<string[]>([]);
-  // An address that names a quote opens New Shipment for that quote.
-  useEffect(() => {
-    if (fromQuote) setCreateOpen(true);
-  }, [fromQuote]);
+  // An address that names a quote opens New Shipment for that quote, until the wizard is closed
+  // (the address is left then, but that navigation takes a moment).
+  const [dismissedQuote, setDismissedQuote] = useState<string | null>(null);
+  const wizardOpen = createOpen || (!!fromQuote && dismissedQuote !== fromQuote);
 
   // An address that names a quote is left once the wizard is closed: coming back to it, or
   // reloading it, must not open the wizard again. That is done by the one navigation there is:
@@ -40,6 +40,7 @@ export const ShipmentsView = () => {
   // the address followed by a push would leave it as it was.
   const closeCreate = (openShipmentId?: string) => {
     setCreateOpen(false);
+    setDismissedQuote(fromQuote);
     if (openShipmentId) {
       const href = `/shipments/${openShipmentId}`;
       // In place of the entry that names the quote: Back from the shipment leads to where the
@@ -85,7 +86,7 @@ export const ShipmentsView = () => {
       />
 
       <CreateShipmentWizard
-        open={createOpen}
+        open={wizardOpen}
         onClose={closeCreate}
         createShipment={createShipment}
         isCreating={isCreating}

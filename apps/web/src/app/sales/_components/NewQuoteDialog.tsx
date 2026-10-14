@@ -7,6 +7,7 @@ import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { useToast } from "@/lib/toast";
 import { quoteHref, type QuoteOrigin } from "../_lib/quoteHref";
 import type { SalesQuoteData } from "../_lib/types";
+import { apiErrorMessage } from "@/lib/api";
 
 interface NewQuoteDialogProps {
   open: boolean;
@@ -34,8 +35,8 @@ export function NewQuoteDialog({ open, onClose, start, origin }: NewQuoteDialogP
       const ref = await createQuote(start ? await start() : {});
       onClose();
       router.push(quoteHref(ref, origin));
-    } catch {
-      toast.error("Failed to create quote");
+    } catch (err) {
+      toast.error(`Failed to create quote - ${apiErrorMessage(err)}`);
     } finally {
       setCreating(false);
     }

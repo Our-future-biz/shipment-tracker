@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // repository's statements do to stored rows is not checked here.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
-vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() }, fx: { fxRatesOn: vi.fn() } }));
+vi.mock("~encore/clients", () => ({
+  auth: { usersList: vi.fn() },
+  fx: { fxRatesOn: vi.fn() },
+  shipments: { _internalShipmentsNamingQuote: vi.fn() },
+}));
 vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmentRepository: { deleteForQuote: vi.fn() } }));
 vi.mock("../../repositories/salesQuote.repository", () => ({
   salesQuoteRepository: {
@@ -27,7 +31,7 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
 }));
 
 import log from "encore.dev/log";
-import { auth, fx } from "~encore/clients";
+import { auth, fx, shipments } from "~encore/clients";
 import type { Actor } from "../../../../lib/rbac";
 import { quoteAttachmentRepository } from "../../repositories/quoteAttachment.repository";
 import { salesQuoteRepository, type LifecycleWrite, type QuoteTransaction } from "../../repositories/salesQuote.repository";
@@ -40,6 +44,7 @@ const repository = vi.mocked(salesQuoteRepository);
 const attachments = vi.mocked(quoteAttachmentRepository);
 const usersList = vi.mocked(auth.usersList);
 const fxRatesOn = vi.mocked(fx.fxRatesOn);
+const namingShipments = vi.mocked(shipments._internalShipmentsNamingQuote);
 
 // 10 October 2026, noon in Prague.
 const NOW = new Date("2026-10-10T10:00:00.000Z");
@@ -116,6 +121,10 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
+  // Sending a quote reads today's ČNB rates first (outside the lock); a quiet default for the tests
+  // that are not about them.
+  fxRatesOn.mockResolvedValue({ date: "2026-10-10", fixingDate: "2026-10-09", provisional: false, missing: false, roePct: 100, rates: [] } as never);
+  namingShipments.mockResolvedValue({ shipments: [] });
 
   const companyID = randomUUID();
   manager = { userID: U_MANAGER, companyID, role: "manager" };
@@ -541,11 +550,24 @@ describe("transition", () => {
       });
     });
 
-    it("keeps the rates a sent quote stores, and asks ČNB for none", async () => {
+    it("keeps the rates a sent quote stores", async () => {
       stored = quote({ status: "quoted", data: { reference: REF, quoteStatus: "quoted", fx: STORED_FX } });
       await salesQuoteService.transition(martin, REF, { to: "won" });
       expect(written().document).toBeUndefined();
-      expect(fxRatesOn).not.toHaveBeenCalled();
+    });
+
+    it("reads today's rates before locking the quote", async () => {
+      const order: string[] = [];
+      fxRatesOn.mockImplementation(async () => {
+        order.push("rates");
+        return TODAY_FX as never;
+      });
+      repository.withLockedQuote.mockImplementationOnce(async (_companyId, _quoteNumber, change) => {
+        order.push("lock");
+        return change(stored!, TX);
+      });
+      await salesQuoteService.transition(martin, REF, { to: "quoted", validityDays: 15 });
+      expect(order).toEqual(["rates", "lock"]);
     });
 
     it("drops the rates of a quote that is revised", async () => {
@@ -677,9 +699,38 @@ describe("syncShipments", () => {
     quote({ status: "quoted", sentAt: SENT, firstSentAt: SENT, lastContactAt: SENT, validUntil: "2026-10-25", ...over });
   const linkedLine = (shipment: typeof FIRST) => ({ kind: "shipment", action: "linked", shipmentId: shipment.id, jobNumber: shipment.jobNumber });
 
+  const TODAY_FX = { date: "2026-10-10", fixingDate: "2026-10-09", provisional: false, missing: false, roePct: 102, rates: [{ currency: "EUR", rate: 24.375 }] };
+
   beforeEach(() => {
     // Only REF is a live sales quote.
     repository.withLockedQuote.mockImplementation(async (_companyId, quoteNumber, change) => (stored && quoteNumber === REF ? change(stored, TX) : null));
+    fxRatesOn.mockResolvedValue(TODAY_FX as never);
+  });
+
+  it("stamps today's ČNB rates on a quote that becomes Won from a shipment, read before the lock", async () => {
+    let lockedWhenRead: boolean | undefined;
+    let locked = false;
+    fxRatesOn.mockImplementation(async () => {
+      lockedWhenRead = locked;
+      return TODAY_FX as never;
+    });
+    repository.withLockedQuote.mockImplementation(async (_companyId, quoteNumber, change) => {
+      locked = true;
+      try {
+        return stored && quoteNumber === REF ? await change(stored, TX) : null;
+      } finally {
+        locked = false;
+      }
+    });
+    await salesQuoteService.syncShipments(martin, [{ quoteNumber: REF, shipments: [FIRST], wonByShipmentId: FIRST.id }]);
+    expect(written().document).toEqual({ fx: { date: "2026-10-10", fixingDate: "2026-10-09", roePct: 102, rates: { EUR: 24.375 }, lockedAt: NOW.toISOString() } });
+    expect(lockedWhenRead).toBe(false);
+  });
+
+  it("asks ČNB for nothing when no shipment was created from a quote", async () => {
+    stored = quoted();
+    await salesQuoteService.syncShipments(martin, [{ quoteNumber: REF, shipments: [FIRST] }]);
+    expect(fxRatesOn).not.toHaveBeenCalled();
   });
 
   it("links the quote to the oldest shipment that names it, under the lock, with a history line for each", async () => {
@@ -962,6 +1013,13 @@ describe("setOwner", () => {
 });
 
 describe("delete", () => {
+  it("refuses while a live shipment still names the quote, even when the quote's own link is empty", async () => {
+    namingShipments.mockResolvedValue({ shipments: [{ id: "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01", jobNumber: "CZ00000101" }] });
+    await expect(salesQuoteService.delete(manager, REF)).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(repository.withLockedQuote).not.toHaveBeenCalled();
+    expect(namingShipments).toHaveBeenCalledWith({ reference: REF });
+  });
+
   const managersOnly = { code: "permission_denied", message: "only a manager can delete this quote" };
   const SHIPMENT = { shipmentId: "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01", shipmentJobNumber: "CZ00000101" };
   const linked = {

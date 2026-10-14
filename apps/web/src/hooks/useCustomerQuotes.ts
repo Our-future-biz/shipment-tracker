@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { fetchAllPages } from "@/lib/fetchAllPages";
 import { newestFirst, toSalesQuote, type SalesQuote } from "@/app/sales/_lib/salesQuote";
+import { customerQuotesKeys } from "@/hooks/salesQueryKeys";
 
 // One shared empty list, so consumers memoising on `quotes` do not recompute while loading.
 const NO_QUOTES: SalesQuote[] = [];
@@ -18,7 +19,7 @@ async function fetchCustomerQuotes(customerId: string): Promise<SalesQuote[]> {
 
 export const useCustomerQuotes = (customerId: string) => {
   const query = useQuery({
-    queryKey: ["customer-quotes", customerId],
+    queryKey: customerQuotesKeys.of(customerId),
     queryFn: () => fetchCustomerQuotes(customerId),
     enabled: !!customerId,
   });

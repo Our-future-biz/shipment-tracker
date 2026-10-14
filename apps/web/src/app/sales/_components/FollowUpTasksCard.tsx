@@ -89,12 +89,12 @@ export function FollowUpTasksCard() {
   const overdueCount = isError ? 0 : tasks.filter((task) => task.overdue).length;
 
   // Another list starts from its first page. The pills only hand back one of the keys they were given.
-  const showAssignee = (key: string) => {
-    setAssignee(key as TaskAssignee);
+  const showAssignee = (key: TaskAssignee) => {
+    setAssignee(key);
     setPage(1);
   };
-  const showState = (key: string) => {
-    setState(key as TaskState);
+  const showState = (key: TaskState) => {
+    setState(key);
     setPage(1);
   };
 

@@ -2,6 +2,13 @@
 
 import { Button } from "antd";
 
+interface ManagersOnlyNoteProps {
+  status: "loading" | "ready" | "error";
+  allowed: boolean;
+  onRetry: () => void;
+  className?: string;
+}
+
 // The line a shared setting of Sales carries for whoever may not change it (useSalesPermissions).
 // Nothing while the server's answer is on its way, or allows the change. When the answer could
 // not be had the setting is locked just the same, and the line says that instead: "only
@@ -11,12 +18,7 @@ export function ManagersOnlyNote({
   allowed,
   onRetry,
   className = "",
-}: {
-  status: "loading" | "ready" | "error";
-  allowed: boolean;
-  onRetry: () => void;
-  className?: string;
-}) {
+}: ManagersOnlyNoteProps) {
   if (status === "loading" || allowed) return null;
   if (status === "error") {
     return (

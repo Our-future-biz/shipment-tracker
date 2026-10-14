@@ -13,8 +13,7 @@ interface ShipmentCustomerFactsResponse {
 /**
  * Internal API of the sales service: what the shipments of the caller's company say about its
  * customers. Customers and quotes live in other databases, so the sales service joins this with
- * their facts into the customer pipeline; nothing of the pipeline is stored. A controller of its
- * own on purpose: the list of shipments reconciles quote links before it answers.
+ * their facts into the customer pipeline; nothing of the pipeline is stored.
  */
 export const _internalShipmentCustomerFacts = api(
   { expose: false, auth: true, method: "GET", path: "/internal/shipments/customer-facts" },

@@ -2,12 +2,12 @@
 
 import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { controllers } from "@/lib/api/client";
 import { fetchAllPages, type LoadProgress } from "@/lib/fetchAllPages";
 import { toSalesQuote, type SalesQuote } from "@/app/sales/_lib/salesQuote";
+import { salesQuoteKeys, type SalesQuoteFilter } from "@/hooks/salesQueryKeys";
 
 /** Which sales quotes: the filters of the list, without the part and the order a page is asked by. */
-export type SalesQuoteFilter = Omit<controllers.SalesQuoteListRequest, "limit" | "offset" | "afterId" | "sortBy" | "sortDirection">;
+export type { SalesQuoteFilter };
 
 const EVERY_QUOTE: SalesQuoteFilter = {};
 
@@ -23,10 +23,10 @@ export const useAllSalesQuotes = (filter: SalesQuoteFilter = EVERY_QUOTE, { enab
   const queryClient = useQueryClient();
   // Kept beside the quotes rather than in the screen that started the load: the load goes on
   // when that screen is left, and the next one asking for the same quotes joins it.
-  const progressKey = ["sales-quotes-progress", filter];
+  const progressKey = salesQuoteKeys.progress(filter);
 
   const query = useQuery({
-    queryKey: ["sales-quotes", "all", filter],
+    queryKey: salesQuoteKeys.all(filter),
     queryFn: async () => {
       // What an earlier load wrote down says nothing about this one.
       queryClient.setQueryData(progressKey, null);

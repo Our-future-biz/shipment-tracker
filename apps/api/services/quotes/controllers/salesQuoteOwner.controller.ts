@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { salesQuoteService } from "../services/salesQuote.service";
 import type { SalesQuoteItem } from "../interfaces/interfaces";
@@ -6,7 +7,7 @@ import type { SalesQuoteItem } from "../interfaces/interfaces";
 interface SalesQuoteOwnerRequest {
   quoteNumber: string;
   /** The id of the user who owns the quote from now on - one of the company's users - or null for nobody. */
-  ownerUserId: string | null;
+  ownerUserId: (string & MaxLen<36>) | null;
 }
 
 interface SalesQuoteOwnerResponse {

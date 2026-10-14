@@ -75,8 +75,12 @@ export function SectionCard({ title, extra, children, bodyClassName = "p-4", fol
   );
 }
 
+interface CountChipProps {
+  count: ReactNode;
+}
+
 // The count beside a card title, in the card's `extra`: how many rows the card holds ("12", "6 open").
-export function CountChip({ count }: { count: ReactNode }) {
+export function CountChip({ count }: CountChipProps) {
   return (
     <span className="rounded-full bg-white border border-indigo-100 px-2 py-0.5 text-xs font-semibold text-indigo-600 tabular-nums">
       {count}
@@ -84,16 +88,14 @@ export function CountChip({ count }: { count: ReactNode }) {
   );
 }
 
-// Row of pill-shaped sub-tabs.
-export function PillTabs({
-  tabs,
-  active,
-  onChange,
-}: {
-  tabs: { key: string; label: string }[];
-  active: string;
-  onChange: (key: string) => void;
-}) {
+interface PillTabsProps<K extends string> {
+  tabs: readonly { key: K; label: string }[];
+  active: K;
+  onChange: (key: K) => void;
+}
+
+// Row of pill-shaped sub-tabs. The key type follows the tabs, so a handler gets the exact key.
+export function PillTabs<K extends string>({ tabs, active, onChange }: PillTabsProps<K>) {
   return (
     <div className="flex items-center gap-2 flex-wrap">
       {tabs.map((t) => {

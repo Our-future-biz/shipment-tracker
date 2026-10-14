@@ -2,14 +2,17 @@
 // and the screens only ever see their answers as flags on what they load. Pure, so the whole
 // policy is covered by a unit test - and changing it means changing this file.
 
+import type { Role } from "./rbac";
+
 /**
  * Roles that manage Sales: they may reassign and delete any quote and change the settings all of
  * Sales shares. A user of any other role is a plain user.
  */
-export const SALES_MANAGE_ROLES: readonly string[] = ["superadmin", "admin", "manager"];
+export const SALES_MANAGE_ROLES: readonly Role[] = ["superadmin", "admin", "manager"];
 
+/** `role` as the login carries it: a Role, or a text this code does not know (never a manager). */
 export function canManageSales(role: string): boolean {
-  return SALES_MANAGE_ROLES.includes(role);
+  return (SALES_MANAGE_ROLES as readonly string[]).includes(role);
 }
 
 /**

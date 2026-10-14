@@ -41,11 +41,16 @@ const MIN_SEARCH_LENGTH = 2;
 // How many customers the field offers at a time.
 const CUSTOMER_LIMIT = 20;
 
+interface CustomerFieldProps {
+  value: TaskCustomer;
+  onChange: (customer: TaskCustomer) => void;
+}
+
 // The company of a task, typed. The server looks what is typed up in the Customer Database (name,
 // IČO, DIČ, city); picking one of the customers it finds links the task to that customer. A name
 // that is only typed stays text - a company that is not a customer yet can have a task too - and
 // typing over a picked customer unlinks it, so the link never names another company than the text.
-function CustomerField({ value, onChange }: { value: TaskCustomer; onChange: (customer: TaskCustomer) => void }) {
+function CustomerField({ value, onChange }: CustomerFieldProps) {
   const wanted = value.label.trim();
   // The request waits until typing pauses. A picked customer is not looked up again.
   const search = useDebounced(value.label, 300).trim();
@@ -94,6 +99,12 @@ function CustomerField({ value, onChange }: { value: TaskCustomer; onChange: (cu
   );
 }
 
+interface FollowUpTaskDialogProps {
+  task: FollowupTask | null;
+  onSave: (fields: TaskFields) => Promise<string | null>;
+  onClose: () => void;
+}
+
 // The dialog a follow-up task is added and edited in: `task` is the one being edited, null for a
 // new one, which starts assigned to whoever is signed in. `onSave` asks the server and resolves
 // with why it refused - a sentence that finishes "Task not saved - …" - or with null once the task
@@ -103,11 +114,7 @@ export function FollowUpTaskDialog({
   task,
   onSave,
   onClose,
-}: {
-  task: FollowupTask | null;
-  onSave: (fields: TaskFields) => Promise<string | null>;
-  onClose: () => void;
-}) {
+}: FollowUpTaskDialogProps) {
   const { user } = useAuth();
   const { users } = useUsers();
   const [type, setType] = useState<TaskType>(TASK_TYPES.find((known) => known === task?.type) ?? "Call");

@@ -8,14 +8,14 @@ import { EMPTY_CELL } from "@/components/EmptyCell";
 import { KpiTile } from "@/components/KpiTile";
 import type { interfaces } from "@/lib/api/client";
 import { formatDate } from "@/lib/date";
-import type { SettableQuoteStatus } from "../../../_lib/types";
+import type { QuoteStatus, SettableQuoteStatus } from "../../../_lib/types";
 import {
   QUOTE_STATUS_MAP,
   SETTABLE_QUOTE_STATUSES,
   OPEN_QUOTE_STATUSES,
   LOST_REASONS,
   VALIDITY_OPTIONS,
-  winProbColor,
+  winProbClass,
 } from "../../../_lib/types";
 import { asData, businessToday, statusLines, validUntilAfter } from "../../../_lib/salesQuote";
 import type { StatusChange } from "../../../_lib/statusChange";
@@ -39,7 +39,7 @@ interface Props {
 }
 
 // The main forward flow shown as a chain of steps.
-const FLOW = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won"];
+const FLOW: readonly QuoteStatus[] = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won"];
 
 // What "valid N days" starts at for a quote that was never sent with days.
 const DEFAULT_VALIDITY_DAYS = 15;
@@ -154,8 +154,8 @@ export function LifecycleBar({ quote, onChange, changingOwner, onChangeOwner }: 
         {current === "lost" || expired ? (
           // A quote that left the chain: one line says where it is and, for Expired, the ways out.
           <div className="flex-[1_1_560px] min-w-0 flex items-center gap-2 text-[13px]">
-            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: def?.color.text }} />
-            <span className="shrink-0 font-medium" style={{ color: def?.color.text }}>
+            <span className={`w-2 h-2 rounded-full shrink-0 ${def?.tone.dot ?? ""}`} />
+            <span className={`shrink-0 font-medium ${def?.tone.text ?? ""}`}>
               {def?.label}
             </span>
             {expired ? (
@@ -226,7 +226,7 @@ export function LifecycleBar({ quote, onChange, changingOwner, onChangeOwner }: 
                 aria-valuemax={100}
                 className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden"
               >
-                <div className="h-full rounded-full transition-all" style={{ width: `${winProb}%`, backgroundColor: winProbColor(winProb) }} />
+                <div className={`h-full rounded-full transition-all ${winProbClass(winProb)}`} style={{ width: `${winProb}%` }} />
               </div>
             </div>
           }

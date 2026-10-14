@@ -7,6 +7,12 @@ import { SalesDialog } from "./SalesDialog";
 // The longest note the server takes (MAX_FOLLOW_UP_NOTE in the API's quoteLifecycle.utils.ts).
 const MAX_NOTE_LENGTH = 2000;
 
+interface FollowUpDialogProps {
+  quoteNumber: string;
+  onRecord: (note?: string) => Promise<string | null>;
+  onClose: () => void;
+}
+
 // What "Followed up" opens: the user's word that the customer was contacted about a quote, with a
 // note for the quote's history if they want to leave one. The follow-up flag then stays off for
 // three days. `onRecord` asks the server for it and resolves with why it was refused - a sentence
@@ -18,11 +24,7 @@ export function FollowUpDialog({
   quoteNumber,
   onRecord,
   onClose,
-}: {
-  quoteNumber: string;
-  onRecord: (note?: string) => Promise<string | null>;
-  onClose: () => void;
-}) {
+}: FollowUpDialogProps) {
   const [note, setNote] = useState("");
   // The request is on its way: the dialog waits for the server's answer.
   const [recording, setRecording] = useState(false);

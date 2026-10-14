@@ -16,14 +16,7 @@ import { hasCompanyDetails } from "@/app/sales/_lib/companyDetails";
 import { printQuote, quoteDocument } from "@/app/sales/_lib/printQuote";
 import { salesSettingsHref } from "@/app/sales/_lib/tabs";
 
-export function PdfPreviewModal({
-  open,
-  quoteNumber,
-  data,
-  family,
-  familyError,
-  onClose,
-}: {
+interface PdfPreviewModalProps {
   open: boolean;
   quoteNumber: string;
   data: SalesQuoteData;
@@ -34,7 +27,16 @@ export function PdfPreviewModal({
   // without their tabs it would look like that of a quote without variants.
   familyError?: { onRetry: () => void };
   onClose: () => void;
-}) {
+}
+
+export function PdfPreviewModal({
+  open,
+  quoteNumber,
+  data,
+  family,
+  familyError,
+  onClose,
+}: PdfPreviewModalProps) {
   const exchange = useCurrentExchangeRates();
   const company = useCompanyDetails();
   const permissions = useSalesPermissions();

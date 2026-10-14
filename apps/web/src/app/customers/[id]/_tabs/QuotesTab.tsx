@@ -15,7 +15,7 @@ import { QuoteRefLink } from "@/app/sales/_components/QuoteRefLink";
 import { QuoteRoute } from "@/app/sales/_components/QuoteRoute";
 import { QuoteSelling } from "@/app/sales/_components/QuoteSelling";
 import { QuoteStatusPill } from "@/app/sales/_components/QuoteStatusPill";
-import { customerQuoteFields } from "@/app/sales/_lib/quoteCustomer";
+import { useQuoteCustomerFields } from "@/hooks/useQuoteCustomerFields";
 import { quoteHref, type QuoteOrigin } from "@/app/sales/_lib/quoteHref";
 import { computeTotals } from "@/app/sales/_lib/salesQuote";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
@@ -41,6 +41,7 @@ const FILTER_TABS = [
 export function QuotesTab({ customerId }: QuotesTabProps) {
   const router = useRouter();
   const { customer } = useCustomer(customerId);
+  const { customerQuoteFields } = useQuoteCustomerFields();
   const { quotes: rows, isLoading, isError } = useCustomerQuotes(customerId);
   // A quote opened or created here knows it, so its back link returns to this customer.
   const origin: QuoteOrigin = { from: "customer", customerId };

@@ -3,23 +3,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { App } from "antd";
 import { useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, clientForBody } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import { PROTECTED_KEYS } from "@/app/sales/_lib/types";
-import { asData, stripProtected } from "@/app/sales/_lib/salesQuote";
+import { asData, stripProtected, unsavedChanges } from "@/app/sales/_lib/salesQuote";
 import { quoteProblem, type QuoteProblem } from "@/app/sales/_lib/quoteProblem";
 import { invalidateQuoteLists } from "./useSalesQuotes";
+import { salesQuoteKeys } from "@/hooks/salesQueryKeys";
 
 // A change is sent once the user has stopped editing for this long.
 const AUTOSAVE_DELAY_MS = 700;
 
-// The same client, except that its requests outlive the page (fetch keepalive). Every save is sent
-// with it, so one that is on its way when the tab closes still arrives. Browsers take such a
-// request only with a small body - 64 KiB for all of a page's together - and refuse a bigger one
-// outright, so a quote above the limit is saved the ordinary way.
-const keepaliveApi = api.with({ requestInit: { keepalive: true } });
-const KEEPALIVE_MAX_BYTES = 60 * 1024;
 
 // One key for the toast about a refused save: a refusal repeated with every change refreshes that
 // toast instead of stacking a new one each time.
@@ -65,11 +60,15 @@ export function useSalesQuoteDraft(ref: string) {
   const [quote, setQuote] = useState<interfaces.SalesQuoteItem | null>(null);
   const [save, setSave] = useState<QuoteSaveState>(SAVED);
   const [savedAt, setSavedAt] = useState("");
+  // Changes kept aside when the latest version was loaded after a conflict, to re-apply on top.
+  const [pending, setPending] = useState<Partial<SalesQuoteData> | null>(null);
 
   // The working copy behind the rendered state. The autosave timer, the unload handlers and a
   // request that finishes after the page was left need the latest values, not those of a past render.
   const session = useRef({
     draft: {} as SalesQuoteData,
+    // The stored document the draft is based on, as the server last returned it.
+    base: {} as SalesQuoteData,
     // dataVersion of the stored document the draft is based on, sent with every save as
     // expectedDataVersion. Null while no quote is loaded.
     version: null as number | null,
@@ -111,8 +110,9 @@ export function useSalesQuoteDraft(ref: string) {
         if (cancelled) return;
         const s = session.current;
         s.draft = asData(res.quote.data);
+        s.base = s.draft;
         s.version = res.quote.dataVersion;
-        queryClient.setQueryData(["sales-quote", ref], res);
+        queryClient.setQueryData(salesQuoteKeys.one(ref), res);
         setDraft(s.draft);
         setQuote(res.quote);
         setSavedAt(res.quote.updatedAt);
@@ -149,10 +149,13 @@ export function useSalesQuoteDraft(ref: string) {
   // the draft the keys only the server writes - status, dates, validity, owner, history - so the
   // page and the printed quotation show what is stored, also after a colleague changed it. The
   // draft is not edited by that: nothing is marked unsaved, and what the user typed stays.
+  // The lists of quotes are marked out of date; they are read again at once only after an action
+  // (`refetchLists`), not after every autosave - that would reload them with each pause in typing.
   const adopt = useCallback(
-    (stored: interfaces.SalesQuoteItem) => {
+    (stored: interfaces.SalesQuoteItem, { refetchLists = false } = {}) => {
       const s = session.current;
       const data = asData(stored.data);
+      s.base = data;
       const next = stripProtected(s.draft);
       for (const key of PROTECTED_KEYS) {
         if (key in data) Object.assign(next, { [key]: data[key] });
@@ -161,8 +164,9 @@ export function useSalesQuoteDraft(ref: string) {
       setDraft(next);
       setQuote(stored);
       setSavedAt(stored.updatedAt);
-      queryClient.setQueryData(["sales-quote", ref], { quote: stored });
-      invalidateQuoteLists(queryClient);
+      queryClient.setQueryData(salesQuoteKeys.one(ref), { quote: stored });
+      if (refetchLists) invalidateQuoteLists(queryClient);
+      else invalidateQuoteLists(queryClient, { refetchType: "none" });
     },
     [ref, queryClient],
   );
@@ -176,9 +180,8 @@ export function useSalesQuoteDraft(ref: string) {
       show({ ...s.save, status: "saving" });
       try {
         const body = { data: s.draft, expectedDataVersion: s.version };
-        // Measured in bytes, as the browser counts: a Czech letter takes two.
-        const outlivesPage = new Blob([JSON.stringify(body)]).size <= KEEPALIVE_MAX_BYTES;
-        const res = await (outlivesPage ? keepaliveApi : api).quotes.salesQuoteSave(ref, body);
+        // Sent so it outlives the page (keepalive) whenever the quote fits that request's limit.
+        const res = await clientForBody(body).quotes.salesQuoteSave(ref, body);
         s.version = res.quote.dataVersion;
         s.savedRevision = revision;
         adopt(res.quote);
@@ -186,7 +189,7 @@ export function useSalesQuoteDraft(ref: string) {
       } catch (err) {
         const problem = quoteProblem(err);
         // The remembered copy is now known to be older than the stored quote.
-        if (problem.kind === "conflict") queryClient.removeQueries({ queryKey: ["sales-quote", ref] });
+        if (problem.kind === "conflict") queryClient.removeQueries({ queryKey: salesQuoteKeys.one(ref) });
         show({ status: "unsaved", problem });
         break;
       }
@@ -269,21 +272,15 @@ export function useSalesQuoteDraft(ref: string) {
         if (saved.problem) return `not done, because your changes could not be saved first: ${saved.problem.reason}`;
         try {
           const { quote: stored } = await run(s.version);
-          if (versioned) {
-            s.version = stored.dataVersion;
-            // A quote that is sent has the rates it converts with stored by the server, where it
-            // had none. They are part of the document from now on; a rate typed meanwhile wins.
-            const { rates } = asData(stored.data);
-            if (rates) s.draft = { ...s.draft, rates: { ...rates, ...s.draft.rates } };
-          }
-          adopt(stored);
+          if (versioned) s.version = stored.dataVersion;
+          adopt(stored, { refetchLists: true });
           return null;
         } catch (err) {
           const problem = quoteProblem(err);
           // The stored document is newer than this page: as after a refused save, nothing more
           // is sent from here until it is loaded again.
           if (problem.kind === "conflict") {
-            queryClient.removeQueries({ queryKey: ["sales-quote", ref] });
+            queryClient.removeQueries({ queryKey: salesQuoteKeys.one(ref) });
             show({ status: s.revision === s.savedRevision ? "saved" : "unsaved", problem });
           }
           // The server judged the quote as it is stored now and said no: the status, validity or
@@ -292,7 +289,7 @@ export function useSalesQuoteDraft(ref: string) {
           // version this page is based on. If that fails too, the page stays as it is.
           if (problem.kind === "failed") {
             await api.quotes.salesQuoteGet(ref).then(
-              ({ quote: stored }) => adopt(stored),
+              ({ quote: stored }) => adopt(stored, { refetchLists: true }),
               () => undefined,
             );
           }
@@ -314,12 +311,30 @@ export function useSalesQuoteDraft(ref: string) {
   }, [show, stopTimer]);
 
   // Reads the stored quote again and drops the local draft: "Load latest version" after a
-  // conflict, Retry after a failed load.
-  const reload = useCallback(() => {
-    drop();
-    setLoad({ status: "loading" });
-    setAttempt((n) => n + 1);
-  }, [drop]);
+  // conflict, Retry after a failed load. With `keepChanges` what the user changed is kept aside
+  // (`pending`) and can be re-applied on top of the latest version.
+  const reload = useCallback(
+    ({ keepChanges = false }: { keepChanges?: boolean } = {}) => {
+      const s = session.current;
+      if (keepChanges && s.revision !== s.savedRevision) {
+        const changes = unsavedChanges(s.base, s.draft);
+        setPending(Object.keys(changes).length ? changes : null);
+      } else {
+        setPending(null);
+      }
+      drop();
+      setLoad({ status: "loading" });
+      setAttempt((n) => n + 1);
+    },
+    [drop],
+  );
+
+  // The kept-aside changes, applied to the latest version as if typed again (they are then saved).
+  const reapply = useCallback(() => {
+    if (pending) change(pending);
+    setPending(null);
+  }, [pending, change]);
+  const dismissPending = useCallback(() => setPending(null), []);
 
   // Gives up what was changed and not saved yet without sending it, for a quote that is about to
   // be deleted: saving into it first would be for nothing, and a save the server refuses - the
@@ -352,6 +367,8 @@ export function useSalesQuoteDraft(ref: string) {
       s.mounted = false;
       window.removeEventListener("beforeunload", warn);
       window.removeEventListener("pagehide", sendWhileClosing);
+      // Autosaves only marked the lists out of date; leaving the quote reads them again.
+      invalidateQuoteLists(queryClient);
       // Leaving for another page of the app: what is waiting is sent now. The page is gone by the
       // time the answer arrives, so a refusal can only be reported as a toast.
       flush().then(({ problem }) => {
@@ -360,7 +377,7 @@ export function useSalesQuoteDraft(ref: string) {
         }
       });
     };
-  }, [ref, flush, message]);
+  }, [ref, flush, message, queryClient]);
 
-  return { draft, quote, change, act, load, reload, discard, save, savedAt, saveNow };
+  return { draft, quote, change, act, load, reload, discard, save, savedAt, saveNow, pending, reapply, dismissPending };
 }

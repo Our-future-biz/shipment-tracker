@@ -1,3 +1,4 @@
+import type { SettableQuoteStatus, ShownQuoteStatus } from "../interfaces/interfaces";
 import { addDays, isRealYmd } from "../../../lib/businessDate";
 import { isPlainObject } from "./quoteDocument.utils";
 
@@ -115,6 +116,7 @@ export interface LifecycleContext {
 
 /** What the user chose when changing a quote's status. */
 export interface StatusChange {
+  /** Checked here, not trusted: internal callers and old data can name anything. */
   to: string;
   comment?: string;
   /** To Quoted: "valid N days" from today, used only when the quote has no validity that still holds. */
@@ -142,7 +144,7 @@ export class LifecycleError extends Error {
 }
 
 /** Which statuses may follow which. `expired` is the effective status, or one stored by the old bulk menu. */
-export const NEXT: Record<string, readonly string[]> = {
+export const NEXT: Record<ShownQuoteStatus, readonly SettableQuoteStatus[]> = {
   draft: ["ready_to_send", "quoted", "lost"],
   ready_to_send: ["quoted", "draft", "lost"],
   quoted: ["feedback", "revised", "won", "lost"],
@@ -166,7 +168,7 @@ export const AWAITING: readonly string[] = ["quoted", "feedback"];
 export const SENT_EVIDENCE: readonly string[] = ["quoted", "feedback", "revised", "won", "expired"];
 
 /** The statuses a quote can be set to, each with the win probability it carries. */
-export const WIN_PROBABILITY: Record<string, number> = {
+export const WIN_PROBABILITY: Record<SettableQuoteStatus, number> = {
   draft: 10,
   ready_to_send: 20,
   quoted: 30,
@@ -177,7 +179,17 @@ export const WIN_PROBABILITY: Record<string, number> = {
 };
 
 /** Every status a quote can show: the ones it can be set to, and Expired. */
-export const SHOWN_STATUSES: readonly string[] = [...Object.keys(WIN_PROBABILITY), "expired"];
+export const SHOWN_STATUSES: readonly ShownQuoteStatus[] = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won", "lost", "expired"];
+
+/** Whether a stored or requested text is a status a quote can be set to. */
+export function isSettableStatus(status: string): status is SettableQuoteStatus {
+  return Object.hasOwn(WIN_PROBABILITY, status);
+}
+
+/** Whether a text is a status a quote can show. */
+export function isShownStatus(status: string): status is ShownQuoteStatus {
+  return (SHOWN_STATUSES as readonly string[]).includes(status);
+}
 
 export const FOLLOW_UP_INTERVAL_DAYS = 3;
 
@@ -256,7 +268,7 @@ export function effectiveStatus(status: string, validUntil: string | null, today
 /** The statuses the quote may be set to now, in menu order. */
 export function allowedTransitions(state: LifecycleState, today: string): string[] {
   const status = effectiveStatus(state.status, state.validUntil, today);
-  const next = [...(Object.hasOwn(NEXT, status) ? NEXT[status] : NEXT_OF_UNKNOWN)];
+  const next: string[] = [...(isShownStatus(status) ? NEXT[status] : NEXT_OF_UNKNOWN)];
   // A shipment exists, so the order is a fact whatever the status says.
   if (state.shipmentId && (OPEN.includes(status) || status === "expired") && !next.includes("won")) next.push("won");
   return next;
@@ -293,7 +305,7 @@ export function applyTransition(state: LifecycleState, change: StatusChange, ctx
   if (to === "expired") {
     throw new LifecycleError("invalid", "a quote cannot be set to Expired - it expires when its validity date has passed");
   }
-  if (!Object.hasOwn(WIN_PROBABILITY, to)) throw new LifecycleError("invalid", `"${to}" is not a quote status`);
+  if (!isSettableStatus(to)) throw new LifecycleError("invalid", `"${to}" is not a quote status`);
 
   const from = effectiveStatus(state.status, state.validUntil, ctx.today);
   if (to === from) return { changed: false };
@@ -602,7 +614,7 @@ export function mirrorOf(state: LifecycleState): { set: Record<string, unknown>;
     if (value === null) remove.push(key);
     else set[key] = value;
   }
-  if (Object.hasOwn(WIN_PROBABILITY, state.status)) set.winProbability = WIN_PROBABILITY[state.status];
+  if (isSettableStatus(state.status)) set.winProbability = WIN_PROBABILITY[state.status];
   return { set, remove };
 }
 

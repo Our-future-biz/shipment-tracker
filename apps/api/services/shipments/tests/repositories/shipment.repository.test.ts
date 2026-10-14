@@ -153,7 +153,7 @@ describe("createFromQuote", () => {
     shipmentRepository.createFromQuote(COMPANY, REF, data as never, allowSecond);
 
   it("takes the lock on the quote, looks for its shipments and inserts - in that order, in one transaction", async () => {
-    await expect(create(false)).resolves.toEqual({ created: { id: "shipment-new", jobNumber: "CZ00000102", companyId: COMPANY, salesNumber: REF } });
+    await expect(create(false)).resolves.toEqual({ created: { id: "shipment-new", jobNumber: "CZ00000102", companyId: COMPANY, salesNumber: REF, createdFromQuote: true } });
     expect(fake.state.steps).toEqual(["begin", "tx lock", "tx read", "tx insert", "commit"]);
     // A lock that ends with the transaction, on this quote of this company alone.
     expect(sent(fake.state.locks[0])).toEqual(REFERENCE_LOCK);
@@ -173,8 +173,8 @@ describe("createFromQuote", () => {
   });
 
   it("stores the shipment under the caller's company and the quote's reference, whatever the data says", async () => {
-    await create(false, { jobNumber: "CZ00000102", pol: "Shanghai", companyId: "another-company", salesNumber: "typed by hand" });
-    expect(fake.state.inserted).toEqual([{ jobNumber: "CZ00000102", pol: "Shanghai", companyId: COMPANY, salesNumber: REF }]);
+    await create(false, { jobNumber: "CZ00000102", pol: "Shanghai", companyId: "another-company", salesNumber: "typed by hand", createdFromQuote: false });
+    expect(fake.state.inserted).toEqual([{ jobNumber: "CZ00000102", pol: "Shanghai", companyId: COMPANY, salesNumber: REF, createdFromQuote: true }]);
   });
 });
 

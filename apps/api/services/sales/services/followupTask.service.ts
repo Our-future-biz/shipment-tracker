@@ -8,8 +8,8 @@ import { isUuid } from "../../../lib/uuid";
 import type { FollowupTaskItem } from "../interfaces/interfaces";
 import { followupTaskRepository, type FollowupTaskFilter, type FollowupTaskPage } from "../repositories/followupTask.repository";
 import type { FollowupTaskRecord, NewFollowupTaskRecord } from "../schemas/followupTask.schema";
-import { TASK_TYPES, toTaskItem } from "../utils/followupTask.utils";
-import { nameOf, userNames } from "./userNames";
+import { isTaskType, toTaskItem } from "../utils/followupTask.utils";
+import { nameOf, userNames } from "../../../lib/userNames";
 
 /** What a request says about a task. A field that is left out takes its default in a new task and stays as it is in a change. */
 export interface FollowupTaskFields {
@@ -82,7 +82,7 @@ function pageOf(request: FollowupTaskListRequest): FollowupTaskPage {
 function plainValues(fields: FollowupTaskFields): TaskValues {
   const values: TaskValues = {};
   if (fields.type !== undefined) {
-    if (!TASK_TYPES.includes(fields.type)) throw APIError.invalidArgument("type must be Call, Email or Visit");
+    if (!isTaskType(fields.type)) throw APIError.invalidArgument("type must be Call, Email or Visit");
     values.type = fields.type;
   }
   if (fields.note !== undefined) values.note = fields.note.trim();

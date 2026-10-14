@@ -2,9 +2,13 @@
 
 import { Alert, Button } from "antd";
 
+interface QuotesLoadErrorProps {
+  onRetry: () => void;
+}
+
 // Shown wherever quotes are asked of the server and the request failed. A list that could not be
 // read is not an empty one: without this notice the screen would say "no quotes" or add up zeros.
-export function QuotesLoadError({ onRetry }: { onRetry: () => void }) {
+export function QuotesLoadError({ onRetry }: QuotesLoadErrorProps) {
   return (
     <Alert
       type="error"

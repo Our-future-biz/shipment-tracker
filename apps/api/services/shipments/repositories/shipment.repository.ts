@@ -212,6 +212,21 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
   }
 
+  /** The live shipments of the company whose Sales Number is `reference`, the oldest first (no lock). */
+  async liveBySalesNumber(companyId: string, reference: string): Promise<NamingShipment[]> {
+    return this.db
+      .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), sql`${SALES_NUMBER} = ${reference}`))
+      .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
+  }
+
+  /** Every company that has shipments, deleted ones included (a deleted shipment can leave a quote to unlink). */
+  async companyIds(): Promise<string[]> {
+    const rows = await this.db.selectDistinct({ companyId: shipmentTable.companyId }).from(shipmentTable);
+    return rows.map((r) => r.companyId);
+  }
+
   /**
    * Every live shipment of the company whose Sales Number has the format of a sales quote
    * reference - `pattern`, a regular expression - with that reference, the oldest first.
@@ -250,7 +265,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       if (existing && !allowSecond) return { existing };
       const [created] = await tx
         .insert(shipmentTable)
-        .values({ ...data, companyId, salesNumber: reference })
+        .values({ ...data, companyId, salesNumber: reference, createdFromQuote: true })
         .returning();
       return { created: created! };
     });
@@ -284,7 +299,11 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         .from(shipmentTable)
         .where(and(live, isNull(shipmentTable.customerId))),
     ]);
-    return { customers: customers as CustomerShipmentFactsRow[], shipmentsWithoutCustomer: Number(value) };
+    return {
+      // The query keeps only shipments with a customer, so customerId is set on every row.
+      customers: customers.flatMap((c): CustomerShipmentFactsRow[] => (c.customerId ? [{ ...c, customerId: c.customerId }] : [])),
+      shipmentsWithoutCustomer: Number(value),
+    };
   }
 
   async findByJobNumber(jobNumber: string, companyId: string) {

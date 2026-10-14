@@ -2,7 +2,7 @@ import { APIError } from "encore.dev/api";
 import { shipmentCommentRepository } from "../repositories/shipmentComment.repository";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import type { ShipmentCommentRecord } from "../schemas/shipmentComment.schema";
-import { userNames } from "../lib/userNames";
+import { userNames } from "../../../lib/userNames";
 import { attachmentContentUrl } from "../lib/contentToken";
 import { iso } from "../../../lib/db/serialize";
 import type { CommentItem, CommentMentionItem, CommentUnreadItem } from "../interfaces/interfaces";

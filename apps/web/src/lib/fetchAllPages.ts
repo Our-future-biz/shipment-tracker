@@ -36,6 +36,8 @@ export async function fetchAllPages<T extends { id: string }>(
     const last = page.data[page.data.length - 1];
     // The page says how many rows the server was ready to return; fewer than that is the end.
     if (!last || page.data.length < page.pagination.limit) return rows;
+    // A server that hands back the same last row again would make this loop forever.
+    if (last.id <= afterId) throw new Error("The list did not advance from one page to the next");
     afterId = last.id;
   }
 }

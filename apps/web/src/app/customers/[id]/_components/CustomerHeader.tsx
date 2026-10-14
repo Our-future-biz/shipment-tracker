@@ -20,9 +20,13 @@ import { CustomerKpiTile, profitTone } from "./CustomerKpiTile";
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
+interface CustomerHeaderProps {
+  customer: CustomerItem;
+}
+
 // Top of the customer detail: who the customer is, the four totals (the only place they
 // are shown) and the record-level actions.
-export function CustomerHeader({ customer }: { customer: CustomerItem }) {
+export function CustomerHeader({ customer }: CustomerHeaderProps) {
   const router = useRouter();
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);

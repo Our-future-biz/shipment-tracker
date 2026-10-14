@@ -17,8 +17,8 @@ import { shipmentRepository } from "../repositories/shipment.repository";
 // (withLiveBySalesNumber). Every write of a shipment is committed before its quote is told, so
 // whichever report runs last has read every write.
 
-// How many references one run brings in step: it runs inside a request for the list of shipments.
-const MAX_REFS_PER_RUN = 400;
+// How many references one run brings in step for one company; what is left waits for the next run.
+const MAX_REFS_PER_RUN = 100;
 // How often the links of a company are compared when nothing says they need it.
 const SYNC_EVERY_MS = 60 * 60 * 1000;
 // After a run that failed nothing is tried for this long.
@@ -69,6 +69,8 @@ class QuoteLinksService {
       const { results } = await quotes._internalSalesQuoteShipmentSync({
         items: [{ quoteNumber: reference, shipments, wonByShipmentId: opts.wonByShipmentId }],
         automatic: opts.automatic,
+        // Used only by a call without a login (the hourly reconcile); a login names its own company.
+        companyId,
       });
       return results[0];
     });
@@ -102,7 +104,7 @@ class QuoteLinksService {
     // Noted before anything is read: a sync that fails while this runs makes the next run compare again.
     if (!todo.length) company.dirty = false;
 
-    const { links } = await quotes._internalSalesQuoteShipmentLinks();
+    const { links } = await quotes._internalSalesQuoteShipmentLinks({ companyId });
     const current = new Map(links.map((link) => [link.quoteNumber, link.shipmentId]));
 
     if (!todo.length) {
@@ -153,17 +155,22 @@ class QuoteLinksService {
   }
 
   /**
-   * What a read of the shipments list starts with: the links are reconciled when a run is due.
-   * Awaited, so it runs under the login of the request - the quotes service takes the company
-   * from it - and never fails its caller: a run that fails is logged and tried again later.
+   * The hourly reconcile (cron): every company with shipments gets one run, each on its own - a
+   * company whose run fails is logged and does not stop the others. Runs without a login, so the
+   * quotes service is told the company with each call.
    */
-  async ensureQuoteLinksSynced(companyId: string): Promise<void> {
-    if (!this.isDue(this.of(companyId), Date.now())) return;
-    try {
-      await this.run(companyId);
-    } catch (err) {
-      log.warn(err, "the links between quotes and shipments were not reconciled", { companyId });
+  async reconcileAll(): Promise<{ companies: number; failed: number }> {
+    const companies = await shipmentRepository.companyIds();
+    let failed = 0;
+    for (const companyId of companies) {
+      try {
+        await this.run(companyId);
+      } catch (err) {
+        failed++;
+        log.warn(err, "the links between quotes and shipments were not reconciled", { companyId });
+      }
     }
+    return { companies: companies.length, failed };
   }
 
   /**

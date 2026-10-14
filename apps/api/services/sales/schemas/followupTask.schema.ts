@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, date, timestamp, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, date, timestamp, integer, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import type { TaskType } from "../utils/followupTask.utils";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 // A manual follow-up task of Sales: one row per task, so two people adding, ticking or removing
@@ -10,7 +11,7 @@ export const followupTaskTable = pgTable(
   {
     ...defaultTableColumns,
     ...tenantColumns,
-    type: text("type").notNull().default("Call"), // Call / Email / Visit
+    type: text("type").$type<TaskType>().notNull().default("Call"),
     note: text("note").notNull().default(""),
     // A calendar day. "Overdue" is never stored: it follows from this day and from done_at.
     dueDate: date("due_date", { mode: "string" }),
@@ -33,6 +34,7 @@ export const followupTaskTable = pgTable(
     tenantIndex("followup_task", table),
     index("followup_task_assignee_user_id_idx").on(table.assigneeUserId),
     index("followup_task_due_date_idx").on(table.dueDate),
+    check("followup_task_type_check", sql`${table.type} IN ('Call', 'Email', 'Visit')`),
     // One row per position of the old list, deleted rows included: what makes the import of that
     // list (sales_import_followup_tasks, migration 0003) unable to copy a task twice.
     uniqueIndex("followup_task_company_legacy_unique")
