@@ -143,12 +143,12 @@ export function FxView() {
             { key: "log", label: "Import log", children: <ImportLogTab /> },
             {
               key: "weekly",
-              label: "Weekly sheet (Costs Breakdown)",
+              label: "Weekly sheet (old)",
               children: (
                 <div className="flex flex-col gap-4 pt-1">
                   <p className="text-[13px] text-slate-500 m-0">
-                    Costs Breakdown still uses these hand-entered weekly rates. It moves to the ČNB rates in the next phase;
-                    this sheet is then kept read-only for comparison.
+                    The old hand-entered weekly rates. Nothing uses them any more — Costs Breakdown now takes the ČNB
+                    rate by ATA / ATD. Kept for comparison until the sheet is retired.
                   </p>
                   <ExchangeView />
                 </div>

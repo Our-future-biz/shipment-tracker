@@ -3,8 +3,9 @@ import { getAuthData } from "~encore/auth";
 import { fxRatesService } from "../services/fxRates.service";
 import { startFxScheduler } from "../services/fxScheduler";
 import { openAlerts } from "../services/fxAlert.service";
+import { fxJobRatesService } from "../services/fxJobRates.service";
 import { isAdminLevel } from "../../../lib/rbac";
-import type { DailyRow, FxAlertItem, FxOverview, ImportRunItem, PeriodAverage, ResolvedRate, RoeChange } from "../interfaces/interfaces";
+import type { DailyRow, FxAlertItem, FxOverview, JobRates, ImportRunItem, PeriodAverage, ResolvedRate, RoeChange } from "../interfaces/interfaces";
 
 // Loading this module (as Encore does at startup) starts the local import timers.
 startFxScheduler();
@@ -86,4 +87,15 @@ interface AlertsResponse {
 export const fxAlerts = api(
   { expose: true, auth: true, method: "GET", path: "/fx/alerts" },
   async (): Promise<AlertsResponse> => ({ alerts: isAdminLevel(getAuthData()!.role) ? await openAlerts() : [] }),
+);
+
+interface JobRatesRequest {
+  shipmentId: string;
+}
+
+// The rates a job is valued at: locked at its ATA (import) / ATD (export), provisional by
+// ETA/ETD until then. Reading it is what locks a job whose ATA/ATD has passed.
+export const fxJobRates = api(
+  { expose: true, auth: true, method: "GET", path: "/fx/job-rates/:shipmentId" },
+  async (req: JobRatesRequest): Promise<JobRates> => fxJobRatesService.forShipment(getAuthData()!.companyID, req.shipmentId),
 );

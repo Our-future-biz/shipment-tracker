@@ -5,6 +5,7 @@ import * as cnbRateSchema from "../schemas/cnbRate.schema";
 import * as cnbImportRunSchema from "../schemas/cnbImportRun.schema";
 import * as roeSettingSchema from "../schemas/roeSetting.schema";
 import * as fxAlertSchema from "../schemas/fxAlert.schema";
+import * as jobRateSchema from "../schemas/jobRate.schema";
 
 const { Pool } = pg;
 
@@ -22,5 +23,6 @@ export const db = drizzle(pool, {
     ...cnbImportRunSchema,
     ...roeSettingSchema,
     ...fxAlertSchema,
+    ...jobRateSchema,
   },
 });

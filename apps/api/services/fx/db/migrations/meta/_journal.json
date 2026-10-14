@@ -15,6 +15,13 @@
       "when": 1791960650560,
       "tag": "0001_fx_alert",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791961383235,
+      "tag": "0002_job_rate",
+      "breakpoints": true
     }
   ]
 }

@@ -7,7 +7,7 @@ import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined, WarningOutlin
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { formatWeekLabel } from "@/lib/isoWeek";
+import { formatDate, formatDateTime } from "@/lib/date";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
 
@@ -153,7 +153,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
 
   // Rows, rates and totals come from the shared hook, so the Quote card on the detail page
   // shows exactly the same figures as this tab.
-  const { billingCur, rateBasis, rateDate, weekKey, fx, rates, ratesLoading, buyRows, sellRows, totals: t } = useCostsData(shipment);
+  const { billingCur, fx, rates, ratesLoading, ratesError, buyRows, sellRows, totals: t } = useCostsData(shipment);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
 
@@ -813,12 +813,12 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         </div>
       </SectionCard>
 
-      {/* ═══════════ 3. KURZY (dle ETA/ETD zasilky) ═══════════
-          Zadne nastaveni - kurz se odvodi sam z tydne, do ktereho spada
-          ETA (import) nebo ETD (export). Zdrojem je stranka Exchange. */}
+      {/* ═══════════ 3. KURZY ═══════════
+          ČNB kurz dle danoveho data zakazky: import ATA, export ATD. Do te doby
+          predbezne dle ETA/ETD. Vybira server (fx sluzba), zde se jen zobrazuje. */}
       <div className="flex items-center gap-4 flex-wrap bg-white border border-slate-200 rounded-xl px-4 py-3 mb-4">
         <span className="text-[12px] font-bold tracking-[.06em] uppercase text-slate-500">
-          Exchange rate
+          ČNB rate
         </span>
 
         {/* tri kurzy vedle sebe: EUR / CZK / USD */}
@@ -840,27 +840,44 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
           ))}
         </div>
 
+        {/* stav: zamceno k ATA/ATD, nebo predbezne */}
+        {fx && (
+          fx.status === "locked" ? (
+            <Tooltip title={`Locked ${formatDateTime(fx.lockedAt)}${fx.previousRateDate ? ` · re-locked from ${formatDate(fx.previousRateDate)} after ${fx.basis.toUpperCase()} changed` : ""}`}>
+              <span className="text-[12px] font-semibold text-slate-700 bg-slate-100 border border-slate-300 rounded-md px-2 py-0.5">
+                Locked
+              </span>
+            </Tooltip>
+          ) : (
+            <span className="text-[12px] font-semibold text-[#95620B] bg-[#FBEED2] border border-[#95620B] rounded-md px-2 py-0.5">
+              Provisional
+            </span>
+          )
+        )}
+
         {/* odkud se kurz vzal */}
         <span className="text-[12.5px] text-slate-500">
           {ratesLoading ? (
             "Loading rates…"
-          ) : fx.source === "none" ? (
+          ) : ratesError || !fx ? (
+            <span className="text-[#95620B] font-semibold">Could not load the ČNB rates</span>
+          ) : fx.rates.length === 0 ? (
             <span className="text-[#95620B] font-semibold">
-              No rates entered — <Link href="/exchange" className="underline">add them in Exchange</Link>
+              No ČNB rates stored — <Link href="/exchange" className="underline">check Exchange</Link>
             </span>
-          ) : !rateDate ? (
+          ) : fx.status === "locked" ? (
+            <>ČNB {formatDate(fx.rates.find((r) => r.currency === "EUR")?.fixingDate ?? fx.rateDate)} · by {fx.basis.toUpperCase()} {formatDate(fx.rateDate)}</>
+          ) : fx.basis === "today" ? (
             <span className="text-[#95620B] font-semibold">
-              Shipment has no {rateBasis.toUpperCase()} date — using {formatWeekLabel(fx.usedWeek)}
-            </span>
-          ) : fx.source === "older" ? (
-            <span className="text-[#95620B] font-semibold">
-              No rates for {formatWeekLabel(weekKey)} — using {formatWeekLabel(fx.usedWeek)}
+              No {fx.direction === "export" ? "ETD / ATD" : "ETA / ATA"} date — using today&apos;s rate
             </span>
           ) : (
             <>
-              {formatWeekLabel(fx.usedWeek)} · by {rateBasis.toUpperCase()} {rateDate}
+              ČNB {formatDate(fx.rates.find((r) => r.currency === "EUR")?.fixingDate ?? fx.rateDate)} · by {fx.basis.toUpperCase()} {formatDate(fx.rateDate)}
+              {" "}· locks at {fx.direction === "export" ? "ATD" : "ATA"}
             </>
           )}
+          {fx?.directionAssumed && <span className="text-slate-400"> · no trade direction, treated as import</span>}
         </span>
       </div>
 
@@ -870,11 +887,9 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         <div className="flex items-start gap-2 bg-[#FBEED2] border border-[#95620B] rounded-xl px-4 py-3 mb-4">
           <WarningOutlined className="text-[#95620B] mt-[2px]" />
           <span className="text-[12.5px] text-[#5A4A20]">
-            <strong>No exchange rate for {t.missingCurrencies.join(", ")}.</strong>{" "}
+            <strong>ČNB publishes no rate for {t.missingCurrencies.join(", ")}.</strong>{" "}
             {t.unconvertibleRowCount} row{t.unconvertibleRowCount === 1 ? " is" : "s are"} left out of
-            the totals below.{" "}
-            <Link href="/exchange" className="underline font-semibold">Add the rate in Exchange</Link>
-            {" "}to include {t.unconvertibleRowCount === 1 ? "it" : "them"}.
+            the totals below.
           </span>
         </div>
       )}

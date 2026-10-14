@@ -234,7 +234,7 @@ export function ExchangeView() {
         </div>
 
         <div className="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-100 text-[13px] text-slate-500">
-          <span>Rates are used by Costs Breakdown according to the shipment’s ETA/ETD week.</span>
+          <span>Old weekly rates, kept for comparison — Costs Breakdown now uses the ČNB rates.</span>
           <span>{rates.length} {rates.length === 1 ? "week" : "weeks"}</span>
         </div>
       </div>

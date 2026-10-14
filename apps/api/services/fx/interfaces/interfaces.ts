@@ -124,3 +124,18 @@ export interface ResolvedRate {
   roePct: number;
   reason: string;
 }
+
+// The rates a job is valued at. locked: fixed at the job's ATA (import) / ATD (export).
+// provisional: the job has no ATA/ATD yet, or ČNB has not published that day's fixing —
+// valued by ETA/ETD (or today when that is blank too) and still moving.
+export interface JobRates {
+  shipmentId: string;
+  direction: "import" | "export";
+  directionAssumed: boolean; // trade direction blank — treated as import
+  status: "locked" | "provisional";
+  basis: "ata" | "atd" | "eta" | "etd" | "today";
+  rateDate: string; // the date the rates are for
+  lockedAt: string | null;
+  previousRateDate: string | null; // the date it was locked at before ATA/ATD changed
+  rates: { currency: string; rate: number; fixingDate: string }[];
+}

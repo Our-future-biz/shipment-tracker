@@ -768,6 +768,7 @@ export namespace fx {
             this.fxAverages = this.fxAverages.bind(this)
             this.fxDaily = this.fxDaily.bind(this)
             this.fxImportRuns = this.fxImportRuns.bind(this)
+            this.fxJobRates = this.fxJobRates.bind(this)
             this.fxOverview = this.fxOverview.bind(this)
             this.fxResolve = this.fxResolve.bind(this)
             this.fxRoeList = this.fxRoeList.bind(this)
@@ -817,6 +818,16 @@ export namespace fx {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/fx/import-runs`, undefined, {query})
             return await resp.json() as controllers.ImportRunsResponse
+        }
+
+        /**
+         * The rates a job is valued at: locked at its ATA (import) / ATD (export), provisional by
+         * ETA/ETD until then. Reading it is what locks a job whose ATA/ATD has passed.
+         */
+        public async fxJobRates(shipmentId: string): Promise<interfaces.JobRates> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/job-rates/${encodeURIComponent(shipmentId)}`)
+            return await resp.json() as interfaces.JobRates
         }
 
         public async fxOverview(): Promise<interfaces.FxOverview> {
@@ -3903,6 +3914,27 @@ export namespace interfaces {
         issuedAt: string
         createdAt: string
         updatedAt: string
+    }
+
+    /**
+     * The rates a job is valued at. locked: fixed at the job's ATA (import) / ATD (export).
+     * provisional: the job has no ATA/ATD yet, or ČNB has not published that day's fixing —
+     * valued by ETA/ETD (or today when that is blank too) and still moving.
+     */
+    export interface JobRates {
+        shipmentId: string
+        direction: "import" | "export"
+        directionAssumed: boolean
+        status: "locked" | "provisional"
+        basis: "ata" | "atd" | "eta" | "etd" | "today"
+        rateDate: string
+        lockedAt: string | null
+        previousRateDate: string | null
+        rates: {
+            currency: string
+            rate: number
+            fixingDate: string
+        }[]
     }
 
     /**

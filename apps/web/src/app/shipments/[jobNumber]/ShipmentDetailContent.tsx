@@ -881,14 +881,6 @@ export function ShipmentDetailContent() {
   // Totals of the Costs Breakdown tab, shown on the Quote card.
   const costs = useCostsData(shipment);
 
-  // Kurzovni listek se predava dopredu ze stejneho duvodu - Costs Breakdown
-  // ho pak nacita z pameti, ne ze serveru.
-  useQuery({
-    queryKey: ["exchange-rates"],
-    queryFn: () => api.invoicing.exchangeRateList(),
-    staleTime: 10 * 60 * 1000,
-  });
-
   const TAB_KEYS = TABS.map((t) => t.key);
   const rawTab = searchParams.get("tab");
   const activeTab = rawTab && TAB_KEYS.includes(rawTab) ? rawTab : "details";

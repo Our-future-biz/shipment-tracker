@@ -4,7 +4,6 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
-import { weekKeyFromDate } from "@/lib/isoWeek";
 import { computeCosts, type BuyingRow, type Rates, type SellingRow } from "./costsCalc";
 
 /**
@@ -13,25 +12,8 @@ import { computeCosts, type BuyingRow, type Rates, type SellingRow } from "./cos
  * Quote card on the detail page share this, so they always show the same numbers.
  */
 
-/** Without a rate sheet only CZK is known. */
+/** Without rates only CZK is known. */
 const CZK_ONLY: Rates = { CZK: 1 };
-
-/** Shipment date the rates follow: import by ETA, export by ETD. */
-function rateDateOf(shipment: ShipmentItem, basis: "eta" | "etd") {
-  const raw = getFieldValue(shipment, basis === "etd" ? "estimatedDeparture" : "estimatedArrival");
-  const txt = String(raw ?? "").trim();
-  if (!txt) return "";
-  if (/^\d{4}-\d{2}-\d{2}/.test(txt)) return txt.slice(0, 10);
-  // the grid stores dates as MM/DD/YY or MM/DD/YYYY
-  const m = txt.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
-  if (m) {
-    const [, mm, dd, yy] = m;
-    const year = yy!.length === 2 ? `20${yy}` : yy!;
-    return `${year}-${mm!.padStart(2, "0")}-${dd!.padStart(2, "0")}`;
-  }
-  const parsed = new Date(txt);
-  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
-}
 
 export function useCostsData(shipment: ShipmentItem | undefined) {
   // Same query key as the detail page, so the data is already in memory when a tab opens.
@@ -45,44 +27,25 @@ export function useCostsData(shipment: ShipmentItem | undefined) {
 
   const billingCur = data?.billingSettings?.billingCurrency || "CZK";
 
-  const tradeDirection = (shipment ? getFieldValue(shipment, "tradeDirection") : "").trim().toLowerCase();
-  const rateBasis: "eta" | "etd" = tradeDirection === "export" ? "etd" : "eta";
-  const rateDate = useMemo(() => (shipment ? rateDateOf(shipment, rateBasis) : ""), [shipment, rateBasis]);
-  const weekKey = useMemo(() => (rateDate ? weekKeyFromDate(rateDate) : ""), [rateDate]);
-
-  // Rates come from the sheet entered on the Exchange page.
+  // ČNB rates for this job, chosen on the server: locked at ATA (import) / ATD (export),
+  // provisional by ETA / ETD until then. The key carries the dates, so editing one refetches.
+  const dateKey = shipment
+    ? ["tradeDirection", "estimatedArrival", "estimatedDeparture", "actualArrival", "actualDeparture"].map((f) =>
+        String(getFieldValue(shipment, f) ?? ""),
+      )
+    : [];
   const ratesQuery = useQuery({
-    queryKey: ["exchange-rates"],
-    queryFn: () => api.invoicing.exchangeRateList(),
-    staleTime: 10 * 60 * 1000,
+    queryKey: ["fx", "job", shipment?.id, ...dateKey],
+    queryFn: () => api.fx.fxJobRates(shipment!.id),
+    enabled: !!shipment,
     placeholderData: (prev) => prev,
-    refetchOnMount: false,
   });
+  const fx = ratesQuery.data ?? null;
 
-  /** Rates of the ETA/ETD week; the closest older week when that one is missing. */
-  const fx = useMemo(() => {
-    const list = ratesQuery.data?.rates ?? [];
-    if (!list.length) return { rates: CZK_ONLY, source: "none" as const, usedWeek: "" };
-
-    const exact = list.find((r) => r.week === weekKey);
-    // the list comes newest first, so the first older week is the closest one
-    const fallbackRow = exact ?? (rateDate ? list.find((r) => r.validFrom <= rateDate) : list[0]) ?? list[0];
-    if (!fallbackRow) return { rates: CZK_ONLY, source: "none" as const, usedWeek: "" };
-
-    const eur = Number(fallbackRow.rateEur);
-    const usd = Number(fallbackRow.rateUsd);
-    return {
-      rates: {
-        CZK: 1,
-        ...(Number.isFinite(eur) && eur > 0 ? { EUR: eur } : {}),
-        ...(Number.isFinite(usd) && usd > 0 ? { USD: usd } : {}),
-      } as Rates,
-      source: exact ? ("exact" as const) : ("older" as const),
-      usedWeek: fallbackRow.week,
-    };
-  }, [ratesQuery.data?.rates, weekKey, rateDate]);
-
-  const rates: Rates = fx.rates;
+  const rates: Rates = useMemo(
+    () => (fx ? { CZK: 1, ...Object.fromEntries(fx.rates.map((r) => [r.currency, r.rate])) } : CZK_ONLY),
+    [fx],
+  );
 
   const buyRows: BuyingRow[] = useMemo(
     () =>
@@ -119,5 +82,5 @@ export function useCostsData(shipment: ShipmentItem | undefined) {
 
   const totals = useMemo(() => computeCosts(buyRows, sellRows, billingCur, rates), [buyRows, sellRows, billingCur, rates]);
 
-  return { data, billingCur, rateBasis, rateDate, weekKey, fx, rates, ratesLoading: ratesQuery.isLoading, buyRows, sellRows, totals };
+  return { data, billingCur, fx, rates, ratesLoading: ratesQuery.isLoading, ratesError: ratesQuery.isError, buyRows, sellRows, totals };
 }
