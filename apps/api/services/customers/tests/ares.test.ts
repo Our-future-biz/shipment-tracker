@@ -15,7 +15,6 @@ describe("parseAres", () => {
           obchodniJmeno: "Example s.r.o.",
           pravniForma: "112",
           sidlo: { nazevUlice: "Na Příkopě", cisloDomovni: 390, cisloOrientacni: 3, nazevObce: "Praha", psc: 11000 },
-          stavSubjektu: "AKTIVNI",
           datumVzniku: "2003-05-12T00:00:00",
           czNace: ["49410", "52290"],
         },
@@ -29,7 +28,6 @@ describe("parseAres", () => {
       registeredAddress: "Na Příkopě, 390/3, Praha, 11000",
       city: "Praha",
       country: "CZ",
-      companyStatus: "AKTIVNI",
       registrationDate: "2003-05-12",
       nace: "49410, 52290",
       street: "Na Příkopě 390/3",
@@ -45,7 +43,6 @@ describe("parseAres", () => {
       ico: "12345678",
       companyName: "Fallback a.s.",
       registeredAddress: "",
-      companyStatus: "Active",
       registrationDate: "",
       nace: "",
     });

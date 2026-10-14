@@ -4144,7 +4144,6 @@ export namespace interfaces {
         registeredAddress: string
         city: string
         country: string
-        companyStatus: string
         registrationDate: string
         nace: string
         /**
@@ -4496,7 +4495,6 @@ export namespace interfaces {
         registeredAddress: string
         city: string
         country: string
-        companyStatus: string
         /**
          * yyyy-mm-dd, or "" when unknown
          */

@@ -25,7 +25,6 @@ export interface AresResponse {
   nazev?: string;
   pravniForma?: string;
   sidlo?: AresAddress;
-  stavSubjektu?: string;
   datumVzniku?: string;
   czNace?: string[];
   seznamRegistraci?: { stavZdrojeDph?: string };
@@ -76,7 +75,6 @@ export function parseAres(json: AresResponse, ico: string): AresResult {
       .join(", "),
     city: adresa.nazevObce ?? "",
     country: adresa.kodStatu || "CZ",
-    companyStatus: json.stavSubjektu ?? "Active",
     registrationDate: json.datumVzniku ? String(json.datumVzniku).split("T")[0] : "",
     nace: json.czNace ? json.czNace.join(", ") : "",
     street: [streetName, houseNumber].filter(Boolean).join(" "),

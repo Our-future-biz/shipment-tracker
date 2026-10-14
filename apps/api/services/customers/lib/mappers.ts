@@ -17,7 +17,6 @@ export const toCustomerItem = (r: CustomerRecord): CustomerItem => ({
   registeredAddress: r.registeredAddress,
   city: r.city,
   country: r.country,
-  companyStatus: r.companyStatus,
   registrationDate: dateOutput(r.registrationDate),
   nace: r.nace,
   dataSource: r.dataSource,

@@ -20,7 +20,6 @@ export interface CustomerItem {
   registeredAddress: string;
   city: string;
   country: string;
-  companyStatus: string;
   /** yyyy-mm-dd, or "" when unknown */
   registrationDate: string;
   nace: string;
@@ -115,7 +114,6 @@ export interface AresResult {
   registeredAddress: string;
   city: string;
   country: string;
-  companyStatus: string;
   registrationDate: string;
   nace: string;
   /** Street and house number, e.g. "Jankovcova 1522/53" */

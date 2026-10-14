@@ -25,7 +25,7 @@ interface CustomerCompanyAnalysisCardProps {
 export function CustomerCompanyAnalysisCard({ customer }: CustomerCompanyAnalysisCardProps) {
   const naceInfo = getNaceInfo(parseNaceCodes(customer.nace));
   const { primary } = naceInfo;
-  const risk = calcRisk(customer.companyStatus, customer.registrationDate, naceInfo);
+  const risk = calcRisk(customer.registrationDate, naceInfo);
   const age = calcCompanyAge(customer.registrationDate);
   // Without a usable registration date neither the age nor the stability derived from it is known.
   const ageKnown = !!customer.registrationDate && !Number.isNaN(new Date(customer.registrationDate).getTime());

@@ -5,7 +5,7 @@ import type { NoteItem } from "@/hooks/useCustomerNotes";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { formatDate } from "@/lib/date";
-import { getNaceInfo, isNewCompany, isRegistryActive, parseNaceCodes } from "./companyAnalysis";
+import { getNaceInfo, isNewCompany, parseNaceCodes } from "./companyAnalysis";
 import { daysSince } from "./customerDates";
 import { daysOverdue, summarizeInvoices } from "./customerInvoices";
 import type { Rates } from "@/lib/fx";
@@ -99,15 +99,6 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
   const items: AttentionItem[] = [];
 
   // Critical.
-  if (!isRegistryActive(customer.companyStatus)) {
-    items.push({
-      key: "registry",
-      severity: "critical",
-      title: `Registry status: ${customer.companyStatus.trim()}`,
-      detail: "Verify the company is still trading before quoting.",
-    });
-  }
-
   // The same summary the Finance tab shows, so the count and the amount match its Overdue tile.
   const summary = summarizeInvoices(invoices, { currency, rates }, now);
   if (summary.overdueCount > 0) {

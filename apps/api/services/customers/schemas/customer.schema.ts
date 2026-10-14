@@ -17,6 +17,7 @@ export const customerTable = pgTable(
     registeredAddress: text("registered_address").notNull().default(""),
     city: text("city").notNull().default(""),
     country: text("country").notNull().default("CZ"),
+    // No longer read or written: ARES never sent the field it was filled from. Dropped once every branch is on main.
     companyStatus: text("company_status").notNull().default(""),
     registrationDate: date("registration_date", { mode: "string" }),
     nace: text("nace").notNull().default(""),

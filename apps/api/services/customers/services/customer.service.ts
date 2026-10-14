@@ -74,7 +74,6 @@ class CustomerService {
       registeredAddress: ares.registeredAddress,
       city: ares.city,
       country: ares.country,
-      companyStatus: ares.companyStatus,
       registrationDate: dateInput(ares.registrationDate, "registrationDate") ?? null,
       nace: ares.nace,
       dataSource: "ARES",

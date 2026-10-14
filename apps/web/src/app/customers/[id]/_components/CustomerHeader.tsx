@@ -13,7 +13,6 @@ import type { CustomerItem } from "@/hooks/useCustomers";
 import { useToast } from "@/lib/toast";
 import { CustomerAccountTypeBadge } from "../../_components/CustomerAccountTypeBadge";
 import { CustomerStatusDot } from "../../_components/CustomerStatusDot";
-import { isRegistryActive } from "../../_lib/companyAnalysis";
 import { useCustomerListHref } from "../../_lib/customerListHref";
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
@@ -73,7 +72,6 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
     { key: "delete", label: "Delete customer", danger: true, onClick: () => setDeleteOpen(true) },
   ];
 
-  const registryActive = isRegistryActive(customer.companyStatus);
   // Identity only; the full registry record is the Registry card on the Overview tab.
   const meta = [
     `IČO ${customer.ico}`,
@@ -100,15 +98,6 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
               <h1 className="text-[22px] font-bold text-slate-800 m-0">{customer.companyName}</h1>
               <CustomerAccountTypeBadge label={customer.label} />
               <CustomerStatusDot status={customer.status} />
-              {customer.companyStatus && (
-                <span
-                  className={`rounded-xl text-[11px] font-medium px-2.5 py-0.5 leading-[18px] ${
-                    registryActive ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                  }`}
-                >
-                  Registry: {registryActive ? "Active" : customer.companyStatus}
-                </span>
-              )}
             </div>
             <div className="text-xs text-slate-500 mt-0.5">{meta.join(" · ")}</div>
           </div>

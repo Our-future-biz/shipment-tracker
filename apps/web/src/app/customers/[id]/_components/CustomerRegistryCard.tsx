@@ -3,7 +3,7 @@
 import { SectionCard } from "@/components/SectionCard";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { formatDate } from "@/lib/date";
-import { isDataStale, isRegistryActive, legalFormText, parseNaceCodes } from "../../_lib/companyAnalysis";
+import { isDataStale, legalFormText, parseNaceCodes } from "../../_lib/companyAnalysis";
 import { CustomerInfoRow } from "./CustomerInfoRow";
 
 const MAX_NACE_CODES = 8;
@@ -32,9 +32,6 @@ export function CustomerRegistryCard({ customer }: CustomerRegistryCardProps) {
             {legalForm !== customer.legalForm && <span className="ml-1.5 font-normal text-slate-400">{customer.legalForm}</span>}
           </>
         ) : null}
-      </CustomerInfoRow>
-      <CustomerInfoRow label="Registry status" narrow>
-        {isRegistryActive(customer.companyStatus) ? customer.companyStatus : <span className="text-red-600">{customer.companyStatus}</span>}
       </CustomerInfoRow>
       <CustomerInfoRow label="Registered address" narrow>{customer.registeredAddress}</CustomerInfoRow>
       <CustomerInfoRow label="City" narrow>{customer.city}</CustomerInfoRow>

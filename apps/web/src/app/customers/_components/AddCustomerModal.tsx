@@ -154,7 +154,6 @@ export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isC
           <CustomerInfoRow label="DIČ">{preview.dic}</CustomerInfoRow>
           <CustomerInfoRow label="Legal form">{preview.legalForm && legalFormText(preview.legalForm)}</CustomerInfoRow>
           <CustomerInfoRow label="Registered address">{preview.registeredAddress}</CustomerInfoRow>
-          <CustomerInfoRow label="Registry status">{preview.companyStatus}</CustomerInfoRow>
           <CustomerInfoRow label="Registration date">{formatDate(preview.registrationDate)}</CustomerInfoRow>
           <CustomerInfoRow label="NACE codes">{naceText}</CustomerInfoRow>
         </div>
