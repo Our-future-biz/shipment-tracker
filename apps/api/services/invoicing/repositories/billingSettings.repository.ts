@@ -12,6 +12,13 @@ class BillingSettingsRepository {
     return row ?? null;
   }
 
+  async listByCompany(companyId: string) {
+    return db
+      .select({ shipmentId: billingSettingsTable.shipmentId, billingCurrency: billingSettingsTable.billingCurrency })
+      .from(billingSettingsTable)
+      .where(eq(billingSettingsTable.companyId, companyId));
+  }
+
   async upsert(shipmentId: string, companyId: string, data: Partial<{ billingCurrency: string; roe: string; quoteRef: string }>) {
     const existing = await this.getByShipmentId(shipmentId, companyId);
     if (existing) {

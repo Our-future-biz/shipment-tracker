@@ -1,5 +1,6 @@
 import dayjs from "dayjs";
 import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
+import { convert, type Rates } from "@/lib/fx";
 
 // One definition of "unpaid", "overdue" and the aging buckets for every tile, bar and column
 // of the Finance tab. An invoice is overdue when it is marked so by hand or when it is unpaid
@@ -16,6 +17,8 @@ export interface AgingBucket {
   critical: boolean;
 }
 
+// Every amount of the summary is in the customer's currency (the credit limit's currency):
+// invoices in another currency are converted at today's rates from the Exchange page.
 export interface InvoiceSummary {
   outstanding: number;
   openAmount: number;
@@ -23,7 +26,20 @@ export interface InvoiceSummary {
   overdueAmount: number;
   overdueCount: number;
   aging: AgingBucket[];
+  // Unpaid amounts as invoiced, per currency (customer's currency first).
+  byCurrency: { currency: string; amount: number; count: number }[];
+  // Unpaid invoices in a currency without an exchange rate: left out of every total above.
+  unconverted: { currency: string; amount: number; count: number }[];
 }
+
+// The customer's currency and today's rates the totals are converted with.
+export interface InvoiceFx {
+  currency: string;
+  rates: Rates;
+}
+
+// An invoice without a currency was entered by hand in the customer's currency.
+const invoiceCurrency = (invoice: InvoiceItem, fx: InvoiceFx) => invoice.currency || fx.currency;
 
 export function isPaid(invoice: InvoiceItem): boolean {
   return invoice.status === "Paid";
@@ -56,13 +72,27 @@ const AGING_LIMITS: { key: string; label: string; maxDays: number; critical: boo
   { key: "90+", label: "90+ days", maxDays: Infinity, critical: true },
 ];
 
-export function summarizeInvoices(invoices: InvoiceItem[], now = Date.now()): InvoiceSummary {
+export function summarizeInvoices(invoices: InvoiceItem[], fx: InvoiceFx, now = Date.now()): InvoiceSummary {
   const aging: AgingBucket[] = AGING_LIMITS.map(({ key, label, critical }) => ({ key, label, critical, amount: 0, count: 0 }));
-  const summary: InvoiceSummary = { outstanding: 0, openAmount: 0, openCount: 0, overdueAmount: 0, overdueCount: 0, aging };
+  const summary: InvoiceSummary = {
+    outstanding: 0, openAmount: 0, openCount: 0, overdueAmount: 0, overdueCount: 0, aging, byCurrency: [], unconverted: [],
+  };
+  const byCurrency = new Map<string, { amount: number; count: number }>();
+  const unconverted = new Map<string, { amount: number; count: number }>();
+  const add = (map: typeof byCurrency, currency: string, amount: number) => {
+    const entry = map.get(currency) ?? { amount: 0, count: 0 };
+    map.set(currency, { amount: entry.amount + amount, count: entry.count + 1 });
+  };
 
   for (const invoice of invoices) {
     if (isPaid(invoice)) continue;
-    const amount = invoice.amount ?? 0;
+    const currency = invoiceCurrency(invoice, fx);
+    add(byCurrency, currency, invoice.amount ?? 0);
+    const amount = convert(invoice.amount ?? 0, currency, fx.currency, fx.rates);
+    if (amount === null) {
+      add(unconverted, currency, invoice.amount ?? 0);
+      continue;
+    }
     summary.outstanding += amount;
     const overdue = isOverdue(invoice, now);
     if (overdue) {
@@ -81,5 +111,12 @@ export function summarizeInvoices(invoices: InvoiceItem[], now = Date.now()): In
       bucket.count += 1;
     }
   }
+
+  const ordered = (map: typeof byCurrency) =>
+    [...map.entries()]
+      .map(([currency, v]) => ({ currency, ...v }))
+      .sort((a, b) => (a.currency === fx.currency ? -1 : b.currency === fx.currency ? 1 : a.currency.localeCompare(b.currency)));
+  summary.byCurrency = ordered(byCurrency);
+  summary.unconverted = ordered(unconverted);
   return summary;
 }

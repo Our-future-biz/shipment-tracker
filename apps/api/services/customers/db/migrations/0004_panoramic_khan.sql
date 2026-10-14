@@ -1,0 +1,1 @@
+ALTER TABLE "customer_invoice" ADD COLUMN "currency" text DEFAULT 'CZK' NOT NULL;

@@ -18,6 +18,8 @@ interface ShipmentListRequest {
   warehouse?: string;
   /** Customs page filter: urgent */
   customs?: string;
+  /** Invoicing page filter: billing | not-invoiced | invoiced */
+  invoicing?: string;
   search?: string;
 }
 
@@ -40,6 +42,7 @@ export const shipmentList = api(
       tile: req.tile,
       warehouse: req.warehouse,
       customs: req.customs,
+      invoicing: req.invoicing,
       search: req.search,
       limit: Math.min(req.limit ?? 100, 200),
       offset: req.offset ?? 0,

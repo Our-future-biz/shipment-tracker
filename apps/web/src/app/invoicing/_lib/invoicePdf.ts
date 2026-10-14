@@ -79,9 +79,9 @@ export function generateInvoicePDF(params: InvoicePdfParams): void {
 
     doc.setFont("helvetica", "normal");
     for (const item of lineItems) {
-      if (item.amount > 0) {
+      if (item.amount !== 0) {
         doc.text(item.label, 20, y);
-        doc.text(`${billingCurrency} ${fmtNonEmpty(item.amount)}`, w - 50, y, { align: "right" });
+        doc.text(`${billingCurrency} ${fmtNonEmpty(item.amount)}`, w - 20, y, { align: "right" });
         y += 5;
       }
     }

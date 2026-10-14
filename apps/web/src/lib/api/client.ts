@@ -964,13 +964,21 @@ export namespace invoicing {
             this.exchangeRateDelete = this.exchangeRateDelete.bind(this)
             this.exchangeRateList = this.exchangeRateList.bind(this)
             this.exchangeRateUpdate = this.exchangeRateUpdate.bind(this)
+            this.invoiceDocCredit = this.invoiceDocCredit.bind(this)
+            this.invoiceDocGet = this.invoiceDocGet.bind(this)
+            this.invoiceDocIssue = this.invoiceDocIssue.bind(this)
+            this.invoiceDocList = this.invoiceDocList.bind(this)
+            this.invoiceDocPdf = this.invoiceDocPdf.bind(this)
+            this.invoiceDocPreview = this.invoiceDocPreview.bind(this)
+            this.invoiceProfileGet = this.invoiceProfileGet.bind(this)
+            this.invoiceProfileSave = this.invoiceProfileSave.bind(this)
+            this.invoiceQueue = this.invoiceQueue.bind(this)
             this.invoicingAddBuyingCost = this.invoicingAddBuyingCost.bind(this)
             this.invoicingAddCharge = this.invoicingAddCharge.bind(this)
             this.invoicingAddSellingCost = this.invoicingAddSellingCost.bind(this)
             this.invoicingDeleteBuyingCost = this.invoicingDeleteBuyingCost.bind(this)
             this.invoicingDeleteCharge = this.invoicingDeleteCharge.bind(this)
             this.invoicingDeleteSellingCost = this.invoicingDeleteSellingCost.bind(this)
-            this.invoicingGenerate = this.invoicingGenerate.bind(this)
             this.invoicingGet = this.invoicingGet.bind(this)
             this.invoicingUpdateBuyingCost = this.invoicingUpdateBuyingCost.bind(this)
             this.invoicingUpdateCharge = this.invoicingUpdateCharge.bind(this)
@@ -1035,6 +1043,73 @@ export namespace invoicing {
             return await resp.json() as controllers.UpdateRateResponse
         }
 
+        public async invoiceDocCredit(invoiceId: string, params: controllers.CreditRequest): Promise<controllers.InvoiceDocResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoices/${encodeURIComponent(invoiceId)}/credit-note`, JSON.stringify(params))
+            return await resp.json() as controllers.InvoiceDocResponse
+        }
+
+        public async invoiceDocGet(invoiceId: string): Promise<controllers.InvoiceDocResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoices/${encodeURIComponent(invoiceId)}`)
+            return await resp.json() as controllers.InvoiceDocResponse
+        }
+
+        public async invoiceDocIssue(shipmentId: string, params: controllers.IssueRequest): Promise<controllers.InvoiceDocResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/invoices`, JSON.stringify(params))
+            return await resp.json() as controllers.InvoiceDocResponse
+        }
+
+        public async invoiceDocList(shipmentId: string): Promise<controllers.ListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/${encodeURIComponent(shipmentId)}/invoices`)
+            return await resp.json() as controllers.ListResponse
+        }
+
+        /**
+         * The stored PDF of an invoice / credit note. Behind login and scoped to the company
+         * (unlike shipment attachments, invoices are never served by a public URL).
+         */
+        public async invoiceDocPdf(invoiceId: string): Promise<controllers.PdfResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoices/${encodeURIComponent(invoiceId)}/pdf`)
+            return await resp.json() as controllers.PdfResponse
+        }
+
+        public async invoiceDocPreview(shipmentId: string, params: controllers.PreviewRequest): Promise<controllers.PreviewResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/invoices/preview`, JSON.stringify(params))
+            return await resp.json() as controllers.PreviewResponse
+        }
+
+        public async invoiceProfileGet(): Promise<controllers.GetProfileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/profile`)
+            return await resp.json() as controllers.GetProfileResponse
+        }
+
+        public async invoiceProfileSave(params: controllers.SaveProfileRequest): Promise<controllers.GetProfileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/invoicing/profile`, JSON.stringify(params))
+            return await resp.json() as controllers.GetProfileResponse
+        }
+
+        /**
+         * The Invoicing queue: shipments by Shipment Status Billing / Invoicing Status, with the amounts to bill.
+         */
+        public async invoiceQueue(params: controllers.QueueRequest): Promise<controllers.QueueResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                search: params.search,
+                view:   params.view,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/queue`, undefined, {query})
+            return await resp.json() as controllers.QueueResponse
+        }
+
         public async invoicingAddBuyingCost(shipmentId: string, params: controllers.AddBuyingRequest): Promise<controllers.AddBuyingResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/buying`, JSON.stringify(params))
@@ -1069,12 +1144,6 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/invoicing/${encodeURIComponent(shipmentId)}/selling/${encodeURIComponent(sellingId)}`)
             return await resp.json() as controllers.DeleteSellingResponse
-        }
-
-        public async invoicingGenerate(shipmentId: string, params: controllers.GenerateInvoiceRequest): Promise<controllers.GenerateInvoiceResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/generate`, JSON.stringify(params))
-            return await resp.json() as controllers.GenerateInvoiceResponse
         }
 
         public async invoicingGet(shipmentId: string): Promise<controllers.InvoicingGetResponse> {
@@ -1581,6 +1650,7 @@ export namespace shipments {
             const query = makeRecord<string, string | string[]>({
                 customerId:    params.customerId,
                 customs:       params.customs,
+                invoicing:     params.invoicing,
                 limit:         params.limit === undefined ? undefined : String(params.limit),
                 offset:        params.offset === undefined ? undefined : String(params.offset),
                 search:        params.search,
@@ -2159,6 +2229,11 @@ export namespace controllers {
         rate: interfaces.ExchangeRateItem
     }
 
+    export interface CreditRequest {
+        reason: string
+        idempotencyKey?: string
+    }
+
     export interface CustomerCreateRequest {
         ico: string
     }
@@ -2373,15 +2448,8 @@ export namespace controllers {
         destination: string
     }
 
-    export interface GenerateInvoiceRequest {
-        jobNumber: string
-        invoiceType: string
-        billingCurrency: string
-        totalAmount: string
-    }
-
-    export interface GenerateInvoiceResponse {
-        invoice: interfaces.GeneratedInvoiceItem
+    export interface GetProfileResponse {
+        profile: interfaces.InvoiceProfileItem
     }
 
     export interface HolidayDeleteResponse {
@@ -2413,6 +2481,11 @@ export namespace controllers {
     export interface InvoiceCreateRequest {
         invoiceNumber: string
         amount?: number
+        /**
+         * Currency the customer pays in (default CZK)
+         */
+        currency?: string
+
         dueDate?: string
         status?: string
         issuedAt?: string
@@ -2424,6 +2497,10 @@ export namespace controllers {
 
     export interface InvoiceDeleteResponse {
         ok: boolean
+    }
+
+    export interface InvoiceDocResponse {
+        invoice: interfaces.InvoiceDocItem
     }
 
     export interface InvoiceListResponse {
@@ -2451,6 +2528,16 @@ export namespace controllers {
         generatedInvoices: interfaces.GeneratedInvoiceItem[]
     }
 
+    export interface IssueRequest {
+        customerId?: string
+        duzp?: string
+        note?: string
+        /**
+         * Sent again on retry / double click: returns the invoice already issued instead of a second one
+         */
+        idempotencyKey?: string
+    }
+
     export interface JobProfitReportRequest {
         from: string
         to: string
@@ -2475,6 +2562,10 @@ export namespace controllers {
 
     export interface ListRatesResponse {
         rates: interfaces.ExchangeRateItem[]
+    }
+
+    export interface ListResponse {
+        invoices: interfaces.InvoiceDocItem[]
     }
 
     export interface LocationListResponse {
@@ -2606,6 +2697,16 @@ export namespace controllers {
         ok: boolean
     }
 
+    export interface PdfResponse {
+        fileName: string
+        /**
+         * The official stored PDF, base64
+         */
+        contentBase64: string
+
+        sha256: string
+    }
+
     export interface PipelineExtractHblRequest {
         sessionId: string
         batchIndex: number
@@ -2641,6 +2742,40 @@ export namespace controllers {
 
     export interface PrefSetResponse {
         ok: boolean
+    }
+
+    export interface PreviewRequest {
+        /**
+         * Defaults to the customer linked to the shipment
+         */
+        customerId?: string
+
+        /**
+         * YYYY-MM-DD; defaults to ETA (import) / ETD (export) / today
+         */
+        duzp?: string
+    }
+
+    export interface PreviewResponse {
+        preview: interfaces.InvoicePreviewItem
+    }
+
+    export interface QueueRequest {
+        /**
+         * to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status); default to_bill
+         */
+        view?: string
+
+        search?: string
+    }
+
+    export interface QueueResponse {
+        queue: interfaces.BillingQueueItem[]
+        counts: interfaces.BillingQueueCounts
+        /**
+         * More shipments match than are listed - narrow it with the search
+         */
+        truncated: boolean
     }
 
     export interface QuoteAllocateRefResponse {
@@ -2762,6 +2897,25 @@ export namespace controllers {
 
     export interface RoeSetResponse {
         changes: interfaces.RoeChange[]
+    }
+
+    export interface SaveProfileRequest {
+        companyName: string
+        street: string
+        city: string
+        postalCode: string
+        country: string
+        ico: string
+        dic: string
+        vatPayer: boolean
+        registerEntry: string
+        email: string
+        phone: string
+        web: string
+        logoData: string
+        bankAccounts: schemas.BankAccount[]
+        defaultDueDays: number
+        footerNote: string
     }
 
     export interface SetIssuedInvoiceNumberRequest {
@@ -2993,6 +3147,11 @@ export namespace controllers {
          * Customs page filter: urgent
          */
         customs?: string
+
+        /**
+         * Invoicing page filter: billing | not-invoiced | invoiced
+         */
+        invoicing?: string
 
         search?: string
     }
@@ -3324,6 +3483,10 @@ export namespace controllers {
         amount?: string
         currency?: string
         invoice?: boolean
+        /**
+         * VAT code on the invoice: S21 | Z69 | RC | OUT; "" = default by trade direction
+         */
+        vatCode?: string
     }
 
     export interface UpdateSellingResponse {
@@ -3518,6 +3681,30 @@ export namespace interfaces {
         companyStatus: string
         registrationDate: string
         nace: string
+        /**
+         * Street and house number, e.g. "Jankovcova 1522/53"
+         */
+        street: string
+
+        /**
+         * City as used in a postal address, e.g. "Praha 7"
+         */
+        postalCity: string
+
+        /**
+         * e.g. "170 00"
+         */
+        postalCode: string
+
+        /**
+         * Registered for VAT (plátce DPH)
+         */
+        vatPayer: boolean
+
+        /**
+         * Commercial register entry, e.g. "B 8573 vedená u Městského soudu v Praze"; "" when none
+         */
+        registerEntry: string
     }
 
     export interface AttachmentItem {
@@ -3572,6 +3759,57 @@ export namespace interfaces {
         shipmentId: string
         rowKey: string
         billingAmount: string | null
+    }
+
+    /**
+     * Number of shipments in each queue view
+     */
+    export interface BillingQueueCounts {
+        toBill: number
+        notInvoiced: number
+        invoiced: number
+    }
+
+    /**
+     * One shipment in the Invoicing queue
+     */
+    export interface BillingQueueItem {
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        shipper: string
+        consignee: string
+        tradeDirection: string
+        estimatedDeparture: string | null
+        estimatedArrival: string | null
+        /**
+         * Shipment Status, e.g. "Billing [IMP]" (set by operations)
+         */
+        shipmentStatus: string
+
+        /**
+         * Invoiced | Not Invoiced
+         */
+        invoicingStatus: string
+
+        /**
+         * From the selling lines: to_bill | partly_invoiced | invoiced | none (no selling lines ticked)
+         */
+        billingState: string
+
+        billingCurrency: string
+        /**
+         * Ticked selling rows not on an open invoice, at today's rates (an estimate until issued)
+         */
+        amountToBill: number
+
+        rowsToBill: number
+        missingCurrencies: string[]
+        invoiceNumbers: string[]
+        invoiced: {
+            currency: string
+            gross: number
+        }[]
     }
 
     export interface BillingSettingsItem {
@@ -3961,16 +4199,162 @@ export namespace interfaces {
         sortOrder: number
     }
 
+    /**
+     * An issued invoice or credit note (immutable)
+     */
+    export interface InvoiceDocItem {
+        id: string
+        shipmentId: string
+        /**
+         * invoice | credit_note
+         */
+        kind: string
+
+        /**
+         * issued | credited
+         */
+        status: string
+
+        number: string
+        correctsInvoiceId: string | null
+        creditReason: string
+        customerId: string
+        issueDate: string
+        duzp: string
+        dueDate: string
+        currency: string
+        fxRate: string
+        fxWeek: string
+        net: string
+        vat: string
+        gross: string
+        netCzk: string
+        vatCzk: string
+        grossCzk: string
+        vatSummary: InvoiceVatSummaryItem[]
+        supplier: InvoicePartyItem
+        customer: InvoicePartyItem
+        jobNumber: string
+        note: string
+        hasPdf: boolean
+        createdAt: string
+        lines: InvoiceDocLineItem[]
+    }
+
+    /**
+     * One line of an issued invoice / credit note, or of a preview
+     */
+    export interface InvoiceDocLineItem {
+        description: string
+        qty: string
+        unitPrice: string
+        unitCurrency: string
+        /**
+         * Line total in the invoice currency
+         */
+        net: string
+
+        vatCode: string
+        vatRate: string
+        sourceSellingCostId: string | null
+    }
+
     export interface InvoiceItem {
         id: string
         customerId: string
         invoiceNumber: string
         amount: number
+        currency: string
         dueDate: string
         status: string
         issuedAt: string
         createdAt: string
         updatedAt: string
+    }
+
+    /**
+     * Party details printed on the invoice (snapshot taken when it was issued)
+     */
+    export interface InvoicePartyItem {
+        companyName: string
+        address: string
+        city: string
+        postalCode: string
+        country: string
+        ico: string
+        dic: string
+    }
+
+    /**
+     * What issuing would produce right now - no number yet, nothing stored
+     */
+    export interface InvoicePreviewItem {
+        customerId: string | null
+        customer: InvoicePartyItem | null
+        issueDate: string
+        duzp: string
+        dueDate: string
+        currency: string
+        fxRate: number
+        fxWeek: string
+        /**
+         * exact | older | newest | none
+         */
+        fxSource: string
+
+        net: number
+        vat: number
+        gross: number
+        netCzk: number
+        vatCzk: number
+        grossCzk: number
+        vatSummary: InvoiceVatSummaryItem[]
+        lines: InvoiceDocLineItem[]
+        /**
+         * Everything that blocks issuing; empty = ready to issue
+         */
+        problems: string[]
+    }
+
+    /**
+     * Issuer details printed on invoices (Settings → Organization → Invoicing details)
+     */
+    export interface InvoiceProfileItem {
+        companyName: string
+        street: string
+        city: string
+        postalCode: string
+        country: string
+        ico: string
+        dic: string
+        vatPayer: boolean
+        registerEntry: string
+        email: string
+        phone: string
+        web: string
+        logoData: string
+        bankAccounts: {
+            currency: string
+            bankName: string
+            accountNumber: string
+            iban: string
+            swift: string
+        }[]
+        defaultDueDays: number
+        footerNote: string
+        /**
+         * What must still be filled in before an invoice can be issued; empty = ready.
+         */
+        missingForIssue: string[]
+    }
+
+    export interface InvoiceVatSummaryItem {
+        vatCode: string
+        vatRate: number
+        base: number
+        vat: number
+        baseCzk: number
+        vatCzk: number
     }
 
     /**
@@ -4224,6 +4608,11 @@ export namespace interfaces {
         currency: string
         invoice: boolean
         sourceBuyId: string | null
+        /**
+         * VAT code on the invoice; null = default by trade direction
+         */
+        vatCode: string | null
+
         sortOrder: number
     }
 
@@ -4577,6 +4966,23 @@ export namespace interfaces {
         data: any
         createdAt: string
         updatedAt: string
+    }
+}
+
+export namespace schemas {
+    /**
+     * One bank account the customer can pay to, per invoice currency.
+     */
+    export interface BankAccount {
+        currency: string
+        bankName: string
+        /**
+         * Czech account number, e.g. "123456789/0800" (optional for foreign accounts).
+         */
+        accountNumber: string
+
+        iban: string
+        swift: string
     }
 }
 

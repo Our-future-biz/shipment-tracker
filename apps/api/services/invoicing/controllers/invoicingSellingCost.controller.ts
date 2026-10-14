@@ -2,6 +2,7 @@ import { api, APIError } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { invoicingService } from "../services/invoicing.service";
 import type { SellingCostItem } from "../interfaces/interfaces";
+import { isVatCode } from "../lib/invoiceCalc";
 
 interface AddSellingRequest {
   shipmentId: string;
@@ -37,6 +38,8 @@ interface UpdateSellingRequest {
   amount?: string;
   currency?: string;
   invoice?: boolean;
+  /** VAT code on the invoice: S21 | Z69 | RC | OUT; "" = default by trade direction */
+  vatCode?: string;
 }
 
 interface UpdateSellingResponse {
@@ -46,7 +49,12 @@ interface UpdateSellingResponse {
 export const invoicingUpdateSellingCost = api(
   { expose: true, auth: true, method: "PATCH", path: "/invoicing/:shipmentId/selling/:sellingId" },
   async (req: UpdateSellingRequest): Promise<UpdateSellingResponse> => {
-    const { shipmentId, sellingId, ...data } = req;
+    const { shipmentId, sellingId, vatCode, ...rest } = req;
+    const data: Record<string, unknown> = { ...rest };
+    if (vatCode !== undefined) {
+      if (vatCode !== "" && (!isVatCode(vatCode) || vatCode === "NP")) throw APIError.invalidArgument(`Unknown VAT code: ${vatCode}`);
+      data.vatCode = vatCode || null;
+    }
     const row = await invoicingService.updateSellingCost(sellingId, getAuthData()!.companyID, shipmentId, data);
     if (!row) throw APIError.notFound("Selling cost not found");
     return { sellingCost: row as unknown as SellingCostItem };

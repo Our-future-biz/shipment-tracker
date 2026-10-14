@@ -8,6 +8,7 @@ import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
 import { useCustomerQuotes } from "@/hooks/useCustomerQuotes";
 import { useCustomer } from "@/hooks/useCustomers";
+import { useLatestRates } from "@/lib/fx";
 import { useShipmentsNeedingAttention } from "@/hooks/useShipmentsNeedingAttention";
 import { buildCustomerAttention } from "../../_lib/customerAttention";
 import type { AttentionItem, AttentionSeverity } from "../../_lib/customerAttention";
@@ -66,6 +67,7 @@ interface CustomerAttentionCardProps {
 export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAttentionCardProps) {
   const { customer, isLoading: customerLoading } = useCustomer(customerId);
   const { invoices, isLoading: invoicesLoading } = useCustomerInvoices(customerId);
+  const { rates } = useLatestRates();
   const { quotes, isLoading: quotesLoading } = useCustomerQuotes(customerId);
   const { documents, isLoading: documentsLoading, isError: documentsError } = useCustomerDocuments(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
@@ -92,11 +94,12 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
       quotes,
       documents,
       notes,
+      rates,
     });
     // For documents and notes an empty list is itself a finding, but a list that could not be loaded is
     // not an empty one: its "nothing on file" row would be untrue.
     return built.filter((item) => !(documentsError && item.key === "documents-missing") && !(notesError && item.key === "no-interaction"));
-  }, [isLoading, customer, invoices, within24h, within48h, quotes, documents, notes, documentsError, notesError]);
+  }, [isLoading, customer, invoices, within24h, within48h, quotes, documents, notes, rates, documentsError, notesError]);
 
   if (items.length === 0) return null;
 

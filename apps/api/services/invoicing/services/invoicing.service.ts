@@ -81,11 +81,6 @@ class InvoicingService {
   async upsertBillingOverride(shipmentId: string, companyId: string, rowKey: string, billingAmount: string) {
     return billingOverrideRepository.upsert(shipmentId, companyId, rowKey, billingAmount === "" ? null : billingAmount);
   }
-
-  async generateInvoice(shipmentId: string, companyId: string, jobNumber: string, invoiceType: string, billingCurrency: string, totalAmount: string) {
-    const invoiceNumber = await generatedInvoiceRepository.getNextInvoiceNumber(jobNumber, shipmentId, companyId);
-    return generatedInvoiceRepository.create({ companyId, shipmentId, invoiceNumber, invoiceType, billingCurrency, totalAmount });
-  }
 }
 
 export const invoicingService = new InvoicingService();

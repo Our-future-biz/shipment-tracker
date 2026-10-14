@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { DepartmentsManager } from "../_components/DepartmentsManager";
 import { BranchesManager } from "../_components/BranchesManager";
 import { CountriesManager } from "../_components/CountriesManager";
+import { InvoiceProfileManager } from "../_components/InvoiceProfileManager";
 
 export function OrganizationView() {
   const { user } = useAuth();
@@ -37,6 +38,7 @@ export function OrganizationView() {
         <DepartmentsManager search={search} />
         <BranchesManager search={search} />
         <CountriesManager search={search} />
+        <InvoiceProfileManager />
       </div>
     </div>
   );

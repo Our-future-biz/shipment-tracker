@@ -13,6 +13,7 @@ export const invoiceSellingCostTable = pgTable(
     ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
     category: text("category").notNull().default(""),
+    /** Sloupec "Invoice text": text radku na fakture; prazdny = kategorie. (Nazev sloupce z mockupu.) */
     customer: text("customer").notNull().default(""),
     qty: numeric("qty", { precision: 14, scale: 2 }),
     amount: numeric("amount", { precision: 14, scale: 2 }),
@@ -21,6 +22,8 @@ export const invoiceSellingCostTable = pgTable(
     invoice: boolean("invoice").notNull().default(true),
     /** vazba na zdrojovy buying radek (mockup: data-src) - brani opakovanemu kopirovani */
     sourceBuyId: uuid("source_buy_id"),
+    /** DPH kod radku na fakture (S21 | Z69 | RC | OUT); null = vychozi podle smeru zasilky */
+    vatCode: text("vat_code"),
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (table) => [

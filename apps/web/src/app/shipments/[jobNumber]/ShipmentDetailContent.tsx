@@ -20,6 +20,7 @@ import {
   PaperClipOutlined,
   FileTextOutlined,
   EditOutlined,
+  DollarOutlined,
 } from "@ant-design/icons";
 import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
@@ -1031,6 +1032,15 @@ export function ShipmentDetailContent() {
             <span className="text-xs text-slate-500">
               ETD {formatDate(shipment.estimatedDeparture) || "--"} / ETA {formatDate(shipment.estimatedArrival) || "--"}
             </span>
+
+            {/* Invoicing of this shipment, opened with the shipment already selected */}
+            <Link
+              href={`/invoicing?shipment=${shipment.id}`}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 text-slate-600 hover:text-slate-600"
+            >
+              <DollarOutlined />
+              Invoice
+            </Link>
 
             {/* Linked Quote */}
             {linkedQuote && (

@@ -7,6 +7,8 @@ interface InvoiceCreateRequest {
   customerId: string;
   invoiceNumber: string;
   amount?: number;
+  /** Currency the customer pays in (default CZK) */
+  currency?: string;
   dueDate?: string;
   status?: string;
   issuedAt?: string;

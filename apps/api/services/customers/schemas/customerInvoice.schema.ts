@@ -14,6 +14,8 @@ export const customerInvoiceTable = pgTable(
     invoiceNumber: text("invoice_number").notNull(),
     // Money as numeric (exact); mode:"number" keeps the API type a JS number.
     amount: numeric("amount", { precision: 14, scale: 2, mode: "number" }).notNull().default(0),
+    // Currency the customer pays in; the CZK equivalent is on the invoice itself.
+    currency: text("currency").notNull().default("CZK"),
     dueDate: text("due_date").notNull().default(""),
     status: text("status").notNull().default("Open"), // Open / Overdue / Paid
     issuedAt: text("issued_at").notNull().default(""),

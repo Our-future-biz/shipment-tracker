@@ -14,6 +14,20 @@ class SellingCostRepository {
       .orderBy(asc(invoiceSellingCostTable.sortOrder), asc(invoiceSellingCostTable.createdAt));
   }
 
+  /** Every row ticked for Invoice in the company (for the "Ready to bill" queue). */
+  async listTickedByCompany(companyId: string) {
+    return db
+      .select({
+        id: invoiceSellingCostTable.id,
+        shipmentId: invoiceSellingCostTable.shipmentId,
+        qty: invoiceSellingCostTable.qty,
+        amount: invoiceSellingCostTable.amount,
+        currency: invoiceSellingCostTable.currency,
+      })
+      .from(invoiceSellingCostTable)
+      .where(and(eq(invoiceSellingCostTable.companyId, companyId), eq(invoiceSellingCostTable.invoice, true)));
+  }
+
   async create(data: { companyId: string; shipmentId: string } & Record<string, unknown>) {
     const [row] = await db.insert(invoiceSellingCostTable).values(data as never).returning();
     return row!;
