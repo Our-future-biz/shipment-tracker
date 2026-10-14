@@ -93,8 +93,8 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
                   <Alert
                     type="warning"
                     showIcon
-                    message={`No exchange rate for ${summary.unconverted.map((u) => u.currency).join(", ")}`}
-                    description={`${summary.unconverted.map((u) => fmtMoney(u.amount, u.currency)).join(" + ")} is left out of the totals below. Add the rate on the Exchange page.`}
+                    message={`ČNB publishes no rate for ${summary.unconverted.map((u) => u.currency).join(", ")}`}
+                    description={`${summary.unconverted.map((u) => fmtMoney(u.amount, u.currency)).join(" + ")} is left out of the totals below.`}
                   />
                 )}
                 <div className={KPI_GRID_CLASS}>

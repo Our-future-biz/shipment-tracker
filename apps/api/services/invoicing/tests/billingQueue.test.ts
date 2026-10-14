@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildBillingQueue, type QueueOpenInvoice, type QueueSellingRow } from "../lib/billingQueue";
 
-const rateRows = [{ week: "2026-W42", validFrom: "2026-10-12", validTo: "2026-10-18", rateEur: "25.0000", rateUsd: "22.0000" }];
+const rates = { CZK: 1, EUR: 25, USD: 22 };
 const row = (id: string, shipmentId: string, amount: string, currency = "CZK", qty: string | null = "1.00"): QueueSellingRow => ({
   id, shipmentId, amount, currency, qty,
 });
@@ -10,9 +10,20 @@ const inv = (shipmentId: string, number: string, gross: string, ids: string[], c
 });
 
 const run = (rows: QueueSellingRow[], openInvoices: QueueOpenInvoice[], billing: Record<string, string> = {}) =>
-  buildBillingQueue({ rows, openInvoices, billingCurrencies: new Map(Object.entries(billing)), rateRows, today: "2026-10-13" });
+  buildBillingQueue({ rows, openInvoices, billingCurrencies: new Map(Object.entries(billing)), rates, roePct: 100 });
 
 describe("buildBillingQueue", () => {
+  it("estimates foreign-currency rows with the ROE %, as the invoice will", () => {
+    const [e] = buildBillingQueue({
+      rows: [row("a", "s1", "1000.00", "EUR"), row("b", "s1", "5000.00")],
+      openInvoices: [],
+      billingCurrencies: new Map([["s1", "CZK"]]),
+      rates,
+      roePct: 102,
+    });
+    expect(e!.amountToBill).toBe(25500 + 5000);
+  });
+
   it("lists a shipment with ticked rows and no invoice as to bill, in its billing currency", () => {
     const [e] = run([row("a", "s1", "1000.00", "EUR"), row("b", "s1", "5000.00")], [], { s1: "CZK" });
     expect(e).toMatchObject({ shipmentId: "s1", status: "to_bill", amountToBill: 30000, rowsToBill: 2, billingCurrency: "CZK", invoiceNumbers: [] });

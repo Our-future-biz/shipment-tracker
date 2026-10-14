@@ -80,9 +80,17 @@ export const invoiceTable = pgTable(
     duzp: date("duzp", { mode: "string" }).notNull(),
     dueDate: date("due_date", { mode: "string" }).notNull(),
     currency: text("currency").notNull(),
-    /** CZK per 1 unit of the invoice currency, and where it came from */
+    /**
+     * Statutory rate for the CZK tax amounts (§4 odst. 8 ZDPH): ČNB, CZK per 1 unit of the
+     * invoice currency, valid on the DUZP. fx_week is the older weekly-sheet label (invoices
+     * issued before the ČNB switch); newer ones record the ČNB fixing date and source.
+     */
     fxRate: numeric("fx_rate", { precision: 14, scale: 6 }).notNull(),
     fxWeek: text("fx_week").notNull().default(""),
+    fxFixingDate: date("fx_fixing_date", { mode: "string" }),
+    fxSource: text("fx_source").notNull().default(""), // CNB | weekly (older invoices)
+    /** Company ROE % applied to lines priced in another currency (commercial rate, not tax) */
+    roePct: numeric("roe_pct", { precision: 6, scale: 3 }),
     net: numeric("net", { precision: 14, scale: 2 }).notNull(),
     vat: numeric("vat", { precision: 14, scale: 2 }).notNull(),
     gross: numeric("gross", { precision: 14, scale: 2 }).notNull(),
@@ -128,6 +136,8 @@ export const invoiceLineTable = pgTable(
     unitCurrency: text("unit_currency").notNull(),
     /** Line total in the invoice currency */
     net: numeric("net", { precision: 14, scale: 2 }).notNull(),
+    /** Invoice-currency units per 1 unit_currency used for this line (ČNB cross rate × ROE %); 1 when the same */
+    fxRate: numeric("fx_rate", { precision: 14, scale: 6 }),
     vatCode: text("vat_code").notNull(),
     vatRate: numeric("vat_rate", { precision: 5, scale: 2 }).notNull(),
     sourceSellingCostId: uuid("source_selling_cost_id"),

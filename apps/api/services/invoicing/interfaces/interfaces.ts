@@ -179,8 +179,14 @@ export interface InvoiceDocItem {
   duzp: string;
   dueDate: string;
   currency: string;
+  /** Statutory ČNB rate on the DUZP, CZK per 1 unit of the invoice currency */
   fxRate: string;
+  /** Older invoices: the weekly-sheet week; "" for ČNB-rated ones */
   fxWeek: string;
+  /** The ČNB fixing the rate came from (null on older invoices) */
+  fxFixingDate: string | null;
+  /** Company ROE % applied to lines in another currency (null on older invoices) */
+  roePct: string | null;
   net: string;
   vat: string;
   gross: string;
@@ -206,9 +212,10 @@ export interface InvoicePreviewItem {
   dueDate: string;
   currency: string;
   fxRate: number;
-  fxWeek: string;
-  /** exact | older | newest | none */
-  fxSource: string;
+  /** The ČNB fixing valid on the DUZP (null when there is none yet) */
+  fxFixingDate: string | null;
+  /** Company ROE % on the DUZP, applied to lines in another currency */
+  roePct: number;
   net: number;
   vat: number;
   gross: number;

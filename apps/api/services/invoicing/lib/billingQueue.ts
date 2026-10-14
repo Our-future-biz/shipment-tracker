@@ -1,4 +1,4 @@
-import { pickRates, round2, type RateRow } from "./invoiceCalc";
+import { round2 } from "./invoiceCalc";
 
 /**
  * The "Ready to bill" queue: per shipment, which selling rows ticked for Invoice are not
@@ -49,10 +49,13 @@ export function buildBillingQueue(input: {
   rows: QueueSellingRow[];
   openInvoices: QueueOpenInvoice[];
   billingCurrencies: Map<string, string>;
-  rateRows: RateRow[];
-  today: string;
+  /** Today's ČNB rates, CZK per 1 unit */
+  rates: Record<string, number>;
+  /** Company ROE % today — applied to rows in another currency, as the invoice will */
+  roePct: number;
 }): QueueEntry[] {
-  const { rates } = pickRates(input.rateRows, input.today);
+  const { rates } = input;
+  const roe = input.roePct / 100;
   const invoicedRowIds = new Set(input.openInvoices.flatMap((i) => i.sourceSellingCostIds).filter((x): x is string => !!x));
 
   const byShipment = new Map<string, QueueSellingRow[]>();
@@ -81,7 +84,7 @@ export function buildBillingQueue(input: {
         missing.add(from === null ? r.currency : currency);
         continue;
       }
-      amount += round2((value * from) / billingRate);
+      amount += round2(((value * from) / billingRate) * ((r.currency || "CZK") === currency ? 1 : roe));
     }
 
     const invoiced = new Map<string, number>();

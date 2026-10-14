@@ -3,7 +3,10 @@
  * browser sends). Pure functions, so every rule is covered by unit tests.
  *
  *  - lines = selling rows ticked for Invoice, converted into the invoice currency by
- *    their own currency (rates: CZK per 1 unit, from the Exchange page)
+ *    their own currency at the ČNB rate valid on the DUZP (CZK per 1 unit); a line in
+ *    another currency than the invoice also gets the company ROE % (commercial rate)
+ *  - the CZK tax amounts use the raw ČNB rate of the invoice currency on the DUZP
+ *    (§4 odst. 8 ZDPH) — never the ROE-adjusted one
  *  - every line is rounded to 2 decimals; totals are sums of rounded lines
  *  - VAT is calculated per VAT rate from the base of that rate (§37 ZDPH), and the
  *    base and VAT are also shown in CZK for the tax authority
@@ -87,40 +90,6 @@ export function effectiveVatCode(chosen: string | null | undefined, tradeDirecti
 /** CZK per 1 unit of the currency; CZK itself is 1. */
 export type Rates = Record<string, number>;
 
-export interface RateRow {
-  week: string;
-  validFrom: string;
-  validTo: string;
-  rateEur: string | null;
-  rateUsd: string | null;
-}
-
-export interface PickedRates {
-  rates: Rates;
-  /** ISO week the rates come from; "" when no rates exist. */
-  week: string;
-  /** exact = the week of the date; older = closest older week; none = no rates entered */
-  source: "exact" | "older" | "newest" | "none";
-}
-
-/**
- * Rates valid on a date: the week containing it, else the closest older week, else the
- * newest week. Same rule as the Costs tab, so both show the same numbers.
- */
-export function pickRates(rows: RateRow[], dateIso: string): PickedRates {
-  if (!rows.length) return { rates: { CZK: 1 }, week: "", source: "none" };
-  const sorted = [...rows].sort((a, b) => b.validFrom.localeCompare(a.validFrom));
-  const exact = sorted.find((r) => r.validFrom <= dateIso && dateIso <= r.validTo);
-  const older = exact ?? sorted.find((r) => r.validFrom <= dateIso);
-  const row = older ?? sorted[0]!;
-  const rates: Rates = { CZK: 1 };
-  const eur = toNumber(row.rateEur);
-  const usd = toNumber(row.rateUsd);
-  if (eur > 0) rates.EUR = eur;
-  if (usd > 0) rates.USD = usd;
-  return { rates, week: row.week, source: exact ? "exact" : older ? "older" : "newest" };
-}
-
 function rateOf(currency: string, rates: Rates): number | null {
   if (!currency || currency === "CZK") return 1;
   const r = rates[currency];
@@ -144,13 +113,23 @@ export function parseShipmentDate(raw: string | null | undefined): string {
   return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
 }
 
-/** DUZP default: ETA for imports, ETD for exports (when the service happens), else today. */
+/**
+ * DUZP default = the tax date (owner decision, 14 Oct 2026): ATA for imports, ATD for
+ * exports; until that is known ETA / ETD; else today.
+ */
 export function defaultDuzp(
-  shipment: { tradeDirection: string; estimatedArrival: string | null; estimatedDeparture: string | null },
+  shipment: {
+    tradeDirection: string;
+    estimatedArrival: string | null;
+    estimatedDeparture: string | null;
+    actualArrival?: string | null;
+    actualDeparture?: string | null;
+  },
   today: string,
 ): string {
   const isExport = (shipment.tradeDirection ?? "").trim().toLowerCase() === "export";
-  return parseShipmentDate(isExport ? shipment.estimatedDeparture : shipment.estimatedArrival) || today;
+  const actual = parseShipmentDate(isExport ? shipment.actualDeparture : shipment.actualArrival);
+  return actual || parseShipmentDate(isExport ? shipment.estimatedDeparture : shipment.estimatedArrival) || today;
 }
 
 /** "14 days" -> 14, "PREPAYMENT" -> 0 (due on issue), anything else -> the default. */
@@ -198,6 +177,8 @@ export interface InvoiceLineCalc {
   net: number;
   vatCode: VatCode;
   vatRate: number;
+  /** Invoice-currency units per 1 unit_currency (ČNB cross rate × ROE %); 1 for the same currency */
+  fxRate: number;
 }
 
 export interface VatSummaryRow {
@@ -228,11 +209,15 @@ export interface InvoiceCalc {
 export function calculateInvoice(input: {
   rows: SellingRowInput[];
   currency: string;
+  /** ČNB rates valid on the DUZP, CZK per 1 unit */
   rates: Rates;
+  /** Company ROE % in force on the DUZP; 100 = pure ČNB */
+  roePct?: number;
   tradeDirection: string;
   vatPayer: boolean;
 }): InvoiceCalc {
   const { rows, currency, rates, tradeDirection, vatPayer } = input;
+  const roe = (input.roePct ?? 100) / 100;
   const missing = new Set<string>();
   const billingRate = rateOf(currency, rates);
   if (billingRate === null) missing.add(currency);
@@ -248,7 +233,9 @@ export function calculateInvoice(input: {
       continue;
     }
     if (billingRate === null) continue;
-    const net = round2((unitPrice * qty * from) / billingRate);
+    // A sell price turned into another currency carries the ROE buffer; the same currency never does.
+    const lineFx = (r.currency || "CZK") === currency ? 1 : (from / billingRate) * roe;
+    const net = round2(unitPrice * qty * lineFx);
     if (net === 0) continue;
     const vatCode = effectiveVatCode(r.vatCode, tradeDirection, vatPayer);
     lines.push({
@@ -260,6 +247,7 @@ export function calculateInvoice(input: {
       net,
       vatCode,
       vatRate: VAT_CODE_INFO[vatCode].rate,
+      fxRate: Math.round(lineFx * 1e6) / 1e6,
     });
   }
 

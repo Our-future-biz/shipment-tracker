@@ -1,5 +1,5 @@
 import { APIError } from "encore.dev/api";
-import { shipments } from "~encore/clients";
+import { invoicing, shipments } from "~encore/clients";
 import { cnbRateRepository } from "../repositories/cnbRate.repository";
 import { jobRateRepository } from "../repositories/jobRate.repository";
 import type { LockedRates } from "../schemas/jobRate.schema";
@@ -9,12 +9,12 @@ import { directionOf, planJobRates } from "../lib/jobRates";
 import type { JobRates } from "../interfaces/interfaces";
 
 /**
- * Whether the job has an issued invoice, which makes its ATA/ATD — and so its rate lock —
- * final. The new invoices live on the Invoice-1 branch; until it is merged (Phase 5) no
- * job counts as invoiced and a changed ATA/ATD always re-locks.
+ * Whether the job has an issued (not credited) invoice, which makes its ATA/ATD — and so
+ * its rate lock — final.
  */
-async function jobIsInvoiced(_companyId: string, _shipmentId: string): Promise<boolean> {
-  return false;
+async function jobIsInvoiced(companyId: string, shipmentId: string): Promise<boolean> {
+  const { count } = await invoicing.openInvoiceCount({ shipmentId, companyId });
+  return count > 0;
 }
 
 // Every ČNB currency's rate for `date`, with whether all of them are final for it.

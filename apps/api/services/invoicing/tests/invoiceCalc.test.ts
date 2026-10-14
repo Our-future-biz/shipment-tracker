@@ -9,7 +9,6 @@ import {
   effectiveVatCode,
   isIsoDate,
   parseShipmentDate,
-  pickRates,
   round2,
   summarise,
   type SellingRowInput,
@@ -54,26 +53,6 @@ describe("VAT codes", () => {
   });
 });
 
-describe("pickRates", () => {
-  const rows = [
-    { week: "2026-W42", validFrom: "2026-10-12", validTo: "2026-10-18", rateEur: "25.0000", rateUsd: "22.0000" },
-    { week: "2026-W40", validFrom: "2026-09-28", validTo: "2026-10-04", rateEur: "24.5000", rateUsd: null },
-  ];
-
-  it("takes the week containing the date", () => {
-    expect(pickRates(rows, "2026-10-14")).toEqual({ rates: { CZK: 1, EUR: 25, USD: 22 }, week: "2026-W42", source: "exact" });
-  });
-
-  it("falls back to the closest older week, then the newest", () => {
-    expect(pickRates(rows, "2026-10-07")).toMatchObject({ week: "2026-W40", source: "older", rates: { CZK: 1, EUR: 24.5 } });
-    expect(pickRates(rows, "2026-04-06")).toMatchObject({ week: "2026-W42", source: "newest" });
-  });
-
-  it("has only CZK when no rates exist", () => {
-    expect(pickRates([], "2026-10-14")).toEqual({ rates: { CZK: 1 }, week: "", source: "none" });
-  });
-});
-
 describe("dates", () => {
   it("parses ISO and grid dates", () => {
     expect(parseShipmentDate("2026-10-02")).toBe("2026-10-02");
@@ -83,7 +62,13 @@ describe("dates", () => {
     expect(parseShipmentDate(null)).toBe("");
   });
 
-  it("defaults DUZP to ETA for imports, ETD for exports, else today", () => {
+  it("defaults DUZP to the tax date: ATA for imports, ATD for exports", () => {
+    const s = { estimatedArrival: "10/20/26", estimatedDeparture: "10/01/26", actualArrival: "2026-10-19", actualDeparture: "2026-10-02" };
+    expect(defaultDuzp({ ...s, tradeDirection: "Import" }, "2026-10-13")).toBe("2026-10-19");
+    expect(defaultDuzp({ ...s, tradeDirection: "Export" }, "2026-10-13")).toBe("2026-10-02");
+  });
+
+  it("defaults DUZP to ETA for imports, ETD for exports until ATA / ATD is known, else today", () => {
     const s = { estimatedArrival: "10/20/26", estimatedDeparture: "10/01/26" };
     expect(defaultDuzp({ ...s, tradeDirection: "Import" }, "2026-10-13")).toBe("2026-10-20");
     expect(defaultDuzp({ ...s, tradeDirection: "Export" }, "2026-10-13")).toBe("2026-10-01");
@@ -108,6 +93,31 @@ describe("dates", () => {
 });
 
 describe("calculateInvoice", () => {
+  it("adds the ROE % only to lines in another currency than the invoice", () => {
+    const c = calculateInvoice({
+      rows: [row({ id: "a", amount: "1000.00", currency: "EUR" }), row({ id: "b", category: "THC Destination", amount: "4999.50" })],
+      currency: "CZK",
+      rates,
+      roePct: 102,
+      tradeDirection: "Import",
+      vatPayer: true,
+    });
+    expect(c.lines.map((l) => [l.net, l.fxRate])).toEqual([[25500, 25.5], [4999.5, 1]]);
+  });
+
+  it("keeps the CZK tax amounts at the raw ČNB rate whatever the ROE %", () => {
+    const c = calculateInvoice({
+      rows: [row({ id: "a", amount: "1000.00", currency: "EUR", vatCode: "S21" })],
+      currency: "EUR",
+      rates,
+      roePct: 102,
+      tradeDirection: "Domestic",
+      vatPayer: true,
+    });
+    // same currency: no buffer on the line; CZK recap at 25 (ČNB), never 25.5
+    expect(c).toMatchObject({ net: 1000, fxRate: 25, netCzk: 25000, vatCzk: 5250 });
+  });
+
   it("converts every row by its own currency and leaves unticked rows out", () => {
     const c = calculateInvoice({
       rows: [

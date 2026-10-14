@@ -32,6 +32,8 @@ export interface InvoiceForPdf {
   currency: string;
   fxRate: string;
   fxWeek: string;
+  fxFixingDate: string | null;
+  roePct: string | null;
   net: string;
   vat: string;
   gross: string;
@@ -358,8 +360,25 @@ export async function renderInvoicePdf(inv: InvoiceForPdf, fonts: PdfFonts): Pro
   }
   if (foreign) {
     w.y -= 16;
+    // ČNB rate valid on the DUZP (§4 odst. 8 ZDPH); older invoices carry their weekly-sheet label.
+    const rateNote = inv.fxFixingDate
+      ? `Kurz ČNB k DUZP / CNB rate at tax date: 1 ${inv.currency} = ${czRate(inv.fxRate)} CZK (fixing ${czDate(inv.fxFixingDate)})`
+      : `Kurz / Exchange rate: 1 ${inv.currency} = ${czRate(inv.fxRate)} CZK${inv.fxWeek ? ` (${inv.fxWeek})` : ""}`;
     w.text(
-      `Kurz / Exchange rate: 1 ${inv.currency} = ${czRate(inv.fxRate)} CZK${inv.fxWeek ? ` (${inv.fxWeek})` : ""}`,
+      rateNote,
+      M,
+      w.y,
+      8,
+      { color: MUTED },
+    );
+  }
+  // Lines priced in another currency were converted at the ČNB rate (+ the company ROE %).
+  if (inv.fxFixingDate && inv.lines.some((l) => l.unitCurrency !== inv.currency)) {
+    const pct = Number(inv.roePct ?? 100);
+    const buffer = pct !== 100 ? ` + ${String(Math.round((pct - 100) * 1000) / 1000).replace(".", ",")} %` : "";
+    w.y -= 12;
+    w.text(
+      `Položky v jiné měně přepočteny kurzem ČNB k DUZP${buffer} / Items in other currencies converted at the CNB rate on the tax date${buffer}`,
       M,
       w.y,
       8,

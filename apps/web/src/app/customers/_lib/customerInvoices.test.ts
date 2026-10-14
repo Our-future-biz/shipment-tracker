@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
-import { convert, pickRates } from "@/lib/fx";
+import { convert } from "@/lib/fx";
 import { summarizeInvoices } from "./customerInvoices";
 
 const NOW = new Date("2026-10-13T12:00:00").getTime();
@@ -84,14 +84,4 @@ describe("fx", () => {
     expect(convert(1, "GBP", "CZK", rates)).toBeNull();
   });
 
-  it("picks the week of today, else the closest older, else the newest", () => {
-    const rows = [
-      { week: "2026-W42", validFrom: "2026-10-12", validTo: "2026-10-18", rateEur: "25.0000", rateUsd: null },
-      { week: "2026-W40", validFrom: "2026-09-28", validTo: "2026-10-04", rateEur: "24.5000", rateUsd: "22.0000" },
-    ];
-    expect(pickRates(rows, "2026-10-13")).toEqual({ rates: { CZK: 1, EUR: 25 }, week: "2026-W42" });
-    expect(pickRates(rows, "2026-10-08").week).toBe("2026-W40");
-    expect(pickRates(rows, "2026-01-01").week).toBe("2026-W42");
-    expect(pickRates([], "2026-10-13")).toEqual({ rates: { CZK: 1 }, week: "" });
-  });
 });

@@ -16,7 +16,7 @@ const pdf = vi.hoisted(() => ({ render: vi.fn() }));
 const profiles = vi.hoisted(() => ({ getByCompany: vi.fn() }));
 const selling = vi.hoisted(() => ({ listByShipmentId: vi.fn(), listTickedByCompany: vi.fn() }));
 const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn(), listByCompany: vi.fn() }));
-const rates = vi.hoisted(() => ({ listByCompany: vi.fn() }));
+const fxClient = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 const clients = vi.hoisted(() => ({
   shipmentGet: vi.fn(), shipmentUpdate: vi.fn(), shipmentList: vi.fn(), customerGet: vi.fn(), invoiceCreate: vi.fn(),
 }));
@@ -25,10 +25,10 @@ vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo }
 vi.mock("../repositories/invoiceProfile.repository", () => ({ invoiceProfileRepository: profiles }));
 vi.mock("../repositories/sellingCost.repository", () => ({ sellingCostRepository: selling }));
 vi.mock("../repositories/billingSettings.repository", () => ({ billingSettingsRepository: settings }));
-vi.mock("../repositories/exchangeRate.repository", () => ({ exchangeRateRepository: rates }));
 vi.mock("~encore/clients", () => ({
   shipments: { shipmentGet: clients.shipmentGet, shipmentUpdate: clients.shipmentUpdate, shipmentList: clients.shipmentList },
   customers: { customerGet: clients.customerGet, invoiceCreate: clients.invoiceCreate },
+  fx: fxClient,
 }));
 vi.mock("encore.dev/log", () => ({ default: { error: vi.fn() } }));
 vi.mock("../storage/invoiceBucket", () => ({ invoiceBucket: bucket }));
@@ -66,7 +66,8 @@ const profile = {
   ico: "12345679", dic: "CZ12345679", vatPayer: true, registerEntry: "", email: "", phone: "", web: "", logoData: "",
   bankAccounts: [{ currency: "CZK", bankName: "B", accountNumber: "1/0800", iban: "", swift: "" }], defaultDueDays: 14, footerNote: "",
 };
-const rateRow = { week: "2026-W42", validFrom: "2026-10-12", validTo: "2026-10-18", rateEur: "25.0000", rateUsd: "22.0000" };
+// ČNB rates valid on the DUZP, as the fx service returns them
+const cnb = { date: "2026-10-14", fixingDate: "2026-10-13", provisional: false, roePct: 100, rates: [{ currency: "EUR", rate: 25 }, { currency: "USD", rate: 22 }] };
 const sellRow = (over: Record<string, unknown>) => ({
   id: "s1", category: "Ocean freight", qty: "1.00", amount: "1000.00", currency: "EUR", invoice: true, vatCode: null, ...over,
 });
@@ -80,7 +81,7 @@ beforeEach(() => {
   profiles.getByCompany.mockResolvedValue(profile);
   selling.listByShipmentId.mockResolvedValue([sellRow({}), sellRow({ id: "s2", category: "THC Destination", amount: "4999.50", currency: "CZK" })]);
   settings.getByShipmentId.mockResolvedValue({ billingCurrency: "CZK" });
-  rates.listByCompany.mockResolvedValue([rateRow]);
+  fxClient.fxRatesOn.mockResolvedValue(cnb);
   repo.getByIdempotencyKey.mockResolvedValue(null);
   repo.setPdfIfMissing.mockResolvedValue(true);
   bucket.upload.mockResolvedValue(undefined);
@@ -96,7 +97,8 @@ describe("preview", () => {
   it("computes the invoice from stored data, with DUZP = ETA for an import", async () => {
     const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
     expect(p.problems).toEqual([]);
-    expect(p).toMatchObject({ duzp: "2026-10-14", currency: "CZK", fxWeek: "2026-W42", gross: 29999.5, grossCzk: 29999.5, customerId: CUSTOMER });
+    expect(p).toMatchObject({ duzp: "2026-10-14", currency: "CZK", fxFixingDate: "2026-10-13", roePct: 100, gross: 29999.5, grossCzk: 29999.5, customerId: CUSTOMER });
+    expect(fxClient.fxRatesOn).toHaveBeenCalledWith({ date: "2026-10-14" });
     expect(p.lines.map((l) => [l.description, l.net, l.vatCode])).toEqual([
       ["Ocean freight", "25000.00", "Z69"],
       ["THC Destination", "4999.50", "Z69"],
@@ -117,9 +119,34 @@ describe("preview", () => {
       "DUZP is not a valid date",
       "Choose the customer to invoice",
       "Invoicing details are missing: IČO, bank account (Settings → Organization)",
-      "No exchange rate for GBP — add it on the Exchange page",
+      "ČNB publishes no rate for GBP",
       "Tick at least one selling row for Invoice",
     ]);
+  });
+});
+
+describe("ČNB rates", () => {
+  it("takes DUZP from ATA once known, and applies the ROE % to foreign lines", async () => {
+    clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, actualArrival: "2026-10-12" } });
+    fxClient.fxRatesOn.mockResolvedValue({ ...cnb, date: "2026-10-12", fixingDate: "2026-10-12", roePct: 102 });
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(p.duzp).toBe("2026-10-12");
+    expect(p.lines.map((l) => l.net)).toEqual(["25500.00", "4999.50"]);
+  });
+
+  it("blocks issuing while the DUZP's ČNB rate is not published", async () => {
+    fxClient.fxRatesOn.mockResolvedValue({ ...cnb, provisional: true });
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, { duzp: "2020-01-02" });
+    expect(p.problems).toContain("Today's ČNB rate is imported at 15:00 (ČNB publishes about 14:30) — issue the invoice after that");
+    const future = await invoiceDocumentService.preview(SHIPMENT, COMPANY, { duzp: "2999-01-01" });
+    expect(future.problems).toContain("DUZP is in the future — the ČNB rate for it is not known yet");
+  });
+
+  it("stores the ČNB fixing, source and ROE % on the issued invoice", async () => {
+    await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { duzp: "2026-10-13" });
+    const [, header, lines] = repo.issue.mock.calls[0]!;
+    expect(header).toMatchObject({ fxSource: "CNB", fxFixingDate: "2026-10-13", roePct: "100", fxWeek: "" });
+    expect(lines.map((l: { fxRate: string }) => l.fxRate)).toEqual(["25", "1"]);
   });
 });
 

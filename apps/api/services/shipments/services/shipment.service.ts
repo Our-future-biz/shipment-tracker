@@ -1,5 +1,5 @@
 import { APIError, ErrCode } from "encore.dev/api";
-import { auth, customers, quotes } from "~encore/clients";
+import { auth, customers, invoicing, quotes } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { shipmentRepository, OVERDUE_DEADLINE_FIELDS } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
@@ -525,6 +525,18 @@ class ShipmentService {
       }
     }
     await this.resolvePrincipalParty(shipmentData);
+
+    // ATA / ATD is the tax date; once the job is invoiced it is final (owner decision,
+    // 14 Oct 2026) — correct it by crediting the invoice first.
+    const taxDateMoves = (["actualArrival", "actualDeparture"] as const).some(
+      (k) => k in shipmentData && (shipmentData[k] ?? null) !== ((existing as Record<string, unknown>)[k] ?? null),
+    );
+    if (taxDateMoves) {
+      const { count } = await invoicing.openInvoiceCount({ shipmentId: id, companyId });
+      if (count > 0) {
+        throw APIError.failedPrecondition("ATA / ATD cannot be changed once the job is invoiced — credit the invoice first");
+      }
+    }
 
     // Seed the export BoL types against the values this update leaves behind, so
     // switching a shipment to Export fills them in — and so an export shipment

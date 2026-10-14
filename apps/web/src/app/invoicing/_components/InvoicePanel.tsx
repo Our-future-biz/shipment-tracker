@@ -16,7 +16,7 @@ import { moneyCz, round2 } from "@/lib/money";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 
-/** Billing currencies we have exchange rates for (Exchange page: EUR, USD; CZK is the base). */
+/** Billing currencies offered (CZK is the base; ČNB rates exist for every currency). */
 const BILLING_CURRENCIES = ["CZK", "EUR", "USD"];
 
 /** VAT codes a line can be switched to (NP is set automatically for a non-VAT-payer). */
@@ -52,7 +52,7 @@ const Card = ({ title, extra, children }: { title: string; extra?: React.ReactNo
 /**
  * The invoice for one shipment. Everything shown is the server's preview (the same
  * calculation that issuing uses): selling rows ticked for Invoice, VAT code per line,
- * DUZP-week exchange rate, the customer and the issuer details. Issuing creates an
+ * ČNB rate valid on the DUZP, the customer and the issuer details. Issuing creates an
  * immutable tax document with a stored PDF; corrections go through a credit note.
  */
 export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
@@ -170,7 +170,9 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
   if (p) {
     const late = dayjs(p.issueDate).diff(dayjs(p.duzp), "day");
     if (late > MAX_DAYS_AFTER_DUZP) warnings.push(`DUZP is ${late} days before today — a tax document must be issued within ${MAX_DAYS_AFTER_DUZP} days of the DUZP (§28 ZDPH).`);
-    if (p.fxSource === "older" || p.fxSource === "newest") warnings.push(`No exchange rates for the DUZP week — rates of ${p.fxWeek} are used. Add the right week on the Exchange page if needed.`);
+    if (p.roePct !== 100 && p.lines.some((l) => l.unitCurrency !== p.currency)) {
+      warnings.push(`Lines in another currency are converted at the ČNB rate × ROE ${p.roePct} % (Exchange page). The CZK tax amounts use the pure ČNB rate.`);
+    }
   }
   const problems = p?.problems ?? [];
   const canIssue = !!p && problems.length === 0 && !previewLoading;
@@ -246,9 +248,10 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
               <span className="text-slate-900">{p ? czDate(p.dueDate) : "—"}</span>
               {foreign && (
                 <>
-                  <span className="text-slate-500">Exchange rate</span>
+                  <span className="text-slate-500">ČNB rate at DUZP</span>
                   <span className="text-slate-900 tabular-nums">
-                    1 {p!.currency} = {p!.fxRate.toFixed(3).replace(".", ",")} CZK <span className="text-slate-500">({p!.fxWeek})</span>
+                    1 {p!.currency} = {p!.fxRate.toFixed(3).replace(".", ",")} CZK{" "}
+                    <span className="text-slate-500">(ČNB{p!.fxFixingDate ? `, fixing ${czDate(p!.fxFixingDate)}` : ""})</span>
                   </span>
                 </>
               )}

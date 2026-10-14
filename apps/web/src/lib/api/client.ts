@@ -4223,8 +4223,26 @@ export namespace interfaces {
         duzp: string
         dueDate: string
         currency: string
+        /**
+         * Statutory ČNB rate on the DUZP, CZK per 1 unit of the invoice currency
+         */
         fxRate: string
+
+        /**
+         * Older invoices: the weekly-sheet week; "" for ČNB-rated ones
+         */
         fxWeek: string
+
+        /**
+         * The ČNB fixing the rate came from (null on older invoices)
+         */
+        fxFixingDate: string | null
+
+        /**
+         * Company ROE % applied to lines in another currency (null on older invoices)
+         */
+        roePct: string | null
+
         net: string
         vat: string
         gross: string
@@ -4296,11 +4314,15 @@ export namespace interfaces {
         dueDate: string
         currency: string
         fxRate: number
-        fxWeek: string
         /**
-         * exact | older | newest | none
+         * The ČNB fixing valid on the DUZP (null when there is none yet)
          */
-        fxSource: string
+        fxFixingDate: string | null
+
+        /**
+         * Company ROE % on the DUZP, applied to lines in another currency
+         */
+        roePct: number
 
         net: number
         vat: number

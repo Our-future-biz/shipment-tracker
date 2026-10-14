@@ -22,6 +22,8 @@ const base: InvoiceForPdf = {
   currency: "EUR",
   fxRate: "25.123400",
   fxWeek: "2026-W42",
+  fxFixingDate: null,
+  roePct: null,
   net: "1100.00",
   vat: "21.00",
   gross: "1121.00",
@@ -124,6 +126,20 @@ describe("renderInvoicePdf", () => {
     ]) {
       expect(text).toContain(squash(expected));
     }
+  });
+
+  it("prints the ČNB rate at DUZP with its fixing date, and the ROE note for converted lines", async () => {
+    const cnbRated: InvoiceForPdf = {
+      ...base,
+      fxWeek: "",
+      fxFixingDate: "2026-10-13",
+      roePct: "102.000",
+      lines: [{ ...base.lines[0]!, unitCurrency: "USD" }, ...base.lines.slice(1)],
+    };
+    const text = squash(await textOf(await renderInvoicePdf(cnbRated, await loadPdfFonts())));
+    expect(text).toContain(squash("Kurz ČNB k DUZP / CNB rate at tax date: 1 EUR = 25,123 CZK (fixing 13.10.2026)"));
+    expect(text).toContain(squash("Položky v jiné měně přepočteny kurzem ČNB k DUZP + 2 %"));
+    expect(text).not.toContain("2026-W42");
   });
 
   it("titles a credit note, refers to the invoice and shows the refund", async () => {

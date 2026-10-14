@@ -78,6 +78,13 @@
       "when": 1791920415956,
       "tag": "0010_invoice_immutable",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791963321118,
+      "tag": "0011_invoice_cnb_rates",
+      "breakpoints": true
     }
   ]
 }

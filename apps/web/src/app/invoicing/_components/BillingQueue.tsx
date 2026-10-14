@@ -94,7 +94,7 @@ export function BillingQueue({ onOpen }: { onOpen: (shipmentId: string) => void 
         ) : (
           <span className="tabular-nums font-medium">
             {r.missingCurrencies.length > 0 && (
-              <Tooltip title={`No exchange rate for ${r.missingCurrencies.join(", ")} — those lines are not in this amount`}>
+              <Tooltip title={`ČNB publishes no rate for ${r.missingCurrencies.join(", ")} — those lines are not in this amount`}>
                 <WarningOutlined className="text-[#9A5B00] mr-1.5" />
               </Tooltip>
             )}
@@ -171,7 +171,7 @@ export function BillingQueue({ onOpen }: { onOpen: (shipmentId: string) => void 
       />
       <p className="text-[12px] text-slate-500 mt-2 mb-0">
         To bill = Shipment Status &quot;Billing&quot;. Issuing an invoice sets the job to Billed / Invoiced; a credit note puts it back.
-        Amounts use this week&apos;s exchange rates; the invoice uses the rate of its DUZP week.
+        Amounts are estimates at today&apos;s ČNB rates (with the ROE % on other currencies); the invoice uses the ČNB rate of its DUZP.
       </p>
     </div>
   );

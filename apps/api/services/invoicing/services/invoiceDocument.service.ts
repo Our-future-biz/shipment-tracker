@@ -1,12 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { customers, shipments } from "~encore/clients";
+import { customers, fx, shipments } from "~encore/clients";
 import { invoiceRepository, type InvoiceLineInput } from "../repositories/invoice.repository";
 import { invoiceProfileRepository } from "../repositories/invoiceProfile.repository";
 import { sellingCostRepository } from "../repositories/sellingCost.repository";
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
-import { exchangeRateRepository } from "../repositories/exchangeRate.repository";
 import type { CustomerSnapshot, InvoiceLineRecord, InvoiceRecord, ShipmentSnapshot, SupplierSnapshot } from "../schemas/invoice.schema";
 import { missingForIssue, normaliseProfile } from "../lib/invoiceProfile";
 import { invoiceSeriesPrefix, jobYear } from "../lib/invoiceNumber";
@@ -17,7 +16,6 @@ import {
   defaultDuzp,
   dueDays,
   isIsoDate,
-  pickRates,
   summarise,
   type InvoiceCalc,
   type InvoiceLineCalc,
@@ -32,7 +30,7 @@ import { invoiceBucket } from "../storage/invoiceBucket";
 
 /**
  * Issuing tax documents. Everything is computed on the server from stored data: the
- * selling rows ticked for Invoice, the Exchange rates of the DUZP week, the customer and
+ * selling rows ticked for Invoice, the ČNB rates valid on the DUZP, the customer and
  * the issuer details. The browser only chooses the customer and the DUZP.
  */
 
@@ -59,6 +57,21 @@ const lineItem = (l: InvoiceLineCalc): InvoiceDocLineItem => ({
   sourceSellingCostId: l.sourceSellingCostId,
 });
 
+/**
+ * ČNB rates valid on the DUZP and the company ROE % then. The tax amounts need the fixing
+ * of that day (or the one carried over a weekend / holiday), so a DUZP in the future or
+ * today before the 15:00 pull cannot be invoiced yet.
+ */
+async function ratesForDuzp(duzp: string, today: string) {
+  const r = await fx.fxRatesOn({ date: duzp });
+  const rates: Record<string, number> = { CZK: 1, ...Object.fromEntries(r.rates.map((x) => [x.currency, x.rate])) };
+  let problem = "";
+  if (duzp > today) problem = "DUZP is in the future — the ČNB rate for it is not known yet";
+  else if (r.provisional) problem = "Today's ČNB rate is imported at 15:00 (ČNB publishes about 14:30) — issue the invoice after that";
+  else if (!r.fixingDate) problem = "No ČNB rates are stored — check the Exchange page";
+  return { rates, fixingDate: r.fixingDate, roePct: r.roePct, problem };
+}
+
 const supplierParty = (s: SupplierSnapshot): InvoicePartyItem => ({
   companyName: s.companyName, address: s.street, city: s.city, postalCode: s.postalCode, country: s.country, ico: s.ico, dic: s.dic,
 });
@@ -83,6 +96,8 @@ export function toDocItem(inv: InvoiceRecord, lines: InvoiceLineRecord[]): Invoi
     currency: inv.currency,
     fxRate: inv.fxRate,
     fxWeek: inv.fxWeek,
+    fxFixingDate: inv.fxFixingDate,
+    roePct: inv.roePct,
     net: inv.net,
     vat: inv.vat,
     gross: inv.gross,
@@ -114,10 +129,9 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   const { shipment } = await shipments.shipmentGet({ shipmentId });
   const profileRow = await invoiceProfileRepository.getByCompany(companyId);
   const profile = profileRow ? normaliseProfile(profileRow) : null;
-  const [rows, settings, rateRows] = await Promise.all([
+  const [rows, settings] = await Promise.all([
     sellingCostRepository.listByShipmentId(shipmentId, companyId),
     billingSettingsRepository.getByShipmentId(shipmentId, companyId),
-    exchangeRateRepository.listByCompany(companyId),
   ]);
 
   const problems: string[] = [];
@@ -154,7 +168,8 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   }
 
   const currency = settings?.billingCurrency || "CZK";
-  const picked = pickRates(rateRows, isIsoDate(duzp) ? duzp : issueDate);
+  const picked = await ratesForDuzp(isIsoDate(duzp) ? duzp : issueDate, issueDate);
+  if (picked.problem) problems.push(picked.problem);
   const calc = calculateInvoice({
     rows: rows.map((r) => ({
       // the selling row's "customer" column is the Invoice text printed on the line
@@ -162,10 +177,11 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
     })),
     currency,
     rates: picked.rates,
+    roePct: picked.roePct,
     tradeDirection: shipment.tradeDirection,
     vatPayer: profile?.vatPayer ?? true,
   });
-  if (calc.missingCurrencies.length) problems.push(`No exchange rate for ${calc.missingCurrencies.join(", ")} — add it on the Exchange page`);
+  if (calc.missingCurrencies.length) problems.push(`ČNB publishes no rate for ${calc.missingCurrencies.join(", ")}`);
   if (calc.lines.length === 0) problems.push("Tick at least one selling row for Invoice");
   else if (calc.gross <= 0) problems.push("The invoice total must be above zero");
 
@@ -204,6 +220,7 @@ const lineRows = (lines: InvoiceLineCalc[]): InvoiceLineInput[] =>
     vatCode: l.vatCode,
     vatRate: l.vatRate.toFixed(2),
     sourceSellingCostId: l.sourceSellingCostId,
+    fxRate: String(l.fxRate),
   }));
 
 const money = (calc: Pick<InvoiceCalc, "net" | "vat" | "gross" | "netCzk" | "vatCzk" | "grossCzk">) => ({
@@ -249,6 +266,8 @@ async function pdfInput(inv: InvoiceRecord, lines: InvoiceLineRecord[], companyI
     currency: inv.currency,
     fxRate: inv.fxRate,
     fxWeek: inv.fxWeek,
+    fxFixingDate: inv.fxFixingDate,
+    roePct: inv.roePct,
     net: inv.net,
     vat: inv.vat,
     gross: inv.gross,
@@ -331,8 +350,8 @@ class InvoiceDocumentService {
       dueDate: ctx.dueDate,
       currency: ctx.calc.currency,
       fxRate: ctx.calc.fxRate,
-      fxWeek: ctx.picked.week,
-      fxSource: ctx.picked.source,
+      fxFixingDate: ctx.picked.fixingDate,
+      roePct: ctx.picked.roePct,
       net: ctx.calc.net,
       vat: ctx.calc.vat,
       gross: ctx.calc.gross,
@@ -378,7 +397,10 @@ class InvoiceDocumentService {
         dueDate: ctx.dueDate,
         currency: ctx.calc.currency,
         fxRate: String(ctx.calc.fxRate),
-        fxWeek: ctx.picked.week,
+        fxWeek: "",
+        fxFixingDate: ctx.picked.fixingDate,
+        fxSource: "CNB",
+        roePct: String(ctx.picked.roePct),
         ...money(ctx.calc),
         vatSummary: ctx.calc.vatSummary,
         supplier: supplierSnapshot(ctx.profile!, ctx.calc.currency),
@@ -424,8 +446,10 @@ class InvoiceDocumentService {
         net: Number(l.net),
         vatCode: l.vatCode as VatCode,
         vatRate: Number(l.vatRate),
+        fxRate: Number(l.fxRate ?? 1),
       })),
     );
+    // §42 ZDPH: a correction uses the rate of the original supply.
     const totals = summarise(calcLines, Number(original.fxRate));
     const issueDate = pragueToday();
 
@@ -447,6 +471,9 @@ class InvoiceDocumentService {
         currency: original.currency,
         fxRate: original.fxRate,
         fxWeek: original.fxWeek,
+        fxFixingDate: original.fxFixingDate,
+        fxSource: original.fxSource,
+        roePct: original.roePct,
         ...money(totals),
         vatSummary: totals.vatSummary,
         supplier: original.supplier,
@@ -519,18 +546,18 @@ class InvoiceDocumentService {
       if (page.data.length === 0) break;
     } while (listed.length < total && listed.length < QUEUE_MAX);
 
-    const [rows, openInvoices, settings, rateRows, toBill, notInvoiced, invoiced] = await Promise.all([
+    const [rows, openInvoices, settings, today, toBill, notInvoiced, invoiced] = await Promise.all([
       sellingCostRepository.listTickedByCompany(companyId),
       invoiceRepository.listOpenInvoicesWithSources(companyId),
       billingSettingsRepository.listByCompany(companyId),
-      exchangeRateRepository.listByCompany(companyId),
+      ratesForDuzp(pragueToday(), pragueToday()),
       countOf(QUEUE_VIEWS.to_bill),
       countOf(QUEUE_VIEWS.not_invoiced),
       countOf(QUEUE_VIEWS.invoiced),
     ]);
     const settingsById = new Map(settings.map((x) => [x.shipmentId, x.billingCurrency]));
     const billing = new Map<string, QueueEntry>(
-      buildBillingQueue({ rows, openInvoices, billingCurrencies: settingsById, rateRows, today: pragueToday() }).map((e) => [e.shipmentId, e]),
+      buildBillingQueue({ rows, openInvoices, billingCurrencies: settingsById, rates: today.rates, roePct: today.roePct }).map((e) => [e.shipmentId, e]),
     );
 
     const queue: BillingQueueItem[] = listed.map((s) => {

@@ -18,7 +18,7 @@ export interface AgingBucket {
 }
 
 // Every amount of the summary is in the customer's currency (the credit limit's currency):
-// invoices in another currency are converted at today's rates from the Exchange page.
+// invoices in another currency are converted at today's ČNB rates.
 export interface InvoiceSummary {
   outstanding: number;
   openAmount: number;
