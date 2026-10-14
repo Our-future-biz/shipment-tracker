@@ -18,8 +18,8 @@ interface OverviewTabProps {
 }
 
 // The customer at a glance. Main column, most urgent first: what needs attention, the current state in
-// four figures, the latest shipments and interaction, then who the company is. Side column: who to call,
-// the credit position, and the CRM and registry records. The all-time totals stay in the header and every
+// four figures, the latest shipments and interaction, then who the company is and its registry record. Side
+// column: who to call, the credit position, and the CRM record. The all-time totals stay in the header and every
 // full list in its own tab; the cards here are summaries that lead there.
 export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
   const { customer } = useCustomer(customerId);
@@ -38,6 +38,7 @@ export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
           <CustomerLastInteractionCard customerId={customerId} onSelectTab={onSelectTab} />
         </div>
         <CustomerCompanyAnalysisCard customer={customer} />
+        <CustomerRegistryCard customer={customer} />
       </div>
 
       <div className="space-y-5">
@@ -45,7 +46,6 @@ export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
         <CustomerCreditSummaryCard customerId={customerId} onSelectTab={onSelectTab} />
         {/* Keyed so an edit still being saved never carries over to another customer. */}
         <CustomerCrmCard key={customer.id} customer={customer} />
-        <CustomerRegistryCard customer={customer} />
       </div>
     </div>
   );
