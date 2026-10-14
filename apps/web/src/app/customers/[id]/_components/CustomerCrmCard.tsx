@@ -9,6 +9,7 @@ import type { controllers, interfaces } from "@/lib/api/client";
 import { useToast } from "@/lib/toast";
 import { CURRENCIES } from "@/lib/enums";
 import { CUSTOMER_LABELS, CUSTOMER_STATUSES, PAYMENT_TERMS } from "../../_lib/constants";
+import { SALES_OWNER_FIELD_ID } from "../../_lib/customerAttention";
 import { CustomerInfoRow } from "./CustomerInfoRow";
 import { EditableText } from "./EditableText";
 
@@ -122,6 +123,7 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
             onCommit={(value) => save({ salesOwner: value })}
             placeholder="assign…"
             label="Sales owner"
+            id={SALES_OWNER_FIELD_ID}
           />
         </CustomerInfoRow>
         <CustomerInfoRow label="Currency" narrow>

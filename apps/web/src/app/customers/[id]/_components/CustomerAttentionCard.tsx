@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { RightOutlined, WarningFilled } from "@ant-design/icons";
+import { useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { useCustomerDocuments } from "@/hooks/useCustomerDocuments";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
@@ -65,27 +66,30 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
   const { customer, isLoading: customerLoading } = useCustomer(customerId);
   const { invoices, isLoading: invoicesLoading } = useCustomerInvoices(customerId);
   const { rates } = useLatestRates();
+  const { contacts, isLoading: contactsLoading, isError: contactsError } = useCustomerContacts(customerId);
   const { documents, isLoading: documentsLoading, isError: documentsError } = useCustomerDocuments(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
   // Remembered per customer, so an unfolded list does not carry over to the next customer opened.
   const [expandedFor, setExpandedFor] = useState<string | null>(null);
 
   // Until every source is in, the list would appear half-built and then grow or reorder under the reader.
-  const isLoading = customerLoading || invoicesLoading || documentsLoading || notesLoading;
+  const isLoading = customerLoading || invoicesLoading || contactsLoading || documentsLoading || notesLoading;
 
   const items = useMemo(() => {
     if (isLoading || !customer) return [];
     const built = buildCustomerAttention({
       customer,
       invoices,
+      contacts,
       documents,
       notes,
       rates,
     });
-    // For documents and notes an empty list is itself a finding, but a list that could not be loaded is
+    // For contacts, documents and notes an empty list is itself a finding, but a list that could not be loaded is
     // not an empty one: its "nothing on file" row would be untrue.
-    return built.filter((item) => !(documentsError && item.key === "documents-missing") && !(notesError && item.key === "no-interaction"));
-  }, [isLoading, customer, invoices, documents, notes, rates, documentsError, notesError]);
+    return built.filter((item) => !(contactsError && item.key === "no-contact-person") &&
+        !(documentsError && item.key === "documents-missing") && !(notesError && item.key === "no-interaction"));
+  }, [isLoading, customer, invoices, contacts, documents, notes, rates, contactsError, documentsError, notesError]);
 
   if (items.length === 0) return null;
 
@@ -93,10 +97,18 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
   const expanded = expandedFor === customerId;
   const visibleItems = expanded ? items : items.slice(0, VISIBLE_ROWS);
 
+  // Brings the field into view first, so the input it turns into does not make the page jump when it takes the focus.
+  const openField = (id: string) => {
+    const trigger = document.getElementById(id);
+    if (!trigger) return;
+    trigger.scrollIntoView({ block: "center" });
+    trigger.click();
+  };
+
   const handleToggleExpanded = () => setExpandedFor(expanded ? null : customerId);
 
   const renderRow = (item: AttentionItem) => {
-    const { tab } = item;
+    const { tab, field } = item;
     const style = SEVERITY_STYLE[item.severity];
     const content = (
       <>
@@ -108,7 +120,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
           {item.detail && <span className="text-slate-600"> {item.detail}</span>}
         </span>
         {item.meta && <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums text-slate-800">{item.meta}</span>}
-        {tab && (
+        {(tab || field) && (
           <span className="flex h-5 shrink-0 items-center text-[10px] text-slate-400">
             <RightOutlined aria-hidden />
           </span>
@@ -116,6 +128,13 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
       </>
     );
 
+    if (field) {
+      return (
+        <button type="button" onClick={() => openField(field)} className={CLICKABLE_ROW_CLASS}>
+          {content}
+        </button>
+      );
+    }
     if (tab) {
       return (
         <button type="button" onClick={() => onSelectTab(tab)} className={CLICKABLE_ROW_CLASS}>

@@ -2,6 +2,7 @@ import dayjs from "dayjs";
 import type { DocumentItem } from "@/hooks/useCustomerDocuments";
 import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
 import type { NoteItem } from "@/hooks/useCustomerNotes";
+import type { ContactItem } from "@/hooks/useCustomerContacts";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { formatDate } from "@/lib/date";
 import { getNaceInfo, isNewCompany, isRegistryActive, parseNaceCodes } from "./companyAnalysis";
@@ -22,6 +23,9 @@ export const ATTENTION_RULES = {
   requiredDocumentTypes: ["Power of attorney", "Contract"],
 } as const;
 
+// The Sales owner input of the CRM card, which the "No sales owner" row opens.
+export const SALES_OWNER_FIELD_ID = "customer-sales-owner";
+
 export type AttentionSeverity = "critical" | "warning";
 
 export interface AttentionItem {
@@ -33,13 +37,16 @@ export interface AttentionItem {
   detail: string;
   // Right-aligned extra, e.g. an amount.
   meta?: string;
-  // The tab of the customer page the row leads to; without it the row is not clickable.
+  // Where the row leads: `tab` is a tab of the customer page, `field` the id of a click-to-edit field on the
+  // Overview, which the row scrolls to and opens. At most one of them is set; with neither the row is not clickable.
   tab?: string;
+  field?: string;
 }
 
 export interface AttentionInput {
   customer: CustomerItem;
   invoices: InvoiceItem[];
+  contacts: ContactItem[];
   documents: DocumentItem[];
   notes: NoteItem[];
   // Today's exchange rates: invoices in another currency are compared with the limit in the customer's currency.
@@ -87,7 +94,7 @@ const documentTypeKey = (type: string) => type.trim().toLowerCase();
 // Everything that needs attention, most serious first: all critical items, then all warnings,
 // each group in a fixed order of rules.
 export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
-  const { customer, invoices, documents, notes, rates, now = Date.now() } = input;
+  const { customer, invoices, contacts, documents, notes, rates, now = Date.now() } = input;
   const { creditLimit, currency } = customer;
   const items: AttentionItem[] = [];
 
@@ -130,6 +137,25 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
   }
 
   // Warnings.
+  if (!customer.salesOwner?.trim()) {
+    items.push({
+      key: "no-sales-owner",
+      severity: "warning",
+      title: "No sales owner",
+      detail: "Assign one in the CRM card.",
+      field: SALES_OWNER_FIELD_ID,
+    });
+  }
+
+  if (contacts.length === 0) {
+    items.push({
+      key: "no-contact-person",
+      severity: "warning",
+      title: "No contact person",
+      detail: "Add who to call or write to at this customer.",
+      tab: "contacts",
+    });
+  }
 
   const typesOnFile = new Set(documents.map((document) => documentTypeKey(document.type)));
   const missingTypes = ATTENTION_RULES.requiredDocumentTypes.map(documentTypeKey).filter((type) => !typesOnFile.has(type));
