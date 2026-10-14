@@ -4,7 +4,6 @@ vi.mock("encore.dev/api", () => ({ APIError: {} }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
 import { parseAres } from "../services/ares.service";
-import { normalizeDomain } from "../services/logo.service";
 
 describe("parseAres", () => {
   it("builds the registry fields from an ARES record", () => {
@@ -50,12 +49,5 @@ describe("parseAres", () => {
       registrationDate: "",
       nace: "",
     });
-  });
-});
-
-describe("normalizeDomain", () => {
-  it("strips scheme, www, path and query", () => {
-    expect(normalizeDomain(" https://www.Example.cz/contact?x=1 ")).toBe("example.cz");
-    expect(normalizeDomain("example.com?ref=a")).toBe("example.com");
   });
 });

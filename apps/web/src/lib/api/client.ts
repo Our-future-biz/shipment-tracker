@@ -487,7 +487,6 @@ export namespace customers {
             this.invoiceList = this.invoiceList.bind(this)
             this.invoiceUpdate = this.invoiceUpdate.bind(this)
             this.logoDelete = this.logoDelete.bind(this)
-            this.logoFetch = this.logoFetch.bind(this)
             this.logoUpload = this.logoUpload.bind(this)
             this.noteCreate = this.noteCreate.bind(this)
             this.noteDelete = this.noteDelete.bind(this)
@@ -617,12 +616,6 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/customers/${encodeURIComponent(id)}/logo`)
             return await resp.json() as controllers.LogoDeleteResponse
-        }
-
-        public async logoFetch(id: string): Promise<controllers.LogoFetchResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(id)}/logo/fetch`)
-            return await resp.json() as controllers.LogoFetchResponse
         }
 
         public async logoUpload(id: string, params: controllers.LogoUploadRequest): Promise<controllers.LogoUploadResponse> {
@@ -2797,10 +2790,6 @@ export namespace controllers {
     }
 
     export interface LogoDeleteResponse {
-        customer: interfaces.CustomerItem
-    }
-
-    export interface LogoFetchResponse {
         customer: interfaces.CustomerItem
     }
 

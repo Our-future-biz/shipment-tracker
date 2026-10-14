@@ -7,7 +7,6 @@ import { iso } from "../../../lib/db/serialize";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
 import { aresService } from "./ares.service";
-import { logoService } from "./logo.service";
 
 /** What a user may change on a customer (the rollups belong to the shipments service). */
 export interface CustomerPatch {
@@ -114,15 +113,6 @@ class CustomerService {
     if (!(await customerRepository.softDeleteWithChildren(id, companyId))) {
       throw APIError.notFound("Customer not found");
     }
-  }
-
-  async fetchLogo(id: string, companyId: string): Promise<CustomerItem> {
-    const customer = await customerRepository.getByIdForCompany(id, companyId);
-    if (!customer) throw APIError.notFound("Customer not found");
-    if (!customer.companyWebsite) throw APIError.invalidArgument("Customer has no website to fetch a logo from");
-    const result = await logoService.fetchLogo(customer.companyWebsite);
-    if (!result) throw APIError.notFound("No logo could be fetched for this website");
-    return this.setLogo(id, companyId, { logoData: result.dataUrl, logoSource: result.sourceUrl, logoUpdatedAt: result.updatedAt });
   }
 
   async uploadLogo(id: string, companyId: string, dataUrl: string): Promise<CustomerItem> {

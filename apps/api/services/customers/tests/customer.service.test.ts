@@ -16,7 +16,6 @@ const contacts = vi.hoisted(() => ({
 vi.mock("../repositories/customer.repository", () => ({ customerRepository: customers }));
 vi.mock("../repositories/contact.repository", () => ({ contactRepository: contacts }));
 vi.mock("../services/ares.service", () => ({ aresService: { lookup: vi.fn() } }));
-vi.mock("../services/logo.service", () => ({ logoService: { fetchLogo: vi.fn() } }));
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
 vi.mock("encore.dev/api", () => ({
   APIError: {

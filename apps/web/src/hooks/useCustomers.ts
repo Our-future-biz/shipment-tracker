@@ -95,11 +95,6 @@ export const useCustomer = (id: string | null) => {
     onSuccess: invalidate,
   });
 
-  const fetchLogoMutation = useMutation({
-    mutationFn: () => api.customers.logoFetch(id as string),
-    onSuccess: invalidate,
-  });
-
   const uploadLogoMutation = useMutation({
     mutationFn: (dataUrl: string) => api.customers.logoUpload(id as string, { dataUrl }),
     onSuccess: invalidate,
@@ -118,8 +113,6 @@ export const useCustomer = (id: string | null) => {
     refetch: query.refetch,
     updateCustomer: updateMutation.mutateAsync,
     deleteCustomer: deleteMutation.mutateAsync,
-    fetchLogo: fetchLogoMutation.mutateAsync,
-    isFetchingLogo: fetchLogoMutation.isPending,
     uploadLogo: uploadLogoMutation.mutateAsync,
     deleteLogo: deleteLogoMutation.mutateAsync,
   };

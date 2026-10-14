@@ -31,7 +31,7 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const listHref = useCustomerListHref();
-  const { deleteCustomer, fetchLogo, isFetchingLogo, uploadLogo, deleteLogo } = useCustomer(customer.id);
+  const { deleteCustomer, uploadLogo, deleteLogo } = useCustomer(customer.id);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -52,12 +52,6 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
     reader.readAsDataURL(file);
   };
 
-  const handleFetchLogo = () => {
-    fetchLogo()
-      .then(() => toast.success("Logo fetched"))
-      .catch(() => toast.error("No logo found — set a website first"));
-  };
-
   const handleRemoveLogo = () => {
     deleteLogo().catch(() => toast.error("Failed to remove the logo"));
   };
@@ -76,7 +70,6 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
   };
 
   const actionItems: MenuProps["items"] = [
-    { key: "fetch-logo", label: isFetchingLogo ? "Fetching logo…" : "Fetch logo from website", disabled: isFetchingLogo, onClick: handleFetchLogo },
     { key: "upload-logo", label: "Upload logo", onClick: () => fileRef.current?.click() },
     ...(customer.logoData ? [{ key: "remove-logo", label: "Remove logo", onClick: handleRemoveLogo }] : []),
     { type: "divider" },
