@@ -34,6 +34,7 @@ export interface CustomerTab {
 export const CUSTOMER_DETAIL_TABS: CustomerTab[] = [
   { key: "overview", label: "Overview" },
   { key: "contacts", label: "Contacts" },
+  { key: "addresses", label: "Addresses" },
   { key: "shipments", label: "Shipments" },
   { key: "quotes", label: "Quotes" },
   { key: "finance", label: "Finance" },
