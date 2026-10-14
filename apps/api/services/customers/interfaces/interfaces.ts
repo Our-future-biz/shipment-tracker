@@ -102,4 +102,14 @@ export interface AresResult {
   companyStatus: string;
   registrationDate: string;
   nace: string;
+  /** Street and house number, e.g. "Jankovcova 1522/53" */
+  street: string;
+  /** City as used in a postal address, e.g. "Praha 7" */
+  postalCity: string;
+  /** e.g. "170 00" */
+  postalCode: string;
+  /** Registered for VAT (plátce DPH) */
+  vatPayer: boolean;
+  /** Commercial register entry, e.g. "B 8573 vedená u Městského soudu v Praze"; "" when none */
+  registerEntry: string;
 }

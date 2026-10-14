@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Button, Form, Input, InputNumber, Switch, Select, Tag } from "antd";
-import { PlusOutlined, DeleteOutlined, UploadOutlined } from "@ant-design/icons";
+import { PlusOutlined, DeleteOutlined, UploadOutlined, SearchOutlined } from "@ant-design/icons";
+import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { useInvoiceProfile, type InvoiceProfileInput } from "@/hooks/useInvoiceProfile";
 
@@ -38,6 +39,8 @@ export function InvoiceProfileManager() {
   const [form] = Form.useForm<InvoiceProfileInput>();
   const [logo, setLogo] = useState("");
   const vatPayer = Form.useWatch("vatPayer", form);
+  const icoValue = Form.useWatch("ico", form) ?? "";
+  const [looking, setLooking] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
@@ -51,6 +54,44 @@ export function InvoiceProfileManager() {
     if (!["image/png", "image/jpeg"].includes(file.type)) return toast.error("The logo must be a PNG or JPEG image");
     if (file.size > MAX_LOGO_BYTES) return toast.error("The logo is too large (max. about 290 KB)");
     setLogo(await readAsDataUrl(file));
+  };
+
+  /** Fills the company from the Czech ARES registry, the same way the Customer Database does. */
+  const lookUpAres = async () => {
+    const ico = String(icoValue).replace(/\s/g, "");
+    if (!/^\d{8}$/.test(ico)) {
+      form.setFields([{ name: "ico", errors: ["IČO must be exactly 8 digits"] }]);
+      return;
+    }
+    setLooking(true);
+    try {
+      const a = await api.customers.aresLookup(ico);
+      // field by field: setFieldsValue deep-merges the whole store, and antd warns about that here
+      const filled: Partial<InvoiceProfileInput> = {
+        ico: a.ico,
+        companyName: a.companyName,
+        street: a.street,
+        city: a.postalCity,
+        postalCode: a.postalCode,
+        country: a.country || "CZ",
+        dic: a.dic,
+        vatPayer: a.vatPayer,
+        // replaced too: an entry left over from another company would be wrong on the invoice
+        registerEntry: a.registerEntry,
+      };
+      form.setFields(
+        (Object.keys(filled) as (keyof InvoiceProfileInput)[]).map((name) => ({ name, value: filled[name], errors: [] })),
+      );
+      toast.success(
+        a.registerEntry
+          ? `Filled from ARES: ${a.companyName} — check the details and save`
+          : `Filled from ARES: ${a.companyName} — no commercial register entry in ARES, add it by hand if you have one`,
+      );
+    } catch (e) {
+      form.setFields([{ name: "ico", errors: [e instanceof Error && e.message ? e.message : "ARES lookup failed"] }]);
+    } finally {
+      setLooking(false);
+    }
   };
 
   const handleSave = async () => {
@@ -80,6 +121,23 @@ export function InvoiceProfileManager() {
 
       <Form form={form} layout="vertical" disabled={isLoading} requiredMark={false}>
         <Group title="Company">
+          <Form.Item label="IČO" required={false} className="mb-3" extra="Look up fills the company from the Czech ARES registry.">
+            <div className="flex gap-2 max-w-md">
+              <Form.Item name="ico" noStyle>
+                <Input
+                  placeholder="e.g. 27082440"
+                  inputMode="numeric"
+                  onPressEnter={() => void lookUpAres()}
+                  // a lookup error belongs to the IČO it was about: typing clears it
+                  onChange={() => form.setFields([{ name: "ico", errors: [] }])}
+                  aria-label="IČO"
+                />
+              </Form.Item>
+              <Button icon={<SearchOutlined />} onClick={() => void lookUpAres()} loading={looking} disabled={!String(icoValue).trim()}>
+                Look up
+              </Button>
+            </div>
+          </Form.Item>
           <Form.Item name="companyName" label="Company name" className="mb-3">
             <Input placeholder="e.g. Example Logistics s.r.o." />
           </Form.Item>
@@ -89,8 +147,7 @@ export function InvoiceProfileManager() {
             <Form.Item name="postalCode" label="Postal code" className="mb-3"><Input /></Form.Item>
             <Form.Item name="country" label="Country" className="mb-3"><Input maxLength={2} placeholder="CZ" /></Form.Item>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-x-3 items-end">
-            <Form.Item name="ico" label="IČO" className="mb-3"><Input placeholder="8 digits" /></Form.Item>
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-x-3 items-end max-w-xl">
             <Form.Item
               name="dic"
               label="DIČ"
