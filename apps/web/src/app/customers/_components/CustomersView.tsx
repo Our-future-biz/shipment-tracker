@@ -84,7 +84,7 @@ export function CustomersView() {
   }, [urlQuery]);
   const debouncedSearch = useDebounced(urlQuery, 300).trim();
 
-  const { customers, isFetching, isError, createCustomer, isCreating } = useCustomers({
+  const { customers, isFetching, isError, createCustomer, createManualCustomer, isCreating } = useCustomers({
     search: debouncedSearch,
     status: status || undefined,
     label: accountType || undefined,
@@ -281,6 +281,7 @@ export function CustomersView() {
           onClose={handleAddClose}
           onCreated={handleCreated}
           createCustomer={createCustomer}
+          createManualCustomer={createManualCustomer}
           isCreating={isCreating}
         />
       </div>

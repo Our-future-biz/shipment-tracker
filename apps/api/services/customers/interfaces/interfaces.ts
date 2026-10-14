@@ -119,6 +119,23 @@ export interface InvoiceItem {
   updatedAt: string;
 }
 
+/** The contact person a new customer is created with; it becomes its main contact. */
+export interface NewCustomerContact {
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  role?: ContactRole;
+}
+
+/** One company found in ARES by its name, enough to pick it; its full record is then read by IČO. */
+export interface AresSearchHit {
+  ico: string;
+  companyName: string;
+  /** The registered address in one line, e.g. "Jankovcova 1522/53, Holešovice, 17000 Praha 7". */
+  address: string;
+}
+
 export interface AresResult {
   ico: string;
   dic: string;

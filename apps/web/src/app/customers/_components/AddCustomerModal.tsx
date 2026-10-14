@@ -1,27 +1,61 @@
 "use client";
 
 import { useRef, useState } from "react";
-import type { ChangeEvent } from "react";
-import { Button, Form, Input, Modal } from "antd";
-import { SearchOutlined } from "@ant-design/icons";
+import { useQuery } from "@tanstack/react-query";
+import { AutoComplete, Button, Form, Input, Modal, Select } from "antd";
+import type { RefSelectProps } from "antd";
+import { CheckCircleFilled, InfoCircleOutlined, SearchOutlined } from "@ant-design/icons";
+import { useDebounced } from "@/hooks/useDebounced";
 import { api, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { formatDate } from "@/lib/date";
+import { COUNTRIES, flagOf } from "@/lib/countries";
 import { useToast } from "@/lib/toast";
+import { ContactPhoneInput, isPossiblePhone } from "../[id]/_components/ContactPhoneInput";
 import { CustomerInfoRow } from "../[id]/_components/CustomerInfoRow";
-import { legalFormText, parseNaceCodes } from "../_lib/companyAnalysis";
+import { CONTACT_ROLES } from "../_lib/constants";
 
 const ICO_LENGTH = 8;
+// ARES is searched by name from this many characters, once typing has paused.
+const MIN_NAME_LENGTH = 3;
+const SEARCH_DELAY_MS = 400;
 const ICO_INPUT_ID = "add-customer-ico";
-// A company can list dozens of NACE codes; the preview shows the first few.
-const MAX_NACE_CODES = 8;
+// Czech companies are read from ARES; any other country is typed in by hand.
+const REGISTRY_COUNTRY = "CZ";
+
+const COUNTRY_OPTIONS = COUNTRIES.map((country) => ({
+  value: country.code,
+  search: `${country.name} ${country.code}`,
+  label: (
+    <span className="flex items-center gap-2">
+      <span aria-hidden>{flagOf(country.code)}</span>
+      <span className="truncate">{country.name}</span>
+    </span>
+  ),
+}));
+
+type ManualCustomerValues = Omit<controllers.CustomerCreateManualRequest, "country" | "contact">;
+type ContactValues = interfaces.CustomerContactRequest;
+
+const ROLE_OPTIONS = CONTACT_ROLES.map((role) => ({ value: role, label: role }));
+const NEW_CONTACT: ContactValues = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  role: "Logistics Manager",
+};
 
 interface AddCustomerModalProps {
   open: boolean;
   onClose: () => void;
   onCreated: (customerId: string) => void;
   // Passed in by the list page, so the dialog does not start a customers query of its own.
-  createCustomer: (ico: string) => Promise<controllers.CustomerCreateResponse>;
+  createCustomer: (
+    params: controllers.CustomerCreateRequest,
+  ) => Promise<controllers.CustomerCreateResponse>;
+  createManualCustomer: (
+    params: controllers.CustomerCreateManualRequest,
+  ) => Promise<controllers.CustomerCreateManualResponse>;
   isCreating: boolean;
 }
 
@@ -32,15 +66,40 @@ function errorMessage(err: unknown, fallback: string): string {
   return isAPIError(err) && err.code !== ErrCode.Unknown && err.message ? err.message : fallback;
 }
 
-export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isCreating }: AddCustomerModalProps) {
+const required = (message: string) => [{ required: true, whitespace: true, message }];
+
+export function AddCustomerModal({
+  open,
+  onClose,
+  onCreated,
+  createCustomer,
+  createManualCustomer,
+  isCreating,
+}: AddCustomerModalProps) {
   const toast = useToast();
-  const [ico, setIco] = useState("");
+  const [manualForm] = Form.useForm<ManualCustomerValues>();
+  const [contactForm] = Form.useForm<ContactValues>();
+  const [country, setCountry] = useState(REGISTRY_COUNTRY);
+  // What is typed: an IČO (digits only) or part of the company name.
+  const [query, setQuery] = useState("");
   const [preview, setPreview] = useState<interfaces.AresResult | null>(null);
   const [looking, setLooking] = useState(false);
   const [error, setError] = useState("");
+  const queryInputRef = useRef<RefSelectProps>(null);
   // Number of the latest lookup. A response that carries an older number is dropped, so a
   // slow earlier request can never replace the result of a newer one.
   const lookupSeq = useRef(0);
+
+  const fromRegistry = country === REGISTRY_COUNTRY;
+  const isIco = /^\d+$/.test(query);
+  const searchName = useDebounced(isIco ? "" : query.trim(), SEARCH_DELAY_MS);
+  const nameSearch = useQuery({
+    queryKey: ["ares-search", searchName],
+    queryFn: () => api.customers.aresSearch({ name: searchName }),
+    enabled: fromRegistry && !preview && searchName.length >= MIN_NAME_LENGTH,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
 
   const resetLookup = () => {
     lookupSeq.current += 1;
@@ -49,19 +108,21 @@ export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isC
     setLooking(false);
   };
 
-  const handleIcoChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const next = e.target.value.replace(/\D/g, "").slice(0, ICO_LENGTH);
-    if (next === ico) return;
-    setIco(next);
-    // The preview is what gets created, so it must never describe another IČO than the field.
+  const handleCountryChange = (next: string) => {
+    setCountry(next);
     resetLookup();
   };
 
-  const handleLookup = async () => {
-    if (ico.length !== ICO_LENGTH) {
-      setError(`IČO must be exactly ${ICO_LENGTH} digits`);
-      return;
-    }
+  const handleQueryChange = (text: string) => {
+    // An IČO is kept to its 8 digits; a name is kept as typed.
+    const next = /^[\d\s]+$/.test(text) ? text.replace(/\D/g, "").slice(0, ICO_LENGTH) : text;
+    if (next === query) return;
+    setQuery(next);
+    // The preview is what gets created, so it must never describe another company than the field.
+    resetLookup();
+  };
+
+  const lookup = async (ico: string) => {
     lookupSeq.current += 1;
     const seq = lookupSeq.current;
     setError("");
@@ -79,12 +140,63 @@ export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isC
     }
   };
 
+  // Enter or the button: an IČO is looked up; a name only waits for its suggestions.
+  const handleLookup = () => {
+    if (isIco) {
+      if (query.length !== ICO_LENGTH) setError(`IČO must be exactly ${ICO_LENGTH} digits`);
+      else void lookup(query);
+    } else if (query.trim().length < MIN_NAME_LENGTH) {
+      setError(`Type at least ${MIN_NAME_LENGTH} characters of the company name, or the IČO`);
+    }
+  };
+
+  // A company picked from the suggestions is read by its IČO, which then stands in the field.
+  const handleSelectCompany = (ico: string) => {
+    setQuery(ico);
+    void lookup(ico);
+  };
+
+  // Back to the IČO field, to look up another company.
+  const handleChangeCompany = () => {
+    resetLookup();
+    queryInputRef.current?.focus();
+  };
+
+  const created = (customer: interfaces.CustomerItem) => {
+    toast.success(`${customer.companyName} added`);
+    onCreated(customer.id);
+  };
+
+  // The contact person as sent: trimmed, and without what was left empty.
+  const contactOf = (values: ContactValues): ContactValues => ({
+    firstName: values.firstName.trim(),
+    lastName: values.lastName.trim(),
+    email: values.email?.trim() || undefined,
+    phone: values.phone || undefined,
+    role: values.role,
+  });
+
+  // Both forms are checked at once, so every missing field shows; nothing is sent until all pass.
   const handleCreate = async () => {
-    if (!preview) return;
+    if (isCreating || (fromRegistry && !preview)) return;
+    let contact: ContactValues;
+    let company: ManualCustomerValues | null = null;
     try {
-      const res = await createCustomer(preview.ico);
-      toast.success(`${res.customer.companyName} added`);
-      onCreated(res.customer.id);
+      const [contactValues, manualValues] = await Promise.all([
+        contactForm.validateFields(),
+        fromRegistry ? Promise.resolve(null) : manualForm.validateFields(),
+      ]);
+      contact = contactOf(contactValues);
+      company = manualValues;
+    } catch {
+      return;
+    }
+    try {
+      const res =
+        fromRegistry && preview
+          ? await createCustomer({ ico: preview.ico, contact })
+          : await createManualCustomer({ ...company!, country, contact });
+      created(res.customer);
     } catch (err) {
       toast.error(errorMessage(err, "Could not create the customer"));
     }
@@ -97,67 +209,267 @@ export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isC
   };
 
   const handleAfterClose = () => {
-    setIco("");
+    setCountry(REGISTRY_COUNTRY);
+    setQuery("");
     resetLookup();
   };
 
-  const naceCodes = parseNaceCodes(preview?.nace ?? "");
-  const naceText =
-    naceCodes.length > MAX_NACE_CODES ? `${naceCodes.slice(0, MAX_NACE_CODES).join(", ")}…` : naceCodes.join(", ");
+  // The suggestions are for the name as it stands, not for one typed before.
+  const nameResults = !isIco && searchName === query.trim() ? nameSearch.data : undefined;
+  const nameOptions = (nameResults?.companies ?? []).map((company) => ({
+    value: company.ico,
+    label: (
+      <div className="py-0.5">
+        <div className="font-medium text-slate-800 truncate">{company.companyName}</div>
+        <div className="text-xs text-slate-500 truncate">
+          IČO {company.ico}
+          {company.address && ` · ${company.address}`}
+        </div>
+      </div>
+    ),
+  }));
+  let nameSearchHelp: string | undefined;
+  if (nameSearch.isError && !isIco)
+    nameSearchHelp = errorMessage(nameSearch.error, "Could not search ARES. Please try again.");
+  else if (nameResults?.tooMany)
+    nameSearchHelp = "Too many companies match. Type more of the name.";
+  else if (nameResults && nameResults.companies.length === 0)
+    nameSearchHelp = "No company of this name in ARES.";
 
   return (
     <Modal
       open={open}
       onCancel={handleCancel}
-      onOk={handleCreate}
       afterClose={handleAfterClose}
-      title="Add Customer"
-      okText="Create customer"
-      okButtonProps={{ disabled: !preview }}
-      cancelButtonProps={{ disabled: isCreating }}
-      confirmLoading={isCreating}
-      width={520}
+      title={<span className="text-lg font-semibold text-slate-800">Add Customer</span>}
+      width={560}
       destroyOnHidden
+      footer={
+        <div className="flex justify-end gap-2 border-t border-slate-200 pt-4">
+          <Button onClick={handleCancel} disabled={isCreating}>
+            Cancel
+          </Button>
+          <Button
+            type="primary"
+            onClick={() => void handleCreate()}
+            loading={isCreating}
+            disabled={fromRegistry && !preview}
+          >
+            Create customer
+          </Button>
+        </div>
+      }
     >
-      <Form layout="vertical" className="pt-2">
+      <Form layout="vertical" className="pt-3" requiredMark={false}>
         <Form.Item
-          label="Company IČO"
-          htmlFor={ICO_INPUT_ID}
-          extra="Customers are created from the Czech ARES registry."
-          validateStatus={error ? "error" : undefined}
-          help={error || undefined}
+          label={<RequiredLabel>Country</RequiredLabel>}
+          htmlFor="add-customer-country"
+          className="!mb-3"
         >
-          <div className="flex gap-2">
-            <Input
-              id={ICO_INPUT_ID}
-              placeholder="e.g. 27082440"
-              value={ico}
-              inputMode="numeric"
-              autoFocus
-              disabled={isCreating}
-              onChange={handleIcoChange}
-              onPressEnter={handleLookup}
-            />
-            <Button size="small" icon={<SearchOutlined />} onClick={handleLookup} loading={looking} disabled={!ico || isCreating}>
-              Look up
-            </Button>
-          </div>
+          <Select
+            id="add-customer-country"
+            showSearch
+            optionFilterProp="search"
+            value={country}
+            options={COUNTRY_OPTIONS}
+            disabled={isCreating}
+            onChange={handleCountryChange}
+          />
         </Form.Item>
       </Form>
 
-      {preview && (
-        <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 mb-2">
-          <div className="text-[15px] font-semibold text-slate-800 mb-1">{preview.companyName || "—"}</div>
-          <CustomerInfoRow label="IČO">
-            <span className="font-mono">{preview.ico}</span>
-          </CustomerInfoRow>
-          <CustomerInfoRow label="DIČ">{preview.dic}</CustomerInfoRow>
-          <CustomerInfoRow label="Legal form">{preview.legalForm && legalFormText(preview.legalForm)}</CustomerInfoRow>
-          <CustomerInfoRow label="Registered address">{preview.registeredAddress}</CustomerInfoRow>
-          <CustomerInfoRow label="Registration date">{formatDate(preview.registrationDate)}</CustomerInfoRow>
-          <CustomerInfoRow label="NACE codes">{naceText}</CustomerInfoRow>
+      <div className="flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2.5 mb-4 text-[13px] text-slate-600">
+        <InfoCircleOutlined aria-hidden className="text-indigo-500" />
+        {fromRegistry
+          ? "Company data will be retrieved from the Czech ARES registry."
+          : "Please fill in the company details manually."}
+      </div>
+
+      {fromRegistry ? (
+        <>
+          <Form layout="vertical" requiredMark={false}>
+            <Form.Item
+              label={<RequiredLabel>Company name or IČO</RequiredLabel>}
+              htmlFor={ICO_INPUT_ID}
+              validateStatus={error ? "error" : undefined}
+              help={error || nameSearchHelp}
+            >
+              <div className="flex gap-2">
+                <AutoComplete
+                  ref={queryInputRef}
+                  id={ICO_INPUT_ID}
+                  className="flex-1 min-w-0"
+                  placeholder="e.g. Alza.cz or 27082440"
+                  autoFocus
+                  value={query}
+                  options={nameOptions}
+                  onChange={handleQueryChange}
+                  onSelect={handleSelectCompany}
+                  disabled={isCreating}
+                  popupMatchSelectWidth
+                  notFoundContent={nameSearch.isFetching ? "Searching ARES…" : undefined}
+                  // Enter on a highlighted suggestion picks it (onSelect); otherwise it looks the IČO up.
+                  onInputKeyDown={(e) => {
+                    if (e.key === "Enter" && isIco) handleLookup();
+                  }}
+                />
+                <Button
+                  type="primary"
+                  icon={<SearchOutlined />}
+                  onClick={handleLookup}
+                  loading={looking || nameSearch.isFetching}
+                  disabled={!query.trim() || isCreating}
+                >
+                  Look up
+                </Button>
+              </div>
+            </Form.Item>
+          </Form>
+
+          {preview && (
+            <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 mb-2">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="inline-flex items-center gap-2 text-[13px] font-medium text-green-700">
+                  <CheckCircleFilled aria-hidden className="text-green-600" />
+                  Company found in ARES
+                </span>
+                <Button size="small" onClick={handleChangeCompany} disabled={isCreating}>
+                  Change
+                </Button>
+              </div>
+              <div className="text-[15px] font-semibold text-slate-800 mb-1">
+                {preview.companyName || "—"}
+              </div>
+              <CustomerInfoRow label="IČO">
+                <span className="font-mono">{preview.ico}</span>
+              </CustomerInfoRow>
+              <CustomerInfoRow label="DIČ (VAT ID)">{preview.dic}</CustomerInfoRow>
+              <CustomerInfoRow label="Address">{preview.street}</CustomerInfoRow>
+              <CustomerInfoRow label="City">{preview.postalCity || preview.city}</CustomerInfoRow>
+              <CustomerInfoRow label="ZIP">{preview.postalCode}</CustomerInfoRow>
+            </div>
+          )}
+        </>
+      ) : (
+        <Form form={manualForm} layout="vertical" requiredMark={false} disabled={isCreating}>
+          <Form.Item
+            name="companyName"
+            label={<RequiredLabel>Company name</RequiredLabel>}
+            rules={required("Company name is required")}
+          >
+            <Input autoFocus />
+          </Form.Item>
+          <Form.Item
+            name="street"
+            label={<RequiredLabel>Street address</RequiredLabel>}
+            rules={required("Street address is required")}
+          >
+            <Input />
+          </Form.Item>
+          <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr] gap-x-4">
+            <Form.Item
+              name="city"
+              label={<RequiredLabel>City</RequiredLabel>}
+              rules={required("City is required")}
+            >
+              <Input />
+            </Form.Item>
+            <Form.Item
+              name="postalCode"
+              label={<RequiredLabel>ZIP / Postal code</RequiredLabel>}
+              rules={required("ZIP / Postal code is required")}
+            >
+              <Input />
+            </Form.Item>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+            <Form.Item name="registrationNumber" label="Registration number">
+              <Input placeholder="e.g. HRB 12345" />
+            </Form.Item>
+            {/* Not required: a customer can be set up before its VAT ID is known. */}
+            <Form.Item name="vatId" label="VAT ID">
+              <Input placeholder="e.g. DE123456789" />
+            </Form.Item>
+          </div>
+        </Form>
+      )}
+
+      {/* Every customer starts with somebody to talk to: the person becomes its main contact. A Czech company
+          shows the section once it is found in ARES, so the person is entered for the right company. */}
+      {(!fromRegistry || preview) && (
+        <div className="border-t border-slate-200 pt-4 mt-2">
+          <div className="text-sm font-semibold text-slate-800 mb-3">Contact person</div>
+          <Form
+            form={contactForm}
+            layout="vertical"
+            requiredMark={false}
+            initialValues={NEW_CONTACT}
+            disabled={isCreating}
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+              <Form.Item
+                name="firstName"
+                label={<RequiredLabel>First name</RequiredLabel>}
+                rules={required("First name is required")}
+              >
+                <Input placeholder="Enter first name" />
+              </Form.Item>
+              <Form.Item
+                name="lastName"
+                label={<RequiredLabel>Last name</RequiredLabel>}
+                rules={required("Last name is required")}
+              >
+                <Input placeholder="Enter last name" />
+              </Form.Item>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+              <Form.Item
+                name="email"
+                label="Email"
+                dependencies={["phone"]}
+                rules={[
+                  { type: "email", message: "Enter a valid email address" },
+                  ({ getFieldValue }) => ({
+                    validator: (_, value?: string) =>
+                      value?.trim() || getFieldValue("phone")
+                        ? Promise.resolve()
+                        : Promise.reject(new Error("Enter an email or a phone number")),
+                  }),
+                ]}
+              >
+                <Input placeholder="name@company.com" />
+              </Form.Item>
+              <Form.Item name="role" label="Role">
+                <Select options={ROLE_OPTIONS} />
+              </Form.Item>
+            </div>
+            <Form.Item
+              name="phone"
+              label="Phone"
+              rules={[
+                {
+                  validator: (_, value?: string) =>
+                    !value || isPossiblePhone(value)
+                      ? Promise.resolve()
+                      : Promise.reject(new Error("Enter a valid phone number")),
+                },
+              ]}
+            >
+              <ContactPhoneInput />
+            </Form.Item>
+          </Form>
         </div>
       )}
     </Modal>
+  );
+}
+
+// A label with the red asterisk after it, as in the other dialogs of the section.
+function RequiredLabel({ children }: { children: string }) {
+  return (
+    <>
+      {children}
+      <span className="ml-1 text-red-500">*</span>
+    </>
   );
 }

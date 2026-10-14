@@ -1,6 +1,6 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import type { AresResult } from "../interfaces/interfaces";
+import type { AresResult, AresSearchHit } from "../interfaces/interfaces";
 
 const ARES_BASE = "https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty";
 // Commercial register (veřejný rejstřík) - holds the file number printed on invoices.
@@ -95,12 +95,36 @@ export function registerEntryFrom(vr: AresVrResponse): string {
   return `${current.oddil} ${current.vlozka}${court ? ` vedená u ${court}` : ""}`;
 }
 
-async function fetchJson(url: string, timeoutMs: number): Promise<Response> {
+/** At most this many companies are offered for a name. */
+export const ARES_SEARCH_LIMIT = 10;
+
+interface AresSearchResponse {
+  ekonomickeSubjekty?: { ico?: string; obchodniJmeno?: string; sidlo?: { textovaAdresa?: string }; datumZaniku?: string }[];
+}
+
+/** The companies of a name search that still exist. Pure, so it is unit-tested. */
+export function parseAresSearch(json: AresSearchResponse): AresSearchHit[] {
+  return (json.ekonomickeSubjekty ?? [])
+    .filter((subject) => subject.ico && !subject.datumZaniku)
+    .map((subject) => ({
+      ico: subject.ico!,
+      companyName: clean(subject.obchodniJmeno),
+      address: subject.sidlo?.textovaAdresa ?? "",
+    }));
+}
+
+async function fetchJson(url: string, timeoutMs: number, body?: unknown): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     return await fetch(url, {
-      headers: { Accept: "application/json", "User-Agent": "ShipmentTracker-CRM/1.0" },
+      method: body === undefined ? "GET" : "POST",
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "ShipmentTracker-CRM/1.0",
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal: controller.signal,
     });
   } finally {
@@ -120,6 +144,26 @@ async function lookupRegisterEntry(ico: string): Promise<string> {
 }
 
 class AresService {
+  // Companies whose name contains the text, to pick one before its record is read by IČO.
+  async search(name: string): Promise<{ companies: AresSearchHit[]; tooMany: boolean }> {
+    const text = name.trim();
+    if (text.length < 3) throw APIError.invalidArgument("Type at least 3 characters of the company name");
+    let res: Response;
+    try {
+      res = await fetchJson(`${ARES_BASE}/vyhledat`, 8000, { obchodniJmeno: text, pocet: ARES_SEARCH_LIMIT, start: 0 });
+    } catch (err) {
+      log.warn("ARES search failed", { name: text, error: err instanceof Error ? err.message : String(err) });
+      throw APIError.unavailable("ARES registry unavailable");
+    }
+    // A name too general for ARES (over 1,000 companies) is refused with 400 rather than listed.
+    if (res.status === 400) return { companies: [], tooMany: true };
+    if (!res.ok) {
+      log.warn("ARES search returned an error", { name: text, status: res.status });
+      throw APIError.unavailable("ARES registry is not answering, try again later");
+    }
+    return { companies: parseAresSearch((await res.json()) as AresSearchResponse), tooMany: false };
+  }
+
   async lookup(ico: string): Promise<AresResult> {
     if (!/^\d{8}$/.test(ico)) {
       throw APIError.invalidArgument("ICO must be exactly 8 digits");

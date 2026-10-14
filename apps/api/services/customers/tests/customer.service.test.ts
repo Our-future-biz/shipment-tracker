@@ -6,6 +6,7 @@ const customers = vi.hoisted(() => ({
   softDeleteWithChildren: vi.fn(),
   findByIco: vi.fn(),
   createForCompany: vi.fn(),
+  createWithContact: vi.fn(),
 }));
 const contacts = vi.hoisted(() => ({
   createForCompany: vi.fn(),
@@ -126,3 +127,55 @@ describe("sales owner", () => {
   });
 });
 
+describe("customerService.createManual", () => {
+  const CONTACT = { firstName: " Hans ", lastName: "Müller", email: "hans.mueller@siemens.com" };
+  const SIEMENS = {
+    country: "de", companyName: " Siemens AG ", registrationNumber: "HRB 12345", street: "Wittelsbacherplatz 2", city: "München", postalCode: "80333",
+    contact: CONTACT,
+  };
+
+  it("stores a foreign company as typed, without a VAT ID, as a new prospect with its contact as the main one", async () => {
+    customers.findByIco.mockResolvedValue(null);
+    customers.createWithContact.mockResolvedValue({ id: "c9", createdAt: now, updatedAt: now });
+    await customerService.createManual(COMPANY, SIEMENS);
+    expect(customers.createWithContact).toHaveBeenCalledWith(
+      COMPANY,
+      expect.objectContaining({
+        ico: "HRB 12345",
+        dic: "",
+        companyName: "Siemens AG",
+        registeredAddress: "Wittelsbacherplatz 2, 80333 München",
+        city: "München",
+        country: "DE",
+        dataSource: "Manual",
+        status: "Prospect",
+        label: "TARGET CUSTOMER",
+      }),
+      { name: "Hans Müller", firstName: "Hans", lastName: "Müller", email: "hans.mueller@siemens.com", phone: "", role: "Logistics Manager", isMain: true },
+    );
+  });
+
+  it("does not look for a duplicate when there is no registration number", async () => {
+    customers.createWithContact.mockResolvedValue({ id: "c9", createdAt: now, updatedAt: now });
+    await customerService.createManual(COMPANY, { ...SIEMENS, registrationNumber: " " });
+    expect(customers.findByIco).not.toHaveBeenCalled();
+    expect(customers.createWithContact).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ ico: "" }), expect.anything());
+  });
+
+  it("refuses a registration number the company already has, and a Czech company", async () => {
+    customers.findByIco.mockResolvedValue({ id: "c1" });
+    await expect(customerService.createManual(COMPANY, SIEMENS)).rejects.toThrow("A customer with this registration number already exists");
+    await expect(customerService.createManual(COMPANY, { ...SIEMENS, country: "CZ" })).rejects.toThrow("A Czech company is added from ARES by its IČO");
+    expect(customers.createWithContact).not.toHaveBeenCalled();
+  });
+
+  it("needs a contact person with a name and an email or a phone", async () => {
+    await expect(customerService.createManual(COMPANY, { ...SIEMENS, contact: { firstName: "Hans", lastName: " " } })).rejects.toThrow(
+      "The contact person needs a first and a last name",
+    );
+    await expect(customerService.createManual(COMPANY, { ...SIEMENS, contact: { firstName: "Hans", lastName: "Müller", email: " " } })).rejects.toThrow(
+      "The contact person needs an email or a phone number",
+    );
+    expect(customers.createWithContact).not.toHaveBeenCalled();
+  });
+});

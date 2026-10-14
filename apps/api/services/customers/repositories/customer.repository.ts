@@ -1,8 +1,8 @@
 import { and, eq, or, ilike, desc, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { customerTable, type CustomerRecord } from "../schemas/customer.schema";
-import { contactTable } from "../schemas/contact.schema";
+import { customerTable, type CustomerRecord, type NewCustomerRecord } from "../schemas/customer.schema";
+import { contactTable, type NewContactRecord } from "../schemas/contact.schema";
 import { customerNoteTable } from "../schemas/customerNote.schema";
 import { customerDocumentTable } from "../schemas/customerDocument.schema";
 import { customerInvoiceTable } from "../schemas/customerInvoice.schema";
@@ -66,6 +66,19 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       .where(and(...clauses))
       .orderBy(desc(customerTable.createdAt))
       .limit(f.limit ?? 2000);
+  }
+
+  // A new customer together with its first contact, in one transaction: a customer is never left without one.
+  async createWithContact(
+    companyId: string,
+    customer: Omit<NewCustomerRecord, "companyId">,
+    contact: Omit<NewContactRecord, "companyId" | "customerId">,
+  ): Promise<CustomerRecord> {
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx.insert(customerTable).values({ ...customer, companyId }).returning();
+      await tx.insert(contactTable).values({ ...contact, companyId, customerId: row!.id });
+      return row!;
+    });
   }
 
   // The customer and everything filed under it go together, in one transaction, so no

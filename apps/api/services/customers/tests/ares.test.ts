@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => ({ APIError: {} }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 
-import { parseAres } from "../services/ares.service";
+import { parseAres, parseAresSearch } from "../services/ares.service";
 
 describe("parseAres", () => {
   it("builds the registry fields from an ARES record", () => {
@@ -46,5 +46,20 @@ describe("parseAres", () => {
       registrationDate: "",
       nace: "",
     });
+  });
+});
+
+describe("parseAresSearch", () => {
+  it("lists the companies that still exist, with their address in one line", () => {
+    expect(
+      parseAresSearch({
+        ekonomickeSubjekty: [
+          { ico: "27082440", obchodniJmeno: "Alza.cz  a.s.", sidlo: { textovaAdresa: "Jankovcova 1522/53, Holešovice, 17000 Praha 7" } },
+          { ico: "12345678", obchodniJmeno: "Zaniklá s.r.o.", datumZaniku: "2020-01-01" },
+          { obchodniJmeno: "Bez IČO" },
+        ],
+      }),
+    ).toEqual([{ ico: "27082440", companyName: "Alza.cz a.s.", address: "Jankovcova 1522/53, Holešovice, 17000 Praha 7" }]);
+    expect(parseAresSearch({})).toEqual([]);
   });
 });

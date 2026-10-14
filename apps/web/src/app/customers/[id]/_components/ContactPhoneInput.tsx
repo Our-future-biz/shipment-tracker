@@ -4,12 +4,10 @@ import { useState } from "react";
 import { Input, Select, Space } from "antd";
 import { getCountries, getCountryCallingCode, parsePhoneNumberFromString } from "libphonenumber-js";
 import type { CountryCode } from "libphonenumber-js";
+import { flagOf } from "@/lib/countries";
 
 // Numbers saved without a country code are Czech; a new number starts there too.
 export const DEFAULT_PHONE_COUNTRY: CountryCode = "CZ";
-
-// The flag emoji of a country: its two letters as regional indicator symbols.
-const flagOf = (country: string) => String.fromCodePoint(...[...country].map((letter) => 0x1f1e6 + letter.charCodeAt(0) - 65));
 
 const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
 

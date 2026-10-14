@@ -85,6 +85,13 @@
       "when": 1792008403101,
       "tag": "0011_contact_roles",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792008811414,
+      "tag": "0012_customer_ico_optional",
+      "breakpoints": true
     }
   ]
 }

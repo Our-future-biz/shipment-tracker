@@ -469,11 +469,13 @@ export namespace customers {
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
             this.aresLookup = this.aresLookup.bind(this)
+            this.aresSearch = this.aresSearch.bind(this)
             this.contactCreate = this.contactCreate.bind(this)
             this.contactDelete = this.contactDelete.bind(this)
             this.contactList = this.contactList.bind(this)
             this.contactUpdate = this.contactUpdate.bind(this)
             this.customerCreate = this.customerCreate.bind(this)
+            this.customerCreateManual = this.customerCreateManual.bind(this)
             this.customerDelete = this.customerDelete.bind(this)
             this.customerGet = this.customerGet.bind(this)
             this.customerList = this.customerList.bind(this)
@@ -497,6 +499,20 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/ares/${encodeURIComponent(ico)}`)
             return await resp.json() as interfaces.AresResult
+        }
+
+        /**
+         * Czech companies by name, for picking one in Add Customer before it is looked up by IČO.
+         */
+        public async aresSearch(params: controllers.AresSearchRequest): Promise<controllers.AresSearchResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                name: params.name,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/ares-search`, undefined, {query})
+            return await resp.json() as controllers.AresSearchResponse
         }
 
         public async contactCreate(customerId: string, params: controllers.ContactCreateRequest): Promise<controllers.ContactCreateResponse> {
@@ -527,6 +543,15 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/customers`, JSON.stringify(params))
             return await resp.json() as controllers.CustomerCreateResponse
+        }
+
+        /**
+         * A customer outside the Czech Republic, typed in by hand.
+         */
+        public async customerCreateManual(params: controllers.CustomerCreateManualRequest): Promise<controllers.CustomerCreateManualResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/manual`, JSON.stringify(params))
+            return await resp.json() as controllers.CustomerCreateManualResponse
         }
 
         /**
@@ -2029,6 +2054,21 @@ export namespace controllers {
         body?: string
     }
 
+    export interface AresSearchRequest {
+        /**
+         * Part of the company name; at least 3 characters.
+         */
+        name: string
+    }
+
+    export interface AresSearchResponse {
+        companies: interfaces.AresSearchHit[]
+        /**
+         * True when the name fits too many companies to list; nothing is returned then.
+         */
+        tooMany: boolean
+    }
+
     /**
      * Assign a business document type (Invoice, Packing list, …) to an uploaded file.
      */
@@ -2338,11 +2378,46 @@ export namespace controllers {
         idempotencyKey?: string
     }
 
+    export interface CustomerCreateManualRequest {
+        /**
+         * ISO 3166-1 alpha-2 code of a country other than CZ (Czech companies come from ARES).
+         */
+        country: string
+
+        companyName: string
+        /**
+         * The company's number in its country's register (e.g. "HRB 12345"); optional.
+         */
+        registrationNumber?: string
+
+        /**
+         * Optional: a customer can be set up before its VAT ID is known.
+         */
+        vatId?: string
+
+        street: string
+        city: string
+        postalCode: string
+        /**
+         * The contact person, created as the customer's main contact.
+         */
+        contact: interfaces.CustomerContactRequest
+    }
+
+    export interface CustomerCreateManualResponse {
+        customer: interfaces.CustomerItem
+    }
+
     export interface CustomerCreateRequest {
         /**
          * IČO: exactly 8 digits
          */
         ico: string
+
+        /**
+         * The contact person, created as the customer's main contact.
+         */
+        contact: interfaces.CustomerContactRequest
     }
 
     export interface CustomerCreateResponse {
@@ -4179,6 +4254,18 @@ export namespace interfaces {
     }
 
     /**
+     * One company found in ARES by its name, enough to pick it; its full record is then read by IČO.
+     */
+    export interface AresSearchHit {
+        ico: string
+        companyName: string
+        /**
+         * The registered address in one line, e.g. "Jankovcova 1522/53, Holešovice, 17000 Praha 7".
+         */
+        address: string
+    }
+
+    /**
      * Customs review of a document: "" while pending.
      */
     export type AttachmentCustomsStatus = "" | "approved" | "declined"
@@ -4496,6 +4583,17 @@ export namespace interfaces {
          * Why nothing was copied; "Copy from quote" on the Costs tab does it later.
          */
         error?: string
+    }
+
+    /**
+     * The contact person sent with a new customer, with the same limits as a contact added later.
+     */
+    export interface CustomerContactRequest {
+        firstName: string
+        lastName: string
+        email?: string
+        phone?: string
+        role?: ContactRole
     }
 
     export interface CustomerItem {

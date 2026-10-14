@@ -249,3 +249,7 @@ export const COUNTRIES: { code: string; name: string }[] = [
   { code: "ZM", name: "Zambia" },
   { code: "ZW", name: "Zimbabwe" },
 ];
+
+/** The flag emoji of a country: its two letters as regional indicator symbols. */
+export const flagOf = (code: string) =>
+  String.fromCodePoint(...[...code.toUpperCase()].map((letter) => 0x1f1e6 + letter.charCodeAt(0) - 65));

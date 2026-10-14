@@ -46,12 +46,20 @@ export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true 
     enabled,
   });
 
+  // Not awaited: creating a customer must not wait for the whole list to download again.
+  const refreshList = () => {
+    queryClient.invalidateQueries({ queryKey: ["customers"] });
+  };
+
   const createMutation = useMutation({
-    mutationFn: (ico: string) => api.customers.customerCreate({ ico }),
-    // Not awaited: creating a customer must not wait for the whole list to download again.
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
-    },
+    mutationFn: (params: controllers.CustomerCreateRequest) => api.customers.customerCreate(params),
+    onSuccess: refreshList,
+  });
+
+  // A company outside the Czech Republic, typed in by hand.
+  const createManualMutation = useMutation({
+    mutationFn: (params: controllers.CustomerCreateManualRequest) => api.customers.customerCreateManual(params),
+    onSuccess: refreshList,
   });
 
   return {
@@ -60,7 +68,8 @@ export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true 
     isFetching: query.isFetching,
     isError: query.isError,
     createCustomer: createMutation.mutateAsync,
-    isCreating: createMutation.isPending,
+    createManualCustomer: createManualMutation.mutateAsync,
+    isCreating: createMutation.isPending || createManualMutation.isPending,
   };
 };
 

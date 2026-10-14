@@ -3,13 +3,39 @@ import { auth } from "~encore/clients";
 import { customerRepository } from "../repositories/customer.repository";
 import type { CustomerListFilters } from "../repositories/customer.repository";
 import type { CustomerRecord, NewCustomerRecord } from "../schemas/customer.schema";
-import type { CustomerItem, CustomerLabel, CustomerPipelineItem, CustomerRollups, CustomerStatus } from "../interfaces/interfaces";
+import type { CustomerItem, CustomerLabel, CustomerPipelineItem, CustomerRollups, CustomerStatus, NewCustomerContact } from "../interfaces/interfaces";
+import type { NewContactRecord } from "../schemas/contact.schema";
 import { iso } from "../../../lib/db/serialize";
 import { nameOf } from "../../../lib/userNames";
 import { isUuid } from "../../../lib/uuid";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
 import { aresService } from "./ares.service";
+import { fullName } from "./contact.service";
+
+/** A company outside the Czech Republic, typed in by hand: there is no registry to read it from. */
+export interface ManualCustomerInput {
+  /** ISO 3166-1 alpha-2, not CZ. */
+  country: string;
+  companyName: string;
+  registrationNumber?: string;
+  vatId?: string;
+  street: string;
+  city: string;
+  postalCode: string;
+  contact: NewCustomerContact;
+}
+
+// The first contact of a new customer: its main one. Somebody must be reachable, so an email or a phone is needed.
+function firstContact(contact: NewCustomerContact): Omit<NewContactRecord, "companyId" | "customerId"> {
+  const firstName = contact.firstName.trim();
+  const lastName = contact.lastName.trim();
+  const email = (contact.email ?? "").trim();
+  const phone = (contact.phone ?? "").trim();
+  if (!firstName || !lastName) throw APIError.invalidArgument("The contact person needs a first and a last name");
+  if (!email && !phone) throw APIError.invalidArgument("The contact person needs an email or a phone number");
+  return { name: fullName(firstName, lastName), firstName, lastName, email, phone, role: contact.role ?? "Logistics Manager", isMain: true };
+}
 
 /** What a user may change on a customer (the rollups belong to the shipments service). */
 export interface CustomerPatch {
@@ -74,7 +100,8 @@ class CustomerService {
     return customers.map((customer) => ({ ...customer, createdAt: iso(customer.createdAt) }));
   }
 
-  async createFromAres(companyId: string, ico: string): Promise<CustomerItem> {
+  async createFromAres(companyId: string, ico: string, contact: NewCustomerContact): Promise<CustomerItem> {
+    const mainContact = firstContact(contact);
     if (await customerRepository.findByIco(ico, companyId)) {
       throw APIError.alreadyExists("A customer with this IČO already exists");
     }
@@ -98,7 +125,37 @@ class CustomerService {
       freightPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
       dutyPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
     };
-    const row = await customerRepository.createForCompany(companyId, values);
+    const row = await customerRepository.createWithContact(companyId, values, mainContact);
+    return toCustomerItem(row);
+  }
+
+  async createManual(companyId: string, input: ManualCustomerInput): Promise<CustomerItem> {
+    const mainContact = firstContact(input.contact);
+    const country = input.country.trim().toUpperCase();
+    if (country === "CZ") throw APIError.invalidArgument("A Czech company is added from ARES by its IČO");
+    const registrationNumber = (input.registrationNumber ?? "").trim();
+    if (registrationNumber && (await customerRepository.findByIco(registrationNumber, companyId))) {
+      throw APIError.alreadyExists("A customer with this registration number already exists");
+    }
+    const street = input.street.trim();
+    const city = input.city.trim();
+    const postalCode = input.postalCode.trim();
+    const values: Omit<NewCustomerRecord, "companyId"> = {
+      // The column holds the IČO of a Czech customer and the registration number of a foreign one.
+      ico: registrationNumber,
+      dic: (input.vatId ?? "").trim(),
+      companyName: input.companyName.trim(),
+      registeredAddress: [street, [postalCode, city].filter(Boolean).join(" ")].filter(Boolean).join(", "),
+      city,
+      country,
+      dataSource: "Manual",
+      status: "Prospect",
+      label: "TARGET CUSTOMER",
+      paymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
+      freightPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
+      dutyPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
+    };
+    const row = await customerRepository.createWithContact(companyId, values, mainContact);
     return toCustomerItem(row);
   }
 

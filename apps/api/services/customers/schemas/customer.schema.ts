@@ -54,11 +54,12 @@ export const customerTable = pgTable(
     ...defaultTableIndexes("customer", table),
     tenantIndex("customer", table),
     index("customer_status_idx").on(table.status),
-    // IČO is unique per company among live customers, so different companies can each
-    // have the same Czech entity as a customer, and a soft-deleted one can be re-created.
+    // IČO (a registration number for a foreign customer) is unique per company among live customers, so
+    // different companies can each have the same entity as a customer, and a soft-deleted one can be re-created.
+    // A foreign customer may have none: those are not compared.
     uniqueIndex("customer_company_ico_unique")
       .on(table.companyId, table.ico)
-      .where(sql`deleted_at IS NULL`),
+      .where(sql`deleted_at IS NULL AND ico <> ''`),
     // Closed sets driven by UI selects — reject anything else at the DB level so a typo
     // can't silently drop a customer out of every status filter and KPI.
     check("customer_status_check", sql`${table.status} IN ('Active', 'Prospect', 'Inactive')`),
