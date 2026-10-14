@@ -106,8 +106,7 @@ interface CustomerSnapshotTilesProps {
   onSelectTab: (key: string) => void;
 }
 
-// Where the customer stands right now, one tile per tab, each opening that tab. The all-time totals
-// (Revenue, Profit, Margin, Shipments) are in the page header and are deliberately not repeated here.
+// Where the customer stands right now, one tile per tab, each opening that tab.
 export function CustomerSnapshotTiles({ customerId, onSelectTab }: CustomerSnapshotTilesProps) {
   const { customer, isLoading: customerLoading } = useCustomer(customerId);
   const { shipments, isLoading: shipmentsLoading, isError: shipmentsError } = useCustomerShipments(customerId);

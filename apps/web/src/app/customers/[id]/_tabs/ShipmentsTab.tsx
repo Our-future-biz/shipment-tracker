@@ -38,8 +38,7 @@ function profitClassName(profit: number): string | undefined {
   return undefined;
 }
 
-// The one list of a customer's shipments. Revenue / Profit / Margin totals live in the page
-// header (from the server rollup); the tiles here only count the rows that are loaded.
+// The one list of a customer's shipments. The tiles here only count the rows that are loaded.
 export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
   const { shipments, isCapped, isLoading, isError, deleteShipment, isDeleting } = useCustomerShipments(customerId);
   const { customer } = useCustomer(customerId);

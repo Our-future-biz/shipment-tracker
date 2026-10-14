@@ -76,12 +76,12 @@ interface CustomerProfitabilityViewProps {
   onSelectTab: (key: string) => void;
 }
 
-// Finance sub-view "Profitability": the two figures the header does not show, and how money moved month by month.
+// Finance sub-view "Profitability": total cost, average profit per shipment, and how money moved month by month.
 export function CustomerProfitabilityView({ customer, onSelectTab }: CustomerProfitabilityViewProps) {
   const { shipments, isCapped, isLoading, isError } = useCustomerShipments(customer.id);
   const monthly = useMemo(() => bucketByMonth(shipments), [shipments]);
 
-  // Both tiles come from the stored rollup, like the header totals, so the two can never disagree.
+  // Both tiles come from the stored rollup, like the totals of the customer list, so the two can never disagree.
   const { currency, totalRevenue, totalProfit, totalShipments } = customer;
   const avgProfit = totalShipments > 0 ? totalProfit / totalShipments : null;
 

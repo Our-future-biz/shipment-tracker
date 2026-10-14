@@ -15,8 +15,6 @@ import { CustomerAccountTypeBadge } from "../../_components/CustomerAccountTypeB
 import { CustomerStatusDot } from "../../_components/CustomerStatusDot";
 import { isRegistryActive } from "../../_lib/companyAnalysis";
 import { useCustomerListHref } from "../../_lib/customerListHref";
-import { fmtMoney, marginPct } from "../../_lib/customerMoney";
-import { CustomerKpiTile, profitTone } from "./CustomerKpiTile";
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
@@ -24,8 +22,7 @@ interface CustomerHeaderProps {
   customer: CustomerItem;
 }
 
-// Top of the customer detail: who the customer is, the four totals (the only place they
-// are shown) and the record-level actions.
+// Top of the customer detail: who the customer is and the record-level actions.
 export function CustomerHeader({ customer }: CustomerHeaderProps) {
   const router = useRouter();
   const toast = useToast();
@@ -126,17 +123,6 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
           </button>
         </Dropdown>
         <input ref={fileRef} type="file" accept="image/*" hidden onChange={handleLogoFile} />
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-        <CustomerKpiTile label="Revenue" value={fmtMoney(customer.totalRevenue, customer.currency)} />
-        <CustomerKpiTile
-          label="Profit"
-          value={fmtMoney(customer.totalProfit, customer.currency)}
-          tone={profitTone(customer.totalProfit)}
-        />
-        <CustomerKpiTile label="Margin" value={`${marginPct(customer.totalRevenue, customer.totalProfit)}%`} />
-        <CustomerKpiTile label="Shipments" value={customer.totalShipments} />
       </div>
 
       <ConfirmModal
