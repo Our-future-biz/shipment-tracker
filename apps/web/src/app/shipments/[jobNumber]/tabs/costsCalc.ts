@@ -1,25 +1,25 @@
 /**
- * Vypocty pro Costs Breakdown - dle recalcCosts() z HTML mockupu.
+ * Costs Breakdown calculations.
  *
- * Klicova pravidla z mockupu:
- *  - radek = mnozstvi x jednotkova cena; prazdne mnozstvi se bere jako 1
- *  - prepocty jdou vzdy pres CZK, kurzy pochazi z kurzovniho listku (Exchange)
- *  - zaklad radku je Real Cost, dokud neni vyplnen, pouzije se Est. Amount
- *  - "R x E" = Real - Estimated, pocita se jen kdyz je vyplneno oboji
+ * Rules:
+ *  - a row = quantity × unit price; an empty quantity counts as 1
+ *  - conversions always go through CZK, with the job's ČNB rates (fx service)
+ *  - a row's base is its Real Cost; until that is filled in, its Est. Amount
+ *  - "R x E" = Real − Estimated, only when both are filled in
  *
- * Mena bez kurzu se NIKDY neprepocitava kurzem 1 - takovy radek by se tise
- * pricetl ve spatne vysi. Misto toho se z vypoctu vynecha a nahlasi se v
- * missingCurrencies, aby na nej slo uzivatele upozornit.
+ * A currency without a rate is NEVER converted at 1 — such a row would be added silently at
+ * the wrong amount. It is left out of the totals instead and reported in missingCurrencies,
+ * so the user can be told.
  */
 
 import { money, num } from "@/lib/money";
 
-// num() a money() jsou ve sdilenem modulu @/lib/money; re-export, aby stavajici importy fungovaly dal.
+// num() and money() live in the shared @/lib/money; re-exported so existing imports keep working.
 export { num, money } from "@/lib/money";
 
 export type Rates = Record<string, number>;
 
-/** Kurz meny vuci CZK. null = pro tuto menu kurz nemame. */
+/** A currency's rate against CZK. null = no rate for this currency. */
 function rateOf(currency: string, rates: Rates): number | null {
   if (!currency || currency === "CZK") return 1;
   const r = rates[currency];
@@ -43,13 +43,13 @@ export interface BuyingRow {
 export interface SellingRow {
   id: string;
   category: string;
-  /** sloupec "Invoice text": text radku na fakture, prazdny = kategorie */
+  /** the "Invoice text" column: the line text on the invoice; empty = the category */
   customer: string;
   qty: string;
   amount: string;
   currency: string;
   invoice: boolean;
-  /** vazba na zdrojovy buying radek (mockup: data-src) */
+  /** link to the buying row it was copied from */
   sourceBuyId: string | null;
 }
 
@@ -62,23 +62,23 @@ export interface RxeRow {
 }
 
 export interface CostsTotals {
-  /** Soucet radku v billing mene; null = mena radku nema kurz. */
+  /** The row's total in the billing currency; null = the row's currency has no rate. */
   buyRowTotals: Record<string, number | null>;
-  /** zvyrazneni: Real vyssi nez Est. (cervene) / nizsi (zelene) */
+  /** highlight: Real above Est. (red) / below (green) */
   buyRowOver: Record<string, boolean>;
   buyRowUnder: Record<string, boolean>;
-  /** soucet Est. v billing mene */
+  /** total of Est. in the billing currency */
   estTotal: number;
-  /** soucet Real v billing mene, jen vyplnene radky */
+  /** total of Real in the billing currency, filled rows only */
   realStrictTotal: number;
-  /** naklady: Sigma Real, fallback Est. */
+  /** costs: Σ Real, falling back to Est. */
   buyTotal: number;
-  /** Soucet radku v billing mene; null = mena radku nema kurz. */
+  /** The row's total in the billing currency; null = the row's currency has no rate. */
   sellRowTotals: Record<string, number | null>;
-  /** Vynosy - JEN radky zaskrtnute k fakturaci (sloupec Invoice). */
+  /** Revenue — ONLY rows ticked for invoicing (Invoice column). */
   sellTotal: number;
   sellTotalCZK: number;
-  /** Radky vynechane ze souctu, protoze nejsou zaskrtnute k fakturaci. */
+  /** Rows left out of the totals because they are not ticked for invoicing. */
   sellNotInvoicedTotal: number;
   sellNotInvoicedCount: number;
   /** Report */
@@ -90,9 +90,9 @@ export interface CostsTotals {
   rxeTotal: number;
   rxeRows: RxeRow[];
   hasRxe: boolean;
-  /** Meny bez kurzu, ktere se objevily v radcich - jejich radky jsou ze souctu vynechany. */
+  /** Currencies without a rate found in the rows — those rows are left out of the totals. */
   missingCurrencies: string[];
-  /** Pocet radku vynechanych kvuli chybejicimu kurzu. */
+  /** Number of rows left out for a missing rate. */
   unconvertibleRowCount: number;
 }
 
@@ -108,7 +108,7 @@ export function computeCosts(
   const billingRate = rateOf(billingCur, rates);
   if (billingRate === null) missing.add(billingCur);
 
-  /** Prevod do billing meny pres CZK. null = chybi kurz na nektere strane. */
+  /** Converts to the billing currency through CZK. null = a rate is missing on either side. */
   const conv = (value: number, currency: string): number | null => {
     const from = rateOf(currency, rates);
     if (from === null) {
@@ -119,7 +119,7 @@ export function computeCosts(
     return (value * from) / billingRate;
   };
 
-  /** Prevod do CZK. null = chybi kurz. */
+  /** Converts to CZK. null = the rate is missing. */
   const toCZK = (value: number, currency: string): number | null => {
     const from = rateOf(currency, rates);
     if (from === null) {
@@ -141,13 +141,13 @@ export function computeCosts(
   let hasRxe = false;
 
   for (const r of buying) {
-    // radek = mnozstvi x jednotkova cena, prazdne mnozstvi = 1
+    // a row = quantity × unit price, an empty quantity = 1
     const est = num(r.estAmount) * (num(r.estQty) || 1);
     const real = num(r.realAmount) * (num(r.realQty) || 1);
     const estC = conv(est, r.estCurrency);
     const realC = real ? conv(real, r.realCurrency) : 0;
 
-    // Radek, u ktereho neumime prepocitat pouzitou stranu, do souctu nevstupuje.
+    // A row whose side in use can't be converted stays out of the totals.
     if (estC === null || realC === null) {
       buyRowTotals[r.id] = null;
       buyRowOver[r.id] = false;
@@ -159,7 +159,7 @@ export function computeCosts(
     estTotal += estC;
     if (real) realStrictTotal += realC;
 
-    // zaklad radku: Real Cost, dokud neni -> Est. Amount
+    // the row's base: Real Cost, until it is filled in -> Est. Amount
     const basis = real ? realC : estC;
     buyTotal += basis;
     buyRowTotals[r.id] = basis;
@@ -200,8 +200,8 @@ export function computeCosts(
 
     sellRowTotals[r.id] = inBilling;
 
-    // Sloupec Invoice rika, zda radek jde do kalkulacniho listu k fakturaci.
-    // Nezaskrtnuty radek se do vynosu (a tim i do zisku) nepocita.
+    // The Invoice column says whether a row goes on the invoice.
+    // An unticked row doesn't count in revenue (and so not in profit either).
     if (r.invoice) {
       sellTotal += inBilling;
       sellTotalCZK += inCZK;
@@ -211,7 +211,7 @@ export function computeCosts(
     }
   }
 
-  // Souhrny v CZK: z billing meny zpet pres jeji kurz.
+  // Totals in CZK: from the billing currency back through its rate.
   const bcToCZK = (v: number) => (billingRate === null ? 0 : v * billingRate);
   const buyCZK = bcToCZK(buyTotal);
   const sellCZK = bcToCZK(sellTotal);
@@ -240,7 +240,7 @@ export function computeCosts(
   };
 }
 
-/** znamenkovy zapis pro R x E: +/- a absolutni hodnota */
+/** signed form for R x E: +/− and the absolute value */
 export function signed(v: number): string {
   return (v > 0 ? "+" : v < 0 ? "−" : "") + money(Math.abs(v));
 }

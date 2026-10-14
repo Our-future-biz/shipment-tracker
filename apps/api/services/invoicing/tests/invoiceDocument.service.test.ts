@@ -3,13 +3,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const repo = vi.hoisted(() => ({
   issue: vi.fn(),
   getByIdempotencyKey: vi.fn(),
-  getById: vi.fn(),
+  getByIdForCompany: vi.fn(),
   getLines: vi.fn(),
   listByShipment: vi.fn(),
   markCredited: vi.fn(),
   setPdfIfMissing: vi.fn(),
   countOpenInvoices: vi.fn(),
   listOpenInvoicesWithSources: vi.fn(),
+  invoicedSellingRowIds: vi.fn(),
 }));
 const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: vi.fn() }));
 const pdf = vi.hoisted(() => ({ render: vi.fn() }));
@@ -19,6 +20,7 @@ const settings = vi.hoisted(() => ({ getByShipmentId: vi.fn(), listByCompany: vi
 const fxClient = vi.hoisted(() => ({ fxRatesOn: vi.fn() }));
 const clients = vi.hoisted(() => ({
   shipmentGet: vi.fn(), shipmentUpdate: vi.fn(), shipmentList: vi.fn(), customerGet: vi.fn(), invoiceCreate: vi.fn(),
+  invoiceMarkCredited: vi.fn(),
 }));
 
 vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo }));
@@ -27,10 +29,10 @@ vi.mock("../repositories/sellingCost.repository", () => ({ sellingCostRepository
 vi.mock("../repositories/billingSettings.repository", () => ({ billingSettingsRepository: settings }));
 vi.mock("~encore/clients", () => ({
   shipments: { shipmentGet: clients.shipmentGet, shipmentUpdate: clients.shipmentUpdate, shipmentList: clients.shipmentList },
-  customers: { customerGet: clients.customerGet, invoiceCreate: clients.invoiceCreate },
+  customers: { customerGet: clients.customerGet, invoiceCreate: clients.invoiceCreate, invoiceMarkCredited: clients.invoiceMarkCredited },
   fx: fxClient,
 }));
-vi.mock("encore.dev/log", () => ({ default: { error: vi.fn() } }));
+vi.mock("encore.dev/log", () => ({ default: { error: vi.fn(), warn: vi.fn() } }));
 vi.mock("../storage/invoiceBucket", () => ({ invoiceBucket: bucket }));
 vi.mock("../lib/pdfFonts", () => ({ loadPdfFonts: async () => ({ regular: new Uint8Array(), bold: new Uint8Array() }) }));
 vi.mock("../lib/invoicePdf", () => ({ renderInvoicePdf: pdf.render }));
@@ -41,6 +43,7 @@ vi.mock("encore.dev/api", () => ({
     invalidArgument: (msg: string) => new Error(msg),
     failedPrecondition: (msg: string) => new Error(msg),
     internal: (msg: string) => new Error(msg),
+    alreadyExists: (msg: string) => new Error(msg),
   },
 }));
 
@@ -67,7 +70,7 @@ const profile = {
   bankAccounts: [{ currency: "CZK", bankName: "B", accountNumber: "1/0800", iban: "", swift: "" }], defaultDueDays: 14, footerNote: "",
 };
 // ČNB rates valid on the DUZP, as the fx service returns them
-const cnb = { date: "2026-10-14", fixingDate: "2026-10-13", provisional: false, roePct: 100, rates: [{ currency: "EUR", rate: 25 }, { currency: "USD", rate: 22 }] };
+const cnb = { date: "2026-10-14", fixingDate: "2026-10-13", provisional: false, missing: false, roePct: 100, rates: [{ currency: "EUR", rate: 25 }, { currency: "USD", rate: 22 }] };
 const sellRow = (over: Record<string, unknown>) => ({
   id: "s1", category: "Ocean freight", qty: "1.00", amount: "1000.00", currency: "EUR", invoice: true, vatCode: null, ...over,
 });
@@ -77,6 +80,8 @@ beforeEach(() => {
   clients.shipmentGet.mockResolvedValue({ shipment });
   clients.customerGet.mockResolvedValue({ customer });
   clients.invoiceCreate.mockResolvedValue({});
+  clients.invoiceMarkCredited.mockResolvedValue({ updated: 1 });
+  repo.invoicedSellingRowIds.mockResolvedValue(new Set());
   clients.shipmentUpdate.mockResolvedValue({});
   profiles.getByCompany.mockResolvedValue(profile);
   selling.listByShipmentId.mockResolvedValue([sellRow({}), sellRow({ id: "s2", category: "THC Destination", amount: "4999.50", currency: "CZK" })]);
@@ -174,21 +179,74 @@ describe("issue", () => {
     }));
   });
 
+  it("refuses to issue on a stale rate when the ČNB fixing of the tax date was not imported", async () => {
+    fxClient.fxRatesOn.mockResolvedValue({ ...cnb, missing: true });
+    const preview = await invoiceDocumentService.preview(SHIPMENT, COMPANY, {});
+    expect(preview.problems).toContainEqual(expect.stringMatching(/have not been imported yet/));
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {})).rejects.toThrow(/have not been imported yet/);
+    expect(repo.issue).not.toHaveBeenCalled();
+  });
+
   it("refuses to issue while anything is missing", async () => {
     profiles.getByCompany.mockResolvedValue(null);
     await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {})).rejects.toThrow(/invoicing details/);
     expect(repo.issue).not.toHaveBeenCalled();
   });
 
+  const issuedEarlier = {
+    id: "inv0", kind: "invoice", shipmentId: SHIPMENT, number: "INV2026CZ00000028-001", shipment: { jobNumber: "CZ00000028" },
+    supplier: profile, customer, createdAt: new Date(), pdfKey: "",
+  };
+
   it("returns the invoice already issued for the same idempotency key", async () => {
-    repo.getByIdempotencyKey.mockResolvedValue({
-      id: "inv0", number: "INV2026CZ00000028-001", shipment: { jobNumber: "CZ00000028" }, supplier: profile, customer,
-      createdAt: new Date(), pdfKey: "",
-    });
+    repo.getByIdempotencyKey.mockResolvedValue(issuedEarlier);
     repo.getLines.mockResolvedValue([]);
     const inv = await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k1" });
     expect(inv.number).toBe("INV2026CZ00000028-001");
     expect(repo.issue).not.toHaveBeenCalled();
+    expect(clients.invoiceCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses a key that was used for another shipment's invoice or for a credit note", async () => {
+    repo.getByIdempotencyKey.mockResolvedValue({ ...issuedEarlier, shipmentId: "other" });
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k1" })).rejects.toThrow(/another document/);
+    repo.getByIdempotencyKey.mockResolvedValue({ ...issuedEarlier, kind: "credit_note" });
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k1" })).rejects.toThrow(/another document/);
+    expect(repo.issue).not.toHaveBeenCalled();
+  });
+
+  it("returns the winner when a retry with the same key raced this one", async () => {
+    repo.getByIdempotencyKey.mockResolvedValueOnce(null).mockResolvedValueOnce(issuedEarlier);
+    repo.getLines.mockResolvedValue([]);
+    // what drizzle throws for the unique key on (company, idempotency_key)
+    repo.issue.mockRejectedValue(Object.assign(new Error("Failed query"), { cause: { code: "23505" } }));
+    const inv = await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { idempotencyKey: "k1" });
+    expect(inv.id).toBe("inv0");
+  });
+
+  it("does not bill a selling row that is on an open invoice already", async () => {
+    repo.invoicedSellingRowIds.mockResolvedValue(new Set(["s1"]));
+    await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {});
+    const [, header, lines] = repo.issue.mock.calls[0]!;
+    expect(lines.map((l: { sourceSellingCostId: string }) => l.sourceSellingCostId)).toEqual(["s2"]);
+    expect(header).toMatchObject({ gross: "4999.50" });
+  });
+
+  it("says so when every ticked row is invoiced already", async () => {
+    repo.invoicedSellingRowIds.mockResolvedValue(new Set(["s1", "s2"]));
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {})).rejects.toThrow(/invoiced already/);
+    expect(repo.issue).not.toHaveBeenCalled();
+  });
+
+  it("re-checks under the series lock and refuses rows another invoice took a moment ago", async () => {
+    // free when the invoice was prepared, taken by the time the lock is held
+    repo.invoicedSellingRowIds.mockResolvedValueOnce(new Set()).mockResolvedValueOnce(new Set(["s2"]));
+    repo.issue.mockImplementation(async (_p: string, _h: unknown, _l: unknown, hooks?: { beforeInsert?: (tx: unknown) => Promise<void> }) => {
+      await hooks?.beforeInsert?.({ tx: true });
+      return { invoice: {}, lines: [] };
+    });
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {})).rejects.toThrow(/invoiced a moment ago/);
+    expect(repo.invoicedSellingRowIds).toHaveBeenLastCalledWith(SHIPMENT, COMPANY, { tx: true });
     expect(clients.invoiceCreate).not.toHaveBeenCalled();
   });
 
@@ -217,17 +275,19 @@ describe("credit", () => {
     id: "inv1", kind: "invoice", status: "issued", number: "INV2026CZ00000028-001", shipmentId: SHIPMENT, customerId: CUSTOMER,
     currency: "EUR", fxRate: "25.000000", fxWeek: "2026-W42", supplier: { ...profile, bankAccount: null }, customer,
     shipment: { jobNumber: "CZ00000028", jobYear: 2026 },
+    net: "100.00", vat: "21.00", gross: "121.00", netCzk: "2500.00", vatCzk: "525.00", grossCzk: "3025.00",
+    vatSummary: [{ vatCode: "S21", vatRate: 21, base: 100, vat: 21, baseCzk: 2500, vatCzk: 525 }],
   };
   const line = { description: "Customs clearance", qty: "1.00", unitPrice: "100.00", unitCurrency: "EUR", net: "100.00", vatCode: "S21", vatRate: "21.00", sourceSellingCostId: "s1" };
 
   it("reverses the whole invoice as CN + job year + job number and marks the original credited", async () => {
     clients.shipmentGet.mockResolvedValue({ shipment: { ...shipment, status: "Billed [IMP]", invoicingStatus: "Invoiced" } });
     repo.countOpenInvoices.mockResolvedValue(0);
-    repo.getById.mockResolvedValue(original);
+    repo.getByIdForCompany.mockResolvedValue(original);
     repo.getLines.mockResolvedValue([line]);
     repo.markCredited.mockResolvedValue(true);
-    repo.issue.mockImplementation(async (prefix: string, header: Record<string, unknown>, lines: Record<string, unknown>[], after?: (tx: unknown, id: string) => Promise<void>) => {
-      await after?.({}, "cn1");
+    repo.issue.mockImplementation(async (prefix: string, header: Record<string, unknown>, lines: Record<string, unknown>[], hooks?: { afterInsert?: (tx: unknown, id: string) => Promise<void> }) => {
+      await hooks?.afterInsert?.({}, "cn1");
       return { invoice: { ...header, id: "cn1", number: `${prefix}001`, pdfKey: "", createdAt: new Date() }, lines };
     });
 
@@ -239,26 +299,35 @@ describe("credit", () => {
       net: "-100.00", vat: "-21.00", gross: "-121.00", netCzk: "-2500.00", vatCzk: "-525.00", grossCzk: "-3025.00",
     });
     expect(lines[0]).toMatchObject({ qty: "-1.00", net: "-100.00", vatCode: "S21" });
+    expect(header).toMatchObject({ vatSummary: [{ vatCode: "S21", base: -100, vat: -21, baseCzk: -2500, vatCzk: -525 }] });
     expect(repo.markCredited).toHaveBeenCalledWith({}, "inv1", COMPANY);
     expect(cn.number).toBe("CN2026CZ00000028-001");
+    // the credit note and the invoice it reverses stop counting as owed
+    expect(clients.invoiceCreate).toHaveBeenCalledWith(expect.objectContaining({ invoiceNumber: "CN2026CZ00000028-001", status: "Credited" }));
+    expect(clients.invoiceMarkCredited).toHaveBeenCalledWith({ invoiceNumbers: ["INV2026CZ00000028-001"] });
     // no open invoice left: the job goes back to Billing / Not Invoiced
     expect(clients.shipmentUpdate).toHaveBeenCalledWith({ shipmentId: SHIPMENT, invoicingStatus: "Not Invoiced", status: "Billing [IMP]" });
   });
 
+  it("refuses a key that was used for issuing an invoice", async () => {
+    repo.getByIdempotencyKey.mockResolvedValue({ ...original, kind: "invoice" });
+    await expect(invoiceDocumentService.credit("inv1", COMPANY, USER, "x", "k1")).rejects.toThrow(/another document/);
+  });
+
   it("needs a reason and an invoice that is not credited yet", async () => {
     await expect(invoiceDocumentService.credit("inv1", COMPANY, USER, "  ")).rejects.toThrow(/reason/);
-    repo.getById.mockResolvedValue({ ...original, status: "credited" });
+    repo.getByIdForCompany.mockResolvedValue({ ...original, status: "credited" });
     await expect(invoiceDocumentService.credit("inv1", COMPANY, USER, "x")).rejects.toThrow(/already been credited/);
-    repo.getById.mockResolvedValue({ ...original, kind: "credit_note" });
+    repo.getByIdForCompany.mockResolvedValue({ ...original, kind: "credit_note" });
     await expect(invoiceDocumentService.credit("inv1", COMPANY, USER, "x")).rejects.toThrow(/cannot be credited/);
   });
 
   it("rolls back when another credit note got there first", async () => {
-    repo.getById.mockResolvedValue(original);
+    repo.getByIdForCompany.mockResolvedValue(original);
     repo.getLines.mockResolvedValue([line]);
     repo.markCredited.mockResolvedValue(false);
-    repo.issue.mockImplementation(async (_p: string, _h: unknown, _l: unknown, after?: (tx: unknown, id: string) => Promise<void>) => {
-      await after?.({}, "cn1");
+    repo.issue.mockImplementation(async (_p: string, _h: unknown, _l: unknown, hooks?: { afterInsert?: (tx: unknown, id: string) => Promise<void> }) => {
+      await hooks?.afterInsert?.({}, "cn1");
       return { invoice: {}, lines: [] };
     });
     await expect(invoiceDocumentService.credit("inv1", COMPANY, USER, "x")).rejects.toThrow(/already been credited/);
@@ -269,7 +338,7 @@ describe("pdf", () => {
   const stored = { id: "inv1", number: "INV2026CZ00000028-001", pdfKey: "c/INV2026CZ00000028-001-x.pdf", correctsInvoiceId: null };
 
   it("returns the stored copy", async () => {
-    repo.getById.mockResolvedValue(stored);
+    repo.getByIdForCompany.mockResolvedValue(stored);
     bucket.download.mockResolvedValue(Buffer.from("%PDF-stored"));
     const f = await invoiceDocumentService.pdf("inv1", COMPANY);
     expect(f.fileName).toBe("INV2026CZ00000028-001.pdf");
@@ -278,7 +347,7 @@ describe("pdf", () => {
   });
 
   it("makes and stores the PDF when issuing could not", async () => {
-    repo.getById.mockResolvedValue({ ...stored, pdfKey: "", supplier: profile, customer, shipment: {} });
+    repo.getByIdForCompany.mockResolvedValue({ ...stored, pdfKey: "", supplier: profile, customer, shipment: {} });
     repo.getLines.mockResolvedValue([]);
     const f = await invoiceDocumentService.pdf("inv1", COMPANY);
     expect(Buffer.from(f.contentBase64, "base64").toString()).toBe("%PDF-test");
@@ -287,7 +356,7 @@ describe("pdf", () => {
   });
 
   it("keeps the first stored file when two requests race", async () => {
-    repo.getById
+    repo.getByIdForCompany
       .mockResolvedValueOnce({ ...stored, pdfKey: "", supplier: profile, customer, shipment: {} })
       .mockResolvedValueOnce({ ...stored, pdfKey: "c/first.pdf" });
     repo.getLines.mockResolvedValue([]);
@@ -300,7 +369,7 @@ describe("pdf", () => {
   });
 
   it("is scoped to the company", async () => {
-    repo.getById.mockResolvedValue(null);
+    repo.getByIdForCompany.mockResolvedValue(null);
     await expect(invoiceDocumentService.pdf("inv1", COMPANY)).rejects.toThrow(/not found/);
   });
 });

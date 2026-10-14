@@ -50,6 +50,13 @@
       "when": 1791924112525,
       "tag": "0006_customer_invoice_currency_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791995756292,
+      "tag": "0007_invoice_credited_status",
+      "breakpoints": true
     }
   ]
 }

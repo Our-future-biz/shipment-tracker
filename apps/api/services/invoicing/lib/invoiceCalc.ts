@@ -1,3 +1,5 @@
+import type { VatCode } from "../interfaces/interfaces";
+
 /**
  * The invoice maths, done on the server from stored data only (never from numbers the
  * browser sends). Pure functions, so every rule is covered by unit tests.
@@ -28,10 +30,20 @@ function toNumber(v: string | number | null | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/**
+ * The quantity of a cost / selling row: a blank quantity means 1 (a lump sum), but a 0 typed
+ * on purpose stays 0 — that row then adds nothing, it is not billed as one unit.
+ */
+export function qtyOrOne(v: string | number | null | undefined): number {
+  if (v === null || v === undefined || (typeof v === "string" && v.trim() === "")) return 1;
+  return toNumber(v);
+}
+
 // ── VAT ───────────────────────────────────────────────────────────────────────
 
-export const VAT_CODES = ["S21", "Z69", "RC", "OUT", "NP"] as const;
-export type VatCode = (typeof VAT_CODES)[number];
+export type { VatCode };
+
+export const VAT_CODES = ["S21", "Z69", "RC", "OUT", "NP"] as const satisfies readonly VatCode[];
 
 export interface VatCodeInfo {
   code: VatCode;
@@ -225,7 +237,7 @@ export function calculateInvoice(input: {
   const lines: InvoiceLineCalc[] = [];
   for (const r of rows) {
     if (!r.invoice) continue;
-    const qty = toNumber(r.qty) || 1;
+    const qty = qtyOrOne(r.qty);
     const unitPrice = toNumber(r.amount);
     const from = rateOf(r.currency, rates);
     if (from === null) {
@@ -286,4 +298,40 @@ export function summarise(lines: InvoiceLineCalc[], fxRate: number) {
 /** Lines of a credit note: the original lines with negative amounts. */
 export function creditLines(lines: InvoiceLineCalc[]): InvoiceLineCalc[] {
   return lines.map((l) => ({ ...l, qty: -l.qty, net: round2(-l.net) }));
+}
+
+/** Totals of an issued document, as stored (numeric columns arrive as strings). */
+export interface StoredTotals {
+  net: string | number;
+  vat: string | number;
+  gross: string | number;
+  netCzk: string | number;
+  vatCzk: string | number;
+  grossCzk: string | number;
+  vatSummary: VatSummaryRow[];
+}
+
+/**
+ * Totals of a credit note that reverses the whole invoice: the invoice's own stored totals
+ * and VAT recap with the sign flipped. Recomputing them from the stored per-line rates could
+ * differ by a few haléře from what the invoice said, so the credit note would not cancel it.
+ */
+export function creditTotals(original: StoredTotals) {
+  const neg = (v: string | number) => round2(-toNumber(v));
+  return {
+    vatSummary: original.vatSummary.map((r) => ({
+      vatCode: r.vatCode,
+      vatRate: r.vatRate,
+      base: neg(r.base),
+      vat: neg(r.vat),
+      baseCzk: neg(r.baseCzk),
+      vatCzk: neg(r.vatCzk),
+    })),
+    net: neg(original.net),
+    vat: neg(original.vat),
+    gross: neg(original.gross),
+    netCzk: neg(original.netCzk),
+    vatCzk: neg(original.vatCzk),
+    grossCzk: neg(original.grossCzk),
+  };
 }

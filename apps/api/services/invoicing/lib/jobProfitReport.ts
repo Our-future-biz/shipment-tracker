@@ -6,6 +6,11 @@
 // buying counts the real cost once filled, otherwise the estimate; selling counts only rows
 // ticked "invoice". An amount whose currency has no average is left out and reported.
 
+import { qtyOrOne } from "./invoiceCalc";
+import type { JobProfitRow } from "../interfaces/interfaces";
+
+export type { JobProfitRow };
+
 export interface ReportShipment {
   id: string;
   jobNumber: string;
@@ -40,22 +45,6 @@ export interface ReportSellRow {
 // Month (YYYY-MM) → currency → CZK per 1 unit.
 export type MonthAverages = Map<string, Record<string, number>>;
 
-export interface JobProfitRow {
-  shipmentId: string;
-  jobNumber: string;
-  customer: string;
-  freightMode: string;
-  status: string;
-  direction: "import" | "export";
-  basis: "ata" | "atd" | "eta" | "etd";
-  date: string;
-  month: string;
-  provisional: boolean; // dated by ETA / ETD, not yet by the tax date
-  revenueCzk: number;
-  costCzk: number;
-  profitCzk: number;
-  unconverted: string[]; // currencies left out (no average for that month)
-}
 
 const n = (v: string | null | undefined) => {
   const x = Number(v);
@@ -111,12 +100,15 @@ export function buildJobProfit(
 
     let costCzk = 0;
     for (const b of buyBy.get(s.id) ?? []) {
-      const real = n(b.realAmount) * (n(b.realQty) || 1);
-      costCzk += real ? toCzk(real, b.realCurrency) : toCzk(n(b.estAmount) * (n(b.estQty) || 1), b.estCurrency);
+      // the real cost counts once it is filled in (even 0); until then the estimate
+      const realFilled = b.realAmount !== null && b.realAmount.trim() !== "";
+      costCzk += realFilled
+        ? toCzk(n(b.realAmount) * qtyOrOne(b.realQty), b.realCurrency)
+        : toCzk(n(b.estAmount) * qtyOrOne(b.estQty), b.estCurrency);
     }
     let revenueCzk = 0;
     for (const r of sellBy.get(s.id) ?? []) {
-      if (r.invoice) revenueCzk += toCzk(n(r.amount) * (n(r.qty) || 1), r.currency);
+      if (r.invoice) revenueCzk += toCzk(n(r.amount) * qtyOrOne(r.qty), r.currency);
     }
 
     rows.push({

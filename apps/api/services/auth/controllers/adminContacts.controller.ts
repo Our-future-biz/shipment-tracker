@@ -1,10 +1,6 @@
 import { api } from "encore.dev/api";
-import { userRepository } from "../repositories/user.repository";
-
-interface AdminContact {
-  email: string;
-  displayName: string;
-}
+import { authService } from "../services/auth.service";
+import type { AdminContact } from "../interfaces/interfaces";
 
 interface AdminContactsResponse {
   admins: AdminContact[];
@@ -14,5 +10,5 @@ interface AdminContactsResponse {
 // Not exposed to the web — it lists users across companies.
 export const adminContacts = api(
   { expose: false, method: "GET", path: "/auth/internal/admin-contacts" },
-  async (): Promise<AdminContactsResponse> => ({ admins: await userRepository.listAdmins() }),
+  async (): Promise<AdminContactsResponse> => ({ admins: await authService.adminContacts() }),
 );

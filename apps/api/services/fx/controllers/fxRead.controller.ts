@@ -1,12 +1,12 @@
 import { api, Query } from "encore.dev/api";
+import type { Max, MatchesRegexp, Min } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { fxRatesService } from "../services/fxRates.service";
 import { startFxScheduler } from "../services/fxScheduler";
-import { openAlerts } from "../services/fxAlert.service";
 import { fxJobRatesService } from "../services/fxJobRates.service";
-import { pragueToday } from "../lib/dates";
-import { isAdminLevel } from "../../../lib/rbac";
 import type { DailyRow, FxAlertItem, FxOverview, JobRates, RatesOnDate, ImportRunItem, PeriodAverage, ResolvedRate, RoeChange } from "../interfaces/interfaces";
+
+type IsoDate = string & MatchesRegexp<"^\\d{4}-\\d{2}-\\d{2}$">;
 
 // Loading this module (as Encore does at startup) starts the local import timers.
 startFxScheduler();
@@ -17,7 +17,7 @@ export const fxOverview = api(
 );
 
 interface DailyRequest {
-  month: Query<string>; // YYYY-MM
+  month: Query<string & MatchesRegexp<"^\\d{4}-(0[1-9]|1[0-2])$">>; // YYYY-MM
   all?: Query<boolean>; // every ČNB currency, not only EUR and USD
 }
 
@@ -33,7 +33,7 @@ export const fxDaily = api(
 );
 
 interface AveragesRequest {
-  year: Query<number>;
+  year: Query<number & Min<2000> & Max<2100>>;
   all?: Query<boolean>;
 }
 
@@ -45,7 +45,7 @@ interface AveragesResponse {
 
 export const fxAverages = api(
   { expose: true, auth: true, method: "GET", path: "/fx/averages" },
-  async (req: AveragesRequest): Promise<AveragesResponse> => fxRatesService.averages(Number(req.year), req.all ?? false),
+  async (req: AveragesRequest): Promise<AveragesResponse> => fxRatesService.averages(req.year, req.all ?? false),
 );
 
 interface RoeListResponse {
@@ -58,8 +58,8 @@ export const fxRoeList = api(
 );
 
 interface ResolveRequest {
-  currency: Query<string>;
-  date: Query<string>; // YYYY-MM-DD
+  currency: Query<string & MatchesRegexp<"^[A-Za-z]{3}$">>;
+  date: Query<IsoDate>;
 }
 
 export const fxResolve = api(
@@ -68,7 +68,7 @@ export const fxResolve = api(
 );
 
 interface ImportRunsRequest {
-  limit?: Query<number>;
+  limit?: Query<number & Min<1> & Max<200>>;
 }
 
 interface ImportRunsResponse {
@@ -77,7 +77,7 @@ interface ImportRunsResponse {
 
 export const fxImportRuns = api(
   { expose: true, auth: true, method: "GET", path: "/fx/import-runs" },
-  async (req: ImportRunsRequest): Promise<ImportRunsResponse> => ({ runs: await fxRatesService.importRuns(Number(req.limit ?? 50)) }),
+  async (req: ImportRunsRequest): Promise<ImportRunsResponse> => ({ runs: await fxRatesService.importRuns(req.limit ?? 50) }),
 );
 
 interface AlertsResponse {
@@ -87,7 +87,7 @@ interface AlertsResponse {
 // Open "ČNB rates missing" alerts for the bell — admins only; everyone else gets none.
 export const fxAlerts = api(
   { expose: true, auth: true, method: "GET", path: "/fx/alerts" },
-  async (): Promise<AlertsResponse> => ({ alerts: isAdminLevel(getAuthData()!.role) ? await openAlerts() : [] }),
+  async (): Promise<AlertsResponse> => ({ alerts: await fxRatesService.alertsFor(getAuthData()!.role) }),
 );
 
 interface JobRatesRequest {
@@ -102,11 +102,11 @@ export const fxJobRates = api(
 );
 
 interface RatesOnRequest {
-  date?: Query<string>; // YYYY-MM-DD; today (Prague) when left out
+  date?: Query<IsoDate>; // today (Prague) when left out
 }
 
 // Every ČNB rate for a date plus the company ROE % — used to price quotes.
 export const fxRatesOn = api(
   { expose: true, auth: true, method: "GET", path: "/fx/rates" },
-  async (req: RatesOnRequest): Promise<RatesOnDate> => fxRatesService.ratesOn(getAuthData()!.companyID, req.date || pragueToday()),
+  async (req: RatesOnRequest): Promise<RatesOnDate> => fxRatesService.ratesOn(getAuthData()!.companyID, req.date),
 );

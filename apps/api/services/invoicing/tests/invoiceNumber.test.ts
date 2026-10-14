@@ -40,6 +40,12 @@ describe("jobYear", () => {
     expect(jobYear(new Date("2025-12-31T12:00:00Z"))).toBe(2025);
   });
 
+  it("counts in Prague time: just after midnight on 1 January is the new year", () => {
+    // 00:30 on 1 Jan 2026 in Prague (CET, UTC+1) is still 31 Dec 2025 in UTC
+    expect(jobYear("2025-12-31T23:30:00.000Z")).toBe(2026);
+    expect(jobYear("2025-12-31T22:30:00.000Z")).toBe(2025);
+  });
+
   it("rejects an invalid date", () => {
     expect(() => jobYear("not a date")).toThrow();
   });

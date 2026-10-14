@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { useNoticeboard } from "@/hooks/useNoticeboard";
+import { useFxAlerts, useInvalidateFx } from "@/hooks/useFx";
 import { NoticeSeverityTag } from "@/app/dashboard/_components/NoticeSeverityTag";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
@@ -36,12 +37,8 @@ export function NotificationBell() {
   // the rates arrive.
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "superadmin";
-  const { data: fxAlertData } = useQuery({
-    queryKey: ["fx", "alerts"],
-    queryFn: () => api.fx.fxAlerts(),
-    enabled: isAdmin,
-    refetchInterval: 60000,
-  });
+  const { data: fxAlertData } = useFxAlerts(isAdmin);
+  const invalidateFx = useInvalidateFx();
   const fxAlerts = isAdmin ? (fxAlertData?.alerts ?? []) : [];
   const { announcements, viewer, hasLoaded: noticesLoaded } = useNoticeboard();
   const [open, setOpen] = useState(false);
@@ -68,12 +65,15 @@ export function NotificationBell() {
   const seenFxAlerts = useRef<Set<string> | null>(null);
   useEffect(() => {
     if (!fxAlertData) return;
-    const fresh = seenFxAlerts.current ? fxAlertData.alerts.filter((a) => !seenFxAlerts.current!.has(a.id)) : [];
+    const before = seenFxAlerts.current;
+    const fresh = before ? fxAlertData.alerts.filter((a) => !before.has(a.id)) : [];
     seenFxAlerts.current = new Set(fxAlertData.alerts.map((a) => a.id));
     for (const a of fresh) {
       toast.notify({ title: `ČNB exchange rates missing for ${formatDate(a.fixingDate)}`, description: a.reason, type: "error" });
     }
-  }, [fxAlertData, toast]);
+    // The missing rates arrived: everything priced from rates (previews, queue) is stale.
+    if (before && before.size > 0 && fxAlertData.alerts.length === 0) invalidateFx();
+  }, [fxAlertData, toast, invalidateFx]);
 
   // The notices this tab has accounted for; null until the list first arrives. Only ones not
   // seen before are announced — by id, so a notice whose timestamp is older than one already
@@ -183,7 +183,7 @@ export function NotificationBell() {
         aria-label={total ? `Notifications — ${total} unread` : "Notifications"}
         className="flex items-center justify-center w-9 h-9 rounded-md bg-transparent border-none cursor-pointer text-slate-500 hover:bg-slate-50 hover:text-slate-700"
       >
-        <Badge count={total} size="small" color="#ef4444">
+        <Badge count={total} size="small" color="red">
           <BellOutlined className="text-[18px]" />
         </Badge>
       </button>

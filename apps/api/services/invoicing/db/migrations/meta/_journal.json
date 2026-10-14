@@ -92,6 +92,13 @@
       "when": 1791963321118,
       "tag": "0012_invoice_cnb_rates",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791995908640,
+      "tag": "0013_invoice_constraints",
+      "breakpoints": true
     }
   ]
 }

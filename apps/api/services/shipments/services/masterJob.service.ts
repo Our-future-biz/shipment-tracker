@@ -5,6 +5,7 @@ import { shipmentRepository } from "../repositories/shipment.repository";
 import { containerRepository } from "../repositories/container.repository";
 import { shipmentService, type ShipmentUpdateData } from "./shipment.service";
 import { isValidContainerNumber, normalizeContainerNumber } from "../lib/cargoProjection";
+import { changesTaxDate } from "../lib/taxDate";
 import {
   FULL_LOAD,
   containersFromHouses,
@@ -148,13 +149,24 @@ class MasterJobService {
         throw APIError.invalidArgument(`${key} must be a date as "YYYY-MM-DD"`);
       }
     }
+    // The master job wins: every synced field in this save is written onto the houses. A
+    // house that is invoiced can't take a new ATA / ATD, so all houses are checked before
+    // anything is written — the save goes through for all of them or for none.
+    const synced = syncedShipmentData(existing, clean);
+    const houses = Object.keys(synced).length > 0 ? await shipmentRepository.findByMasterJobId(id, companyId) : [];
+    const locked: string[] = [];
+    for (const house of houses) {
+      if (changesTaxDate(house, synced) && (await shipmentService.isInvoiced(house.id))) locked.push(house.jobNumber);
+    }
+    if (locked.length > 0) {
+      throw APIError.failedPrecondition(
+        `ATA / ATD can't change: ${locked.join(", ")} ${locked.length === 1 ? "is" : "are"} already invoiced — credit the invoice first`,
+      );
+    }
+
     const row = await masterJobRepository.updateForCompany(id, companyId, clean as MasterJobUpdate);
     if (!row) throw APIError.notFound("Master job not found");
-
-    // The master job wins: every synced field in this save is written onto the houses.
-    const synced = syncedShipmentData(row, clean);
-    if (Object.keys(synced).length > 0) {
-      const houses = await shipmentRepository.findByMasterJobId(id, companyId);
+    if (houses.length > 0) {
       for (const house of houses) {
         // The synced keys are shipment columns; blanks clear them (null on a date).
         await shipmentService.update(house.id, companyId, synced as ShipmentUpdateData, userId);

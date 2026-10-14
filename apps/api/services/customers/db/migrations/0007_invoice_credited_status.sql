@@ -1,0 +1,2 @@
+ALTER TABLE "customer_invoice" DROP CONSTRAINT "customer_invoice_status_check";--> statement-breakpoint
+ALTER TABLE "customer_invoice" ADD CONSTRAINT "customer_invoice_status_check" CHECK ("customer_invoice"."status" IN ('Open', 'Overdue', 'Paid', 'Credited'));

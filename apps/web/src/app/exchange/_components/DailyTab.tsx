@@ -1,13 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Button, Spin, Switch, Tooltip } from "antd";
+import { Alert, Button, Spin, Switch, Tooltip } from "antd";
 import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { api } from "@/lib/api";
 import { formatDate } from "@/lib/date";
-import { CELL, FX_KEYS, TH, fmtRate, type DailyResponse } from "./fxShared";
+import { useFxDaily } from "@/hooks/useFx";
+import { CELL, TH, fmtRate, type DailyResponse } from "./fxShared";
 
 type Day = DailyResponse["days"][number];
 
@@ -29,10 +28,7 @@ function sourceText(day: Day): string {
 export function DailyTab({ initialMonth }: { initialMonth: string }) {
   const [month, setMonth] = useState(initialMonth);
   const [all, setAll] = useState(false);
-  const { data, isLoading } = useQuery({
-    queryKey: FX_KEYS.daily(month, all),
-    queryFn: () => api.fx.fxDaily({ month, all }),
-  });
+  const { data, isLoading, isError } = useFxDaily(month, all);
 
   const shift = (n: number) => setMonth(dayjs(`${month}-01`).add(n, "month").format("YYYY-MM"));
   const days = data?.days ?? [];
@@ -64,7 +60,9 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
         ))}
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <Alert type="error" showIcon message="Could not load the daily rates." />
+      ) : isLoading ? (
         <div className="flex justify-center py-10"><Spin /></div>
       ) : (
         <div className="overflow-x-auto border border-slate-200 rounded-xl">

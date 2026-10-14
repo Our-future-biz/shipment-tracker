@@ -109,23 +109,6 @@ export namespace lib {
     export interface AuthParams {
         authorization: string
     }
-
-    export interface JobProfitRow {
-        shipmentId: string
-        jobNumber: string
-        customer: string
-        freightMode: string
-        status: string
-        direction: "import" | "export"
-        basis: "ata" | "atd" | "eta" | "etd"
-        date: string
-        month: string
-        provisional: boolean
-        revenueCzk: number
-        costCzk: number
-        profitCzk: number
-        unconverted: string[]
-    }
 }
 
 export namespace auth {
@@ -846,7 +829,7 @@ export namespace fx {
         public async fxRatesOn(params: controllers.RatesOnRequest): Promise<interfaces.RatesOnDate> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
-                date: params.date,
+                date: params.date === undefined ? undefined : String(params.date),
             })
 
             // Now make the actual call to the API
@@ -858,7 +841,7 @@ export namespace fx {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 currency: params.currency,
-                date:     params.date,
+                date:     String(params.date),
             })
 
             // Now make the actual call to the API
@@ -1060,7 +1043,7 @@ export namespace invoicing {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 search: params.search,
-                view:   params.view,
+                view:   params.view === undefined ? undefined : String(params.view),
             })
 
             // Now make the actual call to the API
@@ -1155,7 +1138,7 @@ export namespace invoicing {
         /**
          * Job revenue, cost and profit in CZK at each month's fixed ČNB average (Shipment Reports).
          */
-        public async jobProfitReportGet(params: controllers.JobProfitReportRequest): Promise<services.JobProfitReport> {
+        public async jobProfitReportGet(params: controllers.JobProfitReportRequest): Promise<interfaces.JobProfitReport> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 from: params.from,
@@ -1164,7 +1147,7 @@ export namespace invoicing {
 
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/reports/job-profit`, undefined, {query})
-            return await resp.json() as services.JobProfitReport
+            return await resp.json() as interfaces.JobProfitReport
         }
     }
 }
@@ -2000,6 +1983,14 @@ export namespace controllers {
         periods: interfaces.PeriodAverage[]
     }
 
+    export interface BankAccountInput {
+        currency: string
+        bankName: string
+        accountNumber: string
+        iban: string
+        swift: string
+    }
+
     export interface BranchCreateRequest {
         name: string
         countryCode: string
@@ -2190,7 +2181,11 @@ export namespace controllers {
     }
 
     export interface CreditRequest {
+        /**
+         * Why the invoice is reversed (printed on the credit note)
+         */
         reason: string
+
         idempotencyKey?: string
     }
 
@@ -2461,6 +2456,8 @@ export namespace controllers {
         invoice: interfaces.InvoiceItem
     }
 
+    export type IsoDate = string
+
     export interface IssueRequest {
         customerId?: string
         duzp?: string
@@ -2472,7 +2469,14 @@ export namespace controllers {
     }
 
     export interface JobProfitReportRequest {
+        /**
+         * First month, YYYY-MM
+         */
         from: string
+
+        /**
+         * Last month, YYYY-MM
+         */
         to: string
     }
 
@@ -2684,9 +2688,9 @@ export namespace controllers {
 
     export interface QueueRequest {
         /**
-         * to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status); default to_bill
+         * Default to_bill
          */
-        view?: string
+        view?: interfaces.QueueView
 
         search?: string
     }
@@ -2775,7 +2779,7 @@ export namespace controllers {
     }
 
     export interface RatesOnRequest {
-        date?: string
+        date?: IsoDate
     }
 
     export interface ReleaseHouseBolResponse {
@@ -2795,7 +2799,7 @@ export namespace controllers {
 
     export interface ResolveRequest {
         currency: string
-        date: string
+        date: IsoDate
     }
 
     export interface RoeListResponse {
@@ -2825,8 +2829,12 @@ export namespace controllers {
         email: string
         phone: string
         web: string
+        /**
+         * PNG / JPEG data URL (about 300 KB at most)
+         */
         logoData: string
-        bankAccounts: schemas.BankAccount[]
+
+        bankAccounts: BankAccountInput[]
         defaultDueDays: number
         footerNote: string
     }
@@ -3665,7 +3673,17 @@ export namespace interfaces {
 
     export interface AverageItem {
         currency: string
+        /**
+         * CZK per 1 unit, unrounded (IDR ≈ 0.00119) — for converting amounts
+         */
         average: number
+
+        /**
+         * Units ČNB quotes the currency for (1, 100, 1000) and the average per that many, 3 dp — for display
+         */
+        amount: number
+
+        quoted: number
         fixingDays: number
     }
 
@@ -3708,9 +3726,9 @@ export namespace interfaces {
         invoicingStatus: string
 
         /**
-         * From the selling lines: to_bill | partly_invoiced | invoiced | none (no selling lines ticked)
+         * From the selling lines; none = no selling lines ticked
          */
-        billingState: string
+        billingState: BillingState
 
         billingCurrency: string
         /**
@@ -3734,6 +3752,11 @@ export namespace interfaces {
         roe: string
         quoteRef: string
     }
+
+    /**
+     * Where a shipment stands with its ticked selling rows
+     */
+    export type BillingState = "to_bill" | "partly_invoiced" | "invoiced" | "none"
 
     /**
      * A dimension line of the Cargo Dimensions card: `pieces` identical pieces of
@@ -4155,12 +4178,17 @@ export namespace interfaces {
         id: string
         startedAt: string
         finishedAt: string | null
-        trigger: string
-        status: string
+        trigger: SyncTrigger
+        status: ImportRunStatus
         rowsAdded: number
         latestValidDate: string | null
         error: string
     }
+
+    /**
+     * running → ok (new fixings stored) | no_new_data | failed
+     */
+    export type ImportRunStatus = "running" | "ok" | "no_new_data" | "failed"
 
     export interface InvoiceCostItem {
         id: string
@@ -4184,16 +4212,8 @@ export namespace interfaces {
     export interface InvoiceDocItem {
         id: string
         shipmentId: string
-        /**
-         * invoice | credit_note
-         */
-        kind: string
-
-        /**
-         * issued | credited
-         */
-        status: string
-
+        kind: InvoiceDocKind
+        status: InvoiceDocStatus
         number: string
         correctsInvoiceId: string | null
         creditReason: string
@@ -4239,6 +4259,11 @@ export namespace interfaces {
     }
 
     /**
+     * A tax document is an invoice or a credit note that reverses one.
+     */
+    export type InvoiceDocKind = "invoice" | "credit_note"
+
+    /**
      * One line of an issued invoice / credit note, or of a preview
      */
     export interface InvoiceDocLineItem {
@@ -4251,10 +4276,15 @@ export namespace interfaces {
          */
         net: string
 
-        vatCode: string
+        vatCode: VatCode
         vatRate: string
         sourceSellingCostId: string | null
     }
+
+    /**
+     * issued; an invoice reversed by a credit note becomes credited
+     */
+    export type InvoiceDocStatus = "issued" | "credited"
 
     export interface InvoiceItem {
         id: string
@@ -4357,10 +4387,13 @@ export namespace interfaces {
         missingForIssue: string[]
     }
 
-    export type InvoiceStatus = "Open" | "Overdue" | "Paid"
+    /**
+     * Credited = reversed by a credit note; like Paid, it no longer counts as owed.
+     */
+    export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited"
 
     export interface InvoiceVatSummaryItem {
-        vatCode: string
+        vatCode: VatCode
         vatRate: number
         base: number
         vat: number
@@ -4381,6 +4414,40 @@ export namespace interfaces {
     }
 
     /**
+     * Job revenue, cost and profit in CZK per month (Shipment Reports)
+     */
+    export interface JobProfitReport {
+        from: string
+        to: string
+        rows: JobProfitRow[]
+        months: MonthSummary[]
+        /**
+         * Jobs with neither ATA/ATD nor ETA/ETD — not in any period
+         */
+        undated: number
+    }
+
+    /**
+     * One job in the job-profit report (CZK at the month's fixed ČNB average)
+     */
+    export interface JobProfitRow {
+        shipmentId: string
+        jobNumber: string
+        customer: string
+        freightMode: string
+        status: string
+        direction: "import" | "export"
+        basis: "ata" | "atd" | "eta" | "etd"
+        date: string
+        month: string
+        provisional: boolean
+        revenueCzk: number
+        costCzk: number
+        profitCzk: number
+        unconverted: string[]
+    }
+
+    /**
      * The rates a job is valued at. locked: fixed at the job's ATA (import) / ATD (export).
      * provisional: the job has no ATA/ATD yet, or ČNB has not published that day's fixing —
      * valued by ETA/ETD (or today when that is blank too) and still moving.
@@ -4390,6 +4457,11 @@ export namespace interfaces {
         direction: "import" | "export"
         directionAssumed: boolean
         status: "locked" | "provisional"
+        /**
+         * The tax-date fixing should be stored but isn't (import failed), so the job can't lock yet
+         */
+        ratesMissing: boolean
+
         basis: "ata" | "atd" | "eta" | "etd" | "today"
         rateDate: string
         lockedAt: string | null
@@ -4508,6 +4580,29 @@ export namespace interfaces {
         containerNumber: string
     }
 
+    /**
+     * A month of the job-profit report
+     */
+    export interface MonthSummary {
+        month: string
+        jobs: number
+        revenueCzk: number
+        costCzk: number
+        profitCzk: number
+        /**
+         * The month's average is final (month ended); else provisional
+         */
+        final: boolean
+
+        /**
+         * EUR and USD averages, for reference
+         */
+        averages: {
+            currency: string
+            average: number
+        }[]
+    }
+
     export interface NoteItem {
         id: string
         customerId: string
@@ -4565,6 +4660,11 @@ export namespace interfaces {
         fileName: string
     }
 
+    /**
+     * Views of the Invoicing queue: to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status)
+     */
+    export type QueueView = "to_bill" | "not_invoiced" | "invoiced"
+
     export interface QuoteAttachmentItem {
         id: string
         quoteNumber: string
@@ -4611,6 +4711,11 @@ export namespace interfaces {
         date: string
         fixingDate: string | null
         provisional: boolean
+        /**
+         * A fixing for the date should already be stored but isn't (import failed): don't price or invoice with it
+         */
+        missing: boolean
+
         roePct: number
         rates: {
             currency: string
@@ -4625,6 +4730,11 @@ export namespace interfaces {
         fixingDate: string | null
         carried: boolean
         provisional: boolean
+        /**
+         * A newer fixing should already be stored but isn't (import failed): the rate is stale — don't use it
+         */
+        missing: boolean
+
         roePct: number
         reason: string
     }
@@ -4664,7 +4774,7 @@ export namespace interfaces {
         /**
          * VAT code on the invoice; null = default by trade direction
          */
-        vatCode: string | null
+        vatCode: SellingVatCode | null
 
         sortOrder: number
     }
@@ -4985,10 +5095,12 @@ export namespace interfaces {
         latestFixing: string | null
         expectedFixing: string
         lastRunAt: string | null
-        lastRunStatus: string | null
+        lastRunStatus: ImportRunStatus | null
         lastSuccessAt: string | null
         lastError: string
     }
+
+    export type SyncTrigger = "startup" | "schedule" | "cron" | "manual" | "backfill"
 
     export interface TaskItem {
         id: string
@@ -5015,6 +5127,11 @@ export namespace interfaces {
         previousRate: number | null
         previousFixingDate: string | null
     }
+
+    /**
+     * VAT code of an invoice line: the ones a line can be set to, or NP (issuer not a VAT payer).
+     */
+    export type VatCode = SellingVatCode | "NP"
 
     export interface WarehouseRef {
         shipmentId: string
@@ -5049,23 +5166,6 @@ export namespace interfaces {
         data: any
         createdAt: string
         updatedAt: string
-    }
-}
-
-export namespace schemas {
-    /**
-     * One bank account the customer can pay to, per invoice currency.
-     */
-    export interface BankAccount {
-        currency: string
-        bankName: string
-        /**
-         * Czech account number, e.g. "123456789/0800" (optional for foreign accounts).
-         */
-        accountNumber: string
-
-        iban: string
-        swift: string
     }
 }
 
@@ -5173,14 +5273,6 @@ export namespace services {
         role?: string
     }
 
-    export interface JobProfitReport {
-        from: string
-        to: string
-        rows: lib.JobProfitRow[]
-        months: MonthSummary[]
-        undated: number
-    }
-
     /**
      * A UN/LOCODE place as the city pickers list it.
      */
@@ -5190,19 +5282,6 @@ export namespace services {
         name: string
         nameAscii: string
         subdivisionName: string | null
-    }
-
-    export interface MonthSummary {
-        month: string
-        jobs: number
-        revenueCzk: number
-        costCzk: number
-        profitCzk: number
-        final: boolean
-        averages: {
-            currency: string
-            average: number
-        }[]
     }
 
     /**

@@ -1,8 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useFxRatesToday } from "@/hooks/useFx";
 
 /**
  * Today's ČNB rates (CZK per 1 unit; CZK itself is 1), for showing amounts in other
@@ -20,17 +19,13 @@ export function convert(amount: number, from: string, to: string, rates: Rates):
   return (amount * f) / t;
 }
 
-/** Today's ČNB rates (shared with quotes through the same query key). `week` names the fixing used. */
+/** Today's ČNB rates (the same query quotes use). `fixingLabel` names the fixing used. */
 export function useLatestRates() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["fx", "rates-today"],
-    queryFn: () => api.fx.fxRatesOn({}),
-    staleTime: 10 * 60 * 1000,
-  });
+  const { data, isLoading } = useFxRatesToday();
   const rates = useMemo<Rates>(
     () => ({ CZK: 1, ...Object.fromEntries((data?.rates ?? []).map((r) => [r.currency, r.rate])) }),
     [data?.rates],
   );
   const fixing = data?.fixingDate ? `ČNB ${data.fixingDate.split("-").reverse().join(".")}` : "";
-  return { rates, week: fixing, isLoading };
+  return { rates, fixingLabel: fixing, isLoading };
 }

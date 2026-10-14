@@ -14,7 +14,7 @@ import { normaliseAmount } from "@/lib/money";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
 
-/** COST_TYPES z mockupu - kategorie nakladu (spolecne pro buying i selling) */
+/** Cost categories (shared by buying and selling). */
 const COST_CATEGORIES = [
   "Ocean freight", "Air freight", "Rail freight", "Road freight",
   "Documentation", "THC Origin", "THC Destination", "Customs clearance",
@@ -22,11 +22,9 @@ const COST_CATEGORIES = [
   "Storage", "Demurrage", "Other",
 ];
 
-/** Vyber meny s naseptavanim - filtruje podle kodu i nazvu meny. */
 /**
- * Vyber meny. Naseptava podle kodu i nazvu (mockup: renderCombo, mode "cur").
- * Mena jde prepnout i v zamcenem radku - je to caste nastaveni a nema smysl
- * kvuli nemu radek nejdriv odemykat dvojklikem.
+ * Currency picker, searching by code and name. The currency can be switched even on a
+ * locked row: it is a frequent change, not worth unlocking the row with a double-click.
  */
 function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
@@ -35,7 +33,7 @@ function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: stri
       onChange={onChange}
       showSearch
       placeholder="CUR"
-      // hleda podle kodu i nazvu meny
+      // matches the code or the name
       filterOption={(input, option) => {
         const q = (input || "").toLowerCase().trim();
         if (!q) return true;
@@ -46,7 +44,7 @@ function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: stri
       options={CURRENCIES.map(({ code, name }) => ({
         value: code, title: name, label: `${code} — ${name}`,
       }))}
-      // v rozbalenem seznamu je videt i nazev meny, v bunce jen kod
+      // the open list shows the name too, the cell only the code
       optionRender={(opt) => (
         <span className="text-[13px]">
           <span className="font-semibold">{String(opt.value)}</span>
@@ -81,7 +79,7 @@ function cleanAmounts<T extends object>(params: T): T {
   return out as T;
 }
 
-/* ── sdilene tridy dle mockupu (--cb-field-h 30px, --cb-cell-x 6px) ── */
+/* ── shared classes (field height 30px, cell padding 6px) ── */
 const CELL = "px-[6px] py-[6px] border-b border-slate-100 align-middle";
 /** Splits estimated from real buying costs: a thick line down the whole table. */
 const SPLIT = "border-l-[3px] border-l-slate-900";
@@ -115,7 +113,7 @@ function SectionCard({
   );
 }
 
-/** male tlacitko v zahlavi karty (mockup: .add-btn, vyska 26px) */
+/** small button in a card header (26px high) */
 function HeadBtn({
   onClick, disabled, title, ariaLabel, children,
 }: {
@@ -145,13 +143,12 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   const queryClient = useQueryClient();
   const [quoteInput, setQuoteInput] = useState("");
   const [quoteLoading, setQuoteLoading] = useState(false);
-  // modalni okno Copy from quote (mockup: #quoteModal)
+  // the Copy from quote dialog
   const [quoteModal, setQuoteModal] = useState<null | "buy" | "sell">(null);
   const [quoteErr, setQuoteErr] = useState("");
   const [reportOpen, setReportOpen] = useState(false);
-  /* Zamykani radku dle mockupu (trida .display): vyplneny radek se po
-     opusteni zamkne do "read-only" podoby, dvojklik ho zase otevre.
-     Drzime ID odemcenych radku - vse ostatni vyplnene je zamcene. */
+  /* Row locking: a filled row turns read-only once left, a double-click opens it again.
+     The ids of unlocked rows are kept; every other filled row is locked. */
   const [unlocked, setUnlocked] = useState<Set<string>>(new Set());
   const unlock = (id: string) => setUnlocked((p) => new Set(p).add(id));
   const lock = (id: string) => setUnlocked((p) => {
@@ -170,8 +167,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     return queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
   };
 
-  /** Chyba zapisu se musi ukazat - drive se tise spolkla a tlacitko
-   *  vypadalo, ze nic nedela. */
+  /** A failed write must be shown — it used to be swallowed, and the button seemed to do nothing. */
   const showError = (what: string) => (e: unknown) => {
     const detail = e instanceof Error ? e.message : "";
     console.error(`[CostsTab] ${what}`, e);
@@ -185,7 +181,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   });
 
   /* ── Buying costs ── */
-  // novy radek dle mockupu: Qty = 1, meny podle zvolene billing meny
+  // a new row: Qty = 1, currencies of the chosen billing currency
   const addBuy = useMutation({
     mutationFn: () => api.invoicing.invoicingAddBuyingCost(shipment.id, {
       estQty: "1", realQty: "1",
@@ -208,7 +204,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   });
 
   /* ── Selling costs ── */
-  // novy radek dle mockupu: Qty = 1, mena podle billing meny, Invoice zaskrtnuto
+  // a new row: Qty = 1, the billing currency, ticked for Invoice
   const addSell = useMutation({
     mutationFn: async (params: controllers.AddSellingRequest = {}) =>
       api.invoicing.invoicingAddSellingCost(shipment.id, cleanAmounts({
@@ -230,32 +226,31 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     onError: showError("Could not delete the row"),
   });
 
-  /* ── Prazdna tabulka ──
-     Mockup startuje s jednim prazdnym radkem. Tady se radek NEZAKLADA sam:
-     pouhe otevreni zalozky by zapisovalo do databaze a prazdne naklady by se
-     pak objevovaly i na strance Invoicing. Misto toho je v prazdne tabulce
-     tlacitko, kterym si uzivatel prvni radek zalozi jednim kliknutim. */
+  /* ── Empty table ──
+     No row is created by itself: merely opening the tab would write to the database, and
+     empty costs would then show up on the Invoicing page too. An empty table has a button
+     that adds the first row with one click instead. */
 
-  /* ── Undo jako zasobnik (mockup: undoStack + snapshotCostRow/restoreCostRow) ──
-     Mockup si pamatuje vice smazanych radku a vraci je na PUVODNI pozici. */
+  /* ── Undo as a stack ──
+     Several deleted rows are remembered, and each comes back at its ORIGINAL position. */
   interface UndoEntry { index: number; values: Record<string, unknown> }
   const undoBuyStack = useRef<UndoEntry[]>([]);
   const undoSellStack = useRef<UndoEntry[]>([]);
   const [undoBuyCount, setUndoBuyCount] = useState(0);
   const [undoSellCount, setUndoSellCount] = useState(0);
 
-  /** prazdny radek nema smysl vracet (mockup: costRowFilled) */
+  /** an empty row is not worth bringing back */
   const buyRowFilled = (r: BuyingRow) =>
     !!(r.category || r.vendor || r.estAmount || r.realAmount || r.invoiceNumber);
   const sellRowFilled = (r: SellingRow) => !!(r.category || r.customer || r.amount);
 
-  /** costRowFilled z mockupu - podle nej se radek zamyka */
+  /** whether a row is filled — a filled row locks */
   const buyLocked = (r: BuyingRow) =>
     !unlocked.has(r.id) && !!(r.category || num(r.estAmount) || num(r.realAmount));
   const sellLocked = (r: SellingRow) =>
     !unlocked.has(r.id) && !!(r.category || num(r.amount));
 
-  /** zamceny radek: pole vypadaji jako text, dvojklik je otevre */
+  /** a locked row: fields look like text, a double-click opens them */
   const lockedField = (locked: boolean) =>
     locked
       ? " !border-transparent !bg-transparent pointer-events-none"
@@ -297,8 +292,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     const entry = undoBuyStack.current.pop();
     setUndoBuyCount(undoBuyStack.current.length);
     if (!entry) return;
-    // vraceni na puvodni pozici: radek dostane sortOrder podle ulozeneho indexu
-    // a nasledujici radky se posunou
+    // back to its original position: the row gets the sortOrder of its saved index
+    // and the rows after it move down
     await Promise.all([
       api.invoicing.invoicingAddBuyingCost(shipment.id, { ...entry.values, sortOrder: entry.index }),
       ...buyRows.flatMap((r, i) => i >= entry.index
@@ -329,9 +324,9 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     invalidate();
   };
 
-  /* ── Kopie radku (mockup: tlacitko .dup) ──
-     Nekopiruje se Invoice number ani Received - vazou se ke konkretni fakture.
-     U selling se nekopiruje vazba na zdrojovy radek - kopie je novy nezavisly radek. */
+  /* ── Duplicate a row ──
+     Invoice number and Received are not copied: they belong to one particular invoice.
+     A selling copy does not keep the link to its source row: it is a new, independent row. */
   const duplicateBuy = async (r: BuyingRow, index: number) => {
     await api.invoicing.invoicingAddBuyingCost(shipment.id, {
       category: r.category, vendor: r.vendor,
@@ -357,21 +352,21 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     invalidate();
   };
 
-  /* ── Zmena meny u Estimated se zrcadli do Real, dokud neni Real vyplneny ── */
+  /* ── A currency change on Estimated is mirrored to Real while Real is empty ── */
   const changeEstCurrency = (r: BuyingRow, currency: string) => {
     const mirror = !num(r.realAmount);
     updateBuy.mutate({ id: r.id, estCurrency: currency, ...(mirror ? { realCurrency: currency } : {}) });
   };
 
-  /* ── Received se ridi vyplnenim cisla faktury, rucne zaskrtnout nejde ── */
+  /* ── Received follows the invoice number being filled in; it can't be ticked by hand ── */
   const changeInvoiceNumber = (r: BuyingRow, value: string) => {
     if (value === r.invoiceNumber) return;
     updateBuy.mutate({ id: r.id, invoiceNumber: value, received: !!value.trim() });
   };
 
-  /* ── Copy from buying (mockup: copyFromBuying) ──
-     Kopiruje VZDY z Estimated (Qty x Est. Amount v mene estimated) - Real se nikdy
-     nepouziva. Radky jiz zkopirovane driv se preskoci (vazba sourceBuyId). */
+  /* ── Copy from buying ──
+     Always copies Estimated (Qty × Est. Amount in the estimated currency) — Real is never
+     used. Rows copied before are skipped (linked by sourceBuyId). */
   const copyFromBuying = async () => {
     const already = new Set(sellRows.map((r) => r.sourceBuyId).filter(Boolean));
     const rows = buyRows.filter((r) => !already.has(r.id) && (r.category || num(r.estAmount)));
@@ -379,8 +374,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       message.info(already.size ? "All buying rows are already copied" : "No buying costs to copy");
       return;
     }
-    // Jediny prazdny radek se pri kopirovani zahodi, aby nezustaval navic
-    // (mockup: const onlyEmpty = ... ; if (onlyEmpty) sellBody.innerHTML = "").
+    // A single empty row is dropped when copying, so it isn't left over as an extra.
     const onlyEmpty =
       sellRows.length === 1 && !sellRowFilled(sellRows[0]!) ? sellRows[0]! : null;
 
@@ -401,8 +395,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     message.success(`Copied ${rows.length} row(s) from buying`);
   };
 
-  /* ── Copy from quote (mockup: openQuoteModal / doQuoteImport) ──
-     Reference se zadava v modalnim okne, ne primo v karte. */
+  /* ── Copy from quote ──
+     The reference is entered in a dialog, not in the card itself. */
   const importQuoteCosts = async () => {
     const target = quoteModal;
     if (!target) return;
@@ -457,8 +451,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   const missingFor = (...currencies: string[]) =>
     [...new Set([...currencies, billingCur].filter((c) => c && c !== "CZK" && !rates[c]))].join(", ");
 
-  // Zadna blokujici obrazovka - karty se vykresli vzdy. Dokud data nedorazi,
-  // jsou tabulky prazdne a nahore bezi tenky prouzek.
+  // No blocking screen: the cards always render. Until the data arrives the tables are
+  // empty and a thin progress bar runs at the top.
 
 
   return (
@@ -482,7 +476,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1180px] border-separate border-spacing-0">
             <thead>
-              {/* seskupene zahlavi Estimated / Real dle mockupu */}
+              {/* grouped Estimated / Real header */}
               <tr>
                 <th colSpan={2} className="border-b border-slate-200" />
                 <th colSpan={3} className={`${TH} text-center bg-accent-faint text-accent-strong`}>
@@ -647,7 +641,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                 </tr>
               )}
             </tbody>
-            {/* soucty: pod Est. Amount a Real Cost, mena vzdy pod sloupcem Cur */}
+            {/* totals: under Est. Amount and Real Cost, the currency always under the Cur column */}
             <tfoot>
               <tr className="bg-slate-50 font-bold">
                 <td className="px-[6px] py-2 text-[12px] uppercase tracking-wide text-slate-500" colSpan={3}>
@@ -830,15 +824,15 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         </div>
       </SectionCard>
 
-      {/* ═══════════ 3. KURZY ═══════════
-          ČNB kurz dle danoveho data zakazky: import ATA, export ATD. Do te doby
-          predbezne dle ETA/ETD. Vybira server (fx sluzba), zde se jen zobrazuje. */}
+      {/* ═══════════ 3. RATES ═══════════
+          The ČNB rate of the job's tax date: ATA for imports, ATD for exports; provisional by
+          ETA / ETD until then. The server (fx service) picks it; this only shows it. */}
       <div className="flex items-center gap-4 flex-wrap bg-white border border-slate-200 rounded-xl px-4 py-3 mb-4">
         <span className="text-[12px] font-bold tracking-[.06em] uppercase text-slate-500">
           ČNB rate
         </span>
 
-        {/* tri kurzy vedle sebe: EUR / CZK / USD */}
+        {/* three rates side by side: EUR / CZK / USD */}
         <div className="flex items-center gap-2">
           {([
             ["EUR", rates.EUR],
@@ -857,9 +851,15 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
           ))}
         </div>
 
-        {/* stav: zamceno k ATA/ATD, nebo predbezne */}
+        {/* state: locked at ATA / ATD, or provisional */}
         {fx && (
-          fx.status === "locked" ? (
+          fx.ratesMissing ? (
+            <Tooltip title="The ČNB fixing of the job's tax date should be stored but isn't (the import failed). The job can't lock until it is imported.">
+              <span className="text-[12px] font-semibold text-danger bg-danger-soft border border-danger rounded-md px-2 py-0.5">
+                Rate missing
+              </span>
+            </Tooltip>
+          ) : fx.status === "locked" ? (
             <Tooltip title={`Locked ${formatDateTime(fx.lockedAt)}${fx.previousRateDate ? ` · re-locked from ${formatDate(fx.previousRateDate)} after ${fx.basis.toUpperCase()} changed` : ""}`}>
               <span className="text-[12px] font-semibold text-slate-700 bg-slate-100 border border-slate-300 rounded-md px-2 py-0.5">
                 Locked
@@ -872,12 +872,16 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
           )
         )}
 
-        {/* odkud se kurz vzal */}
+        {/* where the rate comes from */}
         <span className="text-[12.5px] text-slate-500">
           {ratesLoading ? (
             "Loading rates…"
           ) : ratesError || !fx ? (
             <span className="text-warn font-semibold">Could not load the ČNB rates</span>
+          ) : fx.ratesMissing ? (
+            <span className="text-danger font-semibold">
+              ČNB rate for {formatDate(fx.rateDate)} not imported — <Link href="/exchange" className="underline">sync it in Exchange</Link>
+            </span>
           ) : fx.rates.length === 0 ? (
             <span className="text-warn font-semibold">
               No ČNB rates stored — <Link href="/exchange" className="underline">check Exchange</Link>
@@ -1040,7 +1044,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         )}
       </div>
 
-      {/* Copy from quote - modalni okno dle mockupu (#quoteModal) */}
+      {/* the Copy from quote dialog */}
       <Modal
         open={quoteModal !== null}
         onCancel={() => { setQuoteModal(null); setQuoteErr(""); }}

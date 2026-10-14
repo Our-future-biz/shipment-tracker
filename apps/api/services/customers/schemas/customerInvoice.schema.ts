@@ -26,7 +26,7 @@ export const customerInvoiceTable = pgTable(
     tenantIndex("customer_invoice", table),
     index("customer_invoice_customer_id_idx").on(table.customerId),
     index("customer_invoice_status_idx").on(table.status),
-    check("customer_invoice_status_check", sql`${table.status} IN ('Open', 'Overdue', 'Paid')`),
+    check("customer_invoice_status_check", sql`${table.status} IN ('Open', 'Overdue', 'Paid', 'Credited')`),
   ],
 );
 

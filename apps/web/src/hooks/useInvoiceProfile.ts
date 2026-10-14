@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
+import { invalidateInvoicingDerived } from "./useInvoiceQueue";
 
 export type InvoiceProfile = interfaces.InvoiceProfileItem;
 export type InvoiceProfileInput = controllers.SaveProfileRequest;
@@ -20,7 +21,11 @@ export function useInvoiceProfile() {
 
   const save = useMutation({
     mutationFn: (input: InvoiceProfileInput) => api.invoicing.invoiceProfileSave(input),
-    onSuccess: (res) => queryClient.setQueryData(PROFILE_KEY, res),
+    onSuccess: (res) => {
+      queryClient.setQueryData(PROFILE_KEY, res);
+      // previews show the issuer, and missing details block issuing
+      invalidateInvoicingDerived(queryClient);
+    },
   });
 
   return {

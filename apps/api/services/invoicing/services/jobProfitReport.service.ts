@@ -1,28 +1,9 @@
-import { and, eq, inArray, isNull } from "drizzle-orm";
 import { APIError } from "encore.dev/api";
 import { fx, shipments } from "~encore/clients";
-import { db } from "../db/db";
-import { invoiceCostTable } from "../schemas/invoiceCost.schema";
-import { invoiceSellingCostTable } from "../schemas/invoiceSellingCost.schema";
-import { buildJobProfit, type JobProfitRow, type MonthAverages, type ReportShipment } from "../lib/jobProfitReport";
-
-export interface MonthSummary {
-  month: string;
-  jobs: number;
-  revenueCzk: number;
-  costCzk: number;
-  profitCzk: number;
-  final: boolean; // the month's average is final (month ended); else provisional
-  averages: { currency: string; average: number }[]; // EUR and USD, for reference
-}
-
-export interface JobProfitReport {
-  from: string;
-  to: string;
-  rows: JobProfitRow[];
-  months: MonthSummary[];
-  undated: number; // jobs with neither ATA/ATD nor ETA/ETD — not in any period
-}
+import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
+import { sellingCostRepository } from "../repositories/sellingCost.repository";
+import { buildJobProfit, type MonthAverages, type ReportShipment } from "../lib/jobProfitReport";
+import type { JobProfitReport, MonthSummary } from "../interfaces/interfaces";
 
 const PAGE = 200;
 
@@ -64,46 +45,47 @@ async function monthAverages(from: string, to: string): Promise<{ map: MonthAver
   return { map, final };
 }
 
-export async function jobProfitReport(companyId: string, from: string, to: string): Promise<JobProfitReport> {
-  if (!/^\d{4}-\d{2}$/.test(from) || !/^\d{4}-\d{2}$/.test(to) || from > to) {
-    throw APIError.invalidArgument("Use months as YYYY-MM, from ≤ to");
-  }
-  const ships = await allShipments();
-  const ids = ships.map((s) => s.id);
-  const [buys, sells, avg] = await Promise.all([
-    ids.length
-      ? db.select().from(invoiceCostTable).where(and(eq(invoiceCostTable.companyId, companyId), inArray(invoiceCostTable.shipmentId, ids), isNull(invoiceCostTable.deletedAt)))
-      : Promise.resolve([]),
-    ids.length
-      ? db.select().from(invoiceSellingCostTable).where(and(eq(invoiceSellingCostTable.companyId, companyId), inArray(invoiceSellingCostTable.shipmentId, ids), isNull(invoiceSellingCostTable.deletedAt)))
-      : Promise.resolve([]),
-    monthAverages(from, to),
-  ]);
+const cents = (v: number) => Math.round(v * 100) / 100;
 
-  const { rows, undated } = buildJobProfit(ships, buys, sells, avg.map, from, to);
+class JobProfitReportService {
+  /** Job revenue, cost and profit in CZK at each month's fixed ČNB average; from/to are YYYY-MM. */
+  async build(companyId: string, from: string, to: string): Promise<JobProfitReport> {
+    if (from > to) throw APIError.invalidArgument("The first month must not be after the last one");
+    const ships = await allShipments();
+    const ids = ships.map((s) => s.id);
+    const [buys, sells, avg] = await Promise.all([
+      invoiceCostRepository.listByShipmentIds(companyId, ids),
+      sellingCostRepository.listByShipmentIds(companyId, ids),
+      monthAverages(from, to),
+    ]);
 
-  const byMonth = new Map<string, MonthSummary>();
-  for (const r of rows) {
-    const m = byMonth.get(r.month) ?? {
-      month: r.month,
-      jobs: 0,
-      revenueCzk: 0,
-      costCzk: 0,
-      profitCzk: 0,
-      final: avg.final.get(r.month) ?? false,
-      averages: ["EUR", "USD"].flatMap((c) => {
-        const a = avg.map.get(r.month)?.[c];
-        return a ? [{ currency: c, average: a }] : [];
-      }),
-    };
-    m.jobs += 1;
-    m.revenueCzk += r.revenueCzk;
-    m.costCzk += r.costCzk;
-    m.profitCzk += r.profitCzk;
-    byMonth.set(r.month, m);
+    const { rows, undated } = buildJobProfit(ships, buys, sells, avg.map, from, to);
+
+    const byMonth = new Map<string, MonthSummary>();
+    for (const r of rows) {
+      const m = byMonth.get(r.month) ?? {
+        month: r.month,
+        jobs: 0,
+        revenueCzk: 0,
+        costCzk: 0,
+        profitCzk: 0,
+        final: avg.final.get(r.month) ?? false,
+        averages: ["EUR", "USD"].flatMap((c) => {
+          const a = avg.map.get(r.month)?.[c];
+          return a ? [{ currency: c, average: a }] : [];
+        }),
+      };
+      m.jobs += 1;
+      m.revenueCzk += r.revenueCzk;
+      m.costCzk += r.costCzk;
+      m.profitCzk += r.profitCzk;
+      byMonth.set(r.month, m);
+    }
+    const months = [...byMonth.values()]
+      .map((m) => ({ ...m, revenueCzk: cents(m.revenueCzk), costCzk: cents(m.costCzk), profitCzk: cents(m.profitCzk) }))
+      .sort((a, b) => b.month.localeCompare(a.month));
+    return { from, to, rows, months, undated };
   }
-  const months = [...byMonth.values()]
-    .map((m) => ({ ...m, revenueCzk: Math.round(m.revenueCzk * 100) / 100, costCzk: Math.round(m.costCzk * 100) / 100, profitCzk: Math.round(m.profitCzk * 100) / 100 }))
-    .sort((a, b) => b.month.localeCompare(a.month));
-  return { from, to, rows, months, undated };
 }
+
+export const jobProfitReportService = new JobProfitReportService();

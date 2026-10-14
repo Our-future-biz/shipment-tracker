@@ -64,3 +64,13 @@ export async function fetchDaily(date: string): Promise<CnbRow[]> {
 export async function fetchYear(year: number): Promise<CnbRow[]> {
   return parseRates(await getJson(`/exrates/daily-year?year=${year}&lang=EN`));
 }
+
+/**
+ * What the import log and "Sync now" show for a failed import: this client's own wording
+ * (no internals in it), anything else — network or library errors — generically. The full
+ * error is logged by the caller.
+ */
+export function publicImportError(err: unknown): string {
+  const message = err instanceof Error ? err.message : "";
+  return /^(ČNB |Unexpected ČNB )/.test(message) ? message.slice(0, 300) : "Could not reach ČNB";
+}

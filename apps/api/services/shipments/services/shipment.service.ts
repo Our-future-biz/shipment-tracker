@@ -29,6 +29,7 @@ import type {
 } from "../interfaces/interfaces";
 import { iso } from "../../../lib/db/serialize";
 import { publicFields } from "../lib/rows";
+import { changesTaxDate } from "../lib/taxDate";
 import { shipmentDeleted } from "../topics";
 
 // Extra detail rows accepted alongside the shipment's own fields on create/update.
@@ -594,15 +595,10 @@ class ShipmentService {
     await this.resolveCustomerLinks(shipmentData);
 
     // ATA / ATD is the tax date; once the job is invoiced it is final (owner decision,
-    // 14 Oct 2026) — correct it by crediting the invoice first.
-    const taxDateMoves = (["actualArrival", "actualDeparture"] as const).some(
-      (k) => k in shipmentData && (shipmentData[k] ?? null) !== (existing[k] ?? null),
-    );
-    if (taxDateMoves) {
-      const { count } = await invoicing.openInvoiceCount({ shipmentId: id, companyId });
-      if (count > 0) {
-        throw APIError.failedPrecondition("ATA / ATD cannot be changed once the job is invoiced — credit the invoice first");
-      }
+    // 14 Oct 2026) — correct it by crediting the invoice first. A trade-direction switch
+    // that changes which of the two is the tax date counts too.
+    if (changesTaxDate(existing, shipmentData) && (await this.isInvoiced(id))) {
+      throw APIError.failedPrecondition("ATA / ATD and the trade direction can't change once the job is invoiced — credit the invoice first");
     }
 
     // Seed the export BoL types against the values this update leaves behind, so
@@ -697,9 +693,22 @@ class ShipmentService {
   // job reference can never be reused. Recorded in the audit log as a change. Its details
   // drop out of every read with it (they are only reached through a live shipment), and
   // other services are told so they can retire what they keep for it.
+  /**
+   * Whether the job has an issued, not credited invoice. The company comes from the
+   * caller's auth, which Encore passes along on the service call.
+   */
+  async isInvoiced(id: string): Promise<boolean> {
+    const { count } = await invoicing.openInvoiceCount({ shipmentId: id });
+    return count > 0;
+  }
+
   async softDelete(id: string, companyId: string, userId?: string): Promise<void> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
+    // Its invoices would stay open in the queue and the customer's balance with no job.
+    if (await this.isInvoiced(id)) {
+      throw APIError.failedPrecondition("An invoiced shipment can't be deleted — credit its invoices first");
+    }
 
     if (userId) {
       await shipmentAuditRepository.create({

@@ -75,10 +75,11 @@ export const DOCUMENT_TYPE_COLORS: Record<string, string> = {
   Customs: "green",
 };
 
-export const INVOICE_STATUS_COLORS: Record<string, string> = {
+export const INVOICE_STATUS_COLORS: Record<interfaces.InvoiceStatus, string> = {
   Open: "blue",
   Overdue: "red",
   Paid: "green",
+  Credited: "default",
 };
 
 export const NOTE_TYPE_COLORS: Record<string, string> = {

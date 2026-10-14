@@ -8,7 +8,8 @@ export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "PR
 export type ContactRole = "Sales" | "Operations" | "Finance";
 export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";
 export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other";
-export type InvoiceStatus = "Open" | "Overdue" | "Paid";
+/** Credited = reversed by a credit note; like Paid, it no longer counts as owed. */
+export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited";
 
 export interface CustomerItem {
   id: string;

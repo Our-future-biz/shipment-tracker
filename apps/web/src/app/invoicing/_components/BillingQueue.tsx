@@ -1,18 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Alert, Input, Segmented, Table, Tag, Tooltip } from "antd";
 import { SearchOutlined, WarningOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
+import { useDebounced } from "@/hooks/useDebounced";
+import { useInvoiceQueue, type BillingQueueView } from "@/hooks/useInvoiceQueue";
 import { formatDate } from "@/lib/date";
 import { moneyCz } from "@/lib/money";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 
 type Row = interfaces.BillingQueueItem;
-type View = "to_bill" | "not_invoiced" | "invoiced";
+type View = BillingQueueView;
 
 /** The date a job is billed by: ETD for exports, ETA otherwise. */
 const serviceDateOf = (r: Row) => ((r.tradeDirection ?? "").toLowerCase() === "export" ? r.estimatedDeparture : r.estimatedArrival) ?? "";
@@ -30,24 +30,16 @@ export function InvoicingStatusTag({ value }: { value: string }) {
  * the jobs operations set to Shipment Status "Billing"; "Not invoiced" / "Invoiced" follow
  * the Invoicing Status. Opening a row selects that shipment above.
  */
-export function BillingQueue({ onOpen }: { onOpen: (shipmentId: string) => void }) {
+interface BillingQueueProps {
+  onOpen: (shipmentId: string) => void;
+}
+
+export function BillingQueue({ onOpen }: BillingQueueProps) {
   const [view, setView] = useState<View>("to_bill");
   const [search, setSearch] = useState("");
-  const [debounced, setDebounced] = useState("");
-
   // search runs on the server (across all shipments), so wait until typing pauses
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(search.trim()), 300);
-    return () => clearTimeout(t);
-  }, [search]);
-
-  const { data, isFetching } = useQuery({
-    queryKey: ["invoice-queue", view, debounced],
-    queryFn: () => api.invoicing.invoiceQueue({ view, ...(debounced ? { search: debounced } : {}) }),
-    placeholderData: keepPreviousData,
-  });
-  const rows = data?.queue ?? [];
-  const counts = data?.counts;
+  const debounced = useDebounced(search.trim(), 300);
+  const { rows, counts, truncated, hasData, isFetching, isError } = useInvoiceQueue(view, debounced);
 
   const columns: ColumnsType<Row> = [
     {
@@ -83,11 +75,12 @@ export function BillingQueue({ onOpen }: { onOpen: (shipmentId: string) => void 
       key: "amount",
       width: 160,
       align: "right",
-      sorter: (a, b) => a.amountToBill - b.amountToBill,
+      // amounts are only comparable within one currency: group by currency, then by amount
+      sorter: (a, b) => a.billingCurrency.localeCompare(b.billingCurrency) || a.amountToBill - b.amountToBill,
       render: (_, r) =>
         r.billingState === "none" ? (
           <Tooltip title="No selling costs ticked for Invoice yet — add them in the Costs section of the job">
-            <span className="text-[#9A5B00] text-[12.5px]"><WarningOutlined className="mr-1" />No selling lines</span>
+            <span className="text-warn text-[12.5px]"><WarningOutlined className="mr-1" />No selling lines</span>
           </Tooltip>
         ) : r.rowsToBill === 0 ? (
           <span className="text-slate-500">—</span>
@@ -95,7 +88,7 @@ export function BillingQueue({ onOpen }: { onOpen: (shipmentId: string) => void 
           <span className="tabular-nums font-medium">
             {r.missingCurrencies.length > 0 && (
               <Tooltip title={`ČNB publishes no rate for ${r.missingCurrencies.join(", ")} — those lines are not in this amount`}>
-                <WarningOutlined className="text-[#9A5B00] mr-1.5" />
+                <WarningOutlined className="text-warn mr-1.5" />
               </Tooltip>
             )}
             {moneyCz(r.amountToBill)} {r.billingCurrency}
@@ -150,13 +143,14 @@ export function BillingQueue({ onOpen }: { onOpen: (shipmentId: string) => void 
           aria-label="Search the queue"
         />
       </div>
-      {data?.truncated && (
+      {isError && <Alert type="error" showIcon className="mb-3" message="Could not load the invoicing queue." />}
+      {truncated && (
         <Alert type="info" showIcon className="mb-3" message={`Showing the first ${rows.length} jobs — use the search to narrow the list.`} />
       )}
       <Table<Row>
         size="middle"
         rowKey="shipmentId"
-        loading={isFetching && !data}
+        loading={isFetching && !hasData}
         dataSource={rows}
         columns={columns}
         pagination={rows.length > 25 ? { pageSize: 25, showSizeChanger: false } : false}

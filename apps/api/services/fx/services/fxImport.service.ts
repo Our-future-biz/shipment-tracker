@@ -1,7 +1,7 @@
 import log from "encore.dev/log";
 import { cnbRateRepository } from "../repositories/cnbRate.repository";
 import { cnbImportRunRepository } from "../repositories/cnbImportRun.repository";
-import { fetchDaily, fetchYear, type CnbRow } from "../lib/cnb";
+import { fetchDaily, fetchYear, publicImportError, type CnbRow } from "../lib/cnb";
 import { addDays, expectedLatestFixing, pragueToday, previousFixingDay } from "../lib/dates";
 import type { SyncResult, SyncTrigger } from "../interfaces/interfaces";
 import { resolveAlertsUpTo } from "./fxAlert.service";
@@ -82,9 +82,9 @@ async function runImport(trigger: SyncTrigger, userId?: string): Promise<SyncRes
     if (added > 0) log.info("fx: ČNB fixings imported", { trigger, added, latestOffered });
     return { skipped: false, status, rowsAdded: added, latestValidDate: latestOffered };
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = publicImportError(err);
     log.error(err, "fx: ČNB import failed", { trigger });
-    await cnbImportRunRepository.finish(run.id, { status: "failed", error: message.slice(0, 500) });
+    await cnbImportRunRepository.finish(run.id, { status: "failed", error: message });
     return { skipped: false, status: "failed", rowsAdded: 0, error: message };
   }
 }

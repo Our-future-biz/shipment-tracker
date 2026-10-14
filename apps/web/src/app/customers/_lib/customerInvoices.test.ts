@@ -74,6 +74,15 @@ describe("summarizeInvoices", () => {
     expect(s.outstanding).toBe(70);
     expect(s.byCurrency).toEqual([{ currency: "USD", amount: 70, count: 1 }]);
   });
+
+  it("treats an invoice cancelled by a credit note as settled, not overdue", () => {
+    const s = summarizeInvoices(
+      [inv({ id: "a", amount: 300, currency: "", status: "Credited", dueDate: "2020-01-01" }), inv({ id: "b", amount: 70, currency: "" })],
+      { currency: "USD", rates },
+      NOW,
+    );
+    expect(s.outstanding).toBe(70);
+  });
 });
 
 describe("fx", () => {

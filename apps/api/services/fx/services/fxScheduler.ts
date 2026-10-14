@@ -1,3 +1,4 @@
+import { appMeta } from "encore.dev";
 import log from "encore.dev/log";
 import { cnbRateRepository } from "../repositories/cnbRate.repository";
 import { LAST_PULL_MINUTES, PULL_SLOTS, isFixingDay, pragueMinutes, pragueToday } from "../lib/dates";
@@ -5,10 +6,10 @@ import { ensureFresh, syncNow } from "./fxImport.service";
 import { raiseMissingFixing } from "./fxAlert.service";
 
 // The daily ČNB pull: 15:00 Prague time on fixing days, retried at 15:30 and 16:00; still
-// missing after 16:00 → reported to the admins. A minute timer drives it locally (Encore
-// cron jobs don't fire under `encore run`); in the cloud the fx-cnb-import cron calls
-// pullTick too. Both are safe together: a slot runs once per day and an import that finds
-// today's fixing stored does nothing.
+// missing after 16:00 → reported to the admins. A minute timer drives it locally only
+// (Encore cron jobs don't fire under `encore run`); in the cloud the fx-cnb-import cron calls
+// pullTick instead. Either way a slot runs once per day and an import that finds today's
+// fixing stored does nothing.
 const TICK_MS = 60_000;
 const STARTUP_DELAY_MS = 5_000;
 
@@ -47,7 +48,9 @@ export async function pullTick(now = new Date()): Promise<void> {
   } catch (err) {
     log.error(err, "fx: scheduled pull failed");
     if (slot === LAST_PULL_MINUTES) {
-      await raiseMissingFixing(today, `The scheduled pull failed: ${err instanceof Error ? err.message : String(err)}`).catch(() => {});
+      await raiseMissingFixing(today, "The scheduled pull failed — see the import log").catch((alertErr: unknown) =>
+        log.error(alertErr, "fx: could not raise the missing-fixing alert", { fixingDate: today }),
+      );
     }
   }
 }
@@ -55,6 +58,8 @@ export async function pullTick(now = new Date()): Promise<void> {
 export function startFxScheduler(): void {
   if (started || process.env.VITEST) return;
   started = true;
+  // In the cloud the cron drives the pulls; a timer on every instance would only repeat them.
+  if (appMeta().environment.cloud !== "local") return;
   // On start, fill in any fixings missed while the app was off (earlier days, or today
   // after 15:00), then keep the daily schedule.
   setTimeout(() => void ensureFresh("startup").then(() => pullTick()), STARTUP_DELAY_MS).unref();

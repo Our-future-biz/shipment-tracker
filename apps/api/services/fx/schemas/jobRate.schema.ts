@@ -1,5 +1,7 @@
-import { pgTable, text, date, uuid, jsonb, integer, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, date, uuid, jsonb, integer, timestamp, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import type { LockBasis } from "../interfaces/interfaces";
 
 // ČNB rate of one currency as locked on a job: CZK per 1 unit and the fixing it came from.
 export type LockedRates = Record<string, { rate: number; fixingDate: string }>;
@@ -14,7 +16,7 @@ export const jobRateTable = pgTable(
     ...defaultTableColumns,
     ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
-    basis: text("basis").notNull(), // ata | atd
+    basis: text("basis").$type<LockBasis>().notNull(),
     rateDate: date("rate_date", { mode: "string" }).notNull(),
     rates: jsonb("rates").$type<LockedRates>().notNull(),
     lockedAt: timestamp("locked_at", { withTimezone: true }).notNull().defaultNow(),
@@ -25,6 +27,7 @@ export const jobRateTable = pgTable(
     ...defaultTableIndexes("job_rate", table),
     tenantIndex("job_rate", table),
     uniqueIndex("job_rate_company_shipment_unique").on(table.companyId, table.shipmentId),
+    check("job_rate_basis_check", sql`${table.basis} IN ('ata', 'atd')`),
   ],
 );
 

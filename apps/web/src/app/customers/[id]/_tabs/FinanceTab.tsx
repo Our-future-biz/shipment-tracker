@@ -35,7 +35,7 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
   const searchParams = useSearchParams();
   const { customer } = useCustomer(customerId);
   const { invoices, isLoading, isError, refetch } = useCustomerInvoices(customerId);
-  const { rates, week } = useLatestRates();
+  const { rates, fixingLabel } = useLatestRates();
 
   // The sub-view lives in the URL (?view=) next to ?tab=, so it survives a reload and can be linked to.
   const rawView = searchParams.get("view") ?? DEFAULT_VIEW;
@@ -101,7 +101,7 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
                   <CustomerKpiTile
                     label="Outstanding"
                     value={fmtMoney(summary.outstanding, currency)}
-                    hint={mixed ? <span title={`${breakdown} — converted at the rates of ${week || "today"}`}>{breakdown}</span> : undefined}
+                    hint={mixed ? <span title={`${breakdown} — converted at the rates of ${fixingLabel || "today"}`}>{breakdown}</span> : undefined}
                   />
                   <CustomerKpiTile
                     label="Available"

@@ -1,26 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { fxActionFor } from "../lib/quoteFx";
+import { planQuoteFx } from "../lib/quoteFx";
 
-const fx = { date: "2026-10-14", fixingDate: "2026-10-13", roePct: 102, rates: { EUR: 24.375 }, lockedAt: "x" };
+const stored = { date: "2026-10-14", fixingDate: "2026-10-13", roePct: 102, rates: { EUR: 24.375 }, lockedAt: "x" };
+const forged = { date: "2026-10-14", fixingDate: "2026-10-13", roePct: 150, rates: { EUR: 1 }, lockedAt: "y" };
 
-describe("fxActionFor", () => {
-  it("stores the rates when a quote is sent", () => {
-    expect(fxActionFor({ quoteStatus: "quoted" })).toBe("stamp");
-    expect(fxActionFor({ quoteStatus: "won" })).toBe("stamp"); // reached without passing through quoted
+describe("planQuoteFx", () => {
+  it("stamps today's rates when a quote is sent without stored ones", () => {
+    expect(planQuoteFx({ quoteStatus: "quoted" })).toEqual({ action: "stamp" });
+    expect(planQuoteFx({ quoteStatus: "won" }, { quoteStatus: "ready_to_send" })).toEqual({ action: "stamp" });
   });
 
-  it("never changes rates already stored on a sent quote", () => {
-    for (const s of ["quoted", "feedback", "won", "lost", "expired"]) expect(fxActionFor({ quoteStatus: s, fx })).toBe("keep");
+  it("keeps the rates stored on a sent quote, whatever the client sends", () => {
+    for (const s of ["quoted", "feedback", "won", "lost", "expired"]) {
+      expect(planQuoteFx({ quoteStatus: s, fx: forged }, { fx: stored })).toEqual({ action: "reuse", fx: stored });
+    }
   });
 
-  it("drops stored rates when a quote is revised or back in draft", () => {
-    expect(fxActionFor({ quoteStatus: "revised", fx })).toBe("clear");
-    expect(fxActionFor({ quoteStatus: "draft", fx })).toBe("clear");
-    expect(fxActionFor({ quoteStatus: "ready_to_send" })).toBe("keep");
+  it("never stores rates the client made up", () => {
+    // no rates stored yet: a client-sent fx is replaced by a server stamp
+    expect(planQuoteFx({ quoteStatus: "quoted", fx: forged }, { quoteStatus: "draft" })).toEqual({ action: "stamp" });
+    expect(planQuoteFx({ quoteStatus: "quoted", fx: forged })).toEqual({ action: "stamp" });
+  });
+
+  it("drops rates from a quote that is revised or back in draft", () => {
+    expect(planQuoteFx({ quoteStatus: "revised", fx: stored }, { fx: stored })).toEqual({ action: "clear" });
+    expect(planQuoteFx({ quoteStatus: "draft", fx: forged })).toEqual({ action: "clear" });
+    expect(planQuoteFx({ quoteStatus: "ready_to_send" })).toEqual({ action: "leave" });
   });
 
   it("leaves non-sales quotes alone", () => {
-    expect(fxActionFor({})).toBe("keep");
-    expect(fxActionFor(null)).toBe("keep");
+    expect(planQuoteFx({})).toEqual({ action: "leave" });
+    expect(planQuoteFx(null)).toEqual({ action: "leave" });
   });
 });

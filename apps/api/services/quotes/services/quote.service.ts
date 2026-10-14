@@ -8,33 +8,31 @@ import { toQuoteItem } from "../lib/mappers";
 import { baseRef, nextDuplicateRef, nextSalesRef, salesRefPrefix, subLineRef } from "../lib/refs";
 import { quoteAttachmentService } from "./quoteAttachment.service";
 import { fx } from "~encore/clients";
-import { fxActionFor, type StoredFx } from "../lib/quoteFx";
+import { planQuoteFx, type StoredFx } from "../lib/quoteFx";
 
-// Stores today's ČNB rates and ROE % on a quote that has just been sent, and drops them from
-// one reopened for revision (see lib/quoteFx). Rates are never changed on a sent quote.
+// Applies the quote's rate rule (lib/quoteFx): drafts carry no rates; a sent quote keeps the
+// rates stored on it, or gets today's stamped now. A client-sent `fx` is never stored.
 async function withQuoteFx(data: unknown, previous?: unknown): Promise<unknown> {
-  const action = fxActionFor(data);
-  if (action === "keep") return data;
-  const d = { ...(data as Record<string, unknown>) };
-  if (action === "clear") {
+  const plan = planQuoteFx(data, previous);
+  if (plan.action === "leave") return data;
+  const d: Record<string, unknown> = { ...(data as Record<string, unknown>) };
+  if (plan.action === "clear") {
     delete d.fx;
     return d;
   }
-  // A save made from a copy that predates the stored rates must not replace them.
-  const prevFx = previous && typeof previous === "object" ? (previous as { fx?: unknown }).fx : undefined;
-  if (prevFx) {
-    d.fx = prevFx;
+  if (plan.action === "reuse") {
+    d.fx = plan.fx;
     return d;
   }
   const r = await fx.fxRatesOn({});
-  const stored: StoredFx = {
+  const stamped: StoredFx = {
     date: r.date,
     fixingDate: r.fixingDate,
     roePct: r.roePct,
     rates: Object.fromEntries(r.rates.map((x) => [x.currency, x.rate])),
     lockedAt: new Date().toISOString(),
   };
-  d.fx = stored;
+  d.fx = stamped;
   return d;
 }
 

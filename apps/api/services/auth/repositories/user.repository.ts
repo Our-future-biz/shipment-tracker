@@ -30,7 +30,7 @@ class UserRepository extends BaseRepository<typeof userTable> {
   }
 
   // Live admins and superadmins across all companies — recipients of system alerts.
-  async listAdmins() {
+  async listAdmins(): Promise<{ email: string; displayName: string }[]> {
     return this.db
       .select({ email: userTable.email, displayName: userTable.displayName })
       .from(userTable)

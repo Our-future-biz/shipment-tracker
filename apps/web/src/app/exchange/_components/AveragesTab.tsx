@@ -1,12 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Button, Spin, Switch } from "antd";
+import { Alert, Button, Spin, Switch } from "antd";
 import { LeftOutlined, RightOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
-import { api } from "@/lib/api";
-import { CELL, FX_KEYS, TH, fmtRate, type AveragesResponse } from "./fxShared";
+import { useFxAverages } from "@/hooks/useFx";
+import { CELL, TH, fmtAverage, type AveragesResponse } from "./fxShared";
 
 type Period = AveragesResponse["periods"][number];
 
@@ -19,10 +18,7 @@ function label(p: Period): string {
 export function AveragesTab({ initialYear }: { initialYear: number }) {
   const [year, setYear] = useState(initialYear);
   const [all, setAll] = useState(false);
-  const { data, isLoading } = useQuery({
-    queryKey: FX_KEYS.averages(year, all),
-    queryFn: () => api.fx.fxAverages({ year, all }),
-  });
+  const { data, isLoading, isError } = useFxAverages(year, all);
   const currencies = data?.currencies ?? [];
   const groups: { title: string; type: Period["type"] }[] = [
     { title: "Months", type: "month" },
@@ -43,7 +39,9 @@ export function AveragesTab({ initialYear }: { initialYear: number }) {
         </label>
       </div>
 
-      {isLoading ? (
+      {isError ? (
+        <Alert type="error" showIcon message="Could not load the period averages." />
+      ) : isLoading ? (
         <div className="flex justify-center py-10"><Spin /></div>
       ) : (
         <div className="overflow-x-auto border border-slate-200 rounded-xl">
@@ -71,7 +69,7 @@ export function AveragesTab({ initialYear }: { initialYear: number }) {
                       <td className={`${CELL} ${p.type === "month" ? "" : "font-semibold"}`}>{label(p)}</td>
                       {currencies.map((c) => (
                         <td key={c} className={`${CELL} text-right tabular-nums`}>
-                          {fmtRate(p.averages.find((a) => a.currency === c)?.average)}
+                          {fmtAverage(p.averages.find((a) => a.currency === c))}
                         </td>
                       ))}
                       <td className={`${CELL} text-right tabular-nums text-slate-500`}>{p.averages[0]?.fixingDays ?? 0}</td>
@@ -79,7 +77,7 @@ export function AveragesTab({ initialYear }: { initialYear: number }) {
                         {p.final ? (
                           <span className="text-[12px] font-semibold text-slate-600 bg-slate-100 rounded px-2 py-0.5">Final</span>
                         ) : (
-                          <span className="text-[12px] font-semibold text-[#95620B] bg-[#FBEED2] rounded px-2 py-0.5">Provisional</span>
+                          <span className="text-[12px] font-semibold text-warn bg-warn-soft rounded px-2 py-0.5">Provisional</span>
                         )}
                       </td>
                     </tr>
@@ -91,7 +89,8 @@ export function AveragesTab({ initialYear }: { initialYear: number }) {
         </div>
       )}
       <p className="text-[12.5px] text-slate-400 m-0">
-        Average of the ČNB fixing days in the period, rounded to 3 decimals — the same method as ČNB&apos;s own published averages.
+        Average of the ČNB fixing days in the period, shown per the units ČNB quotes (e.g. per 1000 IDR) to 3 decimals — the same
+        method as ČNB&apos;s own published averages; reports convert with the unrounded rate.
         Quarters and years average all their fixing days, not the monthly averages. Reports use these rates without the ROE %.
       </p>
     </div>

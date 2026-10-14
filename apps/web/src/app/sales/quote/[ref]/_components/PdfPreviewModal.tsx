@@ -59,7 +59,7 @@ export function PdfPreviewModal({
         <Button key="cancel" onClick={onClose}>
           Cancel
         </Button>,
-        <Button key="print" type="primary" onClick={() => printQuote(shownRef, shown, liveFx)}>
+        <Button key="print" type="primary" onClick={() => printQuote(shownRef, shown, liveFx)} disabled={!shown.fx && !liveFx}>
           Download / Print
         </Button>,
       ]}

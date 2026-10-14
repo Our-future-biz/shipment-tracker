@@ -1,15 +1,15 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { Spin } from "antd";
-import { api } from "@/lib/api";
+import { Alert, Spin } from "antd";
+import { useFxRoeHistory } from "@/hooks/useFx";
 import { formatDate, formatDateTime } from "@/lib/date";
-import { CELL, FX_KEYS, TH, fmtPct } from "./fxShared";
+import { CELL, TH, fmtPct } from "./fxShared";
 
 export function RoeHistoryTab() {
-  const { data, isLoading } = useQuery({ queryKey: FX_KEYS.roe, queryFn: () => api.fx.fxRoeList() });
+  const { data, isLoading, isError } = useFxRoeHistory();
   const changes = data?.changes ?? [];
 
+  if (isError) return <Alert type="error" showIcon message="Could not load the ROE history." />;
   if (isLoading) return <div className="flex justify-center py-10"><Spin /></div>;
 
   return (
@@ -38,7 +38,7 @@ export function RoeHistoryTab() {
                 <td className={CELL}>
                   {formatDate(c.effectiveFrom)}
                   {c.current && <span className="ml-2 text-[11.5px] font-semibold text-indigo-700">in force</span>}
-                  {c.scheduled && <span className="ml-2 text-[11.5px] font-semibold text-[#95620B]">scheduled</span>}
+                  {c.scheduled && <span className="ml-2 text-[11.5px] font-semibold text-warn">scheduled</span>}
                 </td>
                 <td className={`${CELL} text-right tabular-nums font-semibold`}>{fmtPct(c.pct)}</td>
                 <td className={CELL}>{c.changedByName || "—"}</td>

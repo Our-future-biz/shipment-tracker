@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import {
@@ -15,6 +15,15 @@ const lineOf = (id: string, companyId: string, shipmentId: string) =>
 class SellingCostRepository extends TenantRepository<typeof t> {
   constructor() {
     super(db, t, "invoice_selling_cost");
+  }
+
+  /** Live rows of these shipments (the job-profit report reads many jobs at once). */
+  async listByShipmentIds(companyId: string, shipmentIds: string[]): Promise<InvoiceSellingCostRecord[]> {
+    if (!shipmentIds.length) return [];
+    return this.db
+      .select()
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, shipmentIds), isNull(t.deletedAt)));
   }
 
   async listByShipmentId(shipmentId: string, companyId: string): Promise<InvoiceSellingCostRecord[]> {

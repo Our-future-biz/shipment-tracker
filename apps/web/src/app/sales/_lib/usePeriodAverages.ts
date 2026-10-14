@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useQueries } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { FX_KEYS } from "@/hooks/useFx";
 
 // ČNB monthly averages (mean of the month's fixing days, no ROE %) — the fixed rates reports
 // use. Month (YYYY-MM) → currency → CZK per 1 unit; `final` false for a month still running.
@@ -16,7 +17,7 @@ export function usePeriodAverages(years: number[]): PeriodAverages {
   const unique = [...new Set(years)].sort();
   const results = useQueries({
     queries: unique.map((year) => ({
-      queryKey: ["fx", "averages", year, true],
+      queryKey: FX_KEYS.averages(year, true),
       queryFn: () => api.fx.fxAverages({ year, all: true }),
       staleTime: 10 * 60 * 1000,
     })),

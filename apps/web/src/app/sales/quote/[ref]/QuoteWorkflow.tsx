@@ -28,10 +28,12 @@ import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import type { SalesQuoteData, PackageLine, CostLine } from "../../_lib/types";
+import { withFxRule } from "../../_lib/types";
 import { CURRENCIES } from "@/lib/enums";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, COST_LINE_TYPES, PACKING_TYPES } from "../../_lib/types";
 import { computeTotals, computeCargo, fmt, validityInfo, quoteFamily, fxNote } from "../../_lib/salesQuote";
 import { useQuoteFx } from "../../_lib/useQuoteFx";
+import { useFxRatesToday } from "@/hooks/useFx";
 import { printQuote } from "../../_lib/printQuote";
 import { LifecycleBar } from "./_components/LifecycleBar";
 import { ImportInquiryModal } from "./_components/ImportInquiryModal";
@@ -80,7 +82,8 @@ export function QuoteWorkflow() {
     if (!hydrated.current) return;
     const t = setTimeout(() => {
       saveRef.current(draft)
-        .then(() => {
+        .then((res) => {
+          adoptStoredFx(res.quote.data);
           setSaveError("");
           setSavedAt(new Date().toLocaleTimeString("en-GB"));
         })
@@ -98,7 +101,14 @@ export function QuoteWorkflow() {
     [],
   );
 
-  const set = (patch: Partial<SalesQuoteData>) => setDraft((d) => ({ ...d, ...patch }));
+  const set = (patch: Partial<SalesQuoteData>) => setDraft((d) => withFxRule({ ...d, ...patch }));
+
+  // The server stores the rates when a quote is sent; take them over, so totals, the note and
+  // the PDF show the stored rates rather than today's.
+  const adoptStoredFx = (saved: unknown) => {
+    const fx = (saved as SalesQuoteData | null)?.fx;
+    if (fx) setDraft((d) => (d.fx?.lockedAt === fx.lockedAt ? d : { ...d, fx }));
+  };
 
   // Packages
   const packages = draft.packages ?? [];
@@ -118,6 +128,9 @@ export function QuoteWorkflow() {
 
   // Pricing
   const liveFx = useQuoteFx();
+  // ČNB's fixing for today should be stored but isn't (import failed): today's rates are stale.
+  const { data: todayRates } = useFxRatesToday();
+  const liveRatesMissing = !draft.fx && !!todayRates?.missing;
   const totals = useMemo(() => computeTotals(draft, liveFx), [draft, liveFx]);
   const updateLines = (kind: "buyingLines" | "sellingLines", lines: CostLine[]) => set({ [kind]: lines } as Partial<SalesQuoteData>);
 
@@ -361,6 +374,11 @@ export function QuoteWorkflow() {
           </div>
           {/* Which rates the totals use: stored on the quote once sent, today's until then. */}
           <div className="text-[12.5px] text-slate-500">{fxNote(totals, draft.currency ?? "EUR")}</div>
+          {liveRatesMissing && (
+            <div className="text-[12.5px] text-danger bg-danger-soft border border-danger/30 rounded-lg px-3 py-2">
+              Today&apos;s ČNB rates have not been imported — prices use an older fixing. Sync them on the Exchange page before sending.
+            </div>
+          )}
           {totals.unconverted.length > 0 && (
             <div className="text-[12.5px] text-warn bg-warn-soft border border-warn/30 rounded-lg px-3 py-2">
               No ČNB rate for {totals.unconverted.join(", ")} — those lines are left out of the totals.
@@ -432,7 +450,8 @@ export function QuoteWorkflow() {
           <div className="flex gap-2">
             <Button icon={<SaveOutlined />} onClick={() =>
                 saveData(draft)
-                  .then(() => {
+                  .then((res) => {
+                    adoptStoredFx(res.quote.data);
                     setSaveError("");
                     toast.success("Saved");
                   })
@@ -449,7 +468,13 @@ export function QuoteWorkflow() {
             <Button icon={<MailOutlined />} onClick={() => setModal("email")}>
               Email
             </Button>
-            <Button type="primary" icon={<FilePdfOutlined />} onClick={() => printQuote(ref, draft, liveFx)}>
+            <Button
+              type="primary"
+              icon={<FilePdfOutlined />}
+              onClick={() => printQuote(ref, draft, liveFx)}
+              disabled={!draft.fx && !liveFx}
+              title={!draft.fx && !liveFx ? "Loading the ČNB rates…" : undefined}
+            >
               Export PDF
             </Button>
           </div>

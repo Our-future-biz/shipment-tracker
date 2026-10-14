@@ -1,12 +1,12 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Button, Spin, Tabs, Tooltip, message } from "antd";
+import { Alert, Button, Spin, Tabs, Tooltip } from "antd";
 import { SyncOutlined } from "@ant-design/icons";
-import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { useToast } from "@/lib/toast";
+import { useFxOverview, useFxSync } from "@/hooks/useFx";
 import { formatDate, formatDateTime } from "@/lib/date";
-import { CARD, FX_KEYS, type FxOverview } from "./_components/fxShared";
+import { CARD, type FxOverview } from "./_components/fxShared";
 import { OverviewCards } from "./_components/OverviewCards";
 import { DailyTab } from "./_components/DailyTab";
 import { AveragesTab } from "./_components/AveragesTab";
@@ -31,7 +31,7 @@ function SyncPill({ sync }: { sync: FxOverview["sync"] }) {
     );
   }
   return (
-    <span className="text-[12.5px] font-semibold text-[#95620B] bg-[#FBEED2] border border-[#95620B] rounded-md px-2 py-0.5">
+    <span className="text-[12.5px] font-semibold text-warn bg-warn-soft border border-warn rounded-md px-2 py-0.5">
       Waiting for ČNB fixing of {formatDate(sync.expectedFixing)}
     </span>
   );
@@ -53,7 +53,7 @@ function SyncWarning({ sync }: { sync: FxOverview["sync"] }) {
     <div
       className={
         "rounded-xl px-4 py-3 text-[13.5px] border " +
-        (failed ? "bg-red-50 border-red-300 text-red-800" : "bg-[#FBEED2] border-[#E5C27A] text-[#6B4A0B]")
+        (failed ? "bg-red-50 border-red-300 text-red-800" : "bg-warn-soft border-warn/40 text-warn-ink")
       }
     >
       {text}
@@ -80,29 +80,27 @@ function AlertBanner({ alerts }: { alerts: FxOverview["alerts"] }) {
 }
 
 export function FxView() {
-  const queryClient = useQueryClient();
+  const toast = useToast();
   const { user } = useAuth();
   const canSync = user != null && SYNC_ROLES.includes(user.role);
   const isAdmin = user != null && (user.role === "admin" || user.role === "superadmin");
 
-  const { data, isLoading } = useQuery({
-    queryKey: FX_KEYS.overview,
-    queryFn: () => api.fx.fxOverview(),
-    // Picks up the scheduled pulls (15:00, 15:30, 16:00) while the page is open.
-    refetchInterval: (q) => (q.state.data?.sync.state === "ok" ? 5 * 60_000 : 60_000),
-  });
+  const { data, isLoading, isError } = useFxOverview();
+  const sync = useFxSync();
 
-  const sync = useMutation({
-    mutationFn: () => api.fx.fxSync(),
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: ["fx"] });
-      if (res.status === "failed") message.error(`ČNB import failed: ${res.error ?? ""}`);
-      else if (res.status === "ok") message.success(`Imported ${res.rowsAdded} new rates`);
-      else message.info("No new fixing — rates are already current");
-    },
-    onError: (e: unknown) => message.error(e instanceof Error ? e.message : "Sync failed"),
-  });
+  const handleSync = () =>
+    sync.mutate(undefined, {
+      onSuccess: (res) => {
+        if (res.status === "failed") toast.error(`ČNB import failed${res.error ? `: ${res.error}` : ""}`);
+        else if (res.status === "ok") toast.success(`Imported ${res.rowsAdded} new rates`);
+        else toast.info("No new fixing — rates are already current");
+      },
+      onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Sync failed"),
+    });
 
+  if (isError) {
+    return <Alert type="error" showIcon message="Could not load the exchange rates. Try reloading the page." />;
+  }
   if (isLoading || !data) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -117,11 +115,11 @@ export function FxView() {
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-[13px] font-semibold text-slate-600">ČNB official rates — CZK per 1 unit</span>
           <SyncPill sync={data.sync} />
-          <span className="text-[12px] text-slate-400">Pulled daily at 15:00 · Zdroj: ČNB</span>
+          <span className="text-[12px] text-slate-400">Pulled daily at 15:00 · Source: ČNB</span>
         </div>
         {canSync && (
           <Tooltip title="Fetch the latest fixing from ČNB now">
-            <Button icon={<SyncOutlined spin={sync.isPending} />} onClick={() => sync.mutate()} disabled={sync.isPending} style={{ borderRadius: 6, height: 32 }}>
+            <Button icon={<SyncOutlined spin={sync.isPending} />} onClick={handleSync} disabled={sync.isPending} className="!rounded-md !h-8">
               Sync now
             </Button>
           </Tooltip>

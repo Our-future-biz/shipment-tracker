@@ -3,6 +3,10 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
+import { INVOICE_KEYS } from "./useInvoiceQueue";
+import { invoicingKey } from "./useInvoicing";
+import { FX_KEYS } from "./useFx";
+import { invalidateShipmentCustomerViews, invalidateShipmentDerivedViews } from "./useShipments";
 
 export type InvoiceDoc = interfaces.InvoiceDocItem;
 export type InvoicePreview = interfaces.InvoicePreviewItem;
@@ -14,10 +18,10 @@ export type InvoicePreview = interfaces.InvoicePreviewItem;
  */
 export function useInvoiceDocs(shipmentId: string, params: { customerId?: string; duzp?: string; previewKey: string }) {
   const queryClient = useQueryClient();
-  const docsKey = ["invoice-docs", shipmentId];
+  const docsKey = INVOICE_KEYS.docs(shipmentId);
 
   const preview = useQuery({
-    queryKey: ["invoice-preview", shipmentId, params.customerId ?? "", params.duzp ?? "", params.previewKey],
+    queryKey: INVOICE_KEYS.preview(shipmentId, params.customerId ?? "", params.duzp ?? "", params.previewKey),
     queryFn: () =>
       api.invoicing.invoiceDocPreview(shipmentId, {
         ...(params.customerId ? { customerId: params.customerId } : {}),
@@ -26,19 +30,22 @@ export function useInvoiceDocs(shipmentId: string, params: { customerId?: string
     placeholderData: keepPreviousData,
   });
 
-  const docs = useQuery({
-    queryKey: docsKey,
-    queryFn: () => api.invoicing.invoiceDocList(shipmentId),
-  });
+  const docs = useInvoiceDocList(shipmentId);
 
   const refreshAfterIssue = () => {
     void queryClient.invalidateQueries({ queryKey: docsKey });
-    void queryClient.invalidateQueries({ queryKey: ["invoice-preview", shipmentId] });
-    void queryClient.invalidateQueries({ queryKey: ["invoice-queue"] });
-    // issuing / crediting moves the shipment's Shipment Status and Invoicing Status
+    void queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.preview(shipmentId) });
+    void queryClient.invalidateQueries({ queryKey: INVOICE_KEYS.queueAll });
+    // issuing / crediting moves the shipment's Shipment Status and Invoicing Status…
     void queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    // …so the views computed from them (tiles, needs-attention, customer pages) move too
+    invalidateShipmentDerivedViews(queryClient);
+    invalidateShipmentCustomerViews(queryClient);
     // the customer's invoice list (aging) got a new row
     void queryClient.invalidateQueries({ queryKey: ["customer-invoices"] });
+    // the costs card, and the job's rate lock, which becomes final once invoiced
+    void queryClient.invalidateQueries({ queryKey: invoicingKey(shipmentId) });
+    void queryClient.invalidateQueries({ queryKey: FX_KEYS.jobAll(shipmentId) });
   };
 
   const issue = useMutation({
@@ -64,6 +71,14 @@ export function useInvoiceDocs(shipmentId: string, params: { customerId?: string
     credit: credit.mutateAsync,
     isCrediting: credit.isPending,
   };
+}
+
+/** Issued invoices and credit notes of a shipment (newest last). */
+export function useInvoiceDocList(shipmentId: string) {
+  return useQuery({
+    queryKey: INVOICE_KEYS.docs(shipmentId),
+    queryFn: () => api.invoicing.invoiceDocList(shipmentId),
+  });
 }
 
 /** Downloads the stored, official PDF of an invoice / credit note. */

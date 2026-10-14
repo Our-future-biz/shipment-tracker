@@ -20,6 +20,7 @@ import {
   parseNum,
 } from "@/app/invoicing/_lib/billing";
 import { generateInvoicePDF } from "@/app/invoicing/_lib/invoicePdf";
+import { useInvoiceProfile } from "@/hooks/useInvoiceProfile";
 import { quoteField } from "../_lib/quoteColumns";
 
 interface GeneratedQuoteInvoice {
@@ -47,6 +48,7 @@ const emptyCosts = (): CostRow[] =>
 export function QuoteCostSection({ quote }: { quote: interfaces.QuoteItem }) {
   const { updateQuote } = useQuotes();
   const toast = useToast();
+  const { profile } = useInvoiceProfile();
 
   const [costs, setCosts] = useState<CostRow[]>(emptyCosts());
   const [charges, setCharges] = useState<ChargeRow[]>([]);
@@ -160,6 +162,10 @@ export function QuoteCostSection({ quote }: { quote: interfaces.QuoteItem }) {
         if (amt > 0) lineItems.push({ label: r.description || "Additional charge", amount: amt });
       }
       generateInvoicePDF({
+        issuer: {
+          name: profile?.companyName ?? "",
+          address: [profile?.street, [profile?.postalCode, profile?.city].filter(Boolean).join(" ")].filter(Boolean).join(", "),
+        },
         invoiceNumber: ref,
         jobNumber: quote.quoteNumber,
         billedPartyName: quoteField(quote.data, isExport ? "Shipper" : "Consignee"),

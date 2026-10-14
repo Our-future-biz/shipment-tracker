@@ -158,3 +158,11 @@ export function winProbColor(p: number): string {
   if (p >= 20) return "#2563eb";
   return "#dc2626";
 }
+
+/** Statuses before a quote goes to the customer: priced with today's rates, never stored ones. */
+export const FX_DRAFT_STATUSES: ReadonlySet<string> = new Set(["draft", "ready_to_send", "revised"]);
+
+/** A quote's rates follow its status: a draft (or one reopened for revision) carries none. */
+export function withFxRule(data: SalesQuoteData): SalesQuoteData {
+  return data.fx && FX_DRAFT_STATUSES.has(data.quoteStatus ?? "draft") ? { ...data, fx: undefined } : data;
+}

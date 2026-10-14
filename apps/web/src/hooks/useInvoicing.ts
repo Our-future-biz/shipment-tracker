@@ -12,5 +12,5 @@ export const useInvoicing = (shipmentId: string | null) => {
     queryFn: () => api.invoicing.invoicingGet(shipmentId!),
     enabled: !!shipmentId,
   });
-  return { data: query.data, isLoading: query.isLoading };
+  return { data: query.data, isLoading: query.isLoading, isError: query.isError };
 };

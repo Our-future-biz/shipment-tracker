@@ -58,3 +58,10 @@ describe("buildBillingQueue", () => {
     expect(e).toMatchObject({ amountToBill: 300, rowsToBill: 2, missingCurrencies: ["GBP"] });
   });
 });
+
+describe("buildBillingQueue quantities", () => {
+  it("counts a blank quantity as 1 and leaves a row with quantity 0 out", () => {
+    const [e] = run([row("a", "s1", "100", "CZK", null), row("b", "s1", "100", "CZK", "0")], []);
+    expect(e).toMatchObject({ amountToBill: 100, rowsToBill: 1 });
+  });
+});

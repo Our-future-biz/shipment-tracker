@@ -5,6 +5,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { isCompanyRole, isAdminLevel } from "../../../lib/rbac";
 import { userRepository, type UserPatch } from "../repositories/user.repository";
 import { companyRepository } from "../repositories/company.repository";
+import type { AdminContact } from "../interfaces/interfaces";
 import { departmentRepository, branchRepository } from "../repositories/orgUnit.repository";
 
 // The signing key comes from the Encore secret store (set via `encore secret set JWT_SECRET`).
@@ -237,6 +238,14 @@ class AuthService {
       .setIssuedAt()
       .setExpirationTime(TOKEN_EXPIRY)
       .sign(signingKey());
+  }
+
+  /**
+   * Admins of every company: the ČNB rates are shared by all companies, so a missing
+   * fixing concerns all of them. Internal only — never exposed to the web.
+   */
+  async adminContacts(): Promise<AdminContact[]> {
+    return userRepository.listAdmins();
   }
 }
 

@@ -2,8 +2,7 @@
 
 import { useMemo } from "react";
 import { useInvoicing } from "@/hooks/useInvoicing";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useJobFxRates } from "@/hooks/useFx";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { computeCosts, type BuyingRow, type Rates, type SellingRow } from "./costsCalc";
 
@@ -29,12 +28,7 @@ export function useCostsData(shipment: ShipmentItem | undefined) {
         String(getFieldValue(shipment, f) ?? ""),
       )
     : [];
-  const ratesQuery = useQuery({
-    queryKey: ["fx", "job", shipment?.id, ...dateKey],
-    queryFn: () => api.fx.fxJobRates(shipment!.id),
-    enabled: !!shipment,
-    placeholderData: (prev) => prev,
-  });
+  const ratesQuery = useJobFxRates(shipment?.id, dateKey);
   const fx = ratesQuery.data ?? null;
 
   const rates: Rates = useMemo(

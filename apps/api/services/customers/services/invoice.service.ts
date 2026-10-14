@@ -51,6 +51,14 @@ class InvoiceService {
     return toInvoiceItem(row);
   }
 
+  /**
+   * An invoice reversed by a credit note: the invoice and the credit note both stop counting
+   * as owed (aging / credit) — they cancel each other out.
+   */
+  async markCredited(companyId: string, invoiceNumbers: string[]): Promise<number> {
+    return customerInvoiceRepository.setStatusByNumbers(companyId, invoiceNumbers, "Credited");
+  }
+
   async softDelete(id: string, companyId: string): Promise<void> {
     if (!(await customerInvoiceRepository.softDeleteForCompany(id, companyId))) throw APIError.notFound("Invoice not found");
   }

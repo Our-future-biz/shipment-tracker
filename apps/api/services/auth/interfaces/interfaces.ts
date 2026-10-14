@@ -5,3 +5,9 @@ export interface ColumnTemplateItem {
   name: string;
   columns: string[];
 }
+
+/** Who receives system alerts (e.g. missing ČNB rates). */
+export interface AdminContact {
+  email: string;
+  displayName: string;
+}

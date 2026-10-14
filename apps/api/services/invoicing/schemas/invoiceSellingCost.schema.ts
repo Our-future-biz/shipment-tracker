@@ -1,5 +1,7 @@
-import { pgTable, text, numeric, uuid, integer, boolean, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, numeric, uuid, integer, boolean, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import type { SellingVatCode } from "../interfaces/interfaces";
 
 /**
  * Selling costs of the Costs Breakdown (mockup: table #sellTable).
@@ -13,7 +15,7 @@ export const invoiceSellingCostTable = pgTable(
     ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
     category: text("category").notNull().default(""),
-    /** Sloupec "Invoice text": text radku na fakture; prazdny = kategorie. (Nazev sloupce z mockupu.) */
+    /** The "Invoice text" column: the line text printed on the invoice; empty = the category. (Column name from the mockup.) */
     customer: text("customer").notNull().default(""),
     qty: numeric("qty", { precision: 14, scale: 2 }),
     amount: numeric("amount", { precision: 14, scale: 2 }),
@@ -22,14 +24,15 @@ export const invoiceSellingCostTable = pgTable(
     invoice: boolean("invoice").notNull().default(true),
     /** the buying row it was copied from (mockup: data-src) — prevents copying it twice */
     sourceBuyId: uuid("source_buy_id"),
-    /** DPH kod radku na fakture (S21 | Z69 | RC | OUT); null = vychozi podle smeru zasilky */
-    vatCode: text("vat_code"),
+    /** VAT code of the line on the invoice; null = the default by the shipment's trade direction */
+    vatCode: text("vat_code").$type<SellingVatCode>(),
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (table) => [
     ...defaultTableIndexes("invoice_selling_cost", table),
     tenantIndex("invoice_selling_cost", table),
     index("invoice_selling_cost_shipment_id_idx").on(table.shipmentId),
+    check("invoice_selling_cost_vat_code_check", sql`${table.vatCode} IN ('S21', 'Z69', 'RC', 'OUT')`),
   ],
 );
 
