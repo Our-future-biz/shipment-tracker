@@ -4,8 +4,8 @@ import { warehouseExceptionTable } from "../schemas/warehouseException.schema";
 
 // Damage / short / over (OS&D) exceptions — pure helpers, no imports from the services (no
 // import cycle). An open exception puts the cargo ON HOLD: the release gate shows the line
-// below as Blocked, nobody ticks it by hand, and the WH release is refused (even after a
-// supervisor override) until every open exception of the movement is resolved with a note.
+// below as Blocked, nobody ticks it by hand, and the WH release is refused until every open
+// exception of the movement is resolved with a note — or a supervisor overrides, which wins.
 
 /** Release-gate line set by the exceptions, never by hand. The web shows the same text. */
 export const EXCEPTION_GATE = "No open exceptions";

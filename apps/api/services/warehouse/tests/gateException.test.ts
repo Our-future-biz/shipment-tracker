@@ -43,7 +43,16 @@ async function armedPosition() {
 const line = (m: { releaseGates: { g: string; s: string; note: string }[] }) => m.releaseGates.find((g) => g.g === EXCEPTION_GATE);
 
 describe("damage / short / over exceptions", () => {
-  it("puts the cargo on hold until every exception is resolved — even after a supervisor override", async () => {
+  it("lets a supervisor override release the cargo despite an open exception", async () => {
+    const { c, id } = await armedPosition();
+    await gateExceptionService.create(id, c, user, { type: "Short", pieces: 1, note: "one carton missing", source: "manual" });
+    await expect(gateMovementService.stamp(id, c, user, "impRelease")).rejects.toThrow(/On hold/);
+    const overridden = await gateMovementService.override(id, c, user, "customer collects short, agreed");
+    expect(overridden).toMatchObject({ armed: true, openExceptions: 1 });
+    expect((await gateMovementService.stamp(id, c, user, "impRelease")).impRelease).not.toBeNull();
+  });
+
+  it("puts the cargo on hold until every exception is resolved", async () => {
     const { c, id } = await armedPosition();
     let m = await gateExceptionService.create(id, c, user, { type: "Damaged", pieces: 3, note: "forks through the carton", source: "survey" });
     expect(line(m)).toMatchObject({ s: "Blocked", note: "1 open: Damaged 3 pcs" });
@@ -51,8 +60,6 @@ describe("damage / short / over exceptions", () => {
     expect(m.exceptions[0]).toMatchObject({ type: "Damaged", pieces: 3, status: "open", source: "survey" });
     expect(m.events.at(-1)).toMatchObject({ kind: "exceptionOpened", label: "Exception: Damaged 3 pcs — cargo on hold" });
 
-    await expect(gateMovementService.stamp(id, c, user, "impRelease")).rejects.toThrow(/On hold/);
-    await gateMovementService.override(id, c, user, "customer collects today");
     await expect(gateMovementService.stamp(id, c, user, "impRelease")).rejects.toThrow(/On hold/);
     // Even with the line ticked behind the service's back, the open exception still refuses it.
     await gateMovementRepository.update(id, c, { releaseGates: (await gateMovementRepository.findById(id, c))!.releaseGates.map((g) => ({ ...g, s: "OK" as const })) });

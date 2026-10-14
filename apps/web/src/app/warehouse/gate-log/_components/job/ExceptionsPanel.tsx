@@ -11,8 +11,8 @@ import { btnDefault, btnInline, Section } from "./fields";
 
 // Damage / short / over (OS&D) exceptions of a movement. Recorded from a survey or by hand (type,
 // pieces, a note, photos of this movement); while one is open the cargo is ON HOLD — the release
-// gate "No open exceptions" is Blocked and the WH release is refused, even after a supervisor
-// override. Any user resolves an exception with a note; who and when are logged.
+// gate "No open exceptions" is Blocked and the WH release is refused, unless a supervisor
+// overrides (the override wins). Any user resolves an exception with a note; who and when are logged.
 
 /** Must match the API's EXCEPTION_GATE (apps/api/services/warehouse/services/osd.ts). */
 export const EXCEPTION_GATE = "No open exceptions";

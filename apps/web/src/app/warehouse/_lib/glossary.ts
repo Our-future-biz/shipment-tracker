@@ -72,7 +72,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: "Exception / On hold",
     meaning:
-      "Damaged, short or over cargo recorded on the gate job (from a survey or by hand). While one is open the cargo is on hold: the release gate “No open exceptions” is Blocked and the WH release is refused, even after a supervisor override. Anyone resolves it with a note; both are logged.",
+      "Damaged, short or over cargo recorded on the gate job (from a survey or by hand). While one is open the cargo is on hold: the release gate “No open exceptions” is Blocked and the WH release is refused unless a supervisor overrides. Anyone resolves it with a note; both are logged.",
     replaces: "OS&D",
   },
   {

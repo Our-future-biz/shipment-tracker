@@ -54,7 +54,7 @@ export type ChipId = "attention" | "expectedToday" | "inWarehouse" | "expiring" 
 
 type ChipFields = Pick<
   Movement,
-  "status" | "gateIn" | "gateOut" | "impRelease" | "visit" | "eta" | "slot" | "subPositions" | "needsAttention" | "openExceptions" | "shipmentUpdate" | "storage"
+  "status" | "gateIn" | "gateOut" | "impRelease" | "visit" | "eta" | "slot" | "subPositions" | "needsAttention" | "openExceptions" | "overridden" | "shipmentUpdate" | "storage"
 >;
 
 // An inbound (příjem) gate-out is the delivering truck leaving: the cargo stays In Warehouse.
@@ -68,10 +68,10 @@ export const inWarehouse = (m: ChipFields) => (m.storage.started && !m.storage.s
 export const releasedOn = (m: Pick<Movement, "visit" | "impRelease" | "gateOut">) => pragueDate(m.impRelease);
 
 /** An open exception holds cargo only until the WH release; after it the exception is still open but nothing is held. */
-export const isOnHold = (m: Pick<Movement, "openExceptions" | "impRelease">) => m.openExceptions > 0 && !m.impRelease;
+export const isOnHold = (m: Pick<Movement, "openExceptions" | "impRelease" | "overridden">) => m.openExceptions > 0 && !m.impRelease && !m.overridden;
 
 /** The Exceptions cell / badge text: "On hold (n)" before the release, "Open exception (n)" after it, "" when none is open. */
-export const exceptionText = (m: Pick<Movement, "openExceptions" | "impRelease">) =>
+export const exceptionText = (m: Pick<Movement, "openExceptions" | "impRelease" | "overridden">) =>
   m.openExceptions > 0 ? `${isOnHold(m) ? "On hold" : `Open exception${m.openExceptions === 1 ? "" : "s"}`} (${m.openExceptions})` : "";
 
 export const CHIPS: { id: ChipId; label: string; hint: string; danger?: boolean; match: (m: ChipFields, today: string) => boolean }[] = [

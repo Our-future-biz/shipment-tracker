@@ -136,12 +136,13 @@ function baseReleaseGates(handling: string, operationType: string, customsStatus
 
 // The release tick is a view of the release gates, never set by hand; the empty-return
 // line does not hold cargo release. A refusal disarms, a supervisor override (with reason)
-// arms. An open damage / short / over exception holds the cargo even after an override.
+// arms. An open damage / short / over exception holds the cargo until resolved, unless a
+// supervisor overrides (the override wins, as for every other release line).
 // The old hand-set release status is no longer read (migration 0013 cleared it).
 export function isArmed(m: Pick<GateMovementRow, "status" | "overridden" | "releaseGates">): boolean {
   if (m.status === "Refused") return false;
-  if (exceptionHold(m.releaseGates)) return false;
   if (m.overridden) return true;
+  if (exceptionHold(m.releaseGates)) return false;
   return !m.releaseGates.some((x) => x.s !== "OK" && !/empty return/i.test(x.g));
 }
 
@@ -260,12 +261,12 @@ const sameTime = (a: Date | null, b: Date) => !!a && a.getTime() === b.getTime()
 // (customs can change between loading the row and stamping it).
 // Safety net: a linked outbound row is released only with its Pick-up PIN line OK, even if the
 // line went missing from the gates (a supervisor override still clears it). An open damage /
-// short / over exception always holds the cargo, override or not.
+// short / over exception holds the cargo unless a supervisor overrides.
 const armedSql = sql`${t.status} <> 'Refused' AND (${t.overridden} OR NOT EXISTS (
   SELECT 1 FROM jsonb_array_elements(${t.releaseGates}) x
   WHERE COALESCE(x->>'s', '') <> 'OK' AND COALESCE(x->>'g', '') !~* 'empty return'))
   AND (${t.overridden} OR NOT ${linkedOutboundCond} OR ${pickupLineOkSql})
-  AND ${noOpenExceptionSql}`;
+  AND (${t.overridden} OR ${noOpenExceptionSql})`;
 const PICKUP_PIN_FROM_SHIPMENTS = "This movement uses the pick-up PIN from Shipments";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Outgoing cargo (výdej) leaves only through WH release, which stamps the gate-out too; a
@@ -282,7 +283,7 @@ function stampBlocked(m: GateMovementRow, kind: StampKind): string | null {
       return m.visit === "výdej" && !m.impRelease ? OUT_NEEDS_RELEASE : null;
     case "impRelease":
       if (m.impRelease) return "WH release already stamped";
-      if (exceptionHold(m.releaseGates)) return "On hold — an open damage / short / over exception must be resolved before the WH release";
+      if (!m.overridden && exceptionHold(m.releaseGates)) return "On hold — an open damage / short / over exception must be resolved before the WH release";
       return isArmed(m) ? null : "Release box NOT armed — gate must refuse. Use supervisor override only with reason.";
     case "expDraft":
       return m.expDraft ? "Draft receipt already created" : null;

@@ -25,8 +25,8 @@ const GATE_ICON: Record<string, ReactNode> = {
 export function releaseState(m: GateMovement): { tone: Tone; label: string; detail?: string } {
   if (m.impRelease) return { tone: "g", label: TERMS.released, detail: `${TERMS.whRelease} stamped ${formatDateTime(m.impRelease)}` };
   if (m.status === "Refused") return { tone: "r", label: "Refused", detail: m.refusalLog || undefined };
-  // An open damage / short / over exception holds the cargo, even after a supervisor override.
-  if (m.openExceptions > 0) {
+  // An open damage / short / over exception holds the cargo unless a supervisor overrode.
+  if (m.openExceptions > 0 && !m.overridden) {
     return { tone: "r", label: "On hold", detail: `${m.openExceptions} open damage / short / over exception${m.openExceptions === 1 ? "" : "s"} — resolve to release` };
   }
   if (m.overridden) return { tone: "a", label: `${TERMS.clear} (supervisor override)`, detail: m.overrideLog || undefined };
