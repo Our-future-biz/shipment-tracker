@@ -22,9 +22,23 @@ export const useWarehouse = () => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouse"] }),
   });
 
+  // A position whose gate record has stamps is removed only by a manager with a reason; its gate
+  // records are archived with it. The reason travels in the request body (not the URL).
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => api.warehouse.warehouseDelete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouse"] }),
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => api.warehouse.warehousePositionRemove(id, reason ? { reason } : {}),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["warehouse"] });
+      queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+    },
+  });
+
+  // Several shipments in one request; one result per shipment (created / already / failed).
+  const importMutation = useMutation({
+    mutationFn: (shipmentIds: string[]) => api.warehouse.warehouseImport({ shipmentIds }),
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["warehouse"] });
+      queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+    },
   });
 
   return {
@@ -33,6 +47,7 @@ export const useWarehouse = () => {
     createTask: createMutation.mutateAsync,
     updateTask: updateMutation.mutateAsync,
     deleteTask: deleteMutation.mutateAsync,
+    importShipments: importMutation.mutateAsync,
     isCreating: createMutation.isPending,
   };
 };

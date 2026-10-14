@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { gateMovementService, MAX_PIN_TRIES } from "../services/gateMovement.service";
 import { warehouseService } from "../services/warehouse.service";
 import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
+import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
 import { newPickupPin, PICKUP_PIN_GATE, pickupRowsFromInput, pinMatches, readPickup } from "../services/pickupPin";
@@ -10,15 +11,13 @@ import { newPickupPin, PICKUP_PIN_GATE, pickupRowsFromInput, pinMatches, readPic
 // The real shipments and auth services need an authenticated caller, so the clients are
 // replaced here; the acting user has a name so the logs can be checked.
 const user = randomUUID();
-vi.mock("~encore/clients", () => ({
-  shipments: {
-    shipmentUpdate: vi.fn(async () => ({})),
-    shipmentGet: vi.fn(async () => {
-      throw new Error("no shipment in tests");
-    }),
-  },
-  auth: { usersList: vi.fn(async () => ({ users: [{ id: user, displayName: "Eva Clerk", email: "eva@example.test" }] })) },
-}));
+vi.mock("~encore/clients", async () => {
+  const { getShipment } = await import("./shipmentFakes");
+  return {
+    shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
+    auth: { usersList: vi.fn(async () => ({ users: [{ id: user, displayName: "Eva Clerk", email: "eva@example.test" }] })) },
+  };
+});
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -26,9 +25,9 @@ const ROWS = [{ haulier: "Trans CZ", licensePlate: "3AB 1234", driver: "Petr Nov
 
 // A position linked to a shipment: it comes into the Gate Log as outbound (výdej).
 async function linkedRow(c = randomUUID(), shipmentId = randomUUID()) {
-  const { task } = await warehouseTaskRepository.createForShipment(c, shipmentId, "WCZ20261014");
-  const row = (await gateMovementService.list(c)).find((m) => m.warehouseTaskId === task.id)!;
-  return { c, shipmentId, task, row };
+  const [r] = await warehouseImportService.importShipments(c, user, [shipmentId]);
+  const row = (await gateMovementService.list(c)).find((m) => m.id === r!.movementId)!;
+  return { c, shipmentId, task: { id: r!.taskId!, taskId: r!.ref }, row };
 }
 
 const pickupOf = async (shipmentId: string, c: string) => readPickup((await warehouseService.getSection(shipmentId, "pickup", c))?.data);
@@ -207,7 +206,7 @@ describe("Pick-up PIN line on the release gates", () => {
     expect(await gateMovementService.verifyPin(row.id, c, user, await pinOf(shipmentId, c))).toMatchObject({ result: "match" });
     expect(lineOf(await gateMovementService.get(row.id, c))[0]!.s).toBe("OK");
 
-    const other = await warehouseTaskRepository.createForShipment(c, randomUUID(), "WCZ20261015");
+    const other = await warehouseTaskRepository.createForShipment(c, randomUUID());
     const moved = await gateMovementService.update(row.id, c, user, { warehouseTaskId: other.task.id });
     expect(moved.shipmentId).toBe(other.task.shipmentId);
     expect(lineOf(moved)).toEqual([{ g: PICKUP_PIN_GATE, s: "Pending", note: "linked to another shipment — check the PIN again" }]);

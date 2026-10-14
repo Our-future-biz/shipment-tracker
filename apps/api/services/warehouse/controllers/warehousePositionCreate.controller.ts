@@ -1,7 +1,6 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
-import { warehouseService } from "../services/warehouse.service";
-import { CUSTOMS_STATUSES, gateMovementService } from "../services/gateMovement.service";
+import { warehouseImportService } from "../services/warehouseImport.service";
 import type { WarehouseTaskItem } from "../interfaces/interfaces";
 import type { GateMovementItem } from "../interfaces/gate.interfaces";
 
@@ -43,22 +42,13 @@ interface WarehousePositionCreateResponse {
 }
 
 // "Create new" in the warehouse: a position of its own (WCZ reference) that is NOT paired
-// with a shipment — no shipment job is created. Its data lives on the gate log movement.
+// with a shipment — no shipment job is created. Its data lives on the gate log movement; the
+// position and its movement are created together (one transaction).
 export const warehousePositionCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-positions" },
   async (req: WarehousePositionCreateRequest): Promise<WarehousePositionCreateResponse> => {
     const { companyID, userID } = getAuthData()!;
-    const task = await warehouseService.createPosition(companyID);
-    const handling = req.handling === "Export" ? "Export" : "Import";
-    const movement = await gateMovementService.create(companyID, userID, {
-      ...req,
-      // A job's customs status is kept only when the gate knows it; otherwise the gate default applies.
-      customsStatus: req.customsStatus && CUSTOMS_STATUSES.includes(req.customsStatus) ? req.customsStatus : undefined,
-      handling,
-      // Import cargo leaves through the gate, export cargo arrives — as for shipment positions.
-      visit: handling === "Import" ? "výdej" : "příjem",
-      warehouseTaskId: task.id,
-    });
+    const { task, movement } = await warehouseImportService.createPosition(companyID, userID, req);
     return { task: task as unknown as WarehouseTaskItem, movement };
   },
 );

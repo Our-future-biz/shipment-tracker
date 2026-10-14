@@ -33,4 +33,10 @@ describe("glossary", () => {
     expect(entry?.meaning).toMatch(/Six digits/);
     expect(entry?.meaning).toMatch(/Pick-up PIN verified/);
   });
+
+  it("explains the new references, archiving and voiding", () => {
+    expect(GLOSSARY.find((g) => g.term === TERMS.warehouseRef)?.meaning).toMatch(/WCZ2026000001/);
+    expect(GLOSSARY.find((g) => g.term === TERMS.archived)?.meaning).toMatch(/only by a manager/);
+    expect(GLOSSARY.find((g) => g.term === TERMS.voidStamp)?.meaning).toMatch(/not changed back/);
+  });
 });

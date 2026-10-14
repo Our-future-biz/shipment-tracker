@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, isNotNull, lt, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, isNotNull, lt, sql, type SQL } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
 import { gateMovementTable, type GateEvent, type GateMovementRecord, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
@@ -11,6 +11,20 @@ export type GateMovementRow = GateMovementRecord & { positionRef: string | null;
 
 const liveRow = (companyId: string) =>
   and(eq(gateMovementTable.companyId, companyId), isNull(gateMovementTable.deletedAt));
+const archivedRow = (companyId: string) =>
+  and(eq(gateMovementTable.companyId, companyId), isNotNull(gateMovementTable.deletedAt));
+
+/** The record has at least one gate stamp (gate-in, gate-out, WH release, draft receipt or receipt). */
+export const hasStampSql = sql`(${gateMovementTable.gateIn} IS NOT NULL OR ${gateMovementTable.gateOut} IS NOT NULL
+  OR ${gateMovementTable.impRelease} IS NOT NULL OR ${gateMovementTable.expDraft} IS NOT NULL OR ${gateMovementTable.expReceipt} IS NOT NULL)`;
+export const hasStamp = (m: Pick<GateMovementRecord, "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt">) =>
+  !!(m.gateIn || m.gateOut || m.impRelease || m.expDraft || m.expReceipt);
+
+const toRow = (r: { movement: GateMovementRecord; positionRef: string | null; shipmentId: string | null }): GateMovementRow => ({
+  ...r.movement,
+  positionRef: r.positionRef,
+  shipmentId: r.shipmentId,
+});
 
 class GateMovementRepository {
   private select() {
@@ -23,14 +37,35 @@ class GateMovementRepository {
       );
   }
 
+  // Archived rows keep showing the reference and shipment of their task, even when the task
+  // was removed with them.
+  private selectAny() {
+    return db
+      .select({ movement: gateMovementTable, positionRef: warehouseTaskTable.taskId, shipmentId: warehouseTaskTable.shipmentId })
+      .from(gateMovementTable)
+      .leftJoin(warehouseTaskTable, eq(warehouseTaskTable.id, gateMovementTable.warehouseTaskId));
+  }
+
   async listAll(companyId: string): Promise<GateMovementRow[]> {
     const rows = await this.select().where(liveRow(companyId)).orderBy(desc(gateMovementTable.createdAt));
-    return rows.map((r) => ({ ...r.movement, positionRef: r.positionRef, shipmentId: r.shipmentId }));
+    return rows.map(toRow);
+  }
+
+  // Archived (soft-deleted) records, newest archive first.
+  async listArchived(companyId: string): Promise<GateMovementRow[]> {
+    const rows = await this.selectAny().where(archivedRow(companyId)).orderBy(desc(gateMovementTable.deletedAt));
+    return rows.map(toRow);
   }
 
   async findById(id: string, companyId: string): Promise<GateMovementRow | null> {
     const [row] = await this.select().where(and(eq(gateMovementTable.id, id), liveRow(companyId)));
-    return row ? { ...row.movement, positionRef: row.positionRef, shipmentId: row.shipmentId } : null;
+    return row ? toRow(row) : null;
+  }
+
+  // Live or archived.
+  async findByIdAny(id: string, companyId: string): Promise<GateMovementRow | null> {
+    const [row] = await this.selectAny().where(and(eq(gateMovementTable.id, id), eq(gateMovementTable.companyId, companyId)));
+    return row ? toRow(row) : null;
   }
 
   async findTask(taskId: string, companyId: string) {
@@ -57,45 +92,107 @@ class GateMovementRepository {
       );
   }
 
-  // Inserts one gate row per task under a per-company lock, skipping tasks that got a
-  // row meanwhile (two list calls racing on the same backfill).
-  async createForTasks(companyId: string, rows: NewGateMovementRecord[]) {
-    if (!rows.length) return;
-    await db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`warehouse_gate:${companyId}`}))`);
-      for (const row of rows) {
-        const [existing] = await tx
-          .select({ id: gateMovementTable.id })
-          .from(gateMovementTable)
-          .where(eq(gateMovementTable.warehouseTaskId, row.warehouseTaskId!));
-        if (!existing) await tx.insert(gateMovementTable).values(row);
-      }
-    });
+  // Whether the task ever had a gate row (archived ones count, so a record removed by hand does
+  // not come back).
+  async taskHasMovement(taskId: string, tx: Tx | typeof db = db) {
+    const [row] = await tx.select({ id: gateMovementTable.id }).from(gateMovementTable).where(eq(gateMovementTable.warehouseTaskId, taskId)).limit(1);
+    return !!row;
   }
 
-  // Gate rows of a task removed from the warehouse that never saw any gate activity.
-  async removeUntouchedForTask(taskId: string, companyId: string) {
+  // The live gate record of a task, if any.
+  async liveIdForTask(taskId: string, tx: Tx | typeof db = db) {
+    const [row] = await tx
+      .select({ id: gateMovementTable.id })
+      .from(gateMovementTable)
+      .where(and(eq(gateMovementTable.warehouseTaskId, taskId), isNull(gateMovementTable.deletedAt)))
+      .orderBy(desc(gateMovementTable.createdAt))
+      .limit(1);
+    return row?.id ?? null;
+  }
+
+  // Live gate rows of a task, locked until the transaction ends (so no stamp lands between a
+  // check of their stamps and their archiving).
+  async liveForTaskLocked(tx: Tx, taskId: string, companyId: string) {
+    return tx
+      .select()
+      .from(gateMovementTable)
+      .where(and(liveRow(companyId), eq(gateMovementTable.warehouseTaskId, taskId)))
+      .for("update");
+  }
+
+  // Archives (soft-deletes) a record, recording who and why and logging `event`, only while
+  // `cond` holds. Null when no live row matched.
+  async archive(id: string, companyId: string, by: string, reason: string, event: GateEvent, cond?: SQL, tx: Tx | typeof db = db) {
+    const t = gateMovementTable;
+    const now = new Date();
+    const [row] = await tx
+      .update(t)
+      .set({ deletedAt: now, archivedBy: by, archiveReason: reason, events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`, updatedAt: now })
+      .where(and(eq(t.id, id), liveRow(companyId), cond))
+      .returning();
+    return row ?? null;
+  }
+
+  // Archives every live record of a task removed from the warehouse.
+  async archiveForTask(tx: Tx, taskId: string, companyId: string, by: string, reason: string, event: GateEvent) {
+    const t = gateMovementTable;
+    const now = new Date();
+    return tx
+      .update(t)
+      .set({ deletedAt: now, archivedBy: by, archiveReason: reason, events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`, updatedAt: now })
+      .where(and(liveRow(companyId), eq(t.warehouseTaskId, taskId)))
+      .returning({ id: t.id });
+  }
+
+  // Brings an archived record back, logging `event`. Null when it is not archived (any more).
+  async restore(tx: Tx, id: string, companyId: string, event: GateEvent) {
+    const t = gateMovementTable;
+    const [row] = await tx
+      .update(t)
+      .set({ deletedAt: null, archivedBy: "", archiveReason: "", events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`, updatedAt: new Date() })
+      .where(and(eq(t.id, id), archivedRow(companyId)))
+      .returning();
+    return row ?? null;
+  }
+
+  // Brings back the records of a position that were archived when it was removed (at or after
+  // `removedAt`, in the same transaction); records archived on their own before stay archived.
+  async restoreArchivedWithTask(tx: Tx, taskId: string, companyId: string, removedAt: Date, event: GateEvent) {
+    const t = gateMovementTable;
+    return tx
+      .update(t)
+      .set({ deletedAt: null, archivedBy: "", archiveReason: "", events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`, updatedAt: new Date() })
+      .where(and(archivedRow(companyId), eq(t.warehouseTaskId, taskId), gte(t.deletedAt, removedAt)))
+      .returning({ id: t.id });
+  }
+
+  // Adds events to a record whether it is live or archived (deliveries to the shipment report
+  // back here even after the record was archived).
+  async appendEvents(id: string, companyId: string, events: GateEvent[], tx: Tx | typeof db = db) {
+    const t = gateMovementTable;
+    await tx
+      .update(t)
+      .set({ events: sql`${t.events} || ${JSON.stringify(events)}::jsonb`, updatedAt: new Date() })
+      .where(and(eq(t.id, id), eq(t.companyId, companyId)));
+  }
+
+  // Records that the linked shipment was read just now (customs follow), without counting as
+  // a change of the record.
+  async markShipmentChecked(ids: string[], companyId: string, at: Date) {
+    if (!ids.length) return;
     await db
       .update(gateMovementTable)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(
-        and(
-          liveRow(companyId),
-          eq(gateMovementTable.warehouseTaskId, taskId),
-          eq(gateMovementTable.status, "Expected"),
-          isNull(gateMovementTable.gateIn),
-          sql`jsonb_array_length(${gateMovementTable.events}) <= 1`,
-        ),
-      );
+      .set({ shipmentCheckedAt: at })
+      .where(and(eq(gateMovementTable.companyId, companyId), inArray(gateMovementTable.id, ids)));
   }
 
-  async create(data: NewGateMovementRecord) {
-    const [row] = await db.insert(gateMovementTable).values(data).returning();
+  async create(data: NewGateMovementRecord, tx: Tx | typeof db = db) {
+    const [row] = await tx.insert(gateMovementTable).values(data).returning();
     return row!;
   }
 
-  async update(id: string, companyId: string, data: Partial<NewGateMovementRecord>) {
-    const [row] = await db
+  async update(id: string, companyId: string, data: Partial<NewGateMovementRecord>, tx: Tx | typeof db = db) {
+    const [row] = await tx
       .update(gateMovementTable)
       .set({ ...data, updatedAt: new Date() })
       .where(and(eq(gateMovementTable.id, id), liveRow(companyId)))
@@ -199,15 +296,6 @@ class GateMovementRepository {
         updatedAt: new Date(),
       })
       .where(and(liveRow(companyId), isNull(t.impRelease), linkedOutboundCond, linkedToShipmentCond(shipmentId)));
-  }
-
-  async softDelete(id: string, companyId: string) {
-    const [row] = await db
-      .update(gateMovementTable)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(gateMovementTable.id, id), liveRow(companyId)))
-      .returning();
-    return row ?? null;
   }
 }
 

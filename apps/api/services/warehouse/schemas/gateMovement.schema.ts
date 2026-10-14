@@ -149,6 +149,11 @@ export const gateMovementTable = pgTable(
     surveys: jsonb("surveys").$type<GateSurvey[]>().notNull().default([]),
     subPositions: jsonb("sub_positions").$type<GateSubPosition[]>().notNull().default([]),
     updatedBy: text("updated_by").notNull().default(""),
+    // Archived (soft-deleted) by whom and why; a stamped record is only archived by a manager.
+    archivedBy: text("archived_by").notNull().default(""),
+    archiveReason: text("archive_reason").notNull().default(""),
+    // When the linked shipment's customs status was last read (customs follow).
+    shipmentCheckedAt: timestamp("shipment_checked_at", { withTimezone: true }),
   },
   (table) => [
     ...defaultTableIndexes("warehouse_gate_movement", table),

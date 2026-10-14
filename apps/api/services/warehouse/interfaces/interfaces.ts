@@ -20,6 +20,8 @@ export interface WarehouseSectionItem {
   shipmentId: string;
   section: string;
   data: unknown;
+  /** Bumped by every save of the section. */
+  version: number;
   createdAt: string;
   updatedAt: string;
 }

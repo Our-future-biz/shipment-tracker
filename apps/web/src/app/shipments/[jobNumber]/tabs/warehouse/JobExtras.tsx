@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Input, Button, Space, Tag, Modal } from "antd";
+import { useEffect, useState, type ReactNode } from "react";
+import { Alert, Input, Button, Space, Tag, Modal } from "antd";
 import type { MessageInstance } from "antd/es/message/interface";
-import { useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { SECTION_CONFLICT_TEXT, SectionConflictError, useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { APIError } from "@/lib/api/client";
 import { SectionCard as Card } from "@/components/SectionCard";
 import { formatDate } from "@/lib/date";
 
@@ -20,6 +21,12 @@ function asJob(data: unknown): JobSectionData {
   return data && typeof data === "object" ? (data as JobSectionData) : {};
 }
 
+// Error text for a failed Shipment Details save: a conflict asks to check and save again.
+export function sectionSaveError(e: unknown, fallback = "Failed to save"): string {
+  if (e instanceof SectionConflictError) return SECTION_CONFLICT_TEXT;
+  return e instanceof APIError ? e.message : fallback;
+}
+
 // Save state shown in a card header: "Unsaved changes" while edited, "Saved HH:mm" after a save.
 export function SaveStatus({ dirty, savedAt }: { dirty: boolean; savedAt: Date | null }) {
   if (dirty) {
@@ -34,13 +41,51 @@ export function SaveStatus({ dirty, savedAt }: { dirty: boolean; savedAt: Date |
   return <span className="text-[11px] text-emerald-600">Saved {hhmm}</span>;
 }
 
+// Someone else saved a field while the user was editing it: their version is shown next to the
+// user's edit. Save stays refused until the user picks one — "Keep mine" then overwrites theirs
+// knowingly, "Use theirs" drops the edit.
+export function SavedMeanwhile({ theirs, onUseTheirs, onKeepMine }: { theirs: ReactNode; onUseTheirs: () => void; onKeepMine: () => void }) {
+  return (
+    <Alert
+      type="warning"
+      showIcon
+      className="!mb-2"
+      message={<span className="text-xs font-semibold">Saved meanwhile by someone else</span>}
+      description={
+        <div className="text-xs">
+          <div className="text-[11px] text-slate-500 mb-1">Their version:</div>
+          <div className="whitespace-pre-wrap text-slate-900">{theirs}</div>
+          <Space size={8} className="mt-2">
+            <Button size="small" onClick={onUseTheirs}>
+              Use theirs
+            </Button>
+            <Button size="small" type="primary" onClick={onKeepMine}>
+              Keep mine
+            </Button>
+          </Space>
+        </div>
+      }
+    />
+  );
+}
+
 // ─── Job Notes ──────────────────────────────────────────────────
 export function JobNotes({ ownerId, messageApi, readOnly = false }: { ownerId: string; messageApi: MessageInstance; readOnly?: boolean }) {
-  const { data, save, isSaving } = useWarehouseSection(ownerId, "job");
+  const { data, saveKeys, isSaving } = useWarehouseSection(ownerId, "job");
   const section = asJob(data);
   const savedNotes = section.notes ?? "";
   const [notes, setNotes] = useState(savedNotes);
-  useEffect(() => setNotes(section.notes ?? ""), [section.notes]);
+  // The saved text the user's edit started from; a save only replaces exactly that text.
+  const [base, setBase] = useState(savedNotes);
+  // A newer saved text replaces the box only while it holds no edit of the user's own. With an
+  // edit, the newer text is shown beside it until the user chooses (Save is held back).
+  useEffect(() => {
+    if (notes === base || notes === savedNotes) {
+      setNotes(savedNotes);
+      setBase(savedNotes);
+    }
+  }, [savedNotes, notes, base]);
+  const conflict = savedNotes !== base && notes !== savedNotes;
   const dirty = notes !== savedNotes;
   const [savedAt, setSavedAt] = useState<Date | null>(null);
 
@@ -56,13 +101,15 @@ export function JobNotes({ ownerId, messageApi, readOnly = false }: { ownerId: s
                 size="small"
                 type="primary"
                 loading={isSaving}
+                disabled={conflict}
+                title={conflict ? "Someone else saved the notes meanwhile — choose which version to keep first" : undefined}
                 onClick={() =>
-                  save({ ...section, notes })
+                  saveKeys([{ key: "notes", value: notes, expected: base }])
                     .then(() => {
                       setSavedAt(new Date());
                       messageApi.success("Saved");
                     })
-                    .catch(() => messageApi.error("Failed to save"))
+                    .catch((e) => messageApi.error(sectionSaveError(e)))
                 }
               >
                 Save
@@ -72,6 +119,16 @@ export function JobNotes({ ownerId, messageApi, readOnly = false }: { ownerId: s
         )
       }
     >
+      {!readOnly && conflict && (
+        <SavedMeanwhile
+          theirs={savedNotes || "(no notes)"}
+          onUseTheirs={() => {
+            setNotes(savedNotes);
+            setBase(savedNotes);
+          }}
+          onKeepMine={() => setBase(savedNotes)}
+        />
+      )}
       {readOnly ? (
         <p className={`text-xs whitespace-pre-wrap ${notes ? "text-slate-900" : "text-slate-300"}`}>{notes || "—"}</p>
       ) : (
@@ -106,18 +163,26 @@ function parseActionData(val: string | undefined): { timestamp: string; note?: s
 }
 
 export function ActionPushButtons({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
-  const { data, save, isSaving } = useWarehouseSection(ownerId, "job");
+  const { data, saveKeys, isSaving } = useWarehouseSection(ownerId, "job");
   const section = asJob(data);
   const [modalState, setModalState] = useState<ActionModalState | null>(null);
 
   const handleMark = async () => {
     if (!modalState) return;
     try {
-      await save({ ...section, [modalState.actionKey]: JSON.stringify({ timestamp: new Date().toISOString(), note: modalState.note }) });
+      const value = JSON.stringify({ timestamp: new Date().toISOString(), note: modalState.note });
+      // Expected = what this page shows (normally not set), so a second "mark sent" from another
+      // screen is refused instead of overwriting the first.
+      await saveKeys([{ key: modalState.actionKey, value, expected: section[modalState.actionKey] ?? "" }]);
       setModalState(null);
       messageApi.success("Marked as sent");
-    } catch {
-      messageApi.error("Failed to save");
+    } catch (e) {
+      if (e instanceof SectionConflictError) {
+        setModalState(null);
+        messageApi.warning(`${modalState.label} was already marked as sent by someone else — reloaded`);
+      } else {
+        messageApi.error(sectionSaveError(e));
+      }
     }
   };
 

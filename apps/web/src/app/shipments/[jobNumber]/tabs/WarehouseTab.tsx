@@ -13,7 +13,7 @@ import { formatDateTime } from "@/lib/date";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./warehouse/PickupSection";
-import { JobNotes, ActionPushButtons, SaveStatus } from "./warehouse/JobExtras";
+import { JobNotes, ActionPushButtons, SaveStatus, SavedMeanwhile, sectionSaveError } from "./warehouse/JobExtras";
 
 interface JobSectionData {
   inform_operations_sent?: string;
@@ -189,21 +189,45 @@ function parseRemeasure(json: string | undefined): DimensionRow[] {
   }
 }
 
+// The lines as stored: only filled lines, numbers normalised (the same JSON shape as before).
+function serializeRows(rows: DimensionRow[]): string {
+  const filtered = rows
+    .filter((r) => r.pieces || r.lengthCm || r.widthCm || r.heightCm || r.weightPerPcKg)
+    .map((r) => Object.fromEntries(DIM_FIELDS.map((f) => [f, r[f].trim() ? String(toNum(r[f])) : ""])) as DimensionRow);
+  return JSON.stringify(filtered);
+}
+
+// Saved lines in a few words, for the "saved meanwhile" notice.
+function describeRows(json: string | undefined): string {
+  const lines = parseRemeasure(json);
+  if (!lines.length) return "(no lines)";
+  return lines
+    .map((r) => `${r.pieces || "—"} × ${r.lengthCm || "—"} × ${r.widthCm || "—"} × ${r.heightCm || "—"} cm, ${r.weightPerPcKg || "—"} kg/pc`)
+    .join("\n");
+}
+
 function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: ShipmentItem; messageApi: MessageInstance; readOnly: boolean }) {
-  const { data: jobSectionData, save: saveJobSection, isSaving } = useWarehouseSection(shipment.id, "job");
+  const { data: jobSectionData, saveKeys, isSaving } = useWarehouseSection(shipment.id, "job");
   const jobSection = asJobSection(jobSectionData);
   const informedAt = jobSection.inform_operations_sent;
   const saved = jobSection.remeasure_rows;
 
   const [rows, setRows] = useState<DimensionRow[]>([{ ...EMPTY_DIM }]);
   const [dirty, setDirty] = useState(false);
+  // The saved lines the user's edit started from; a save only replaces exactly those.
+  const [base, setBase] = useState(saved ?? "");
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const invalidRows = rows.filter(rowInvalid).length;
+  // The saved lines fill the table only while it holds no unsaved edit, so the user's lines stay
+  // when someone else saves meanwhile; their lines are then shown beside them until the user
+  // chooses which to keep (Save is held back).
   useEffect(() => {
+    if (dirty) return;
     const parsed = parseRemeasure(saved);
     setRows(parsed.length > 0 ? parsed : [{ ...EMPTY_DIM }]);
-    setDirty(false);
-  }, [saved]);
+    setBase(saved ?? "");
+  }, [saved, dirty]);
+  const conflict = dirty && (saved ?? "") !== base && serializeRows(rows) !== (saved ?? "");
 
   const updateRow = (idx: number, field: DimField, value: string) => {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
@@ -217,17 +241,20 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
       messageApi.error("Some lines have invalid values — re-enter them before saving");
       return;
     }
-    // Stored as normalised numeric strings, the same JSON shape as before.
-    const filtered = rows
-      .filter((r) => r.pieces || r.lengthCm || r.widthCm || r.heightCm || r.weightPerPcKg)
-      .map((r) => Object.fromEntries(DIM_FIELDS.map((f) => [f, r[f].trim() ? String(toNum(r[f])) : ""])) as DimensionRow);
+    if (conflict) {
+      messageApi.warning("Someone else saved the lines meanwhile — choose which version to keep first");
+      return;
+    }
+    const value = serializeRows(rows);
     try {
-      await saveJobSection({ ...jobSection, remeasure_rows: JSON.stringify(filtered) });
+      // Only the remeasured lines are written, and only if nobody saved them since the edit began.
+      await saveKeys([{ key: "remeasure_rows", value, expected: base }]);
+      setBase(value);
       setDirty(false);
       setSavedAt(new Date());
       messageApi.success("Saved");
-    } catch {
-      messageApi.error("Failed to save");
+    } catch (e) {
+      messageApi.error(sectionSaveError(e));
     }
   };
 
@@ -270,10 +297,10 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
 
   const informOperations = async () => {
     try {
-      await saveJobSection({ ...jobSection, inform_operations_sent: new Date().toISOString() });
+      await saveKeys([{ key: "inform_operations_sent", value: new Date().toISOString(), expected: informedAt ?? "" }]);
       messageApi.success("Operations informed");
-    } catch {
-      messageApi.error("Failed to inform Operations");
+    } catch (e) {
+      messageApi.error(sectionSaveError(e, "Failed to inform Operations"));
     }
   };
 
@@ -293,8 +320,14 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
                 type="primary"
                 onClick={save}
                 loading={isSaving}
-                disabled={invalidRows > 0}
-                title={invalidRows > 0 ? "Re-enter the invalid values first" : undefined}
+                disabled={invalidRows > 0 || conflict}
+                title={
+                  invalidRows > 0
+                    ? "Re-enter the invalid values first"
+                    : conflict
+                      ? "Someone else saved the lines meanwhile — choose which version to keep first"
+                      : undefined
+                }
               >
                 Save
               </Button>
@@ -303,6 +336,9 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
         )
       }
     >
+      {!readOnly && conflict && (
+        <SavedMeanwhile theirs={describeRows(saved)} onUseTheirs={() => setDirty(false)} onKeepMine={() => setBase(saved ?? "")} />
+      )}
       <table className="w-full border-collapse text-xs">
         <thead>
           <tr className="bg-slate-50 border-b border-slate-200">

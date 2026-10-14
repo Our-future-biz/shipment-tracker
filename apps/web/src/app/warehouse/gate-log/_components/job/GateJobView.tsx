@@ -3,23 +3,25 @@
 import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Dropdown, Spin, Tabs, Tag, Tooltip } from "antd";
-import { ArrowLeftOutlined, CheckCircleOutlined, DownOutlined, PrinterOutlined, RightOutlined } from "@ant-design/icons";
+import { Alert, Dropdown, Spin, Tabs, Tag, Tooltip } from "antd";
+import { ArrowLeftOutlined, CheckCircleOutlined, DownOutlined, PrinterOutlined, ReloadOutlined, RightOutlined } from "@ant-design/icons";
 import { useGateMovement, type GateMovement, type GateStampKind } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import type { controllers } from "@/lib/api/client";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { remeasurementHref } from "@/app/warehouse/_components/remeasurementLinks";
-import { errorMessage, freeDaysOver, hasSurvey, requiredSurveyPhase, surveyTargets } from "../../_lib/gate";
-import { gateSteps, isOutbound, type GateStep } from "../../_lib/steps";
+import { errorMessage, freeDaysOver, hasAnyStamp, hasSurvey, isManager, requiredSurveyPhase, surveyTargets } from "../../_lib/gate";
+import { gateSteps, isOutbound, voidBlocked, voidsGateOutToo, type GateStep } from "../../_lib/steps";
 import { PrintLabelsModal } from "../PrintLabelsModal";
 import { btnDefault, btnPrimary } from "./fields";
 import { OverviewTab } from "./OverviewTab";
 import { SurveyTab } from "./SurveyTab";
 import { ShipmentManagementTab } from "./ShipmentManagementTab";
+import { ReasonModal } from "./ReleaseGatesPanel";
 
 // The job's tab lives in the URL (?tab=survey), so refresh, Back and shared links keep it.
 const TABS = ["overview", "survey", "shipman"] as const;
@@ -31,7 +33,7 @@ const cardLabel = "text-[11px] font-bold text-slate-500 uppercase tracking-wide"
 
 // Status cards under the header: customs status, storage (free days left) and the vehicle at the
 // gate — the incoming truck (IN leg) for inbound cargo, the outgoing one (OUT leg) for outbound.
-function StatusCards({ m }: { m: GateMovement }) {
+function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onRefreshCustoms?: () => void; refreshing?: boolean }) {
   const over = freeDaysOver(m.loadInDate, m.freeDays);
   const storage =
     over == null
@@ -58,8 +60,29 @@ function StatusCards({ m }: { m: GateMovement }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
       <div className={card}>
-        <div className={cardLabel}>Customs status</div>
+        <div className="flex items-center gap-2">
+          <span className={cardLabel}>Customs status</span>
+          {onRefreshCustoms && (
+            <Tooltip title="Read the customs status from the shipment now">
+              <button
+                type="button"
+                aria-label="Read the customs status from the shipment now"
+                className="ml-auto text-slate-400 hover:text-indigo-500 cursor-pointer bg-transparent border-none p-0"
+                onClick={onRefreshCustoms}
+                disabled={refreshing}
+              >
+                <ReloadOutlined spin={refreshing} />
+              </button>
+            </Tooltip>
+          )}
+        </div>
         <div className="mt-1.5 text-[15px] font-bold leading-snug text-slate-900 break-words">{m.customsStatus || "Not set"}</div>
+        {/* A linked record follows its shipment's customs status until the cargo is released. */}
+        {m.shipmentId && !m.impRelease && (
+          <div className="mt-0.5 text-[11px] text-slate-500">
+            Follows the shipment{m.shipmentCheckedAt ? ` · read ${formatDateTime(m.shipmentCheckedAt)}` : ""}
+          </div>
+        )}
       </div>
       <Tooltip title={storage.hint}>
         <div className={card}>
@@ -81,19 +104,40 @@ function StatusCards({ m }: { m: GateMovement }) {
 
 // One step of the gate action bar: a green tag (time + user) once stamped; otherwise a button,
 // primary for the next step and disabled with the reason for the others.
-function StepItem({ step, onPick }: { step: GateStep; onPick: () => void }) {
+// Managers can void a done step (with a reason) from its menu; `voidReason` says why not, when blocked.
+function StepItem({ step, onPick, onVoid, voidReason }: { step: GateStep; onPick: () => void; onVoid?: () => void; voidReason?: string | null }) {
   if (step.state === "done") {
+    const tag = (
+      <Tag
+        color={step.legacy ? "default" : "success"}
+        icon={step.legacy ? undefined : <CheckCircleOutlined />}
+        className={`m-0 !px-2 !py-1 !text-[12px] ${step.legacy ? "opacity-70" : ""} ${onVoid ? "cursor-pointer" : ""}`}
+      >
+        <span className="font-semibold">{step.label}</span> <span className="font-mono">{formatDateTime(step.at)}</span>
+        {step.by ? ` · ${step.by}` : ""}
+        {onVoid && <DownOutlined className="ml-1 text-[9px]" />}
+      </Tag>
+    );
+    if (!onVoid) return <Tooltip title={step.note}>{tag}</Tooltip>;
     return (
-      <Tooltip title={step.note}>
-        <Tag
-          color={step.legacy ? "default" : "success"}
-          icon={step.legacy ? undefined : <CheckCircleOutlined />}
-          className={`m-0 !px-2 !py-1 !text-[12px] ${step.legacy ? "opacity-70" : ""}`}
-        >
-          <span className="font-semibold">{step.label}</span> <span className="font-mono">{formatDateTime(step.at)}</span>
-          {step.by ? ` · ${step.by}` : ""}
-        </Tag>
-      </Tooltip>
+      <Dropdown
+        trigger={["click"]}
+        menu={{
+          items: [
+            {
+              key: "void",
+              danger: true,
+              disabled: !!voidReason,
+              label: voidReason ? <Tooltip title={voidReason}>Void this stamp…</Tooltip> : "Void this stamp…",
+              onClick: onVoid,
+            },
+          ],
+        }}
+      >
+        <span className="inline-flex" title={step.note}>
+          {tag}
+        </span>
+      </Dropdown>
     );
   }
   const next = step.state === "next";
@@ -120,9 +164,33 @@ function StepItem({ step, onPick }: { step: GateStep; onPick: () => void }) {
 export function GateJobView({ id }: { id: string }) {
   const router = useRouter();
   const toast = useToast();
-  const { movement: m, isLoading, update, stamp, requestRelease, requestMrn, refuse, override, setReleaseGate, verifyPin, saveSurvey, remove } = useGateMovement(id);
+  const {
+    movement: m,
+    isLoading,
+    update,
+    stamp,
+    requestRelease,
+    requestMrn,
+    refuse,
+    override,
+    setReleaseGate,
+    verifyPin,
+    saveSurvey,
+    remove,
+    archive,
+    restore,
+    voidStamp,
+    refreshCustoms,
+    refreshFromShipment,
+    retryShipmentUpdate,
+    dismissShipmentUpdate,
+  } = useGateMovement(id);
+  const { user } = useAuth();
+  const manager = isManager(user);
   const [tab, setTab] = useUrlParam<Tab>("tab", TABS, "overview");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [dialog, setDialog] = useState<"archive" | "restore" | null>(null);
+  const [voidStep, setVoidStep] = useState<GateStep | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
   const [confirmStamp, setConfirmStamp] = useState<{ kind: GateStampKind; label: string } | null>(null);
 
@@ -189,8 +257,46 @@ export function GateJobView({ id }: { id: string }) {
     { key: "shipman", label: "Shipment Management" },
   ];
 
+  const archived = !!m.archivedAt;
+  const stamped = hasAnyStamp(m);
+  const doVoid = async (step: GateStep, reason: string) => {
+    try {
+      const res = await voidStamp.mutateAsync({ kind: step.kind, reason });
+      toast.success(`${step.label} voided — logged on the movement`);
+      if (res.notice) toast.notify({ type: "warning", title: "Shipment may need correcting", description: res.notice });
+    } catch (e) {
+      toast.error(errorMessage(e, "Failed to void the stamp"));
+      throw e;
+    }
+  };
+  const doRefreshFromShipment = async () => {
+    try {
+      const res = await refreshFromShipment.mutateAsync();
+      if (res.changed.length) toast.success(`Refreshed from the shipment: ${res.changed.join(", ")}`);
+      else if (!res.differs.length) toast.info("Already the same as the shipment — nothing changed");
+      // Values the gate may have corrected are kept on a stamped record; the user sees the difference.
+      if (res.differs.length) toast.warning(`Kept the gate's values (they differ from the shipment): ${res.differs.join("; ")}`);
+    } catch (e) {
+      toast.error(errorMessage(e, "Failed to refresh from the shipment"));
+    }
+  };
+  const actionItems = [
+    ...(m.shipmentId ? [{ key: "refresh", label: "Refresh from shipment", onClick: doRefreshFromShipment }] : []),
+    stamped
+      ? {
+          key: "archive",
+          danger: true,
+          disabled: !manager,
+          label: manager ? "Archive…" : <Tooltip title="This record has gate stamps — only a manager can archive it, with a reason">Archive…</Tooltip>,
+          onClick: () => setDialog("archive"),
+        }
+      : { key: "delete", label: "Delete", danger: true, onClick: () => setDeleteOpen(true) },
+  ];
+  const upd = m.shipmentUpdate;
+
   const steps = gateSteps(m);
-  const mainSteps = steps.filter((x) => !x.legacy);
+  // An archived record shows only what was stamped; nothing is stamped on it.
+  const mainSteps = steps.filter((x) => !x.legacy && (!archived || x.state === "done"));
   const legacySteps = steps.filter((x) => x.legacy);
 
   return (
@@ -240,32 +346,120 @@ export function GateJobView({ id }: { id: string }) {
               {mainSteps.map((x, i) => (
                 <Fragment key={x.kind}>
                   {i > 0 && <RightOutlined className="text-[10px] text-slate-300" aria-hidden />}
-                  <StepItem step={x} onPick={() => pickStamp(x.kind, x.label, x.at)} />
+                  <StepItem
+                    step={x}
+                    onPick={() => (archived ? undefined : pickStamp(x.kind, x.label, x.at))}
+                    onVoid={manager && !archived ? () => setVoidStep(x) : undefined}
+                    voidReason={voidBlocked(m, x.kind)}
+                  />
                 </Fragment>
               ))}
               {legacySteps.map((x) => (
-                <StepItem key={x.kind} step={x} onPick={() => undefined} />
+                <StepItem
+                  key={x.kind}
+                  step={x}
+                  onPick={() => undefined}
+                  onVoid={manager && !archived ? () => setVoidStep(x) : undefined}
+                  voidReason={voidBlocked(m, x.kind)}
+                />
               ))}
             </div>
             <button type="button" className={btnDefault} onClick={() => setPrintOpen(true)}>
               <PrinterOutlined /> Print labels
             </button>
-            <Dropdown
-              trigger={["click"]}
-              menu={{
-                items: [
-                  { key: "delete", label: "Delete", danger: true, onClick: () => setDeleteOpen(true) },
-                ],
-              }}
-            >
-              <button type="button" className={btnDefault}>
-                Actions <DownOutlined className="text-[10px]" />
-              </button>
-            </Dropdown>
+            {archived ? (
+              manager && (
+                <button type="button" className={btnDefault} onClick={() => setDialog("restore")}>
+                  Restore…
+                </button>
+              )
+            ) : (
+              <Dropdown trigger={["click"]} menu={{ items: actionItems }}>
+                <button type="button" className={btnDefault}>
+                  Actions <DownOutlined className="text-[10px]" />
+                </button>
+              </Dropdown>
+            )}
           </div>
         </div>
 
-        <StatusCards m={m} />
+        {archived && (
+          <Alert
+            className="mt-3"
+            type="warning"
+            showIcon
+            message={
+              m.archiveReason
+                ? `Archived ${formatDateTime(m.archivedAt)}${m.archivedBy ? ` by ${m.archivedBy}` : ""} — ${m.archiveReason}`
+                : `Deleted ${formatDateTime(m.archivedAt)}, before archiving existed`
+            }
+            description={manager ? "Archived records are kept and can be restored. Nothing can be changed here until then." : "Archived records are kept; a manager can restore it. Nothing can be changed here."}
+          />
+        )}
+        {!archived && upd && (
+          <Alert
+            className="mt-3"
+            type={upd.state === "failed" ? "error" : "warning"}
+            showIcon
+            message={
+              upd.state === "pending"
+                ? `Shipment not updated yet — retrying (${upd.what.join(", ") || "warehouse dates"})`
+                : `Shipment not updated (${upd.what.join(", ") || "warehouse dates"}) — set it in Shipments by hand`
+            }
+            description={
+              [
+                upd.lastError ? `Last error: ${upd.lastError}` : "",
+                upd.state === "pending" && upd.nextAttemptAt ? `Next try ${formatDateTime(upd.nextAttemptAt)}` : "",
+                upd.attempts ? `${upd.attempts} ${upd.attempts === 1 ? "try" : "tries"} so far` : "",
+              ]
+                .filter(Boolean)
+                .join(" · ") || undefined
+            }
+            action={
+              <div className="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  className={btnDefault}
+                  disabled={retryShipmentUpdate.isPending}
+                  onClick={() =>
+                    retryShipmentUpdate
+                      .mutateAsync()
+                      .then((res) => (res.movement.shipmentUpdate ? toast.info("Still not updated — it keeps retrying") : toast.success("Shipment updated")))
+                      .catch((e) => toast.error(errorMessage(e, "Failed to retry")))
+                  }
+                >
+                  Retry now
+                </button>
+                {upd.state === "failed" && (
+                  <button
+                    type="button"
+                    className={btnDefault}
+                    disabled={dismissShipmentUpdate.isPending}
+                    title="Use once the shipment was set in Shipments by hand"
+                    onClick={() =>
+                      dismissShipmentUpdate
+                        .mutateAsync()
+                        .then(() => toast.success("Dismissed — logged on the movement"))
+                        .catch((e) => toast.error(errorMessage(e, "Failed to dismiss")))
+                    }
+                  >
+                    Set by hand — dismiss
+                  </button>
+                )}
+              </div>
+            }
+          />
+        )}
+
+        <StatusCards
+          m={m}
+          refreshing={refreshCustoms.isPending}
+          onRefreshCustoms={
+            m.shipmentId && !m.impRelease && !archived
+              ? () => refreshCustoms.mutateAsync().catch((e) => toast.error(errorMessage(e, "Failed to read the shipment")))
+              : undefined
+          }
+        />
 
         {/* Tabs */}
         <Tabs
@@ -300,7 +494,8 @@ export function GateJobView({ id }: { id: string }) {
       </div>
 
       {/* ── Tab content ── */}
-      <div className="p-6">
+      {/* An archived record is shown as it was; nothing on it can be changed until it is restored. */}
+      <div className={`p-6 ${archived ? "opacity-70" : ""}`} inert={archived}>
         {tab === "overview" && (
           <OverviewTab
             m={m}
@@ -372,6 +567,56 @@ export function GateJobView({ id }: { id: string }) {
 
       <PrintLabelsModal open={printOpen} movements={[m]} onClose={() => setPrintOpen(false)} />
 
+      <ReasonModal
+        open={!!voidStep}
+        title={`Void ${voidStep?.label ?? "stamp"}`}
+        hint={`Clears the ${voidStep?.label ?? ""} stamp on ${m.gateRef}; the status follows the stamps that remain. Who, when, the old stamp and the reason are logged.`}
+        okText="Void stamp"
+        danger
+        onClose={() => setVoidStep(null)}
+        onSubmit={(reason) => doVoid(voidStep!, reason)}
+      >
+        {voidStep && voidsGateOutToo(m, voidStep.kind) && (
+          <p className="text-xs text-amber-700 mt-0">The {TERMS.gateOut} stamped with it is voided too.</p>
+        )}
+        {m.shipmentId && (
+          <p className="text-xs text-amber-700 mt-0">The shipment is not changed back — correct it in Shipments if needed.</p>
+        )}
+      </ReasonModal>
+      <ReasonModal
+        open={dialog === "archive"}
+        title="Archive record"
+        hint={`${m.gateRef} leaves the Gate Log but is kept, with who, when and the reason; a manager can restore it. Its position is not removed.`}
+        okText="Archive"
+        danger
+        onClose={() => setDialog(null)}
+        onSubmit={(reason) =>
+          archive
+            .mutateAsync(reason)
+            .then(() => toast.success("Archived — logged on the movement"))
+            .catch((e) => {
+              toast.error(errorMessage(e, "Failed to archive"));
+              throw e;
+            })
+        }
+      />
+      <ReasonModal
+        open={dialog === "restore"}
+        title="Restore record"
+        hint={`${m.gateRef} comes back to the Gate Log (with its position, if that was removed with it). The reason is logged.`}
+        okText="Restore"
+        onClose={() => setDialog(null)}
+        onSubmit={(reason) =>
+          restore
+            .mutateAsync(reason)
+            .then(() => toast.success("Restored — logged on the movement"))
+            .catch((e) => {
+              toast.error(errorMessage(e, "Failed to restore"));
+              throw e;
+            })
+        }
+      />
+
       <ConfirmModal
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
@@ -385,7 +630,7 @@ export function GateJobView({ id }: { id: string }) {
           }
         }}
         title="Delete movement"
-        description={`Delete gate movement ${m.gateRef}? It is archived, not erased.`}
+        description={`Delete gate movement ${m.gateRef}? It has no gate stamps. It is archived, not erased, and a manager can restore it.`}
         confirmLabel="Delete"
         danger
         loading={remove.isPending}

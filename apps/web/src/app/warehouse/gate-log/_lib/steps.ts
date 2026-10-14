@@ -126,3 +126,32 @@ export function gateSteps(m: StepMovement): GateStep[] {
   });
   return [...steps, ...legacy];
 }
+
+const sameTime = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && new Date(a).getTime() === new Date(b).getTime();
+
+// Why a done step cannot be voided as the record is now; null when it can. Later steps are voided
+// first (same rules as the server): the receipt before its draft, everything after the gate-in
+// before the gate-in, an outgoing gate-out before its WH release. Voiding the WH release also
+// voids the gate-out stamped with it; that gate-out is never voided on its own.
+export function voidBlocked(m: Pick<interfaces.GateMovementItem, StepKind> & { visit?: string }, kind: StepKind): string | null {
+  if (!m[kind]) return "Not stamped";
+  switch (kind) {
+    case "gateOut":
+      return sameTime(m.gateOut, m.impRelease) ? `The ${TERMS.gateOut} was stamped with the ${TERMS.whRelease} — void the ${TERMS.whRelease} instead` : null;
+    case "impRelease":
+      return m.visit === "výdej" && m.gateOut && !sameTime(m.gateOut, m.impRelease) ? `Void the ${TERMS.gateOut} first` : null;
+    case "gateIn":
+      if (m.expReceipt || m.expDraft) return `Void the ${TERMS.receipt} and the ${TERMS.draftReceipt} first`;
+      if (m.impRelease) return `Void the ${TERMS.whRelease} first`;
+      if (m.gateOut) return `Void the ${TERMS.gateOut} first`;
+      return null;
+    case "expDraft":
+      return m.expReceipt ? `Void the ${TERMS.receipt} first` : null;
+    default:
+      return null;
+  }
+}
+
+/** The gate-out goes with a voided WH release when both were stamped at the same moment. */
+export const voidsGateOutToo = (m: Pick<interfaces.GateMovementItem, "impRelease" | "gateOut">, kind: StepKind) =>
+  kind === "impRelease" && sameTime(m.gateOut, m.impRelease);

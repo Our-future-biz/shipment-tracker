@@ -124,3 +124,13 @@ export const freeDaysOver = (loadInDate: string, freeDays: number | null) => {
 };
 
 export const errorMessage = (e: unknown, fallback: string) => (e instanceof APIError ? e.message : fallback);
+
+// Managers (same roles the server allows): supervisor override, void a stamp, archive / restore
+// a record, remove a position whose gate record has stamps.
+export const SUPERVISOR_ROLES = ["superadmin", "admin", "manager"];
+export const isManager = (user: { role: string } | null | undefined) => !!user && SUPERVISOR_ROLES.includes(user.role);
+
+type Stamps = Pick<interfaces.GateMovementItem, "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt">;
+// Any gate stamp on the record: then only a manager archives it (with a reason); others may delete
+// a record without stamps.
+export const hasAnyStamp = (m: Stamps) => !!(m.gateIn || m.gateOut || m.impRelease || m.expDraft || m.expReceipt);

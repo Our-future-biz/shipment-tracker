@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Input, Select, Table, Tag } from "antd";
+import { Button, Input, Select, Table, Tag, Tooltip } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/date";
+import type { interfaces } from "@/lib/api/client";
 import { TERMS } from "../_lib/glossary";
 
 // One shipment offered for import, whichever list it came from.
@@ -19,6 +20,19 @@ type ImportRow = {
 };
 
 export type ImportMode = "shipments" | "masters";
+type ImportResult = interfaces.WarehouseImportResult;
+type Results = Record<string, ImportResult>;
+
+// Outcome of one shipment in the last import.
+export function ImportOutcomeTag({ result }: { result: ImportResult }) {
+  if (result.outcome === "created") return <Tag color="green" className="m-0">Created {result.ref}</Tag>;
+  if (result.outcome === "already") return <Tag className="m-0">Already in warehouse {result.ref}</Tag>;
+  return (
+    <Tooltip title={result.reason}>
+      <Tag color="red" className="m-0">Failed</Tag>
+    </Tooltip>
+  );
+}
 
 const PAGE = 200;
 
@@ -42,23 +56,26 @@ export function ShipmentImportPicker({
   inWarehouse,
   selected,
   onChange,
+  results,
 }: {
   mode: ImportMode;
   /** Shipment ids that already have a warehouse position. */
   inWarehouse: Set<string>;
   selected: string[];
   onChange: (ids: string[]) => void;
+  /** Outcome per shipment id of the last import, shown on its row. */
+  results?: Results;
 }) {
   return mode === "shipments" ? (
-    <ShipmentsList inWarehouse={inWarehouse} selected={selected} onChange={onChange} />
+    <ShipmentsList inWarehouse={inWarehouse} selected={selected} onChange={onChange} results={results} />
   ) : (
-    <MasterJobsList inWarehouse={inWarehouse} selected={selected} onChange={onChange} />
+    <MasterJobsList inWarehouse={inWarehouse} selected={selected} onChange={onChange} results={results} />
   );
 }
 
-type ListProps = { inWarehouse: Set<string>; selected: string[]; onChange: (ids: string[]) => void };
+type ListProps = { inWarehouse: Set<string>; selected: string[]; onChange: (ids: string[]) => void; results?: Results };
 
-const columns = (withMaster: boolean, inWarehouse: Set<string>) => [
+const columns = (withMaster: boolean, inWarehouse: Set<string>, results?: Results) => [
   {
     title: TERMS.jobNo,
     dataIndex: "jobNumber",
@@ -66,7 +83,13 @@ const columns = (withMaster: boolean, inWarehouse: Set<string>) => [
     render: (v: string, r: ImportRow) => (
       <span className="font-medium">
         {v || "—"}
-        {inWarehouse.has(r.id) && <Tag className="ml-2">In warehouse</Tag>}
+        {results?.[r.id] ? (
+          <span className="ml-2">
+            <ImportOutcomeTag result={results[r.id]!} />
+          </span>
+        ) : (
+          inWarehouse.has(r.id) && <Tag className="ml-2">In warehouse</Tag>
+        )}
       </span>
     ),
   },
@@ -77,7 +100,7 @@ const columns = (withMaster: boolean, inWarehouse: Set<string>) => [
   { title: "ETA Warehouse/HUB", dataIndex: "etaWarehouse", width: 150, render: (v: string | null) => formatDate(v) },
 ];
 
-function ShipmentsList({ inWarehouse, selected, onChange }: ListProps) {
+function ShipmentsList({ inWarehouse, selected, onChange, results }: ListProps) {
   const [query, setQuery] = useState("");
   const search = useDebounced(query.trim(), 300);
 
@@ -121,7 +144,7 @@ function ShipmentsList({ inWarehouse, selected, onChange }: ListProps) {
         size="small"
         rowKey="id"
         dataSource={rows}
-        columns={columns(true, inWarehouse)}
+        columns={columns(true, inWarehouse, results)}
         loading={isFetching}
         pagination={false}
         scroll={{ y: 360 }}
@@ -139,7 +162,7 @@ function ShipmentsList({ inWarehouse, selected, onChange }: ListProps) {
   );
 }
 
-function MasterJobsList({ inWarehouse, selected, onChange }: ListProps) {
+function MasterJobsList({ inWarehouse, selected, onChange, results }: ListProps) {
   const [masterIds, setMasterIds] = useState<string[]>([]);
 
   const { data: masters, isFetching: mastersLoading } = useQuery({
@@ -218,7 +241,7 @@ function MasterJobsList({ inWarehouse, selected, onChange }: ListProps) {
         size="small"
         rowKey="id"
         dataSource={rows}
-        columns={columns(masterIds.length > 1, inWarehouse)}
+        columns={columns(masterIds.length > 1, inWarehouse, results)}
         loading={loading}
         pagination={false}
         scroll={{ y: 360 }}

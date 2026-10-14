@@ -1,6 +1,6 @@
 import { eq, and, isNull, inArray, sql } from "drizzle-orm";
 import { db } from "../db/db";
-import { warehouseSectionTable } from "../schemas/warehouseSection.schema";
+import { warehouseSectionTable, type WarehouseSectionRecord } from "../schemas/warehouseSection.schema";
 import { PICKUP_SECTION, type PickupHistoryEntry, type PickupRow } from "../services/pickupPin";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -28,21 +28,45 @@ class WarehouseSectionRepository {
     return row ?? null;
   }
 
-  async upsert(shipmentId: string, section: string, companyId: string, data: unknown) {
-    const existing = await this.findByShipmentAndSection(shipmentId, section, companyId);
-    if (existing) {
-      const [row] = await db
-        .update(warehouseSectionTable)
-        .set({ data, updatedAt: new Date() } as never)
-        .where(eq(warehouseSectionTable.id, existing.id))
+  // Saves only the given keys of a section's data (`data || changes`), so two people saving
+  // different fields never overwrite each other. Each key is written only while its stored value
+  // is still what the client last saw (`expected`, "" = absent); otherwise nothing is written
+  // and the keys that changed meanwhile are returned. `onCreate` runs when the section row is
+  // made by this save (inside the transaction; it may throw to refuse it).
+  async patchKeys(
+    shipmentId: string,
+    section: string,
+    companyId: string,
+    changes: { key: string; value: string; expected: string }[],
+    onCreate: () => Promise<void>,
+  ): Promise<{ row: WarehouseSectionRecord; conflicts: null } | { row: null; conflicts: string[] }> {
+    return db.transaction(async (tx) => {
+      // A missing section is made; a deleted one starts afresh (empty, like a new one). A live
+      // one is left as it is (the update below then checks and writes it).
+      const created = await tx
+        .insert(s)
+        .values({ companyId, shipmentId, section, data: {} })
+        .onConflictDoUpdate({
+          target: [s.companyId, s.shipmentId, s.section],
+          set: { data: {}, deletedAt: null, version: sql`${s.version} + 1`, updatedAt: new Date() },
+          setWhere: sql`${s.deletedAt} IS NOT NULL`,
+        })
+        .returning({ id: s.id });
+      if (created.length) await onCreate();
+      const patch = Object.fromEntries(changes.map((c) => [c.key, c.value]));
+      const stillAsSeen = changes.map((c) => sql`COALESCE(${dataObj}->>${c.key}, '') = ${c.expected}`);
+      const where = and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), eq(s.section, section), isNull(s.deletedAt));
+      const [row] = await tx
+        .update(s)
+        .set({ data: sql`${dataObj} || ${JSON.stringify(patch)}::jsonb`, version: sql`${s.version} + 1`, updatedAt: new Date() })
+        .where(and(where, ...stillAsSeen))
         .returning();
-      return row!;
-    }
-    const [row] = await db
-      .insert(warehouseSectionTable)
-      .values({ companyId, shipmentId, section, data })
-      .returning();
-    return row!;
+      if (row) return { row, conflicts: null };
+      const [cur] = await tx.select().from(s).where(where);
+      const data = cur?.data && typeof cur.data === "object" && !Array.isArray(cur.data) ? (cur.data as Record<string, unknown>) : {};
+      const asText = (v: unknown) => (v === undefined || v === null ? "" : typeof v === "string" ? v : JSON.stringify(v));
+      return { row: null, conflicts: changes.filter((c) => asText(data[c.key]) !== c.expected).map((c) => c.key) };
+    });
   }
 
   // Every write of a pick-up section runs under this per-shipment lock, so a rows save, a new
@@ -74,7 +98,7 @@ class WarehouseSectionRepository {
     return this.withPickupLock(shipmentId, companyId, async (tx) => {
       const [updated] = await tx
         .update(s)
-        .set({ data: sql`(${dataObj} - 'rows') || jsonb_build_object('rows', ${rowsText}::text)`, updatedAt: new Date() })
+        .set({ data: sql`(${dataObj} - 'rows') || jsonb_build_object('rows', ${rowsText}::text)`, version: sql`${s.version} + 1`, updatedAt: new Date() })
         .where(pickupRow(shipmentId, companyId))
         .returning();
       if (updated) return updated;
@@ -112,6 +136,7 @@ class WarehouseSectionRepository {
           .set({
             data: sql`${dataObj} || ${JSON.stringify(fields)}::jsonb || jsonb_build_object('pinHistory',
               (CASE WHEN jsonb_typeof(${dataObj}->'pinHistory') = 'array' THEN ${dataObj}->'pinHistory' ELSE '[]'::jsonb END) || ${JSON.stringify([entry])}::jsonb)`,
+            version: sql`${s.version} + 1`,
             updatedAt: new Date(),
           })
           .where(eq(s.id, cur.id))

@@ -7,6 +7,8 @@ import * as gateMovementSchema from "../schemas/gateMovement.schema";
 import * as gateFileSchema from "../schemas/gateFile.schema";
 import * as warehouseRecordsSchema from "../schemas/warehouseRecords.schema";
 import * as warehouseStockSchema from "../schemas/warehouseStock.schema";
+import * as warehouseRefCounterSchema from "../schemas/warehouseRefCounter.schema";
+import * as shipmentOutboxSchema from "../schemas/shipmentOutbox.schema";
 
 const { Pool } = pg;
 
@@ -26,5 +28,7 @@ export const db = drizzle(pool, {
     ...gateFileSchema,
     ...warehouseRecordsSchema,
     ...warehouseStockSchema,
+    ...warehouseRefCounterSchema,
+    ...shipmentOutboxSchema,
   },
 });

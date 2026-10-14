@@ -1,8 +1,8 @@
 import { api, APIError } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { shipments } from "~encore/clients";
-import { warehouseService } from "../services/warehouse.service";
-import { gateMovementService } from "../services/gateMovement.service";
+import { warehouseImportService } from "../services/warehouseImport.service";
+import { userName } from "../services/users";
 import type { WarehouseTaskItem } from "../interfaces/interfaces";
 
 interface WarehouseCreateRequest {
@@ -15,19 +15,18 @@ interface WarehouseCreateResponse {
   created: boolean;
 }
 
-// Adds a shipment to the warehouse; the server assigns its WCZ reference.
+// Adds one shipment to the warehouse; the server assigns its WCZ reference and makes its gate
+// record in the same transaction. (Several at once: warehouseImport.)
 export const warehouseCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse" },
   async (req: WarehouseCreateRequest): Promise<WarehouseCreateResponse> => {
     if (!req.shipmentId) {
       throw APIError.invalidArgument("shipmentId is required");
     }
+    const { companyID, userID } = getAuthData()!;
     // Throws not_found unless the shipment exists in the caller's company.
-    await shipments.shipmentGet({ shipmentId: req.shipmentId });
-    const companyId = getAuthData()!.companyID;
-    const { task, created } = await warehouseService.addShipment(companyId, req.shipmentId);
-    // The new task gets its Gate Log row straight away.
-    if (created) await gateMovementService.ensureForTasks(companyId);
+    const { shipment } = await shipments.shipmentGet({ shipmentId: req.shipmentId });
+    const { task, created } = await warehouseImportService.importOne(companyID, await userName(userID), shipment);
     return { task: task as unknown as WarehouseTaskItem, created };
   },
 );

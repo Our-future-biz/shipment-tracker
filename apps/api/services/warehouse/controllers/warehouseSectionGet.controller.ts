@@ -1,6 +1,6 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
-import { warehouseService } from "../services/warehouse.service";
+import { sectionItem, warehouseService } from "../services/warehouse.service";
 import type { WarehouseSectionItem } from "../interfaces/interfaces";
 
 interface WarehouseSectionGetRequest {
@@ -18,14 +18,7 @@ export const warehouseSectionGet = api(
     const row = await warehouseService.getSection(req.shipmentId, req.section, getAuthData()!.companyID);
     if (!row) return { section: null };
     return {
-      section: {
-        id: row.id,
-        shipmentId: row.shipmentId,
-        section: row.section,
-        data: row.data,
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
-      },
+      section: sectionItem(row),
     };
   },
 );

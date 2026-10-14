@@ -8,11 +8,13 @@ export type GateMovement = interfaces.GateMovementItem;
 export type GateStampKind = "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt";
 
 const KEY = ["warehouse-gate"];
+const ARCHIVED_KEY = [...KEY, "archived"];
 
-export const useGateLog = () => {
+// The Gate Log; `archived` lists the archived records instead (managers restore them there).
+export const useGateLog = ({ archived = false }: { archived?: boolean } = {}) => {
   const query = useQuery({
-    queryKey: KEY,
-    queryFn: () => api.warehouse.gateMovementList(),
+    queryKey: archived ? ARCHIVED_KEY : KEY,
+    queryFn: () => api.warehouse.gateMovementList(archived ? { archived: true } : {}),
   });
   return { movements: query.data?.movements ?? [], isLoading: query.isLoading };
 };
@@ -23,13 +25,14 @@ export const useGateMovement = (id: string | undefined) => {
 
   const query = useQuery({
     queryKey: [...KEY, id],
-    queryFn: () => api.warehouse.gateMovementGet(id!),
+    queryFn: () => api.warehouse.gateMovementGet(id!, {}),
     enabled: !!id,
   });
 
   const onRow = (res: controllers.GateMovementResponse) => {
-    queryClient.setQueryData([...KEY, res.movement.id], res);
+    queryClient.setQueryData([...KEY, res.movement.id], { movement: res.movement });
     queryClient.invalidateQueries({ queryKey: KEY, exact: true });
+    queryClient.invalidateQueries({ queryKey: ARCHIVED_KEY, exact: true });
   };
 
   const update = useMutation({
@@ -75,10 +78,66 @@ export const useGateMovement = (id: string | undefined) => {
   });
   const remove = useMutation({
     mutationFn: () => api.warehouse.gateMovementDelete(id!),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: KEY }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: KEY });
+      queryClient.invalidateQueries({ queryKey: ["warehouse"] });
+    },
+  });
+  // Manager only: archive / restore with a reason, void a wrong stamp (the shipment is not changed back).
+  const archive = useMutation({
+    mutationFn: (reason: string) => api.warehouse.gateMovementArchive(id!, { reason }),
+    onSuccess: onRow,
+  });
+  const restore = useMutation({
+    mutationFn: (reason: string) => api.warehouse.gateMovementRestore(id!, { reason }),
+    onSuccess: (res) => {
+      onRow(res);
+      queryClient.invalidateQueries({ queryKey: ["warehouse"] });
+    },
+  });
+  const voidStamp = useMutation({
+    mutationFn: ({ kind, reason }: { kind: GateStampKind; reason: string }) => api.warehouse.gateMovementVoidStamp(id!, { kind, reason }),
+    onSuccess: onRow,
+  });
+  // Customs status read from the shipment now (instead of after the 30 s cache).
+  const refreshCustoms = useMutation({
+    mutationFn: () => api.warehouse.gateMovementGet(id!, { refresh: true }),
+    onSuccess: onRow,
+  });
+  const refreshFromShipment = useMutation({
+    mutationFn: () => api.warehouse.gateMovementRefreshFromShipment(id!),
+    onSuccess: onRow,
+  });
+  const retryShipmentUpdate = useMutation({
+    mutationFn: () => api.warehouse.gateMovementShipmentUpdateRetry(id!),
+    onSuccess: onRow,
+  });
+  const dismissShipmentUpdate = useMutation({
+    mutationFn: () => api.warehouse.gateMovementShipmentUpdateDismiss(id!),
+    onSuccess: onRow,
   });
 
-  return { movement: query.data?.movement, isLoading: query.isLoading, update, stamp, requestRelease, requestMrn, refuse, override, setReleaseGate, verifyPin, saveSurvey, remove };
+  return {
+    movement: query.data?.movement,
+    isLoading: query.isLoading,
+    update,
+    stamp,
+    requestRelease,
+    requestMrn,
+    refuse,
+    override,
+    setReleaseGate,
+    verifyPin,
+    saveSurvey,
+    remove,
+    archive,
+    restore,
+    voidStamp,
+    refreshCustoms,
+    refreshFromShipment,
+    retryShipmentUpdate,
+    dismissShipmentUpdate,
+  };
 };
 
 export type GateFile = interfaces.GateFileItem;

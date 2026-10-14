@@ -2,6 +2,7 @@ import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { gateMovementService } from "../services/gateMovement.service";
 import type { WarehouseSectionItem } from "../interfaces/interfaces";
+import { sectionItem } from "../services/warehouse.service";
 
 interface PickupPinGenerateResponse {
   section: WarehouseSectionItem;
@@ -15,14 +16,7 @@ export const pickupPinGenerate = api(
     const { companyID, userID } = getAuthData()!;
     const row = await gateMovementService.generatePickupPin(shipmentId, companyID, userID);
     return {
-      section: {
-        id: row.id,
-        shipmentId: row.shipmentId,
-        section: row.section,
-        data: row.data,
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
-      },
+      section: sectionItem(row),
     };
   },
 );

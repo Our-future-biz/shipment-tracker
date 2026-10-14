@@ -123,6 +123,20 @@ export interface GatePickupInfo {
   rows: { haulier: string; licensePlate: string; driver: string }[];
 }
 
+/**
+ * A shipment update the gate still owes (the received / released date or the plate written to
+ * the linked shipment). "pending" is being retried; "failed" stopped and needs a hand in Shipments.
+ */
+export interface GateShipmentUpdateState {
+  state: "pending" | "failed";
+  /** What is not on the shipment yet, e.g. "warehouse received date". */
+  what: string[];
+  attempts: number;
+  lastError: string;
+  /** Next try (pending only). */
+  nextAttemptAt: string | null;
+}
+
 export interface GateMovementItem {
   id: string;
   gateRef: string;
@@ -205,8 +219,35 @@ export interface GateMovementItem {
   freeDays: number | null;
   note: string;
   events: GateEvent[];
+  /** Set when the record is archived (or was deleted before archiving existed). */
+  archivedAt: string | null;
+  archivedBy: string;
+  /** Empty for records deleted before archiving existed. */
+  archiveReason: string;
+  /** When the linked shipment's customs status was last read; null when never. */
+  shipmentCheckedAt: string | null;
+  /** Shipment update still owed by a stamp; null when everything reached the shipment. */
+  shipmentUpdate: GateShipmentUpdateState | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Stamps a manager may void. */
+export type GateStampKind = "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt";
+
+/** Result of importing one shipment into the warehouse. */
+export interface WarehouseImportResult {
+  shipmentId: string;
+  /** Job number of the shipment; empty when it could not be read. */
+  jobNumber: string;
+  /** created = new position; already = it was in the warehouse; failed = see reason (no reference used). */
+  outcome: "created" | "already" | "failed";
+  /** Warehouse task id and its WCZ reference (created / already). */
+  taskId: string | null;
+  ref: string;
+  /** Gate record of the position, when it has one. */
+  movementId: string | null;
+  reason: string;
 }
 
 /**

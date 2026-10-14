@@ -25,11 +25,18 @@ export const TERMS = {
   receipt: "Receipt",
   gateOut: "Gate-out",
   pickupPin: "Pick-up PIN",
+  archived: "Archived",
+  voidStamp: "Void a stamp",
 } as const;
 
 // What each term means, for the glossary in the Read me.
 export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = [
-  { term: TERMS.warehouseRef, meaning: "The position's own WCZ reference. It is on the label, the QR code and the barcode.", replaces: "Gate ref, Internal ref., Warehouse Ref" },
+  {
+    term: TERMS.warehouseRef,
+    meaning:
+      "The position's own WCZ reference: WCZ, the year and a six-digit number that rises by one for every new position (e.g. WCZ2026000001), starting again each year. Older references (WCZ + date + two digits) keep their number. It is on the label, the QR code and the barcode.",
+    replaces: "Gate ref, Internal ref., Warehouse Ref",
+  },
   { term: TERMS.jobNo, meaning: "The shipment's job number (its internal reference in Shipments). Copied positions keep it as text only.", replaces: "Internal Reference" },
   { term: `${TERMS.direction}: ${TERMS.inbound} / ${TERMS.outbound}`, meaning: "Inbound cargo comes into the warehouse (export cargo). Outbound cargo leaves it (import cargo).", replaces: "Trade direction Import / Export, příjem / výdej" },
   { term: `${TERMS.releaseGates}: ${TERMS.clear} / ${TERMS.blocked}`, meaning: "Whether outbound cargo may be released: Clear when every release gate is OK (or a supervisor overrode), Blocked otherwise.", replaces: "Armed / NOT armed" },
@@ -45,6 +52,17 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     meaning:
       "Six digits operations make in Shipments (Warehouse tab → Pick-up) and give to the haulier. At the outbound gate the clerk types the PIN the driver gives; a match sets the release gate \"Pick-up PIN verified\" to OK. After 3 wrong tries the PIN is locked until operations make a new one.",
     replaces: "PIN",
+  },
+  {
+    term: TERMS.archived,
+    meaning:
+      "A gate record taken out of the Gate Log but kept, with who, when and why. A record without stamps can be deleted by anyone (it is archived); one with stamps only by a manager, with a reason. Show archived in the Gate Log lists them; a manager can restore one.",
+    replaces: "Deleted",
+  },
+  {
+    term: TERMS.voidStamp,
+    meaning:
+      "A manager clears a wrong stamp from its step (with a reason, logged). Later steps are voided first. The shipment is not changed back — if the stamp already set its warehouse date, correct it in Shipments.",
   },
 ];
 

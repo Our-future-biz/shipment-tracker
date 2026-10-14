@@ -3,12 +3,18 @@ import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { hash, verify } from "@node-rs/argon2";
 import { sql } from "drizzle-orm";
-import { auth, shipments } from "~encore/clients";
-import { gateMovementRepository, type GateMovementRow } from "../repositories/gateMovement.repository";
+import { db } from "../db/db";
+import { gateMovementRepository, hasStampSql, type GateMovementRow } from "../repositories/gateMovement.repository";
 import { containerRepository } from "../repositories/warehouseRecords.repository";
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
-import { gateMovementTable, type GateChecklist, type GateEvent, type GateReleaseLine, type GateSubPosition, type GateSurvey, type GateSurveyLine, type GateTransportLeg, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
+import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
+import { gateMovementTable, type GateChecklist, type GateEvent, type GateMovementRecord, type GateReleaseLine, type GateSubPosition, type GateSurvey, type GateSurveyLine, type GateTransportLeg, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
+import type { NewShipmentOutboxRecord, ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
 import type { GateMovementInput, GateMovementItem, GatePickupInfo, GateSurveyInput } from "../interfaces/gate.interfaces";
+import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine } from "./customs";
+import { deliverDue, shipmentUpdateState } from "./shipmentOutbox.service";
+import { FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
+import { userName } from "./users";
 import {
   isLinkedOutbound,
   linkedOutboundCond,
@@ -26,28 +32,15 @@ import {
 export const MAX_PIN_TRIES = 3;
 
 // Every check starts pending; the gate clicks each one to done, problem or n/a.
-const DEFAULT_CHECKLIST: GateChecklist = { ht: "a", photos: "a", measure: "a", vgm: "a", seal: "a", dg: "a" };
+export const DEFAULT_CHECKLIST: GateChecklist = { ht: "a", photos: "a", measure: "a", vgm: "a", seal: "a", dg: "a" };
 
 const isFcl = (operationType: string) => /^FCL|Container yard/.test(operationType);
 
-// Customs statuses shared with the Shipments module; only the last one releases cargo.
-export const CUSTOMS_STATUSES = [
-  "Waiting For Commercial Paperwork",
-  "Paperwork Verification Pending",
-  "Paperwork Verified",
-  "Under Customs Clearance",
-  "Customs Cleared/Released",
-];
-export const CUSTOMS_CLEARED = "Customs Cleared/Released";
+export { CUSTOMS_CLEARED, CUSTOMS_MODES, CUSTOMS_STATUSES } from "./customs";
 export const MAX_SUB_POSITIONS = 10;
 // Labels in one print of one movement (one per piece at most).
 export const MAX_LABEL_COPIES = 500;
 const LEGS: GateTransportLeg["leg"][] = ["IN", "OUT", "CFS"];
-
-const customsLine = (customsStatus: string): GateReleaseLine =>
-  customsStatus === CUSTOMS_CLEARED
-    ? { g: "Customs", s: "OK", note: "released" }
-    : { g: "Customs", s: "Pending", note: customsStatus || "customs status not set" };
 
 const numOrNull = (v: unknown) => (typeof v === "number" && isFinite(v) ? Math.max(0, v) : null);
 
@@ -170,9 +163,10 @@ const pickupInfo = (p: PickupData): GatePickupInfo => ({
 });
 
 // `pickup` is the shipment's pick-up section; it is read only for linked outbound rows, whose
-// PIN state then comes from it instead of the gate row's own PIN.
-function toItem(m: GateMovementRow, containers: ContainerRef[] = [], pickup?: PickupData): GateMovementItem {
-  const { pinHash, companyId: _companyId, deletedAt: _deletedAt, releaseStatus: _releaseStatus, ...rest } = m;
+// PIN state then comes from it instead of the gate row's own PIN. `outbox` are the record's
+// shipment updates not delivered yet.
+function toItem(m: GateMovementRow, containers: ContainerRef[] = [], pickup?: PickupData, outbox: ShipmentOutboxRecord[] = []): GateMovementItem {
+  const { pinHash, companyId: _companyId, deletedAt, releaseStatus: _releaseStatus, shipmentCheckedAt, ...rest } = m;
   const pick = isLinkedOutbound(m) ? pickupInfo(pickup ?? readPickup(null)) : null;
   return {
     ...rest,
@@ -193,6 +187,9 @@ function toItem(m: GateMovementRow, containers: ContainerRef[] = [], pickup?: Pi
     impRelease: iso(m.impRelease),
     expDraft: iso(m.expDraft),
     expReceipt: iso(m.expReceipt),
+    archivedAt: iso(deletedAt),
+    shipmentCheckedAt: iso(shipmentCheckedAt),
+    shipmentUpdate: shipmentUpdateState(outbox),
     createdAt: m.createdAt.toISOString(),
     updatedAt: m.updatedAt.toISOString(),
   };
@@ -249,16 +246,45 @@ function stampBlocked(m: GateMovementRow, kind: StampKind): string | null {
   }
 }
 
+// A record as stored now (after a change made while it was being read), keeping its task link.
+const withStored = (m: GateMovementRow, stored?: GateMovementRecord): GateMovementRow => (stored ? { ...m, ...stored } : m);
+
+// One shipment update owed by a stamp of `m`, sent later as `userId` with `role`.
+function outboxRow(
+  m: GateMovementRow,
+  kind: NewShipmentOutboxRecord["kind"],
+  stamp: StampKind,
+  payload: Record<string, string>,
+  userId: string,
+  role: string,
+): NewShipmentOutboxRecord {
+  return { companyId: m.companyId, movementId: m.id, shipmentId: m.shipmentId!, kind, stamp, payload, actingUserId: userId, actingRole: role };
+}
+
 class GateMovementService {
-  async list(companyId: string) {
-    await this.ensureForTasks(companyId);
-    await this.ensurePickupLine(companyId);
-    const movements = await gateMovementRepository.listAll(companyId);
-    const containers = await containerRepository.listForMovements(movements.map((m) => m.id), companyId);
+  // The Gate Log. `archived` lists archived records only. `follow` reads the customs status of
+  // a limited number of linked records from their shipments first (the list endpoint does).
+  async list(companyId: string, opts: { archived?: boolean; follow?: boolean } = {}) {
+    if (!opts.archived) await this.ensurePickupLine(companyId);
+    let movements = opts.archived ? await gateMovementRepository.listArchived(companyId) : await gateMovementRepository.listAll(companyId);
+    if (opts.follow && !opts.archived) {
+      const changed = await followCustoms(movements, companyId, { maxAgeMs: FOLLOW_ON_LIST_MS, limit: FOLLOW_LIST_LIMIT });
+      movements = movements.map((m) => withStored(m, changed.get(m.id)));
+    }
+    const ids = movements.map((m) => m.id);
+    const containers = await containerRepository.listForMovements(ids, companyId);
+    const outbox = await shipmentOutboxRepository.openForMovements(ids, companyId);
     const linked = [...new Set(movements.filter(isLinkedOutbound).map((m) => m.shipmentId!))];
     const sections = await warehouseSectionRepository.findPickupForShipments(linked, companyId);
     const pickupOf = (shipmentId: string | null) => readPickup(sections.find((x) => x.shipmentId === shipmentId)?.data);
-    return movements.map((m) => toItem(m, containers.filter((c) => c.movementId === m.id), isLinkedOutbound(m) ? pickupOf(m.shipmentId) : undefined));
+    return movements.map((m) =>
+      toItem(
+        m,
+        containers.filter((c) => c.movementId === m.id),
+        isLinkedOutbound(m) ? pickupOf(m.shipmentId) : undefined,
+        outbox.filter((o) => o.movementId === m.id),
+      ),
+    );
   }
 
   // Linked outbound rows made before the Pick-up PIN line existed get it on read (no migration).
@@ -278,75 +304,24 @@ class GateMovementService {
     );
   }
 
-  // Every warehouse task shows up in the Gate Log: tasks without a gate row get one,
-  // pre-filled from their shipment. Import cargo leaves through the gate (výdej),
-  // export cargo arrives (příjem).
-  async ensureForTasks(companyId: string) {
-    const tasks = await gateMovementRepository.tasksWithoutMovement(companyId);
-    if (!tasks.length) return;
-    const now = new Date().toISOString();
-    const rows = await Promise.all(
-      tasks.map(async (task): Promise<NewGateMovementRecord> => {
-        const s = await shipments
-          .shipmentGet({ shipmentId: task.shipmentId! })
-          .then((r) => r.shipment)
-          .catch(() => null);
-        const handling = s && /export/i.test(s.tradeDirection) ? "Export" : "Import";
-        const operationType = "LCL consolidation";
-        const customsMode = "SCP";
-        const customsStatus = s && CUSTOMS_STATUSES.includes(s.customsStatus) ? s.customsStatus : CUSTOMS_STATUSES[0]!;
-        return {
-          companyId,
-          gateRef: task.taskId,
-          warehouseTaskId: task.id,
-          visit: handling === "Import" ? "výdej" : "příjem",
-          handling,
-          operationType,
-          customsMode,
-          customer: s?.customer ?? "",
-          customerRef: s?.customerReference ?? "",
-          customerContact: s?.customerPic ?? "",
-          shipmentOwner: s?.personInCharge ?? "",
-          colli: parseInt(s?.pcs ?? "", 10) || 0,
-          packing: s?.typeOfPackages ?? "",
-          weightKg: s?.totalWeightTons ? Math.round(parseFloat(s.totalWeightTons) * 1000) || 0 : 0,
-          measureCbm: s?.totalVolumeCbm ? parseFloat(s.totalVolumeCbm) || 0 : 0,
-          freightMode: s?.freightMode ?? "",
-          loadType: s?.loadType ?? "",
-          commodity: s?.cargoDescription ?? "",
-          jobNumber: s?.jobNumber ?? "",
-          pol: s?.pol ?? "",
-          pod: s?.pod ?? "",
-          etd: s?.estimatedDeparture ?? "",
-          eta: s?.estimatedArrival ?? "",
-          vessel: s?.vessel ?? "",
-          voyage: s?.voyage ?? "",
-          containerNumber: s?.containerNumber ?? "",
-          sealNumber: s?.sealNumber ?? "",
-          bookingNumber: s?.bookingNumber ?? "",
-          hblNumber: s?.houseBolNumber ?? "",
-          mblNumber: s?.masterBolNumber ?? "",
-          customsStatus,
-          transportLegs: normalizeLegs([]),
-          checklist: DEFAULT_CHECKLIST,
-          // Import rows are outbound and linked to the task's shipment: they wait for the pick-up PIN.
-          releaseGates: defaultReleaseGates(handling, operationType, customsStatus, handling === "Import"),
-          events: [{ kind: "created", label: `Created from warehouse task ${task.taskId}`, at: now, by: "" }],
-        };
-      }),
-    );
-    await gateMovementRepository.createForTasks(companyId, rows);
-  }
-
-  async removeForTask(taskId: string, companyId: string) {
-    await gateMovementRepository.removeUntouchedForTask(taskId, companyId);
-  }
-
-  async get(id: string, companyId: string) {
-    const m = await this.load(id, companyId);
+  // One record, live or archived. `follow` (the endpoint, "Refresh") first reads the linked
+  // shipment's customs status when it was not read in the last half minute (`force`: always).
+  async get(id: string, companyId: string, opts: { follow?: boolean; force?: boolean } = {}) {
+    await this.ensurePickupLine(companyId, id);
+    let m = await gateMovementRepository.findById(id, companyId);
+    if (m) {
+      if (opts.follow) {
+        const changed = await followCustoms([m], companyId, { maxAgeMs: FOLLOW_ON_GET_MS, limit: 1, force: opts.force });
+        m = withStored(m, changed.get(m.id));
+      }
+    } else {
+      m = await gateMovementRepository.findByIdAny(id, companyId);
+      if (!m) throw APIError.notFound("Gate movement not found");
+    }
     const containers = await containerRepository.listForMovements([m.id], companyId);
     const pickup = isLinkedOutbound(m) ? readPickup((await warehouseSectionRepository.findPickup(m.shipmentId!, companyId))?.data) : undefined;
-    return toItem(m, containers, pickup);
+    const outbox = await shipmentOutboxRepository.openForMovements([m.id], companyId);
+    return toItem(m, containers, pickup, outbox);
   }
 
   // Every action reads the row through here, so it always sees the Pick-up PIN line when the
@@ -360,13 +335,7 @@ class GateMovementService {
 
   // Display name of the acting user for the gate log. Users live in the auth service.
   private async userName(userId: string): Promise<string> {
-    try {
-      const { users } = await auth.usersList();
-      const me = users.find((u) => u.id === userId);
-      return me?.displayName || me?.email || "";
-    } catch {
-      return "";
-    }
+    return userName(userId);
   }
 
   private async fields(input: GateMovementInput, companyId: string): Promise<Partial<NewGateMovementRecord>> {
@@ -392,7 +361,9 @@ class GateMovementService {
     return out;
   }
 
-  async create(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }) {
+  // The new record as it will be stored (checked and filled in), not saved yet — so callers can
+  // insert it in a transaction of their own (a new position and its gate row together).
+  async buildRecord(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }): Promise<NewGateMovementRecord> {
     const { walkIn, ...rest } = input;
     const data = await this.fields(rest, companyId);
     const handling = data.handling ?? "Import";
@@ -412,10 +383,11 @@ class GateMovementService {
     const pickupPin = (data.visit ?? "příjem") === "výdej" && !!task?.shipmentId;
     if (pickupPin && rest.pin) throw APIError.invalidArgument(PICKUP_PIN_FROM_SHIPMENTS);
 
+    const by = await this.userName(userId);
     const events: GateEvent[] = [
-      { kind: walkIn ? "walkIn" : "created", label: walkIn ? "Walk-in at the gate — unlinked, ops notified" : "Movement created", at: now.toISOString(), by: await this.userName(userId) },
+      { kind: walkIn ? "walkIn" : "created", label: walkIn ? "Walk-in at the gate — unlinked, ops notified" : "Movement created", at: now.toISOString(), by },
     ];
-    const row = await gateMovementRepository.create({
+    return {
       ...data,
       companyId,
       gateRef,
@@ -424,7 +396,7 @@ class GateMovementService {
       customsMode,
       customsStatus,
       transportLegs: data.transportLegs ?? normalizeLegs([]),
-      updatedBy: await this.userName(userId),
+      updatedBy: by,
       checklist: { ...DEFAULT_CHECKLIST, ...(data.checklist ?? {}) },
       releaseGates: defaultReleaseGates(handling, operationType, customsStatus, pickupPin),
       events,
@@ -437,11 +409,15 @@ class GateMovementService {
             gateIn: now,
           }
         : {}),
-    });
+    };
+  }
+
+  async create(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }) {
+    const row = await gateMovementRepository.create(await this.buildRecord(companyId, userId, input));
     return this.get(row.id, companyId);
   }
 
-  async update(id: string, companyId: string, userId: string, input: GateMovementInput) {
+  async update(id: string, companyId: string, userId: string, input: GateMovementInput, role = "user") {
     const m = await this.load(id, companyId);
     const patch = await this.fields(input, companyId);
 
@@ -484,7 +460,18 @@ class GateMovementService {
     const linkedAfter = isLinkedOutbound({ shipmentId: shipmentAfter, visit: patch.visit ?? m.visit });
     if (input.pin && linkedAfter) throw APIError.invalidArgument(PICKUP_PIN_FROM_SHIPMENTS);
     patch.updatedBy = await this.userName(userId);
-    await gateMovementRepository.update(id, companyId, patch);
+    // A plate entered (or corrected) after the cargo of a linked record was released goes to the
+    // shipment too, through the outbox like the release itself.
+    const plateLater = !!m.shipmentId && !!m.impRelease && patch.plate !== undefined && !!patch.plate.trim() && patch.plate !== m.plate;
+    await db.transaction(async (tx) => {
+      await gateMovementRepository.update(id, companyId, patch, tx);
+      if (plateLater) {
+        await shipmentOutboxRepository.enqueue(tx, [
+          outboxRow(m, "plate", m.impRelease ? "impRelease" : "gateOut", { plateNumber: patch.plate!.trim() }, userId, role),
+        ]);
+      }
+    });
+    if (plateLater) await deliverDue(id);
     // Direction or task link changed: the Pick-up PIN line follows (until the release).
     if (patch.visit !== undefined || patch.warehouseTaskId !== undefined) {
       const at = new Date().toISOString();
@@ -540,18 +527,34 @@ class GateMovementService {
     return this.get(id, companyId);
   }
 
-  async remove(id: string, companyId: string) {
-    const row = await gateMovementRepository.softDelete(id, companyId);
-    if (!row) throw APIError.notFound("Gate movement not found");
+  // Any user may delete a record the gate never stamped (it moves to the archive, logged). A
+  // stamped record is evidence: only a manager archives it, with a reason (gateAdminService).
+  async remove(id: string, companyId: string, userId: string) {
+    const by = await this.userName(userId);
+    const row = await gateMovementRepository.archive(
+      id,
+      companyId,
+      by,
+      "",
+      { kind: "deleted", label: "Deleted", at: new Date().toISOString(), by },
+      sql`NOT ${hasStampSql}`,
+    );
+    if (row) return;
+    const cur = await gateMovementRepository.findById(id, companyId);
+    if (!cur) throw APIError.notFound("Gate movement not found");
+    throw APIError.failedPrecondition("This record has gate stamps — a manager can archive it with a reason");
   }
 
-  // Gate stamps. Each one is final and files an event; documents are append-only, so an
-  // export receipt keeps its draft (shown as superseded). Each stamp is one conditional
-  // UPDATE (the column is set only while still empty), so of two clerks stamping at once
-  // exactly one wins and the shipment is written back once.
+  // Gate stamps. Each one is final (only a manager voids one, with a reason) and files an event;
+  // documents are append-only, so an export receipt keeps its draft (shown as superseded). Each
+  // stamp is one conditional UPDATE (the column is set only while still empty), so of two clerks
+  // stamping at once exactly one wins and the shipment is written back once.
   // The first export arrival stamp (draft receipt or receipt) is the receipt at the gate:
   // it also stamps gate-in when that is still empty, so the shipment gets its received date.
-  async stamp(id: string, companyId: string, userId: string, kind: StampKind) {
+  // What the stamp owes the linked shipment is stored in the outbox in the same transaction and
+  // sent straight after; if Shipments cannot take it now, it is retried (shipmentOutbox.service).
+  // `role` is the stamping user's role, kept with the outbox row for the delivery.
+  async stamp(id: string, companyId: string, userId: string, kind: StampKind, role = "user") {
     const m = await this.load(id, companyId);
     const blocked = stampBlocked(m, kind);
     if (blocked) throw APIError.failedPrecondition(blocked);
@@ -565,79 +568,76 @@ class GateMovementService {
       events: sql`CASE WHEN ${t.gateIn} IS NULL THEN ${json([evt("gateIn", "Gate-in"), own])} ELSE ${json([own])} END`,
     });
 
-    let row;
-    switch (kind) {
-      case "gateIn":
-        row = await gateMovementRepository.conditionalUpdate(id, companyId, { gateIn: now, status: toWarehouse }, [evt(kind, "Gate-in")], sql`${t.gateIn} IS NULL`);
-        break;
-      case "gateOut":
-        row = await gateMovementRepository.conditionalUpdate(
-          id,
-          companyId,
-          { gateOut: now },
-          [evt(kind, "Gate-out")],
-          sql`${t.gateOut} IS NULL AND (${t.visit} <> 'výdej' OR ${t.impRelease} IS NOT NULL)`,
-        );
-        break;
-      case "impRelease":
-        row = await gateMovementRepository.conditionalUpdate(
-          id,
-          companyId,
-          { impRelease: now, status: "Released", gateOut: sql`COALESCE(${t.gateOut}, ${now.toISOString()}::timestamptz)` },
-          [evt(kind, "WH release")],
-          sql`${t.impRelease} IS NULL AND ${armedSql}`,
-        );
-        break;
-      case "expDraft": {
-        const a = arrival(evt(kind, "WH draft receipt"));
-        row = await gateMovementRepository.conditionalUpdate(id, companyId, { ...a.set, expDraft: now, status: toWarehouse }, a.events, sql`${t.expDraft} IS NULL`);
-        break;
+    const { row, owed } = await db.transaction(async (tx) => {
+      let row: GateMovementRecord | null = null;
+      switch (kind) {
+        case "gateIn":
+          row = await gateMovementRepository.conditionalUpdate(id, companyId, { gateIn: now, status: toWarehouse }, [evt(kind, "Gate-in")], sql`${t.gateIn} IS NULL`, tx);
+          break;
+        case "gateOut":
+          row = await gateMovementRepository.conditionalUpdate(
+            id,
+            companyId,
+            { gateOut: now },
+            [evt(kind, "Gate-out")],
+            sql`${t.gateOut} IS NULL AND (${t.visit} <> 'výdej' OR ${t.impRelease} IS NOT NULL)`,
+            tx,
+          );
+          break;
+        case "impRelease":
+          row = await gateMovementRepository.conditionalUpdate(
+            id,
+            companyId,
+            { impRelease: now, status: "Released", gateOut: sql`COALESCE(${t.gateOut}, ${now.toISOString()}::timestamptz)` },
+            [evt(kind, "WH release")],
+            sql`${t.impRelease} IS NULL AND ${armedSql}`,
+            tx,
+          );
+          break;
+        case "expDraft": {
+          const a = arrival(evt(kind, "WH draft receipt"));
+          row = await gateMovementRepository.conditionalUpdate(id, companyId, { ...a.set, expDraft: now, status: toWarehouse }, a.events, sql`${t.expDraft} IS NULL`, tx);
+          break;
+        }
+        case "expReceipt": {
+          const a = arrival(evt(kind, "WH receipt"));
+          row = await gateMovementRepository.conditionalUpdate(
+            id,
+            companyId,
+            { ...a.set, expReceipt: now, status: toWarehouse },
+            a.events,
+            sql`${t.expReceipt} IS NULL AND ${t.expDraft} IS NOT NULL`,
+            tx,
+          );
+          break;
+        }
       }
-      case "expReceipt": {
-        const a = arrival(evt(kind, "WH receipt"));
-        row = await gateMovementRepository.conditionalUpdate(
-          id,
-          companyId,
-          { ...a.set, expReceipt: now, status: toWarehouse },
-          a.events,
-          sql`${t.expReceipt} IS NULL AND ${t.expDraft} IS NOT NULL`,
-        );
-        break;
+      if (!row) return { row, owed: [] };
+      // Write back only what this very update stamped. Received means inbound cargo arriving: an
+      // outbound (výdej) gate-in is the pickup truck, not a receipt. (A výdej gate-out of its own
+      // happens only on an already released row whose release left the gate-out empty.)
+      // Positions without a shipment have nothing to update. (Export gate-out writes nothing back
+      // yet — an open decision.)
+      const owed: NewShipmentOutboxRecord[] = [];
+      if (m.shipmentId) {
+        const date = pragueDate(now);
+        if (sameTime(row.gateIn, now) && m.visit !== "výdej") {
+          owed.push(outboxRow(m, "received", "gateIn", { warehouseReceivedDate: date, ...(m.positionRef ? { warehouseReference: m.positionRef } : {}) }, userId, role));
+        }
+        if ((kind === "impRelease" && sameTime(row.gateOut, now)) || (kind === "gateOut" && row.visit === "výdej")) {
+          owed.push(outboxRow(m, "released", kind, { warehouseReleasedDate: date, ...(row.plate ? { plateNumber: row.plate } : {}) }, userId, role));
+        }
       }
-    }
+      await shipmentOutboxRepository.enqueue(tx, owed);
+      return { row, owed };
+    });
     if (!row) {
       // Someone else got there first (or the row is gone): report what the row says now.
       const cur = await this.load(id, companyId);
       throw APIError.failedPrecondition(stampBlocked(cur, kind) ?? `${kind} could not be stamped — reload and try again`);
     }
-
-    // Write back only what this very update stamped. Received means inbound cargo arriving: an
-    // outbound (výdej) gate-in is the pickup truck, not a receipt. (A výdej gate-out of its own
-    // happens only on an already released row whose release left the gate-out empty.)
-    if (sameTime(row.gateIn, now) && m.visit !== "výdej") await this.writeBackToShipment(m, "received", now);
-    if ((kind === "impRelease" && sameTime(row.gateOut, now)) || (kind === "gateOut" && row.visit === "výdej")) {
-      await this.writeBackToShipment(m, "released", now);
-    }
+    if (owed.length) await deliverDue(id);
     return this.get(id, companyId);
-  }
-
-  // The gate keeps the linked shipment's warehouse fields current: gate-in sets the received
-  // date and the position reference (WCZ…), the cargo leaving (WH release, or gate-out of an
-  // outgoing visit) sets the released date and the plate it left on. Positions created
-  // without a shipment have nothing to update. The stamp stands even if this fails.
-  // (Export gate-out writes nothing back yet — an open decision.)
-  private async writeBackToShipment(m: GateMovementRow, what: "received" | "released", now: Date) {
-    if (!m.shipmentId) return;
-    const date = pragueDate(now);
-    const data =
-      what === "received"
-        ? { warehouseReceivedDate: date, ...(m.positionRef ? { warehouseReference: m.positionRef } : {}) }
-        : { warehouseReleasedDate: date, ...(m.plate ? { plateNumber: m.plate } : {}) };
-    try {
-      await shipments.shipmentUpdate({ shipmentId: m.shipmentId, ...data });
-    } catch (err) {
-      log.error(err, "warehouse: could not write the gate stamp back to the shipment", { movementId: m.id, shipmentId: m.shipmentId, what });
-    }
   }
 
   async refuse(id: string, companyId: string, userId: string, reason: string) {

@@ -7,12 +7,10 @@ import type { GateMovement } from "@/hooks/useGateLog";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDateTime } from "@/lib/date";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
-import { Badge, type Tone } from "../../_lib/gate";
+import { Badge, isManager, type Tone } from "../../_lib/gate";
 import { PICKUP_PIN_GATE, waitingGates } from "../../_lib/steps";
 import { btnDanger, btnDefault, Section } from "./fields";
 
-// Same roles the server allows for the supervisor override.
-const SUPERVISOR_ROLES = ["superadmin", "admin", "manager"];
 const isEmptyReturn = (g: string) => /empty return/i.test(g);
 
 const GATE_ICON: Record<string, ReactNode> = {
@@ -51,7 +49,7 @@ export function ReleaseGatesPanel({
   const [busyGate, setBusyGate] = useState<string | null>(null);
   const state = releaseState(m);
   const canRefuse = !m.impRelease && m.status !== "Refused";
-  const supervisor = !!user && SUPERVISOR_ROLES.includes(user.role);
+  const supervisor = isManager(user);
   const canOverride = supervisor && !m.impRelease && !m.armed;
   const isCustoms = (g: string) => /^customs$/i.test(g);
   const isPickupPin = (g: string) => g === PICKUP_PIN_GATE;
@@ -137,7 +135,7 @@ export function ReleaseGatesPanel({
   );
 }
 
-function ReasonModal({
+export function ReasonModal({
   open,
   title,
   hint,
@@ -145,6 +143,7 @@ function ReasonModal({
   danger,
   onClose,
   onSubmit,
+  children,
 }: {
   open: boolean;
   title: string;
@@ -153,6 +152,8 @@ function ReasonModal({
   danger?: boolean;
   onClose: () => void;
   onSubmit: (reason: string) => Promise<unknown>;
+  /** Extra lines under the hint (e.g. a warning). */
+  children?: ReactNode;
 }) {
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -182,6 +183,7 @@ function ReasonModal({
       destroyOnHidden
     >
       <p className="text-xs text-slate-500 mt-0">{hint}</p>
+      {children}
       <Input.TextArea autoFocus autoSize={{ minRows: 3, maxRows: 6 }} placeholder="Reason (required)" value={reason} onChange={(e) => setReason(e.target.value)} />
     </Modal>
   );

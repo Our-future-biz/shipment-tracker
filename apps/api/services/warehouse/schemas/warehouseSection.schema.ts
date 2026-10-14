@@ -1,4 +1,4 @@
-import { pgTable, text, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const warehouseSectionTable = pgTable(
@@ -9,6 +9,8 @@ export const warehouseSectionTable = pgTable(
     shipmentId: text("shipment_id").notNull(),
     section: text("section").notNull(), // "job" | "customs" | "pickup" | "invoicing"
     data: jsonb("data"),
+    // Bumped by every save, so a client can tell the section changed since it was read.
+    version: integer("version").notNull().default(0),
   },
   (table) => [
     ...defaultTableIndexes("warehouse_section", table),

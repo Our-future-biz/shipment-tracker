@@ -1723,20 +1723,27 @@ export namespace warehouse {
             this.gateFileDelete = this.gateFileDelete.bind(this)
             this.gateFileList = this.gateFileList.bind(this)
             this.gateFileUpload = this.gateFileUpload.bind(this)
+            this.gateMovementArchive = this.gateMovementArchive.bind(this)
             this.gateMovementCreate = this.gateMovementCreate.bind(this)
             this.gateMovementDelete = this.gateMovementDelete.bind(this)
             this.gateMovementGet = this.gateMovementGet.bind(this)
             this.gateMovementLabelPrinted = this.gateMovementLabelPrinted.bind(this)
             this.gateMovementList = this.gateMovementList.bind(this)
             this.gateMovementOverride = this.gateMovementOverride.bind(this)
+            this.gateMovementRefreshFromShipment = this.gateMovementRefreshFromShipment.bind(this)
             this.gateMovementRefuse = this.gateMovementRefuse.bind(this)
             this.gateMovementReleaseGate = this.gateMovementReleaseGate.bind(this)
+            this.gateMovementRepairMissing = this.gateMovementRepairMissing.bind(this)
             this.gateMovementRequestMrn = this.gateMovementRequestMrn.bind(this)
             this.gateMovementRequestRelease = this.gateMovementRequestRelease.bind(this)
+            this.gateMovementRestore = this.gateMovementRestore.bind(this)
             this.gateMovementSaveSurvey = this.gateMovementSaveSurvey.bind(this)
+            this.gateMovementShipmentUpdateDismiss = this.gateMovementShipmentUpdateDismiss.bind(this)
+            this.gateMovementShipmentUpdateRetry = this.gateMovementShipmentUpdateRetry.bind(this)
             this.gateMovementStamp = this.gateMovementStamp.bind(this)
             this.gateMovementUpdate = this.gateMovementUpdate.bind(this)
             this.gateMovementVerifyPin = this.gateMovementVerifyPin.bind(this)
+            this.gateMovementVoidStamp = this.gateMovementVoidStamp.bind(this)
             this.pickupPinGenerate = this.pickupPinGenerate.bind(this)
             this.warehouseBondedCreate = this.warehouseBondedCreate.bind(this)
             this.warehouseBondedDelete = this.warehouseBondedDelete.bind(this)
@@ -1760,14 +1767,17 @@ export namespace warehouse {
             this.warehouseEquipmentDelete = this.warehouseEquipmentDelete.bind(this)
             this.warehouseEquipmentList = this.warehouseEquipmentList.bind(this)
             this.warehouseEquipmentUpdate = this.warehouseEquipmentUpdate.bind(this)
+            this.warehouseImport = this.warehouseImport.bind(this)
             this.warehouseList = this.warehouseList.bind(this)
             this.warehousePositionCreate = this.warehousePositionCreate.bind(this)
+            this.warehousePositionRemove = this.warehousePositionRemove.bind(this)
             this.warehouseReportSummary = this.warehouseReportSummary.bind(this)
             this.warehouseSavedReportCreate = this.warehouseSavedReportCreate.bind(this)
             this.warehouseSavedReportDelete = this.warehouseSavedReportDelete.bind(this)
             this.warehouseSavedReportList = this.warehouseSavedReportList.bind(this)
             this.warehouseSavedReportUpdate = this.warehouseSavedReportUpdate.bind(this)
             this.warehouseSectionGet = this.warehouseSectionGet.bind(this)
+            this.warehouseSectionPatch = this.warehouseSectionPatch.bind(this)
             this.warehouseSectionUpsert = this.warehouseSectionUpsert.bind(this)
             this.warehouseStaffCreate = this.warehouseStaffCreate.bind(this)
             this.warehouseStaffDelete = this.warehouseStaffDelete.bind(this)
@@ -1822,12 +1832,27 @@ export namespace warehouse {
 }
         }
 
+        /**
+         * Manager: archives a record (stamped or not) with a reason; it can be restored.
+         */
+        public async gateMovementArchive(id: string, params: {
+    reason: string
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/archive`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
         public async gateMovementCreate(params: controllers.GateMovementCreateRequest): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
+        /**
+         * Any user may delete a record without gate stamps (it is archived, logged). A stamped
+         * record is archived by a manager with a reason (gateMovementArchive).
+         */
         public async gateMovementDelete(id: string): Promise<{
     ok: boolean
 }> {
@@ -1838,9 +1863,17 @@ export namespace warehouse {
 }
         }
 
-        public async gateMovementGet(id: string): Promise<controllers.GateMovementResponse> {
+        /**
+         * One record, live or archived; a linked one follows its shipment's customs status.
+         */
+        public async gateMovementGet(id: string, params: controllers.GateMovementGetRequest): Promise<controllers.GateMovementResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                refresh: params.refresh === undefined ? undefined : String(params.refresh),
+            })
+
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}`, undefined, {query})
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -1855,11 +1888,20 @@ export namespace warehouse {
             return await resp.json() as controllers.GateMovementResponse
         }
 
-        public async gateMovementList(): Promise<{
+        /**
+         * The Gate Log. Linked records whose customs status was not read lately follow their
+         * shipment first (a limited number per call, never waiting long for Shipments).
+         */
+        public async gateMovementList(params: controllers.GateMovementListRequest): Promise<{
     movements: interfaces.GateMovementItem[]
 }> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                archived: params.archived === undefined ? undefined : String(params.archived),
+            })
+
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate`, undefined, {query})
             return await resp.json() as {
     movements: interfaces.GateMovementItem[]
 }
@@ -1874,6 +1916,15 @@ export namespace warehouse {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/override`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * Copies the linked shipment's data onto the gate record again; any user, logged.
+         */
+        public async gateMovementRefreshFromShipment(id: string): Promise<controllers.GateRefreshFromShipmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/refresh-from-shipment`)
+            return await resp.json() as controllers.GateRefreshFromShipmentResponse
         }
 
         public async gateMovementRefuse(id: string, params: {
@@ -1897,6 +1948,16 @@ export namespace warehouse {
         }
 
         /**
+         * Manager only: positions of shipments without a gate record (from before every import made
+         * one) get it now, from their shipment. Shipments that cannot be read are reported.
+         */
+        public async gateMovementRepairMissing(): Promise<controllers.GateRepairMissingResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/repair-missing`)
+            return await resp.json() as controllers.GateRepairMissingResponse
+        }
+
+        /**
          * Asks customs / ops for the MRN; logged on the movement.
          */
         public async gateMovementRequestMrn(id: string): Promise<controllers.GateMovementResponse> {
@@ -1914,11 +1975,40 @@ export namespace warehouse {
             return await resp.json() as controllers.GateMovementResponse
         }
 
+        /**
+         * Manager: brings an archived record back (and its position, when it was removed with it).
+         */
+        public async gateMovementRestore(id: string, params: {
+    reason: string
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/restore`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
         public async gateMovementSaveSurvey(id: string, params: {
     survey: interfaces.GateSurveyInput
 }): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse-gate/${encodeURIComponent(id)}/survey`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * A failed shipment update that was set in Shipments by hand is dismissed; any user, logged.
+         */
+        public async gateMovementShipmentUpdateDismiss(id: string): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/shipment-update/dismiss`)
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * "Retry now" for a shipment update the record still owes; any user, logged.
+         */
+        public async gateMovementShipmentUpdateRetry(id: string): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/shipment-update/retry`)
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -1942,6 +2032,18 @@ export namespace warehouse {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/verify-pin`, JSON.stringify(params))
             return await resp.json() as controllers.GatePinVerifyResponse
+        }
+
+        /**
+         * Manager: voids a wrong stamp with a reason (logged). The shipment is not changed back.
+         */
+        public async gateMovementVoidStamp(id: string, params: {
+    kind: services.StampKind
+    reason: string
+}): Promise<controllers.GateVoidStampResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/void-stamp`, JSON.stringify(params))
+            return await resp.json() as controllers.GateVoidStampResponse
         }
 
         /**
@@ -2051,7 +2153,8 @@ export namespace warehouse {
         }
 
         /**
-         * Adds a shipment to the warehouse; the server assigns its WCZ reference.
+         * Adds one shipment to the warehouse; the server assigns its WCZ reference and makes its gate
+         * record in the same transaction. (Several at once: warehouseImport.)
          */
         public async warehouseCreate(params: controllers.WarehouseCreateRequest): Promise<controllers.WarehouseCreateResponse> {
             // Now make the actual call to the API
@@ -2059,6 +2162,10 @@ export namespace warehouse {
             return await resp.json() as controllers.WarehouseCreateResponse
         }
 
+        /**
+         * Removes a position the gate never stamped; its gate records are archived with it (kept).
+         * A position whose gate record has stamps needs a manager and a reason: warehousePositionRemove.
+         */
         public async warehouseDelete(taskId: string): Promise<controllers.WarehouseDeleteResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse/${encodeURIComponent(taskId)}`)
@@ -2121,6 +2228,16 @@ export namespace warehouse {
             return await resp.json() as controllers.EquipmentResponse
         }
 
+        /**
+         * Imports shipments in one request: each gets its position (WCZ reference) and gate record in
+         * one transaction. Per shipment: created, already in the warehouse, or failed with the reason.
+         */
+        public async warehouseImport(params: controllers.WarehouseImportRequest): Promise<controllers.WarehouseImportResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse/import`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseImportResponse
+        }
+
         public async warehouseList(params: controllers.WarehouseListRequest): Promise<controllers.WarehouseListResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
@@ -2134,12 +2251,24 @@ export namespace warehouse {
 
         /**
          * "Create new" in the warehouse: a position of its own (WCZ reference) that is NOT paired
-         * with a shipment — no shipment job is created. Its data lives on the gate log movement.
+         * with a shipment — no shipment job is created. Its data lives on the gate log movement; the
+         * position and its movement are created together (one transaction).
          */
         public async warehousePositionCreate(params: controllers.WarehousePositionCreateRequest): Promise<controllers.WarehousePositionCreateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions`, JSON.stringify(params))
             return await resp.json() as controllers.WarehousePositionCreateResponse
+        }
+
+        /**
+         * Removes a position from the warehouse, with an optional reason; its gate records are archived
+         * with it (kept, with the reason). A position whose gate record has stamps is removed only by a
+         * manager with a reason.
+         */
+        public async warehousePositionRemove(taskId: string, params: controllers.WarehousePositionRemoveRequest): Promise<controllers.WarehouseDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions/${encodeURIComponent(taskId)}/remove`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseDeleteResponse
         }
 
         /**
@@ -2189,6 +2318,23 @@ export namespace warehouse {
             return await resp.json() as controllers.WarehouseSectionGetResponse
         }
 
+        /**
+         * Saves changed fields of a section (Shipment Details: notes, remeasured lines, "sent" marks,
+         * operations informed). A field someone else changed since the client read it is refused with
+         * "Changed meanwhile … reload" (aborted); different fields saved at the same time both stay.
+         */
+        public async warehouseSectionPatch(shipmentId: string, section: string, params: controllers.WarehouseSectionPatchRequest): Promise<controllers.WarehouseSectionPatchResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseSectionPatchResponse
+        }
+
+        /**
+         * Whole-section save — Pick-up only, and only its rows (the PIN is the server's). Shipment
+         * Details ("job"), customs and invoicing are saved field by field (warehouseSectionPatch) so
+         * several people and screens never overwrite each other; a whole-section save of them would
+         * replace what others saved meanwhile and is refused.
+         */
         public async warehouseSectionUpsert(shipmentId: string, section: string, params: controllers.WarehouseSectionUpsertRequest): Promise<controllers.WarehouseSectionUpsertResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
@@ -3095,6 +3241,20 @@ export namespace controllers {
         note?: string
     }
 
+    export interface GateMovementGetRequest {
+        /**
+         * true ("Refresh"): read the linked shipment's customs status now, not only after 30 s.
+         */
+        refresh?: boolean
+    }
+
+    export interface GateMovementListRequest {
+        /**
+         * true: archived records only (newest archive first).
+         */
+        archived?: boolean
+    }
+
     export interface GateMovementResponse {
         movement: interfaces.GateMovementItem
     }
@@ -3154,6 +3314,36 @@ export namespace controllers {
     export interface GatePinVerifyResponse {
         result: "match" | "no_match" | "locked" | "no_pin"
         tries: number
+    }
+
+    export interface GateRefreshFromShipmentResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * What changed, in words; empty when the record already matched the shipment.
+         */
+        changed: string[]
+
+        /**
+         * Gate-checked values (pieces, weight, measure, packing, container, seal) kept on a stamped record although the shipment differs.
+         */
+        differs: string[]
+    }
+
+    export interface GateRepairMissingResponse {
+        created: number
+        failed: {
+            taskId: string
+            ref: string
+            reason: string
+        }[]
+    }
+
+    export interface GateVoidStampResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * Set when the shipment was already updated from the voided stamp (it is not changed back).
+         */
+        notice: string
     }
 
     export interface GetProfileResponse {
@@ -4361,6 +4551,20 @@ export namespace controllers {
         ok: boolean
     }
 
+    export interface WarehouseImportRequest {
+        /**
+         * Shipments to bring into the warehouse (up to 200 per request; duplicates count once).
+         */
+        shipmentIds: string[]
+    }
+
+    export interface WarehouseImportResponse {
+        /**
+         * One result per shipment, in the order sent.
+         */
+        results: interfaces.WarehouseImportResult[]
+    }
+
     export interface WarehouseListRequest {
         shipmentId?: string
     }
@@ -4412,8 +4616,27 @@ export namespace controllers {
         movement: interfaces.GateMovementItem
     }
 
+    export interface WarehousePositionRemoveRequest {
+        /**
+         * Required when the position's gate record has stamps (manager only). Sent in the body, so it stays out of URLs and logs.
+         */
+        reason?: string
+    }
+
     export interface WarehouseSectionGetResponse {
         section: interfaces.WarehouseSectionItem | null
+    }
+
+    export interface WarehouseSectionPatchRequest {
+        /**
+         * The fields to save (1–10), each with the value the client last saw in `expected` ("" = not
+         * set). Fields not listed are left as stored.
+         */
+        changes: services.SectionKeyChange[]
+    }
+
+    export interface WarehouseSectionPatchResponse {
+        section: interfaces.WarehouseSectionItem
     }
 
     export interface WarehouseSectionUpsertRequest {
@@ -5052,6 +5275,27 @@ export namespace interfaces {
         freeDays: number | null
         note: string
         events: GateEvent[]
+        /**
+         * Set when the record is archived (or was deleted before archiving existed).
+         */
+        archivedAt: string | null
+
+        archivedBy: string
+        /**
+         * Empty for records deleted before archiving existed.
+         */
+        archiveReason: string
+
+        /**
+         * When the linked shipment's customs status was last read; null when never.
+         */
+        shipmentCheckedAt: string | null
+
+        /**
+         * Shipment update still owed by a stamp; null when everything reached the shipment.
+         */
+        shipmentUpdate: GateShipmentUpdateState | null
+
         createdAt: string
         updatedAt: string
     }
@@ -5078,6 +5322,25 @@ export namespace interfaces {
         g: string
         s: "OK" | "Pending" | "Blocked"
         note: string
+    }
+
+    /**
+     * A shipment update the gate still owes (the received / released date or the plate written to
+     * the linked shipment). "pending" is being retried; "failed" stopped and needs a hand in Shipments.
+     */
+    export interface GateShipmentUpdateState {
+        state: "pending" | "failed"
+        /**
+         * What is not on the shipment yet, e.g. "warehouse received date".
+         */
+        what: string[]
+
+        attempts: number
+        lastError: string
+        /**
+         * Next try (pending only).
+         */
+        nextAttemptAt: string | null
     }
 
     export interface GateSubPosition {
@@ -6310,6 +6573,35 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    /**
+     * Result of importing one shipment into the warehouse.
+     */
+    export interface WarehouseImportResult {
+        shipmentId: string
+        /**
+         * Job number of the shipment; empty when it could not be read.
+         */
+        jobNumber: string
+
+        /**
+         * created = new position; already = it was in the warehouse; failed = see reason (no reference used).
+         */
+        outcome: "created" | "already" | "failed"
+
+        /**
+         * Warehouse task id and its WCZ reference (created / already).
+         */
+        taskId: string | null
+
+        ref: string
+        /**
+         * Gate record of the position, when it has one.
+         */
+        movementId: string | null
+
+        reason: string
+    }
+
     export interface WarehouseReportSummary {
         throughput: ThroughputWeek[]
         topCustomers: TopCustomer[]
@@ -6342,6 +6634,11 @@ export namespace interfaces {
         shipmentId: string
         section: string
         data: any
+        /**
+         * Bumped by every save of the section.
+         */
+        version: number
+
         createdAt: string
         updatedAt: string
     }
@@ -6713,6 +7010,19 @@ export namespace services {
      * A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
      */
     export type PlaceInfo = geo.Place
+
+    export interface SectionKeyChange {
+        key: string
+        /**
+         * New text value; "" clears the field.
+         */
+        value: string
+
+        /**
+         * The value the client last saw ("" = not set). The save is refused if it changed since.
+         */
+        expected: string
+    }
 
     export type StampKind = "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt"
 }

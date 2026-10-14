@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Tooltip } from "antd";
+import { Switch, Tooltip } from "antd";
 import { PrinterOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
@@ -13,7 +13,9 @@ import { useGateLog, type GateMovement, type GateStampKind } from "@/hooks/useGa
 import { getCellConditionalStyle } from "@/lib/columnConfig";
 import { reportBulk, runBulk } from "@/app/warehouse/_components/tabs/shared";
 import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOfVisit, releaseGatesText } from "@/app/warehouse/_lib/glossary";
-import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, GATE_STATUSES, OPERATION_TYPES, PACKINGS, isFcl, isLcl, nf } from "../_lib/gate";
+import { formatDateTime } from "@/lib/date";
+import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
+import { Badge, CUSTOMS_CLEARED, CUSTOMS_STATUSES, GATE_STATUSES, OPERATION_TYPES, PACKINGS, isFcl, isLcl, nf } from "../_lib/gate";
 import { PrintLabelsModal } from "./PrintLabelsModal";
 import { gateSteps } from "../_lib/steps";
 
@@ -37,11 +39,51 @@ const RELEASE_TEXT_TONE: Record<string, string> = {
   [TERMS.blocked]: "font-medium text-red-500",
 };
 
+// A stamp whose shipment update has not gone through yet (retrying) or stopped (failed).
+function ShipmentUpdateBadge({ m }: { m: GateMovement }) {
+  const u = m.shipmentUpdate;
+  if (!u) return null;
+  const what = u.what.join(", ") || "warehouse dates";
+  return u.state === "pending" ? (
+    <Badge tone="a" title={`Shipment not updated yet — retrying (${what})`}>
+      Retrying
+    </Badge>
+  ) : (
+    <Badge tone="r" title={`Shipment not updated (${what}) — set it in Shipments by hand`}>
+      Not updated
+    </Badge>
+  );
+}
+
+// Archived records (Show archived): when, who and why first.
+const ARCHIVED_COLUMNS: AppGridColumn<GateMovement>[] = [
+  { key: "archivedAt", title: "Archived", width: 150, text: (r) => (r.archivedAt ? formatDateTime(r.archivedAt) : ""), render: (_, r) => dim(r.archivedAt ? formatDateTime(r.archivedAt) : "") },
+  { key: "archivedBy", title: "Archived by", width: 140, text: (r) => r.archivedBy, render: (_, r) => dim(r.archivedBy) },
+  {
+    key: "archiveReason",
+    title: "Reason",
+    width: 240,
+    text: (r) => r.archiveReason || "Deleted before archiving existed",
+    render: (_, r) => (r.archiveReason ? dim(r.archiveReason) : <span className="text-slate-400 italic">Deleted before archiving existed</span>),
+  },
+];
+
 // Default columns in the order of the gate desk sketch; the rest are behind Columns.
 // Widths follow the Shipments column config for comparable fields. Column keys stay as they
 // were (e.g. "handling" for Direction), so saved column choices keep working.
 const COLUMNS: AppGridColumn<GateMovement>[] = [
-  { key: "gateRef", title: TERMS.warehouseRef, width: 160, text: (r) => r.gateRef, render: (_, r) => <span className="font-mono font-bold text-indigo-500">{r.gateRef}</span> },
+  {
+    key: "gateRef",
+    title: TERMS.warehouseRef,
+    width: 160,
+    text: (r) => r.gateRef,
+    render: (_, r) => (
+      <span className="inline-flex items-center gap-1.5">
+        <span className="font-mono font-bold text-indigo-500">{r.gateRef}</span>
+        <ShipmentUpdateBadge m={r} />
+      </span>
+    ),
+  },
   // Direction follows the visit (příjem / výdej), which the stamps and release rules use.
   {
     key: "handling",
@@ -114,6 +156,7 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
   { key: "driver", title: TERMS.driver, width: 150, defaultVisible: false, text: (r) => r.driver, render: (_, r) => dim(r.driver) },
   { key: "plate", title: "Plate", width: 120, defaultVisible: false, text: (r) => r.plate, render: (_, r) => dim(r.plate) },
 ];
+const ARCHIVED_COLUMNS_ALL = [...ARCHIVED_COLUMNS, ...COLUMNS];
 
 // Overview bubbles in the title row, in the same format as the Shipments overview tiles.
 const BUBBLES: { id: BubbleId; label: string; hint: string; danger?: boolean; match: (m: GateMovement) => boolean }[] = [
@@ -152,7 +195,10 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
   const router = useRouter();
   const toast = useToast();
   const queryClient = useQueryClient();
-  const { movements, isLoading } = useGateLog();
+  // Show archived (?archived=1): archived records only, read-only here; managers restore them on the job.
+  const [archivedParam, setArchivedParam] = useUrlParam("archived", ["0", "1"] as const, "0");
+  const archived = archivedParam === "1";
+  const { movements, isLoading } = useGateLog({ archived });
   const [selection, setSelection] = useState<{ rows: GateMovement[]; clear: () => void }>({ rows: [], clear: () => {} });
   const [stampAction, setStampAction] = useState<StampAction | null>(null);
   const [stamping, setStamping] = useState(false);
@@ -161,9 +207,9 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
   const [bubble, setBubble] = useState<BubbleId | null>(null);
 
   const rows = useMemo(() => {
-    const b = BUBBLES.find((x) => x.id === bubble);
+    const b = archived ? undefined : BUBBLES.find((x) => x.id === bubble);
     return b ? movements.filter(b.match) : movements;
-  }, [movements, bubble]);
+  }, [movements, bubble, archived]);
 
   const onSelectionChange = useCallback((rows: GateMovement[], clear: () => void) => setSelection({ rows, clear }), []);
 
@@ -194,8 +240,17 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
   };
 
   // One button per stamp, in the same order and style as the gate job header.
-  const actions = (
+  const archivedSwitch = (
+    <label className="flex items-center gap-1.5 shrink-0 text-[13px] text-slate-600 cursor-pointer">
+      <Switch size="small" checked={archived} onChange={(on) => setArchivedParam(on ? "1" : "0")} />
+      Show archived
+    </label>
+  );
+  const actions = archived ? (
+    archivedSwitch
+  ) : (
     <div className="flex items-center gap-2 flex-wrap">
+      {archivedSwitch}
       {STAMP_ACTIONS.map((a) => (
         <button
           key={a.kind}
@@ -264,25 +319,25 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
           embedded ? (
             <>
               {header}
-              {bubbles}
+              {!archived && bubbles}
             </>
-          ) : (
+          ) : archived ? undefined : (
             bubbles
           )
         }
         actions={actions}
-        searchPlaceholder="Search warehouse ref, customer, MRN…"
-        columns={COLUMNS}
+        searchPlaceholder={archived ? "Search archived records…" : "Search warehouse ref, customer, MRN…"}
+        columns={archived ? ARCHIVED_COLUMNS_ALL : COLUMNS}
         rows={rows}
         rowKey={(r) => r.id}
         loading={isLoading}
         onRowClick={(r) => router.push(`/warehouse/gate-log/${r.id}`)}
-        storageKey="warehouse:gate-log"
+        storageKey={archived ? "warehouse:gate-log-archived" : "warehouse:gate-log"}
         exportFilePrefix="gate-log"
         hideExport
-        emptyText={movements.length ? "No movements match this filter." : "No gate movements yet."}
-        resetKey={bubble ?? ""}
-        onSelectionChange={onSelectionChange}
+        emptyText={archived ? "No archived records." : movements.length ? "No movements match this filter." : "No gate movements yet."}
+        resetKey={`${archived ? "archived" : ""}|${bubble ?? ""}`}
+        onSelectionChange={archived ? undefined : onSelectionChange}
       />
 
       {stampAction && (

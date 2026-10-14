@@ -25,7 +25,9 @@ export function ReadmeTab() {
       <Part title="What the Warehouse module is">
         <p>
           The Warehouse module runs our CFS warehouse: cargo comes in, is checked, stored and released. Each lot of cargo is a <b>position</b> with its own{" "}
-          <b>{TERMS.warehouseRef}</b> (WCZ…). Everything about a position is kept on one page, its <b>Gate Log job</b>.
+          <b>{TERMS.warehouseRef}</b>: WCZ, the year and a six-digit number that rises with every new position, imported or created (WCZ2026000001,
+          WCZ2026000002, …), starting again at 000001 each year. Older references (WCZ + date + two digits) keep their number and are never given out again.
+          Everything about a position is kept on one page, its <b>Gate Log job</b>.
         </p>
         <p>
           The tabs follow the work: Positions · Remeasurement / Release · Gate Log · Containers · Dock &amp; Yard · Stock · Reports. This Read me sits behind the{" "}
@@ -47,14 +49,39 @@ export function ReadmeTab() {
                 so the gate writes nothing back to Shipments. You go straight to its Gate Log job.
               </li>
               <li>
-                <b>Import from Shipments</b> or <b>Import from Master Jobs</b>: one position per ticked shipment, linked to it. A shipment that is already in the warehouse
-                keeps its position.
+                <b>Import from Shipments</b> or <b>Import from Master Jobs</b>: one position per ticked shipment, linked to it, sent in one request. Each position and its
+                Gate Log record are made together, so there is never one without the other. The dialog then lists each shipment: created, already in the warehouse
+                (it keeps its position), or failed with the reason — failed ones stay ticked to try again and use no reference.
               </li>
             </ul>
           </li>
+          <li>
+            An imported record takes from the shipment:
+            <ul className="mt-1">
+              <li>
+                <b>{TERMS.direction}</b>: export shipments come in ({TERMS.inbound.toLowerCase()}), import shipments go out ({TERMS.outbound.toLowerCase()}).
+              </li>
+              <li>
+                <b>Operation</b>: Full Load by sea or rail, or with a container number → FCL stripping (import) or FCL stuffing (export); Consolidation → LCL
+                consolidation; Project Shipment, or Full Load by road or air without a container → Cargo storage; no load type → LCL consolidation.
+              </li>
+              <li>
+                <b>Customs mode</b>: the shipment&rsquo;s customs procedure when the gate knows it (SCP, JSD, T1, T2L, ATA Carnet, RDT, C-Goods), otherwise SCP.
+              </li>
+              <li>
+                <b>Customs status</b>: the shipment&rsquo;s, and it keeps following the shipment until the cargo is released (see below).
+              </li>
+            </ul>
+          </li>
+          <li>
+            <b>Refresh from shipment</b> (Actions in the job, anyone, logged) copies the shipment&rsquo;s data onto a linked record again; the log shows each old and new value. Operation and customs mode
+            are mapped again only before the first stamp. After a stamp, pieces, weight, measure, packing, container and seal the gate may have corrected are
+            only filled when blank — a different value is kept and shown as &ldquo;differs from shipment&rdquo;.
+          </li>
           <li>The tiles above the grid filter it (open consol outbound / inbound containers, open shuttle trucks), and so does the FCL / LCL switch.</li>
           <li>
-            Tick rows to <b>Print labels</b> or <b>Remove from warehouse</b>. A removed position&rsquo;s reference is retired, not reused; the shipment is not affected.
+            Tick rows to <b>Print labels</b> or <b>Remove from warehouse</b>. A removed position&rsquo;s reference is retired, not reused; its Gate Log records are
+            archived with it; the shipment is not affected. A position whose gate record has stamps is removed only by a manager, with a reason.
           </li>
         </ul>
       </Part>
@@ -95,6 +122,12 @@ export function ReadmeTab() {
           {TERMS.receipt} stamps it too.
         </p>
         <p>
+          A wrong stamp can be <b>voided</b> by a manager: click the done step and choose &ldquo;Void this stamp…&rdquo;, with a reason. Later steps are voided
+          first (the receipt before its draft, everything after the gate-in before the gate-in, an outgoing gate-out before its {TERMS.whRelease}); voiding the {TERMS.whRelease} also voids the gate-out stamped with
+          it, and that gate-out is not voided on its own. The status follows the stamps that remain, and who, when, the old stamp and the reason are logged. The shipment is not changed back — when the stamp
+          already set its warehouse date, the job logs &ldquo;Shipment may need correcting&rdquo;; correct it in Shipments.
+        </p>
+        <p>
           The Gate Log has the same stamps for the ticked rows, in the same order. Rows a stamp does not apply to are skipped and named in the confirmation: receipts
           are for inbound cargo only, {TERMS.whRelease} for outbound cargo with clear release gates.
         </p>
@@ -111,7 +144,34 @@ export function ReadmeTab() {
           </li>
           <li>The gate-out of inbound cargo writes nothing yet.</li>
         </ul>
-        <p>The stamp stands even if the shipment cannot be updated at that moment.</p>
+        <p>
+          The stamp and the shipment update it owes are saved together. The update is sent straight away; if Shipments cannot take it then, it is retried
+          automatically (every few minutes, then hourly). Until it goes through the job shows &ldquo;Shipment not updated yet — retrying&rdquo; with <b>Retry now</b>,
+          and the Gate Log row a <b>Retrying</b> badge. An update Shipments refuses for good (for example the shipment no longer exists) shows &ldquo;Shipment not
+          updated&rdquo;: set it in Shipments by hand, then dismiss it.
+        </p>
+        <p>
+          The <b>customs status</b> of a linked record follows its shipment until the cargo is released: it is read again when the job is opened (at most every 30
+          seconds), when the Gate Log loads (every 5 minutes), or straight away with the refresh button on the Customs status card. A change updates the Customs line
+          of the release gates and is logged. A status set by hand on a linked record is overwritten the next time it is read.
+        </p>
+      </Part>
+
+      <Part title="Delete, archive and restore">
+        <ul>
+          <li>Anyone can delete a gate record that has no stamps. It is archived, not erased.</li>
+          <li>
+            A record with stamps can only be <b>archived</b> by a manager (admin or manager), with a reason. Its position stays.
+          </li>
+          <li>
+            <b>Show archived</b> in the Gate Log lists archived records with when, who and why. Records deleted before archiving existed show &ldquo;Deleted before
+            archiving existed&rdquo;.
+          </li>
+          <li>
+            A manager can <b>restore</b> an archived record from its job, with a reason. A position removed with it comes back too — unless its shipment was imported
+            again meanwhile.
+          </li>
+        </ul>
       </Part>
 
       <Part title={TERMS.releaseGates}>
@@ -152,6 +212,11 @@ export function ReadmeTab() {
           This tab shows the warehouse part of one imported shipment: its details, notes, the remeasured dimensions (with Inform Operations when they differ) and the
           push to suppliers. Open it from the {TERMS.jobNo} in Positions or from Shipment Details in the job. Shipments shows the same part read-only, with a link back
           here.
+        </p>
+        <p>
+          Each part saves on its own (notes, remeasured lines, each &ldquo;sent&rdquo; mark), so two people working on different parts never overwrite each other. If
+          someone else saved the same part meanwhile, your save is refused with &ldquo;Someone else changed this meanwhile&rdquo;: the page reloads their version,
+          your notes text stays in the box — check it and save again.
         </p>
         <p>
           <b>Pick-up</b> works the other way round: operations enter the pick-up (haulier, plate, driver) in Shipments and generate the {TERMS.pickupPin} there

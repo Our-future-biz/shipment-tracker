@@ -3,6 +3,17 @@ import { describe, expect, it, vi } from "vitest";
 import { defaultReleaseGates, gateMovementService, isArmed, needsAttention } from "../services/gateMovement.service";
 import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
+import { warehouseImportService } from "../services/warehouseImport.service";
+import { gateAdminService } from "../services/gateAdmin.service";
+
+// Shipments answer from the fakes (the real service needs an authenticated caller).
+vi.mock("~encore/clients", async () => {
+  const { getShipment } = await import("./shipmentFakes");
+  return {
+    shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
+    auth: { usersList: vi.fn(async () => ({ users: [] })) },
+  };
+});
 
 const company = () => randomUUID();
 const user = randomUUID();
@@ -282,45 +293,46 @@ describe("parallel gate actions", () => {
 });
 
 describe("warehouse tasks in the gate log", () => {
-  it("gives every warehouse task exactly one gate row, once", async () => {
+  it("gives every imported shipment exactly one gate row, made with the position", async () => {
     const c = company();
-    const { task } = await warehouseTaskRepository.createForShipment(c, randomUUID(), "WCZ20260916");
+    const shipmentId = randomUUID();
+    const [r] = await warehouseImportService.importShipments(c, user, [shipmentId]);
+    expect(r).toMatchObject({ outcome: "created", ref: expect.stringMatching(/^WCZ\d{4}000001$/) });
     const manual = await gateMovementService.create(c, user, { gateRef: "manual" });
 
     const first = await gateMovementService.list(c);
-    const row = first.find((m) => m.warehouseTaskId === task.id);
-    expect(row).toMatchObject({ gateRef: task.taskId, positionRef: task.taskId, status: "Expected", visit: "výdej", handling: "Import" });
+    const row = first.find((m) => m.warehouseTaskId === r!.taskId);
+    expect(row).toMatchObject({ id: r!.movementId, gateRef: r!.ref, positionRef: r!.ref, shipmentId, status: "Expected", visit: "výdej", handling: "Import" });
     // Linked outbound: the release also waits for the pick-up PIN from Shipments.
     expect(row!.releaseGates.filter((g) => g.g === "Pick-up PIN verified")).toEqual([{ g: "Pick-up PIN verified", s: "Pending", note: "waiting for the driver's PIN" }]);
     expect(first.map((m) => m.id)).toContain(manual.id);
 
-    await Promise.all([gateMovementService.list(c), gateMovementService.list(c)]);
-    expect((await gateMovementService.list(c)).filter((m) => m.warehouseTaskId === task.id)).toHaveLength(1);
+    await Promise.all([warehouseImportService.importShipments(c, user, [shipmentId]), warehouseImportService.importShipments(c, user, [shipmentId])]);
+    expect((await gateMovementService.list(c)).filter((m) => m.shipmentId === shipmentId)).toHaveLength(1);
   });
 
-  it("does not bring back a row deleted by hand", async () => {
+  it("no longer makes gate rows while listing", async () => {
     const c = company();
-    const { task } = await warehouseTaskRepository.createForShipment(c, randomUUID(), "WCZ20260916");
-    const row = (await gateMovementService.list(c)).find((m) => m.warehouseTaskId === task.id)!;
-    await gateMovementService.remove(row.id, c);
+    const { task } = await warehouseTaskRepository.createForShipment(c, randomUUID());
     expect((await gateMovementService.list(c)).some((m) => m.warehouseTaskId === task.id)).toBe(false);
   });
 
-  it("drops untouched rows when the task leaves the warehouse but keeps rows the gate acted on", async () => {
+  it("archives the gate rows with their position: any user without stamps, a manager with a reason otherwise", async () => {
     const c = company();
-    const a = (await warehouseTaskRepository.createForShipment(c, randomUUID(), "WCZ20260916")).task;
-    const b = (await warehouseTaskRepository.createForShipment(c, randomUUID(), "WCZ20260916")).task;
-    const rows = await gateMovementService.list(c);
-    const rowB = rows.find((m) => m.warehouseTaskId === b.id)!;
-    await gateMovementService.stamp(rowB.id, c, user, "gateIn");
+    const [a, b] = await warehouseImportService.importShipments(c, user, [randomUUID(), randomUUID()]);
+    await gateMovementService.stamp(b!.movementId!, c, user, "gateIn");
 
-    for (const t of [a, b]) {
-      await warehouseTaskRepository.softDelete(t.id, c);
-      await gateMovementService.removeForTask(t.id, c);
-    }
-    const after = await gateMovementService.list(c);
-    expect(after.some((m) => m.warehouseTaskId === a.id)).toBe(false);
-    expect(after.find((m) => m.id === rowB.id)).toMatchObject({ status: "In Warehouse", positionRef: "" });
+    await gateAdminService.removePosition(a!.taskId!, c, user, "user");
+    await expect(gateAdminService.removePosition(b!.taskId!, c, user, "user", "wrong job")).rejects.toThrow(/only a manager/);
+    await expect(gateAdminService.removePosition(b!.taskId!, c, user, "manager")).rejects.toThrow(/reason is required/);
+    await gateAdminService.removePosition(b!.taskId!, c, user, "manager", "imported by mistake");
+
+    const live = await gateMovementService.list(c);
+    expect(live.some((m) => m.id === a!.movementId || m.id === b!.movementId)).toBe(false);
+    const archived = await gateMovementService.list(c, { archived: true });
+    expect(archived.find((m) => m.id === a!.movementId)).toMatchObject({ archiveReason: "Removed with its position", positionRef: a!.ref });
+    expect(archived.find((m) => m.id === b!.movementId)).toMatchObject({ archiveReason: "imported by mistake", status: "In Warehouse" });
+    expect((await gateMovementService.get(b!.movementId!, c)).archivedAt).not.toBeNull();
   });
 });
 
@@ -420,19 +432,26 @@ describe("gate movement detail", () => {
 });
 
 describe("standalone warehouse positions", () => {
-  it("get their own WCZ reference and gate row without a shipment", async () => {
-    const { warehouseService } = await import("../services/warehouse.service");
+  it("get their own WCZ reference and gate row without a shipment, in one go", async () => {
     const c = company();
-    const task = await warehouseService.createPosition(c, new Date("2026-09-16T10:00:00Z"));
-    expect(task).toMatchObject({ taskId: "WCZ2026091601", shipmentId: null });
-    const movement = await gateMovementService.create(c, user, { warehouseTaskId: task.id, customer: "Alpine Trading", handling: "Export" });
-    expect(movement).toMatchObject({ gateRef: "WCZ2026091601", positionRef: "WCZ2026091601", customer: "Alpine Trading" });
+    const { task, movement } = await warehouseImportService.createPosition(c, user, { customer: "Alpine Trading", handling: "Export" });
+    expect(task).toMatchObject({ taskId: expect.stringMatching(/^WCZ\d{4}000001$/), shipmentId: null });
+    expect(movement).toMatchObject({ gateRef: task.taskId, positionRef: task.taskId, customer: "Alpine Trading", visit: "příjem", shipmentId: null });
 
-    // A second standalone position the same day continues the numbering, and the backfill
-    // for shipment positions leaves it alone (exactly one gate row).
-    expect((await warehouseService.createPosition(c, new Date("2026-09-16T11:00:00Z"))).taskId).toBe("WCZ2026091602");
+    const second = await warehouseImportService.createPosition(c, user, {});
+    expect(second.task.taskId).toMatch(/000002$/);
+    expect(second.movement.visit).toBe("výdej");
     const rows = await gateMovementService.list(c);
     expect(rows.filter((m) => m.warehouseTaskId === task.id)).toHaveLength(1);
+  });
+
+  it("uses no reference when the gate record cannot be made", async () => {
+    const c = company();
+    const spy = vi.spyOn(gateMovementRepository, "create").mockRejectedValueOnce(new Error("insert failed"));
+    await expect(warehouseImportService.createPosition(c, user, { customer: "X" })).rejects.toThrow(/insert failed/);
+    spy.mockRestore();
+    expect((await warehouseImportService.createPosition(c, user, {})).task.taskId).toMatch(/000001$/);
+    expect(await warehouseTaskRepository.listAll(c)).toHaveLength(1);
   });
 });
 
@@ -467,7 +486,7 @@ describe("label prints", () => {
     for (const copies of [0, 501, 1.5, -1]) {
       await expect(gateMovementService.labelPrinted(m.id, c, user, copies)).rejects.toThrow(/whole number/);
     }
-    await gateMovementService.remove(m.id, c);
+    await gateMovementService.remove(m.id, c, user);
     await expect(gateMovementService.labelPrinted(m.id, c, user, 1)).rejects.toThrow(/not found/);
     await expect(gateMovementService.labelPrinted(m.id, company(), user, 1)).rejects.toThrow(/not found/);
   });
@@ -477,8 +496,8 @@ describe("shipment link on the gate row", () => {
   it("carries the shipment id of a linked task and null otherwise", async () => {
     const c = company();
     const shipmentId = randomUUID();
-    const { task } = await warehouseTaskRepository.createForShipment(c, shipmentId, "WCZ20260916");
-    const linked = (await gateMovementService.list(c)).find((m) => m.warehouseTaskId === task.id)!;
+    const [r] = await warehouseImportService.importShipments(c, user, [shipmentId]);
+    const linked = (await gateMovementService.list(c)).find((m) => m.warehouseTaskId === r!.taskId)!;
     expect(linked.shipmentId).toBe(shipmentId);
     expect((await gateMovementService.get(linked.id, c)).shipmentId).toBe(shipmentId);
     const walkIn = await gateMovementService.create(c, user, { gateRef: "WCZ2026091633" });

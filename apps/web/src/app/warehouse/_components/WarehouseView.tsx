@@ -3,21 +3,21 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Button, Drawer, Modal, Segmented, Select, Spin, Tabs, Tooltip } from "antd";
+import { Button, Drawer, Input, Modal, Segmented, Select, Spin, Tabs, Tooltip } from "antd";
 import { PlusOutlined, DeleteOutlined, PrinterOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useWarehouse } from "@/hooks/useWarehouse";
 import { useGateLog, type GateMovement } from "@/hooks/useGateLog";
 import { useStockLines } from "@/hooks/useWarehouseRecords";
-import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
 import { formatDate } from "@/lib/date";
 import { api } from "@/lib/api";
 import { isSalesQuote, toSalesQuote } from "@/app/sales/_lib/salesQuote";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { CUSTOMS_STATUSES, errorMessage, isFcl, isLcl, nf } from "../gate-log/_lib/gate";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { CUSTOMS_STATUSES, errorMessage, hasAnyStamp, isFcl, isLcl, isManager, nf } from "../gate-log/_lib/gate";
 import { GateLogView } from "../gate-log/_components/GateLogView";
 import { PrintLabelsModal } from "../gate-log/_components/PrintLabelsModal";
 import { DIRECTIONS, TERMS, directionOfVisit } from "../_lib/glossary";
@@ -26,7 +26,7 @@ import { StockTab } from "./tabs/StockTab";
 import { DockYardTab } from "./tabs/DockYardTab";
 import { ReportsTab } from "./tabs/ReportsTab";
 import { ReadmeTab } from "./tabs/ReadmeTab";
-import { ShipmentImportPicker, type ImportMode } from "./ShipmentImportPicker";
+import { ImportOutcomeTag, ShipmentImportPicker, type ImportMode } from "./ShipmentImportPicker";
 import { RemeasurementTab } from "./tabs/RemeasurementTab";
 import { remeasurementHref } from "./remeasurementLinks";
 import { reportBulk, runBulk } from "./tabs/shared";
@@ -248,7 +248,7 @@ export const WarehouseView = () => {
   // The open shipment, sub-tab and Positions filters belong to their tab and do not carry over.
   const setTab = (tab: ModuleTab) => {
     const params = new URLSearchParams(searchParams.toString());
-    for (const key of ["shipment", "sub", "bubble", "load"]) params.delete(key);
+    for (const key of ["shipment", "sub", "bubble", "load", "archived"]) params.delete(key);
     if (tab === "positions") params.delete("tab");
     else params.set("tab", tab);
     const qs = params.toString();
@@ -298,18 +298,29 @@ export const WarehouseView = () => {
     [allRows, activeBubble, load],
   );
 
+  const { user } = useAuth();
+  const manager = isManager(user);
   const [removeRows, setRemoveRows] = useState<{ rows: PositionRow[]; clear: () => void } | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [removeReason, setRemoveReason] = useState("");
+  // Positions whose gate record has stamps: removed only by a manager, with a reason.
+  const stampedTasks = useMemo(() => new Set(movements.flatMap((mv) => (mv.warehouseTaskId && hasAnyStamp(mv) ? [mv.warehouseTaskId] : []))), [movements]);
+  const removeStamped = removeRows ? removeRows.rows.filter((r) => stampedTasks.has(r.task.id)).length : 0;
+  const closeRemove = () => {
+    setRemoveRows(null);
+    setRemoveReason("");
+  };
 
   const handleRemove = async () => {
     if (!removeRows) return;
     setRemoving(true);
+    const reason = removeReason.trim();
     // Row by row: a failure does not stop the rest, and the toast says which ones did not go.
-    const result = await runBulk(removeRows.rows, (r) => deleteTask(r.task.id));
+    const result = await runBulk(removeRows.rows, (r) => deleteTask({ id: r.task.id, reason: stampedTasks.has(r.task.id) ? reason : undefined }));
     setRemoving(false);
     reportBulk(toast, result, { verb: "Removed from the warehouse:", nouns: ["position", "positions"], label: (r) => r.task.taskId });
     if (result.failed.length === 0) removeRows.clear();
-    setRemoveRows(null);
+    closeRemove();
   };
 
   const { items: stockLines } = useStockLines();
@@ -435,16 +446,41 @@ export const WarehouseView = () => {
         <NewPositionModal open={createOpen} onClose={() => setCreateOpen(false)} tasks={tasks} />
         <PrintLabelsModal open={!!printRows} movements={printRows ?? []} onClose={() => setPrintRows(null)} />
 
-        <ConfirmModal
+        <Modal
           open={!!removeRows}
-          onClose={() => setRemoveRows(null)}
-          onConfirm={handleRemove}
           title="Remove from warehouse"
-          description={`Remove ${removeRows?.rows.length ?? 0} position(s) from the warehouse? Their warehouse references are retired and not reused. Shipments are not affected.`}
-          confirmLabel="Remove"
-          danger
-          loading={removing}
-        />
+          okText="Remove"
+          okButtonProps={{ danger: true, disabled: manager && removeStamped > 0 && !removeReason.trim() }}
+          confirmLoading={removing}
+          onCancel={() => !removing && closeRemove()}
+          onOk={handleRemove}
+          width={460}
+          destroyOnHidden
+        >
+          <p className="text-sm text-slate-600 mt-0">
+            Remove {removeRows?.rows.length ?? 0} position{removeRows?.rows.length === 1 ? "" : "s"} from the warehouse? Their warehouse references are retired and
+            not reused. Their Gate Log records are archived with them (kept, and a manager can restore them). Shipments are not affected.
+          </p>
+          {removeStamped > 0 &&
+            (manager ? (
+              <>
+                <p className="text-xs text-amber-700 mb-1.5">
+                  {removeStamped} of them {removeStamped === 1 ? "has" : "have"} gate stamps — give a reason; it is logged on the archived record.
+                </p>
+                <Input.TextArea
+                  autoFocus
+                  autoSize={{ minRows: 2, maxRows: 5 }}
+                  placeholder="Reason (required)"
+                  value={removeReason}
+                  onChange={(e) => setRemoveReason(e.target.value)}
+                />
+              </>
+            ) : (
+              <p className="text-xs text-amber-700 mb-0">
+                {removeStamped} of them {removeStamped === 1 ? "has" : "have"} gate stamps — only a manager can remove {removeStamped === 1 ? "it" : "them"}; {removeStamped === 1 ? "it stays" : "they stay"}.
+              </p>
+            ))}
+        </Modal>
       </div>
       {help}
     </div>
@@ -520,8 +556,14 @@ const fromQuote = (d: SalesQuoteData): Partial<NewPositionValues> => {
 // never paired with Shipments or Sales; everything else is filled in on its detail page.
 // "Import from Shipments / Master Jobs" instead makes one position per checked shipment,
 // linked to it (an already imported shipment keeps its position).
+// Shipments sent per import request (the server takes up to 200).
+const IMPORT_CHUNK = 100;
+type ImportResult = interfaces.WarehouseImportResult;
+
 const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: () => void; tasks: WarehouseTask[] }) => {
   const queryClient = useQueryClient();
+  const { importShipments: importBatch } = useWarehouse();
+  const [results, setResults] = useState<ImportResult[] | null>(null);
   const router = useRouter();
   const toast = useToast();
   const [saving, setSaving] = useState<Source | null>(null);
@@ -553,41 +595,44 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
     setQuoteNumber("");
     setJobQuery("");
     setImportIds([]);
+    setResults(null);
   }, [open]);
 
   const changeSource = (v: Exclude<Source, "blank">) => {
     setSource(v);
     setImportIds([]);
+    setResults(null);
   };
 
-  // One linked position per shipment, a few at a time.
+  // One request per chunk: each shipment gets its position and gate record together on the server,
+  // and comes back created / already in the warehouse / failed with the reason.
   const importShipments = async () => {
     setSaving(source);
-    let created = 0;
-    const failed: string[] = [];
-    const queue = [...importIds];
-    const worker = async () => {
-      for (let id = queue.shift(); id; id = queue.shift()) {
-        try {
-          if ((await api.warehouse.warehouseCreate({ shipmentId: id })).created) created++;
-        } catch {
-          failed.push(id);
-        }
+    const ids = [...importIds];
+    const all: ImportResult[] = [];
+    for (let i = 0; i < ids.length; i += IMPORT_CHUNK) {
+      const chunk = ids.slice(i, i + IMPORT_CHUNK);
+      try {
+        all.push(...(await importBatch(chunk)).results);
+      } catch (e) {
+        const reason = errorMessage(e, "The import request failed");
+        all.push(...chunk.map((shipmentId) => ({ shipmentId, jobNumber: "", outcome: "failed" as const, taskId: null, ref: "", movementId: null, reason })));
       }
-    };
-    await Promise.all(Array.from({ length: 4 }, worker));
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["warehouse"] }),
-      queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] }),
-    ]);
-    setSaving(null);
-    if (created) toast.success(`${created} shipment${created === 1 ? "" : "s"} imported to the warehouse`);
-    if (failed.length) {
-      toast.error(`${failed.length} shipment${failed.length === 1 ? "" : "s"} could not be imported`);
-      setImportIds(failed);
-    } else {
-      onClose();
     }
+    setSaving(null);
+    const created = all.filter((r) => r.outcome === "created").length;
+    const already = all.filter((r) => r.outcome === "already").length;
+    const failed = all.filter((r) => r.outcome === "failed");
+    if (!failed.length && !already) {
+      toast.success(`${created} shipment${created === 1 ? "" : "s"} imported to the warehouse`);
+      onClose();
+      return;
+    }
+    // Show what happened to each one; the failed ones stay ticked to try again.
+    setResults(all);
+    setImportIds(failed.map((r) => r.shipmentId));
+    if (created) toast.success(`${created} shipment${created === 1 ? "" : "s"} imported to the warehouse`);
+    if (failed.length) toast.error(`${failed.length} shipment${failed.length === 1 ? "" : "s"} could not be imported — see the list`);
   };
 
   const create = async (from: Source) => {
@@ -629,9 +674,11 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
       footer={
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
-          <Button onClick={() => create("blank")} loading={saving === "blank"} disabled={!!saving && saving !== "blank"}>
-            Create blank
-          </Button>
+          <Tooltip title="A position with nothing filled in — not linked to any shipment">
+            <Button onClick={() => create("blank")} loading={saving === "blank"} disabled={!!saving && saving !== "blank"}>
+              Create blank
+            </Button>
+          </Tooltip>
           {importing ? (
             <Button
               type="primary"
@@ -672,7 +719,17 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
         ]}
       />
       {importing ? (
-        <ShipmentImportPicker key={source} mode={source} inWarehouse={inWarehouse} selected={importIds} onChange={setImportIds} />
+        <>
+          {results && <ImportResults results={results} />}
+          <ShipmentImportPicker
+            key={source}
+            mode={source}
+            inWarehouse={inWarehouse}
+            selected={importIds}
+            onChange={setImportIds}
+            results={results ? Object.fromEntries(results.map((r) => [r.shipmentId, r])) : undefined}
+          />
+        </>
       ) : source === "job" ? (
         <>
           <label className="block text-[11px] text-slate-500 mb-1">Copy from {TERMS.jobNo}</label>
@@ -691,6 +748,11 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
               label: sh.customer ? `${sh.jobNumber || sh.id} — ${sh.customer}` : sh.jobNumber || sh.id,
             }))}
           />
+          {jobId && inWarehouse.has(jobId) && (
+            <p className="text-xs text-amber-700 mt-2 mb-0">
+              This shipment is already in the warehouse as a linked position. A copy makes a separate position that is not linked to it.
+            </p>
+          )}
         </>
       ) : (
         <>
@@ -714,3 +776,26 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
     </Modal>
   );
 };
+
+// What happened to each shipment of the last import: created, already in the warehouse, or failed.
+function ImportResults({ results }: { results: ImportResult[] }) {
+  const count = (o: ImportResult["outcome"]) => results.filter((r) => r.outcome === o).length;
+  return (
+    <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="text-xs font-semibold text-slate-700 mb-1.5">
+        Last import: {count("created")} created · {count("already")} already in the warehouse · {count("failed")} failed
+      </div>
+      <ul className="m-0 p-0 list-none max-h-[140px] overflow-y-auto">
+        {results
+          .filter((r) => r.outcome !== "created")
+          .map((r) => (
+            <li key={r.shipmentId} className="flex items-baseline gap-2 py-0.5 text-xs">
+              <ImportOutcomeTag result={r} />
+              <span className="font-medium text-slate-800">{r.jobNumber || r.shipmentId}</span>
+              {r.outcome === "failed" && <span className="text-red-600 break-words">{r.reason}</span>}
+            </li>
+          ))}
+      </ul>
+    </div>
+  );
+}
