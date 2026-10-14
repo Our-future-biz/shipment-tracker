@@ -27,6 +27,14 @@ class UserRepository extends BaseRepository<typeof userTable> {
       .limit(limit);
   }
 
+  // Live admins and superadmins across all companies — recipients of system alerts.
+  async listAdmins() {
+    return this.db
+      .select({ email: userTable.email, displayName: userTable.displayName })
+      .from(userTable)
+      .where(and(sql`${userTable.role} IN ('admin', 'superadmin')`, isNull(userTable.deletedAt)));
+  }
+
   // User-management writes are always scoped to the admin's own company.
   async getByIdInCompany(id: string, companyId: string) {
     const [row] = await this.db
