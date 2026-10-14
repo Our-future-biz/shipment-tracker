@@ -1,46 +1,23 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const key = vi.hoisted(() => ({ value: "" as string | null, throws: false }));
 vi.mock("encore.dev/log", () => ({ default: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
-vi.mock("encore.dev/config", () => ({
-  secret: () => () => {
-    if (key.throws) throw new Error("secret not set");
-    return key.value;
-  },
-}));
 
-import { sendEmail } from "../../../lib/email";
+import { EMAIL_DISABLED, sendEmail } from "../../../lib/email";
 
-const msg = { to: ["a@x.cz", " a@x.cz ", ""], subject: "Test", text: "Body" };
+afterEach(() => vi.unstubAllGlobals());
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-  key.value = "";
-  key.throws = false;
-});
-
-describe("sendEmail", () => {
-  it("does not send and says why when no Resend key is set", async () => {
+describe("sendEmail (disabled)", () => {
+  it("never calls out and reports why it did not send", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    key.throws = true;
-    expect(await sendEmail(msg)).toEqual({ sent: false, error: "E-mail sending is off (no Resend API key set)" });
+    expect(await sendEmail({ to: ["a@x.cz", " a@x.cz "], subject: "Test", text: "Body" })).toEqual({
+      sent: false,
+      error: EMAIL_DISABLED,
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("sends once per unique recipient list through Resend", async () => {
-    key.value = "re_test";
-    const fetchMock = vi.fn(async () => new Response("{}", { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-    expect(await sendEmail(msg)).toEqual({ sent: true, error: "" });
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toBe("https://api.resend.com/emails");
-    expect(JSON.parse(init.body as string)).toMatchObject({ to: ["a@x.cz"], subject: "Test" });
-  });
-
-  it("reports a rejected send", async () => {
-    key.value = "re_test";
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("domain not verified", { status: 403 })));
-    expect(await sendEmail(msg)).toEqual({ sent: false, error: "Resend answered 403: domain not verified" });
+  it("says when there is nobody to send to", async () => {
+    expect(await sendEmail({ to: ["", " "], subject: "Test", text: "Body" })).toEqual({ sent: false, error: "No recipients" });
   });
 });
