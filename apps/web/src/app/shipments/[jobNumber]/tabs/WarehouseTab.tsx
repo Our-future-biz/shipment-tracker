@@ -49,14 +49,17 @@ const SUB_TABS = [
 ];
 
 /**
- * The warehouse part of a shipment. The warehouse edits it (Warehouse → Internal Reference);
- * Shipments shows the same values read-only, with `editHref` leading to the warehouse page
- * when the shipment has a warehouse position.
+ * The warehouse part of a shipment, shown both in Shipments (`readOnly`) and on the warehouse
+ * page. Shipment Details (notes, remeasurement, push to suppliers) is kept by the warehouse:
+ * Shipments shows it read-only, with `editHref` leading to the warehouse page when the
+ * shipment has a position. Pick-up is the other way round: Shipments generates the PIN and
+ * enters the pick-up, the warehouse only sees it.
  */
 export function WarehouseTab({ shipment, readOnly = false, editHref }: { shipment: ShipmentItem; readOnly?: boolean; editHref?: string }) {
   const [subTab, setSubTab] = useState<string>("details");
   const [messageApi, contextHolder] = message.useMessage();
   const rowData = buildRowData(shipment);
+  const pickupReadOnly = !readOnly;
 
   return (
     <div className="flex flex-col gap-5">
@@ -64,7 +67,7 @@ export function WarehouseTab({ shipment, readOnly = false, editHref }: { shipmen
 
       <div className="flex items-center gap-3">
         <PillTabs tabs={SUB_TABS} active={subTab} onChange={setSubTab} />
-        {readOnly && (
+        {subTab === "details" && readOnly && (
           <span className="ml-auto flex items-center gap-3 text-xs text-slate-500">
             Kept by the warehouse — view only
             {editHref && (
@@ -73,6 +76,9 @@ export function WarehouseTab({ shipment, readOnly = false, editHref }: { shipmen
               </Link>
             )}
           </span>
+        )}
+        {subTab === "pickup" && pickupReadOnly && (
+          <span className="ml-auto text-xs text-slate-500">Entered in Shipments → Warehouse → Pick-up — view only</span>
         )}
       </div>
 
@@ -104,7 +110,7 @@ export function WarehouseTab({ shipment, readOnly = false, editHref }: { shipmen
 
       {subTab === "pickup" && (
         <Card title="Pick-up">
-          <PickupSection ownerId={shipment.id} messageApi={messageApi} readOnly={readOnly} />
+          <PickupSection ownerId={shipment.id} messageApi={messageApi} readOnly={pickupReadOnly} />
         </Card>
       )}
     </div>
