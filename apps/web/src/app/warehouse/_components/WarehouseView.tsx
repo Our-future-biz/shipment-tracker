@@ -601,7 +601,8 @@ export const WarehouseView = () => {
           loading={tasksLoading || movementsLoading}
           // The position's one page is its Gate Log job; a position without one gets a short note.
           onRowClick={(r) => router.push(r.m ? `/warehouse/gate-log/${r.m.id}` : `/warehouse/${r.task.id}`)}
-          storageKey="warehouse:positions"
+          // v2: saved layouts reset once so the Lifecycle and Container columns appear.
+          storageKey="warehouse:positions:v2"
           exportFilePrefix="warehouse"
           emptyText={tasks.length ? "No positions match this filter." : "No positions in the warehouse yet."}
           resetKey={`${activeBubble?.id ?? ""}|${activeChip ?? ""}|${load ?? ""}`}
