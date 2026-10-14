@@ -4,13 +4,11 @@ import { useId, useState } from "react";
 import { Select } from "antd";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomer } from "@/hooks/useCustomers";
-import { useUsers } from "@/hooks/useUsers";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { useToast } from "@/lib/toast";
 import { CURRENCIES } from "@/lib/enums";
 import { CUSTOMER_LABELS, CUSTOMER_STATUSES, PAYMENT_TERMS } from "../../_lib/constants";
-import { SALES_OWNER_FIELD_ID } from "../../_lib/customerAttention";
 import { CustomerInfoRow } from "./CustomerInfoRow";
 import { EditableText } from "./EditableText";
 
@@ -63,7 +61,6 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
   const toast = useToast();
   const paymentTermsId = useId();
   const { updateCustomer } = useCustomer(customer.id);
-  const { users, isLoading: usersLoading } = useUsers();
   const [edits, setEdits] = useState<PendingEdit[]>([]);
 
   // Show the user's choice at once: the server value only arrives after the save and the refetch that follows it,
@@ -72,14 +69,6 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
   // as new as the row its save produced (both are ISO timestamps from the API, which compare correctly as text).
   const isPending = (edit: PendingEdit) => edit.savedAt === null || customer.updatedAt < edit.savedAt;
   const shown = edits.filter(isPending).reduce((row, edit) => ({ ...row, ...edit.patch }), customer);
-
-  // The company's users, named as everywhere else; the owner stays shown by name while they load or once gone.
-  const ownerOptions = users.map((user) => ({ value: user.id, label: user.displayName || user.email }));
-  if (shown.salesOwnerUserId && !users.some((user) => user.id === shown.salesOwnerUserId)) {
-    ownerOptions.unshift({ value: shown.salesOwnerUserId, label: shown.salesOwner });
-  }
-  // A name typed before owners were users: shown so it can be matched, but it is no user.
-  const unlinkedOwner = shown.salesOwnerUserId ? "" : shown.salesOwner.trim();
 
   const save = (patch: CustomerPatch) => {
     const edit: PendingEdit = { patch, savedAt: null };
@@ -124,23 +113,6 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
               value={shown.label}
               options={ACCOUNT_TYPE_OPTIONS}
               onChange={(value: interfaces.CustomerLabel) => save({ label: value })}
-            />
-          </div>
-        </CustomerInfoRow>
-        <CustomerInfoRow label="Sales owner" narrow>
-          <div className={SELECT_WRAPPER_CLASS}>
-            <Select
-              {...SELECT_PROPS}
-              id={SALES_OWNER_FIELD_ID}
-              aria-label="Sales owner"
-              showSearch
-              allowClear
-              optionFilterProp="label"
-              placeholder={unlinkedOwner ? `${unlinkedOwner} (not linked)` : "Select a user"}
-              loading={usersLoading}
-              value={shown.salesOwnerUserId ?? undefined}
-              options={ownerOptions}
-              onChange={(userId?: string) => save({ salesOwnerUserId: userId ?? null })}
             />
           </div>
         </CustomerInfoRow>

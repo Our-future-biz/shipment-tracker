@@ -23,7 +23,7 @@ export const ATTENTION_RULES = {
   requiredDocumentTypes: ["Power of attorney", "Contract"],
 } as const;
 
-// The Sales owner select of the CRM card, which the "No sales owner" row opens.
+// The Sales owner select in the page header, which the "No sales owner" row opens.
 export const SALES_OWNER_FIELD_ID = "customer-sales-owner";
 
 export type AttentionSeverity = "critical" | "warning";
@@ -135,7 +135,7 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
       key: "no-sales-owner",
       severity: "warning",
       title: "No sales owner",
-      detail: typed ? `“${typed}” is not linked to a user. Pick one in the CRM card.` : "Assign one in the CRM card.",
+      detail: typed ? `“${typed}” is not linked to a user. Pick one at the top of the page.` : "Assign one at the top of the page.",
       field: SALES_OWNER_FIELD_ID,
     });
   }

@@ -1,0 +1,124 @@
+"use client";
+
+import { useState } from "react";
+import type { KeyboardEvent } from "react";
+import { Select } from "antd";
+import { useCustomer } from "@/hooks/useCustomers";
+import type { CustomerItem } from "@/hooks/useCustomers";
+import { useUsers } from "@/hooks/useUsers";
+import { useToast } from "@/lib/toast";
+import { SALES_OWNER_FIELD_ID } from "../../_lib/customerAttention";
+
+// First letters of the first and the last word of a name ("Martin Koubek" -> "MK"); one word gives two letters.
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const letters =
+    words.length > 1
+      ? words[0]!.charAt(0) + words[words.length - 1]!.charAt(0)
+      : (words[0] ?? "").slice(0, 2);
+  return letters.toUpperCase() || "?";
+}
+
+function OwnerName({ name }: { name: string }) {
+  return (
+    <span className="flex items-center gap-2 min-w-0">
+      <span
+        aria-hidden
+        className="flex shrink-0 items-center justify-center w-6 h-6 rounded-full bg-indigo-50 text-indigo-600 text-[10px] font-bold"
+      >
+        {initialsOf(name)}
+      </span>
+      <span className="truncate font-medium text-slate-800">{name}</span>
+    </span>
+  );
+}
+
+// Who owns the customer: one of the company's users, picked in the page header. Locked against a stray click:
+// a double click (or Enter) opens the list, and picking or leaving it locks the field again. The choice shows
+// at once and is saved straight away; a failed save puts the previous owner back.
+export function CustomerSalesOwnerSelect({ customer }: { customer: CustomerItem }) {
+  const toast = useToast();
+  const { users, isLoading } = useUsers();
+  const { updateCustomer } = useCustomer(customer.id);
+  // The owner picked here while its save is on the way; undefined when the loaded customer is shown.
+  const [picked, setPicked] = useState<string | null | undefined>(undefined);
+  const [editing, setEditing] = useState(false);
+  const ownerId = picked !== undefined ? picked : customer.salesOwnerUserId;
+
+  // Named as everywhere else; the owner stays shown by name while the users load, or once it is no longer one of them.
+  const options = users.map((user) => ({ value: user.id, label: user.displayName || user.email }));
+  if (customer.salesOwnerUserId && !users.some((user) => user.id === customer.salesOwnerUserId)) {
+    options.unshift({ value: customer.salesOwnerUserId, label: customer.salesOwner });
+  }
+  // A name typed before owners were users: shown so it can be matched, but it is no user.
+  const unlinked = customer.salesOwnerUserId ? "" : customer.salesOwner.trim();
+
+  const ownerName = options.find((option) => option.value === ownerId)?.label ?? "";
+  const placeholder = unlinked ? `${unlinked} (not linked)` : "Select a user";
+
+  const handleUnlockKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    e.preventDefault();
+    setEditing(true);
+  };
+
+  const handleChange = (userId?: string) => {
+    const next = userId ?? null;
+    setEditing(false);
+    setPicked(next);
+    updateCustomer({ salesOwnerUserId: next }).then(
+      () => setPicked(undefined),
+      () => {
+        setPicked(undefined);
+        toast.error("Failed to save the sales owner");
+      },
+    );
+  };
+
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white pl-3 pr-1 pt-1 pb-0.5 w-[220px] max-w-full">
+      <label htmlFor={SALES_OWNER_FIELD_ID} className="block text-[11px] text-slate-500 leading-4">
+        Sales Owner
+      </label>
+      {!editing ? (
+        <div
+          id={SALES_OWNER_FIELD_ID}
+          role="button"
+          tabIndex={0}
+          aria-label={`Sales owner: ${ownerName || "none"}. Double-click or press Enter to change.`}
+          title="Double-click to change"
+          onDoubleClick={() => setEditing(true)}
+          onKeyDown={handleUnlockKey}
+          className="flex items-center h-6 mb-0.5 pr-2 rounded cursor-default select-none outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          {ownerName ? (
+            <OwnerName name={ownerName} />
+          ) : (
+            <span className="text-[13px] text-slate-400 truncate">{placeholder}</span>
+          )}
+        </div>
+      ) : (
+        <Select
+          id={SALES_OWNER_FIELD_ID}
+          autoFocus
+          defaultOpen
+          onBlur={() => setEditing(false)}
+          variant="borderless"
+          size="small"
+          showSearch
+          allowClear
+          optionFilterProp="label"
+          className="w-full [&_.ant-select-selector]:!px-0"
+          popupMatchSelectWidth={260}
+          placeholder={<span className="text-slate-400">{placeholder}</span>}
+          loading={isLoading}
+          value={ownerId ?? undefined}
+          options={options}
+          labelRender={({ label }) => <OwnerName name={String(label ?? "")} />}
+          optionRender={(option) => <OwnerName name={String(option.label ?? "")} />}
+          onChange={handleChange}
+        />
+      )}
+    </div>
+  );
+}
