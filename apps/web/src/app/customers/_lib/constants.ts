@@ -53,7 +53,7 @@ export function labelClass(label: string): string {
 const STATUS_DOT: Record<string, string> = {
   Active: "bg-green-600",
   Prospect: "bg-blue-600",
-  Inactive: "bg-slate-400",
+  Inactive: "bg-red-500",
 };
 
 export function statusDotClass(status: string): string {
