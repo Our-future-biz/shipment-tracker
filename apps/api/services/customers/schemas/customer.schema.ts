@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, numeric, date, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, numeric, date, index, uniqueIndex, check, uuid } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import type { CustomerLabel, CustomerStatus } from "../interfaces/interfaces";
 
@@ -26,7 +26,10 @@ export const customerTable = pgTable(
 
     // — CRM data —
     status: text("status").$type<CustomerStatus>().notNull().default("Prospect"),
+    // The owner's name as it was when the user was picked; empty, or a name typed before owners were users.
     salesOwner: text("sales_owner").notNull().default(""),
+    // A user of the auth service (another database, so no foreign key); null when nobody is picked.
+    salesOwnerUserId: uuid("sales_owner_user_id"),
     label: text("label").$type<CustomerLabel>().notNull().default("TARGET CUSTOMER"),
     // Money as numeric (exact) rather than real (lossy float); mode:"number" keeps the API type a JS number.
     creditLimit: numeric("credit_limit", { precision: 14, scale: 2, mode: "number" }).notNull().default(0),

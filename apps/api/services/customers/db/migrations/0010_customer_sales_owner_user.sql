@@ -1,0 +1,1 @@
+ALTER TABLE "customer" ADD COLUMN "sales_owner_user_id" uuid;

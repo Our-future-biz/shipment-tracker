@@ -16,6 +16,9 @@ const contacts = vi.hoisted(() => ({
 vi.mock("../repositories/customer.repository", () => ({ customerRepository: customers }));
 vi.mock("../repositories/contact.repository", () => ({ contactRepository: contacts }));
 vi.mock("../services/ares.service", () => ({ aresService: { lookup: vi.fn() } }));
+const usersList = vi.hoisted(() => vi.fn());
+vi.mock("~encore/clients", () => ({ auth: { usersList } }));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
 vi.mock("encore.dev/api", () => ({
   APIError: {
@@ -92,6 +95,34 @@ describe("contacts of a customer", () => {
     contacts.updateForCompany.mockResolvedValue(contactRow());
     await contactService.update("k1", COMPANY, { email: "jana@example.cz" });
     expect(contacts.updateForCompany).toHaveBeenCalledWith("k1", COMPANY, { email: "jana@example.cz" });
+  });
+});
+
+describe("sales owner", () => {
+  const LUKAS = "5d1f6b0e-2c3a-4f4a-9a53-5d0d3a2b6c11";
+  const USERS = [{ id: LUKAS, displayName: "Lukáš Novák", email: "lukas@example.cz" }];
+
+  it("is a user of the company, stored with the user's name", async () => {
+    usersList.mockResolvedValue({ users: USERS });
+    customers.updateForCompany.mockResolvedValue({ id: "c1", createdAt: now, updatedAt: now });
+    await customerService.update("c1", COMPANY, { salesOwnerUserId: LUKAS, status: "Active" });
+    expect(customers.updateForCompany).toHaveBeenCalledWith("c1", COMPANY, { status: "Active", salesOwner: "Lukáš Novák", salesOwnerUserId: LUKAS });
+  });
+
+  it("can be removed", async () => {
+    customers.updateForCompany.mockResolvedValue({ id: "c1", createdAt: now, updatedAt: now });
+    await customerService.update("c1", COMPANY, { salesOwnerUserId: null });
+    expect(customers.updateForCompany).toHaveBeenCalledWith("c1", COMPANY, { salesOwner: "", salesOwnerUserId: null });
+    expect(usersList).not.toHaveBeenCalled();
+  });
+
+  it("refuses somebody who is not a user of the company", async () => {
+    usersList.mockResolvedValue({ users: USERS });
+    await expect(customerService.update("c1", COMPANY, { salesOwnerUserId: "9d1f6b0e-2c3a-4f4a-9a53-5d0d3a2b6c11" })).rejects.toThrow(
+      "salesOwnerUserId must be a user of the company",
+    );
+    await expect(customerService.update("c1", COMPANY, { salesOwnerUserId: "Lukáš" })).rejects.toThrow("salesOwnerUserId must be the id of a user");
+    expect(customers.updateForCompany).not.toHaveBeenCalled();
   });
 });
 

@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 import { Select } from "antd";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomer } from "@/hooks/useCustomers";
+import { useUsers } from "@/hooks/useUsers";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { useToast } from "@/lib/toast";
@@ -62,6 +63,7 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
   const toast = useToast();
   const paymentTermsId = useId();
   const { updateCustomer } = useCustomer(customer.id);
+  const { users, isLoading: usersLoading } = useUsers();
   const [edits, setEdits] = useState<PendingEdit[]>([]);
 
   // Show the user's choice at once: the server value only arrives after the save and the refetch that follows it,
@@ -70,6 +72,14 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
   // as new as the row its save produced (both are ISO timestamps from the API, which compare correctly as text).
   const isPending = (edit: PendingEdit) => edit.savedAt === null || customer.updatedAt < edit.savedAt;
   const shown = edits.filter(isPending).reduce((row, edit) => ({ ...row, ...edit.patch }), customer);
+
+  // The company's users, named as everywhere else; the owner stays shown by name while they load or once gone.
+  const ownerOptions = users.map((user) => ({ value: user.id, label: user.displayName || user.email }));
+  if (shown.salesOwnerUserId && !users.some((user) => user.id === shown.salesOwnerUserId)) {
+    ownerOptions.unshift({ value: shown.salesOwnerUserId, label: shown.salesOwner });
+  }
+  // A name typed before owners were users: shown so it can be matched, but it is no user.
+  const unlinkedOwner = shown.salesOwnerUserId ? "" : shown.salesOwner.trim();
 
   const save = (patch: CustomerPatch) => {
     const edit: PendingEdit = { patch, savedAt: null };
@@ -118,13 +128,21 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
           </div>
         </CustomerInfoRow>
         <CustomerInfoRow label="Sales owner" narrow>
-          <EditableText
-            value={shown.salesOwner}
-            onCommit={(value) => save({ salesOwner: value })}
-            placeholder="assign…"
-            label="Sales owner"
-            id={SALES_OWNER_FIELD_ID}
-          />
+          <div className={SELECT_WRAPPER_CLASS}>
+            <Select
+              {...SELECT_PROPS}
+              id={SALES_OWNER_FIELD_ID}
+              aria-label="Sales owner"
+              showSearch
+              allowClear
+              optionFilterProp="label"
+              placeholder={unlinkedOwner ? `${unlinkedOwner} (not linked)` : "Select a user"}
+              loading={usersLoading}
+              value={shown.salesOwnerUserId ?? undefined}
+              options={ownerOptions}
+              onChange={(userId?: string) => save({ salesOwnerUserId: userId ?? null })}
+            />
+          </div>
         </CustomerInfoRow>
         <CustomerInfoRow label="Currency" narrow>
           <div className={SELECT_WRAPPER_CLASS}>

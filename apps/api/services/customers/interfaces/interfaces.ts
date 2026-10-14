@@ -26,7 +26,9 @@ export interface CustomerItem {
   dataSource: string;
   lastRegistryUpdate: string;
   status: CustomerStatus;
+  /** The owner's name; without salesOwnerUserId a name typed before owners were users, or "". */
   salesOwner: string;
+  salesOwnerUserId: string | null;
   label: CustomerLabel;
   creditLimit: number;
   currency: string;

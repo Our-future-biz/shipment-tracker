@@ -23,6 +23,7 @@ export const toCustomerItem = (r: CustomerRecord): CustomerItem => ({
   lastRegistryUpdate: r.lastRegistryUpdate,
   status: r.status,
   salesOwner: r.salesOwner,
+  salesOwnerUserId: r.salesOwnerUserId,
   label: r.label,
   creditLimit: r.creditLimit,
   currency: r.currency,

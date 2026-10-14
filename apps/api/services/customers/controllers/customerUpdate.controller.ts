@@ -11,7 +11,8 @@ interface CustomerUpdateRequest {
   companyName?: string & MinLen<1> & MaxLen<300>;
   dic?: string & MaxLen<20>;
   status?: CustomerStatus;
-  salesOwner?: string & MaxLen<200>;
+  /** A user of the company, or null for no owner. The owner's name is looked up from the user. */
+  salesOwnerUserId?: string | null;
   label?: CustomerLabel;
   creditLimit?: number & Min<0>;
   currency?: string & MaxLen<3>;

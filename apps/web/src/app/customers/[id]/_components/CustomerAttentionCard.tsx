@@ -102,7 +102,9 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
     const trigger = document.getElementById(id);
     if (!trigger) return;
     trigger.scrollIntoView({ block: "center" });
-    trigger.click();
+    trigger.focus();
+    // An antd Select opens on mouse down on its selector, not on focus or click.
+    trigger.closest(".ant-select")?.querySelector(".ant-select-selector")?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
   };
 
   const handleToggleExpanded = () => setExpandedFor(expanded ? null : customerId);

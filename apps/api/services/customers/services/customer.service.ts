@@ -1,9 +1,12 @@
 import { APIError } from "encore.dev/api";
+import { auth } from "~encore/clients";
 import { customerRepository } from "../repositories/customer.repository";
 import type { CustomerListFilters } from "../repositories/customer.repository";
 import type { CustomerRecord, NewCustomerRecord } from "../schemas/customer.schema";
 import type { CustomerItem, CustomerLabel, CustomerPipelineItem, CustomerRollups, CustomerStatus } from "../interfaces/interfaces";
 import { iso } from "../../../lib/db/serialize";
+import { nameOf } from "../../../lib/userNames";
+import { isUuid } from "../../../lib/uuid";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
 import { aresService } from "./ares.service";
@@ -13,7 +16,7 @@ export interface CustomerPatch {
   companyName?: string;
   dic?: string;
   status?: CustomerStatus;
-  salesOwner?: string;
+  salesOwnerUserId?: string | null;
   currency?: string;
   label?: CustomerLabel;
   creditLimit?: number;
@@ -35,6 +38,16 @@ const today = () => new Date().toISOString().slice(0, 10);
 // Only the fields actually sent are written.
 const definedOnly = <T extends object>(patch: T): Partial<T> =>
   Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<T>;
+
+// The owner columns for a picked user (its id and name), or for nobody.
+async function salesOwnerOf(userId: string | null): Promise<Pick<NewCustomerRecord, "salesOwner" | "salesOwnerUserId">> {
+  if (userId === null) return { salesOwner: "", salesOwnerUserId: null };
+  if (!isUuid(userId)) throw APIError.invalidArgument("salesOwnerUserId must be the id of a user");
+  const { users } = await auth.usersList();
+  const user = users.find((u) => u.id === userId);
+  if (!user) throw APIError.invalidArgument("salesOwnerUserId must be a user of the company");
+  return { salesOwner: nameOf(user), salesOwnerUserId: user.id };
+}
 
 class CustomerService {
   async list(companyId: string, filters: CustomerListFilters = {}): Promise<CustomerItem[]> {
@@ -90,7 +103,10 @@ class CustomerService {
   }
 
   async update(id: string, companyId: string, patch: CustomerPatch): Promise<CustomerItem> {
-    const row = await customerRepository.updateForCompany(id, companyId, definedOnly(patch));
+    const { salesOwnerUserId, ...fields } = patch;
+    const values: Partial<NewCustomerRecord> = definedOnly(fields);
+    if (salesOwnerUserId !== undefined) Object.assign(values, await salesOwnerOf(salesOwnerUserId));
+    const row = await customerRepository.updateForCompany(id, companyId, values);
     if (!row) throw APIError.notFound("Customer not found");
     return toCustomerItem(row);
   }

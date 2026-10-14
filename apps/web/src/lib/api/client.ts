@@ -2380,7 +2380,11 @@ export namespace controllers {
         companyName?: string
         dic?: string
         status?: interfaces.CustomerStatus
-        salesOwner?: string
+        /**
+         * A user of the company, or null for no owner. The owner's name is looked up from the user.
+         */
+        salesOwnerUserId?: string | null
+
         label?: interfaces.CustomerLabel
         creditLimit?: number
         currency?: string
@@ -4512,7 +4516,12 @@ export namespace interfaces {
         dataSource: string
         lastRegistryUpdate: string
         status: CustomerStatus
+        /**
+         * The owner's name; without salesOwnerUserId a name typed before owners were users, or "".
+         */
         salesOwner: string
+
+        salesOwnerUserId: string | null
         label: CustomerLabel
         creditLimit: number
         currency: string

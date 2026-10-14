@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("../../db/db", () => ({ db: {} }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() } }));
 vi.mock("../../repositories/customer.repository", () => ({ customerRepository: { pipelineList: vi.fn(), getByIdForCompany: vi.fn(), updateForCompany: vi.fn() } }));
 
 import { customerRepository } from "../../repositories/customer.repository";

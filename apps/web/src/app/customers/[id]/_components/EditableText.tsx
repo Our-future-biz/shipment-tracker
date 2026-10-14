@@ -15,13 +15,11 @@ interface EditableTextProps {
   placeholder?: string;
   // What is being edited (e.g. "Sales owner"), announced by screen readers.
   label?: string;
-  // Put on the trigger, so other parts of the page can bring the field up for editing.
-  id?: string;
 }
 
 // Click-to-edit text: a button showing the value that turns into an input. Enter or leaving the field saves,
 // Escape cancels.
-export function EditableText({ value, onCommit, placeholder = "—", label, id }: EditableTextProps) {
+export function EditableText({ value, onCommit, placeholder = "—", label }: EditableTextProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -85,7 +83,6 @@ export function EditableText({ value, onCommit, placeholder = "—", label, id }
   return (
     <button
       ref={triggerRef}
-      id={id}
       type="button"
       onClick={handleStartEdit}
       title="Click to edit"
