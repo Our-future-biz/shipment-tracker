@@ -57,6 +57,13 @@
       "when": 1791995756292,
       "tag": "0007_invoice_credited_status",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1792006525255,
+      "tag": "0008_drop_prospect_account_type",
+      "breakpoints": true
     }
   ]
 }

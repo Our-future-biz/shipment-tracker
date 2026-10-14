@@ -4,7 +4,7 @@
 // The closed sets the database CHECK constraints allow (schemas/*.schema.ts). Spelled out as
 // literal unions so Encore validates requests against them and the web client gets them.
 export type CustomerStatus = "Active" | "Prospect" | "Inactive";
-export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "PROSPECT" | "RISK";
+export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "RISK";
 export type ContactRole = "Sales" | "Operations" | "Finance";
 export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";
 export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other";

@@ -3,7 +3,7 @@ import type { interfaces } from "@/lib/api/client";
 // Kept in step with the API's unions: `satisfies` fails the build when a value is not one of them.
 export const CUSTOMER_STATUSES = ["Active", "Prospect", "Inactive"] as const satisfies readonly interfaces.CustomerStatus[];
 
-export const CUSTOMER_LABELS = ["KEY ACCOUNT", "STANDARD", "TARGET CUSTOMER", "PROSPECT", "RISK"] as const satisfies readonly interfaces.CustomerLabel[];
+export const CUSTOMER_LABELS = ["KEY ACCOUNT", "STANDARD", "TARGET CUSTOMER", "RISK"] as const satisfies readonly interfaces.CustomerLabel[];
 
 export const PAYMENT_TERMS = ["PREPAYMENT", "7 days", "14 days", "30 days", "45 days", "60 days"] as const;
 
@@ -43,7 +43,6 @@ const LABEL_CLASSES: Record<string, string> = {
   "KEY ACCOUNT": "bg-yellow-100 text-yellow-700",
   STANDARD: "bg-slate-100 text-slate-500",
   "TARGET CUSTOMER": "bg-purple-100 text-purple-700",
-  PROSPECT: "bg-blue-100 text-blue-700",
   RISK: "bg-red-100 text-red-600",
 };
 

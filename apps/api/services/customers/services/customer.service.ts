@@ -79,7 +79,7 @@ class CustomerService {
       dataSource: "ARES",
       lastRegistryUpdate: today(),
       status: "Prospect",
-      label: "PROSPECT",
+      label: "TARGET CUSTOMER",
       // A new customer pays in advance until payment terms are agreed and set on its page.
       paymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
       freightPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
@@ -106,6 +106,13 @@ class CustomerService {
     if (!(await customerRepository.updateForCompany(id, companyId, values))) {
       throw APIError.notFound("Customer not found");
     }
+  }
+
+  // A won quote makes its customer Active, from Prospect or Inactive alike. A customer deleted meanwhile is skipped.
+  async activate(id: string, companyId: string): Promise<boolean> {
+    const customer = await customerRepository.getByIdForCompany(id, companyId);
+    if (!customer || customer.status === "Active") return false;
+    return !!(await customerRepository.updateForCompany(id, companyId, { status: "Active" }));
   }
 
   async softDelete(id: string, companyId: string): Promise<void> {

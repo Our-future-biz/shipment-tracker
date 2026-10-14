@@ -4527,7 +4527,7 @@ export namespace interfaces {
         updatedAt: string
     }
 
-    export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "PROSPECT" | "RISK"
+    export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "RISK"
 
     /**
      * The closed sets the database CHECK constraints allow (schemas/*.schema.ts). Spelled out as

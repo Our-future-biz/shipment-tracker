@@ -27,7 +27,7 @@ export const customerTable = pgTable(
     // — CRM data —
     status: text("status").$type<CustomerStatus>().notNull().default("Prospect"),
     salesOwner: text("sales_owner").notNull().default(""),
-    label: text("label").$type<CustomerLabel>().notNull().default("STANDARD"),
+    label: text("label").$type<CustomerLabel>().notNull().default("TARGET CUSTOMER"),
     // Money as numeric (exact) rather than real (lossy float); mode:"number" keeps the API type a JS number.
     creditLimit: numeric("credit_limit", { precision: 14, scale: 2, mode: "number" }).notNull().default(0),
     currency: text("currency").notNull().default("EUR"),
@@ -61,7 +61,7 @@ export const customerTable = pgTable(
     check("customer_status_check", sql`${table.status} IN ('Active', 'Prospect', 'Inactive')`),
     check(
       "customer_label_check",
-      sql`${table.label} IN ('KEY ACCOUNT', 'STANDARD', 'TARGET CUSTOMER', 'PROSPECT', 'RISK')`,
+      sql`${table.label} IN ('KEY ACCOUNT', 'STANDARD', 'TARGET CUSTOMER', 'RISK')`,
     ),
   ],
 );
