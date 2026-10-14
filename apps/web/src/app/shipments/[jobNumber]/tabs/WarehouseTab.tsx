@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
-import { Input, Button, message } from "antd";
+import { InputNumber, Button, Tag, message } from "antd";
 import { DeleteOutlined, PlusOutlined, EditOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { useQuery } from "@tanstack/react-query";
@@ -13,7 +13,7 @@ import { formatDateTime } from "@/lib/date";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./warehouse/PickupSection";
-import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
+import { JobNotes, ActionPushButtons, SaveStatus } from "./warehouse/JobExtras";
 
 interface JobSectionData {
   inform_operations_sent?: string;
@@ -156,6 +156,30 @@ type DimensionRow = { pieces: string; lengthCm: string; widthCm: string; heightC
 
 const EMPTY_DIM: DimensionRow = { pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" };
 
+const DIM_FIELDS = ["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const;
+type DimField = (typeof DIM_FIELDS)[number];
+// Input rules per column: qty is a whole number of pieces, the rest are cm / kg with one decimal step.
+const DIM_INPUT: Record<DimField, { suffix: string; step: number; precision?: number }> = {
+  pieces: { suffix: "pcs", step: 1, precision: 0 },
+  lengthCm: { suffix: "cm", step: 0.1 },
+  widthCm: { suffix: "cm", step: 0.1 },
+  heightCm: { suffix: "cm", step: 0.1 },
+  weightPerPcKg: { suffix: "kg", step: 0.1 },
+};
+
+// Strict number from a stored value: "" is empty (0), a plain non-negative number (a decimal
+// comma is accepted) is that number, anything else is NaN — never silently 0.
+function toNum(v: string | undefined): number {
+  const t = (v ?? "").trim().replace(",", ".");
+  if (!t) return 0;
+  return /^\d+(\.\d+)?$/.test(t) ? Number(t) : NaN;
+}
+const fieldInvalid = (r: DimensionRow, f: DimField) => {
+  const n = toNum(r[f]);
+  return Number.isNaN(n) || (f === "pieces" && !Number.isInteger(n));
+};
+const rowInvalid = (r: DimensionRow) => DIM_FIELDS.some((f) => fieldInvalid(r, f));
+
 function parseRemeasure(json: string | undefined): DimensionRow[] {
   try {
     const arr = JSON.parse(json || "[]");
@@ -173,13 +197,15 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
 
   const [rows, setRows] = useState<DimensionRow[]>([{ ...EMPTY_DIM }]);
   const [dirty, setDirty] = useState(false);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const invalidRows = rows.filter(rowInvalid).length;
   useEffect(() => {
     const parsed = parseRemeasure(saved);
     setRows(parsed.length > 0 ? parsed : [{ ...EMPTY_DIM }]);
     setDirty(false);
   }, [saved]);
 
-  const updateRow = (idx: number, field: keyof DimensionRow, value: string) => {
+  const updateRow = (idx: number, field: DimField, value: string) => {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
     setDirty(true);
   };
@@ -187,10 +213,18 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
   const deleteRow = (idx: number) => { setRows((prev) => prev.filter((_, i) => i !== idx)); setDirty(true); };
 
   const save = async () => {
-    const filtered = rows.filter((r) => r.pieces || r.lengthCm || r.widthCm || r.heightCm || r.weightPerPcKg);
+    if (invalidRows > 0) {
+      messageApi.error("Some lines have invalid values — re-enter them before saving");
+      return;
+    }
+    // Stored as normalised numeric strings, the same JSON shape as before.
+    const filtered = rows
+      .filter((r) => r.pieces || r.lengthCm || r.widthCm || r.heightCm || r.weightPerPcKg)
+      .map((r) => Object.fromEntries(DIM_FIELDS.map((f) => [f, r[f].trim() ? String(toNum(r[f])) : ""])) as DimensionRow);
     try {
       await saveJobSection({ ...jobSection, remeasure_rows: JSON.stringify(filtered) });
       setDirty(false);
+      setSavedAt(new Date());
       messageApi.success("Saved");
     } catch {
       messageApi.error("Failed to save");
@@ -199,12 +233,14 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
 
   const rowCbms: number[] = [];
   let totalColli = 0, totalWeightKg = 0, totalVolumeCbm = 0;
+  // Invalid values count as nothing in the totals; their row is flagged and Save is blocked.
+  const num = (v: string) => toNum(v) || 0;
   for (const r of rows) {
-    const c = parseFloat(r.pieces) || 0;
-    const L = parseFloat(r.lengthCm) || 0;
-    const W = parseFloat(r.widthCm) || 0;
-    const H = parseFloat(r.heightCm) || 0;
-    const w = parseFloat(r.weightPerPcKg) || 0;
+    const c = num(r.pieces);
+    const L = num(r.lengthCm);
+    const W = num(r.widthCm);
+    const H = num(r.heightCm);
+    const w = num(r.weightPerPcKg);
     const cbm = (c * (L * W * H)) / 1_000_000;
     rowCbms.push(cbm);
     totalColli += c;
@@ -247,11 +283,19 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
       extra={
         !readOnly && (
           <>
+            <SaveStatus dirty={dirty} savedAt={savedAt} />
             <Button size="small" icon={<PlusOutlined />} onClick={addRow}>
               Row
             </Button>
             {dirty && (
-              <Button size="small" type="primary" onClick={save} loading={isSaving}>
+              <Button
+                size="small"
+                type="primary"
+                onClick={save}
+                loading={isSaving}
+                disabled={invalidRows > 0}
+                title={invalidRows > 0 ? "Re-enter the invalid values first" : undefined}
+              >
                 Save
               </Button>
             )}
@@ -273,18 +317,46 @@ function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: Shipme
         </thead>
         <tbody>
           {rows.map((row, idx) => (
-            <tr key={idx} className="border-b border-slate-100">
-              {(["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const).map((field) => (
-                <td key={field} className="p-0.5 px-1">
-                  {readOnly ? (
-                    <span className={`block px-2 py-1 ${row[field] ? "text-slate-900" : "text-slate-300"}`}>{row[field] || "—"}</span>
-                  ) : (
-                    <Input size="small" value={row[field]} placeholder="0" onChange={(e) => updateRow(idx, field, e.target.value)} className="w-full" />
-                  )}
-                </td>
-              ))}
+            <tr key={idx} className={`border-b border-slate-100 ${rowInvalid(row) ? "bg-red-50" : ""}`}>
+              {DIM_FIELDS.map((field) => {
+                const bad = fieldInvalid(row, field);
+                return (
+                  <td key={field} className="p-0.5 px-1">
+                    {readOnly ? (
+                      <span className={`block px-2 py-1 ${bad ? "text-red-600" : row[field] ? "text-slate-900" : "text-slate-300"}`}>{row[field] || "—"}</span>
+                    ) : (
+                      <InputNumber
+                        size="small"
+                        min={0}
+                        step={DIM_INPUT[field].step}
+                        precision={DIM_INPUT[field].precision}
+                        suffix={DIM_INPUT[field].suffix}
+                        controls={false}
+                        // Accept a decimal comma as typed in the Czech locale ("1,5" = 1.5). The input
+                        // parses the returned text itself (an empty one clears it), hence the cast.
+                        parser={(v) => (v ?? "").replace(/\s/g, "").replace(",", ".") as unknown as number}
+                        status={bad ? "error" : undefined}
+                        // An old free-text value that is not a number shows as the hint until re-entered.
+                        placeholder={bad ? row[field] : "0"}
+                        title={bad ? `"${row[field]}" is not a valid number — re-enter it` : undefined}
+                        value={bad || !row[field].trim() ? null : toNum(row[field])}
+                        onChange={(v) => updateRow(idx, field, v == null ? "" : String(v))}
+                        className="!w-full"
+                      />
+                    )}
+                  </td>
+                );
+              })}
               <td className="p-0.5 px-1 text-right text-[11px] text-slate-500">
-                {(rowCbms[idx] ?? 0) > 0 ? rowCbms[idx]!.toFixed(4) : "—"}
+                {rowInvalid(row) ? (
+                  <Tag color="red" className="m-0 !text-[10px]">
+                    invalid — re-enter
+                  </Tag>
+                ) : (rowCbms[idx] ?? 0) > 0 ? (
+                  rowCbms[idx]!.toFixed(4)
+                ) : (
+                  "—"
+                )}
               </td>
               <td className="p-0.5 px-1">
                 {!readOnly && rows.length > 1 && <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />} onClick={() => deleteRow(idx)} />}

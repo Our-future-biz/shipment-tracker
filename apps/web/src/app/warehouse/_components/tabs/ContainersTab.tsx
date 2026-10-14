@@ -2,15 +2,14 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "antd";
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useGateLog } from "@/hooks/useGateLog";
 import { useWarehouseContainers, type WarehouseContainer } from "@/hooks/useWarehouseRecords";
 import { formatDate } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { CONTAINER_TYPES, PACKINGS } from "@/app/warehouse/gate-log/_lib/gate";
-import { RecordFormModal, StatusTag, dim, nf, type FieldDef } from "./shared";
+import { BulkDeleteButton, RecordFormModal, StatusTag, dim, nf, type FieldDef } from "./shared";
 
 type Mode = "register" | "schedule" | "vgm";
 
@@ -218,14 +217,7 @@ export function ContainersTab() {
 
   const openEdit = (mode: Mode) => (c: WarehouseContainer) => setEditing({ mode, container: c });
   const bulkDelete = (selected: WarehouseContainer[], clear: () => void) => (
-    <Button
-      size="small"
-      danger
-      icon={<DeleteOutlined />}
-      onClick={() => Promise.all(selected.map((c) => remove(c.id))).then(clear)}
-    >
-      Delete
-    </Button>
+    <BulkDeleteButton rows={selected} clear={clear} nouns={["container", "containers"]} label={(c) => c.number} remove={(c) => remove(c.id)} />
   );
 
   return (

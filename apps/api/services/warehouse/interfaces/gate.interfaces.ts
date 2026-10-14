@@ -174,10 +174,8 @@ export interface GateMovementItem {
   expReceipt: string | null;
   checklist: GateChecklist;
   releaseGates: GateReleaseLine[];
-  /** Follows the release gates (or an override) unless releaseStatus is set by hand. */
+  /** Follows the release gates; a refusal disarms, a supervisor override arms. Never set by hand. */
   armed: boolean;
-  /** Release picked by hand in the gate log: "Released" | "Blocked" ("" = follow the gates). */
-  releaseStatus: string;
   needsAttention: boolean;
   overridden: boolean;
   refusalLog: string;
@@ -190,7 +188,11 @@ export interface GateMovementItem {
   updatedAt: string;
 }
 
-/** Editable fields. `pin` sets a new 4-digit PIN (empty string clears it). */
+/**
+ * Editable fields. `pin` sets a new 4-digit PIN (empty string clears it).
+ * Status, release gates and override are not here: they change only through the stamps,
+ * Refuse and the supervisor override, each logged on the movement.
+ */
 export interface GateMovementInput {
   gateRef?: string;
   warehouseTaskId?: string | null;
@@ -235,12 +237,9 @@ export interface GateMovementInput {
   carrier?: string;
   driver?: string;
   plate?: string;
-  status?: string;
   checklist?: GateChecklist;
-  releaseGates?: GateReleaseLine[];
   cfsCustomsNumber?: string;
   cfsCustomsProcedure?: string;
-  releaseStatus?: string;
   loadInDate?: string;
   freeDays?: number | null;
   note?: string;

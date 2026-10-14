@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Button, Select } from "antd";
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { PlusOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import {
   useBondedEntries,
@@ -17,7 +17,7 @@ import {
 import { formatDate, formatDateTime } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { PACKINGS } from "@/app/warehouse/gate-log/_lib/gate";
-import { Callout, Card, Kpi, RecordFormModal, StatusTag, SubTabs, dim, nf, type FieldDef } from "./shared";
+import { BulkDeleteButton, Callout, Card, Kpi, RecordFormModal, StatusTag, SubTabs, dim, nf, type FieldDef } from "./shared";
 
 // Stock tab: what is on hand (per house job), where it sits on the floor, how it moved, how long
 // it has been in store against its free time, and what is under customs control.
@@ -49,11 +49,6 @@ const mono = (v: string) => (v ? <span className="font-mono font-bold text-indig
 const JOB_TONE: Record<string, string> = { Chargeable: "text-red-600", Expiring: "text-amber-600", "Within free time": "text-emerald-600" };
 const job = (l: StockLine) => <span className={`font-mono font-bold ${JOB_TONE[l.freeTimeState] ?? "text-indigo-500"}`}>{l.job}</span>;
 
-const deleteButton = (remove: (id: string) => Promise<unknown>, selected: { id: string }[], clear: () => void) => (
-  <Button size="small" danger icon={<DeleteOutlined />} onClick={() => Promise.all(selected.map((r) => remove(r.id))).then(clear)}>
-    Delete
-  </Button>
-);
 
 export function StockTab() {
   const [sub, setSub] = useState<Sub>("onhand");
@@ -161,7 +156,9 @@ function StockOnHand() {
         rowKey={(l) => l.id}
         loading={isLoading}
         onRowClick={(line) => setEditing({ line })}
-        bulkActions={(selected, clear) => deleteButton(remove, selected, clear)}
+        bulkActions={(selected, clear) => (
+          <BulkDeleteButton rows={selected} clear={clear} nouns={["stock line", "stock lines"]} label={(l) => l.job} remove={(l) => remove(l.id)} />
+        )}
         storageKey="warehouse:stock-on-hand"
         exportFilePrefix="stock-on-hand"
         emptyText={items.length ? "No lines match this filter." : "Nothing in stock yet."}
@@ -540,7 +537,16 @@ function Bonded() {
         rowKey={(b) => b.id}
         loading={isLoading}
         onRowClick={(entry) => setEditing({ entry })}
-        bulkActions={(selected, clear) => deleteButton(remove, selected, clear)}
+        bulkActions={(selected, clear) => (
+          <BulkDeleteButton
+            rows={selected}
+            clear={clear}
+            nouns={["bonded entry", "bonded entries"]}
+            label={(b) => b.mrn || b.job}
+            warning="This is a customs record."
+            remove={(b) => remove(b.id)}
+          />
+        )}
         storageKey="warehouse:bonded"
         exportFilePrefix="bonded-register"
         emptyText="No bonded entries yet."

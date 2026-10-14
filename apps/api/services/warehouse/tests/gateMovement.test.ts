@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
-import { defaultReleaseGates, gateMovementService, isArmed } from "../services/gateMovement.service";
+import { describe, expect, it, vi } from "vitest";
+import { defaultReleaseGates, gateMovementService, isArmed, needsAttention } from "../services/gateMovement.service";
 import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 
@@ -22,17 +22,26 @@ describe("release gates", () => {
 
   it("arms only when every gate except the empty return is OK, or on override", () => {
     const gates = allOk(defaultReleaseGates("Import", "FCL stripping", "Customs Cleared/Released"));
-    expect(isArmed({ releaseStatus: "", status: "Expected", overridden: false, releaseGates: gates })).toBe(true);
+    expect(isArmed({ status: "Expected", overridden: false, releaseGates: gates })).toBe(true);
     const emptyPending = gates.map((g) => (/empty return/i.test(g.g) ? { ...g, s: "Pending" as const } : g));
-    expect(isArmed({ releaseStatus: "", status: "Expected", overridden: false, releaseGates: emptyPending })).toBe(true);
+    expect(isArmed({ status: "Expected", overridden: false, releaseGates: emptyPending })).toBe(true);
     const customsPending = gates.map((g) => (g.g === "Customs" ? { ...g, s: "Blocked" as const } : g));
-    expect(isArmed({ releaseStatus: "", status: "Expected", overridden: false, releaseGates: customsPending })).toBe(false);
-    expect(isArmed({ releaseStatus: "", status: "Expected", overridden: true, releaseGates: customsPending })).toBe(true);
-    expect(isArmed({ releaseStatus: "", status: "Refused", overridden: false, releaseGates: gates })).toBe(false);
-    // A release picked by hand in the gate log wins over the gates.
-    const customsBlocked = gates.map((g) => (g.g === "Customs" ? { ...g, s: "Blocked" as const } : g));
-    expect(isArmed({ releaseStatus: "Released", status: "Expected", overridden: false, releaseGates: customsBlocked })).toBe(true);
-    expect(isArmed({ releaseStatus: "Blocked", status: "Expected", overridden: true, releaseGates: gates })).toBe(false);
+    expect(isArmed({ status: "Expected", overridden: false, releaseGates: customsPending })).toBe(false);
+    expect(isArmed({ status: "Expected", overridden: true, releaseGates: customsPending })).toBe(true);
+    expect(isArmed({ status: "Refused", overridden: false, releaseGates: gates })).toBe(false);
+  });
+
+  it("flags only outgoing cargo: release blocked, or no MRN while customs is not cleared", () => {
+    const gates = defaultReleaseGates("Import", "LCL consolidation", "Under Customs Clearance");
+    const base = { status: "In Warehouse", overridden: false, releaseGates: gates, mrn: "", customsStatus: "Under Customs Clearance", impRelease: null, gateOut: null };
+    expect(needsAttention({ ...base, visit: "příjem" })).toBe(false);
+    expect(needsAttention({ ...base, visit: "výdej" })).toBe(true);
+    expect(needsAttention({ ...base, visit: "výdej", overridden: true })).toBe(true);
+    expect(needsAttention({ ...base, visit: "výdej", overridden: true, mrn: "26CZ1" })).toBe(false);
+    expect(needsAttention({ ...base, visit: "výdej", overridden: true, customsStatus: "Customs Cleared/Released" })).toBe(false);
+    // Released or gone out: nothing left to attend to.
+    expect(needsAttention({ ...base, visit: "výdej", gateOut: new Date() })).toBe(false);
+    expect(needsAttention({ ...base, visit: "výdej", impRelease: new Date() })).toBe(false);
   });
 });
 
@@ -44,7 +53,7 @@ describe("gate movement flow", () => {
     expect(m.needsAttention).toBe(true);
     await expect(gateMovementService.stamp(m.id, c, user, "impRelease")).rejects.toThrow(/NOT armed/);
 
-    await gateMovementService.update(m.id, c, user, { releaseGates: allOk(m.releaseGates) });
+    await gateMovementRepository.update(m.id, c, { releaseGates: allOk(m.releaseGates) });
     const released = await gateMovementService.stamp(m.id, c, user, "impRelease");
     expect(released).toMatchObject({ status: "Released", armed: true, needsAttention: false });
     expect(released.impRelease).not.toBeNull();
@@ -65,16 +74,69 @@ describe("gate movement flow", () => {
     expect(back.armed).toBe(false);
   });
 
+  it("lets outgoing cargo leave only through WH release", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091620", visit: "výdej", mrn: "26CZ3" });
+    await expect(gateMovementService.stamp(m.id, c, user, "gateOut")).rejects.toThrow(/WH release first/);
+    await gateMovementRepository.update(m.id, c, { releaseGates: allOk(m.releaseGates) });
+    // Armed but not released yet: still only through the release.
+    await expect(gateMovementService.stamp(m.id, c, user, "gateOut")).rejects.toThrow(/WH release first/);
+    expect((await gateMovementService.get(m.id, c)).gateOut).toBeNull();
+    // Incoming cargo: the truck leaves on its own gate-out.
+    const inc = await gateMovementService.create(c, user, { gateRef: "WCZ2026091621", visit: "příjem" });
+    expect((await gateMovementService.stamp(inc.id, c, user, "gateOut")).gateOut).not.toBeNull();
+  });
+
+  it("checks the release gates at the moment of the release, not at load", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091622", visit: "výdej", mrn: "26CZ4" });
+    // The row looks armed when loaded, but its gates change before the UPDATE runs.
+    await gateMovementRepository.update(m.id, c, { releaseGates: allOk(m.releaseGates) });
+    const load = gateMovementRepository.findById.bind(gateMovementRepository);
+    const spy = vi.spyOn(gateMovementRepository, "findById").mockImplementationOnce(async (...args) => {
+      const row = await load(...args);
+      await gateMovementRepository.update(m.id, c, { releaseGates: m.releaseGates });
+      return row;
+    });
+    await expect(gateMovementService.stamp(m.id, c, user, "impRelease")).rejects.toThrow(/NOT armed/);
+    spy.mockRestore();
+    expect((await gateMovementService.get(m.id, c)).impRelease).toBeNull();
+  });
+
+  it("does not let an export stamp undo a refusal", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091623", handling: "Export" });
+    await gateMovementService.refuse(m.id, c, user, "wrong cargo");
+    expect((await gateMovementService.stamp(m.id, c, user, "expDraft")).status).toBe("Refused");
+  });
+
   it("keeps the export draft when the receipt is confirmed", async () => {
     const c = company();
     const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091602", handling: "Export" });
     await expect(gateMovementService.stamp(m.id, c, user, "expReceipt")).rejects.toThrow(/draft/);
     const draft = await gateMovementService.stamp(m.id, c, user, "expDraft");
     expect(draft.status).toBe("In Warehouse");
+    // The draft receipt is the first arrival stamp, so it stamps gate-in too.
+    expect(draft.gateIn).toBe(draft.expDraft);
     const receipt = await gateMovementService.stamp(m.id, c, user, "expReceipt");
     expect(receipt.status).toBe("In Warehouse");
     expect(receipt.expDraft).toBe(draft.expDraft);
-    expect(receipt.events.map((e) => e.kind)).toEqual(["created", "expDraft", "expReceipt"]);
+    expect(receipt.gateIn).toBe(draft.gateIn);
+    expect(receipt.events.map((e) => e.kind)).toEqual(["created", "gateIn", "expDraft", "expReceipt"]);
+  });
+
+  it("does not let the general update change status, release gates or the override", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091613", visit: "výdej" });
+    const saved = await gateMovementService.update(m.id, c, user, {
+      status: "Released",
+      releaseGates: allOk(m.releaseGates),
+      releaseStatus: "Released",
+      overridden: true,
+      note: "kept",
+    } as never);
+    expect(saved).toMatchObject({ status: m.status, releaseGates: m.releaseGates, overridden: false, armed: false, note: "kept" });
+    expect(saved).not.toHaveProperty("releaseStatus");
   });
 
   it("requires a reason to refuse and to override; override re-arms a refused row", async () => {
@@ -115,6 +177,57 @@ describe("gate movement flow", () => {
   it("keeps companies apart", async () => {
     const m = await gateMovementService.create(company(), user, { gateRef: "WCZ2026091605" });
     await expect(gateMovementService.get(m.id, company())).rejects.toThrow(/not found/);
+  });
+});
+
+describe("parallel gate actions", () => {
+  it("stamps gate-in once when ten clerks press it at the same time", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091614" });
+    const results = await Promise.allSettled(Array.from({ length: 10 }, () => gateMovementService.stamp(m.id, c, user, "gateIn")));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    expect(rejected).toHaveLength(9);
+    expect(rejected.every((r) => /already/.test(String(r.reason)))).toBe(true);
+    expect((await gateMovementService.get(m.id, c)).events.filter((e) => e.kind === "gateIn")).toHaveLength(1);
+  });
+
+  it("gives parallel wrong PINs no more than three tries and logs the lock once", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091615", visit: "výdej", pin: "4471" });
+    const results = await Promise.all(Array.from({ length: 10 }, () => gateMovementService.verifyPin(m.id, c, user, "0000")));
+    expect(results.filter((r) => r.result === "no_match")).toHaveLength(2);
+    expect(results.filter((r) => r.result === "locked")).toHaveLength(8);
+    const after = await gateMovementService.get(m.id, c);
+    expect(after.pinTries).toBe(3);
+    expect(after.events.filter((e) => e.kind === "pinLocked")).toHaveLength(1);
+    expect((await gateMovementService.verifyPin(m.id, c, user, "4471")).result).toBe("locked");
+  });
+
+  it("does not report a lock while a right PIN only holds a try for a moment", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091624", visit: "výdej", pin: "4471" });
+    expect((await gateMovementService.verifyPin(m.id, c, user, "0000")).result).toBe("no_match");
+    expect((await gateMovementService.verifyPin(m.id, c, user, "0000")).result).toBe("no_match");
+    const results = await Promise.all(Array.from({ length: 4 }, () => gateMovementService.verifyPin(m.id, c, user, "4471")));
+    expect(results.every((r) => r.result === "match")).toBe(true);
+    expect((await gateMovementService.get(m.id, c)).pinTries).toBe(2);
+  });
+
+  it("refuses once when five refusals arrive together", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091616", visit: "výdej" });
+    const results = await Promise.allSettled(Array.from({ length: 5 }, () => gateMovementService.refuse(m.id, c, user, "no papers")));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect((await gateMovementService.get(m.id, c)).events.filter((e) => e.kind === "refused")).toHaveLength(1);
+  });
+
+  it("keeps surveys of different containers saved at the same time", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091617", colli: 5 });
+    const base = { phase: "Receipt — survey on gate in", damaged: 0, lost: 0, lines: [], driverNote: "", warehouseNote: "" };
+    await Promise.all(["A", "B", "C", "D"].map((container) => gateMovementService.saveSurvey(m.id, c, user, { ...base, container })));
+    expect((await gateMovementService.get(m.id, c)).surveys.map((s) => s.container).sort()).toEqual(["A", "B", "C", "D"]);
   });
 });
 
@@ -211,6 +324,29 @@ describe("gate movement detail", () => {
     expect(again.surveys.every((s) => !!s.surveyedAt)).toBe(true);
     const capped = await gateMovementService.saveSurvey(m.id, c, user, { ...base, container: "X", damaged: 9, lost: -1, lines: [] });
     expect(capped.surveys.find((s) => s.container === "X")).toMatchObject({ damaged: 5, lost: 0, lines: [{ qty: null, outerPacking: "", visual: [], inner: [] }] });
+  });
+
+  it("keeps the receipt and the release survey of a container apart", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091618", colli: 4 });
+    const base = { container: "MSKU 123456-7", lost: 0, lines: [], driverNote: "", warehouseNote: "" };
+    await gateMovementService.saveSurvey(m.id, c, user, { ...base, phase: "Receipt — survey on gate in", damaged: 1 });
+    await gateMovementService.saveSurvey(m.id, c, user, { ...base, phase: "Release — survey on gate out", damaged: 2 });
+    const again = await gateMovementService.saveSurvey(m.id, c, user, { ...base, phase: "Release — survey on gate out", damaged: 3 });
+    expect(again.surveys.map((s) => [s.phase, s.damaged])).toEqual([
+      ["Receipt — survey on gate in", 1],
+      ["Release — survey on gate out", 3],
+    ]);
+    await expect(gateMovementService.saveSurvey(m.id, c, user, { ...base, phase: "Both", damaged: 0 })).rejects.toThrow(/phase/);
+  });
+
+  it("records damage when the pieces on the movement are not known", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091619" });
+    const saved = await gateMovementService.saveSurvey(m.id, c, user, {
+      container: "", phase: "Receipt — survey on gate in", damaged: 3, lost: 1.7, lines: [], driverNote: "", warehouseNote: "",
+    });
+    expect(saved.surveys[0]).toMatchObject({ damaged: 3, lost: 1 });
   });
 
   it("reads a survey saved before survey lines as one line", async () => {

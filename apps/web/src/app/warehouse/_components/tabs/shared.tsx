@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
-import { Form, Input, InputNumber, Modal, Select, Tag } from "antd";
+import { useEffect, useState, type ReactNode } from "react";
+import { Button, Form, Input, InputNumber, Modal, Select, Tag } from "antd";
+import { DeleteOutlined } from "@ant-design/icons";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
 import { errorMessage } from "@/app/warehouse/gate-log/_lib/gate";
 
@@ -99,6 +101,91 @@ export function ExpiryTag({ date }: { date: string }) {
     <Tag color={color} className="m-0 !text-[11px] !font-semibold">
       {date} · {d >= 0 ? `${d} d` : `${-d} d over`}
     </Tag>
+  );
+}
+
+// ---------- bulk actions ----------
+
+export type BulkResult<T> = { done: T[]; failed: { row: T; reason: string }[] };
+
+// Runs one call per row and keeps going past failures, so the caller can say exactly
+// how many went through and why the others did not.
+export async function runBulk<T>(rows: T[], fn: (row: T) => Promise<unknown>): Promise<BulkResult<T>> {
+  const settled = await Promise.allSettled(rows.map((r) => fn(r)));
+  const result: BulkResult<T> = { done: [], failed: [] };
+  settled.forEach((s, i) => {
+    const row = rows[i]!;
+    if (s.status === "fulfilled") result.done.push(row);
+    else result.failed.push({ row, reason: errorMessage(s.reason, "failed") });
+  });
+  return result;
+}
+
+const plural = (n: number, [one, many]: [string, string]) => `${n} ${n === 1 ? one : many}`;
+
+// "Deleted 4 bonded entries", or "3 done, 1 failed" with each failure and its reason.
+export function reportBulk<T>(
+  toast: ReturnType<typeof useToast>,
+  result: BulkResult<T>,
+  { verb, nouns, label }: { verb: string; nouns: [string, string]; label: (row: T) => string },
+) {
+  if (result.failed.length === 0) {
+    toast.success(`${verb} ${plural(result.done.length, nouns)}`);
+    return;
+  }
+  const shown = result.failed.slice(0, 5).map((f) => `${label(f.row) || "—"}: ${f.reason}`);
+  if (result.failed.length > shown.length) shown.push(`… and ${result.failed.length - shown.length} more`);
+  toast.notify({
+    type: result.done.length ? "warning" : "error",
+    title: `${result.done.length} done, ${result.failed.length} failed`,
+    description: shown.join(" · "),
+  });
+}
+
+// Bulk "Delete" for a grid selection: asks first, deletes row by row, reports partial results.
+// The selection is cleared only when every row went; failed rows stay ticked to retry.
+export function BulkDeleteButton<T>({
+  rows,
+  nouns,
+  label,
+  warning,
+  remove,
+  clear,
+}: {
+  rows: T[];
+  nouns: [string, string];
+  label: (row: T) => string;
+  warning?: string;
+  remove: (row: T) => Promise<unknown>;
+  clear: () => void;
+}) {
+  const toast = useToast();
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    const result = await runBulk(rows, remove);
+    setBusy(false);
+    setOpen(false);
+    reportBulk(toast, result, { verb: "Deleted", nouns, label });
+    if (result.failed.length === 0) clear();
+  };
+  return (
+    <>
+      <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setOpen(true)}>
+        Delete
+      </Button>
+      <ConfirmModal
+        open={open}
+        onClose={() => !busy && setOpen(false)}
+        onConfirm={run}
+        title={`Delete ${plural(rows.length, nouns)}?`}
+        description={`${warning ? `${warning} ` : ""}This cannot be undone from here.`}
+        confirmLabel="Delete"
+        danger
+        loading={busy}
+      />
+    </>
   );
 }
 

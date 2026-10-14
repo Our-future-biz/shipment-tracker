@@ -92,6 +92,13 @@
       "when": 1790013613013,
       "tag": "0012_abandoned_lady_ursula",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791984833219,
+      "tag": "0013_clear_hand_release_status",
+      "breakpoints": true
     }
   ]
 }

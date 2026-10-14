@@ -5,6 +5,7 @@ import { Input, Button, Space, Tag } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { SaveStatus } from "./JobExtras";
 
 interface PickupSectionData {
   pin?: string;
@@ -19,6 +20,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
   const [pin, setPin] = useState<string | null>(section.pin || null);
   const [rows, setRows] = useState<Record<string, string>[]>([emptyRow()]);
   const [dirty, setDirty] = useState(false);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     const sec = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
@@ -61,6 +63,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
     try {
       await save({ pin: pin || "", rows: JSON.stringify(rows) });
       setDirty(false);
+      setSavedAt(new Date());
       messageApi.success("Saved");
     } catch {
       messageApi.error("Failed to save");
@@ -84,6 +87,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
         <strong className="text-xs">Pickup Details</strong>
         {!readOnly && (
           <Space size="small">
+            <SaveStatus dirty={dirty} savedAt={savedAt} />
             <Button size="small" onClick={addRow}>+ Row</Button>
             {dirty && <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>Save</Button>}
           </Space>

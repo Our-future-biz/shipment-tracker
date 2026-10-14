@@ -235,13 +235,12 @@ class WarehouseRecordsService {
     return (await claimRepository.listForCompany(companyId)).map(this.claimItem);
   }
 
-  // Claims are numbered CL-YY-0001 per company and year; numbers are never reused.
+  // Claims are numbered CL-YY-0001 per company and (Prague) year; numbers are never reused
+  // and never repeat when two claims are created at once.
   async createClaim(companyId: string, input: WarehouseClaimInput, now = new Date()) {
     checkDate(input.raised, "Raised");
-    const prefix = `CL-${String(now.getUTCFullYear()).slice(2)}-`;
-    const max = (await claimRepository.refsWithPrefix(prefix, companyId)).reduce((m, ref) => Math.max(m, parseInt(ref.slice(prefix.length), 10) || 0), 0);
-    const ref = `${prefix}${String(max + 1).padStart(4, "0")}`;
-    const row = await claimRepository.createForCompany(companyId, { ...input, ref, raised: input.raised || todayIso(now) } as typeof warehouseClaimTable.$inferInsert);
+    const year = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", year: "2-digit" }).format(now);
+    const row = await claimRepository.createNumbered(companyId, `CL-${year}-`, { ...input, raised: input.raised || todayIso(now) } as typeof warehouseClaimTable.$inferInsert);
     return this.claimItem(row);
   }
 

@@ -10,7 +10,7 @@ import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import type { controllers } from "@/lib/api/client";
-import { errorMessage, freeDaysOver } from "../../_lib/gate";
+import { errorMessage, freeDaysOver, hasSurvey, requiredSurveyPhase, surveyTargets } from "../../_lib/gate";
 import { downloadWarehouseLabel } from "../../_lib/labelPdf";
 import { btnDanger, btnDefault, btnPrimary } from "./fields";
 import { OverviewTab } from "./OverviewTab";
@@ -73,9 +73,10 @@ function StatusCards({ m }: { m: GateMovement }) {
 export function GateJobView({ id }: { id: string }) {
   const router = useRouter();
   const toast = useToast();
-  const { movement: m, isLoading, update, stamp, requestRelease, requestMrn, saveSurvey, remove } = useGateMovement(id);
+  const { movement: m, isLoading, update, stamp, requestRelease, requestMrn, refuse, override, saveSurvey, remove } = useGateMovement(id);
   const [tab, setTab] = useState<Tab>("overview");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [confirmStamp, setConfirmStamp] = useState<{ kind: GateStampKind; label: string } | null>(null);
 
   if (isLoading) {
     return (
@@ -98,24 +99,44 @@ export function GateJobView({ id }: { id: string }) {
   const save = (data: Omit<controllers.GateMovementUpdateRequest, "id">) =>
     update.mutateAsync(data).catch((e) => toast.error(errorMessage(e, "Failed to save")));
 
-  const doStamp = async (kind: GateStampKind, label: string, at: string | null) => {
+  // Stamps are final, so each one is confirmed first (as in the Gate Log bulk bar).
+  const pickStamp = (kind: GateStampKind, label: string, at: string | null) => {
     // An already stamped movement is not an error — the stamp is final, so just say so.
     if (at) {
       toast.info(`${label} was already stamped ${formatDateTime(at)}`);
       return;
     }
+    if (kind === "gateOut" && m.visit === "výdej" && !m.impRelease) {
+      toast.info("Outgoing cargo leaves through WH release — it stamps the gate-out too.");
+      return;
+    }
+    setConfirmStamp({ kind, label });
+  };
+  const doStamp = async (kind: GateStampKind, label: string) => {
     try {
       await stamp.mutateAsync(kind);
-      toast.success(`${label} stamped — filed to Documents`);
+      toast.success(`${label} stamped`);
     } catch (e) {
       toast.error(errorMessage(e, `Failed to stamp ${label}`));
+    } finally {
+      setConfirmStamp(null);
     }
   };
+  // What the stamp writes to the linked shipment, for the confirmation text.
+  const writesBack = (kind: GateStampKind) =>
+    kind === "gateIn" || ((kind === "expDraft" || kind === "expReceipt") && !m.gateIn)
+      ? "received date"
+      : kind === "impRelease" || (kind === "gateOut" && m.visit === "výdej")
+        ? "released date and plate"
+        : null;
 
-  // Survey is flagged red: the cargo condition has to be recorded before the gate closes.
-  const tabs: { key: Tab; label: string; count?: number; alert?: boolean }[] = [
+  // Survey is flagged red while a container (or the position) still lacks the survey pass due
+  // now, and ticked green once all are done; nothing is shown before the cargo arrives.
+  const surveyPhase = requiredSurveyPhase(m);
+  const surveyDone = surveyPhase ? surveyTargets(m).every((c) => hasSurvey(m, c, surveyPhase)) : null;
+  const tabs: { key: Tab; label: string; count?: number; alert?: boolean; done?: boolean }[] = [
     { key: "overview", label: "Overview" },
-    { key: "survey", label: "Survey", count: m.containers.length || undefined, alert: true },
+    { key: "survey", label: "Survey", count: m.containers.length || undefined, alert: surveyDone === false, done: surveyDone === true },
     { key: "shipman", label: "Shipment Management" },
   ];
 
@@ -124,7 +145,7 @@ export function GateJobView({ id }: { id: string }) {
       type="button"
       className={primary ? btnPrimary : btnDefault}
       title={at ? `${label} stamped ${formatDateTime(at)}` : undefined}
-      onClick={() => doStamp(kind, label, at)}
+      onClick={() => pickStamp(kind, label, at)}
     >
       {label}
     </button>
@@ -160,9 +181,12 @@ export function GateJobView({ id }: { id: string }) {
             >
               Create Label
             </button>
-            {stampButton("expReceipt", "WH receipt", m.expReceipt)}
+            {/* Stamps in process order: arrival, export receipts, release, departure. */}
+            {stampButton("gateIn", "Gate-in", m.gateIn)}
             {stampButton("expDraft", "WH Draft Receipt", m.expDraft)}
+            {stampButton("expReceipt", "WH receipt", m.expReceipt)}
             {stampButton("impRelease", "WH release", m.impRelease, true)}
+            {stampButton("gateOut", "Gate-out", m.gateOut)}
             <Dropdown
               trigger={["click"]}
               menu={{
@@ -196,8 +220,13 @@ export function GateJobView({ id }: { id: string }) {
             >
               {t.label}
               {t.alert && (
-                <span className="ml-1 font-bold text-red-600" aria-hidden>
+                <span className="ml-1 font-bold text-red-600" title="Survey missing" aria-label="Survey missing">
                   !
+                </span>
+              )}
+              {t.done && (
+                <span className="ml-1 font-bold text-emerald-600" title="Surveys done" aria-label="Surveys done">
+                  ✓
                 </span>
               )}
               {t.count ? (
@@ -231,11 +260,43 @@ export function GateJobView({ id }: { id: string }) {
                 .catch((e) => toast.error(errorMessage(e, "Failed to ask for the MRN")))
             }
             requestingMrn={requestMrn.isPending}
+            refuse={(reason) =>
+              refuse
+                .mutateAsync(reason)
+                .then(() => toast.success("Refused — logged on the movement"))
+                .catch((e) => {
+                  toast.error(errorMessage(e, "Failed to refuse"));
+                  throw e;
+                })
+            }
+            override={(reason) =>
+              override
+                .mutateAsync(reason)
+                .then(() => toast.success("Release armed by supervisor override — logged on the movement"))
+                .catch((e) => {
+                  toast.error(errorMessage(e, "Failed to override"));
+                  throw e;
+                })
+            }
           />
         )}
         {tab === "survey" && <SurveyTab m={m} saveSurvey={(survey) => saveSurvey.mutateAsync(survey)} />}
         {tab === "shipman" && <ShipmentManagementTab m={m} save={save} />}
       </div>
+
+      {confirmStamp && (
+        <ConfirmModal
+          open
+          onClose={() => setConfirmStamp(null)}
+          onConfirm={() => doStamp(confirmStamp.kind, confirmStamp.label)}
+          title={confirmStamp.label}
+          description={`Stamp the ${confirmStamp.label} on ${m.gateRef}? The stamp cannot be taken back${
+            writesBack(confirmStamp.kind) ? ` and sets the linked shipment's ${writesBack(confirmStamp.kind)} (if any)` : ""
+          }.`}
+          confirmLabel={confirmStamp.label}
+          loading={stamp.isPending}
+        />
+      )}
 
       <ConfirmModal
         open={deleteOpen}

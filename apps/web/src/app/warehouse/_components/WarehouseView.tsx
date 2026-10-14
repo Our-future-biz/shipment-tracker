@@ -26,6 +26,7 @@ import { ReadmeTab } from "./tabs/ReadmeTab";
 import { ShipmentImportPicker, type ImportMode } from "./ShipmentImportPicker";
 import { RemeasurementTab } from "./tabs/RemeasurementTab";
 import { remeasurementHref } from "./remeasurementLinks";
+import { reportBulk, runBulk } from "./tabs/shared";
 
 // The Warehouse module works with its own data: a position (WCZ reference) and the record
 // on its gate movement. "Create new" either copies job or quote values in once (a position
@@ -264,16 +265,12 @@ export const WarehouseView = () => {
   const handleRemove = async () => {
     if (!removeRows) return;
     setRemoving(true);
-    try {
-      await Promise.all(removeRows.rows.map((r) => deleteTask(r.task.id)));
-      toast.success(`Removed ${removeRows.rows.length} position${removeRows.rows.length === 1 ? "" : "s"} from the warehouse`);
-      removeRows.clear();
-      setRemoveRows(null);
-    } catch {
-      toast.error("Failed to remove from the warehouse");
-    } finally {
-      setRemoving(false);
-    }
+    // Row by row: a failure does not stop the rest, and the toast says which ones did not go.
+    const result = await runBulk(removeRows.rows, (r) => deleteTask(r.task.id));
+    setRemoving(false);
+    reportBulk(toast, result, { verb: "Removed from the warehouse:", nouns: ["position", "positions"], label: (r) => r.task.taskId });
+    if (result.failed.length === 0) removeRows.clear();
+    setRemoveRows(null);
   };
 
   const { items: stockLines } = useStockLines();

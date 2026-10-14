@@ -1,6 +1,7 @@
-import { and, desc, eq, isNull, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, isNotNull, lt, sql, type SQL } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
-import { gateMovementTable, type GateMovementRecord, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
+import { gateMovementTable, type GateEvent, type GateMovementRecord, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
 import { warehouseTaskTable } from "../schemas/warehouseTask.schema";
 
 // Gate rows come back with the linked warehouse reference (WCZ…) of their task.
@@ -98,6 +99,48 @@ class GateMovementRepository {
       .where(and(eq(gateMovementTable.id, id), liveRow(companyId)))
       .returning();
     return row ?? null;
+  }
+
+  // One conditional UPDATE: sets `set` and appends `events` to the log in SQL, only while
+  // `cond` still holds. Null when no live row matched, so two clerks racing on the same
+  // stamp cannot both win and no event is lost to a read-modify-write.
+  // `events` is a list of events, or SQL that yields a jsonb array.
+  async conditionalUpdate(
+    id: string,
+    companyId: string,
+    set: PgUpdateSetSource<typeof gateMovementTable>,
+    events?: GateEvent[] | SQL,
+    cond?: SQL,
+  ): Promise<GateMovementRecord | null> {
+    const t = gateMovementTable;
+    const append = events === undefined ? null : Array.isArray(events) ? sql`${JSON.stringify(events)}::jsonb` : events;
+    const [row] = await db
+      .update(t)
+      .set({ ...set, ...(append ? { events: sql`${t.events} || ${append}` } : {}), updatedAt: new Date() })
+      .where(and(eq(t.id, id), liveRow(companyId), cond))
+      .returning();
+    return row ?? null;
+  }
+
+  // Takes one PIN try before the PIN is checked, only while tries are left, so parallel
+  // wrong guesses cannot get more than `max` tries. Null when there is no PIN or no try left.
+  async takePinTry(id: string, companyId: string, max: number) {
+    const t = gateMovementTable;
+    const [row] = await db
+      .update(t)
+      .set({ pinTries: sql`${t.pinTries} + 1`, updatedAt: new Date() })
+      .where(and(eq(t.id, id), liveRow(companyId), isNotNull(t.pinHash), lt(t.pinTries, max)))
+      .returning({ pinHash: t.pinHash, pinTries: t.pinTries });
+    return row?.pinHash ? { pinHash: row.pinHash, pinTries: row.pinTries } : null;
+  }
+
+  // A matching PIN gives its try back.
+  async refundPinTry(id: string, companyId: string) {
+    const t = gateMovementTable;
+    await db
+      .update(t)
+      .set({ pinTries: sql`GREATEST(${t.pinTries} - 1, 0)` })
+      .where(and(eq(t.id, id), liveRow(companyId)));
   }
 
   async softDelete(id: string, companyId: string) {

@@ -63,6 +63,13 @@ describe("claims", () => {
     await svc.deleteClaim(b.id, c);
     expect((await svc.createClaim(c, {}, now)).ref).toBe("CL-26-0003");
   });
+
+  it("never repeat when created at the same time", async () => {
+    const c = randomUUID();
+    const now = new Date("2026-09-16T10:00:00Z");
+    const claims = await Promise.all(Array.from({ length: 10 }, () => svc.createClaim(c, {}, now)));
+    expect(claims.map((x) => x.ref).sort()).toEqual(Array.from({ length: 10 }, (_, i) => `CL-26-${String(i + 1).padStart(4, "0")}`));
+  });
 });
 
 describe("report summary", () => {

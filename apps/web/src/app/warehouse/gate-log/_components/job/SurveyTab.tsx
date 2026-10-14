@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Button, Input, InputNumber, Modal, Select, Tag } from "antd";
+import { Button, Input, InputNumber, Modal, Segmented, Select, Tag } from "antd";
 import { CameraOutlined, DeleteOutlined, FileSearchOutlined, PlusOutlined, PrinterOutlined } from "@ant-design/icons";
 import { useGateFiles, useGateFileUrl, type GateFile, type GateMovement } from "@/hooks/useGateLog";
 import { useWarehouseContainers } from "@/hooks/useWarehouseRecords";
@@ -13,9 +13,13 @@ import {
   EXPECTED_FILE_BYTES,
   INNER_FLAGS,
   OUTER_PACKINGS,
-  SURVEY_PHASES,
   VISUAL_FLAGS,
   errorMessage,
+  hasSurvey,
+  requiredSurveyPhase,
+  surveyPhaseKey,
+  surveyPhaseOf,
+  type SurveyPhaseKey,
 } from "../../_lib/gate";
 import { fmtSize, Section } from "./fields";
 
@@ -26,16 +30,24 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const ACCEPT = "image/*,application/pdf,.tif,.tiff,.doc,.docx,.xls,.xlsx,.txt,.csv";
 
 const blankLine = (): SurveyLine => ({ qty: null, outerPacking: "", visual: [], inner: [] });
-const blankSurvey = (container: string): SurveyInput => ({
+const blankSurvey = (container: string, phase: SurveyPhaseKey): SurveyInput => ({
   container,
-  phase: SURVEY_PHASES[0]!,
+  phase: surveyPhaseOf(phase),
   damaged: 0,
   lost: 0,
   lines: [blankLine()],
   driverNote: "",
   warehouseNote: "",
 });
-const pickInput = ({ surveyedAt: _at, surveyedBy: _by, ...input }: interfaces.GateSurvey): SurveyInput => input;
+// The phase is written in its current wording, so a legacy "Both" survey saves back as receipt.
+const pickInput = ({ surveyedAt: _at, surveyedBy: _by, ...input }: interfaces.GateSurvey): SurveyInput => ({
+  ...input,
+  phase: surveyPhaseOf(surveyPhaseKey(input.phase)),
+});
+const PHASE_OPTIONS = [
+  { value: "receipt", label: "Receipt — gate in" },
+  { value: "release", label: "Release — gate out" },
+];
 
 const isImage = (f: GateFile) => f.fileType.startsWith("image/");
 // A line counts as filled once it has a number of packages and an outer packing.
@@ -59,6 +71,8 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
   // Containers live in the warehouse container register; adding one here registers it on this position.
   const { create: addContainer } = useWarehouseContainers();
   const [container, setContainer] = useState(m.containers[0]?.number ?? "");
+  // Receipt and release are separate passes per container; opens on the pass due now.
+  const [phase, setPhase] = useState<SurveyPhaseKey>(requiredSurveyPhase(m) ?? "receipt");
   const [dialogOpen, setDialogOpen] = useState(false);
   const photosRef = useRef<HTMLDivElement>(null);
 
@@ -67,14 +81,15 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
     if (container && !m.containers.some((c) => c.number === container)) setContainer(m.containers[0]?.number ?? "");
   }, [m.containers, container]);
 
-  const stored = m.surveys.find((s) => s.container === container);
-  const [draft, setDraft] = useState<SurveyInput>(stored ? pickInput(stored) : blankSurvey(container));
+  const findStored = (c: string, p: SurveyPhaseKey) => m.surveys.find((s) => s.container === c && surveyPhaseKey(s.phase) === p);
+  const stored = findStored(container, phase);
+  const [draft, setDraft] = useState<SurveyInput>(stored ? pickInput(stored) : blankSurvey(container, phase));
   useEffect(() => {
-    const s = m.surveys.find((x) => x.container === container);
-    setDraft(s ? pickInput(s) : blankSurvey(container));
-    // Reset only when switching container; own saves echo back the same values.
+    const s = findStored(container, phase);
+    setDraft(s ? pickInput(s) : blankSurvey(container, phase));
+    // Reset only when switching container or pass; own saves echo back the same values.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [container]);
+  }, [container, phase]);
 
   const pieces = m.colli;
   const persist = (next: SurveyInput) => {
@@ -87,7 +102,7 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
     else setDraft(next);
   };
 
-  const surveyedCount = m.containers.filter((c) => m.surveys.some((s) => s.container === c.number)).length;
+  const surveyedCount = m.containers.filter((c) => hasSurvey(m, c.number, phase)).length;
   const flagCount = draft.lines.reduce((a, l) => a + l.visual.length, 0);
   const containerPhotos = files.filter((f) => isImage(f) && f.container === container).length;
   const canAddLine = draft.lines.length > 0 && lineFilled(draft.lines[draft.lines.length - 1]!);
@@ -111,12 +126,12 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
       table{border-collapse:collapse;width:100%;margin-top:16px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid #e2e8f0;vertical-align:top}
       th{color:#64748b;font-size:11px;text-transform:uppercase}.kv th{width:220px}.sig{display:flex;gap:24px;margin-top:48px}
       .sig div{flex:1;border-top:1px solid #1e293b;padding-top:6px}</style></head><body>
-      <h1>${escapeHtml(m.gateRef)} — Cargo survey</h1>
+      <h1>${escapeHtml(m.gateRef)} — Cargo survey (${phase === "release" ? "release" : "receipt"})</h1>
       <div>Customer ${escapeHtml(m.customer || "—")} · Container ${escapeHtml(container || "position level")}</div>
       <table class="kv">
-        ${row("Receipt / release", draft.phase)}
-        ${row("Damaged pieces", `${draft.damaged} of ${pieces}`)}
-        ${row("Lost / missing pieces", `${draft.lost} of ${pieces}`)}
+        ${row("Survey pass", draft.phase)}
+        ${row("Damaged pieces", pieces > 0 ? `${draft.damaged} of ${pieces}` : `${draft.damaged} (pieces unknown)`)}
+        ${row("Lost / missing pieces", pieces > 0 ? `${draft.lost} of ${pieces}` : `${draft.lost} (pieces unknown)`)}
       </table>
       <table><thead><tr><th>Number</th><th>Outer packing</th><th>Visual condition</th><th>Inner content</th></tr></thead><tbody>${lines}</tbody></table>
       <table class="kv">
@@ -155,12 +170,20 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
             <span className={label}>Container</span>
             <span className="font-mono font-semibold text-[13px] text-slate-900">{container || "Position level"}</span>
             <span className="text-xs text-slate-400">
-              {m.containers.length ? `· ${surveyedCount} of ${m.containers.length} surveyed` : "· no container recorded"}
+              {m.containers.length ? `· ${surveyedCount} of ${m.containers.length} surveyed on ${phase}` : "· no container recorded"}
             </span>
           </div>
           <Button size="small" type="link" className="!px-0" onClick={() => setDialogOpen(true)}>
             {m.containers.length ? "Change container" : "Add container"}
           </Button>
+          <Segmented
+            size="small"
+            className="ml-auto"
+            aria-label="Survey pass"
+            value={phase}
+            options={PHASE_OPTIONS}
+            onChange={(v) => setPhase(v as SurveyPhaseKey)}
+          />
         </div>
 
         {/* survey result */}
@@ -176,14 +199,8 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
               <PieceInput value={draft.lost} max={pieces} onSave={(v) => persist({ ...draft, lost: v })} />
             </div>
             <div>
-              <div className="text-xs text-slate-500 mb-1">Receipt / release</div>
-              <Select
-                size="small"
-                className="w-full max-w-[260px]"
-                value={draft.phase}
-                options={SURVEY_PHASES.map((p) => ({ value: p, label: p }))}
-                onChange={(v) => persist({ ...draft, phase: v })}
-              />
+              <div className="text-xs text-slate-500 mb-1">Survey pass</div>
+              <div className="text-xs font-semibold text-slate-800 py-1">{draft.phase}</div>
             </div>
           </div>
         </div>
@@ -341,7 +358,8 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
       <ContainerDialog
         open={dialogOpen}
         containers={m.containers}
-        surveys={m.surveys}
+        surveyed={(number) => hasSurvey(m, number, phase)}
+        phase={phase}
         current={container}
         onClose={() => setDialogOpen(false)}
         onOpen={(number) => {
@@ -379,28 +397,31 @@ function FlagSelect({ value, options, tone, onChange }: { value: string[]; optio
   );
 }
 
+// Capped at the piece count only when it is known (> 0); with no count, damage and
+// shortage can still be recorded (same rule as the server).
 function PieceInput({ value, max, onSave }: { value: number; max: number; onSave: (v: number) => void }) {
   const [draft, setDraft] = useState<number | null>(value);
   useEffect(() => setDraft(value), [value]);
+  const known = max > 0;
   return (
     <span className="inline-flex items-center gap-2">
       <InputNumber
         size="small"
         min={0}
-        max={max}
+        max={known ? max : undefined}
+        precision={0}
         controls={false}
         className="w-[90px] font-mono"
         value={draft}
         onChange={(v) => setDraft(v == null ? null : Number(v))}
         onBlur={() => {
-          const n = Math.max(0, Math.min(Math.floor(draft ?? 0), max));
-          setDraft(n);
-          if (n !== value) onSave(n);
+          const n = Math.max(0, Math.floor(draft ?? 0));
+          const capped = known ? Math.min(n, max) : n;
+          setDraft(capped);
+          if (capped !== value) onSave(capped);
         }}
       />
-      <span className="text-xs text-slate-400">
-        of {max} piece{max === 1 ? "" : "s"}
-      </span>
+      <span className="text-xs text-slate-400">{known ? `of ${max} piece${max === 1 ? "" : "s"}` : "pieces unknown"}</span>
     </span>
   );
 }
@@ -577,7 +598,8 @@ function FileCard({ movementId, file, onDelete }: { movementId: string; file: Ga
 function ContainerDialog({
   open,
   containers,
-  surveys,
+  surveyed,
+  phase,
   current,
   onClose,
   onOpen,
@@ -585,7 +607,8 @@ function ContainerDialog({
 }: {
   open: boolean;
   containers: interfaces.GateContainer[];
-  surveys: interfaces.GateSurvey[];
+  surveyed: (number: string) => boolean;
+  phase: SurveyPhaseKey;
   current: string;
   onClose: () => void;
   onOpen: (number: string) => void;
@@ -630,7 +653,7 @@ function ContainerDialog({
           >
             <span className="font-mono font-semibold text-[13px] flex-1 text-slate-900">{c.number}</span>
             <span className="text-xs text-slate-400">
-              {c.type} · {surveys.some((s) => s.container === c.number) ? "surveyed" : "survey pending"}
+              {c.type} · {phase} {surveyed(c.number) ? "surveyed" : "survey pending"}
             </span>
           </button>
         ))}

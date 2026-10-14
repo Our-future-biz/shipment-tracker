@@ -135,7 +135,8 @@ export const gateMovementTable = pgTable(
     // CFS haulage paperwork.
     cfsCustomsNumber: text("cfs_customs_number").notNull().default(""),
     cfsCustomsProcedure: text("cfs_customs_procedure").notNull().default(""),
-    // Release set by hand in the gate log: "Released" | "Blocked" ("" = follow the release gates).
+    // Legacy: release once picked by hand in the gate log. No longer read or written — release
+    // follows the release gates only (migration 0013 cleared the values and logged them).
     releaseStatus: text("release_status").notNull().default(""),
     overridden: boolean("overridden").notNull().default(false),
     refusalLog: text("refusal_log").notNull().default(""),

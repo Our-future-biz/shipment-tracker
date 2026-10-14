@@ -8,10 +8,11 @@ import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
 import { api } from "@/lib/api";
-import { useGateLog, type GateMovement } from "@/hooks/useGateLog";
+import { useGateLog, type GateMovement, type GateStampKind } from "@/hooks/useGateLog";
 import { getCellConditionalStyle } from "@/lib/columnConfig";
+import { reportBulk, runBulk } from "@/app/warehouse/_components/tabs/shared";
 import {
-  errorMessage,
+  CUSTOMS_CLEARED,
   CUSTOMS_STATUSES,
   GATE_STATUSES,
   HANDLINGS,
@@ -33,6 +34,10 @@ const tint = (column: string, value: string) => {
   const bg = getCellConditionalStyle(column, value, {})?.backgroundColor;
   return bg ? { style: { backgroundImage: `linear-gradient(${bg}, ${bg})` } } : {};
 };
+// Same rule as the server's "Need attention": an MRN is only missing on outgoing cargo
+// (výdej) whose customs status is not cleared yet and that has not left; anywhere else no MRN is fine.
+const mrnMissing = (r: GateMovement) =>
+  r.visit === "výdej" && !r.impRelease && !r.gateOut && r.customsStatus !== CUSTOMS_CLEARED && (!r.mrn.trim() || r.mrn === "—");
 const releaseText = (r: GateMovement) => (r.visit !== "výdej" ? "n/a — příjem" : r.armed ? "ARMED" : "NOT armed");
 
 // Default columns in the order of the gate desk sketch; the rest are behind Columns.
@@ -54,7 +59,14 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
     width: 170,
    
     text: (r) => r.mrn,
-    render: (_, r) => (r.mrn && r.mrn !== "—" ? <span className="text-slate-600 font-mono">{r.mrn}</span> : <span className="text-red-500 font-medium">missing</span>),
+    render: (_, r) =>
+      r.mrn.trim() && r.mrn !== "—" ? (
+        <span className="text-slate-600 font-mono">{r.mrn}</span>
+      ) : mrnMissing(r) ? (
+        <span className="text-red-500 font-medium">missing</span>
+      ) : (
+        dim("")
+      ),
   },
   {
     key: "customsStatus",
@@ -91,20 +103,30 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
 
 // Overview bubbles in the title row, in the same format as the Shipments overview tiles.
 const BUBBLES: { id: BubbleId; label: string; hint: string; danger?: boolean; match: (m: GateMovement) => boolean }[] = [
-  { id: "attention", label: "Need attention", hint: "Missing release · missing MRN", danger: true, match: (m) => m.needsAttention },
+  { id: "attention", label: "Need attention", hint: "Outgoing: release blocked · MRN missing while customs not cleared", danger: true, match: (m) => m.needsAttention },
   { id: "lcl", label: "Consol shipments", hint: "LCL consolidation movements", match: (m) => isLcl(m.operationType) },
   { id: "fcl", label: "FCL shipments", hint: "FCL stuffing · stripping · transload", match: (m) => isFcl(m.operationType) },
 ];
 
 // The toolbar stamp buttons: the same stamps as the buttons in the gate job header, applied to the
-// rows selected in the grid. A movement already stamped is skipped, and the release also
-// needs the movement to be armed (every release gate OK, or overridden on its job).
-type StampAction = { kind: "expReceipt" | "expDraft" | "impRelease"; label: string; needsArmed?: boolean; primary?: boolean; skipHint: string };
+// rows selected in the grid, in process order. A movement already stamped is skipped, the
+// WH receipt needs the draft receipt first, and the release needs the movement to be armed
+// (every release gate OK, or overridden on its job). Outgoing cargo (výdej) leaves only
+// through WH release, which stamps its gate-out too, so its own Gate-out is skipped.
+// `shipment` says what the stamp writes to the linked shipment, for the confirmation.
+type StampAction = { kind: GateStampKind; label: string; ready?: (m: GateMovement) => boolean; primary?: boolean; skipHint: string; shipment?: string };
 
 const STAMP_ACTIONS: StampAction[] = [
-  { kind: "expReceipt", label: "WH receipt", skipHint: "already stamped" },
-  { kind: "expDraft", label: "WH Draft Receipt", skipHint: "already stamped" },
-  { kind: "impRelease", label: "WH release", needsArmed: true, primary: true, skipHint: "already released or not armed" },
+  { kind: "gateIn", label: "Gate-in", skipHint: "already gated in", shipment: "received date" },
+  { kind: "expDraft", label: "WH Draft Receipt", skipHint: "already stamped", shipment: "received date, if not gated in yet" },
+  { kind: "expReceipt", label: "WH receipt", ready: (m) => !!m.expDraft, skipHint: "already stamped or without a draft receipt" },
+  { kind: "impRelease", label: "WH release", ready: (m) => m.armed, primary: true, skipHint: "already released or not armed", shipment: "released date and plate" },
+  {
+    kind: "gateOut",
+    label: "Gate-out",
+    ready: (m) => m.visit !== "výdej" || !!m.impRelease,
+    skipHint: "already gated out, or outgoing and not released yet (WH release stamps its gate-out)",
+  },
 ];
 
 // The gate clerk's workstation: one row per expected movement, on the app's standard grid.
@@ -127,21 +149,17 @@ export function GateLogView() {
   const onSelectionChange = useCallback((rows: GateMovement[], clear: () => void) => setSelection({ rows, clear }), []);
 
   // Each action stamps the selected movements, the same stamp as the button in the job header.
-  const eligible = (a: StampAction) => selection.rows.filter((m) => !m[a.kind] && (!a.needsArmed || m.armed));
+  const eligible = (a: StampAction) => selection.rows.filter((m) => !m[a.kind] && (!a.ready || a.ready(m)));
+  // Stamps row by row: one rejected movement does not stop the others, and the toast reports
+  // how many were stamped and why the rest were not. Failed rows stay ticked to retry.
   const runStamp = async (a: StampAction) => {
-    const rows = eligible(a);
     setStamping(true);
-    try {
-      await Promise.all(rows.map((m) => api.warehouse.gateMovementStamp(m.id, { kind: a.kind })));
-      await queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
-      toast.success(`${a.label} stamped on ${rows.length} movement${rows.length === 1 ? "" : "s"} — filed to Documents`);
-      selection.clear();
-      setStampAction(null);
-    } catch (e) {
-      toast.error(errorMessage(e, `Failed to stamp ${a.label}`));
-    } finally {
-      setStamping(false);
-    }
+    const result = await runBulk(eligible(a), (m) => api.warehouse.gateMovementStamp(m.id, { kind: a.kind }));
+    await queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+    setStamping(false);
+    setStampAction(null);
+    reportBulk(toast, result, { verb: `${a.label} stamped on`, nouns: ["movement", "movements"], label: (m) => m.gateRef });
+    if (result.failed.length === 0) selection.clear();
   };
 
   const pick = (a: StampAction) => {
@@ -245,7 +263,7 @@ export function GateLogView() {
               selection.rows.length - eligible(stampAction).length > 0
                 ? ` ${selection.rows.length - eligible(stampAction).length} selected movement(s) are skipped (${stampAction.skipHint}).`
                 : ""
-            } The stamp is filed to Documents and cannot be taken back.`}
+            } The stamp cannot be taken back${stampAction.shipment ? ` and sets the linked shipment's ${stampAction.shipment} (if any)` : ""}.`}
             confirmLabel={stampAction.label}
             loading={stamping}
           />

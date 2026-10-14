@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import dayjs from "dayjs";
-import { Input, Tag } from "antd";
+import { Input } from "antd";
 import {
   CarOutlined,
   CheckSquareOutlined,
@@ -13,15 +13,16 @@ import type { GateMovement } from "@/hooks/useGateLog";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import {
+  Badge,
   CUSTOMS_MODES,
   CUSTOMS_STATUSES,
   FREIGHT_MODES,
-  GATE_STATUSES,
   HANDLINGS,
   LOAD_TYPES,
   PACKINGS,
-  RELEASE_STATUSES,
+  STATUS_TONE,
 } from "../../_lib/gate";
+import { ReleaseGatesPanel, releaseState } from "./ReleaseGatesPanel";
 import {
   btnInline,
   FieldRow,
@@ -96,6 +97,8 @@ export function OverviewTab({
   requesting,
   requestMrn,
   requestingMrn,
+  refuse,
+  override,
 }: {
   m: GateMovement;
   save: Save;
@@ -104,11 +107,11 @@ export function OverviewTab({
   requesting: boolean;
   requestMrn: () => void;
   requestingMrn: boolean;
+  refuse: (reason: string) => Promise<unknown>;
+  override: (reason: string) => Promise<unknown>;
 }) {
-  // Release follows the release gates: green once they are all OK (or overridden), red until then.
-  const release = m.armed
-    ? { color: "green", label: "Released" }
-    : { color: "red", label: "Blocked" };
+  // Release follows the release gates (see the Release gates card); nothing here sets it by hand.
+  const release = releaseState(m);
 
   // Last "Ask for …" on this movement, shown next to its button.
   const lastOf = (kind: string) => [...m.events].reverse().find((e) => e.kind === kind);
@@ -217,18 +220,9 @@ export function OverviewTab({
                 </FieldRow>
               </div>
               <div>
+                {/* Status moves only through the stamps, Refuse and the supervisor override. */}
                 <FieldRow label="Shipment status">
-                  {m.status === "Refused" ? (
-                    <Tag color="red" className="m-0 !text-[11px] !font-semibold">
-                      {m.status}
-                    </Tag>
-                  ) : (
-                    <InlineSelect
-                      value={m.status}
-                      options={GATE_STATUSES}
-                      onSave={(status) => save({ status })}
-                    />
-                  )}
+                  <Badge tone={STATUS_TONE[m.status] ?? ""}>{m.status || "—"}</Badge>
                 </FieldRow>
                 <FieldRow label="Customs status">
                   <InlineSelect
@@ -238,16 +232,12 @@ export function OverviewTab({
                     onSave={(v) => save({ customsStatus: v })}
                   />
                 </FieldRow>
-                <FieldRow label="Release Status">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`w-2 h-2 rounded-full shrink-0 ${release.color === "green" ? "bg-emerald-500" : "bg-red-500"}`}
-                    />
-                    <InlineSelect
-                      value={release.label}
-                      options={RELEASE_STATUSES}
-                      onSave={(v) => save({ releaseStatus: v })}
-                    />
+                <FieldRow label="Release">
+                  <div className="flex flex-col gap-0.5 min-w-0">
+                    <Badge tone={release.tone} className="self-start">
+                      {release.label}
+                    </Badge>
+                    {release.detail && <span className="text-[11px] text-slate-500 break-words">{release.detail} · see Release gates</span>}
                   </div>
                 </FieldRow>
                 <FieldRow label="Ask for release">
@@ -441,6 +431,9 @@ export function OverviewTab({
         </div>
 
         <div className="space-y-5 min-w-0">
+          {/* ============ release gates ============ */}
+          <ReleaseGatesPanel m={m} refuse={refuse} override={override} />
+
           {/* ============ gate checklist ============ */}
           <Section title="Gate checklist" icon={<CheckSquareOutlined />}>
             <div className="grid grid-cols-5 gap-2">

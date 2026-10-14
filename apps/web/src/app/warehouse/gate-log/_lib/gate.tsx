@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { APIError } from "@/lib/api/client";
+import { APIError, type interfaces } from "@/lib/api/client";
 
 // Values and colour rules taken from the Warehouse prototype (v0.6, Gate Log).
 
@@ -27,17 +27,30 @@ export const CUSTOMS_CLEARED = "Customs Cleared/Released";
 export const PACKINGS = ["Pallet(s)", "Cartons", "Colli", "Boxes", "Wooden boxes", "Drums"];
 export const FREIGHT_MODES = ["Air Freight", "Sea Freight", "Rail Freight", "Road Freight"];
 export const LOAD_TYPES = ["Full Load", "Consolidation", "Project Shipment"];
-export const SURVEY_PHASES = ["Receipt — survey on gate in", "Release — survey on gate out", "Both"];
+// Each container is surveyed once on receipt and once on release; the two passes are kept apart.
+// Surveys stored with the old "Both" phase count as the receipt pass (same rule as the server).
+export const SURVEY_PHASES = ["Receipt — survey on gate in", "Release — survey on gate out"] as const;
+export type SurveyPhaseKey = "receipt" | "release";
+export const surveyPhaseKey = (phase: string): SurveyPhaseKey => (/^Release/.test(phase) ? "release" : "receipt");
+export const surveyPhaseOf = (key: SurveyPhaseKey) => SURVEY_PHASES[key === "release" ? 1 : 0];
+
+type SurveyState = Pick<interfaces.GateMovementItem, "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt" | "containers" | "surveys">;
+// The survey pass due now: release once the cargo is released or gated out, receipt once it has
+// arrived (gate-in or an export receipt), none before arrival.
+export const requiredSurveyPhase = (m: SurveyState): SurveyPhaseKey | null =>
+  m.impRelease || m.gateOut ? "release" : m.gateIn || m.expDraft || m.expReceipt ? "receipt" : null;
+// Every container (or the position itself when none is recorded) needs a survey for that pass.
+export const surveyTargets = (m: SurveyState) => (m.containers.length ? m.containers.map((c) => c.number) : [""]);
+export const hasSurvey = (m: SurveyState, container: string, phase: SurveyPhaseKey) =>
+  m.surveys.some((s) => s.container === container && surveyPhaseKey(s.phase) === phase);
 export const OUTER_PACKINGS = ["Cartons", "Case", "Barrel", "Sack", "Pallets", "Unpacked"];
 export const VISUAL_FLAGS = ["Broken", "Dented", "Hole in", "Torn", "Wet", "Bad loose", "Open"];
 export const INNER_FLAGS = ["Soiled", "Pour out", "Unidentified", "Not visible", "Accessible"];
 export const CONTAINER_TYPES = ["20' DV", "40' DV", "40' HC", "45' HC", "20' OT", "40' FR"];
 export const MAX_DROPS = 10;
 export const EXPECTED_FILE_BYTES = 20 * 1000 * 1000;
-// The movement's own status. Refused is set by the gate refusal, not picked by hand.
+// The movement's own status. It moves only through the stamps, Refuse and the supervisor override.
 export const GATE_STATUSES = ["Expected", "In Warehouse", "Released"];
-// Release status picked by hand in the gate log.
-export const RELEASE_STATUSES = ["Blocked", "Released"];
 export const RELEASE_STATES = ["OK", "Pending", "Blocked"] as const;
 
 // Badge tones: g green · a amber · r red · b blue · i indigo · "" grey.

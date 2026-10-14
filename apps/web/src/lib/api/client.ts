@@ -3051,12 +3051,9 @@ export namespace controllers {
         carrier?: string
         driver?: string
         plate?: string
-        status?: string
         checklist?: interfaces.GateChecklist
-        releaseGates?: interfaces.GateReleaseLine[]
         cfsCustomsNumber?: string
         cfsCustomsProcedure?: string
-        releaseStatus?: string
         loadInDate?: string
         freeDays?: number | null
         note?: string
@@ -3110,12 +3107,9 @@ export namespace controllers {
         carrier?: string
         driver?: string
         plate?: string
-        status?: string
         checklist?: interfaces.GateChecklist
-        releaseGates?: interfaces.GateReleaseLine[]
         cfsCustomsNumber?: string
         cfsCustomsProcedure?: string
-        releaseStatus?: string
         loadInDate?: string
         freeDays?: number | null
         note?: string
@@ -4995,14 +4989,9 @@ export namespace interfaces {
         checklist: GateChecklist
         releaseGates: GateReleaseLine[]
         /**
-         * Follows the release gates (or an override) unless releaseStatus is set by hand.
+         * Follows the release gates; a refusal disarms, a supervisor override arms. Never set by hand.
          */
         armed: boolean
-
-        /**
-         * Release picked by hand in the gate log: "Released" | "Blocked" ("" = follow the gates).
-         */
-        releaseStatus: string
 
         needsAttention: boolean
         overridden: boolean
