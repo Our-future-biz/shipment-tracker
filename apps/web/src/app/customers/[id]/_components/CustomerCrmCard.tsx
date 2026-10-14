@@ -1,24 +1,17 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId } from "react";
 import { Select } from "antd";
 import { SectionCard } from "@/components/SectionCard";
-import { useCustomer } from "@/hooks/useCustomers";
 import type { CustomerItem } from "@/hooks/useCustomers";
-import type { controllers, interfaces } from "@/lib/api/client";
-import { useToast } from "@/lib/toast";
+import type { interfaces } from "@/lib/api/client";
 import { CURRENCIES } from "@/lib/enums";
 import { CUSTOMER_LABELS, CUSTOMER_STATUSES, PAYMENT_TERMS } from "../../_lib/constants";
 import { CustomerInfoRow } from "./CustomerInfoRow";
 import { EditableText } from "./EditableText";
-
-type CustomerPatch = controllers.CustomerUpdateRequest;
-
-interface PendingEdit {
-  patch: CustomerPatch;
-  // updatedAt of the row this save produced; null while the save is still on its way.
-  savedAt: string | null;
-}
+import { SELECT_PROPS, SELECT_WRAPPER_CLASS } from "./inlineSelect";
+import { useCustomerEdits } from "./useCustomerEdits";
+import type { CustomerPatch } from "./useCustomerEdits";
 
 const toOptions = (values: readonly string[]) => values.map((value) => ({ value, label: value }));
 
@@ -39,18 +32,6 @@ const PAYMENT_TERM_FIELDS = [
 
 type PaymentTermField = (typeof PAYMENT_TERM_FIELDS)[number]["field"];
 
-// Inline Selects fill the value slot of a row and use its 12px text. A borderless Select keeps 8px of inner
-// inset (padding + transparent border), so its wrapper pulls it back by as much: the text then lines up with the
-// plain values of the other rows, and the longest account type ("TARGET CUSTOMER") fits the 300px side column.
-// Borderless also means no hover or focus cue of its own, hence the background.
-const SELECT_WRAPPER_CLASS = "-ml-2";
-const SELECT_PROPS = {
-  size: "small",
-  variant: "borderless",
-  className:
-    "w-full rounded transition-colors hover:bg-slate-100 [&.ant-select-focused]:bg-slate-100 [&_.ant-select-selector]:!text-xs",
-  popupMatchSelectWidth: false,
-} as const;
 
 interface CustomerCrmCardProps {
   customer: CustomerItem;
@@ -58,30 +39,8 @@ interface CustomerCrmCardProps {
 
 // The one place where the CRM fields of a customer are edited. Every change saves itself.
 export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
-  const toast = useToast();
   const paymentTermsId = useId();
-  const { updateCustomer } = useCustomer(customer.id);
-  const [edits, setEdits] = useState<PendingEdit[]>([]);
-
-  // Show the user's choice at once: the server value only arrives after the save and the refetch that follows it,
-  // and the field would jump back to the old value in between. Every save is tracked on its own, so saves that
-  // overlap cannot hide or cancel one another. An edit stops applying by itself once the loaded row is at least
-  // as new as the row its save produced (both are ISO timestamps from the API, which compare correctly as text).
-  const isPending = (edit: PendingEdit) => edit.savedAt === null || customer.updatedAt < edit.savedAt;
-  const shown = edits.filter(isPending).reduce((row, edit) => ({ ...row, ...edit.patch }), customer);
-
-  const save = (patch: CustomerPatch) => {
-    const edit: PendingEdit = { patch, savedAt: null };
-    // Edits the loaded row has caught up with are dropped here, so the list never grows.
-    setEdits((current) => [...current.filter(isPending), edit]);
-    updateCustomer(patch).then(
-      (saved) => setEdits((current) => current.map((e) => (e === edit ? { ...edit, savedAt: saved.customer.updatedAt } : e))),
-      () => {
-        setEdits((current) => current.filter((e) => e !== edit));
-        toast.error("Failed to save");
-      },
-    );
-  };
+  const { shown, save } = useCustomerEdits(customer);
 
   // A customer always has payment terms — PREPAYMENT from the moment it is created — so they can
   // be changed to another option but not emptied.

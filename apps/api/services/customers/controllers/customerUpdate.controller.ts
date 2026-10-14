@@ -2,7 +2,7 @@ import { api } from "encore.dev/api";
 import type { MaxLen, Min, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { customerService } from "../services/customer.service";
-import type { CustomerItem, CustomerLabel, CustomerStatus } from "../interfaces/interfaces";
+import type { CustomerItem, CustomerLabel, CustomerStatus, RiskLevelOverride } from "../interfaces/interfaces";
 
 // The rollups (totalRevenue, totalProfit, totalShipments, lastActivityDate) are not here:
 // they are computed from shipments and written only through customerRollupsUpdate.
@@ -24,6 +24,13 @@ interface CustomerUpdateRequest {
   country?: string & MaxLen<100>;
   registeredAddress?: string & MaxLen<500>;
   nace?: string & MaxLen<500>;
+  /** yyyy-mm-dd, or "" to clear: the company age and stability follow it. */
+  registrationDate?: string & MaxLen<10>;
+  /** Company analysis set by hand; "" goes back to the value derived from the registry data. */
+  industry?: string & MaxLen<200>;
+  typicalCargo?: string & MaxLen<200>;
+  stability?: string & MaxLen<100>;
+  riskLevel?: RiskLevelOverride;
 }
 
 interface CustomerUpdateResponse {

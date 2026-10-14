@@ -3,7 +3,7 @@ import { auth } from "~encore/clients";
 import { customerRepository } from "../repositories/customer.repository";
 import type { CustomerListFilters } from "../repositories/customer.repository";
 import type { CustomerRecord, NewCustomerRecord } from "../schemas/customer.schema";
-import type { CustomerItem, CustomerLabel, CustomerPipelineItem, CustomerRollups, CustomerStatus, NewCustomerContact } from "../interfaces/interfaces";
+import type { CustomerItem, CustomerLabel, CustomerPipelineItem, CustomerRollups, CustomerStatus, NewCustomerContact, RiskLevelOverride } from "../interfaces/interfaces";
 import type { NewContactRecord } from "../schemas/contact.schema";
 import { iso } from "../../../lib/db/serialize";
 import { nameOf } from "../../../lib/userNames";
@@ -54,6 +54,11 @@ export interface CustomerPatch {
   country?: string;
   registeredAddress?: string;
   nace?: string;
+  registrationDate?: string;
+  industry?: string;
+  typicalCargo?: string;
+  stability?: string;
+  riskLevel?: RiskLevelOverride;
 }
 
 // Must match the "PREPAYMENT" option of the web app's payment-terms selects (customers/_lib/constants.ts).
@@ -162,8 +167,14 @@ class CustomerService {
   }
 
   async update(id: string, companyId: string, patch: CustomerPatch): Promise<CustomerItem> {
-    const { salesOwnerUserId, ...fields } = patch;
+    const { salesOwnerUserId, registrationDate, ...fields } = patch;
     const values: Partial<NewCustomerRecord> = definedOnly(fields);
+    // A date column: "" clears it, anything but a date is refused.
+    const regDate = dateInput(registrationDate, "registrationDate");
+    if (regDate !== undefined) values.registrationDate = regDate;
+    for (const key of ["industry", "typicalCargo", "stability"] as const) {
+      if (values[key] !== undefined) values[key] = values[key]!.trim();
+    }
     if (salesOwnerUserId !== undefined) Object.assign(values, await salesOwnerOf(salesOwnerUserId));
     const row = await customerRepository.updateForCompany(id, companyId, values);
     if (!row) throw APIError.notFound("Customer not found");

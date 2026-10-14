@@ -99,6 +99,13 @@
       "when": 1792010147121,
       "tag": "0013_customer_address",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792012452045,
+      "tag": "0014_company_analysis_overrides",
+      "breakpoints": true
     }
   ]
 }

@@ -16,6 +16,8 @@ export type ContactRole =
   | "Owner";
 /** Registered is the company's seat; the others are where invoices go and goods are picked up or delivered. */
 export type AddressType = "Registered" | "Billing" | "Pickup" | "Delivery" | "Warehouse";
+/** A risk level set by hand, or "" when it is derived from the registry data. */
+export type RiskLevelOverride = "" | "Low" | "Medium" | "High";
 export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";
 export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other";
 /** Credited = reversed by a credit note; like Paid, it no longer counts as owed. */
@@ -33,6 +35,11 @@ export interface CustomerItem {
   /** yyyy-mm-dd, or "" when unknown */
   registrationDate: string;
   nace: string;
+  /** Company analysis set by hand; "" where the derived value applies. */
+  industry: string;
+  typicalCargo: string;
+  stability: string;
+  riskLevel: RiskLevelOverride;
   dataSource: string;
   lastRegistryUpdate: string;
   status: CustomerStatus;

@@ -127,6 +127,21 @@ describe("sales owner", () => {
   });
 });
 
+describe("company analysis set by hand", () => {
+  it("stores the overrides trimmed and the registration date as a date, \"\" clearing it", async () => {
+    customers.updateForCompany.mockResolvedValue({ id: "c1", createdAt: now, updatedAt: now });
+    await customerService.update("c1", COMPANY, { industry: " Machinery ", riskLevel: "High", registrationDate: "1990-05-12" });
+    expect(customers.updateForCompany).toHaveBeenCalledWith("c1", COMPANY, { industry: "Machinery", riskLevel: "High", registrationDate: "1990-05-12" });
+    await customerService.update("c1", COMPANY, { registrationDate: "" });
+    expect(customers.updateForCompany).toHaveBeenLastCalledWith("c1", COMPANY, { registrationDate: null });
+  });
+
+  it("refuses a registration date that is not a date", async () => {
+    await expect(customerService.update("c1", COMPANY, { registrationDate: "12.5.1990" })).rejects.toThrow("registrationDate must be a date (yyyy-mm-dd)");
+    expect(customers.updateForCompany).not.toHaveBeenCalled();
+  });
+});
+
 describe("customerService.createManual", () => {
   const CONTACT = { firstName: " Hans ", lastName: "Müller", email: "hans.mueller@siemens.com" };
   const SIEMENS = {

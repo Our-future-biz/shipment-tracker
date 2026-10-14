@@ -2539,6 +2539,19 @@ export namespace controllers {
         country?: string
         registeredAddress?: string
         nace?: string
+        /**
+         * yyyy-mm-dd, or "" to clear: the company age and stability follow it.
+         */
+        registrationDate?: string
+
+        /**
+         * Company analysis set by hand; "" goes back to the value derived from the registry data.
+         */
+        industry?: string
+
+        typicalCargo?: string
+        stability?: string
+        riskLevel?: interfaces.RiskLevelOverride
     }
 
     export interface CustomerUpdateResponse {
@@ -4701,6 +4714,14 @@ export namespace interfaces {
         registrationDate: string
 
         nace: string
+        /**
+         * Company analysis set by hand; "" where the derived value applies.
+         */
+        industry: string
+
+        typicalCargo: string
+        stability: string
+        riskLevel: RiskLevelOverride
         dataSource: string
         lastRegistryUpdate: string
         status: CustomerStatus
@@ -5704,6 +5725,11 @@ export namespace interfaces {
         roePct: number
         reason: string
     }
+
+    /**
+     * A risk level set by hand, or "" when it is derived from the registry data.
+     */
+    export type RiskLevelOverride = "" | "Low" | "Medium" | "High"
 
     export interface RoeChange {
         id: string

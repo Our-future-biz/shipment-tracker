@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, integer, numeric, date, index, uniqueIndex, check, uuid } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
-import type { CustomerLabel, CustomerStatus } from "../interfaces/interfaces";
+import type { CustomerLabel, CustomerStatus, RiskLevelOverride } from "../interfaces/interfaces";
 
 export const customerTable = pgTable(
   "customer",
@@ -21,6 +21,11 @@ export const customerTable = pgTable(
     companyStatus: text("company_status").notNull().default(""),
     registrationDate: date("registration_date", { mode: "string" }),
     nace: text("nace").notNull().default(""),
+    // Company analysis typed in by hand: each overrides what is derived from the registry data; "" = derived.
+    industry: text("industry").notNull().default(""),
+    typicalCargo: text("typical_cargo").notNull().default(""),
+    stability: text("stability").notNull().default(""),
+    riskLevel: text("risk_level").$type<RiskLevelOverride>().notNull().default(""),
     dataSource: text("data_source").notNull().default("ARES"),
     lastRegistryUpdate: text("last_registry_update").notNull().default(""),
 
@@ -62,6 +67,7 @@ export const customerTable = pgTable(
       .where(sql`deleted_at IS NULL AND ico <> ''`),
     // Closed sets driven by UI selects — reject anything else at the DB level so a typo
     // can't silently drop a customer out of every status filter and KPI.
+    check("customer_risk_level_check", sql`${table.riskLevel} IN ('', 'Low', 'Medium', 'High')`),
     check("customer_status_check", sql`${table.status} IN ('Active', 'Prospect', 'Inactive')`),
     check(
       "customer_label_check",
