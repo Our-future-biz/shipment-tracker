@@ -20,6 +20,16 @@ export interface CostLine {
   value?: number;
 }
 
+// The ČNB rates (CZK per 1 unit) and company ROE % a quote is priced with. Live (today's)
+// until the quote is sent; stored on the quote when it is sent and never changed after.
+export interface QuoteFx {
+  date: string; // the date the rates are for
+  fixingDate: string | null; // the ČNB fixing used
+  roePct: number; // 100 = pure ČNB
+  rates: Record<string, number>;
+  lockedAt?: string; // set when the quote was sent
+}
+
 export interface TimelineEntry {
   status: string;
   substatus?: string;
@@ -75,6 +85,7 @@ export interface SalesQuoteData {
   validUntil?: string; // explicit expiry date (YYYY-MM-DD) picked from the calendar
   winProbability?: number;
   sentAt?: string;
+  fx?: QuoteFx; // stored when sent; see QuoteFx
   timeline?: TimelineEntry[];
 }
 

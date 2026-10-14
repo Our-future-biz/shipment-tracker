@@ -3,6 +3,8 @@
 import { Spin } from "antd";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { computeTotals, fmt, daysOpen } from "@/app/sales/_lib/salesQuote";
+import { useQuoteFx } from "@/app/sales/_lib/useQuoteFx";
+import { sellingByCurrency } from "@/app/customers/_lib/customerQuotes";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 
 type StageName = "Prospect" | "Qualified" | "Proposal" | "Won";
@@ -22,6 +24,7 @@ function stageForQuote(quote: SalesQuote): StageName | null {
 
 export function PipelineTab() {
   const { salesQuotes, isLoading } = useSalesQuotes();
+  const liveFx = useQuoteFx();
 
   if (isLoading) {
     return (
@@ -43,25 +46,16 @@ export function PipelineTab() {
     if (stage) byStage[stage].push(quote);
   }
 
-  const stageTotals: Record<StageName, number> = {
-    Prospect: 0,
-    Qualified: 0,
-    Proposal: 0,
-    Won: 0,
-  };
-
-  for (const stage of STAGES) {
-    stageTotals[stage.name] = byStage[stage.name].reduce(
-      (sum, quote) => sum + computeTotals(quote.data).selling,
-      0,
-    );
-  }
+  // Quotes are priced in their own currencies, so a stage is totalled per currency
+  // ("12,000 EUR · 3,000 USD") — never added up across them.
+  const stageTotals = Object.fromEntries(
+    STAGES.map((stage) => [stage.name, sellingByCurrency(byStage[stage.name], liveFx)]),
+  ) as Record<StageName, string>;
 
   return (
     <div>
       <div className="grid grid-cols-4 gap-3 mb-4">
         {STAGES.map((stage) => {
-          const currency = byStage[stage.name][0]?.data.currency;
           return (
             <div
               key={stage.name}
@@ -69,7 +63,7 @@ export function PipelineTab() {
             >
               <div className="text-[11px] text-slate-400 uppercase">{stage.name}</div>
               <div className="text-lg font-bold text-slate-800">
-                {fmt(stageTotals[stage.name], currency)}
+                {stageTotals[stage.name] || "—"}
               </div>
             </div>
           );
@@ -91,7 +85,7 @@ export function PipelineTab() {
                   <div className="text-xs text-slate-300">No quotes</div>
                 )}
                 {quotes.map((quote) => {
-                  const totals = computeTotals(quote.data);
+                  const totals = computeTotals(quote.data, liveFx);
                   const d = daysOpen(quote.data);
                   const origin = quote.data.origin || "—";
                   const destination = quote.data.destination || "—";

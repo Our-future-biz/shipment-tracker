@@ -1,5 +1,5 @@
 import type { interfaces } from "@/lib/api/client";
-import type { SalesQuoteData, CostLine } from "./types";
+import type { SalesQuoteData, CostLine, QuoteFx } from "./types";
 
 export interface SalesQuote {
   quoteNumber: string;
@@ -35,8 +35,39 @@ export function quoteFamily(quotes: SalesQuote[], ref: string): SalesQuote[] {
     .sort((a, b) => suffix(a) - suffix(b));
 }
 
-function sumLines(lines: CostLine[] | undefined): number {
-  return (lines ?? []).reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
+// CZK per 1 unit; CZK itself is 1. null when the rate is not known.
+function rateOf(currency: string, rates: Record<string, number> | undefined): number | null {
+  if (currency === "CZK") return 1;
+  const r = rates?.[currency];
+  return typeof r === "number" && r > 0 ? r : null;
+}
+
+/**
+ * Adds up lines in the quote currency. A line in another currency is converted through CZK
+ * at the ČNB rate; selling lines also get the company ROE % (a sell price made in another
+ * currency carries the FX buffer), buying lines never do. A line whose rate is unknown is
+ * left out — never counted at 1 — and its currency reported.
+ */
+function sumLines(lines: CostLine[] | undefined, quoteCurrency: string, fx: QuoteFx | undefined, selling: boolean) {
+  let total = 0;
+  const unconverted = new Set<string>();
+  for (const l of lines ?? []) {
+    const amount = Number(l.amount) || 0;
+    const from = l.currency || quoteCurrency;
+    if (from === quoteCurrency) {
+      total += amount;
+      continue;
+    }
+    const rFrom = rateOf(from, fx?.rates);
+    const rTo = rateOf(quoteCurrency, fx?.rates);
+    if (rFrom == null || rTo == null) {
+      if (amount) unconverted.add(from);
+      continue;
+    }
+    const converted = (amount * rFrom) / rTo;
+    total += selling ? converted * ((fx?.roePct ?? 100) / 100) : converted;
+  }
+  return { total, unconverted };
 }
 
 // Freight cargo metrics from the package lines. Volumetric weight uses the
@@ -57,12 +88,45 @@ export function computeCargo(data: SalesQuoteData) {
   };
 }
 
-export function computeTotals(data: SalesQuoteData) {
-  const selling = sumLines(data.sellingLines);
-  const buying = sumLines(data.buyingLines);
+/**
+ * Quote totals in the quote's own currency. A sent quote uses the rates stored on it; a
+ * draft uses `liveFx` (today's ČNB rates and ROE %, from useQuoteFx).
+ */
+export function computeTotals(data: SalesQuoteData, liveFx?: QuoteFx | null) {
+  const currency = data.currency || "EUR";
+  const fx = data.fx ?? liveFx ?? undefined;
+  const sell = sumLines(data.sellingLines, currency, fx, true);
+  const buy = sumLines(data.buyingLines, currency, fx, false);
+  const selling = sell.total;
+  const buying = buy.total;
   const profit = selling - buying;
   const margin = selling ? Math.round((profit / selling) * 100) : 0;
-  return { selling, buying, profit, margin };
+  const unconverted = [...new Set([...sell.unconverted, ...buy.unconverted])].sort();
+  return { selling, buying, profit, margin, unconverted, fx: fx ?? null, fxLocked: !!data.fx };
+}
+
+function czDate(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const [y, m, d] = iso.slice(0, 10).split("-");
+  return `${d}.${m}.${y}`;
+}
+
+// One line saying which rates a quote's totals use — for the people pricing it.
+export function fxNote(totals: ReturnType<typeof computeTotals>, currency: string): string {
+  if (!totals.fx) return `Totals in ${currency}. Loading today's ČNB rates…`;
+  const roe = totals.fx.roePct !== 100 ? ` · selling lines in another currency × ROE ${totals.fx.roePct} %` : "";
+  return totals.fxLocked
+    ? `Totals in ${currency} at the ČNB rates of ${czDate(totals.fx.fixingDate)}${roe} — stored when the quote was sent ${czDate(totals.fx.lockedAt)}.`
+    : `Totals in ${currency} at today's ČNB rates (${czDate(totals.fx.fixingDate)})${roe} — stored on the quote when it is sent.`;
+}
+
+// The clause for the client PDF when foreign-currency charges were converted.
+export function fxClause(data: SalesQuoteData, fx: QuoteFx | null): string {
+  const currency = data.currency || "EUR";
+  const foreign = (data.sellingLines ?? []).some((l) => (l.currency || currency) !== currency);
+  if (!foreign || !fx) return "";
+  const buffer = fx.roePct !== 100 ? ` (+${Math.round((fx.roePct - 100) * 1000) / 1000} %)` : "";
+  return `Charges in other currencies converted to ${currency} at the ČNB rate of ${czDate(fx.fixingDate)}${buffer}. Rates subject to ROE fluctuation; final amounts at the ČNB rate on the invoice date.`;
 }
 
 export function validityInfo(data: SalesQuoteData): { date: string | null; expired: boolean } {
@@ -101,7 +165,7 @@ export interface CsvColumn {
 
 // Without an explicit column set, exports the default summary columns;
 // Quote History passes its active (visible + ordered) columns instead.
-export function exportQuotesCsv(quotes: SalesQuote[], columns?: CsvColumn[]): void {
+export function exportQuotesCsv(quotes: SalesQuote[], columns?: CsvColumn[], liveFx?: QuoteFx | null): void {
   const cols: CsvColumn[] = columns ?? [
     { title: "Sales Number", accessor: (q) => q.quoteNumber },
     { title: "Customer", accessor: (q) => q.data.customerName ?? "" },
@@ -110,9 +174,9 @@ export function exportQuotesCsv(quotes: SalesQuote[], columns?: CsvColumn[]): vo
     { title: "Destination", accessor: (q) => q.data.destination ?? "" },
     { title: "Incoterm", accessor: (q) => q.data.incoterm ?? "" },
     { title: "Quote Status", accessor: (q) => q.data.quoteStatus ?? "" },
-    { title: "Total Selling Costs", accessor: (q) => String(computeTotals(q.data).selling) },
-    { title: "Profit", accessor: (q) => String(computeTotals(q.data).profit) },
-    { title: "Margin%", accessor: (q) => String(computeTotals(q.data).margin) },
+    { title: "Total Selling Costs", accessor: (q) => String(computeTotals(q.data, liveFx).selling) },
+    { title: "Profit", accessor: (q) => String(computeTotals(q.data, liveFx).profit) },
+    { title: "Margin%", accessor: (q) => String(computeTotals(q.data, liveFx).margin) },
     { title: "Created Date", accessor: (q) => q.createdAt?.slice(0, 10) ?? "" },
   ];
   const headers = cols.map((c) => c.title);

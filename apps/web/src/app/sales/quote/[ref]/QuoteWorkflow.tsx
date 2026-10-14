@@ -29,7 +29,8 @@ import { useToast } from "@/lib/toast";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import type { SalesQuoteData, PackageLine, CostLine } from "../../_lib/types";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, CURRENCIES, COST_LINE_TYPES, PACKING_TYPES } from "../../_lib/types";
-import { computeTotals, computeCargo, fmt, validityInfo, quoteFamily } from "../../_lib/salesQuote";
+import { computeTotals, computeCargo, fmt, validityInfo, quoteFamily, fxNote } from "../../_lib/salesQuote";
+import { useQuoteFx } from "../../_lib/useQuoteFx";
 import { printQuote } from "../../_lib/printQuote";
 import { LifecycleBar } from "./_components/LifecycleBar";
 import { ImportInquiryModal } from "./_components/ImportInquiryModal";
@@ -102,7 +103,8 @@ export function QuoteWorkflow() {
   );
 
   // Pricing
-  const totals = useMemo(() => computeTotals(draft), [draft]);
+  const liveFx = useQuoteFx();
+  const totals = useMemo(() => computeTotals(draft, liveFx), [draft, liveFx]);
   const updateLines = (kind: "buyingLines" | "sellingLines", lines: CostLine[]) => set({ [kind]: lines } as Partial<SalesQuoteData>);
 
   const done = {
@@ -339,6 +341,13 @@ export function QuoteWorkflow() {
               tone={totals.margin >= 15 ? "green" : totals.margin >= 5 ? "amber" : "red"}
             />
           </div>
+          {/* Which rates the totals use: stored on the quote once sent, today's until then. */}
+          <div className="text-[12.5px] text-slate-500">{fxNote(totals, draft.currency ?? "EUR")}</div>
+          {totals.unconverted.length > 0 && (
+            <div className="text-[12.5px] text-[#95620B] bg-[#FBEED2] border border-[#E5C27A] rounded-lg px-3 py-2">
+              No ČNB rate for {totals.unconverted.join(", ")} — those lines are left out of the totals.
+            </div>
+          )}
         </div>
       ),
     },
@@ -411,7 +420,7 @@ export function QuoteWorkflow() {
             <Button icon={<MailOutlined />} onClick={() => setModal("email")}>
               Email
             </Button>
-            <Button type="primary" icon={<FilePdfOutlined />} onClick={() => printQuote(ref, draft)}>
+            <Button type="primary" icon={<FilePdfOutlined />} onClick={() => printQuote(ref, draft, liveFx)}>
               Export PDF
             </Button>
           </div>

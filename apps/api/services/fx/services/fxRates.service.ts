@@ -8,7 +8,7 @@ import { addDays, expectedLatestFixing, isCzechHoliday, isIsoDate, isWeekend, la
 import { averageByCurrency, perUnit, periodsOfYear, resolveFixing, round } from "../lib/rates";
 import { openAlerts } from "./fxAlert.service";
 import type {
-  DailyRow, DayKind, FxOverview, ImportRunItem, PeriodAverage, ResolvedRate, RoeChange, RoeInfo, SyncStatus, TodayRate,
+  DailyRow, DayKind, FxOverview, ImportRunItem, PeriodAverage, RatesOnDate, ResolvedRate, RoeChange, RoeInfo, SyncStatus, TodayRate,
 } from "../interfaces/interfaces";
 
 // The currencies the company trades in. Every ČNB currency is stored; these are shown first.
@@ -191,6 +191,24 @@ export const fxRatesService = {
       return { currency, date, rate: null, fixingDate: null, carried: false, provisional: false, roePct, reason: `No ČNB rate for ${currency} on or before ${date}` };
     }
     return { currency, date, rate: res.rate, fixingDate: res.fixingDate, carried: res.carried, provisional: res.provisional, roePct, reason: "" };
+  },
+
+  async ratesOn(companyId: string, date: string): Promise<RatesOnDate> {
+    if (!isIsoDate(date)) throw APIError.invalidArgument("Date must be YYYY-MM-DD");
+    const today = pragueToday();
+    const [currencies, roe] = await Promise.all([cnbRateRepository.currencies(), roeSettingRepository.inForce(companyId, date)]);
+    const rows = await cnbRateRepository.latestOnOrBefore(date, currencies);
+    const rates: RatesOnDate["rates"] = [];
+    let fixingDate: string | null = null;
+    let provisional = false;
+    for (const row of rows) {
+      const res = resolveFixing([row], date, today);
+      if (!res) continue;
+      rates.push({ currency: row.currency, rate: res.rate });
+      if (!fixingDate || res.fixingDate > fixingDate) fixingDate = res.fixingDate;
+      provisional ||= res.provisional;
+    }
+    return { date, fixingDate, provisional, roePct: roe ? Number(roe.pct) : DEFAULT_ROE_PCT, rates };
   },
 
   async importRuns(limit: number): Promise<ImportRunItem[]> {

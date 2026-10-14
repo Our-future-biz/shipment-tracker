@@ -1,5 +1,7 @@
 "use client";
 
+import { useQuoteFx } from "@/app/sales/_lib/useQuoteFx";
+import type { QuoteFx } from "@/app/sales/_lib/types";
 import type { ComponentProps } from "react";
 import dayjs from "dayjs";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
@@ -60,10 +62,10 @@ function activeShipmentsTile(shipments: ShipmentItem[]): TileContent {
   return { value: active.length, hint: eta ? `Next ETA ${formatDate(eta)}` : "No upcoming arrival" };
 }
 
-function openQuotesTile(quotes: SalesQuote[]): TileContent {
+function openQuotesTile(quotes: SalesQuote[], liveFx: QuoteFx | null): TileContent {
   const open = quotes.filter((quote) => quoteBucket(quote) === "open");
   if (open.length === 0) return { value: 0, hint: "None open" };
-  const selling = sellingByCurrency(open);
+  const selling = sellingByCurrency(open, liveFx);
   // Several currencies can outgrow the tile, so the full figure is also the tooltip.
   return { value: open.length, hint: selling ? <span title={selling}>{selling}</span> : "No value yet" };
 }
@@ -98,11 +100,12 @@ export function CustomerSnapshotTiles({ customerId, onSelectTab }: CustomerSnaps
   const { customer, isLoading: customerLoading } = useCustomer(customerId);
   const { shipments, isLoading: shipmentsLoading, isError: shipmentsError } = useCustomerShipments(customerId);
   const { quotes, isLoading: quotesLoading, isError: quotesError } = useCustomerQuotes(customerId);
+  const liveFx = useQuoteFx();
   const { invoices, isLoading: invoicesLoading, isError: invoicesError } = useCustomerInvoices(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
 
   const shipmentsTile = placeholderTile(shipmentsLoading, shipmentsError) ?? activeShipmentsTile(shipments);
-  const quotesTile = placeholderTile(quotesLoading, quotesError) ?? openQuotesTile(quotes);
+  const quotesTile = placeholderTile(quotesLoading, quotesError) ?? openQuotesTile(quotes, liveFx);
   // The amounts are in the customer's currency, so this tile needs the customer as well as the invoices.
   const financeTile =
     placeholderTile(customerLoading || invoicesLoading, invoicesError || !customer) ?? outstandingTile(invoices, customer?.currency);

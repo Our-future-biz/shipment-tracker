@@ -139,3 +139,13 @@ export interface JobRates {
   previousRateDate: string | null; // the date it was locked at before ATA/ATD changed
   rates: { currency: string; rate: number; fixingDate: string }[];
 }
+
+// Every ČNB rate valid on a date plus the company ROE % in force — what a quote is priced
+// with (live until it is sent, then stored on the quote).
+export interface RatesOnDate {
+  date: string;
+  fixingDate: string | null; // the ČNB fixing used (the date's own, or the one carried to it)
+  provisional: boolean; // a later fixing may still replace it (today before 15:00, future)
+  roePct: number;
+  rates: { currency: string; rate: number }[];
+}

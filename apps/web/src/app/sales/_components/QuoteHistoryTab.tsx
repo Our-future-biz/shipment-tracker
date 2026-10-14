@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useQuoteFx } from "@/app/sales/_lib/useQuoteFx";
+import type { QuoteFx } from "@/app/sales/_lib/types";
 import { useRouter } from "next/navigation";
 import { Button, Input, Select, Checkbox, Popover, Dropdown, Modal, DatePicker, Tag, Tooltip } from "antd";
 import {
@@ -87,7 +89,7 @@ interface ColDef {
   key: string;
   title: string;
   width?: number;
-  render: (q: SalesQuote) => React.ReactNode;
+  render: (q: SalesQuote, fx: QuoteFx | null) => React.ReactNode;
 }
 
 const COLUMN_DEFS: ColDef[] = [
@@ -105,7 +107,7 @@ const COLUMN_DEFS: ColDef[] = [
   { key: "cbm", title: "Total Volume (m³)", width: 150, render: (q) => (q.data.packages?.length ? `${computeCargo(q.data).cbm} m³` : <span className="text-slate-300">—</span>) },
   { key: "method", title: "Method", width: 90, render: (q) => q.data.method || <span className="text-slate-300">—</span> },
   { key: "shippingTerms", title: "Shipping terms", width: 130, render: (q) => q.data.shippingTerms || <span className="text-slate-300">—</span> },
-  { key: "selling", title: "Total Selling Costs", width: 160, render: (q) => fmt(computeTotals(q.data).selling, q.data.currency) },
+  { key: "selling", title: "Total Selling Costs", width: 160, render: (q, fx) => fmt(computeTotals(q.data, fx).selling, q.data.currency) },
   { key: "created", title: "Created Date", width: 120, render: (q) => (q.createdAt ? q.createdAt.slice(0, 10) : "—") },
   {
     key: "status",
@@ -157,7 +159,7 @@ const COLUMN_DEFS: ColDef[] = [
 ];
 
 // Text accessor per column, used by the per-column inline filters.
-const colText: Record<string, (q: SalesQuote) => string> = {
+const colText: Record<string, (q: SalesQuote, fx?: QuoteFx | null) => string> = {
   reference: (q) => q.quoteNumber,
   customer: (q) => q.data.customerName ?? "",
   service: (q) => q.data.serviceType ?? "",
@@ -172,7 +174,7 @@ const colText: Record<string, (q: SalesQuote) => string> = {
   cbm: (q) => String(q.data.packages?.length ? computeCargo(q.data).cbm : ""),
   method: (q) => q.data.method ?? "",
   shippingTerms: (q) => q.data.shippingTerms ?? "",
-  selling: (q) => String(computeTotals(q.data).selling),
+  selling: (q, fx) => String(computeTotals(q.data, fx).selling),
   created: (q) => q.createdAt ?? "",
   status: (q) => QUOTE_STATUS_MAP[q.data.quoteStatus ?? ""]?.label ?? "",
   daysOpen: (q) => String(daysOpen(q.data) ?? ""),
@@ -202,6 +204,7 @@ export function QuoteHistoryTab() {
   const router = useRouter();
   // Polls so lifecycle changes made elsewhere (workflow, bulk actions) appear live.
   const { salesQuotes, isLoading, updateQuoteData } = useSalesQuotes({ refetchInterval: 5000 });
+  const liveFx = useQuoteFx();
   const { value: visibleKeys, setValue: setVisibleKeys } = useSalesPref<string[]>("qh_cols", DEFAULT_VISIBLE);
   const { value: savedViews, setValue: setSavedViews } = useSalesPref<SavedView[]>("saved_views", []);
   const toast = useToast();
@@ -243,7 +246,7 @@ export function QuoteHistoryTab() {
       key: c.key,
       width: c.width,
       onHeaderCell: () => ({ id: c.key }) as React.HTMLAttributes<HTMLTableCellElement>,
-      render: (_: unknown, record: SalesQuote) => c.render(record),
+      render: (_: unknown, record: SalesQuote) => c.render(record, liveFx),
     }));
     // Leading validity indicator: red = offer expired, green = still valid, grey = no validity date.
     cols.unshift({
@@ -278,7 +281,7 @@ export function QuoteHistoryTab() {
       render: (_: unknown, record: SalesQuote) => (
         <div className="flex items-center justify-end gap-0.5" onClick={(e) => e.stopPropagation()}>
           <Button size="small" type="text" icon={<EyeOutlined />} title="Preview PDF" onClick={() => setPreview(record)} />
-          <Button size="small" type="text" icon={<FilePdfOutlined />} title="Download PDF" onClick={() => printQuote(record.quoteNumber, record.data)} />
+          <Button size="small" type="text" icon={<FilePdfOutlined />} title="Download PDF" onClick={() => printQuote(record.quoteNumber, record.data, liveFx)} />
           <Button size="small" type="link" onClick={() => router.push(`/sales/quote/${record.quoteNumber}`)}>
             Open
           </Button>
@@ -286,14 +289,14 @@ export function QuoteHistoryTab() {
       ),
     });
     return cols;
-  }, [visibleKeys, router]);
+  }, [visibleKeys, router, liveFx]);
 
   // CSV respects the visible columns and their order.
   const csvColumns = () =>
     visibleKeys
       .map((k) => COLUMN_DEFS.find((c) => c.key === k))
       .filter((c): c is ColDef => !!c)
-      .map((c) => ({ title: c.title, accessor: colText[c.key] ?? (() => "") }));
+      .map((c) => ({ title: c.title, accessor: (q: SalesQuote) => (colText[c.key] ? colText[c.key]!(q, liveFx) : "") }));
 
   // Drag-to-reorder columns (same interaction as the shipments table).
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));

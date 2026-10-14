@@ -770,6 +770,7 @@ export namespace fx {
             this.fxImportRuns = this.fxImportRuns.bind(this)
             this.fxJobRates = this.fxJobRates.bind(this)
             this.fxOverview = this.fxOverview.bind(this)
+            this.fxRatesOn = this.fxRatesOn.bind(this)
             this.fxResolve = this.fxResolve.bind(this)
             this.fxRoeList = this.fxRoeList.bind(this)
             this.fxRoeSet = this.fxRoeSet.bind(this)
@@ -834,6 +835,20 @@ export namespace fx {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/fx/overview`)
             return await resp.json() as interfaces.FxOverview
+        }
+
+        /**
+         * Every ČNB rate for a date plus the company ROE % — used to price quotes.
+         */
+        public async fxRatesOn(params: controllers.RatesOnRequest): Promise<interfaces.RatesOnDate> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                date: params.date,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/rates`, undefined, {query})
+            return await resp.json() as interfaces.RatesOnDate
         }
 
         public async fxResolve(params: controllers.ResolveRequest): Promise<interfaces.ResolvedRate> {
@@ -2673,6 +2688,10 @@ export namespace controllers {
         quote: interfaces.QuoteItem
     }
 
+    export interface RatesOnRequest {
+        date?: string
+    }
+
     export interface ReleaseHouseBolResponse {
         shipment: interfaces.ShipmentItem
     }
@@ -4107,6 +4126,21 @@ export namespace interfaces {
         terms: string
         createdAt: string
         updatedAt: string
+    }
+
+    /**
+     * Every ČNB rate valid on a date plus the company ROE % in force — what a quote is priced
+     * with (live until it is sent, then stored on the quote).
+     */
+    export interface RatesOnDate {
+        date: string
+        fixingDate: string | null
+        provisional: boolean
+        roePct: number
+        rates: {
+            currency: string
+            rate: number
+        }[]
     }
 
     export interface ResolvedRate {

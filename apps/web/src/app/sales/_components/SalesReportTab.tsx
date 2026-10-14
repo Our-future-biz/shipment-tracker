@@ -5,6 +5,7 @@ import { Table, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { computeTotals, fmt } from "@/app/sales/_lib/salesQuote";
+import { useQuoteFx } from "@/app/sales/_lib/useQuoteFx";
 import { QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
 
 interface Kpi {
@@ -39,14 +40,15 @@ interface OwnerRow {
 
 export function SalesReportTab() {
   const { salesQuotes, isLoading } = useSalesQuotes();
+  const liveFx = useQuoteFx();
 
   const kpis = useMemo<Kpi[]>(() => {
     const total = salesQuotes.length;
     const won = salesQuotes.filter((q) => q.data.quoteStatus === "won");
     const lost = salesQuotes.filter((q) => q.data.quoteStatus === "lost");
-    const wonRevenue = won.reduce((sum, q) => sum + computeTotals(q.data).selling, 0);
+    const wonRevenue = won.reduce((sum, q) => sum + computeTotals(q.data, liveFx).selling, 0);
     const avgMargin = total
-      ? Math.round(salesQuotes.reduce((sum, q) => sum + computeTotals(q.data).margin, 0) / total)
+      ? Math.round(salesQuotes.reduce((sum, q) => sum + computeTotals(q.data, liveFx).margin, 0) / total)
       : 0;
     const decided = won.length + lost.length;
     const conversion = decided ? Math.round((won.length / decided) * 100) : 0;
@@ -58,13 +60,13 @@ export function SalesReportTab() {
       { label: "Avg Margin", value: `${avgMargin}%` },
       { label: "Conversion", value: `${conversion}%` },
     ];
-  }, [salesQuotes]);
+  }, [salesQuotes, liveFx]);
 
   const serviceRows = useMemo<ServiceRow[]>(() => {
     const groups = new Map<string, ServiceRow>();
     for (const q of salesQuotes) {
       const key = q.data.serviceType || "Unspecified";
-      const totals = computeTotals(q.data);
+      const totals = computeTotals(q.data, liveFx);
       const row =
         groups.get(key) ??
         { serviceType: key, quotes: 0, won: 0, selling: 0, profit: 0, avgMargin: 0 };
@@ -79,26 +81,26 @@ export function SalesReportTab() {
       ...r,
       avgMargin: r.quotes ? Math.round(r.avgMargin / r.quotes) : 0,
     }));
-  }, [salesQuotes]);
+  }, [salesQuotes, liveFx]);
 
   const statusRows = useMemo<StatusRow[]>(() => {
     const groups = new Map<string, StatusRow>();
     for (const q of salesQuotes) {
       const key = q.data.quoteStatus || "unspecified";
-      const totals = computeTotals(q.data);
+      const totals = computeTotals(q.data, liveFx);
       const row = groups.get(key) ?? { status: key, count: 0, selling: 0 };
       row.count += 1;
       row.selling += totals.selling;
       groups.set(key, row);
     }
     return [...groups.values()];
-  }, [salesQuotes]);
+  }, [salesQuotes, liveFx]);
 
   const ownerRows = useMemo<OwnerRow[]>(() => {
     const groups = new Map<string, OwnerRow & { marginSum: number }>();
     for (const q of salesQuotes) {
       const key = q.data.salesOwner || "Unassigned";
-      const totals = computeTotals(q.data);
+      const totals = computeTotals(q.data, liveFx);
       const row = groups.get(key) ?? { owner: key, quotes: 0, won: 0, lost: 0, selling: 0, avgMargin: 0, conversion: 0, marginSum: 0 };
       row.quotes += 1;
       if (q.data.quoteStatus === "won") row.won += 1;
@@ -119,7 +121,7 @@ export function SalesReportTab() {
         conversion: decided ? Math.round((r.won / decided) * 100) : 0,
       };
     });
-  }, [salesQuotes]);
+  }, [salesQuotes, liveFx]);
 
   const ownerColumns: ColumnsType<OwnerRow> = [
     { title: "Sales Owner", dataIndex: "owner", render: (v: string) => <span className="font-medium text-slate-700">{v}</span> },

@@ -1,5 +1,5 @@
 import { computeTotals, fmt, validityInfo, type SalesQuote } from "@/app/sales/_lib/salesQuote";
-import { QUOTE_STATUSES } from "@/app/sales/_lib/types";
+import { QUOTE_STATUSES, type QuoteFx } from "@/app/sales/_lib/types";
 
 // How a customer's sales quotes are grouped and totalled, for the Quotes tab and the Overview.
 
@@ -45,11 +45,11 @@ export const quoteHref = (quoteNumber: string) => `/sales/quote/${quoteNumber}`;
 
 // Quotes are priced in their own currency, so their selling value is summed per currency, never
 // across: "12,000 EUR · 3,000 USD". Empty when there is nothing to add up.
-export function sellingByCurrency(quotes: SalesQuote[]): string {
+export function sellingByCurrency(quotes: SalesQuote[], liveFx?: QuoteFx | null): string {
   const totals = new Map<string, number>();
   for (const quote of quotes) {
     const currency = quote.data.currency || DEFAULT_QUOTE_CURRENCY;
-    totals.set(currency, (totals.get(currency) ?? 0) + computeTotals(quote.data).selling);
+    totals.set(currency, (totals.get(currency) ?? 0) + computeTotals(quote.data, liveFx).selling);
   }
   return [...totals]
     .filter(([, amount]) => amount !== 0)

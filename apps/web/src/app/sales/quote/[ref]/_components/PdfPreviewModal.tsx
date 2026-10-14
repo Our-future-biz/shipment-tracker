@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Modal, Button } from "antd";
 import type { SalesQuoteData, PackageLine, CostLine } from "@/app/sales/_lib/types";
 import { computeTotals, fmt, type SalesQuote } from "@/app/sales/_lib/salesQuote";
+import { useQuoteFx } from "@/app/sales/_lib/useQuoteFx";
 import { printQuote } from "@/app/sales/_lib/printQuote";
 
 export function PdfPreviewModal({
@@ -31,7 +32,8 @@ export function PdfPreviewModal({
   const shownRef = activeQuote ? activeQuote.quoteNumber : quoteNumber;
 
   const currency = shown.currency ?? "EUR";
-  const totals = computeTotals(shown);
+  const liveFx = useQuoteFx();
+  const totals = computeTotals(shown, liveFx);
   const packages: PackageLine[] = shown.packages ?? [];
   const sellingLines: CostLine[] = shown.sellingLines ?? [];
   const totalPackages = packages.reduce((sum, p) => sum + (Number(p.qty) || 0), 0);
@@ -57,7 +59,7 @@ export function PdfPreviewModal({
         <Button key="cancel" onClick={onClose}>
           Cancel
         </Button>,
-        <Button key="print" type="primary" onClick={() => printQuote(shownRef, shown)}>
+        <Button key="print" type="primary" onClick={() => printQuote(shownRef, shown, liveFx)}>
           Download / Print
         </Button>,
       ]}

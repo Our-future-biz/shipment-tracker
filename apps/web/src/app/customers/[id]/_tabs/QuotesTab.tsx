@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useQuoteFx } from "@/app/sales/_lib/useQuoteFx";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button, Table } from "antd";
@@ -35,6 +36,7 @@ const FILTER_TABS = [
 export function QuotesTab({ customerId }: QuotesTabProps) {
   const router = useRouter();
   const { quotes: rows, isLoading, isError, deleteQuote } = useCustomerQuotes(customerId);
+  const liveFx = useQuoteFx();
   const toast = useToast();
   const [filter, setFilter] = useState("all");
   const [page, setPage] = useState(1);
@@ -50,7 +52,7 @@ export function QuotesTab({ customerId }: QuotesTabProps) {
     // Same definition as the Sales report: won out of the decided (won + lost) quotes.
     const decided = won + lost;
 
-    const wonRevenue = sellingByCurrency(rows.filter((q) => quoteBucket(q) === "won"));
+    const wonRevenue = sellingByCurrency(rows.filter((q) => quoteBucket(q) === "won"), liveFx);
 
     return {
       open: count("open"),
@@ -60,7 +62,7 @@ export function QuotesTab({ customerId }: QuotesTabProps) {
       conversion: decided > 0 ? `${Math.round((won / decided) * 100)}%` : null,
       wonRevenue: wonRevenue || null,
     };
-  }, [rows]);
+  }, [rows, liveFx]);
 
   let emptyText = filter === "all" ? "No quotes for this customer yet" : `No ${filter} quotes`;
   if (isError) emptyText = "Could not load quotes.";
@@ -149,7 +151,7 @@ export function QuotesTab({ customerId }: QuotesTabProps) {
       align: "right",
       className: "tabular-nums",
       render: (_: unknown, r) => {
-        const { selling } = computeTotals(r.data);
+        const { selling } = computeTotals(r.data, liveFx);
         return selling ? fmt(selling, r.data.currency || DEFAULT_QUOTE_CURRENCY) : EMPTY_CELL;
       },
     },

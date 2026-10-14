@@ -1,13 +1,14 @@
-import type { SalesQuoteData, PackageLine, CostLine } from "./types";
-import { computeTotals, computeCargo, fmt } from "./salesQuote";
+import type { SalesQuoteData, PackageLine, CostLine, QuoteFx } from "./types";
+import { computeTotals, computeCargo, fmt, fxClause } from "./salesQuote";
 
 const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] ?? c));
 
 // Client-facing PDF via the browser print dialog. Never shows buying/cost/margin.
-export function printQuote(quoteNumber: string, data: SalesQuoteData): void {
+export function printQuote(quoteNumber: string, data: SalesQuoteData, liveFx?: QuoteFx | null): void {
   const currency = data.currency ?? "EUR";
-  const totals = computeTotals(data);
+  const totals = computeTotals(data, liveFx);
+  const clause = fxClause(data, data.fx ?? liveFx ?? null);
   const cargo = computeCargo(data);
   const issueDate = new Date().toISOString().slice(0, 10);
   const preparedBy = data.salesOwner || "Sales";
@@ -70,7 +71,7 @@ export function printQuote(quoteNumber: string, data: SalesQuoteData): void {
         <thead><tr><th>Service</th><th>Description</th><th>Currency</th><th style="text-align:right">Amount</th></tr></thead>
         <tbody>${sellingRows}</tbody>
         <tfoot><tr class="totals"><td colspan="3">Total</td><td style="text-align:right">${esc(fmt(totals.selling, currency))}</td></tr></tfoot>
-      </table>`
+      </table>${clause ? `<p style="font-size:11px;color:#64748b;margin-top:6px">${esc(clause)}</p>` : ""}`
     : `<div class="price-block">
         <span>Total price</span>
         <strong>${esc(fmt(totals.selling, currency))}</strong>

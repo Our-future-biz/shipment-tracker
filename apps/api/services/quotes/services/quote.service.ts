@@ -2,6 +2,36 @@ import { APIError } from "encore.dev/api";
 import { quoteRepository } from "../repositories/quote.repository";
 import { quoteRefSequenceRepository } from "../repositories/quoteRefSequence.repository";
 import type { PaginationRequest } from "../../../lib/db/interface";
+import { fx } from "~encore/clients";
+import { fxActionFor, type StoredFx } from "../lib/quoteFx";
+
+// Stores today's ČNB rates and ROE % on a quote that has just been sent, and drops them from
+// one reopened for revision (see lib/quoteFx). Rates are never changed on a sent quote.
+async function withQuoteFx(data: unknown, previous?: unknown): Promise<unknown> {
+  const action = fxActionFor(data);
+  if (action === "keep") return data;
+  const d = { ...(data as Record<string, unknown>) };
+  if (action === "clear") {
+    delete d.fx;
+    return d;
+  }
+  // A save made from a copy that predates the stored rates must not replace them.
+  const prevFx = previous && typeof previous === "object" ? (previous as { fx?: unknown }).fx : undefined;
+  if (prevFx) {
+    d.fx = prevFx;
+    return d;
+  }
+  const r = await fx.fxRatesOn({});
+  const stored: StoredFx = {
+    date: r.date,
+    fixingDate: r.fixingDate,
+    roePct: r.roePct,
+    rates: Object.fromEntries(r.rates.map((x) => [x.currency, x.rate])),
+    lockedAt: new Date().toISOString(),
+  };
+  d.fx = stored;
+  return d;
+}
 
 class QuoteService {
   async list(companyId: string, request: PaginationRequest & { customerId?: string }) {
@@ -31,11 +61,12 @@ class QuoteService {
     if (existing) {
       throw APIError.alreadyExists(`Quote reference ${quoteNumber} already exists and cannot be reused`);
     }
-    return quoteRepository.createForCompany(companyId, { quoteNumber, data, terms: terms ?? "" } as never);
+    return quoteRepository.createForCompany(companyId, { quoteNumber, data: await withQuoteFx(data), terms: terms ?? "" } as never);
   }
 
   async updateData(quoteNumber: string, companyId: string, data: unknown) {
-    return quoteRepository.updateData(quoteNumber, companyId, data);
+    const existing = await quoteRepository.findByQuoteNumber(quoteNumber, companyId);
+    return quoteRepository.updateData(quoteNumber, companyId, await withQuoteFx(data, existing?.data));
   }
 
   async updateTerms(id: string, companyId: string, terms: string) {
@@ -82,7 +113,7 @@ class QuoteService {
       if (!Number.isNaN(seq) && seq > max) max = seq;
     }
     const newRef = `${base}-${max + 1}`;
-    const quote = await quoteRepository.createForCompany(companyId, { quoteNumber: newRef, data, terms: "" } as never);
+    const quote = await quoteRepository.createForCompany(companyId, { quoteNumber: newRef, data: await withQuoteFx(data), terms: "" } as never);
     return { quoteNumber: newRef, quote };
   }
 }
