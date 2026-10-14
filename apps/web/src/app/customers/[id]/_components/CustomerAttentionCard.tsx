@@ -9,7 +9,6 @@ import { useCustomerNotes } from "@/hooks/useCustomerNotes";
 import { useCustomerQuotes } from "@/hooks/useCustomerQuotes";
 import { useCustomer } from "@/hooks/useCustomers";
 import { useLatestRates } from "@/lib/fx";
-import { useShipmentsNeedingAttention } from "@/hooks/useShipmentsNeedingAttention";
 import { buildCustomerAttention } from "../../_lib/customerAttention";
 import type { AttentionItem, AttentionSeverity } from "../../_lib/customerAttention";
 
@@ -62,8 +61,8 @@ interface CustomerAttentionCardProps {
   onSelectTab: (key: string) => void;
 }
 
-// What needs somebody's attention on this customer right now — overdue money, deadlines, expiring quotes,
-// missing paperwork — each row leading to where it is dealt with. The card is absent when there is nothing.
+// What needs somebody's attention on this customer right now — overdue money, expiring quotes,
+// missing paperwork, lapsed contact — each row leading to where it is dealt with. The card is absent when there is nothing.
 export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAttentionCardProps) {
   const { customer, isLoading: customerLoading } = useCustomer(customerId);
   const { invoices, isLoading: invoicesLoading } = useCustomerInvoices(customerId);
@@ -71,26 +70,17 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
   const { quotes, isLoading: quotesLoading } = useCustomerQuotes(customerId);
   const { documents, isLoading: documentsLoading, isError: documentsError } = useCustomerDocuments(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
-  const { within24h, within48h, isLoading: dueLoading } = useShipmentsNeedingAttention();
   // Remembered per customer, so an unfolded list does not carry over to the next customer opened.
   const [expandedFor, setExpandedFor] = useState<string | null>(null);
-  // The due lists refresh every minute, and the refresh of a request that failed counts as loading again:
-  // they hold the card back only until they have settled once, or it would blink out on every refresh.
-  const [dueSettled, setDueSettled] = useState(false);
-  if (!dueLoading && !dueSettled) setDueSettled(true);
 
   // Until every source is in, the list would appear half-built and then grow or reorder under the reader.
-  const customerSourcesLoading =
-    customerLoading || invoicesLoading || quotesLoading || documentsLoading || notesLoading;
-  const isLoading = customerSourcesLoading || (dueLoading && !dueSettled);
+  const isLoading = customerLoading || invoicesLoading || quotesLoading || documentsLoading || notesLoading;
 
   const items = useMemo(() => {
     if (isLoading || !customer) return [];
     const built = buildCustomerAttention({
       customer,
       invoices,
-      dueWithin24h: within24h,
-      dueWithin48h: within48h,
       quotes,
       documents,
       notes,
@@ -99,7 +89,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
     // For documents and notes an empty list is itself a finding, but a list that could not be loaded is
     // not an empty one: its "nothing on file" row would be untrue.
     return built.filter((item) => !(documentsError && item.key === "documents-missing") && !(notesError && item.key === "no-interaction"));
-  }, [isLoading, customer, invoices, within24h, within48h, quotes, documents, notes, rates, documentsError, notesError]);
+  }, [isLoading, customer, invoices, quotes, documents, notes, rates, documentsError, notesError]);
 
   if (items.length === 0) return null;
 

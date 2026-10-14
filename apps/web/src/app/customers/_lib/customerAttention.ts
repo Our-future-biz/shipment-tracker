@@ -5,9 +5,7 @@ import type { DocumentItem } from "@/hooks/useCustomerDocuments";
 import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
 import type { NoteItem } from "@/hooks/useCustomerNotes";
 import type { CustomerItem } from "@/hooks/useCustomers";
-import type { ShipmentDueItem } from "@/hooks/useShipmentsNeedingAttention";
 import { formatDate } from "@/lib/date";
-import { deadlineDayLabel, deadlineLabel } from "@/lib/shipmentDeadlines";
 import { getNaceInfo, isNewCompany, isRegistryActive, parseNaceCodes } from "./companyAnalysis";
 import { daysSince } from "./customerDates";
 import { daysOverdue, summarizeInvoices } from "./customerInvoices";
@@ -16,6 +14,7 @@ import { fmtMoney, roundCents } from "./customerMoney";
 import { quoteBucket } from "./customerQuotes";
 
 // What on a customer needs somebody's attention right now, for the "Needs attention" list of the Overview.
+// Only the customer itself: shipment deadlines (VGM, SI, cut-offs…) belong to Shipments, not to the customer card.
 // One pure function over data the page has already loaded, so the rules can be read and tested in one place.
 
 // The thresholds the product owner approved.
@@ -33,7 +32,7 @@ export type AttentionSeverity = "critical" | "warning";
 export interface AttentionItem {
   key: string;
   severity: AttentionSeverity;
-  // The bold lead of the row: a count, a job number, a quote number.
+  // The bold lead of the row: a count, a quote number.
   title: string;
   // Finishes the line.
   detail: string;
@@ -48,8 +47,6 @@ export interface AttentionItem {
 export interface AttentionInput {
   customer: CustomerItem;
   invoices: InvoiceItem[];
-  dueWithin24h: ShipmentDueItem[];
-  dueWithin48h: ShipmentDueItem[];
   quotes: SalesQuote[];
   documents: DocumentItem[];
   notes: NoteItem[];
@@ -60,25 +57,6 @@ export interface AttentionInput {
 }
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-
-// A shipment with dates in both windows is on both lists, so the window is part of the key.
-function shipmentItems(
-  due: ShipmentDueItem[],
-  customerId: string,
-  severity: AttentionSeverity,
-  window: string,
-): AttentionItem[] {
-  return due
-    // The two "due" lists cover the whole company; keep this customer's shipments.
-    .filter((shipment) => shipment.customerId === customerId)
-    .map((shipment) => ({
-      key: `shipment-${window}-${shipment.id}`,
-      severity,
-      title: shipment.jobNumber || "Shipment",
-      detail: shipment.deadlines.map((deadline) => `${deadlineLabel(deadline.field)} ${deadlineDayLabel(deadline.daysLeft)}`).join(", "),
-      href: `/shipments/${shipment.id}`,
-    }));
-}
 
 // Whole calendar days from today to a date on the viewer's clock — negative once the date has passed —
 // so a quote valid until today stays "today" until midnight. Null when the date is unreadable.
@@ -156,7 +134,7 @@ const documentTypeKey = (type: string) => type.trim().toLowerCase();
 // Everything that needs attention, most serious first: all critical items, then all warnings,
 // each group in a fixed order of rules.
 export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
-  const { customer, invoices, dueWithin24h, dueWithin48h, quotes, documents, notes, rates, now = Date.now() } = input;
+  const { customer, invoices, quotes, documents, notes, rates, now = Date.now() } = input;
   const { creditLimit, currency } = customer;
   const items: AttentionItem[] = [];
 
@@ -198,10 +176,7 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
     });
   }
 
-  items.push(...shipmentItems(dueWithin24h, customer.id, "critical", "24h"));
-
   // Warnings.
-  items.push(...shipmentItems(dueWithin48h, customer.id, "warning", "48h"));
   items.push(...quoteItems(quotes, customer.id, now));
 
   const typesOnFile = new Set(documents.map((document) => documentTypeKey(document.type)));
