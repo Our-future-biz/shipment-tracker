@@ -24,7 +24,7 @@ interface CustomerContactDialogProps {
   onSubmit: (values: CustomerContactFormValues) => void;
 }
 
-const NEW_CONTACT: CustomerContactFormValues = { firstName: "", lastName: "", email: "", phone: "", role: "Operations", isMain: false };
+const NEW_CONTACT: CustomerContactFormValues = { firstName: "", lastName: "", email: "", phone: "", role: "Logistics Manager", isMain: false };
 
 const ROLE_OPTIONS = CONTACT_ROLES.map((role) => ({ value: role, label: role }));
 

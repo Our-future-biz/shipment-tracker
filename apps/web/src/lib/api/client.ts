@@ -4463,7 +4463,7 @@ export namespace interfaces {
         updatedAt: string
     }
 
-    export type ContactRole = "Sales" | "Operations" | "Finance"
+    export type ContactRole = "Purchasing / Procurement" | "Customer Service" | "Logistics Manager" | "Warehouse" | "Finance / Accounting" | "Sales" | "Management" | "Owner"
 
     export interface ContainerLine {
         /**

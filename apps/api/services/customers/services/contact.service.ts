@@ -31,7 +31,7 @@ class ContactService {
       lastName: input.lastName.trim(),
       email: input.email ?? "",
       phone: input.phone ?? "",
-      role: input.role ?? "Operations",
+      role: input.role ?? "Logistics Manager",
       isMain: input.isMain ?? false,
     };
     const row = await contactRepository.createForCompany(companyId, values);

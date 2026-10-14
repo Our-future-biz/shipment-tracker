@@ -5,7 +5,15 @@
 // literal unions so Encore validates requests against them and the web client gets them.
 export type CustomerStatus = "Active" | "Prospect" | "Inactive";
 export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "RISK";
-export type ContactRole = "Sales" | "Operations" | "Finance";
+export type ContactRole =
+  | "Purchasing / Procurement"
+  | "Customer Service"
+  | "Logistics Manager"
+  | "Warehouse"
+  | "Finance / Accounting"
+  | "Sales"
+  | "Management"
+  | "Owner";
 export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";
 export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other";
 /** Credited = reversed by a credit note; like Paid, it no longer counts as owed. */

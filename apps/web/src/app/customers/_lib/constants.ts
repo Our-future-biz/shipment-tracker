@@ -7,7 +7,16 @@ export const CUSTOMER_LABELS = ["KEY ACCOUNT", "STANDARD", "TARGET CUSTOMER", "R
 
 export const PAYMENT_TERMS = ["PREPAYMENT", "7 days", "14 days", "30 days", "45 days", "60 days"] as const;
 
-export const CONTACT_ROLES = ["Sales", "Operations", "Finance"] as const satisfies readonly interfaces.ContactRole[];
+export const CONTACT_ROLES = [
+  "Purchasing / Procurement",
+  "Customer Service",
+  "Logistics Manager",
+  "Warehouse",
+  "Finance / Accounting",
+  "Sales",
+  "Management",
+  "Owner",
+] as const satisfies readonly interfaces.ContactRole[];
 
 export const DOCUMENT_TYPES = ["Contract", "NDA", "Power of attorney", "Customs", "Other"] as const satisfies readonly interfaces.DocumentType[];
 
@@ -62,9 +71,14 @@ export function statusDotClass(status: string): string {
 
 // antd Tag colours for the categorical values of the section; unknown values fall back to "default".
 export const CONTACT_ROLE_COLORS: Record<string, string> = {
+  "Purchasing / Procurement": "purple",
+  "Customer Service": "cyan",
+  "Logistics Manager": "green",
+  Warehouse: "orange",
+  "Finance / Accounting": "gold",
   Sales: "blue",
-  Operations: "green",
-  Finance: "gold",
+  Management: "magenta",
+  Owner: "volcano",
 };
 
 export const DOCUMENT_TYPE_COLORS: Record<string, string> = {

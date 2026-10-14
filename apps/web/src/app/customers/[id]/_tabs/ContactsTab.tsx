@@ -100,7 +100,7 @@ export function ContactsTab({ customerId }: { customerId: string }) {
     {
       title: "Role",
       dataIndex: "role",
-      width: 130,
+      width: 200,
       render: (v: string) =>
         v ? (
           <Tag color={CONTACT_ROLE_COLORS[v] ?? "default"} className="!m-0">

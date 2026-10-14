@@ -18,14 +18,14 @@ export const contactTable = pgTable(
     lastName: text("last_name").notNull().default(""),
     email: text("email").notNull().default(""),
     phone: text("phone").notNull().default(""),
-    role: text("role").$type<ContactRole>().notNull().default("Operations"),
+    role: text("role").$type<ContactRole>().notNull().default("Logistics Manager"),
     isMain: boolean("is_main").notNull().default(false),
   },
   (table) => [
     ...defaultTableIndexes("contact", table),
     tenantIndex("contact", table),
     index("contact_customer_id_idx").on(table.customerId),
-    check("contact_role_check", sql`${table.role} IN ('Sales', 'Operations', 'Finance')`),
+    check("contact_role_check", sql`${table.role} IN ('Purchasing / Procurement', 'Customer Service', 'Logistics Manager', 'Warehouse', 'Finance / Accounting', 'Sales', 'Management', 'Owner')`),
   ],
 );
 
