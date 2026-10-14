@@ -91,7 +91,8 @@ export type ChipId = "attention" | "expectedToday" | "inWarehouse" | "expiring" 
 type ChipFields = Pick<
   Movement,
   "status" | "gateIn" | "gateOut" | "impRelease" | "visit" | "eta" | "slot" | "subPositions" | "dockSlots" | "needsAttention" | "openExceptions" | "overridden" | "shipmentUpdate" | "storage"
->;
+> &
+  Partial<Pick<Movement, "leftAt">>;
 
 // An inbound (příjem) gate-out is the delivering truck leaving: the cargo stays In Warehouse.
 // Only an outbound (výdej) gate-out means the cargo has gone.
@@ -100,14 +101,18 @@ const goneOut = (m: Pick<Movement, "visit" | "gateOut">) => m.visit === "výdej"
 /** The storage clock runs: received and not yet released / gone out. */
 export const inWarehouse = (m: ChipFields) => (m.storage.started && !m.storage.stopped) || (m.status === "In Warehouse" && !goneOut(m) && !m.impRelease);
 
-/** The day the cargo was released: the WH release (an inbound truck's gate-out is not a release). */
-export const releasedOn = (m: Pick<Movement, "visit" | "impRelease" | "gateOut">) => pragueDate(m.impRelease);
+/**
+ * The day the cargo was released: the WH release, or the gate-out of the export container it was
+ * stuffed in (an inbound truck's gate-out is not a release).
+ */
+export const releasedOn = (m: Pick<Movement, "visit" | "impRelease" | "gateOut"> & Partial<Pick<Movement, "leftAt">>) => pragueDate(m.impRelease ?? m.leftAt ?? null);
 
-/** An open exception holds cargo only until the WH release; after it the exception is still open but nothing is held. */
-export const isOnHold = (m: Pick<Movement, "openExceptions" | "impRelease" | "overridden">) => m.openExceptions > 0 && !m.impRelease && !m.overridden;
+/** An open exception holds cargo only until it leaves (WH release or its container's gate-out); after it the exception is still open but nothing is held. */
+export const isOnHold = (m: Pick<Movement, "openExceptions" | "impRelease" | "overridden"> & Partial<Pick<Movement, "leftAt">>) =>
+  m.openExceptions > 0 && !m.impRelease && !m.leftAt && !m.overridden;
 
 /** The Exceptions cell / badge text: "On hold (n)" before the release, "Open exception (n)" after it, "" when none is open. */
-export const exceptionText = (m: Pick<Movement, "openExceptions" | "impRelease" | "overridden">) =>
+export const exceptionText = (m: Pick<Movement, "openExceptions" | "impRelease" | "overridden"> & Partial<Pick<Movement, "leftAt">>) =>
   m.openExceptions > 0 ? `${isOnHold(m) ? "On hold" : `Open exception${m.openExceptions === 1 ? "" : "s"}`} (${m.openExceptions})` : "";
 
 export const CHIPS: { id: ChipId; label: string; hint: string; danger?: boolean; match: (m: ChipFields, today: string) => boolean }[] = [
@@ -170,4 +175,19 @@ export function scanMatch<M extends ScanFields>(value: string, movements: M[]): 
   if (other.length === 1) return { kind: "open", movement: other[0]! };
   if (other.length > 1) return { kind: "many", matches: other };
   return { kind: "none" };
+}
+
+/**
+ * A scanned or typed value that is the number of a container with houses (positions in it): that
+ * container's id and number — floor mode opens its tally / stuffing list. Null when it is not one
+ * (a position's own ref always wins: callers try it first).
+ */
+export function containerScanMatch(value: string, movements: Pick<Movement, "container">[]): { id: string; number: string } | null {
+  const q = normalizeScan(value);
+  if (!q) return null;
+  const found = new Map<string, string>();
+  for (const m of movements) if (m.container && normalizeScan(m.container.number) === q) found.set(m.container.id, m.container.number);
+  if (found.size !== 1) return null;
+  const [id, number] = [...found.entries()][0]!;
+  return { id, number };
 }

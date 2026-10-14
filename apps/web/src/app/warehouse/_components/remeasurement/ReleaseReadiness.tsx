@@ -7,7 +7,8 @@ import type { GateMovement } from "@/hooks/useGateLog";
 import { formatDateTime } from "@/lib/date";
 import { TERMS } from "../../_lib/glossary";
 import { Badge } from "../../gate-log/_lib/gate";
-import { PICKUP_PIN_GATE, isOutbound } from "../../gate-log/_lib/steps";
+import { PICKUP_PIN_GATE, containerHoldsRelease, isOutbound } from "../../gate-log/_lib/steps";
+import { LifecycleStrip } from "../LifecycleStrip";
 import { releaseState } from "../../gate-log/_components/job/ReleaseGatesPanel";
 import { btnPrimary } from "../../gate-log/_components/job/fields";
 import { Card } from "../tabs/shared";
@@ -37,12 +38,36 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
       Open gate job to release
     </Link>
   );
+  const held = containerHoldsRelease(m);
+  // Where the position is now, and the container it leaves with / is received from.
+  const lifecycle = (
+    <div className="mb-3">
+      <LifecycleStrip l={m.lifecycle} />
+      {held && (
+        <div className="mt-2 text-xs text-slate-700">
+          {held.reason}
+          {m.container && (
+            <>
+              {" — "}
+              <Link href={`/warehouse/containers/${m.container.id}`} className="font-semibold text-indigo-500 hover:underline">
+                open container {m.container.number}
+              </Link>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
 
   if (!out) {
     return (
       <Card title="Release readiness">
+        {lifecycle}
         <div className="text-xs text-slate-600">
-          Inbound cargo has no WH release here. Its {TERMS.gateOut} is the delivering truck leaving — the cargo stays in the warehouse and its storage clock keeps running.
+          {m.container?.kind === "export"
+            ? `Inbound cargo leaves the warehouse with its export container: the container's gate-out stops the storage clock and sets the shipment's released date. `
+            : "Inbound cargo has no WH release here. "}
+          Its truck {TERMS.gateOut} is the delivering truck leaving — the cargo stays in the warehouse and its storage clock keeps running.
           {m.gateOut ? ` Truck ${TERMS.gateOut.toLowerCase()} stamped ${formatDateTime(m.gateOut)}.` : " Truck not gone out yet."}
         </div>
         {m.openExceptions > 0 && <div className="mt-2 text-xs text-red-600">On hold — resolve the open exception first.</div>}
@@ -53,6 +78,7 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
 
   return (
     <Card title="Release readiness">
+      {lifecycle}
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone={state.tone} className="!text-[11.5px]">
           {state.label}

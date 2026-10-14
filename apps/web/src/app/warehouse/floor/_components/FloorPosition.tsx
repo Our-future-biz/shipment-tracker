@@ -21,8 +21,11 @@ import { FloorException } from "./FloorException";
 import { FloorPhotos } from "./FloorPhotos";
 import { FloorPinCheck } from "./FloorPinCheck";
 import { FloorReadiness } from "./FloorReadiness";
+import { FloorReweigh } from "./FloorReweigh";
+import { LifecycleChip } from "@/app/warehouse/_components/LifecycleStrip";
+import { TALLY_LABEL } from "@/app/warehouse/_lib/containerPlan";
 
-const VIEWS = ["main", "survey", "damage", "photos", "pin", "release"] as const;
+const VIEWS = ["main", "survey", "damage", "photos", "pin", "release", "reweigh"] as const;
 type View = (typeof VIEWS)[number];
 
 // The later of two copies of the same movement (the list and the detail are cached apart).
@@ -117,6 +120,7 @@ export function FloorPosition({ id }: { id: string }) {
   if (view === "photos") return <FloorPhotos m={m} onBack={back} />;
   if (view === "pin") return <FloorPinCheck m={m} onBack={back} />;
   if (view === "release") return <FloorReadiness m={m} onBack={back} />;
+  if (view === "reweigh") return <FloorReweigh m={m} onBack={back} />;
 
   const tile = (label: string, value: string) => (
     <div className="rounded-lg bg-slate-50 px-2 py-2 text-center">
@@ -124,7 +128,17 @@ export function FloorPosition({ id }: { id: string }) {
       <div className="text-[18px] font-bold tabular-nums text-slate-900">{value}</div>
     </div>
   );
+  const reweighDue = m.needsReweigh && !m.reweigh;
   const menu: { key: View; label: string; hint?: string; alert?: boolean; show: boolean }[] = [
+    {
+      key: "reweigh",
+      label: TERMS.reweigh,
+      hint: m.reweigh
+        ? `${nf(m.reweigh.weighedKg)} kg · ${formatDateTime(m.reweigh.weighedAt)}${m.reweigh.flagged ? " · variance" : ""}`
+        : `Required before the ${out ? "tick-off" : "receipt"} (LCL)`,
+      alert: reweighDue,
+      show: m.needsReweigh || !!m.reweigh,
+    },
     { key: "survey", label: "Survey", hint: phase ? `${phase === "release" ? "Release" : "Receipt"} pass${surveyDue ? " — missing" : " — done"}` : "After the gate-in", alert: surveyDue, show: true },
     { key: "photos", label: "Photos", show: true },
     { key: "damage", label: "Damage / short / over", hint: exceptionText(m) || undefined, alert: isOnHold(m), show: true },
@@ -140,9 +154,12 @@ export function FloorPosition({ id }: { id: string }) {
             <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">{TERMS.warehouseRef}</div>
             <div className="break-all font-mono text-[22px] font-bold leading-tight text-slate-900">{m.positionRef || m.gateRef}</div>
           </div>
-          <Badge tone={STATUS_TONE[m.status] ?? ""} className="!text-[12px]">
-            {m.status}
-          </Badge>
+          <div className="flex flex-col items-end gap-1">
+            <Badge tone={STATUS_TONE[m.status] ?? ""} className="!text-[12px]">
+              {m.status}
+            </Badge>
+            <LifecycleChip l={m.lifecycle} />
+          </div>
         </div>
         <div className="mt-1 text-[15px] text-slate-800">{m.customer || "—"}</div>
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px]">
@@ -193,6 +210,28 @@ export function FloorPosition({ id }: { id: string }) {
           )}
         </div>
       </FloorCard>
+
+      {m.container && (
+        <Link
+          href={`/warehouse/floor/container/${m.container.id}`}
+          className="flex min-h-[56px] items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 active:bg-slate-50"
+        >
+          <span className="flex-1">
+            <span className="block text-[11px] font-bold uppercase tracking-wide text-slate-500">Container · {m.container.status}</span>
+            <span className="block font-mono text-[16px] font-bold text-slate-900">{m.container.number}</span>
+            <span className="block text-[13px] text-slate-600">
+              {m.container.kind === "export"
+                ? m.container.stuffedAt
+                  ? `Stuffed ${formatDateTime(m.container.stuffedAt)}`
+                  : "Planned — not stuffed yet"
+                : m.container.tallyOutcome
+                  ? `${TALLY_LABEL[m.container.tallyOutcome] ?? m.container.tallyOutcome}${m.container.tickedAt ? ` ${formatDateTime(m.container.tickedAt)}` : ""}`
+                  : "Not tallied yet"}
+            </span>
+          </span>
+          <RightOutlined className="text-slate-400" />
+        </Link>
+      )}
 
       <FloorCard title="Gate steps">
         <ol className="m-0 flex list-none flex-col gap-2 p-0">
@@ -264,19 +303,31 @@ export function FloorPosition({ id }: { id: string }) {
             {next ? (
               <>
                 {next.state === "blocked" && <div className="mb-2 text-[13px] font-semibold text-red-600">{next.reason}</div>}
-                {next.state === "next" && releaseNeedsServer(next.kind) && !q.online && (
-                  <div className="mb-2">
-                    <NeedsConnection what={next.label} />
-                  </div>
+                {next.state === "blocked" && next.needs === "reweigh" ? (
+                  <button type="button" className={bigPrimary} onClick={() => setView("reweigh")}>
+                    {TERMS.reweigh}
+                  </button>
+                ) : next.state === "blocked" && (next.needs === "tally" || next.needs === "container") && m.container ? (
+                  <Link href={`/warehouse/floor/container/${m.container.id}`} className={`${bigPrimary} flex items-center justify-center`}>
+                    Open container {m.container.number}
+                  </Link>
+                ) : (
+                  <>
+                    {next.state === "next" && releaseNeedsServer(next.kind) && !q.online && (
+                      <div className="mb-2">
+                        <NeedsConnection what={next.label} />
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className={bigPrimary}
+                      disabled={next.state !== "next" || busy || (releaseNeedsServer(next.kind) && !q.online)}
+                      onClick={() => pick(next)}
+                    >
+                      {next.label}
+                    </button>
+                  </>
                 )}
-                <button
-                  type="button"
-                  className={bigPrimary}
-                  disabled={next.state !== "next" || busy || (releaseNeedsServer(next.kind) && !q.online)}
-                  onClick={() => pick(next)}
-                >
-                  {next.label}
-                </button>
               </>
             ) : (
               <div className="min-h-[56px] rounded-xl bg-emerald-50 px-4 py-4 text-center text-[16px] font-bold text-emerald-700">All gate steps done</div>

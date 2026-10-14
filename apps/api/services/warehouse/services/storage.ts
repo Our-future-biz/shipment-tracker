@@ -3,11 +3,14 @@
 // services (no import cycle).
 //
 //   clock start   the receipt: inbound cargo (příjem) at its gate-in; outbound cargo (výdej, the
-//                 import cargo a truck picks up) at its "Received in warehouse" date (load-in
-//                 date) — the truck's gate-in is the pick-up, never the receipt.
-//   clock stop    the WH release; for outbound cargo (výdej) also the gate-out. An inbound
-//                 (příjem) gate-out is the delivering truck leaving, not the cargo: the status
-//                 stays In Warehouse, so it never stops the clock.
+//                 import cargo a truck picks up) when its house is ticked received at the
+//                 stripping tally of its container, else (no container tally) at its "Received
+//                 in warehouse" date (load-in date) — the truck's gate-in is the pick-up, never
+//                 the receipt.
+//   clock stop    the WH release; inbound cargo stuffed in an export container stops at that
+//                 container's gate-out; outbound cargo (výdej) also stops at its gate-out. An
+//                 inbound (příjem) gate-out of its own is the delivering truck leaving, not the
+//                 cargo: the status stays In Warehouse, so it never stops the clock.
 //   counting      calendar days in Prague time; the arrival day is day 1.
 //   free days     the position's own free days, else DEFAULT_FREE_DAYS.
 //   tariff        CZK 22 per W/M per day, at least CZK 120 per day (one tariff for everyone).
@@ -108,8 +111,11 @@ export function storageClock(p: { start: string | null; stop?: string | null; fr
 }
 
 export interface StorageInfo extends StorageClock {
-  /** What started the clock: the gate-in (inbound) or the "Received in warehouse" date (outbound). */
-  startSource: "gateIn" | "loadInDate" | "";
+  /**
+   * What started the clock: the gate-in (inbound), the stripping tally (outbound, ticked received)
+   * or the "Received in warehouse" date (outbound without a tally).
+   */
+  startSource: "gateIn" | "tally" | "loadInDate" | "";
 }
 
 /** The fields of a gate movement the storage clock reads. */
@@ -122,13 +128,18 @@ export interface StorageMovement {
   freeDays: number | null;
   measureCbm: number;
   weightKg: number;
+  /** Outbound: ticked received at the stripping tally. */
+  receivedAt?: Date | null;
+  /** Inbound: left stuffed in a container (its gate-out). */
+  leftAt?: Date | null;
 }
 
 /** The storage clock of a gate movement at `now`. */
 export function movementStorage(m: StorageMovement, now = new Date()): StorageInfo {
   const inbound = m.visit !== "výdej";
-  const start = inbound ? (m.gateIn ? pragueDate(m.gateIn) : null) : isIsoDate(m.loadInDate) ? m.loadInDate : null;
-  const stopAt = inbound ? m.impRelease : (m.impRelease ?? m.gateOut);
+  const tally = !inbound && !!m.receivedAt;
+  const start = inbound ? (m.gateIn ? pragueDate(m.gateIn) : null) : tally ? pragueDate(m.receivedAt!) : isIsoDate(m.loadInDate) ? m.loadInDate : null;
+  const stopAt = inbound ? (m.impRelease ?? m.leftAt ?? null) : (m.impRelease ?? m.gateOut);
   const clock = storageClock({
     start,
     stop: stopAt ? pragueDate(stopAt) : null,
@@ -136,7 +147,7 @@ export function movementStorage(m: StorageMovement, now = new Date()): StorageIn
     wm: wmOf(m.measureCbm, m.weightKg),
     today: pragueDate(now),
   });
-  return { ...clock, startSource: clock.started ? (inbound ? "gateIn" : "loadInDate") : "" };
+  return { ...clock, startSource: clock.started ? (inbound ? "gateIn" : tally ? "tally" : "loadInDate") : "" };
 }
 
 const czk = (n: number) => `CZK ${n.toLocaleString("en-GB")}`;

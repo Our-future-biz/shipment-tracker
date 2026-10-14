@@ -5,6 +5,7 @@ import { warehouseTaskRepository } from "../repositories/warehouseTask.repositor
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateAdminService } from "../services/gateAdmin.service";
+import { reweighService } from "../services/reweigh.service";
 
 // Shipments answer from the fakes (the real service needs an authenticated caller).
 vi.mock("~encore/clients", async () => {
@@ -129,11 +130,13 @@ describe("gate movement flow", () => {
     expect(draft.status).toBe("In Warehouse");
     // The draft receipt is the first arrival stamp, so it stamps gate-in too.
     expect(draft.gateIn).toBe(draft.expDraft);
+    // LCL cargo is re-weighed before its receipt.
+    await reweighService.record(m.id, c, user, { weighedKg: 500 });
     const receipt = await gateMovementService.stamp(m.id, c, user, "expReceipt");
     expect(receipt.status).toBe("In Warehouse");
     expect(receipt.expDraft).toBe(draft.expDraft);
     expect(receipt.gateIn).toBe(draft.gateIn);
-    expect(receipt.events.map((e) => e.kind)).toEqual(["created", "gateIn", "expDraft", "expReceipt"]);
+    expect(receipt.events.map((e) => e.kind)).toEqual(["created", "gateIn", "expDraft", "reweighed", "expReceipt"]);
   });
 
   it("does not let the general update change status, release gates or the override", async () => {

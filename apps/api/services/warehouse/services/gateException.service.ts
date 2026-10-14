@@ -75,7 +75,7 @@ class GateExceptionService {
     if (!Number.isInteger(pieces) || pieces < 1 || pieces > MAX_PIECES) throw APIError.invalidArgument("Pieces must be a whole number of at least 1");
     const note = (input.note ?? "").trim();
     if (note.length > MAX_NOTE) throw APIError.invalidArgument(`The note is too long (at most ${MAX_NOTE} characters)`);
-    const source = input.source === "survey" ? "survey" : "manual";
+    const source = input.source === "survey" || input.source === "tally" ? input.source : "manual";
     const requestId = checkRequestId(input.clientRequestId);
     const now = new Date();
     const already = async () => {

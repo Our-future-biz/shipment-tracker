@@ -34,6 +34,73 @@ export interface WarehouseContainerFields {
   vgmDeclaredAt: string;
   /** "" | Draft | Submitted */
   vgmStatus: string;
+  bookingNumber: string;
+  mblNumber: string;
+  vessel: string;
+  voyage: string;
+  /** The truck that takes the container away; sent to the shipments of its stuffed positions. */
+  plate: string;
+}
+
+/** One position (house) in a container. */
+export interface WarehouseContainerHouse {
+  /** Id of the house (the link). */
+  id: string;
+  movementId: string;
+  taskId: string | null;
+  /** WCZ reference of the position. */
+  positionRef: string;
+  gateRef: string;
+  customer: string;
+  /** příjem | výdej */
+  visit: string;
+  operationType: string;
+  pod: string;
+  etd: string;
+  /** Expected figures of the position (gate figures). */
+  pieces: number;
+  weightKg: number;
+  cbm: number;
+  sequence: number;
+  addedBy: string;
+  /** Lifecycle stage of the position (expected · arrived · received · in_warehouse · stuffed · ready · left) and its label. */
+  stage: string;
+  stageLabel: string;
+  stuffedAt: string | null;
+  stuffedBy: string;
+  /** "" (not tallied) | received | short | not_arrived */
+  tallyOutcome: string;
+  tallyPieces: number | null;
+  tallyCondition: string;
+  tallyLocation: string;
+  tallyNote: string;
+  tallyReason: string;
+  tickedAt: string | null;
+  tickedBy: string;
+  /** LCL: re-weighed before the tick (import) or the receipt (export). */
+  needsReweigh: boolean;
+  /** The re-weighing that counts; null when none. */
+  reweighKg: number | null;
+  reweighFlagged: boolean;
+  /** Open damage / short / over exceptions (the cargo is on hold). */
+  openExceptions: number;
+  /** A supervisor override lets the cargo move although exceptions are open (not on hold). */
+  overridden: boolean;
+  /** The position is archived. */
+  archived: boolean;
+}
+
+/** Pieces / kg / cbm of the houses against the capacity of the equipment type. */
+export interface WarehouseContainerTotals {
+  pieces: number;
+  kg: number;
+  cbm: number;
+  capacityCbm: number | null;
+  capacityKg: number | null;
+  fillCbmPct: number | null;
+  fillKgPct: number | null;
+  /** Over capacity by volume or weight (a warning; the plan may still be saved). */
+  overCapacity: boolean;
 }
 
 export interface WarehouseContainerItem extends WarehouseContainerFields {
@@ -48,8 +115,49 @@ export interface WarehouseContainerItem extends WarehouseContainerFields {
   vgmKg: number | null;
   /** Whole days on our yard (gate-in to gate-out or today); null when not gated in. */
   daysOnYard: number | null;
+  /** import (Unloading: stripped, houses tallied) | export (Loading: stuffed from a plan) */
+  kind: string;
+  /** Expected · Arrived · Stripping · Stripped (import) · Planning · Stuffing · Closed (export) · Gone out */
+  status: string;
+  /** Container stamps (ISO), null while not stamped. */
+  gateInAt: string | null;
+  strippingStartedAt: string | null;
+  /** Import: when the last house was accounted for; null while houses are open. */
+  strippingCompletedAt: string | null;
+  closedAt: string | null;
+  closedBy: string;
+  gateOutAt: string | null;
+  /** The houses, in their order. */
+  positions: WarehouseContainerHouse[];
+  totals: WarehouseContainerTotals;
+  /** Shipment updates from this container's stamps not delivered yet (pending or failed). */
+  shipmentUpdatesWaiting: number;
+  events: { kind: string; label: string; at: string; by: string; detail?: string }[];
   createdAt: string;
   updatedAt: string;
+}
+
+/** Container stamps, in order: import gateIn → strippingStart → gateOut; export gateIn → close → gateOut. */
+export type ContainerStampKind = "gateIn" | "strippingStart" | "close" | "gateOut";
+
+/** The tally of one house at stripping. */
+export interface ContainerTallyInput {
+  /** received (tick off: the house is received) | short | not_arrived */
+  outcome: string;
+  /** Pieces counted. */
+  pieces?: number | null;
+  condition?: string;
+  location?: string;
+  note?: string;
+  /** Required for short / not arrived. */
+  reason?: string;
+}
+
+/** Stuff / ticks answer like stamps: what happened and a text for a toast. */
+export interface ContainerActionOutcome {
+  /** done · already_done (this request came before) · done_by_someone_else */
+  outcome: "done" | "already_done" | "done_by_someone_else";
+  notice: string;
 }
 
 export interface WarehouseContainerInput {
@@ -81,6 +189,12 @@ export interface WarehouseContainerInput {
   vgmDeclaredBy?: string;
   vgmDeclaredAt?: string;
   vgmStatus?: string;
+  bookingNumber?: string;
+  mblNumber?: string;
+  vessel?: string;
+  voyage?: string;
+  /** After the gate-out a new plate is sent to the shipments of the positions that left in it. */
+  plate?: string;
 }
 
 // ---------- Dock slots ----------

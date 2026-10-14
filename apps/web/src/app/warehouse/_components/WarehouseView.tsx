@@ -33,6 +33,8 @@ import { ImportOutcomeTag, ShipmentImportPicker, type ImportMode } from "./Shipm
 import { RemeasurementTab } from "./tabs/RemeasurementTab";
 import { positionRemeasurementHref } from "./remeasurementLinks";
 import { reportBulk, runBulk } from "./tabs/shared";
+import { LifecycleChip } from "./LifecycleStrip";
+import { LIFECYCLE_VALUES, lifecycleText, stageOrder } from "../_lib/lifecycle";
 
 // The Warehouse module works with its own data: a position (WCZ reference) and the record
 // on its gate movement. "Create new" either copies job or quote values in once (a position
@@ -111,6 +113,37 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
   textCol("freightMode", "Freight Mode", 130),
   textCol("loadType", "Load Type", 140),
   textCol("status", TERMS.warehouseStatus, 150),
+  // Where the position is in its in-and-out lifecycle (from its stamps, the tally and the stuffing).
+  {
+    key: "lifecycle",
+    title: TERMS.lifecycle,
+    width: 150,
+    text: (r) => lifecycleText(r.m?.lifecycle),
+    filterOptions: LIFECYCLE_VALUES,
+    sorter: (a, b) => (a.m?.lifecycle ? stageOrder(a.m.lifecycle.stage) : 99) - (b.m?.lifecycle ? stageOrder(b.m.lifecycle.stage) : 99),
+    render: (_, r) => (r.m ? <LifecycleChip l={r.m.lifecycle} /> : dim("")),
+  },
+  // The container the position is a house of (stuffing plan / stripping tally).
+  {
+    key: "container",
+    title: "Container",
+    width: 150,
+    text: (r) => r.m?.container?.number ?? "",
+    sorter: byText((r) => r.m?.container?.number || "~"),
+    render: (_, r) =>
+      r.m?.container ? (
+        <Link
+          href={`/warehouse/containers/${r.m.container.id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="font-mono font-semibold text-indigo-500 hover:underline"
+          title={`${r.m.container.status}${r.m.container.stuffedAt ? " · stuffed" : r.m.container.tallyOutcome ? ` · ${r.m.container.tallyOutcome.replace("_", " ")}` : ""}`}
+        >
+          {r.m.container.number}
+        </Link>
+      ) : (
+        dim("")
+      ),
+  },
   // The storage clock (one calculation, made by the server): received, days in the warehouse,
   // free time left and the estimated storage charge.
   {

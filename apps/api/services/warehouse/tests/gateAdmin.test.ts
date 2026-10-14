@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../db/db";
 import { gateMovementService } from "../services/gateMovement.service";
+import { reweighService } from "../services/reweigh.service";
 import { gateAdminService, statusAfterVoid, voidBlocked } from "../services/gateAdmin.service";
 import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
@@ -160,6 +161,8 @@ describe("voiding a stamp", () => {
     const c = randomUUID();
     const m = await gateMovementService.create(c, user, { gateRef: "R", handling: "Export" });
     await gateMovementService.stamp(m.id, c, user, "expDraft");
+    // LCL cargo is re-weighed before its receipt.
+    await reweighService.record(m.id, c, user, { weighedKg: 500 });
     // The record is read before the receipt lands; the void must not go through on what it read.
     const load = gateMovementRepository.findById.bind(gateMovementRepository);
     const spy = vi.spyOn(gateMovementRepository, "findById").mockImplementationOnce(async (...args) => {

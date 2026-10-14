@@ -1,279 +1,207 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PlusOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
-import { useGateLog } from "@/hooks/useGateLog";
 import { useWarehouseContainers, type WarehouseContainer } from "@/hooks/useWarehouseRecords";
-import { formatDate } from "@/lib/date";
-import type { interfaces } from "@/lib/api/client";
-import { CONTAINER_TYPES, PACKINGS } from "@/app/warehouse/gate-log/_lib/gate";
-import { DIRECTIONS as WAREHOUSE_DIRECTIONS, TERMS, directionOfHandling } from "@/app/warehouse/_lib/glossary";
-import { BulkDeleteButton, RecordFormModal, StatusTag, dim, nf, type FieldDef } from "./shared";
+import { formatDate, formatDateTime } from "@/lib/date";
+import { Badge, CONTAINER_TYPES } from "@/app/warehouse/gate-log/_lib/gate";
+import { TERMS } from "@/app/warehouse/_lib/glossary";
+import { CONTAINER_STATUSES, CONTAINER_STATUS_TONE, KIND_LABEL, containerKind, fillPct } from "@/app/warehouse/_lib/containerPlan";
+import { ContainerFormModal, type ContainerFormMode } from "../container/containerForm";
+import { FillBar } from "../container/FillBar";
+import { BulkDeleteButton, dim, nf } from "./shared";
 
-type Mode = "register" | "schedule" | "vgm";
-
-const DIRECTIONS = ["Unloading", "Loading"];
-const SCHEDULE_STATUSES = ["Scheduled", "Arrived", "Devanning", "Devanned", "Empty returned"];
-const VGM_METHODS = ["Method 1 — weighed", "Method 2 — calculated"];
-const VGM_STATUSES = ["Draft", "Submitted"];
+// Containers: one container, many positions (houses). An import container (Unloading) is stripped
+// and its houses tallied; an export container (Loading) is stuffed from a plan of inbound
+// positions. The list shows each container with its houses' totals against its capacity; a row
+// opens the container page (houses, stamps, log).
 
 const btnPrimary =
   "flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors";
 
+/** The yard date of a stamp, or the typed date from before the stamps. */
+const yardDate = (at: string | null, typed: string) => (at ? formatDateTime(at) : formatDate(typed));
+
+export const containerHref = (id: string) => `/warehouse/containers/${id}`;
+
 export function ContainersTab() {
   const router = useRouter();
-  const { items, isLoading, create, update, remove, isSaving } = useWarehouseContainers();
-  const { movements } = useGateLog();
-  const [editing, setEditing] = useState<{ mode: Mode; container?: WarehouseContainer } | null>(
-    null,
-  );
+  const { items, isLoading, create, remove, isSaving } = useWarehouseContainers();
+  const [creating, setCreating] = useState<ContainerFormMode | null>(null);
 
-  const positionOptions = useMemo(
-    () =>
-      movements
-        .filter((m) => m.warehouseTaskId)
-        .map((m) => ({
-          value: m.id,
-          label: m.customer
-            ? `${m.positionRef || m.gateRef} — ${m.customer}`
-            : m.positionRef || m.gateRef,
-        })),
-    [movements],
-  );
-
-  // Opens the position's Gate Log job (the old position page forwards there too).
-  const position = (c: WarehouseContainer) =>
-    c.positionRef && (c.movementId || c.warehouseTaskId) ? (
-      <span
-        onClick={(e) => {
-          e.stopPropagation();
-          router.push(c.movementId ? `/warehouse/gate-log/${c.movementId}` : `/warehouse/${c.warehouseTaskId}`);
-        }}
-        className="font-mono font-bold text-indigo-500 hover:underline cursor-pointer"
-      >
-        {c.positionRef}
-      </span>
-    ) : (
-      dim("")
-    );
-  const containerNo = (c: WarehouseContainer) => (
-    <span className="font-mono font-bold text-indigo-500">{c.number}</span>
-  );
-
-  // ---- Container register ----
-  const registerColumns: AppGridColumn<WarehouseContainer>[] = [
+  const columns: AppGridColumn<WarehouseContainer>[] = [
     {
       key: "number",
       title: "Container",
       width: 160,
       text: (c) => c.number,
-      render: (_, c) => containerNo(c),
+      sorter: (a, b) => a.number.localeCompare(b.number),
+      render: (_, c) => <span className="font-mono font-bold text-indigo-500">{c.number}</span>,
     },
     {
-      key: "equipment",
-      title: "Equipment",
+      key: "kind",
+      title: "Kind",
+      width: 140,
+      text: (c) => KIND_LABEL[containerKind(c.direction)],
+      filterOptions: Object.values(KIND_LABEL),
+      render: (_, c) => <Badge tone={containerKind(c.direction) === "export" ? "i" : "b"}>{KIND_LABEL[containerKind(c.direction)]}</Badge>,
+    },
+    {
+      key: "status",
+      title: "Status",
       width: 110,
-      text: (c) => c.equipment,
-      filterOptions: CONTAINER_TYPES,
-      render: (_, c) => dim(c.equipment),
+      text: (c) => c.status,
+      filterOptions: [...CONTAINER_STATUSES],
+      render: (_, c) => <Badge tone={CONTAINER_STATUS_TONE[c.status] ?? ""}>{c.status}</Badge>,
     },
-    { key: "seal", title: "Seal", width: 130, text: (c) => c.seal, render: (_, c) => dim(c.seal) },
+    { key: "equipment", title: "Equipment", width: 100, text: (c) => c.equipment, filterOptions: CONTAINER_TYPES, render: (_, c) => dim(c.equipment) },
     {
-      key: "position",
-      title: TERMS.warehouseRef,
-      width: 160,
-      text: (c) => c.positionRef,
-      render: (_, c) => position(c),
-    },
-    {
-      key: "customer",
-      title: "Customer",
-      width: 180,
-      text: (c) => c.customer,
-      render: (_, c) => dim(c.customer),
+      key: "houses",
+      title: "Houses",
+      width: 90,
+      align: "right",
+      text: (c) => String(c.positions.length),
+      sorter: (a, b) => a.positions.length - b.positions.length,
+      render: (_, c) => (c.positions.length ? <span className="tabular-nums font-semibold text-slate-800">{c.positions.length}</span> : dim("")),
     },
     {
-      key: "handling",
-      title: TERMS.direction,
-      width: 110,
-      text: (c) => directionOfHandling(c.handling),
-      filterOptions: [...WAREHOUSE_DIRECTIONS],
-      render: (_, c) => dim(directionOfHandling(c.handling)),
+      key: "housesList",
+      title: "Positions",
+      width: 220,
+      text: (c) => c.positions.map((h) => h.positionRef || h.gateRef).join(", "),
+      render: (_, c) => dim(c.positions.map((h) => h.positionRef || h.gateRef).join(", ")),
     },
     {
       key: "pieces",
       title: TERMS.pieces,
-      width: 90,
+      width: 80,
       align: "right",
-      text: (c) => String(c.pieces ?? ""),
-      render: (_, c) => dim(c.pieces),
+      text: (c) => String(c.totals.pieces || ""),
+      sorter: (a, b) => a.totals.pieces - b.totals.pieces,
+      render: (_, c) => dim(c.totals.pieces ? nf(c.totals.pieces) : ""),
     },
     {
-      key: "packages",
-      title: "Packages",
-      width: 140,
-      text: (c) => c.packages,
-      render: (_, c) => dim(c.packages),
-    },
-    {
-      key: "weightKg",
+      key: "kg",
       title: TERMS.weightKg,
-      width: 110,
+      width: 100,
       align: "right",
-      text: (c) => String(c.weightKg ?? ""),
-      render: (_, c) => dim(nf(c.weightKg)),
+      text: (c) => String(c.totals.kg || ""),
+      sorter: (a, b) => a.totals.kg - b.totals.kg,
+      render: (_, c) => dim(c.totals.kg ? nf(c.totals.kg) : ""),
     },
     {
       key: "cbm",
       title: TERMS.volumeCbm,
       width: 90,
       align: "right",
-      text: (c) => String(c.cbm ?? ""),
-      render: (_, c) => dim(nf(c.cbm, 2)),
+      text: (c) => String(c.totals.cbm || ""),
+      sorter: (a, b) => a.totals.cbm - b.totals.cbm,
+      render: (_, c) => dim(c.totals.cbm ? nf(c.totals.cbm, 2) : ""),
     },
     {
-      key: "direction",
-      title: "Loading / unloading",
-      width: 150,
-      text: (c) => c.direction,
-      filterOptions: DIRECTIONS,
-      render: (_, c) => (
-        <StatusTag value={c.direction} colors={{ Loading: "purple", Unloading: "blue" }} />
-      ),
+      key: "fill",
+      title: "Fill",
+      width: 130,
+      text: (c) => (fillPct(c.totals) == null ? "" : `${fillPct(c.totals)} %`),
+      sorter: (a, b) => (fillPct(a.totals) ?? -1) - (fillPct(b.totals) ?? -1),
+      render: (_, c) => <FillBar totals={c.totals} compact />,
     },
+    { key: "seal", title: "Seal", width: 120, text: (c) => c.seal, render: (_, c) => dim(c.seal) },
+    {
+      key: "gateIn",
+      title: TERMS.containerGateIn,
+      width: 140,
+      text: (c) => c.gateInAt ?? c.gatedIn,
+      sorter: (a, b) => (a.gateInAt ?? a.gatedIn ?? "").localeCompare(b.gateInAt ?? b.gatedIn ?? ""),
+      render: (_, c) => dim(yardDate(c.gateInAt, c.gatedIn)),
+    },
+    {
+      key: "gateOut",
+      title: TERMS.containerGateOut,
+      width: 140,
+      text: (c) => c.gateOutAt ?? c.gatedOut,
+      sorter: (a, b) => (a.gateOutAt ?? a.gatedOut ?? "").localeCompare(b.gateOutAt ?? b.gatedOut ?? ""),
+      render: (_, c) => dim(yardDate(c.gateOutAt, c.gatedOut)),
+    },
+    {
+      key: "vessel",
+      title: "Vessel / voyage",
+      width: 160,
+      text: (c) => [c.vessel, c.voyage].filter(Boolean).join(" / "),
+      render: (_, c) => dim([c.vessel, c.voyage].filter(Boolean).join(" / ")),
+    },
+    {
+      key: "booking",
+      title: "Booking / MBL",
+      width: 160,
+      text: (c) => [c.bookingNumber, c.mblNumber].filter(Boolean).join(" / "),
+      render: (_, c) => dim([c.bookingNumber, c.mblNumber].filter(Boolean).join(" / ")),
+    },
+    {
+      key: "updatesWaiting",
+      title: "Shipment updates waiting",
+      width: 120,
+      align: "right",
+      defaultVisible: false,
+      text: (c) => String(c.shipmentUpdatesWaiting || ""),
+      render: (_, c) => (c.shipmentUpdatesWaiting ? <Badge tone="a">{c.shipmentUpdatesWaiting}</Badge> : dim("")),
+    },
+    { key: "carrier", title: "Carrier", width: 130, defaultVisible: false, text: (c) => c.carrier, render: (_, c) => dim(c.carrier) },
     {
       key: "vgm",
-      title: "VGM",
-      width: 110,
+      title: "Container VGM",
+      width: 120,
       align: "right",
+      defaultVisible: false,
       text: (c) => String(c.vgmKg ?? ""),
       render: (_, c) => dim(c.vgmKg != null ? `${nf(c.vgmKg)} kg` : ""),
     },
-    {
-      key: "vgmDate",
-      title: "VGM date",
-      width: 110,
-      text: (c) => c.vgmDeclaredAt.slice(0, 10),
-      render: (_, c) => dim(formatDate(c.vgmDeclaredAt)),
-    },
-    { key: "note", title: "Note", width: 220, text: (c) => c.note, render: (_, c) => dim(c.note) },
+    { key: "plate", title: TERMS.plate, width: 110, defaultVisible: false, text: (c) => c.plate, render: (_, c) => dim(c.plate) },
+    { key: "note", title: "Note", width: 220, defaultVisible: false, text: (c) => c.note, render: (_, c) => dim(c.note) },
   ];
 
-  // ---- form ----
-  const registerFields: FieldDef[] = [
-    { name: "number", label: "Container number", required: true, placeholder: "MSCU 611 902-7" },
-    { name: "movementId", label: "Position", type: "select", options: positionOptions },
-    { name: "equipment", label: "Equipment", type: "select", options: CONTAINER_TYPES },
-    { name: "seal", label: "Seal number" },
-    { name: "pieces", label: TERMS.pieces, type: "number" },
-    { name: "packages", label: "Packages", type: "select", options: PACKINGS },
-    { name: "weightKg", label: TERMS.weightKg, type: "number" },
-    { name: "cbm", label: TERMS.volumeCbm, type: "number", step: 0.01 },
-    {
-      name: "direction",
-      label: "Loading / unloading",
-      type: "select",
-      options: DIRECTIONS,
-      required: true,
-    },
-    { name: "note", label: "Note", type: "textarea" },
-  ];
-  const scheduleFields: FieldDef[] = [
-    { name: "masterJob", label: "Master job", section: "Unloading / loading schedule" },
-    { name: "carrier", label: "Carrier" },
-    { name: "dischargePort", label: "Discharge port" },
-    { name: "arrivedAt", label: "Arrived at WH", type: "datetime" },
-    { name: "houses", label: "Houses", type: "number" },
-    { name: "dockSlot", label: "Dock slot", placeholder: "Dock 4 · 09:00" },
-    { name: "detentionExpiry", label: "Detention expiry", type: "date" },
-    { name: "scheduleStatus", label: "Status", type: "select", options: SCHEDULE_STATUSES },
-  ];
-  const vgmFields: FieldDef[] = [
-    { name: "tareKg", label: "Tare (kg)", type: "number", section: "VGM" },
-    { name: "cargoKg", label: `Cargo ${TERMS.weightKg.toLowerCase()}`, type: "number" },
-    { name: "vgmMethod", label: "VGM method", type: "select", options: VGM_METHODS },
-    { name: "vgmDeclaredBy", label: "Declared by" },
-    { name: "vgmDeclaredAt", label: "Declared at", type: "datetime" },
-    { name: "vgmStatus", label: "Status", type: "select", options: VGM_STATUSES },
-  ];
-  const identity = (c?: WarehouseContainer): FieldDef[] =>
-    c
-      ? []
-      : [
-          {
-            name: "number",
-            label: "Container number",
-            required: true,
-            placeholder: "MSCU 611 902-7",
-          },
-          { name: "movementId", label: "Position", type: "select", options: positionOptions },
-        ];
-  const fieldsFor = (mode: Mode, c?: WarehouseContainer): FieldDef[] =>
-    mode === "register"
-      ? [...registerFields, ...scheduleFields]
-      : mode === "schedule"
-        ? [...identity(c), ...scheduleFields]
-        : [...identity(c), ...vgmFields];
-
-  const openEdit = (mode: Mode) => (c: WarehouseContainer) => setEditing({ mode, container: c });
   const bulkDelete = (selected: WarehouseContainer[], clear: () => void) => (
-    <BulkDeleteButton rows={selected} clear={clear} nouns={["container", "containers"]} label={(c) => c.number} remove={(c) => remove(c.id)} />
+    <BulkDeleteButton
+      rows={selected}
+      clear={clear}
+      nouns={["container", "containers"]}
+      label={(c) => c.number}
+      warning="A container with stamps, stuffed or tallied houses is not deleted."
+      remove={(c) => remove(c.id)}
+    />
   );
 
   return (
     <div className="flex flex-col gap-5">
       <AppGrid<WarehouseContainer>
-        searchPlaceholder="Search container, seal, position, customer…"
+        searchPlaceholder="Search container, seal, position, vessel, booking…"
         actions={
-          <button className={btnPrimary} onClick={() => setEditing({ mode: "register" })}>
+          <button className={btnPrimary} onClick={() => setCreating("register")}>
             <PlusOutlined /> Container
           </button>
         }
-        columns={registerColumns}
+        columns={columns}
         rows={items}
         rowKey={(c) => c.id}
         loading={isLoading}
-        onRowClick={openEdit("register")}
+        onRowClick={(c) => router.push(containerHref(c.id))}
         bulkActions={bulkDelete}
-        storageKey="warehouse:containers"
-        exportFilePrefix="container-register"
+        storageKey="warehouse:containers:v2"
+        exportFilePrefix="containers"
         emptyText="No containers recorded yet."
       />
 
-      {editing && (
-        <RecordFormModal<interfaces.WarehouseContainerInput>
-          open
-          title={
-            editing.container
-              ? `Container ${editing.container.number}`
-              : editing.mode === "vgm"
-                ? "VGM declaration"
-                : "New container"
-          }
-          fields={fieldsFor(editing.mode, editing.container)}
-          initial={
-            editing.container ?? {
-              direction: "Unloading",
-              scheduleStatus: "Scheduled",
-              ...(editing.mode === "vgm" ? { vgmStatus: "Draft", direction: "Loading" } : {}),
-            }
-          }
+      {creating && (
+        <ContainerFormModal
+          mode={creating}
           saving={isSaving}
-          onCancel={() => setEditing(null)}
-          onSubmit={(values) => {
-            // A cleared position select means "no position".
-            const input =
-              "movementId" in values
-                ? { ...values, movementId: values.movementId || null }
-                : values;
-            return editing.container
-              ? update(editing.container.id, input)
-              : create({ direction: "Unloading", ...input });
+          onClose={() => setCreating(null)}
+          onSubmit={async (input) => {
+            const res = (await create(input)) as { container?: WarehouseContainer } | undefined;
+            if (res?.container) router.push(containerHref(res.container.id));
           }}
-          onDelete={editing.container ? () => remove(editing.container!.id) : undefined}
-          okText={editing.container ? "Save" : "Create"}
         />
       )}
     </div>

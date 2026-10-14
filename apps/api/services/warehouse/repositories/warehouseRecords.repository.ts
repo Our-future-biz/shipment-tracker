@@ -1,9 +1,13 @@
-import { and, asc, eq, gt, inArray, isNull, like, lt, ne, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, like, lt, ne, notInArray, sql, type SQL } from "drizzle-orm";
+import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import log from "encore.dev/log";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
+import type { GateEvent } from "../schemas/gateMovement.schema";
+import type { Tx } from "./warehouseSection.repository";
 import {
   warehouseClaimTable,
+  warehouseContainerPositionTable,
   warehouseContainerTable,
   warehouseDockSlotTable,
   warehouseEquipmentTable,
@@ -11,24 +15,145 @@ import {
   warehouseStaffTable,
 } from "../schemas/warehouseRecords.schema";
 
+const ct = warehouseContainerTable;
+const cp = warehouseContainerPositionTable;
+
+/** A container of a position, as the gate job and the surveys read it. */
+export type MovementContainerRef = { id: string; number: string; equipment: string; movementId: string };
+
 class WarehouseContainerRepository extends TenantRepository<typeof warehouseContainerTable> {
   constructor() {
     super(db as never, warehouseContainerTable, "warehouse_container");
   }
 
-  async listForMovements(movementIds: string[], companyId: string) {
+  // The containers of these positions: the one each is a house of (warehouse_container_position),
+  // and the containers still linked the legacy way (movement_id) — a position that had several
+  // containers before containers held many positions keeps them all for its surveys.
+  async listForMovements(movementIds: string[], companyId: string): Promise<MovementContainerRef[]> {
     if (!movementIds.length) return [];
-    return this.db
+    const legacy = await this.db
+      .select({ id: ct.id, number: ct.number, equipment: ct.equipment, movementId: ct.movementId, createdAt: ct.createdAt })
+      .from(ct)
+      .where(and(eq(ct.companyId, companyId), inArray(ct.movementId, movementIds), isNull(ct.deletedAt)))
+      .orderBy(ct.createdAt);
+    let linked: typeof legacy = [];
+    try {
+      linked = await this.db
+        .select({ id: ct.id, number: ct.number, equipment: ct.equipment, movementId: cp.movementId, createdAt: ct.createdAt })
+        .from(cp)
+        .innerJoin(ct, and(eq(ct.id, cp.containerId), isNull(ct.deletedAt)))
+        .where(and(eq(cp.companyId, companyId), inArray(cp.movementId, movementIds), isNull(cp.deletedAt)));
+    } catch (err) {
+      if (!missingSchema(err)) throw err;
+      log.warn("warehouse: container positions missing — restart the API so migration 0017 is applied");
+    }
+    const seen = new Set<string>();
+    const out: MovementContainerRef[] = [];
+    for (const r of [...linked, ...legacy]) {
+      const key = `${r.movementId}:${r.id}`;
+      if (!r.movementId || seen.has(key)) continue;
+      seen.add(key);
+      out.push({ id: r.id, number: r.number, equipment: r.equipment, movementId: r.movementId });
+    }
+    return out;
+  }
+
+  async findById(id: string, companyId: string, tx: Tx | typeof db = db) {
+    const [row] = await tx.select().from(ct).where(and(eq(ct.id, id), eq(ct.companyId, companyId), isNull(ct.deletedAt)));
+    return row ?? null;
+  }
+
+  async findByIds(ids: string[], companyId: string, tx: Tx | typeof db = db) {
+    if (!ids.length) return [];
+    return tx.select().from(ct).where(and(inArray(ct.id, ids), eq(ct.companyId, companyId), isNull(ct.deletedAt)));
+  }
+
+  // The live container, locked until the transaction ends. Every change of a container's houses
+  // or stamps locks it first (then the positions, ordered by id), so they never deadlock.
+  async lock(tx: Tx, id: string, companyId: string) {
+    const [row] = await tx.select().from(ct).where(and(eq(ct.id, id), eq(ct.companyId, companyId), isNull(ct.deletedAt))).for("update");
+    return row ?? null;
+  }
+
+  // One conditional UPDATE that appends `events` in SQL, only while `cond` holds; null otherwise.
+  async conditionalUpdate(tx: Tx | typeof db, id: string, companyId: string, set: PgUpdateSetSource<typeof warehouseContainerTable>, events: GateEvent[], cond?: SQL) {
+    const [row] = await tx
+      .update(ct)
+      .set({ ...set, events: sql`${ct.events} || ${JSON.stringify(events)}::jsonb`, updatedAt: new Date() })
+      .where(and(eq(ct.id, id), eq(ct.companyId, companyId), isNull(ct.deletedAt), cond))
+      .returning();
+    return row ?? null;
+  }
+}
+
+class ContainerPositionRepository {
+  // Live houses of these containers, in their order.
+  async listForContainers(containerIds: string[], companyId: string, tx: Tx | typeof db = db) {
+    if (!containerIds.length) return [];
+    try {
+      return await tx
+        .select()
+        .from(cp)
+        .where(and(eq(cp.companyId, companyId), inArray(cp.containerId, containerIds), isNull(cp.deletedAt)))
+        .orderBy(asc(cp.sequence), asc(cp.createdAt));
+    } catch (err) {
+      if (!missingSchema(err)) throw err;
+      log.warn("warehouse: container positions missing — restart the API so migration 0017 is applied");
+      return [];
+    }
+  }
+
+  // The live house of each of these positions (a position is in at most one container).
+  async liveForMovements(movementIds: string[], companyId: string, tx: Tx | typeof db = db) {
+    if (!movementIds.length) return [];
+    try {
+      return await tx
+        .select()
+        .from(cp)
+        .where(and(eq(cp.companyId, companyId), inArray(cp.movementId, movementIds), isNull(cp.deletedAt)));
+    } catch (err) {
+      if (!missingSchema(err)) throw err;
+      log.warn("warehouse: container positions missing — restart the API so migration 0017 is applied");
+      return [];
+    }
+  }
+
+  async liveForMovement(tx: Tx | typeof db, movementId: string, companyId: string) {
+    const [row] = await tx.select().from(cp).where(and(eq(cp.companyId, companyId), eq(cp.movementId, movementId), isNull(cp.deletedAt)));
+    return row ?? null;
+  }
+
+  async findInContainer(tx: Tx | typeof db, containerId: string, movementId: string, companyId: string) {
+    const [row] = await tx
       .select()
-      .from(warehouseContainerTable)
-      .where(
-        and(
-          eq(warehouseContainerTable.companyId, companyId),
-          inArray(warehouseContainerTable.movementId, movementIds),
-          isNull(warehouseContainerTable.deletedAt),
-        ),
-      )
-      .orderBy(warehouseContainerTable.createdAt);
+      .from(cp)
+      .where(and(eq(cp.companyId, companyId), eq(cp.containerId, containerId), eq(cp.movementId, movementId), isNull(cp.deletedAt)));
+    return row ?? null;
+  }
+
+  async add(tx: Tx, rows: (typeof cp.$inferInsert)[]) {
+    if (!rows.length) return [];
+    return tx.insert(cp).values(rows).returning();
+  }
+
+  // Updates a live house only while `cond` holds; null otherwise.
+  async update(tx: Tx | typeof db, id: string, companyId: string, set: PgUpdateSetSource<typeof warehouseContainerPositionTable>, cond?: SQL) {
+    const [row] = await tx
+      .update(cp)
+      .set({ ...set, updatedAt: new Date() })
+      .where(and(eq(cp.id, id), eq(cp.companyId, companyId), isNull(cp.deletedAt), cond))
+      .returning();
+    return row ?? null;
+  }
+
+  async softRemove(tx: Tx | typeof db, ids: string[], companyId: string) {
+    if (!ids.length) return [];
+    const now = new Date();
+    return tx
+      .update(cp)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(inArray(cp.id, ids), eq(cp.companyId, companyId), isNull(cp.deletedAt)))
+      .returning();
   }
 }
 
@@ -127,6 +252,7 @@ class WarehouseSavedReportRepository extends TenantRepository<typeof warehouseSa
 }
 
 export const containerRepository = new WarehouseContainerRepository();
+export const containerPositionRepository = new ContainerPositionRepository();
 export const dockSlotRepository = new WarehouseDockSlotRepository();
 export const staffRepository = new WarehouseStaffRepository();
 export const equipmentRepository = new WarehouseEquipmentRepository();

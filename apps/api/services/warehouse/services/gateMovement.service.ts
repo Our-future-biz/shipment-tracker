@@ -12,7 +12,7 @@ import { gateMovementTable, type GateChecklist, type GateEvent, type GateMovemen
 import type { NewShipmentOutboxRecord, ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
 import { gateExceptionRepository } from "../repositories/gateException.repository";
 import type { WarehouseExceptionRecord } from "../schemas/warehouseException.schema";
-import type { GateDockSlot, GateExceptionItem, GateMovementInput, GateMovementItem, GatePickupInfo, GateSurveyInput } from "../interfaces/gate.interfaces";
+import type { GateDockSlot, GateExceptionItem, GateMovementInput, GateMovementItem, GatePickupInfo, GateReweighItem, GateSurveyInput } from "../interfaces/gate.interfaces";
 import { EXCEPTION_GATE, exceptionHold, noOpenExceptionSql } from "./osd";
 import { isIsoDate, movementStorage, pragueDate, storageNote, type StorageInfo } from "./storage";
 import { remeasureTotals, type RemeasureTotals } from "./remeasure";
@@ -23,6 +23,11 @@ import { FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms }
 import { userName } from "./users";
 import { acceptRecordedAt, checkRequestId, latest, offlineDetail, pragueHhmm, type StampOutcome, type SurveyOutcome } from "./offline";
 import { dockSlotsOf } from "./dockSlots";
+import { reweighRepository } from "../repositories/reweigh.repository";
+import type { WarehouseReweighRecord } from "../schemas/warehouseReweigh.schema";
+import { needsReweigh, REWEIGH_FIRST, reweighOkSql } from "./reweigh";
+import { positionLifecycle } from "./lifecycle";
+import { houseBlocksRelease, houseContexts, houseReleaseOkSql, isExportContainer, lockHouse, positionContainer, releaseHousesForArchive, tallyRequired, type HouseCtx } from "./houses";
 import {
   isLinkedOutbound,
   linkedOutboundCond,
@@ -163,6 +168,28 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
 type ContainerRef = { id: string; number: string; equipment: string };
 
+export const reweighItem = (r: WarehouseReweighRecord): GateReweighItem => ({
+  id: r.id,
+  movementId: r.movementId,
+  weighedKg: r.weighedKg,
+  declaredKg: r.declaredKg,
+  declaredSource: r.declaredSource,
+  variancePct: r.variancePct,
+  flagged: r.flagged,
+  weighedBy: r.weighedBy,
+  weighedAt: r.weighedAt.toISOString(),
+  fileIds: Array.isArray(r.fileIds) ? r.fileIds : [],
+  note: r.note,
+  createdAt: r.createdAt.toISOString(),
+});
+
+/** The container house and re-weighings of a record, read with it. */
+export interface MovementExtras {
+  house?: HouseCtx | null;
+  /** Latest first. */
+  reweighs?: WarehouseReweighRecord[];
+}
+
 // What the gate shows of the shipment's pick-up: status, tries and the haulier rows to compare
 // with the truck. Never the PIN itself, so the check at the gate is a real check.
 const pickupInfo = (p: PickupData): GatePickupInfo => ({
@@ -209,12 +236,31 @@ function toItem(
   exceptions: WarehouseExceptionRecord[] = [],
   now = new Date(),
   dockSlots: GateDockSlot[] = [],
+  extras: MovementExtras = {},
 ): GateMovementItem {
-  const { pinHash, companyId: _companyId, deletedAt, releaseStatus: _releaseStatus, shipmentCheckedAt, ...rest } = m;
+  const { pinHash, companyId: _companyId, deletedAt, releaseStatus: _releaseStatus, shipmentCheckedAt, receivedAt, leftAt, ...rest } = m;
   const pick = isLinkedOutbound(m) ? pickupInfo(pickup ?? readPickup(null)) : null;
   const storage = movementStorage(m, now);
+  const house = extras.house ?? null;
+  const reweighs = (extras.reweighs ?? []).map(reweighItem);
+  const armed = isArmed(m);
   return {
     ...rest,
+    receivedAt: iso(receivedAt),
+    leftAt: iso(leftAt),
+    leftContainerId: m.leftContainerId ?? null,
+    lifecycle: positionLifecycle(
+      m,
+      armed,
+      // An old one-position import container keeps the received date typed by hand.
+      house && (isExportContainer(house.container) || tallyRequired(house))
+        ? { stuffedAt: house.link.stuffedAt, tickedAt: house.link.tickedAt, tallyOutcome: house.link.tallyOutcome, containerGateInAt: house.container.gateInAt }
+        : null,
+    ),
+    container: house ? positionContainer(house) : null,
+    needsReweigh: needsReweigh(m),
+    reweigh: reweighs[0] ?? null,
+    reweighs,
     releaseGates: withStorageNote(m.releaseGates, storage),
     storage,
     exceptions: exceptions.map(exceptionItem),
@@ -230,7 +276,7 @@ function toItem(
     pinTries: pick ? pick.tries : m.pinTries,
     pinLocked: pick ? pick.locked : m.pinTries >= MAX_PIN_TRIES,
     pickup: pick,
-    armed: isArmed(m),
+    armed,
     needsAttention: needsAttention(m),
     gateIn: iso(m.gateIn),
     gateOut: iso(m.gateOut),
@@ -277,8 +323,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // gate-out of its own would skip the release gates.
 const OUT_NEEDS_RELEASE = "Outgoing cargo leaves through WH release (it stamps the gate-out too) — stamp WH release first";
 
+/** What a stamp check reads besides the row: the container house and whether it is re-weighed. */
+export interface StampContext {
+  house?: HouseCtx | null;
+  reweighed?: boolean;
+}
+
 // Why a stamp cannot be taken on the row as it is now; null when it can.
-function stampBlocked(m: GateMovementRow, kind: StampKind): string | null {
+function stampBlocked(m: GateMovementRow, kind: StampKind, ctx: StampContext = {}): string | null {
   switch (kind) {
     case "gateIn":
       return m.gateIn ? "Gate-in already stamped" : null;
@@ -287,13 +339,18 @@ function stampBlocked(m: GateMovementRow, kind: StampKind): string | null {
       return m.visit === "výdej" && !m.impRelease ? OUT_NEEDS_RELEASE : null;
     case "impRelease":
       if (m.impRelease) return "WH release already stamped";
+      {
+        const house = houseBlocksRelease(m, ctx.house);
+        if (house) return house;
+      }
       if (!m.overridden && exceptionHold(m.releaseGates)) return "On hold — an open damage / short / over exception must be resolved before the WH release";
       return isArmed(m) ? null : "Release box NOT armed — gate must refuse. Use supervisor override only with reason.";
     case "expDraft":
       return m.expDraft ? "Draft receipt already created" : null;
     case "expReceipt":
       if (!m.expDraft) return "Create the draft receipt first";
-      return m.expReceipt ? "WH receipt already confirmed" : null;
+      if (m.expReceipt) return "WH receipt already confirmed";
+      return needsReweigh(m) && !ctx.reweighed ? REWEIGH_FIRST : null;
   }
 }
 
@@ -375,6 +432,8 @@ class GateMovementService {
     const outbox = await shipmentOutboxRepository.openForMovements(ids, companyId);
     const exceptions = await gateExceptionRepository.listForMovements(ids, companyId);
     const slots = await dockSlotRepository.listForMovements(ids, companyId);
+    const houses = await houseContexts(ids, companyId);
+    const reweighs = await reweighRepository.listForMovements(ids, companyId);
     const linked = [...new Set(movements.filter(isLinkedOutbound).map((m) => m.shipmentId!))];
     const sections = await warehouseSectionRepository.findPickupForShipments(linked, companyId);
     const pickupOf = (shipmentId: string | null) => readPickup(sections.find((x) => x.shipmentId === shipmentId)?.data);
@@ -388,6 +447,7 @@ class GateMovementService {
         exceptions.filter((e) => e.movementId === m.id),
         now,
         dockSlotsOf(slots, m.id),
+        { house: houses.get(m.id), reweighs: reweighs.filter((r) => r.movementId === m.id) },
       ),
     );
   }
@@ -428,7 +488,9 @@ class GateMovementService {
     const outbox = await shipmentOutboxRepository.openForMovements([m.id], companyId);
     const exceptions = await gateExceptionRepository.listForMovements([m.id], companyId);
     const slots = await dockSlotRepository.listForMovements([m.id], companyId);
-    return toItem(m, containers, pickup, outbox, exceptions, new Date(), dockSlotsOf(slots, m.id));
+    const house = (await houseContexts([m.id], companyId)).get(m.id);
+    const reweighs = await reweighRepository.listForMovements([m.id], companyId);
+    return toItem(m, containers, pickup, outbox, exceptions, new Date(), dockSlotsOf(slots, m.id), { house, reweighs });
   }
 
   // Every action reads the row through here, so it always sees the Pick-up PIN line when the
@@ -438,6 +500,13 @@ class GateMovementService {
     const m = await gateMovementRepository.findById(id, companyId);
     if (!m) throw APIError.notFound("Gate movement not found");
     return m;
+  }
+
+  // What the stamp checks read besides the row: its container house and its re-weighing.
+  private async stampContext(m: GateMovementRow, companyId: string): Promise<StampContext> {
+    const house = (await houseContexts([m.id], companyId)).get(m.id) ?? null;
+    const reweighed = needsReweigh(m) ? !!(await reweighRepository.latestForMovement(m.id, companyId)) : true;
+    return { house, reweighed };
   }
 
   // Display name of the acting user for the gate log. Users live in the auth service.
@@ -539,10 +608,12 @@ class GateMovementService {
     // gate rules follow — so they change together, and only until the first gate stamp.
     const handlingChanged = input.handling !== undefined && input.handling !== m.handling;
     const visitChanged = input.visit !== undefined && input.visit !== m.visit;
+    const house = (await houseContexts([id], companyId)).get(id) ?? null;
     if (handlingChanged || visitChanged) {
       if (m.gateIn || m.gateOut || m.impRelease || m.expDraft || m.expReceipt) {
         throw APIError.failedPrecondition("Direction cannot change once a gate stamp is recorded");
       }
+      if (house) throw APIError.failedPrecondition(`Direction cannot change while the position is in container ${house.container.number}`);
       if (handlingChanged && input.visit === undefined) patch.visit = input.handling === "Import" ? "výdej" : "příjem";
       if (visitChanged && input.handling === undefined) patch.handling = input.visit === "výdej" ? "Import" : "Export";
     }
@@ -579,6 +650,11 @@ class GateMovementService {
     const clockEvents: GateEvent[] = [];
     const clockAt = new Date().toISOString();
     if (patch.loadInDate !== undefined && patch.loadInDate !== m.loadInDate) {
+      if (m.receivedAt || tallyRequired(house)) {
+        throw APIError.failedPrecondition(
+          `Received in warehouse is set by the stripping tally${house ? ` of container ${house.container.number}` : ""} — tick the house off there`,
+        );
+      }
       clockEvents.push({ kind: "storageClockChanged", label: `Received in warehouse: ${patch.loadInDate || "cleared"}`, at: clockAt, by: patch.updatedBy, detail: `was ${m.loadInDate || "—"}` });
     }
     if (patch.freeDays !== undefined && patch.freeDays !== m.freeDays) {
@@ -755,14 +831,27 @@ class GateMovementService {
   // stamped record is evidence: only a manager archives it, with a reason (gateAdminService).
   async remove(id: string, companyId: string, userId: string) {
     const by = await this.userName(userId);
-    const row = await gateMovementRepository.archive(
-      id,
-      companyId,
-      by,
-      "",
-      { kind: "deleted", label: "Deleted", at: new Date().toISOString(), by },
-      sql`NOT ${hasStampSql}`,
-    );
+    // Not deleted (stamped meanwhile, or gone): the houses stay as they were.
+    const notDeleted = new Error("not deleted");
+    let row: GateMovementRecord | null = null;
+    try {
+      row = await db.transaction(async (tx) => {
+        await releaseHousesForArchive(tx, [id], companyId, by, "the position was deleted");
+        const archived = await gateMovementRepository.archive(
+          id,
+          companyId,
+          by,
+          "",
+          { kind: "deleted", label: "Deleted", at: new Date().toISOString(), by },
+          sql`NOT ${hasStampSql}`,
+          tx,
+        );
+        if (!archived) throw notDeleted;
+        return archived;
+      });
+    } catch (err) {
+      if (err !== notDeleted) throw err;
+    }
     if (row) return;
     const cur = await gateMovementRepository.findById(id, companyId);
     if (!cur) throw APIError.notFound("Gate movement not found");
@@ -805,7 +894,7 @@ class GateMovementService {
     const m = await this.load(id, companyId);
     const known = requestId ? stampConflict(m, kind, requestId) : null;
     if (known) return { movement: await this.get(id, companyId), ...known };
-    const blocked = stampBlocked(m, kind);
+    const blocked = stampBlocked(m, kind, await this.stampContext(m, companyId));
     if (blocked) throw APIError.failedPrecondition(blocked);
     const now = new Date();
     const at = opts.recordedAt ? acceptRecordedAt(opts.recordedAt, now, stampNotBefore(m, kind)) : now;
@@ -843,12 +932,15 @@ class GateMovementService {
           );
           break;
         case "impRelease":
+          // Its container (if any) and the position are locked first, so a stuffed mark or a tally
+          // tick under way is seen by the release check below.
+          await lockHouse(tx, id, companyId);
           row = await gateMovementRepository.conditionalUpdate(
             id,
             companyId,
             { impRelease: at, status: "Released", gateOut: sql`COALESCE(${t.gateOut}, ${at.toISOString()}::timestamptz)` },
             [evt(kind, STAMP_LABEL.impRelease, true)],
-            sql`${t.impRelease} IS NULL AND ${armedSql}`,
+            sql`${t.impRelease} IS NULL AND ${armedSql} AND ${houseReleaseOkSql}`,
             tx,
           );
           break;
@@ -864,7 +956,7 @@ class GateMovementService {
             companyId,
             { ...a.set, expReceipt: at, status: toWarehouse },
             a.events,
-            sql`${t.expReceipt} IS NULL AND ${t.expDraft} IS NOT NULL`,
+            sql`${t.expReceipt} IS NULL AND ${t.expDraft} IS NOT NULL AND ${reweighOkSql}`,
             tx,
           );
           break;
@@ -895,7 +987,7 @@ class GateMovementService {
       const cur = await this.load(id, companyId);
       const raced = requestId ? stampConflict(cur, kind, requestId) : null;
       if (raced) return { movement: await this.get(id, companyId), ...raced };
-      throw APIError.failedPrecondition(stampBlocked(cur, kind) ?? `${kind} could not be stamped — reload and try again`);
+      throw APIError.failedPrecondition(stampBlocked(cur, kind, await this.stampContext(cur, companyId)) ?? `${kind} could not be stamped — reload and try again`);
     }
     if (owed.length) await deliverDue(id);
     const notice = opts.recordedAt ? `${STAMP_LABEL[kind]} stamped ${pragueHhmm(at)} (recorded offline, sent ${pragueHhmm(now)})` : "";

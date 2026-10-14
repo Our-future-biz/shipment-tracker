@@ -4,7 +4,11 @@ import { gateSteps } from "@/app/warehouse/gate-log/_lib/steps";
 import {
   LOCAL_PHOTO,
   applyPending,
+  applyPendingContainer,
   classifyError,
+  containerChain,
+  pendingInContainer,
+  pendingReweigh,
   enqueue,
   applyDiff,
   isTooOld,
@@ -232,5 +236,107 @@ describe("the screen before the server answers", () => {
     const e = applyPending(m, [item({ kind: "exception" })]);
     expect(e.openExceptions).toBe(1);
     expect(e.exceptions[0]).toMatchObject({ type: "Damaged", pieces: 2, status: "open" });
+  });
+});
+
+describe("re-weighs and container work in the queue", () => {
+  const base = {
+    id: "m1",
+    visit: "příjem",
+    status: "Expected",
+    armed: false,
+    releaseGates: [],
+    gateIn: null as string | null,
+    gateOut: null,
+    impRelease: null,
+    expDraft: null as string | null,
+    expReceipt: null,
+    events: [],
+    surveys: [] as interfaces.GateSurvey[],
+    exceptions: [] as interfaces.GateExceptionItem[],
+    openExceptions: 0,
+  };
+  const reweigh = (over: Partial<QueueItem> = {}) => item({ kind: "reweigh", label: "Re-weigh", payload: { reweigh: { weighedKg: 1234.5, note: "", fileIds: [] } }, ...over } as Partial<QueueItem>);
+  const stamp = (containerId: string) =>
+    item({ kind: "containerStamp", movementId: containerChain(containerId), containerId, label: "Container gate-in", payload: { containerId, containerNumber: "MSKU1234565", kind: "gateIn" } } as Partial<QueueItem>);
+  const tally = (movementId: string, containerId: string, outcome = "received") =>
+    item({ kind: "tally", movementId, containerId, label: "Received", payload: { containerId, containerNumber: "MSKU1234565", tally: { outcome, pieces: 3 } } } as Partial<QueueItem>);
+  const stuffed = (movementId: string, containerId: string) =>
+    item({ kind: "stuffed", movementId, containerId, label: "Stuffed", payload: { containerId, containerNumber: "MSKU1234565", stuffed: true } } as Partial<QueueItem>);
+
+  it("keeps a container's order: a tick behind a failed container gate-in waits for it", () => {
+    const gateIn = { ...stamp("c1"), state: "failed" as const, error: "Refused" };
+    const tick = tally("m7", "c1");
+    const other = tally("m8", "c2");
+    const q = [gateIn, tick, other];
+    expect(itemStatus(q, tick, NOW, "u1")).toMatchObject({ state: "blocked" });
+    expect(nextSendable(q, NOW, "u1")?.id).toBe(other.id);
+    expect(pendingInContainer(q, "c1").map((i) => i.id)).toEqual([tick.id]);
+  });
+
+  it("treats the container outcomes like the stamp outcomes", () => {
+    const t = tally("m7", "c1");
+    expect(onResult([t], t.id, { type: "done", outcome: "done_by_someone_else", notice: "The house was already tallied" })).toEqual({
+      items: [],
+      message: { tone: "info", text: "The house was already tallied" },
+    });
+    expect(onResult([t], t.id, { type: "done", outcome: "already_done" }).message?.tone).toBe("info");
+    expect(onResult([t], t.id, { type: "done", outcome: "done" }).message).toBeNull();
+  });
+
+  it("counts a queued re-weigh on the phone, so the receipt behind it may be stamped", () => {
+    const lcl = { ...base, gateIn: minutesAgo(40), expDraft: minutesAgo(35), needsReweigh: true, reweigh: null, reweighs: [] };
+    expect(gateSteps(lcl).find((s) => s.kind === "expReceipt")!.state).toBe("blocked");
+    const r = reweigh({ movementId: "m1" });
+    const shown = applyPending(lcl, [r]);
+    expect(shown.reweigh).toMatchObject({ weighedKg: 1234.5, weighedBy: "Jana · waiting to send" });
+    expect(shown.reweighs).toHaveLength(1);
+    expect(gateSteps(shown).find((s) => s.kind === "expReceipt")!.state).toBe("next");
+    expect(pendingReweigh([r], "m1")?.id).toBe(r.id);
+    expect(pendingReweigh([{ ...r, state: "failed" }], "m1")).toBeUndefined();
+  });
+
+  it("shows the house ticked or stuffed on the position before the server answers", () => {
+    const house = {
+      id: "c1",
+      number: "MSKU1234565",
+      equipment: "",
+      direction: "Unloading",
+      kind: "import",
+      status: "Arrived",
+      seal: "",
+      gateInAt: minutesAgo(50),
+      gateOutAt: null,
+      stuffedAt: null,
+      stuffedBy: "",
+      tallyOutcome: "",
+      tallyPieces: null,
+      tickedAt: null,
+      tickedBy: "",
+      tallyRequired: true,
+    };
+    const out = { ...base, visit: "výdej", container: house, receivedAt: null };
+    const t = tally("m1", "c1");
+    const shown = applyPending(out, [t]);
+    expect(shown.container).toMatchObject({ tallyOutcome: "received", tallyPieces: 3, tickedAt: t.recordedAt });
+    expect(shown.receivedAt).toBe(t.recordedAt);
+    const exp = applyPending({ ...out, container: { ...house, direction: "Loading", kind: "export" } }, [stuffed("m1", "c1")]);
+    expect(exp.container?.stuffedAt).toBeTruthy();
+  });
+
+  it("shows the container with its queued gate-in, ticks, stuffed marks and re-weighs", () => {
+    const h = (movementId: string) =>
+      ({ movementId, tallyOutcome: "", tallyPieces: null, tickedAt: null, tickedBy: "", stuffedAt: null, stuffedBy: "", reweighKg: null, reweighFlagged: false }) as unknown as interfaces.WarehouseContainerHouse;
+    const c = { id: "c1", gateInAt: null, strippingStartedAt: null, positions: [h("m7"), h("m8")] } as unknown as interfaces.WarehouseContainerItem;
+    const g = stamp("c1");
+    const t = tally("m7", "c1", "short");
+    const r = reweigh({ movementId: "m8" });
+    const shown = applyPendingContainer(c, [g, t, r, { ...stuffed("m8", "c9") }]);
+    expect(shown.gateInAt).toBe(g.recordedAt);
+    expect(shown.strippingStartedAt).toBe(t.recordedAt);
+    expect(shown.positions[0]).toMatchObject({ tallyOutcome: "short", tallyPieces: 3, tickedBy: "Jana · waiting to send" });
+    expect(shown.positions[1]).toMatchObject({ reweighKg: 1234.5, stuffedAt: null });
+    expect(c.positions[0]!.tallyOutcome).toBe("");
+    expect(applyPendingContainer(c, [])).toBe(c);
   });
 });

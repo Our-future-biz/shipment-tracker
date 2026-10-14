@@ -22,12 +22,37 @@ export type GateStep = {
   note?: string;
   /** A stamp of the other direction, kept from before; shown greyed out. */
   legacy?: boolean;
+  /** What a blocked step waits for that the screen can offer: the re-weigh, or the house's tally / container. */
+  needs?: "reweigh" | "tally" | "container";
 };
 
 type StepMovement = Pick<
   interfaces.GateMovementItem,
   "visit" | "status" | "armed" | "releaseGates" | "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt" | "events"
->;
+> &
+  Partial<Pick<interfaces.GateMovementItem, "needsReweigh" | "reweigh" | "container" | "leftAt">>;
+
+/** LCL cargo is re-weighed before its receipt (the server refuses the Receipt stamp without it). */
+export const REWEIGH_FIRST = "Re-weigh the cargo first — LCL cargo is re-weighed before the receipt";
+
+/** Needs a re-weigh it does not have yet. */
+export const reweighMissing = (m: Partial<Pick<interfaces.GateMovementItem, "needsReweigh" | "reweigh">>) => !!m.needsReweigh && !m.reweigh;
+
+/**
+ * Why the WH release waits for the position's container (the same rule as the server), or null:
+ * cargo stuffed in an export container leaves with that container's gate-out, and an import house
+ * is received by its tick-off at the stripping tally first.
+ */
+export function containerHoldsRelease(m: Pick<interfaces.GateMovementItem, "visit"> & Partial<Pick<interfaces.GateMovementItem, "container" | "leftAt">>): { reason: string; needs: "tally" | "container" } | null {
+  const c = m.container;
+  if (m.leftAt) return { reason: `Left the warehouse in container ${c?.number ?? ""}`.trim(), needs: "container" };
+  if (!c) return null;
+  if (c.kind === "export" && c.stuffedAt) return { reason: `Stuffed in container ${c.number} — it leaves with the container's gate-out, not through ${TERMS.whRelease}`, needs: "container" };
+  if (m.visit === "výdej" && c.kind === "import" && c.tallyRequired && c.tallyOutcome !== "received") {
+    return { reason: `Not received yet — tick this house off at the stripping tally of container ${c.number} first`, needs: "tally" };
+  }
+  return null;
+}
 
 const isEmptyReturn = (g: string) => /empty return/i.test(g);
 
@@ -105,6 +130,13 @@ export function gateSteps(m: StepMovement): GateStep[] {
       return { kind, label, state: "later", at: null, by: "", reason: `Stamp ${prev.label} first` };
     }
     seenOpen = true;
+    if (kind === "expReceipt" && reweighMissing(m)) {
+      return { kind, label, state: "blocked", at: null, by: "", reason: REWEIGH_FIRST, needs: "reweigh" };
+    }
+    if (kind === "impRelease") {
+      const held = containerHoldsRelease(m);
+      if (held) return { kind, label, state: "blocked", at: null, by: "", reason: held.reason, needs: held.needs };
+    }
     if (kind === "impRelease" && !m.armed) {
       return {
         kind,

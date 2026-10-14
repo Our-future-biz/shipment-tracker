@@ -30,6 +30,21 @@ export const TERMS = {
   floorMode: "Floor mode",
   dockSlot: "Dock slot",
   waitingToSend: "Waiting to send",
+  reweigh: "Re-weigh (VGM)",
+  importContainer: "Import container (stripping)",
+  exportContainer: "Export container (stuffing)",
+  stuffingPlan: "Stuffing plan",
+  stuffed: "Stuffed",
+  closeContainer: "Close (seal)",
+  strippingTally: "Stripping tally",
+  tickOff: "Tick off (Received)",
+  short: "Short",
+  notArrived: "Not arrived",
+  containerGateIn: "Container gate-in",
+  containerGateOut: "Container gate-out",
+  lifecycle: "Lifecycle",
+  capacity: "Capacity / fill",
+  house: "House",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -70,7 +85,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: "Free time / storage",
     meaning:
-      "One calculation everywhere in the warehouse. The clock starts at the receipt — the gate-in for inbound cargo, the “Received in warehouse” date for outbound cargo — and stops when the cargo leaves — the WH release (or gate-out) of outbound cargo. An inbound gate-out is only the delivering truck leaving and does not stop it. Calendar days in Prague time; the receipt day is day 1. After the free days (7 unless set on the record) storage is CZK 22 per W/M a day, at least CZK 120. Expiring = 2 free days left or fewer.",
+      "One calculation everywhere in the warehouse. The clock starts at the receipt — the gate-in for inbound cargo; for outbound cargo the tick-off at the stripping tally of its container (without a container tally, the “Received in warehouse” date) — and stops when the cargo leaves — the WH release (or gate-out) of outbound cargo, the gate-out of the export container inbound cargo was stuffed in (or its WH release). An inbound truck's gate-out is only the delivering truck leaving and does not stop it. Calendar days in Prague time; the receipt day is day 1. After the free days (7 unless set on the record) storage is CZK 22 per W/M a day, at least CZK 120. Expiring = 2 free days left or fewer.",
   },
   {
     term: "Exception / On hold",
@@ -81,18 +96,72 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: TERMS.floorMode,
     meaning:
-      "The Warehouse on a phone or handheld scanner (button Floor mode in the Warehouse header and the Gate Log): scan a label, then stamp the next gate step with one big button, do the survey with photos from the phone camera, record damage / short / over and check the pick-up PIN. The same steps, rules and confirmations as the gate job.",
+      "The Warehouse on a phone or handheld scanner (button Floor mode in the Warehouse header and the Gate Log): scan a label, then stamp the next gate step with one big button, re-weigh LCL cargo, do the survey with photos from the phone camera, record damage / short / over and check the pick-up PIN. Scanning a container number opens its tally (import) or stuffing (export) list. The same steps, rules and confirmations as the gate job.",
   },
   {
     term: TERMS.waitingToSend,
     meaning:
-      "Floor mode without a connection: stamps (except the WH release), surveys, exceptions and photos are kept on the phone and sent in order, with the time they were made, as soon as it is back online. Each is applied once; one stamped meanwhile by someone else is reported, not doubled. The PIN check and the WH release need a connection. Items older than 12 hours are not sent.",
+      "Floor mode without a connection: stamps (except the WH release), surveys, exceptions, photos, re-weighs, tally ticks, stuffed marks and a container's gate-in / start of stripping are kept on the phone and sent in order, with the time they were made, as soon as it is back online. Each is applied once; one stamped meanwhile by someone else is reported, not doubled. The PIN check and the WH release need a connection, and so do a container's close and gate-out. Items older than 12 hours are not sent.",
   },
   {
     term: TERMS.dockSlot,
     meaning:
       "A dock door booked for a position in Dock & Yard → Dock Schedule (date, time, duration). The same door cannot be booked twice for overlapping times; Cancelled and Completed slots free it. The slot shows on the gate job and in floor mode, and Expected today uses its time.",
     replaces: "Slot (free text)",
+  },
+  {
+    term: TERMS.reweigh,
+    meaning:
+      "The warehouse re-weighs every LCL shipment (operation type LCL, or load type Consolidation) when it is received: inbound cargo before the Receipt stamp, import cargo before its house is ticked off at the stripping tally. Weighed gross kg, who, when, an optional scale photo and a note. It is compared with the declared weight of the shipment (the gate weight when there is none): more than 5 % off is a variance — flagged, and Operations can be informed. A correction is a new re-weigh: the history is kept and the latest counts. It turns the gate checklist's VGM icon green, and Mark VGM as sent records the re-weighed weight. FCL cargo is not re-weighed here.",
+    replaces: "VGM (for LCL cargo)",
+  },
+  {
+    term: TERMS.house,
+    meaning: "A position (WCZ reference) inside a container. One container holds many houses; a position is in at most one container at a time.",
+  },
+  {
+    term: `${TERMS.importContainer} / ${TERMS.exportContainer}`,
+    meaning:
+      "An import container (Unloading) arrives full and is stripped: its houses are outbound positions. An export container (Loading) is stuffed in the warehouse from inbound positions and leaves full.",
+    replaces: "Loading / unloading",
+  },
+  {
+    term: `${TERMS.containerGateIn} / ${TERMS.containerGateOut}`,
+    meaning:
+      "The container's own stamps (time and who, logged): the container arriving at our yard and leaving it. They fill the yard dates of Dock & Yard. The gate-out of a stuffed export container releases every stuffed house: its storage clock stops, it is Left, and its shipment gets the warehouse released date and the container's truck plate. The gate-out needs a connection.",
+  },
+  {
+    term: TERMS.strippingTally,
+    meaning:
+      "Import container, after its gate-in: each house is counted (pieces, condition, location) and ticked off. Stripping is complete when every house is ticked received, or marked short / not arrived with a reason.",
+  },
+  {
+    term: TERMS.tickOff,
+    meaning:
+      "Ticking a house off at the stripping tally receives it: its “Received in warehouse” date is the day of the tick (Prague time), its free time starts, and its shipment gets the warehouse received date and the WCZ reference. LCL cargo is re-weighed first. A count that differs from the expected pieces offers a Short / Over exception. Only a manager can void a tick, with a reason.",
+  },
+  {
+    term: `${TERMS.short} / ${TERMS.notArrived}`,
+    meaning: "A house that is not (fully) in the container: recorded at the tally with a reason. It stays in the container's list and is not received.",
+  },
+  {
+    term: TERMS.stuffingPlan,
+    meaning:
+      "Export container: which inbound positions go into it, in order — picked from the positions in the warehouse (received, not on hold, not in another container), with pieces, weight and volume against the capacity of the container type. Over capacity is a warning.",
+  },
+  {
+    term: `${TERMS.stuffed} / ${TERMS.closeContainer}`,
+    meaning:
+      "Stuffed: the house is loaded into the container (time and who; it can be taken back out until the close). Close: the stuffing is finished and the seal number recorded. Houses planned but not stuffed stay in the warehouse when the container goes out.",
+  },
+  {
+    term: TERMS.capacity,
+    meaning: "Usable volume and typical payload of the container type (20' DV 31 cbm / 28 200 kg, 40' DV 66 cbm / 26 700 kg, 40' HC 76 cbm / 26 500 kg, 45' HC 84 cbm / 27 600 kg); fill is the share used by the houses.",
+  },
+  {
+    term: TERMS.lifecycle,
+    meaning:
+      "Where a position is, from its stamps, the stripping tally and the stuffing: Expected → Arrived (gate-in, or its container's gate-in) → Received (Receipt, or the tick-off) → In warehouse → Stuffed (inbound, in an export container) or Ready for release (outbound, release gates clear) → Left (WH release, or the stuffed container's gate-out). Refused shows next to the stage.",
   },
   {
     term: "W/M",

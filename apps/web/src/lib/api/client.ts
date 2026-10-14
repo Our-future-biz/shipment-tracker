@@ -1739,6 +1739,7 @@ export namespace warehouse {
             this.gateMovementRequestMrn = this.gateMovementRequestMrn.bind(this)
             this.gateMovementRequestRelease = this.gateMovementRequestRelease.bind(this)
             this.gateMovementRestore = this.gateMovementRestore.bind(this)
+            this.gateMovementReweigh = this.gateMovementReweigh.bind(this)
             this.gateMovementSaveSurvey = this.gateMovementSaveSurvey.bind(this)
             this.gateMovementShipmentUpdateDismiss = this.gateMovementShipmentUpdateDismiss.bind(this)
             this.gateMovementShipmentUpdateRetry = this.gateMovementShipmentUpdateRetry.bind(this)
@@ -1756,10 +1757,19 @@ export namespace warehouse {
             this.warehouseClaimDelete = this.warehouseClaimDelete.bind(this)
             this.warehouseClaimList = this.warehouseClaimList.bind(this)
             this.warehouseClaimUpdate = this.warehouseClaimUpdate.bind(this)
+            this.warehouseContainerAddPositions = this.warehouseContainerAddPositions.bind(this)
             this.warehouseContainerCreate = this.warehouseContainerCreate.bind(this)
             this.warehouseContainerDelete = this.warehouseContainerDelete.bind(this)
+            this.warehouseContainerGet = this.warehouseContainerGet.bind(this)
             this.warehouseContainerList = this.warehouseContainerList.bind(this)
+            this.warehouseContainerRemovePosition = this.warehouseContainerRemovePosition.bind(this)
+            this.warehouseContainerReorder = this.warehouseContainerReorder.bind(this)
+            this.warehouseContainerSetStuffed = this.warehouseContainerSetStuffed.bind(this)
+            this.warehouseContainerStamp = this.warehouseContainerStamp.bind(this)
+            this.warehouseContainerTally = this.warehouseContainerTally.bind(this)
             this.warehouseContainerUpdate = this.warehouseContainerUpdate.bind(this)
+            this.warehouseContainerVoidStamp = this.warehouseContainerVoidStamp.bind(this)
+            this.warehouseContainerVoidTally = this.warehouseContainerVoidTally.bind(this)
             this.warehouseCreate = this.warehouseCreate.bind(this)
             this.warehouseDelete = this.warehouseDelete.bind(this)
             this.warehouseDockSlotCreate = this.warehouseDockSlotCreate.bind(this)
@@ -2012,6 +2022,19 @@ export namespace warehouse {
             return await resp.json() as controllers.GateMovementResponse
         }
 
+        /**
+         * Re-weighs the cargo (LCL cargo is re-weighed before its receipt / tally tick; any user, logged).
+         * A correction is a new weighing: the history stays and the latest counts. Compared with the
+         * declared gross weight (more than 5 % off is a variance); turns the checklist's VGM icon green.
+         */
+        public async gateMovementReweigh(id: string, params: {
+    reweigh: interfaces.GateReweighInput
+}): Promise<controllers.GateReweighResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/reweigh`, JSON.stringify(params))
+            return await resp.json() as controllers.GateReweighResponse
+        }
+
         public async gateMovementSaveSurvey(id: string, params: controllers.GateSurveySaveRequest): Promise<controllers.GateSurveySaveResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse-gate/${encodeURIComponent(id)}/survey`, JSON.stringify(params))
@@ -2159,6 +2182,21 @@ export namespace warehouse {
             return await resp.json() as controllers.ClaimResponse
         }
 
+        /**
+         * Adds positions as houses. Export: inbound (příjem) positions in the warehouse, not on hold;
+         * import: outbound (výdej) positions not received yet. A position is in at most one container.
+         */
+        public async warehouseContainerAddPositions(id: string, params: {
+    movementIds: string[]
+}): Promise<controllers.ContainerResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerResponse
+        }
+
+        /**
+         * With a position (movementId), it becomes the container's first house.
+         */
         public async warehouseContainerCreate(params: interfaces.WarehouseContainerInput): Promise<controllers.ContainerResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers`, JSON.stringify(params))
@@ -2175,16 +2213,102 @@ export namespace warehouse {
 }
         }
 
+        /**
+         * One container with its houses, totals against its capacity and its log.
+         */
+        public async warehouseContainerGet(id: string): Promise<controllers.ContainerResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-containers/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.ContainerResponse
+        }
+
         public async warehouseContainerList(): Promise<controllers.ContainerListResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-containers`)
             return await resp.json() as controllers.ContainerListResponse
         }
 
+        /**
+         * Takes a house out (not once it is stuffed or tallied).
+         */
+        public async warehouseContainerRemovePosition(id: string, movementId: string): Promise<controllers.ContainerResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}`)
+            return await resp.json() as controllers.ContainerResponse
+        }
+
+        /**
+         * The order of the houses: every house's position, in the new order.
+         */
+        public async warehouseContainerReorder(id: string, params: {
+    movementIds: string[]
+}): Promise<controllers.ContainerResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions-order`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerResponse
+        }
+
+        public async warehouseContainerSetStuffed(id: string, movementId: string, params: controllers.ContainerStuffedRequest): Promise<controllers.ContainerActionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}/stuffed`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerActionResponse
+        }
+
+        /**
+         * Container stamps, in strict order. The export gate-out releases every stuffed house (storage
+         * stops; its shipment gets the released date and the plate); the close and the gate-out need a
+         * connection (never from the offline queue).
+         */
+        public async warehouseContainerStamp(id: string, params: controllers.ContainerStampRequest): Promise<controllers.ContainerActionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/stamp`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerActionResponse
+        }
+
+        /**
+         * Tallies one house at stripping. "received" ticks it off: the house is received (its free time
+         * starts) and its shipment gets the received date and the WCZ reference. LCL cargo is re-weighed
+         * first. Short / not arrived need a reason.
+         */
+        public async warehouseContainerTally(id: string, movementId: string, params: controllers.ContainerTallyRequest): Promise<controllers.ContainerTallyResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}/tally`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerTallyResponse
+        }
+
+        /**
+         * The typed yard dates follow the container's stamps once stamped; a plate entered after an export
+         * container went out is sent to the shipments of the positions that left in it.
+         */
         public async warehouseContainerUpdate(id: string, params: controllers.ContainerUpdateRequest): Promise<controllers.ContainerResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-containers/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.ContainerResponse
+        }
+
+        /**
+         * Manager: voids a container stamp with a reason, later steps first. Voiding the export gate-out
+         * brings the positions that left with it back into the warehouse.
+         */
+        public async warehouseContainerVoidStamp(id: string, params: {
+    kind: interfaces.ContainerStampKind
+    reason: string
+}): Promise<controllers.ContainerVoidResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/void-stamp`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerVoidResponse
+        }
+
+        /**
+         * Manager: voids the tally of a house with a reason. A tick-off is undone (the shipment is not
+         * changed back; logged).
+         */
+        public async warehouseContainerVoidTally(id: string, movementId: string, params: {
+    reason: string
+}): Promise<controllers.ContainerVoidResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}/void-tally`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerVoidResponse
         }
 
         /**
@@ -2962,12 +3086,78 @@ export namespace controllers {
         contact: interfaces.ContactItem
     }
 
+    export interface ContainerActionResponse {
+        container: interfaces.WarehouseContainerItem
+        /**
+         * done · already_done (this request came before) · done_by_someone_else (another request was first; only with a clientRequestId)
+         */
+        outcome: "done" | "already_done" | "done_by_someone_else"
+
+        /**
+         * Text for a toast; "" when nothing to say.
+         */
+        notice: string
+    }
+
     export interface ContainerListResponse {
         containers: interfaces.WarehouseContainerItem[]
     }
 
     export interface ContainerResponse {
         container: interfaces.WarehouseContainerItem
+    }
+
+    export interface ContainerResponse {
+        container: interfaces.WarehouseContainerItem
+    }
+
+    export interface ContainerStampRequest {
+        /**
+         * gateIn · strippingStart (import) · close (export, with the seal) · gateOut (with the truck plate, optional)
+         */
+        kind: interfaces.ContainerStampKind
+
+        seal?: string
+        plate?: string
+        recordedAt?: string
+        clientRequestId?: string
+    }
+
+    export interface ContainerStuffedRequest {
+        /**
+         * true: stuffed; false: back out (only until the close).
+         */
+        stuffed: boolean
+
+        recordedAt?: string
+        clientRequestId?: string
+    }
+
+    export interface ContainerTallyRequest {
+        tally: interfaces.ContainerTallyInput
+        recordedAt?: string
+        clientRequestId?: string
+    }
+
+    export interface ContainerTallyResponse {
+        /**
+         * The count differs from the expected pieces: the OS&D exception the client may offer (POST /warehouse-gate/:id/exceptions, source "tally").
+         */
+        suggestException: {
+            type: "Short" | "Over"
+            pieces: number
+        } | null
+
+        container: interfaces.WarehouseContainerItem
+        /**
+         * done · already_done (this request came before) · done_by_someone_else (another request was first; only with a clientRequestId)
+         */
+        outcome: "done" | "already_done" | "done_by_someone_else"
+
+        /**
+         * Text for a toast; "" when nothing to say.
+         */
+        notice: string
     }
 
     export interface ContainerUpdateRequest {
@@ -2999,6 +3189,22 @@ export namespace controllers {
         vgmDeclaredBy?: string
         vgmDeclaredAt?: string
         vgmStatus?: string
+        bookingNumber?: string
+        mblNumber?: string
+        vessel?: string
+        voyage?: string
+        /**
+         * After the gate-out a new plate is sent to the shipments of the positions that left in it.
+         */
+        plate?: string
+    }
+
+    export interface ContainerVoidResponse {
+        container: interfaces.WarehouseContainerItem
+        /**
+         * Set when shipments were already updated from what was voided (they are not changed back).
+         */
+        notice: string
     }
 
     /**
@@ -3463,6 +3669,19 @@ export namespace controllers {
             ref: string
             reason: string
         }[]
+    }
+
+    export interface GateReweighResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * recorded · already_recorded (the same clientRequestId came before; nothing was added)
+         */
+        outcome: "recorded" | "already_recorded"
+
+        /**
+         * Text for a toast (recorded offline, a newer weighing counts, a variance); "" when nothing to say.
+         */
+        notice: string
     }
 
     export interface GateStampRequest {
@@ -5204,6 +5423,34 @@ export namespace interfaces {
         volume: string
     }
 
+    /**
+     * Container stamps, in order: import gateIn → strippingStart → gateOut; export gateIn → close → gateOut.
+     */
+    export type ContainerStampKind = "gateIn" | "strippingStart" | "close" | "gateOut"
+
+    /**
+     * The tally of one house at stripping.
+     */
+    export interface ContainerTallyInput {
+        /**
+         * received (tick off: the house is received) | short | not_arrived
+         */
+        outcome: string
+
+        /**
+         * Pieces counted.
+         */
+        pieces?: number | null
+
+        condition?: string
+        location?: string
+        note?: string
+        /**
+         * Required for short / not arrived.
+         */
+        reason?: string
+    }
+
     export interface CustomerItem {
         id: string
         ico: string
@@ -5420,7 +5667,7 @@ export namespace interfaces {
         container?: string
         surveyPhase?: string
         /**
-         * survey | manual (default)
+         * survey | tally (found at the stripping tally) | manual (default)
          */
         source?: string
 
@@ -5488,6 +5735,24 @@ export namespace interfaces {
         fileType: string
         uploadedBy: string
         createdAt: string
+    }
+
+    /**
+     * One step of the position's lifecycle.
+     */
+    export interface GateLifecycleStep {
+        /**
+         * expected | arrived | received | in_warehouse | stuffed | ready | left
+         */
+        stage: string
+
+        label: string
+        /**
+         * ISO time, or a YYYY-MM-DD day (a received date typed by hand); null when not reached.
+         */
+        at: string | null
+
+        done: boolean
     }
 
     export interface GateMovementItem {
@@ -5632,6 +5897,42 @@ export namespace interfaces {
          */
         dockSlots: GateDockSlot[]
 
+        /**
+         * Outbound: when the house was ticked received at the stripping tally; null otherwise.
+         */
+        receivedAt: string | null
+
+        /**
+         * Inbound: when it left stuffed in a container (that container's gate-out); null otherwise.
+         */
+        leftAt: string | null
+
+        leftContainerId: string | null
+        /**
+         * Where the position is in its in-and-out lifecycle.
+         */
+        lifecycle: GatePositionLifecycle
+
+        /**
+         * The container the position is a house of; null when none.
+         */
+        container: GatePositionContainer | null
+
+        /**
+         * LCL cargo: re-weighed before the receipt (export) or the tally tick (import).
+         */
+        needsReweigh: boolean
+
+        /**
+         * The re-weighing that counts (the latest); null when none.
+         */
+        reweigh: GateReweighItem | null
+
+        /**
+         * Every re-weighing, latest first.
+         */
+        reweighs: GateReweighItem[]
+
         createdAt: string
         updatedAt: string
     }
@@ -5654,10 +5955,134 @@ export namespace interfaces {
         }[]
     }
 
+    /**
+     * The container the position is a house of, with the house's state in it.
+     */
+    export interface GatePositionContainer {
+        id: string
+        number: string
+        equipment: string
+        /**
+         * Unloading (import, stripped) | Loading (export, stuffed)
+         */
+        direction: string
+
+        /**
+         * import | export
+         */
+        kind: string
+
+        /**
+         * Expected · Arrived · Stripping · Stripped · Planning · Stuffing · Closed · Gone out
+         */
+        status: string
+
+        seal: string
+        gateInAt: string | null
+        gateOutAt: string | null
+        stuffedAt: string | null
+        stuffedBy: string
+        /**
+         * "" (not tallied) | received | short | not_arrived
+         */
+        tallyOutcome: string
+
+        tallyPieces: number | null
+        tickedAt: string | null
+        tickedBy: string
+        /**
+         * Import: the house is received by its tick-off at the stripping tally (its WH release waits
+         * for it). False for an old one-position container linked by migration 0017, which keeps the
+         * "Received in warehouse" date typed by hand; false for export containers.
+         */
+        tallyRequired: boolean
+    }
+
+    /**
+     * The position's in-and-out lifecycle, derived from its stamps, the stripping tally and the
+     * stuffing (never stored). Inbound: Expected → Arrived → Received → In warehouse → (Stuffed) →
+     * Left. Outbound: Expected → Arrived → Received → In warehouse → Ready for release → Left.
+     */
+    export interface GatePositionLifecycle {
+        stage: string
+        label: string
+        at: string | null
+        /**
+         * The movement is refused (shown next to the stage).
+         */
+        refused: boolean
+
+        steps: GateLifecycleStep[]
+    }
+
     export interface GateReleaseLine {
         g: string
         s: "OK" | "Pending" | "Blocked"
         note: string
+    }
+
+    /**
+     * A re-weighing as the gate (or a phone) records it; who is the caller.
+     */
+    export interface GateReweighInput {
+        /**
+         * Weighed gross weight in kg (more than 0, at most 100 000).
+         */
+        weighedKg: number
+
+        note?: string
+        /**
+         * Scale photos of this movement (gate file ids, at most 20).
+         */
+        fileIds?: string[]
+
+        /**
+         * Floor mode: id the phone gave this weighing; the same id sent again adds nothing.
+         */
+        clientRequestId?: string
+
+        /**
+         * Floor mode: when it was weighed on the phone (ISO), if it was sent later (offline).
+         */
+        recordedAt?: string
+    }
+
+    /**
+     * One re-weighing of the position (LCL cargo is re-weighed on receipt; the latest counts).
+     */
+    export interface GateReweighItem {
+        id: string
+        movementId: string
+        weighedKg: number
+        /**
+         * The declared gross weight it was compared with; null when none was known.
+         */
+        declaredKg: number | null
+
+        /**
+         * shipment (its total weight) | gate (the gate figures) | ""
+         */
+        declaredSource: string
+
+        /**
+         * Weighed against declared, e.g. 0.046 = 4.6 % heavier; null when not compared.
+         */
+        variancePct: number | null
+
+        /**
+         * More than 5 % off the declared weight.
+         */
+        flagged: boolean
+
+        weighedBy: string
+        weighedAt: string
+        /**
+         * Scale photos (gate file ids).
+         */
+        fileIds: string[]
+
+        note: string
+        createdAt: string
     }
 
     /**
@@ -5681,9 +6106,10 @@ export namespace interfaces {
 
     /**
      * The storage clock of a movement — the warehouse's one free-time calculation. Starts at the
-     * receipt (inbound: the gate-in; outbound: the "Received in warehouse" date), stops at the WH
-     * release or gate-out; calendar days in Prague time, the arrival day is day 1. CZK 22 per W/M per
-     * day, at least CZK 120, after the free days.
+     * receipt (inbound: the gate-in; outbound: the stripping tally tick, else the "Received in
+     * warehouse" date), stops at the WH release (inbound stuffed in a container: that container's
+     * gate-out; outbound: also the gate-out); calendar days in Prague time, the arrival day is day 1.
+     * CZK 22 per W/M per day, at least CZK 120, after the free days.
      */
     export interface GateStorageInfo {
         started: boolean
@@ -5693,7 +6119,8 @@ export namespace interfaces {
         startDate: string
 
         /**
-         * What started the clock: "gateIn" (inbound), "loadInDate" (outbound), "" (not started).
+         * What started the clock: "gateIn" (inbound), "tally" (outbound, ticked received at the
+         * stripping tally), "loadInDate" (outbound without a tally), "" (not started).
          */
         startSource: string
 
@@ -6844,6 +7271,88 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    /**
+     * One position (house) in a container.
+     */
+    export interface WarehouseContainerHouse {
+        /**
+         * Id of the house (the link).
+         */
+        id: string
+
+        movementId: string
+        taskId: string | null
+        /**
+         * WCZ reference of the position.
+         */
+        positionRef: string
+
+        gateRef: string
+        customer: string
+        /**
+         * příjem | výdej
+         */
+        visit: string
+
+        operationType: string
+        pod: string
+        etd: string
+        /**
+         * Expected figures of the position (gate figures).
+         */
+        pieces: number
+
+        weightKg: number
+        cbm: number
+        sequence: number
+        addedBy: string
+        /**
+         * Lifecycle stage of the position (expected · arrived · received · in_warehouse · stuffed · ready · left) and its label.
+         */
+        stage: string
+
+        stageLabel: string
+        stuffedAt: string | null
+        stuffedBy: string
+        /**
+         * "" (not tallied) | received | short | not_arrived
+         */
+        tallyOutcome: string
+
+        tallyPieces: number | null
+        tallyCondition: string
+        tallyLocation: string
+        tallyNote: string
+        tallyReason: string
+        tickedAt: string | null
+        tickedBy: string
+        /**
+         * LCL: re-weighed before the tick (import) or the receipt (export).
+         */
+        needsReweigh: boolean
+
+        /**
+         * The re-weighing that counts; null when none.
+         */
+        reweighKg: number | null
+
+        reweighFlagged: boolean
+        /**
+         * Open damage / short / over exceptions (the cargo is on hold).
+         */
+        openExceptions: number
+
+        /**
+         * A supervisor override lets the cargo move although exceptions are open (not on hold).
+         */
+        overridden: boolean
+
+        /**
+         * The position is archived.
+         */
+        archived: boolean
+    }
+
     export interface WarehouseContainerInput {
         movementId?: string | null
         number?: string
@@ -6873,6 +7382,14 @@ export namespace interfaces {
         vgmDeclaredBy?: string
         vgmDeclaredAt?: string
         vgmStatus?: string
+        bookingNumber?: string
+        mblNumber?: string
+        vessel?: string
+        voyage?: string
+        /**
+         * After the gate-out a new plate is sent to the shipments of the positions that left in it.
+         */
+        plate?: string
     }
 
     export interface WarehouseContainerItem {
@@ -6896,6 +7413,48 @@ export namespace interfaces {
          */
         daysOnYard: number | null
 
+        /**
+         * import (Unloading: stripped, houses tallied) | export (Loading: stuffed from a plan)
+         */
+        kind: string
+
+        /**
+         * Expected · Arrived · Stripping · Stripped (import) · Planning · Stuffing · Closed (export) · Gone out
+         */
+        status: string
+
+        /**
+         * Container stamps (ISO), null while not stamped.
+         */
+        gateInAt: string | null
+
+        strippingStartedAt: string | null
+        /**
+         * Import: when the last house was accounted for; null while houses are open.
+         */
+        strippingCompletedAt: string | null
+
+        closedAt: string | null
+        closedBy: string
+        gateOutAt: string | null
+        /**
+         * The houses, in their order.
+         */
+        positions: WarehouseContainerHouse[]
+
+        totals: WarehouseContainerTotals
+        /**
+         * Shipment updates from this container's stamps not delivered yet (pending or failed).
+         */
+        shipmentUpdatesWaiting: number
+
+        events: {
+            kind: string
+            label: string
+            at: string
+            by: string
+            detail?: string
+        }[]
         createdAt: string
         updatedAt: string
         number: string
@@ -6948,6 +7507,32 @@ export namespace interfaces {
          * "" | Draft | Submitted
          */
         vgmStatus: string
+
+        bookingNumber: string
+        mblNumber: string
+        vessel: string
+        voyage: string
+        /**
+         * The truck that takes the container away; sent to the shipments of its stuffed positions.
+         */
+        plate: string
+    }
+
+    /**
+     * Pieces / kg / cbm of the houses against the capacity of the equipment type.
+     */
+    export interface WarehouseContainerTotals {
+        pieces: number
+        kg: number
+        cbm: number
+        capacityCbm: number | null
+        capacityKg: number | null
+        fillCbmPct: number | null
+        fillKgPct: number | null
+        /**
+         * Over capacity by volume or weight (a warning; the plan may still be saved).
+         */
+        overCapacity: boolean
     }
 
     /**

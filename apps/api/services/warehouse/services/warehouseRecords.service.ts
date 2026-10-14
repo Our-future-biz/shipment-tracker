@@ -1,6 +1,8 @@
 import { APIError } from "encore.dev/api";
+import { db } from "../db/db";
 import {
   claimRepository,
+  containerPositionRepository,
   containerRepository,
   dockSlotRepository,
   equipmentRepository,
@@ -10,6 +12,8 @@ import {
 import { gateMovementRepository, type GateMovementRow } from "../repositories/gateMovement.repository";
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
 import { movementStorage } from "./storage";
+import { directionFits, EQUIPMENT_CAPACITY_CBM } from "./containerRules";
+import { containerService } from "./container.service";
 import { pgCode } from "./offline";
 import {
   DOCK_SLOT_DEFAULT_MIN,
@@ -37,7 +41,6 @@ import type {
   WarehouseClaimInput,
   WarehouseClaimItem,
   WarehouseContainerInput,
-  WarehouseContainerItem,
   WarehouseDockSlotInput,
   WarehouseDockSlotItem,
   WarehouseEquipmentInput,
@@ -78,30 +81,9 @@ const checkDate = (value: string | undefined, label: string) => {
 
 // ---------- Containers ----------
 
-// Usable volume per equipment type, for fill rates.
-export const EQUIPMENT_CAPACITY_CBM: Record<string, number> = {
-  "20' DV": 31,
-  "40' DV": 66,
-  "40' HC": 76,
-  "45' HC": 84,
-  "20' OT": 31,
-  "40' FR": 0,
-};
-
-export function containerItem(c: ContainerRow, movement: GateMovementRow | undefined, now = new Date()): WarehouseContainerItem {
-  const { companyId: _c, deletedAt: _d, createdAt: _ca, updatedAt: _ua, ...fields } = c;
-  const daysOnYard = c.gatedIn ? Math.max(0, dayIndex(c.gatedOut || todayIso(now)) - dayIndex(c.gatedIn)) : null;
-  return {
-    ...fields,
-    warehouseTaskId: movement?.warehouseTaskId ?? null,
-    positionRef: movement?.positionRef ?? "",
-    customer: movement?.customer ?? "",
-    handling: movement?.handling ?? "",
-    vgmKg: c.tareKg != null && c.cargoKg != null ? c.tareKg + c.cargoKg : null,
-    daysOnYard,
-    ...stamps(c),
-  };
-}
+// Usable volume per equipment type, for fill rates (kept here for the reports; the capacities
+// live with the container rules).
+export { EQUIPMENT_CAPACITY_CBM } from "./containerRules";
 
 function containerFields(input: WarehouseContainerInput) {
   requireText(input.number, "Container number");
@@ -115,8 +97,13 @@ function containerFields(input: WarehouseContainerInput) {
   if (input.direction !== undefined && !["Loading", "Unloading"].includes(input.direction)) {
     throw APIError.invalidArgument("Direction must be Loading or Unloading");
   }
-  return { ...input, ...(input.number !== undefined ? { number: input.number.trim().toUpperCase() } : {}) };
+  const out: WarehouseContainerInput = { ...input, ...(input.number !== undefined ? { number: input.number.trim().toUpperCase() } : {}) };
+  for (const key of ["bookingNumber", "mblNumber", "vessel", "voyage", "plate"] as const) if (out[key] !== undefined) out[key] = out[key]!.trim();
+  return out;
 }
+
+/** The container direction a position belongs in: výdej (import cargo) is stripped, příjem stuffed. */
+const directionForVisit = (visit: string) => (visit === "výdej" ? "Unloading" : "Loading");
 
 class WarehouseRecordsService {
   private async movementsById(companyId: string) {
@@ -124,37 +111,92 @@ class WarehouseRecordsService {
   }
 
   async listContainers(companyId: string) {
-    const [rows, movements] = await Promise.all([containerRepository.listForCompany(companyId, 5000), this.movementsById(companyId)]);
-    return rows.map((c) => containerItem(c, c.movementId ? movements.get(c.movementId) : undefined));
+    return containerService.items(await containerRepository.listForCompany(companyId, 5000), companyId);
   }
 
   private async containerById(id: string, companyId: string) {
-    const c = await containerRepository.getByIdForCompany(id, companyId);
-    if (!c) throw notFound("Container");
-    const movement = c.movementId ? await gateMovementRepository.findById(c.movementId, companyId) : null;
-    return containerItem(c, movement ?? undefined);
+    return containerService.detail(id, companyId);
   }
 
-  async createContainer(companyId: string, input: WarehouseContainerInput) {
+  // The register form. With a position (`movementId`), the container is registered for it: the
+  // position becomes its house (as before containers held many positions); a container with no
+  // direction given takes the one the position belongs in.
+  async createContainer(companyId: string, input: WarehouseContainerInput, userId = "") {
     if (!input.number?.trim()) throw APIError.invalidArgument("Container number is required");
-    if (input.movementId && !(await gateMovementRepository.findById(input.movementId, companyId))) {
-      throw APIError.invalidArgument("Position not found");
+    const movement = input.movementId ? await gateMovementRepository.findById(input.movementId, companyId) : null;
+    if (input.movementId && !movement) throw APIError.invalidArgument("Position not found");
+    const fields = containerFields(input);
+    if (movement) {
+      if (fields.direction === undefined) fields.direction = directionForVisit(movement.visit);
+      await this.checkRegisterLink(companyId, fields.direction, movement);
     }
-    const row = await containerRepository.createForCompany(companyId, containerFields(input) as typeof warehouseContainerTable.$inferInsert);
+    const row = await containerRepository.createForCompany(companyId, fields as typeof warehouseContainerTable.$inferInsert);
+    if (movement) await containerService.addPositions(row.id, companyId, userId, [movement.id], { fromRegister: true });
     return this.containerById(row.id, companyId);
   }
 
-  async updateContainer(id: string, companyId: string, input: WarehouseContainerInput) {
-    if (input.movementId && !(await gateMovementRepository.findById(input.movementId, companyId))) {
-      throw APIError.invalidArgument("Position not found");
+  // The register form's position becomes a house of the container: only the direction and the
+  // one-container rule apply (the plan and tally screens check the rest).
+  private async checkRegisterLink(companyId: string, direction: string, movement: GateMovementRow, exceptContainer?: string) {
+    if (!directionFits(direction, movement.visit)) {
+      throw APIError.invalidArgument(
+        direction === "Loading" ? "This position is outgoing cargo (výdej) — it belongs in an import (Unloading) container" : "This position is inbound cargo (příjem) — it belongs in an export (Loading) container",
+      );
     }
-    const row = await containerRepository.updateForCompany(id, companyId, containerFields(input));
+    const other = await containerPositionRepository.liveForMovement(db, movement.id, companyId);
+    if (other && other.containerId !== exceptContainer) {
+      const c = await containerRepository.findById(other.containerId, companyId);
+      throw APIError.failedPrecondition(`This position is already in container ${c?.number ?? "another container"} — take it out there first`);
+    }
+  }
+
+  async updateContainer(id: string, companyId: string, input: WarehouseContainerInput, userId = "", role = "user") {
+    const stored = await containerRepository.findById(id, companyId);
+    if (!stored) throw notFound("Container");
+    const fields = containerFields(input);
+    // The typed yard dates follow the container's stamps once there are stamps.
+    if (fields.gatedIn !== undefined && stored.gateInAt && fields.gatedIn !== stored.gatedIn) {
+      throw APIError.failedPrecondition("Gated in follows the container's gate-in stamp — a manager can void the stamp");
+    }
+    if (fields.gatedOut !== undefined && stored.gateOutAt && fields.gatedOut !== stored.gatedOut) {
+      throw APIError.failedPrecondition("Gated out follows the container's gate-out stamp — a manager can void the stamp");
+    }
+    // Once the container is gated in, only its gate-out stamp takes it out (it checks the houses).
+    if (fields.gatedOut !== undefined && stored.gateInAt && !stored.gateOutAt && fields.gatedOut !== stored.gatedOut) {
+      throw APIError.failedPrecondition("The container is gated in — stamp its Container gate-out on the container page (Gated out follows that stamp)");
+    }
+    const relink = input.movementId !== undefined && (input.movementId || null) !== stored.movementId;
+    const movement = relink && input.movementId ? await gateMovementRepository.findById(input.movementId, companyId) : null;
+    if (relink && input.movementId && !movement) throw APIError.invalidArgument("Position not found");
+    if (movement) await this.checkRegisterLink(companyId, fields.direction ?? stored.direction, movement, id);
+    const houses = await containerPositionRepository.listForContainers([id], companyId);
+    if (fields.direction !== undefined && fields.direction !== stored.direction && houses.length) {
+      throw APIError.failedPrecondition("The direction cannot change while the container has positions — take them out first");
+    }
+    if (relink) {
+      const old = houses.find((h) => h.movementId === stored.movementId);
+      if (old && (old.stuffedAt || old.tallyOutcome)) throw APIError.failedPrecondition("The position is stuffed or tallied in this container — it stays");
+      if (old) await containerService.removePosition(id, companyId, userId, old.movementId);
+    }
+    const row = await containerRepository.updateForCompany(id, companyId, fields);
     if (!row) throw notFound("Container");
+    if (relink && movement) await containerService.addPositions(id, companyId, userId, [movement.id], { fromRegister: true });
+    if (fields.plate !== undefined) await containerService.plateChanged(stored, fields.plate, companyId, userId, role);
     return this.containerById(id, companyId);
   }
 
+  // Deleting a container takes its houses out (kept as history); refused once a house is stuffed
+  // or tallied, or the container has stamps.
   async deleteContainer(id: string, companyId: string) {
+    const blocked = await containerService.deleteBlocked(id, companyId);
+    if (blocked) throw APIError.failedPrecondition(blocked);
     if (!(await containerRepository.softDeleteForCompany(id, companyId))) throw notFound("Container");
+    const houses = await containerPositionRepository.listForContainers([id], companyId);
+    await containerPositionRepository.softRemove(
+      db,
+      houses.map((h) => h.id),
+      companyId,
+    );
   }
 
   // ---------- Dock slots ----------
@@ -415,9 +457,11 @@ class WarehouseRecordsService {
 // ---------- report calculations (pure, exported for tests) ----------
 
 const isoDate = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
-// Received = gate-in (or load-in date); dispatched = gate-out (or the WH release stamp).
+// Received = gate-in (or load-in date); dispatched = gate-out (or the WH release stamp, or the
+// gate-out of the container the cargo left in).
 const receivedOn = (m: GateMovementRow) => isoDate(m.gateIn) || m.loadInDate;
-const dispatchedOn = (m: GateMovementRow) => isoDate(m.gateOut) || isoDate(m.impRelease);
+// (Inbound cargo that left stuffed in a container: the container's gate-out.)
+const dispatchedOn = (m: GateMovementRow) => isoDate(m.gateOut) || isoDate(m.impRelease) || isoDate(m.leftAt ?? null);
 const wmOf = (m: GateMovementRow) => Math.max(m.measureCbm, m.weightKg / 1000);
 const round = (n: number, d = 1) => Math.round(n * 10 ** d) / 10 ** d;
 

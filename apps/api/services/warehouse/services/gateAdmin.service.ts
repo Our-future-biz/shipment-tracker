@@ -9,6 +9,8 @@ import { gateMovementTable, type GateEvent } from "../schemas/gateMovement.schem
 import { gateMovementService, type StampKind } from "./gateMovement.service";
 import { deliverDue } from "./shipmentOutbox.service";
 import { isManager, userName } from "./users";
+import { houseContexts, isExportContainer, lockHouse, releaseHousesForArchive } from "./houses";
+import type { Tx } from "../repositories/warehouseSection.repository";
 
 // Manager actions on gate records — voiding a wrong stamp, archiving a stamped record and
 // restoring an archived one — and removing a position with its gate records. Every one needs a
@@ -45,8 +47,12 @@ const sameTime = (a: Date | null, b: Date | null) => !!a && !!b && a.getTime() =
 // a receipt before its draft, everything after the gate-in before the gate-in, an outgoing
 // gate-out before its WH release. A gate-out stamped together with the WH release is voided
 // with the release, never on its own.
-export function voidBlocked(m: Pick<GateMovementRow, StampKind> & { visit?: string }, kind: StampKind): string | null {
+export function voidBlocked(m: Pick<GateMovementRow, StampKind> & { visit?: string; leftAt?: Date | null }, kind: StampKind): string | null {
   if (!m[kind]) return `${STAMP_LABEL[kind]} is not stamped`;
+  // Cargo that left stuffed in a container: its arrival stays until the container's gate-out is voided.
+  if (m.leftAt && (kind === "gateIn" || kind === "expDraft" || kind === "expReceipt")) {
+    return "This cargo left in a container — void the container's gate-out first";
+  }
   switch (kind) {
     case "gateOut":
       return sameTime(m.gateOut, m.impRelease) ? "The gate-out was stamped with the WH release — void the WH release instead" : null;
@@ -65,9 +71,9 @@ export function voidBlocked(m: Pick<GateMovementRow, StampKind> & { visit?: stri
 }
 
 // Status after the stamps in `after`: a refusal stays; otherwise it follows the stamps.
-export function statusAfterVoid(status: string, after: Pick<GateMovementRow, StampKind>): string {
+export function statusAfterVoid(status: string, after: Pick<GateMovementRow, StampKind> & { leftAt?: Date | null }): string {
   if (status === "Refused") return status;
-  if (after.impRelease) return "Released";
+  if (after.impRelease || after.leftAt) return "Released";
   if (after.gateIn || after.expDraft || after.expReceipt) return "In Warehouse";
   return "Expected";
 }
@@ -89,10 +95,18 @@ class GateAdminService {
     if (!m) throw APIError.notFound("Gate movement not found");
     const blocked = voidBlocked(m, kind);
     if (blocked) throw APIError.failedPrecondition(blocked);
+    // A stuffed house keeps its receipt: it is taken out of the container first.
+    const stuffedHouse = async (tx?: Tx) => {
+      const house = (await houseContexts([m.id], companyId, tx)).get(m.id);
+      if (house && isExportContainer(house.container) && house.link.stuffedAt && (kind === "gateIn" || kind === "expDraft" || kind === "expReceipt")) {
+        throw APIError.failedPrecondition(`Stuffed in container ${house.container.number} — remove it from the container first`);
+      }
+    };
+    await stuffedHouse();
 
     const cleared: StampKind[] = [kind];
     if (kind === "impRelease" && sameTime(m.gateOut, m.impRelease)) cleared.push("gateOut");
-    const after = { gateIn: m.gateIn, gateOut: m.gateOut, impRelease: m.impRelease, expDraft: m.expDraft, expReceipt: m.expReceipt };
+    const after = { gateIn: m.gateIn, gateOut: m.gateOut, impRelease: m.impRelease, expDraft: m.expDraft, expReceipt: m.expReceipt, leftAt: m.leftAt };
     for (const c of cleared) after[c] = null;
     const status = statusAfterVoid(m.status, after);
 
@@ -118,6 +132,11 @@ class GateAdminService {
 
     let mayNeedCorrecting = false;
     await db.transaction(async (tx) => {
+      // Again under the locks (container, then position): a stuffed mark under way is seen.
+      if (kind === "gateIn" || kind === "expDraft" || kind === "expReceipt") {
+        await lockHouse(tx, m.id, companyId);
+        await stuffedHouse(tx);
+      }
       const owed = m.shipmentId ? await shipmentOutboxRepository.cancelForStamps(tx, m.id, cleared) : [];
       // A pending row still held by a delivery run is being sent right now: it may reach the
       // shipment although it is cancelled here (the delivery then logs it as well).
@@ -150,7 +169,8 @@ class GateAdminService {
         set,
         events,
         sql`${t.status} = ${m.status} AND ${sameStamp(t.gateIn, m.gateIn)} AND ${sameStamp(t.gateOut, m.gateOut)}
-          AND ${sameStamp(t.impRelease, m.impRelease)} AND ${sameStamp(t.expDraft, m.expDraft)} AND ${sameStamp(t.expReceipt, m.expReceipt)}`,
+          AND ${sameStamp(t.impRelease, m.impRelease)} AND ${sameStamp(t.expDraft, m.expDraft)} AND ${sameStamp(t.expReceipt, m.expReceipt)}
+          AND ${sameStamp(t.leftAt, m.leftAt)}`,
         tx,
       );
       if (!row) throw APIError.aborted("The record changed meanwhile — reload and try again");
@@ -167,7 +187,10 @@ class GateAdminService {
     needManager(role);
     const why = needReason(reason, "archive a record");
     const by = await userName(userId);
-    const row = await gateMovementRepository.archive(id, companyId, by, why, { kind: "archived", label: "Archived", at: new Date().toISOString(), by, detail: why });
+    const row = await db.transaction(async (tx) => {
+      await releaseHousesForArchive(tx, [id], companyId, by, `the position was archived: ${why}`);
+      return gateMovementRepository.archive(id, companyId, by, why, { kind: "archived", label: "Archived", at: new Date().toISOString(), by, detail: why }, undefined, tx);
+    });
     if (!row) throw APIError.notFound("Gate movement not found");
     return gateMovementService.get(id, companyId);
   }
@@ -220,6 +243,9 @@ class GateAdminService {
     const by = await userName(userId);
     const why = (reason ?? "").trim();
     await db.transaction(async (tx) => {
+      // The containers' houses first (containers are locked before positions), then the records.
+      const liveIds = (await gateMovementRepository.liveForTaskLocked(tx, taskId, companyId, false)).map((r) => r.id);
+      await releaseHousesForArchive(tx, liveIds, companyId, by, `the position ${task.taskId} was removed`);
       const rows = await gateMovementRepository.liveForTaskLocked(tx, taskId, companyId);
       if (rows.some(hasStamp)) {
         if (!isManager(role)) {

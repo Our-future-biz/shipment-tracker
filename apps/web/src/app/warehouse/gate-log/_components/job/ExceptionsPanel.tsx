@@ -81,7 +81,7 @@ export function ExceptionList({ m, onResolve }: { m: GateMovement; onResolve?: (
             </div>
             {e.note && <div className="mt-1 text-slate-700 whitespace-pre-wrap break-words">{e.note}</div>}
             <div className="mt-0.5 text-[11px] text-slate-400">
-              {e.source === "survey" ? `From the ${e.surveyPhase ? `${surveyPhaseKey(e.surveyPhase)} ` : ""}survey` : "Recorded by hand"} · {formatDateTime(e.createdAt)}
+              {e.source === "survey" ? `From the ${e.surveyPhase ? `${surveyPhaseKey(e.surveyPhase)} ` : ""}survey` : e.source === "tally" ? "Found at the stripping tally" : "Recorded by hand"} · {formatDateTime(e.createdAt)}
               {e.createdBy ? ` · ${e.createdBy}` : ""}
             </div>
             {photos.length > 0 && (

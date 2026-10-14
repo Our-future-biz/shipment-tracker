@@ -17,7 +17,7 @@ export const warehouseExceptionTable = pgTable(
     note: text("note").notNull().default(""),
     container: text("container").notNull().default(""),
     surveyPhase: text("survey_phase").notNull().default(""),
-    source: text("source").notNull().default("manual"), // survey | manual
+    source: text("source").notNull().default("manual"), // survey | tally | manual
     // Photos of the movement (warehouse_gate_file ids) attached as evidence.
     fileIds: jsonb("file_ids").$type<string[]>().notNull().default([]),
     status: text("status").notNull().default("open"), // open | resolved

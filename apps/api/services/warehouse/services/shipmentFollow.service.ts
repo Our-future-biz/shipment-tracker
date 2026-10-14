@@ -65,7 +65,7 @@ export async function followCustoms(
   const changed = new Map<string, GateMovementRecord>();
   const now = Date.now();
   const due = rows
-    .filter((m) => m.shipmentId && !m.impRelease)
+    .filter((m) => m.shipmentId && !m.impRelease && !m.leftAt)
     .filter((m) => opts.force || !m.shipmentCheckedAt || now - m.shipmentCheckedAt.getTime() >= opts.maxAgeMs)
     .sort((a, b) => (a.shipmentCheckedAt?.getTime() ?? 0) - (b.shipmentCheckedAt?.getTime() ?? 0))
     .slice(0, opts.limit);

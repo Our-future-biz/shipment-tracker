@@ -36,9 +36,10 @@ export function storageSummary(s: Storage): string {
 
 /** Hover text: how the clock is counted for this record. */
 export function storageHint(s: Storage): string {
-  if (!s.started) return "The storage clock starts at the receipt: the gate-in for inbound cargo, the “Received in warehouse” date for outbound cargo.";
+  if (!s.started)
+    return "The storage clock starts at the receipt: the gate-in for inbound cargo; for outbound cargo the tick-off at the stripping tally of its container (without one, the “Received in warehouse” date).";
   return [
-    `Received ${s.startDate} (day 1)`,
+    `Received ${s.startDate} (day 1${s.startSource === "tally" ? ", ticked off at the stripping tally" : ""})`,
     `${s.freeDays} free days, last free day ${s.lastFreeDay}`,
     `CZK ${nf(s.dailyCzk)} a day after that (W/M ${nf(s.wm, 2)} × CZK 22, at least CZK 120)`,
     s.stopped ? `Clock stopped ${s.stopDate}` : "",

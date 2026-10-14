@@ -5,7 +5,8 @@ import { gateMovementService, type StampKind } from "../services/gateMovement.se
 import { gateFileService } from "../services/gateFile.service";
 import { gateAdminService } from "../services/gateAdmin.service";
 import { gateExceptionService } from "../services/gateException.service";
-import type { GateExceptionInput, GateFileItem, GateMovementInput, GateMovementItem, GateSurveyInput } from "../interfaces/gate.interfaces";
+import { reweighService } from "../services/reweigh.service";
+import type { GateExceptionInput, GateFileItem, GateMovementInput, GateMovementItem, GateReweighInput, GateSurveyInput } from "../interfaces/gate.interfaces";
 
 interface GateMovementResponse {
   movement: GateMovementItem;
@@ -330,5 +331,24 @@ export const gateExceptionResolve = api(
   async ({ id, exceptionId, note }: { id: string; exceptionId: string; note: string }): Promise<GateMovementResponse> => {
     const { companyID, userID } = getAuthData()!;
     return { movement: await gateExceptionService.resolve(id, exceptionId, companyID, userID, note) };
+  },
+);
+
+interface GateReweighResponse {
+  movement: GateMovementItem;
+  /** recorded · already_recorded (the same clientRequestId came before; nothing was added) */
+  outcome: "recorded" | "already_recorded";
+  /** Text for a toast (recorded offline, a newer weighing counts, a variance); "" when nothing to say. */
+  notice: string;
+}
+
+// Re-weighs the cargo (LCL cargo is re-weighed before its receipt / tally tick; any user, logged).
+// A correction is a new weighing: the history stays and the latest counts. Compared with the
+// declared gross weight (more than 5 % off is a variance); turns the checklist's VGM icon green.
+export const gateMovementReweigh = api(
+  { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/reweigh" },
+  async ({ id, reweigh }: { id: string; reweigh: GateReweighInput }): Promise<GateReweighResponse> => {
+    const { companyID, userID } = getAuthData()!;
+    return reweighService.record(id, companyID, userID, reweigh);
   },
 );

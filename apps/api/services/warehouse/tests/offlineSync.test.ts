@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "../db/db";
 import { gateMovementService } from "../services/gateMovement.service";
+import { reweighService } from "../services/reweigh.service";
 import { gateExceptionService } from "../services/gateException.service";
 import { gateFileService } from "../services/gateFile.service";
 import { warehouseImportService } from "../services/warehouseImport.service";
@@ -93,6 +94,8 @@ describe("stamps sent from the offline queue", () => {
     await expect(gateMovementService.stamp(id, c, user, "gateIn", "user", { clientRequestId: "not-a-uuid" })).rejects.toThrow(/UUID/);
 
     await gateMovementService.stamp(id, c, user, "expDraft");
+    // LCL cargo is re-weighed before its receipt.
+    await reweighService.record(id, c, user, { weighedKg: 500 });
     await expect(gateMovementService.stampWithOutcome(id, c, user, "expReceipt", "user", opts(ago(10 * MIN)))).rejects.toThrow(/before the draft receipt/);
     await expect(gateMovementService.stampWithOutcome(id, c, user, "gateOut", "user", opts(ago(10 * MIN)))).rejects.toThrow(/before the arrival/);
     const ok = await gateMovementService.stampWithOutcome(id, c, user, "expReceipt", "user", opts(new Date().toISOString()));

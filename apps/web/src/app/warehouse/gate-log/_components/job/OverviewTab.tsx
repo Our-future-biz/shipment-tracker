@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import dayjs from "dayjs";
 import { Input, InputNumber, Tooltip } from "antd";
+import Link from "next/link";
 import {
   CarOutlined,
   CheckSquareOutlined,
+  ContainerOutlined,
   FieldTimeOutlined,
   InboxOutlined,
   SafetyCertificateOutlined,
@@ -28,6 +30,9 @@ import { ReleaseGatesPanel, releaseState } from "./ReleaseGatesPanel";
 import { PickupPinCheck } from "./PickupPinCheck";
 import { ExceptionsPanel } from "./ExceptionsPanel";
 import { StorageLine } from "@/app/warehouse/_lib/storageText";
+import { CONTAINER_STATUS_TONE, KIND_LABEL, TALLY_LABEL, TALLY_TONE, containerKind } from "@/app/warehouse/_lib/containerPlan";
+import { positionRemeasurementHref } from "@/app/warehouse/_components/remeasurementLinks";
+import { ReweighSection, kgText } from "./ReweighSection";
 import type { PinCheckResult } from "../../_lib/steps";
 import {
   btnInline,
@@ -166,7 +171,11 @@ export function OverviewTab({
 
   const cfs = m.transportLegs.find((l) => l.leg === "CFS");
 
+  // The VGM icon is done once the cargo is re-weighed (the warehouse's re-weigh): then it is not
+  // cycled by hand.
+  const vgmLocked = !!m.reweigh;
   const cycleCheck = (key: CheckKey) => {
+    if (key === "vgm" && vgmLocked) return;
     const next = CHECK_CYCLE[(CHECK_CYCLE.indexOf(m.checklist[key]) + 1) % CHECK_CYCLE.length];
     save({ checklist: { ...m.checklist, [key]: next } });
   };
@@ -194,8 +203,8 @@ export function OverviewTab({
                 {/* Saves the stored handling (Import / Export), shown as Outbound / Inbound; the server
                     moves the gate visit with it. Locked once anything is stamped. */}
                 <FieldRow label={TERMS.direction}>
-                  {m.gateIn || m.gateOut || m.impRelease || m.expDraft || m.expReceipt ? (
-                    <Tooltip title="Direction is locked once a gate stamp is recorded">
+                  {m.gateIn || m.gateOut || m.impRelease || m.expDraft || m.expReceipt || m.container ? (
+                    <Tooltip title={m.container ? `Direction is locked while the position is a house of container ${m.container.number}` : "Direction is locked once a gate stamp is recorded"}>
                       <span className="text-xs font-medium text-slate-900">{directionOfHandling(m.handling)}</span>
                     </Tooltip>
                   ) : (
@@ -450,6 +459,12 @@ export function OverviewTab({
           {/* ============ damage / short / over ============ */}
           <ExceptionsPanel m={m} />
 
+          {/* ============ container (one container, many positions) ============ */}
+          {m.container && <ContainerCard m={m} />}
+
+          {/* ============ re-weigh (LCL) ============ */}
+          <ReweighSection m={m} informHref={m.warehouseTaskId ? positionRemeasurementHref(m.warehouseTaskId) : undefined} />
+
           {/* ============ storage clock ============ */}
           <StorageSection m={m} save={save} />
 
@@ -457,7 +472,8 @@ export function OverviewTab({
           <Section title="Gate checklist" icon={<CheckSquareOutlined />}>
             <div className="grid grid-cols-5 gap-2">
               {CHECKS.map((c) => {
-                const st = m.checklist[c.key] ?? "n";
+                const locked = c.key === "vgm" && vgmLocked;
+                const st = locked ? "g" : (m.checklist[c.key] ?? "n");
                 const style = CHECK_STYLE[st]!;
                 return (
                   <button
@@ -465,8 +481,12 @@ export function OverviewTab({
                     type="button"
                     onClick={() => cycleCheck(c.key)}
                     aria-label={`${c.label} — ${CHECK_TEXT[st]}`}
-                    title="Click to change: n/a → done → pending → problem"
-                    className="flex flex-col items-center gap-1 bg-transparent border-0 p-1 cursor-pointer rounded-lg hover:bg-slate-50"
+                    title={
+                      locked && m.reweigh
+                        ? `Re-weighed ${kgText(m.reweigh.weighedKg)} ${formatDateTime(m.reweigh.weighedAt)}${m.reweigh.weighedBy ? ` by ${m.reweigh.weighedBy}` : ""}`
+                        : "Click to change: n/a → done → pending → problem"
+                    }
+                    className={`flex flex-col items-center gap-1 bg-transparent border-0 p-1 rounded-lg ${locked ? "cursor-default" : "cursor-pointer hover:bg-slate-50"}`}
                   >
                     <span
                       className={`w-9 h-9 rounded-lg border flex items-center justify-center transition-colors ${style.box}`}
@@ -622,9 +642,11 @@ function UnNumberInput({ value, onSave }: { value: string; onSave: (v: string) =
 }
 
 // The storage clock of this record (one calculation, made by the server): it starts at the
-// receipt — the gate-in for inbound cargo; for outbound cargo the "Received in warehouse" date
-// (the truck's gate-in is the pick-up, never the receipt) — and stops at the WH release (outbound
-// cargo also at its gate-out; an inbound gate-out is the delivering truck leaving). Free days: empty = the default (7). Each change is logged.
+// receipt — the gate-in for inbound cargo; for outbound cargo the tick-off at the stripping tally
+// of its container, or without a tally the "Received in warehouse" date (the truck's gate-in is the
+// pick-up, never the receipt) — and stops at the WH release (outbound cargo also at its gate-out;
+// inbound cargo stuffed in an export container at that container's gate-out; an inbound truck's
+// gate-out is the delivering truck leaving). Free days: empty = the default (7). Each change is logged.
 function StorageSection({ m, save }: { m: GateMovement; save: Save }) {
   const outbound = m.visit === "výdej";
   const s = m.storage;
@@ -635,13 +657,28 @@ function StorageSection({ m, save }: { m: GateMovement; save: Save }) {
           <StorageLine s={s} />
         </span>
       </FieldRow>
-      {outbound ? (
+      {outbound && (m.receivedAt || m.container?.tallyRequired) ? (
+        // An import house is received by its tick-off at the stripping tally: the date follows it.
+        <FieldRow label="Received in warehouse">
+          <span className="text-xs text-slate-700">
+            {m.receivedAt ? `${dayjs(m.receivedAt).format("DD.MM.YYYY HH:mm")} — ` : "Not yet — "}
+            set by the stripping tally{m.container ? ` of container ${m.container.number}` : ""}
+          </span>
+        </FieldRow>
+      ) : outbound ? (
         <FieldRow label="Received in warehouse">
           <InlineDate value={m.loadInDate} onSave={(v) => save({ loadInDate: v })} />
         </FieldRow>
       ) : (
         <FieldRow label="Received">
           <span className="text-xs text-slate-700">{s.startDate ? `${dayjs(s.startDate).format("DD.MM.YYYY")} — the gate-in` : "at the gate-in"}</span>
+        </FieldRow>
+      )}
+      {m.leftAt && (
+        <FieldRow label="Left">
+          <span className="text-xs text-slate-700">
+            {dayjs(m.leftAt).format("DD.MM.YYYY HH:mm")} — in container {m.container?.number ?? ""} (its gate-out stopped the clock)
+          </span>
         </FieldRow>
       )}
       <FieldRow label="Free days">
@@ -684,5 +721,69 @@ function FreeDaysInput({ value, onSave }: { value: number | null; onSave: (v: nu
       />
       <span className="text-slate-400 text-xs">days</span>
     </span>
+  );
+}
+
+// The container this position is a house of: which one, its state, and the house's own state in
+// it (stuffed / the tally), with a link to the container page.
+function ContainerCard({ m }: { m: GateMovement }) {
+  const c = m.container!;
+  const kind = containerKind(c.direction);
+  return (
+    <Section
+      title="Container"
+      icon={<ContainerOutlined />}
+      extra={
+        <Link href={`/warehouse/containers/${c.id}`} className="font-semibold text-indigo-500 hover:underline">
+          Open container
+        </Link>
+      }
+    >
+      <FieldRow label="Container">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="font-mono font-semibold text-slate-900">{c.number}</span>
+          <Badge tone={kind === "export" ? "i" : "b"}>{KIND_LABEL[kind]}</Badge>
+          <Badge tone={CONTAINER_STATUS_TONE[c.status] ?? ""}>{c.status}</Badge>
+        </span>
+      </FieldRow>
+      {(c.equipment || c.seal) && (
+        <FieldRow label="Type · seal">
+          <span className="text-xs text-slate-700">
+            {c.equipment || "—"} · <span className="font-mono">{c.seal || "no seal yet"}</span>
+          </span>
+        </FieldRow>
+      )}
+      <FieldRow label={TERMS.containerGateIn}>
+        <span className="text-xs text-slate-700">{c.gateInAt ? formatDateTime(c.gateInAt) : "Not yet"}</span>
+      </FieldRow>
+      {kind === "export" ? (
+        <FieldRow label={TERMS.stuffed}>
+          {c.stuffedAt ? (
+            <span className="text-xs text-slate-700">
+              <Badge tone="i">Stuffed</Badge> {formatDateTime(c.stuffedAt)}
+              {c.stuffedBy ? ` · ${c.stuffedBy}` : ""}
+            </span>
+          ) : (
+            <span className="text-xs text-slate-500">Planned — not stuffed yet</span>
+          )}
+        </FieldRow>
+      ) : (
+        <FieldRow label="Tally">
+          {c.tallyOutcome ? (
+            <span className="text-xs text-slate-700">
+              <Badge tone={TALLY_TONE[c.tallyOutcome] ?? ""}>{TALLY_LABEL[c.tallyOutcome] ?? c.tallyOutcome}</Badge>
+              {c.tallyPieces != null ? ` ${c.tallyPieces} of ${m.colli} pcs` : ""}
+              {c.tickedAt ? ` · ${formatDateTime(c.tickedAt)}` : ""}
+              {c.tickedBy ? ` · ${c.tickedBy}` : ""}
+            </span>
+          ) : (
+            <span className="text-xs text-slate-500">{c.tallyRequired ? "Not tallied yet — received when ticked off at the stripping tally" : "Registered before the stripping tally — received by the date on Storage"}</span>
+          )}
+        </FieldRow>
+      )}
+      <FieldRow label={TERMS.containerGateOut}>
+        <span className="text-xs text-slate-700">{c.gateOutAt ? formatDateTime(c.gateOutAt) : "Not yet"}</span>
+      </FieldRow>
+    </Section>
   );
 }

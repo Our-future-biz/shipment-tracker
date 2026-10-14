@@ -184,6 +184,14 @@ export function ReadmeTab() {
             <b>{TERMS.whRelease}</b> (or the gate-out of outbound cargo): the warehouse released date and the plate the cargo left on.
           </li>
           <li>The gate-out of inbound cargo writes nothing yet.</li>
+          <li>
+            <b>{TERMS.tickOff}</b> at the stripping tally of an import container: the house&rsquo;s warehouse received date and warehouse reference (as the
+            inbound receipt does).
+          </li>
+          <li>
+            <b>{TERMS.containerGateOut}</b> of a stuffed export container: for every stuffed house, the warehouse released date and the container&rsquo;s truck
+            plate (if any). A plate entered on the container after its gate-out is sent too.
+          </li>
         </ul>
         <p>
           The stamp and the shipment update it owes are saved together. The update is sent straight away; if Shipments cannot take it then, it is retried
@@ -303,10 +311,47 @@ export function ReadmeTab() {
         </ul>
       </Part>
 
+      <Part title="Containers, stripping and stuffing">
+        <p>
+          A container holds many positions — its <b>houses</b>; a position is in at most one container at a time. The container page shows its stamps in
+          order, the houses, the totals against the capacity of its type and its log. <b>Floor mode</b> on the container page (or scanning the container number
+          in floor mode) opens the same list on a phone.
+        </p>
+        <ul>
+          <li>
+            <b>{TERMS.importContainer}</b> (outbound cargo): {TERMS.containerGateIn} → (start stripping) → the <b>{TERMS.strippingTally}</b>: count each house
+            (pieces, condition, location) and <b>Tick received</b> — that is its receipt: the free time starts that day and the shipment gets the received date
+            and the WCZ reference. A house not (fully) there is marked {TERMS.short.toLowerCase()} / {TERMS.notArrived.toLowerCase()} with a reason; a count that
+            differs offers a Short / Over exception. Stripping is complete when every house is accounted for; then the {TERMS.containerGateOut}. The WH release of
+            a house waits for its tick-off.
+          </li>
+          <li>
+            <b>{TERMS.exportContainer}</b> (inbound cargo): the <b>{TERMS.stuffingPlan}</b> — add positions in the warehouse (received, not on hold, not in another
+            container; by POD, then ETD), order them by dragging or with the arrows, watch the fill. {TERMS.containerGateIn} (empty at the dock) → mark each house{" "}
+            <b>{TERMS.stuffed}</b> → <b>{TERMS.closeContainer}</b> with the seal → {TERMS.containerGateOut} with the truck plate: every stuffed house leaves the
+            warehouse (its storage clock stops; its shipment gets the released date and the plate). Planned houses not stuffed stay in the warehouse.
+          </li>
+          <li>
+            The close and the gate-out need a connection; the gate-in, the start of stripping, tally ticks and stuffed marks also work offline in floor mode. A
+            manager voids a container stamp or a tally tick with a reason (logged); voiding an export gate-out brings its houses back into the warehouse.
+          </li>
+          <li>
+            <b>{TERMS.reweigh}</b>: LCL cargo is re-weighed on receipt — inbound before the {TERMS.receipt} stamp, import before its tick-off. The re-weighed weight
+            shows on the gate job, in the Remeasurement / Release cargo comparison and with &ldquo;Mark VGM as sent&rdquo;; more than 5 % off the declared weight is a
+            variance.
+          </li>
+          <li>
+            The <b>{TERMS.lifecycle}</b> of each position (Positions column, gate job, floor mode): Expected → Arrived → Received → In warehouse → Stuffed / Ready for
+            release → Left.
+          </li>
+        </ul>
+      </Part>
+
       <Part title="The other tabs">
         <ul>
           <li>
-            <b>Containers</b>: the container register with its unloading / loading schedule and VGM.
+            <b>Containers</b>: every container with its houses (one container, many positions), its kind, status, totals and fill against its capacity. A row
+            opens the container page — see &ldquo;Containers, stripping and stuffing&rdquo;.
           </li>
           <li>
             <b>Dock &amp; Yard</b>: dock schedule, yard / container park, labour and equipment. A {TERMS.dockSlot.toLowerCase()} is booked for a position

@@ -134,3 +134,14 @@ export function variance(a: CargoTotals | null, b: CargoTotals | null, { pct = T
 
 /** "+12.5 %" / "−3.0 %" */
 export const pctText = (p: number | null) => (p == null ? "" : `${p >= 0 ? "+" : "−"}${Math.abs(p * 100).toFixed(1)} %`);
+
+/**
+ * The warehouse's re-weigh against the declared weight (kg): the share off and whether it is a
+ * variance — the same tolerance as the remeasurement (more than 5 % either way). Not compared
+ * (null, no flag) when either side is unknown.
+ */
+export function reweighVariance(weighedKg: number | null | undefined, declaredKg: number | null | undefined, { pct = TOLERANCE }: { pct?: number } = {}): { pct: number | null; flagged: boolean } {
+  if (!weighedKg || weighedKg <= 0 || !declaredKg || declaredKg <= 0) return { pct: null, flagged: false };
+  const p = (weighedKg - declaredKg) / declaredKg;
+  return { pct: Math.round(p * 10_000) / 10_000, flagged: Math.abs(p) > pct + 1e-9 };
+}

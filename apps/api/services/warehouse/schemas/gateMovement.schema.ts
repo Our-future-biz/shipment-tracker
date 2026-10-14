@@ -74,6 +74,8 @@ export interface GateEvent {
   detail?: string;
   /** Id of the phone request that made it (floor mode), so a replay is recognised. */
   requestId?: string;
+  /** The value the event replaced (e.g. the typed received date a tally tick overwrote), restored when it is voided. */
+  previous?: string;
 }
 
 // Gate desk row: one expected movement (a position, a delivery run or a container)
@@ -134,6 +136,13 @@ export const gateMovementTable = pgTable(
     impRelease: timestamp("imp_release", { withTimezone: true }),
     expDraft: timestamp("exp_draft", { withTimezone: true }),
     expReceipt: timestamp("exp_receipt", { withTimezone: true }),
+    // Import (výdej) house ticked received at the stripping tally of its container; starts the
+    // storage clock (it also sets loadInDate to the Prague day).
+    receivedAt: timestamp("received_at", { withTimezone: true }),
+    // Export (příjem) cargo that left stuffed in a container: the container's gate-out. Stops the
+    // storage clock; the status becomes Released without a WH release.
+    leftAt: timestamp("left_at", { withTimezone: true }),
+    leftContainerId: uuid("left_container_id"),
     checklist: jsonb("checklist").$type<GateChecklist>().notNull(),
     releaseGates: jsonb("release_gates").$type<GateReleaseLine[]>().notNull(),
     // CFS haulage paperwork.

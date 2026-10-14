@@ -39,14 +39,23 @@ export const warehouseContainerList = api(
   async (): Promise<ContainerListResponse> => ({ containers: await svc.listContainers(company()) }),
 );
 
+// With a position (movementId), it becomes the container's first house.
 export const warehouseContainerCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-containers" },
-  async (req: WarehouseContainerInput): Promise<ContainerResponse> => ({ container: await svc.createContainer(company(), req) }),
+  async (req: WarehouseContainerInput): Promise<ContainerResponse> => {
+    const { companyID, userID } = getAuthData()!;
+    return { container: await svc.createContainer(companyID, req, userID) };
+  },
 );
 
+// The typed yard dates follow the container's stamps once stamped; a plate entered after an export
+// container went out is sent to the shipments of the positions that left in it.
 export const warehouseContainerUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/warehouse-containers/:id" },
-  async ({ id, ...data }: ContainerUpdateRequest): Promise<ContainerResponse> => ({ container: await svc.updateContainer(id, company(), data) }),
+  async ({ id, ...data }: ContainerUpdateRequest): Promise<ContainerResponse> => {
+    const { companyID, userID, role } = getAuthData()!;
+    return { container: await svc.updateContainer(id, companyID, data, userID, role) };
+  },
 );
 
 export const warehouseContainerDelete = api(

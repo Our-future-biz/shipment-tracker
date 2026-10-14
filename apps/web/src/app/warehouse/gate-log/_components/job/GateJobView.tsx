@@ -25,6 +25,8 @@ import { SurveyTab } from "./SurveyTab";
 import { ShipmentManagementTab } from "./ShipmentManagementTab";
 import { ReasonModal } from "./ReleaseGatesPanel";
 import { HistoryTab } from "./HistoryTab";
+import { ReweighModal } from "./ReweighSection";
+import { LifecycleStrip } from "@/app/warehouse/_components/LifecycleStrip";
 
 // The job's tab lives in the URL (?tab=survey), so refresh, Back and shared links keep it.
 const TABS = ["overview", "survey", "shipman", "history"] as const;
@@ -42,7 +44,15 @@ export const dockBookingHref = (movementId: string) => `/warehouse?tab=dock&book
 function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onRefreshCustoms?: () => void; refreshing?: boolean }) {
   const s = m.storage;
   const storage = !s.started
-    ? { value: "—", tone: "text-slate-400", sub: isOutbound(m) ? "Not started — set “Received in warehouse” on Overview" : "Not started — starts at the gate-in" }
+    ? {
+        value: "—",
+        tone: "text-slate-400",
+        sub: !isOutbound(m)
+          ? "Not started — starts at the gate-in"
+          : m.container?.tallyRequired
+            ? `Not started — starts at the tick-off in container ${m.container.number}`
+            : "Not started — set “Received in warehouse” on Overview",
+      }
     : s.chargeableDays > 0
       ? { value: `+${s.chargeableDays}`, tone: "text-red-600", sub: `Day ${s.daysInWarehouse} · ${freeTimeText(s)} · est. CZK ${nf(s.estimatedCzk)}` }
       : { value: String(s.freeDaysLeft), tone: s.state === "Expiring" ? "text-amber-600" : "text-emerald-600", sub: `Day ${s.daysInWarehouse} · ${freeTimeText(s)}` };
@@ -208,6 +218,7 @@ export function GateJobView({ id }: { id: string }) {
   const [voidStep, setVoidStep] = useState<GateStep | null>(null);
   const [printOpen, setPrintOpen] = useState(false);
   const [confirmStamp, setConfirmStamp] = useState<{ kind: GateStampKind; label: string } | null>(null);
+  const [reweighOpen, setReweighOpen] = useState(false);
 
   if (isLoading) {
     return (
@@ -360,6 +371,17 @@ export function GateJobView({ id }: { id: string }) {
                   />
                 </Fragment>
               ))}
+              {/* LCL cargo is re-weighed before the receipt: offered right where the step waits for it. */}
+              {!archived && mainSteps.some((x) => x.state === "blocked" && x.needs === "reweigh") && (
+                <button type="button" className={btnPrimary} onClick={() => setReweighOpen(true)}>
+                  Re-weigh
+                </button>
+              )}
+              {!archived && m.container && mainSteps.some((x) => x.state === "blocked" && (x.needs === "tally" || x.needs === "container")) && (
+                <Link href={`/warehouse/containers/${m.container.id}`} className={btnDefault}>
+                  Container {m.container.number}
+                </Link>
+              )}
               {legacySteps.map((x) => (
                 <StepItem
                   key={x.kind}
@@ -456,6 +478,10 @@ export function GateJobView({ id }: { id: string }) {
             }
           />
         )}
+
+        <div className="mt-3">
+          <LifecycleStrip l={m.lifecycle} />
+        </div>
 
         <StatusCards
           m={m}
@@ -572,6 +598,7 @@ export function GateJobView({ id }: { id: string }) {
       )}
 
       <PrintLabelsModal open={printOpen} movements={[m]} onClose={() => setPrintOpen(false)} />
+      <ReweighModal open={reweighOpen} movementId={m.id} label={m.gateRef} declaredKg={m.weightKg} onClose={() => setReweighOpen(false)} />
 
       <ReasonModal
         open={!!voidStep}

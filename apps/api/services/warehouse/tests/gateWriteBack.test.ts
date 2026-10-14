@@ -4,6 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { APIError } from "encore.dev/api";
 import { db } from "../db/db";
 import { gateMovementService } from "../services/gateMovement.service";
+import { reweighService } from "../services/reweigh.service";
 import { gateAdminService } from "../services/gateAdmin.service";
 import { deliverDue, MAX_ATTEMPTS } from "../services/shipmentOutbox.service";
 import { warehouseImportService } from "../services/warehouseImport.service";
@@ -78,6 +79,8 @@ describe("gate stamps write back to the shipment", () => {
     await gateMovementService.stamp(row.id, c, user, "expDraft");
     expect(shipmentUpdate).toHaveBeenCalledTimes(1);
     expect(shipmentUpdate).toHaveBeenCalledWith(expect.objectContaining({ shipmentId, warehouseReference: task.taskId }), asUser(c));
+    // LCL cargo is re-weighed before its receipt.
+    await reweighService.record(row.id, c, user, { weighedKg: 500 });
     await gateMovementService.stamp(row.id, c, user, "expReceipt");
     expect(shipmentUpdate).toHaveBeenCalledTimes(1);
   });

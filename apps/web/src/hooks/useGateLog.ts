@@ -144,6 +144,15 @@ export const useGateMovement = (id: string | undefined) => {
     mutationFn: (exception: interfaces.GateExceptionInput) => api.warehouse.gateExceptionCreate(id!, { exception }),
     onSuccess: onRow,
   });
+  // LCL cargo is re-weighed before its receipt / tally tick; a correction is a new weighing (the latest counts).
+  const reweigh = useMutation({
+    mutationFn: (input: interfaces.GateReweighInput) => api.warehouse.gateMovementReweigh(id!, { reweigh: input }),
+    onSuccess: (res) => {
+      onRow(res);
+      // A container's house list shows the re-weighed weight.
+      queryClient.invalidateQueries({ queryKey: ["warehouse-records", "containers"] });
+    },
+  });
   const resolveException = useMutation({
     mutationFn: ({ exceptionId, note }: { exceptionId: string; note: string }) => api.warehouse.gateExceptionResolve(id!, exceptionId, { note }),
     onSuccess: onRow,
@@ -172,6 +181,7 @@ export const useGateMovement = (id: string | undefined) => {
     applyRemeasured,
     createException,
     resolveException,
+    reweigh,
   };
 };
 

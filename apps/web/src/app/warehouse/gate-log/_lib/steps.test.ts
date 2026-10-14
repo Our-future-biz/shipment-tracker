@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { QUEUEABLE_STAMPS, gateSteps, isQueueableStamp, pinCheckMessage, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, writesBack } from "./steps";
+import { QUEUEABLE_STAMPS, REWEIGH_FIRST, containerHoldsRelease, gateSteps, isQueueableStamp, pinCheckMessage, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, writesBack } from "./steps";
 
 type M = Parameters<typeof gateSteps>[0];
 const T = "2026-10-14T08:00:00.000Z";
@@ -150,5 +150,55 @@ describe("stamp confirmation (gate job and floor mode)", () => {
     expect(isQueueableStamp(outbound, "gateIn")).toBe(true);
     expect(isQueueableStamp(outbound, "impRelease")).toBe(false);
     expect(isQueueableStamp(outbound, "gateOut")).toBe(false);
+  });
+});
+
+describe("re-weigh and the container hold the steps", () => {
+  const container = (over: Record<string, unknown> = {}) =>
+    ({
+      id: "c1",
+      number: "MSKU1234565",
+      equipment: "40' HC",
+      direction: "Loading",
+      kind: "export",
+      status: "Stuffing",
+      seal: "",
+      gateInAt: T,
+      gateOutAt: null,
+      stuffedAt: null,
+      stuffedBy: "",
+      tallyOutcome: "",
+      tallyPieces: null,
+      tickedAt: null,
+      tickedBy: "",
+      tallyRequired: false,
+      ...over,
+    }) as NonNullable<M["container"]>;
+  const reweigh = { id: "r", movementId: "m", weighedKg: 1200, declaredKg: 1180, declaredSource: "shipment", variancePct: 0.0169, flagged: false, weighedBy: "Eva", weighedAt: T, fileIds: [], note: "", createdAt: T };
+
+  it("blocks the receipt of LCL cargo until it is re-weighed", () => {
+    const lcl = base({ gateIn: T, expDraft: T, needsReweigh: true, reweigh: null });
+    const receipt = gateSteps(lcl).find((s) => s.kind === "expReceipt")!;
+    expect(receipt).toMatchObject({ state: "blocked", reason: REWEIGH_FIRST, needs: "reweigh" });
+    expect(gateSteps({ ...lcl, reweigh }).find((s) => s.kind === "expReceipt")!.state).toBe("next");
+    // FCL cargo is not re-weighed here.
+    expect(gateSteps(base({ gateIn: T, expDraft: T, needsReweigh: false })).find((s) => s.kind === "expReceipt")!.state).toBe("next");
+  });
+
+  it("keeps stuffed inbound cargo off the WH release: it leaves with its container", () => {
+    expect(containerHoldsRelease({ visit: "příjem", container: container({ stuffedAt: T }) })?.reason).toMatch(/leaves with the container's gate-out/);
+    expect(containerHoldsRelease({ visit: "příjem", container: container() })).toBeNull();
+    expect(containerHoldsRelease({ visit: "příjem", leftAt: T, container: container({ stuffedAt: T }) })?.reason).toMatch(/Left the warehouse in container MSKU1234565/);
+  });
+
+  it("holds the WH release of an import house until it is ticked off at the tally", () => {
+    const house = container({ direction: "Unloading", kind: "import", tallyRequired: true });
+    const out = base({ visit: "výdej", gateIn: T, armed: true, container: house });
+    const release = gateSteps(out).find((s) => s.kind === "impRelease")!;
+    expect(release).toMatchObject({ state: "blocked", needs: "tally" });
+    expect(release.reason).toMatch(/tick this house off at the stripping tally of container MSKU1234565/);
+    expect(gateSteps({ ...out, container: { ...house, tallyOutcome: "received" } }).find((s) => s.kind === "impRelease")!.state).toBe("next");
+    // An old one-position container (linked by the migration) keeps the received date typed by hand.
+    expect(gateSteps({ ...out, container: { ...house, tallyRequired: false } }).find((s) => s.kind === "impRelease")!.state).toBe("next");
   });
 });

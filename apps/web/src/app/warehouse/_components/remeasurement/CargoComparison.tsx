@@ -7,7 +7,7 @@ import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { TERMS } from "../../_lib/glossary";
 import { nf } from "../../gate-log/_lib/gate";
-import { declaredTotals, linesTotals, parseLines, pctText, TOLERANCE, variance, wm, type CargoTotals, type RemeasureLine } from "../../_lib/cargoCompare";
+import { declaredTotals, linesTotals, parseLines, pctText, reweighVariance, TOLERANCE, variance, wm, type CargoTotals, type RemeasureLine } from "../../_lib/cargoCompare";
 import { Card } from "../tabs/shared";
 import { sentHistory } from "./NotesAndSent";
 
@@ -66,7 +66,11 @@ export function CargoComparison({
   const gateVsDeclared = variance(declared, hasAny(gate) ? gate : null);
   const remVsRef = variance(reference, remeasured);
   const remVsGate = variance(hasAny(gate) ? gate : null, remeasured);
-  const anyVariance = gateVsDeclared.any || remVsRef.any;
+  // LCL cargo is re-weighed by the warehouse: the weight row also shows the re-weighed weight,
+  // compared with the same reference and tolerance (recomputed against the live shipment).
+  const reweighed = m?.reweigh ?? null;
+  const reweighVar = reweighVariance(reweighed?.weighedKg, reference?.kg);
+  const anyVariance = gateVsDeclared.any || remVsRef.any || reweighVar.flagged;
 
   const flag = (v: ReturnType<typeof variance>, key: Row["key"]) => (key === "pieces" ? v.pieces : key === "kg" ? v.kg : key === "cbm" ? v.cbm : v.wm);
   const diffText = (a: CargoTotals | null, b: CargoTotals | null, key: Row["key"], digits: number) => {
@@ -114,6 +118,7 @@ export function CargoComparison({
               <th className="text-right px-3 py-2">
                 Remeasured{linesUnsaved ? <span className="ml-1 normal-case font-semibold text-amber-600">(unsaved)</span> : null}
               </th>
+              {(reweighed || m?.needsReweigh) && <th className="text-right px-3 py-2">Re-weighed</th>}
               <th className="text-left px-3 py-2">Variance</th>
             </tr>
           </thead>
@@ -133,12 +138,26 @@ export function CargoComparison({
                   <td className={cell}>{declared ? show(declared) : <span className="text-slate-300">{r.key === "pieces" ? "stand-alone" : "—"}</span>}</td>
                   <td className={`${cell} ${g ? "text-amber-700 font-semibold" : ""}`}>{show(gate)}</td>
                   <td className={`${cell} ${x ? "text-amber-700 font-semibold" : ""}`}>{show(remeasured)}</td>
+                  {(reweighed || m?.needsReweigh) && (
+                    <td className={`${cell} ${r.key === "kg" && reweighVar.flagged ? "text-amber-700 font-semibold" : ""}`}>
+                      {r.key !== "kg" ? (
+                        <span className="text-slate-300">—</span>
+                      ) : reweighed ? (
+                        <Tooltip title={`${formatDateTime(reweighed.weighedAt)}${reweighed.weighedBy ? ` · ${reweighed.weighedBy}` : ""}`}>
+                          <span>{nf(reweighed.weighedKg, r.digits)}</span>
+                        </Tooltip>
+                      ) : (
+                        <span className="text-red-600 text-[11px] font-semibold">not yet</span>
+                      )}
+                    </td>
+                  )}
                   <td className="px-3 py-2">
                     <span className="flex flex-wrap gap-1.5">
+                      {r.key === "kg" && reweighVar.flagged && <VarTag label={`re-weighed ${pctText(reweighVar.pct)}${declared ? "" : " vs gate"}`} />}
                       {g && <VarTag label={`gate ${diffText(declared, gate, r.key, r.digits)}`} />}
                       {x && <VarTag label={`remeasured ${diffText(reference, remeasured, r.key, r.digits)}${declared ? "" : " vs gate"}`} />}
                       {!g && !x && flag(remVsGate, r.key) && <VarTag label={`remeasured vs gate ${diffText(gate, remeasured, r.key, r.digits)}`} />}
-                      {!g && !x && !flag(remVsGate, r.key) && <span className="text-slate-300">—</span>}
+                      {!g && !x && !flag(remVsGate, r.key) && !(r.key === "kg" && reweighVar.flagged) && <span className="text-slate-300">—</span>}
                     </span>
                   </td>
                 </tr>
@@ -165,7 +184,7 @@ export function CargoComparison({
               </Button>
             }
           />
-        ) : hasAny(remeasured) || (declared && hasAny(gate)) ? (
+        ) : hasAny(remeasured) || (declared && hasAny(gate)) || (reweighed && reweighVar.pct != null) ? (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs text-emerald-700">Within tolerance</div>
         ) : null}
 

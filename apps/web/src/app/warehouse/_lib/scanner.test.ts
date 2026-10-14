@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { interfaces } from "@/lib/api/client";
-import { ScanBurst, isEditable, matchScanned, scanCandidates, scanHref, type BurstStep } from "./scanner";
+import { ScanBurst, containerHref, isEditable, matchScanned, scanCandidates, scanHref, scannedContainer, type BurstStep } from "./scanner";
 
 // Feeds `text` then the terminator, `gap` ms apart; returns each step.
 function type(burst: ScanBurst, text: string, gap: number, { start = 1000, end = "Enter" } = {}): BurstStep[] {
@@ -130,5 +130,20 @@ describe("isEditable", () => {
   it("links to the gate job or the floor screen", () => {
     expect(scanHref("gate", "x")).toBe("/warehouse/gate-log/x");
     expect(scanHref("floor", "x")).toBe("/warehouse/floor/x");
+  });
+});
+
+describe("scannedContainer", () => {
+  const mv = (over: Partial<interfaces.GateMovementItem>) =>
+    ({ id: "m", gateRef: "", positionRef: "", jobNumber: "", containerNumber: "", plate: "", containers: [], transportLegs: [], container: null, ...over }) as interfaces.GateMovementItem;
+  const box = { id: "c1", number: "MSKU1234565" } as NonNullable<interfaces.GateMovementItem["container"]>;
+  it("opens the container of a scanned container number (floor mode), even with one house", () => {
+    expect(scannedContainer("msku 123456 5", [mv({ id: "a", container: box })])).toEqual({ id: "c1", number: "MSKU1234565" });
+    expect(containerHref("floor", "c1")).toBe("/warehouse/floor/container/c1");
+    expect(containerHref("gate", "c1")).toBe("/warehouse/containers/c1");
+  });
+  it("lets a position's own ref win", () => {
+    expect(scannedContainer("WCZ2026000123", [mv({ positionRef: "WCZ2026000123", container: box })])).toBeNull();
+    expect(scannedContainer("TGHU0000000", [mv({ container: box })])).toBeNull();
   });
 });

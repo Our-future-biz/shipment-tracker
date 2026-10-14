@@ -10,6 +10,7 @@ import * as warehouseStockSchema from "../schemas/warehouseStock.schema";
 import * as warehouseRefCounterSchema from "../schemas/warehouseRefCounter.schema";
 import * as shipmentOutboxSchema from "../schemas/shipmentOutbox.schema";
 import * as warehouseExceptionSchema from "../schemas/warehouseException.schema";
+import * as warehouseReweighSchema from "../schemas/warehouseReweigh.schema";
 
 const { Pool } = pg;
 
@@ -32,5 +33,6 @@ export const db = drizzle(pool, {
     ...warehouseRefCounterSchema,
     ...shipmentOutboxSchema,
     ...warehouseExceptionSchema,
+    ...warehouseReweighSchema,
   },
 });

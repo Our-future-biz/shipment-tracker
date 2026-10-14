@@ -4,13 +4,14 @@ import { pragueDate } from "../../_lib/worklist";
 // The gate job's History tab: every logged event of the movement, by kind of event. Pure helpers
 // (tested in history.test.ts).
 
-export type HistoryCategory = "stamps" | "voids" | "release" | "exceptions" | "shipment" | "records";
+export type HistoryCategory = "stamps" | "voids" | "release" | "exceptions" | "cargo" | "shipment" | "records";
 
 export const HISTORY_CATEGORIES: { id: HistoryCategory; label: string }[] = [
   { id: "stamps", label: "Stamps" },
   { id: "voids", label: "Voids" },
   { id: "release", label: "Release & PIN" },
   { id: "exceptions", label: "Exceptions" },
+  { id: "cargo", label: "Container & re-weigh" },
   { id: "shipment", label: "Shipment updates" },
   { id: "records", label: "Record & details" },
 ];
@@ -38,6 +39,19 @@ const BY_KIND: Record<string, HistoryCategory> = {
   releaseStatusCleared: "release",
   exceptionOpened: "exceptions",
   exceptionResolved: "exceptions",
+  // One container, many positions: the stuffing plan, the stripping tally and the re-weigh.
+  reweighed: "cargo",
+  addedToContainer: "cargo",
+  removedFromContainer: "cargo",
+  stuffed: "cargo",
+  unstuffed: "cargo",
+  leftInContainer: "cargo",
+  leftInContainerVoided: "voids",
+  notLoaded: "cargo",
+  tallyReceived: "cargo",
+  tallyShort: "cargo",
+  tallyNotArrived: "cargo",
+  tallyVoided: "voids",
   shipmentUpdated: "shipment",
   shipmentUpdateFailed: "shipment",
   shipmentUpdateRetry: "shipment",

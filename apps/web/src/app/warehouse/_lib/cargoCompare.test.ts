@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { declaredTotals, EMPTY_LINE, lineInvalid, linesTotals, parseLines, pctText, serializeLines, toNum, variance, wm } from "./cargoCompare";
+import { declaredTotals, EMPTY_LINE, lineInvalid, linesTotals, parseLines, pctText, reweighVariance, serializeLines, toNum, variance, wm } from "./cargoCompare";
 
 const line = (pieces: string, l: string, w: string, h: string, kg: string) => ({ pieces, lengthCm: l, widthCm: w, heightCm: h, weightPerPcKg: kg });
 
@@ -64,5 +64,19 @@ describe("W/M and variance", () => {
   it("does not compare unknown figures", () => {
     expect(variance({ pieces: 0, kg: 0, cbm: 0 }, { pieces: 4, kg: 10, cbm: 1 }).any).toBe(false);
     expect(variance(null, { pieces: 4, kg: 10, cbm: 1 }).any).toBe(false);
+  });
+});
+
+describe("re-weigh against the declared weight", () => {
+  it("flags more than 5 % either way, like the remeasurement", () => {
+    expect(reweighVariance(1050, 1000)).toEqual({ pct: 0.05, flagged: false });
+    expect(reweighVariance(1062, 1000)).toEqual({ pct: 0.062, flagged: true });
+    expect(reweighVariance(940, 1000)).toEqual({ pct: -0.06, flagged: true });
+    expect(pctText(reweighVariance(1062, 1000).pct)).toBe("+6.2 %");
+  });
+  it("does not compare when either side is unknown", () => {
+    expect(reweighVariance(1000, null)).toEqual({ pct: null, flagged: false });
+    expect(reweighVariance(null, 1000)).toEqual({ pct: null, flagged: false });
+    expect(reweighVariance(1000, 0)).toEqual({ pct: null, flagged: false });
   });
 });

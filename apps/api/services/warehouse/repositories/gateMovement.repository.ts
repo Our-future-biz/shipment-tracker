@@ -14,11 +14,16 @@ const liveRow = (companyId: string) =>
 const archivedRow = (companyId: string) =>
   and(eq(gateMovementTable.companyId, companyId), isNotNull(gateMovementTable.deletedAt));
 
-/** The record has at least one gate stamp (gate-in, gate-out, WH release, draft receipt or receipt). */
+/**
+ * The record has at least one gate stamp (gate-in, gate-out, WH release, draft receipt or receipt),
+ * or was received at a stripping tally, or left in a container — evidence a manager archives.
+ */
 export const hasStampSql = sql`(${gateMovementTable.gateIn} IS NOT NULL OR ${gateMovementTable.gateOut} IS NOT NULL
-  OR ${gateMovementTable.impRelease} IS NOT NULL OR ${gateMovementTable.expDraft} IS NOT NULL OR ${gateMovementTable.expReceipt} IS NOT NULL)`;
-export const hasStamp = (m: Pick<GateMovementRecord, "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt">) =>
-  !!(m.gateIn || m.gateOut || m.impRelease || m.expDraft || m.expReceipt);
+  OR ${gateMovementTable.impRelease} IS NOT NULL OR ${gateMovementTable.expDraft} IS NOT NULL OR ${gateMovementTable.expReceipt} IS NOT NULL
+  OR ${gateMovementTable.receivedAt} IS NOT NULL OR ${gateMovementTable.leftAt} IS NOT NULL)`;
+export const hasStamp = (
+  m: Pick<GateMovementRecord, "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt"> & Partial<Pick<GateMovementRecord, "receivedAt" | "leftAt">>,
+) => !!(m.gateIn || m.gateOut || m.impRelease || m.expDraft || m.expReceipt || m.receivedAt || m.leftAt);
 
 const toRow = (r: { movement: GateMovementRecord; positionRef: string | null; shipmentId: string | null }): GateMovementRow => ({
   ...r.movement,
@@ -68,6 +73,27 @@ class GateMovementRepository {
     return row ? toRow(row) : null;
   }
 
+  // Live or archived records by id (the houses of a container).
+  async findByIdsAny(ids: string[], companyId: string): Promise<GateMovementRow[]> {
+    if (!ids.length) return [];
+    const rows = await this.selectAny().where(and(inArray(gateMovementTable.id, ids), eq(gateMovementTable.companyId, companyId)));
+    return rows.map(toRow);
+  }
+
+  // Live records locked until the transaction ends, in id order (after their container's lock,
+  // so a container action and a gate stamp never deadlock).
+  async lockLive(tx: Tx, ids: string[], companyId: string): Promise<GateMovementRow[]> {
+    if (!ids.length) return [];
+    const rows = await tx
+      .select({ movement: gateMovementTable, positionRef: warehouseTaskTable.taskId, shipmentId: warehouseTaskTable.shipmentId })
+      .from(gateMovementTable)
+      .leftJoin(warehouseTaskTable, and(eq(warehouseTaskTable.id, gateMovementTable.warehouseTaskId), isNull(warehouseTaskTable.deletedAt)))
+      .where(and(inArray(gateMovementTable.id, ids), liveRow(companyId)))
+      .orderBy(gateMovementTable.id)
+      .for("update", { of: gateMovementTable });
+    return rows.map(toRow);
+  }
+
   async findTask(taskId: string, companyId: string) {
     const [row] = await db
       .select()
@@ -112,12 +138,13 @@ class GateMovementRepository {
 
   // Live gate rows of a task, locked until the transaction ends (so no stamp lands between a
   // check of their stamps and their archiving).
-  async liveForTaskLocked(tx: Tx, taskId: string, companyId: string) {
-    return tx
+  // (`lock` false: read only, for what must be locked before them.)
+  async liveForTaskLocked(tx: Tx, taskId: string, companyId: string, lock = true) {
+    const q = tx
       .select()
       .from(gateMovementTable)
-      .where(and(liveRow(companyId), eq(gateMovementTable.warehouseTaskId, taskId)))
-      .for("update");
+      .where(and(liveRow(companyId), eq(gateMovementTable.warehouseTaskId, taskId)));
+    return lock ? q.for("update") : q;
   }
 
   // Archives (soft-deletes) a record, recording who and why and logging `event`, only while

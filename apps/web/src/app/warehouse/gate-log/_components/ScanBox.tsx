@@ -9,7 +9,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import type { GateMovement } from "@/hooks/useGateLog";
-import { ScanBurst, matchScanned, scanHref, type ScanTarget } from "@/app/warehouse/_lib/scanner";
+import { ScanBurst, containerHref, matchScanned, scanHref, scannedContainer, type ScanTarget } from "@/app/warehouse/_lib/scanner";
 import { dialogOpen } from "@/app/warehouse/_lib/useWedgeScanner";
 import { errorMessage } from "../_lib/gate";
 import { btnInline } from "./job/fields";
@@ -82,6 +82,12 @@ export function ScanBox({
   const go = () => {
     const q = value.trim();
     if (!q) return;
+    // Floor mode: a container number opens the container's tally / stuffing list.
+    const container = target === "floor" ? scannedContainer(q, movements) : null;
+    if (container) {
+      router.push(containerHref(target, container.id));
+      return;
+    }
     const { value: used, result: r } = matchScanned(q, movements);
     if (r.kind === "open") {
       setResult({ q: used, matches: [r.movement] });

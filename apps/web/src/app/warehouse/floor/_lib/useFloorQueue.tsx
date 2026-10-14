@@ -6,8 +6,10 @@ import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useGateRowCache, type GateMovement } from "@/hooks/useGateLog";
+import { containerKey, type WarehouseContainer } from "@/hooks/useWarehouseRecords";
 import {
   classifyError,
+  containerChain,
   enqueue,
   itemStatus,
   mergeStored,
@@ -17,6 +19,7 @@ import {
   resolvePhotoIds,
   resumeAfterReload,
   retryItem,
+  sameChain,
   uuid,
   type ItemStatus,
   type QueueItem,
@@ -27,20 +30,42 @@ import { blobBase64 } from "./photo";
 
 // Sends floor mode's writes: straight away when the phone is online, into the queue when it is
 // not (or the call fails for want of a connection), and the queue in order once it is back.
-// Only stamps that may wait (QUEUEABLE_STAMPS), survey saves, exceptions and photos come here;
-// the PIN check, the WH release and the other server decisions are called directly and need a
-// connection.
+// Only stamps that may wait (QUEUEABLE_STAMPS), survey saves, exceptions, photos, re-weighs and a
+// container's tally ticks, stuffed marks and gate-in / start of stripping come here; the PIN
+// check, the WH release, a container's close and gate-out and the other server decisions are
+// called directly and need a connection.
 
 const CALL_TIMEOUT_MS = 20_000;
 const PHOTO_TIMEOUT_MS = 90_000;
 const RETRY_EVERY_MS = 30_000;
 
+/** A house of a container (or the container itself): the position it is for and its ref. */
+export type FloorHouse = { movementId: string; ref: string };
+
+type Payload<K extends QueueItem["kind"]> = Extract<QueueItem, { kind: K }>["payload"];
+
 /** A write as the screen hands it over; who, when and its id are added here. */
 export type FloorWrite =
-  | { kind: "stamp"; movement: GateMovement; label: string; payload: Extract<QueueItem, { kind: "stamp" }>["payload"] }
-  | { kind: "survey"; movement: GateMovement; label: string; payload: Extract<QueueItem, { kind: "survey" }>["payload"] }
-  | { kind: "exception"; movement: GateMovement; label: string; payload: Extract<QueueItem, { kind: "exception" }>["payload"] }
-  | { kind: "photo"; movement: GateMovement; label: string; payload: Extract<QueueItem, { kind: "photo" }>["payload"]; blob: Blob };
+  | { kind: "stamp"; movement: GateMovement; label: string; payload: Payload<"stamp"> }
+  | { kind: "survey"; movement: GateMovement; label: string; payload: Payload<"survey"> }
+  | { kind: "exception"; movement: GateMovement; label: string; payload: Payload<"exception"> }
+  | { kind: "photo"; movement: GateMovement | FloorHouse; label: string; payload: Payload<"photo">; blob: Blob }
+  | { kind: "reweigh"; movement: GateMovement | FloorHouse; label: string; payload: Payload<"reweigh"> }
+  | { kind: "tally"; movement: FloorHouse; label: string; payload: Payload<"tally"> }
+  | { kind: "stuffed"; movement: FloorHouse; label: string; payload: Payload<"stuffed"> }
+  /** A container's own stamp: `movement` is ignored (the container is its key). */
+  | { kind: "containerStamp"; movement?: undefined; label: string; payload: Payload<"containerStamp"> };
+
+const targetOf = (w: FloorWrite): { movementId: string; ref: string; containerId?: string } => {
+  if (w.kind === "containerStamp") return { movementId: containerChain(w.payload.containerId), ref: w.payload.containerNumber, containerId: w.payload.containerId };
+  const m = w.movement;
+  const t = "id" in m ? { movementId: m.id, ref: m.positionRef || m.gateRef } : { movementId: m.movementId, ref: m.ref };
+  if (w.kind === "tally" || w.kind === "stuffed") return { ...t, containerId: w.payload.containerId };
+  // A re-weigh of a house in an import container waits for that container's gate-in (same chain):
+  // the server takes it only after the container has arrived.
+  if (w.kind === "reweigh" && "id" in m && m.container?.kind === "import") return { ...t, containerId: m.container.id };
+  return t;
+};
 
 export type SubmitResult =
   | { type: "sent"; outcome: string; notice: string; fileId?: string }
@@ -86,6 +111,16 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
   }, [toast]);
   const queryClient = useQueryClient();
   const writeRow = useGateRowCache();
+  // A container action answers with the container: write it to the cache and read the gate log
+  // again (its houses' lifecycles changed).
+  const writeContainer = useCallback(
+    (c: WarehouseContainer) => {
+      queryClient.setQueryData(containerKey(c.id), c);
+      void queryClient.invalidateQueries({ queryKey: ["warehouse-records", "containers"], exact: true });
+      void queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+    },
+    [queryClient],
+  );
   const [items, setItems] = useState<QueueItem[]>([]);
   const itemsRef = useRef<QueueItem[]>([]);
   const photoIds = useRef<Record<string, string>>({});
@@ -223,12 +258,49 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
             queryClient.invalidateQueries({ queryKey: ["warehouse-gate", item.movementId, "files"] });
             return { type: "done", outcome: "uploaded", fileId: res.file.id };
           }
+          case "reweigh": {
+            const files = resolvePhotoIds(item.payload.reweigh.fileIds, photoIds.current, itemsRef.current);
+            if (files.pending.length) return { type: "deferred", error: "Waiting for its photos to be sent" };
+            const res = await withTimeout(
+              api.warehouse.gateMovementReweigh(item.movementId, {
+                reweigh: { weighedKg: item.payload.reweigh.weighedKg, note: item.payload.reweigh.note, fileIds: files.ids, clientRequestId: item.id, recordedAt },
+              }),
+              CALL_TIMEOUT_MS,
+            );
+            writeRow(res.movement);
+            void queryClient.invalidateQueries({ queryKey: ["warehouse-records", "containers"] });
+            return { type: "done", outcome: res.outcome, notice: res.notice };
+          }
+          case "tally": {
+            const res = await withTimeout(
+              api.warehouse.warehouseContainerTally(item.payload.containerId, item.movementId, { tally: item.payload.tally, clientRequestId: item.id, recordedAt }),
+              CALL_TIMEOUT_MS,
+            );
+            writeContainer(res.container);
+            return { type: "done", outcome: res.outcome, notice: res.notice };
+          }
+          case "stuffed": {
+            const res = await withTimeout(
+              api.warehouse.warehouseContainerSetStuffed(item.payload.containerId, item.movementId, { stuffed: item.payload.stuffed, clientRequestId: item.id, recordedAt }),
+              CALL_TIMEOUT_MS,
+            );
+            writeContainer(res.container);
+            return { type: "done", outcome: res.outcome, notice: res.notice };
+          }
+          case "containerStamp": {
+            const res = await withTimeout(
+              api.warehouse.warehouseContainerStamp(item.payload.containerId, { kind: item.payload.kind, clientRequestId: item.id, recordedAt }),
+              CALL_TIMEOUT_MS,
+            );
+            writeContainer(res.container);
+            return { type: "done", outcome: res.outcome, notice: res.notice };
+          }
         }
       } catch (e) {
         return classifyError(e);
       }
     },
-    [queryClient, writeRow],
+    [queryClient, writeRow, writeContainer],
   );
 
   const flushNow = useCallback(async (holdsLock: boolean) => {
@@ -309,12 +381,14 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
     async (w: FloorWrite): Promise<SubmitResult> => {
       if (!user) return { type: "refused", error: "Sign in first" };
       const at = new Date().toISOString();
+      const target = targetOf(w);
       const item = {
         id: uuid(),
         userId: user.id,
         userName: user.displayName || user.email,
-        movementId: w.movement.id,
-        ref: w.movement.positionRef || w.movement.gateRef,
+        movementId: target.movementId,
+        ...(target.containerId ? { containerId: target.containerId } : {}),
+        ref: target.ref,
         label: w.label,
         recordedAt: at,
         createdAt: at,
@@ -325,7 +399,7 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
       } as QueueItem;
       // Straight away when online and nothing of this position waits before it (the order of a
       // position's writes is kept).
-      const behind = itemsRef.current.some((i) => i.movementId === item.movementId);
+      const behind = itemsRef.current.some((i) => sameChain(i, item));
       if (navigator.onLine && !netDown && !behind) {
         const result = await send(item, true, w.kind === "photo" ? w.blob : undefined);
         sawResult(result);

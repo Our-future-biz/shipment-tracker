@@ -141,15 +141,19 @@ export interface GateShipmentUpdateState {
 
 /**
  * The storage clock of a movement — the warehouse's one free-time calculation. Starts at the
- * receipt (inbound: the gate-in; outbound: the "Received in warehouse" date), stops at the WH
- * release or gate-out; calendar days in Prague time, the arrival day is day 1. CZK 22 per W/M per
- * day, at least CZK 120, after the free days.
+ * receipt (inbound: the gate-in; outbound: the stripping tally tick, else the "Received in
+ * warehouse" date), stops at the WH release (inbound stuffed in a container: that container's
+ * gate-out; outbound: also the gate-out); calendar days in Prague time, the arrival day is day 1.
+ * CZK 22 per W/M per day, at least CZK 120, after the free days.
  */
 export interface GateStorageInfo {
   started: boolean;
   /** YYYY-MM-DD (Prague); "" when not started. */
   startDate: string;
-  /** What started the clock: "gateIn" (inbound), "loadInDate" (outbound), "" (not started). */
+  /**
+   * What started the clock: "gateIn" (inbound), "tally" (outbound, ticked received at the
+   * stripping tally), "loadInDate" (outbound without a tally), "" (not started).
+   */
   startSource: string;
   stopped: boolean;
   /** YYYY-MM-DD (Prague) of the WH release / gate-out; "" while the cargo is in the warehouse. */
@@ -200,7 +204,7 @@ export interface GateExceptionInput {
   note?: string;
   container?: string;
   surveyPhase?: string;
-  /** survey | manual (default) */
+  /** survey | tally (found at the stripping tally) | manual (default) */
   source?: string;
   /** Photos of this movement to attach (gate file ids, at most 20). */
   fileIds?: string[];
@@ -228,6 +232,93 @@ export interface GateDockSlot {
   /** ISO; null on old slots whose date / time could not be read. */
   startsAt: string | null;
   endsAt: string | null;
+}
+
+/** One re-weighing of the position (LCL cargo is re-weighed on receipt; the latest counts). */
+export interface GateReweighItem {
+  id: string;
+  movementId: string;
+  weighedKg: number;
+  /** The declared gross weight it was compared with; null when none was known. */
+  declaredKg: number | null;
+  /** shipment (its total weight) | gate (the gate figures) | "" */
+  declaredSource: string;
+  /** Weighed against declared, e.g. 0.046 = 4.6 % heavier; null when not compared. */
+  variancePct: number | null;
+  /** More than 5 % off the declared weight. */
+  flagged: boolean;
+  weighedBy: string;
+  weighedAt: string;
+  /** Scale photos (gate file ids). */
+  fileIds: string[];
+  note: string;
+  createdAt: string;
+}
+
+/** A re-weighing as the gate (or a phone) records it; who is the caller. */
+export interface GateReweighInput {
+  /** Weighed gross weight in kg (more than 0, at most 100 000). */
+  weighedKg: number;
+  note?: string;
+  /** Scale photos of this movement (gate file ids, at most 20). */
+  fileIds?: string[];
+  /** Floor mode: id the phone gave this weighing; the same id sent again adds nothing. */
+  clientRequestId?: string;
+  /** Floor mode: when it was weighed on the phone (ISO), if it was sent later (offline). */
+  recordedAt?: string;
+}
+
+/** One step of the position's lifecycle. */
+export interface GateLifecycleStep {
+  /** expected | arrived | received | in_warehouse | stuffed | ready | left */
+  stage: string;
+  label: string;
+  /** ISO time, or a YYYY-MM-DD day (a received date typed by hand); null when not reached. */
+  at: string | null;
+  done: boolean;
+}
+
+/**
+ * The position's in-and-out lifecycle, derived from its stamps, the stripping tally and the
+ * stuffing (never stored). Inbound: Expected → Arrived → Received → In warehouse → (Stuffed) →
+ * Left. Outbound: Expected → Arrived → Received → In warehouse → Ready for release → Left.
+ */
+export interface GatePositionLifecycle {
+  stage: string;
+  label: string;
+  at: string | null;
+  /** The movement is refused (shown next to the stage). */
+  refused: boolean;
+  steps: GateLifecycleStep[];
+}
+
+/** The container the position is a house of, with the house's state in it. */
+export interface GatePositionContainer {
+  id: string;
+  number: string;
+  equipment: string;
+  /** Unloading (import, stripped) | Loading (export, stuffed) */
+  direction: string;
+  /** import | export */
+  kind: string;
+  /** Expected · Arrived · Stripping · Stripped · Planning · Stuffing · Closed · Gone out */
+  status: string;
+  seal: string;
+  gateInAt: string | null;
+  gateOutAt: string | null;
+  stuffedAt: string | null;
+  stuffedBy: string;
+  /** "" (not tallied) | received | short | not_arrived */
+  tallyOutcome: string;
+  tallyPieces: number | null;
+  tickedAt: string | null;
+  tickedBy: string;
+  /**
+   * Import: the house is received by its tick-off at the stripping tally (its WH release waits
+   * for it). False for an old one-position container linked by migration 0017, which keeps the
+   * "Received in warehouse" date typed by hand; false for export containers.
+   */
+  tallyRequired: boolean;
 }
 
 export interface GateMovementItem {
@@ -329,6 +420,21 @@ export interface GateMovementItem {
   openExceptions: number;
   /** Dock slots booked for this movement (not cancelled), earliest first. */
   dockSlots: GateDockSlot[];
+  /** Outbound: when the house was ticked received at the stripping tally; null otherwise. */
+  receivedAt: string | null;
+  /** Inbound: when it left stuffed in a container (that container's gate-out); null otherwise. */
+  leftAt: string | null;
+  leftContainerId: string | null;
+  /** Where the position is in its in-and-out lifecycle. */
+  lifecycle: GatePositionLifecycle;
+  /** The container the position is a house of; null when none. */
+  container: GatePositionContainer | null;
+  /** LCL cargo: re-weighed before the receipt (export) or the tally tick (import). */
+  needsReweigh: boolean;
+  /** The re-weighing that counts (the latest); null when none. */
+  reweigh: GateReweighItem | null;
+  /** Every re-weighing, latest first. */
+  reweighs: GateReweighItem[];
   createdAt: string;
   updatedAt: string;
 }

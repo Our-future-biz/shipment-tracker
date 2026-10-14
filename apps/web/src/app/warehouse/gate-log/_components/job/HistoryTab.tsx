@@ -21,6 +21,7 @@ const CATEGORY_TONE: Record<HistoryCategory, Tone> = {
   voids: "r",
   release: "i",
   exceptions: "a",
+  cargo: "g",
   shipment: "",
   records: "",
 };

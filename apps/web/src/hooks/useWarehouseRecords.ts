@@ -158,3 +158,82 @@ export const useStockMovements = () => {
   });
   return { items: query.data ?? [], isLoading: query.isLoading, record: record.mutateAsync, isSaving: record.isPending };
 };
+
+// ---------- One container, many positions (houses) ----------
+
+export type ContainerHouse = interfaces.WarehouseContainerHouse;
+export type ContainerStampKind = interfaces.ContainerStampKind;
+export type ContainerTallyInput = interfaces.ContainerTallyInput;
+
+const CONTAINERS_KEY = ["warehouse-records", "containers"];
+export const containerKey = (id: string) => [...CONTAINERS_KEY, id];
+
+/**
+ * One container with its houses: the stuffing plan (export) or the stripping tally (import), its
+ * stamps and its log. Every action answers with the container as it is now (written into the
+ * cache); the containers list, the report figures and the gate log are read again, since the
+ * houses' lifecycles change with it.
+ */
+export const useWarehouseContainer = (id: string | undefined) => {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: containerKey(id ?? ""),
+    queryFn: async () => (await w.warehouseContainerGet(id!)).container,
+    enabled: !!id,
+  });
+  const onContainer = (c: WarehouseContainer) => {
+    queryClient.setQueryData(containerKey(c.id), c);
+    queryClient.invalidateQueries({ queryKey: CONTAINERS_KEY, exact: true });
+    queryClient.invalidateQueries({ queryKey: ["warehouse-records", "report-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+  };
+  const withContainer = <R extends { container: WarehouseContainer }>(res: R) => {
+    onContainer(res.container);
+    return res;
+  };
+
+  const addPositions = useMutation({
+    mutationFn: (movementIds: string[]) => w.warehouseContainerAddPositions(id!, { movementIds }).then(withContainer),
+  });
+  const removePosition = useMutation({
+    mutationFn: (movementId: string) => w.warehouseContainerRemovePosition(id!, movementId).then(withContainer),
+  });
+  const reorder = useMutation({
+    mutationFn: (movementIds: string[]) => w.warehouseContainerReorder(id!, { movementIds }).then(withContainer),
+  });
+  const stamp = useMutation({
+    mutationFn: (input: { kind: ContainerStampKind; seal?: string; plate?: string }) => w.warehouseContainerStamp(id!, input).then(withContainer),
+  });
+  const setStuffed = useMutation({
+    mutationFn: ({ movementId, stuffed }: { movementId: string; stuffed: boolean }) => w.warehouseContainerSetStuffed(id!, movementId, { stuffed }).then(withContainer),
+  });
+  const tally = useMutation({
+    mutationFn: ({ movementId, tally }: { movementId: string; tally: ContainerTallyInput }) => w.warehouseContainerTally(id!, movementId, { tally }).then(withContainer),
+  });
+  const voidTally = useMutation({
+    mutationFn: ({ movementId, reason }: { movementId: string; reason: string }) => w.warehouseContainerVoidTally(id!, movementId, { reason }).then(withContainer),
+  });
+  const voidStamp = useMutation({
+    mutationFn: ({ kind, reason }: { kind: ContainerStampKind; reason: string }) => w.warehouseContainerVoidStamp(id!, { kind, reason }).then(withContainer),
+  });
+  const update = useMutation({
+    mutationFn: (input: interfaces.WarehouseContainerInput) => w.warehouseContainerUpdate(id!, input).then(withContainer),
+  });
+
+  return {
+    container: query.data,
+    isLoading: query.isLoading,
+    error: query.error,
+    /** Writes a container the server returned (floor mode's queue) into the cache. */
+    onContainer,
+    addPositions,
+    removePosition,
+    reorder,
+    stamp,
+    setStuffed,
+    tally,
+    voidTally,
+    voidStamp,
+    update,
+  };
+};

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { GateMovement } from "@/hooks/useGateLog";
-import { ScanBurst, isEditable, matchScanned, scanHref, type ScanTarget } from "./scanner";
+import { ScanBurst, containerHref, isEditable, matchScanned, scanHref, scannedContainer, type ScanTarget } from "./scanner";
 import type { ScanResult } from "./worklist";
 
 /** A dialog (antd modal, drawer, confirm) is open and showing. */
@@ -63,6 +63,12 @@ export function useScanOpen(target: ScanTarget) {
             queryFn: () => api.warehouse.gateMovementList({}),
           })
         ).movements;
+      // Floor mode: a container number opens the container's tally / stuffing list.
+      const container = target === "floor" ? scannedContainer(raw, list) : null;
+      if (container) {
+        router.push(containerHref(target, container.id));
+        return { value: container.number, result: { kind: "open", movement: list.find((m) => m.container?.id === container.id)! } };
+      }
       const found = matchScanned(raw, list);
       if (found.result.kind === "open") router.push(scanHref(target, found.result.movement.id));
       return found;

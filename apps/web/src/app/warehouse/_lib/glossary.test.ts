@@ -49,3 +49,26 @@ describe("glossary", () => {
     expect(GLOSSARY.find((g) => g.term === TERMS.dockSlot)?.meaning).toMatch(/cannot be booked twice/);
   });
 });
+
+describe("containers, the tally, stuffing and the re-weigh", () => {
+  const meaning = (term: string) => GLOSSARY.find((g) => g.term === term)?.meaning ?? "";
+  it("explains the re-weigh as the warehouse means VGM", () => {
+    expect(TERMS.reweigh).toBe("Re-weigh (VGM)");
+    expect(meaning(TERMS.reweigh)).toMatch(/every LCL shipment/);
+    expect(meaning(TERMS.reweigh)).toMatch(/more than 5 % off/);
+    expect(meaning(TERMS.reweigh)).toMatch(/latest counts/);
+  });
+  it("explains the tick-off as the receipt and the stuffed container's gate-out as the release", () => {
+    expect(meaning(TERMS.tickOff)).toMatch(/free time starts/);
+    expect(meaning(TERMS.tickOff)).toMatch(/WCZ reference/);
+    expect(meaning(`${TERMS.containerGateIn} / ${TERMS.containerGateOut}`)).toMatch(/storage clock stops/);
+    expect(meaning(`${TERMS.stuffed} / ${TERMS.closeContainer}`)).toMatch(/seal number/);
+    expect(meaning(TERMS.stuffingPlan)).toMatch(/capacity/);
+    expect(meaning(TERMS.lifecycle)).toMatch(/Expected → Arrived/);
+  });
+  it("says where the storage clock starts and stops with containers", () => {
+    const free = meaning("Free time / storage");
+    expect(free).toMatch(/tick-off at the stripping tally/);
+    expect(free).toMatch(/gate-out of the export container/);
+  });
+});

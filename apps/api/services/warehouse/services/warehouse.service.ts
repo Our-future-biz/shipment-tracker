@@ -5,6 +5,8 @@ import { warehouseSectionRepository } from "../repositories/warehouseSection.rep
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import { MAX_PICKUP_ROWS, PICKUP_SECTION, pickupRowsFromInput } from "./pickupPin";
 import { userName } from "./users";
+import { reweighRepository } from "../repositories/reweigh.repository";
+import { kgText, needsReweigh } from "./reweigh";
 import type { WarehouseSectionRecord } from "../schemas/warehouseSection.schema";
 import type { WarehouseSectionItem, WarehouseSectionSummaryItem } from "../interfaces/interfaces";
 
@@ -211,8 +213,25 @@ class WarehouseService {
     const by = await userName(userId);
     const at = new Date().toISOString();
     const key = `${what}_sent`;
+    // VGM sent: the weight sent is the warehouse's re-weighing (the latest of the position's live
+    // gate record), recorded with the send. An LCL position not re-weighed yet is sent without one
+    // and the log says so.
+    const weighed: Record<string, string> = {};
+    let vgmNote = "";
+    if (what === "vgm") {
+      const movementId = await gateMovementRepository.liveIdForTask(task.id);
+      const m = movementId ? await gateMovementRepository.findById(movementId, companyId) : null;
+      const rw = m ? await reweighRepository.latestForMovement(m.id, companyId) : null;
+      if (rw) {
+        weighed.weighedKg = String(rw.weighedKg);
+        weighed.weighedAt = rw.weighedAt.toISOString();
+        vgmNote = `re-weighed ${kgText(rw.weighedKg)}`;
+      } else if (m && needsReweigh(m)) {
+        vgmNote = "not re-weighed yet";
+      }
+    }
     // Operations informed keeps the plain time Shipments shows; the others keep time and note.
-    const value = what === "inform_operations" ? at : JSON.stringify({ timestamp: at, note: text, by });
+    const value = what === "inform_operations" ? at : JSON.stringify({ timestamp: at, note: text, by, ...weighed });
     const label = FIELD_LABELS[key] ?? key;
     return warehouseSectionRepository.markSent(
       { kind: "task", taskId: task.id, shipmentId: task.shipmentId },
@@ -220,12 +239,12 @@ class WarehouseService {
       companyId,
       key,
       value,
-      { at, note: text, by },
+      { at, note: text, by, ...weighed },
       (tx) =>
         gateMovementRepository.appendEventsForTask(
           task.id,
           companyId,
-          [{ kind: "sectionSent", label: `Shipment Details: ${label}`, at, by, ...(text ? { detail: text } : {}) }],
+          [{ kind: "sectionSent", label: `Shipment Details: ${label}${vgmNote ? ` (${vgmNote})` : ""}`, at, by, ...(text ? { detail: text } : {}) }],
           tx,
         ),
     );

@@ -1,4 +1,4 @@
-import { normalizeScan, scanMatch, type ScanResult } from "./worklist";
+import { containerScanMatch, normalizeScan, scanMatch, type ScanResult } from "./worklist";
 
 // Handheld scanners in "keyboard wedge" mode type the barcode / QR value as very fast key
 // presses and finish with Enter (or Tab). People type with 100–250 ms between keys; scanners send
@@ -137,3 +137,19 @@ export function isEditable(el: ElementLike): boolean {
 /** Where a scan opens a movement: its gate job, or its floor mode screen. */
 export type ScanTarget = "gate" | "floor";
 export const scanHref = (target: ScanTarget, id: string) => (target === "floor" ? `/warehouse/floor/${id}` : `/warehouse/gate-log/${id}`);
+/** Where a scanned container number opens: its tally / stuffing list on the phone, or its page on the desk. */
+export const containerHref = (target: ScanTarget, id: string) => (target === "floor" ? `/warehouse/floor/container/${id}` : `/warehouse/containers/${id}`);
+
+/**
+ * A scanned value that is a container number (of a container with houses) and not a position's
+ * own ref: that container. Positions keep winning on their ref; a container number that a single
+ * position carries opens the container, not that position.
+ */
+export function scannedContainer(raw: string, movements: (Matchable & Parameters<typeof containerScanMatch>[1][number])[]): { id: string; number: string } | null {
+  for (const value of scanCandidates(raw)) {
+    if (movements.some((m) => normalizeScan(m.positionRef) === value || normalizeScan(m.gateRef) === value)) return null;
+    const c = containerScanMatch(value, movements);
+    if (c) return c;
+  }
+  return null;
+}

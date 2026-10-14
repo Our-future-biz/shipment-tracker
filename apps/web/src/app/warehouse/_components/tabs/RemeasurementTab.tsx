@@ -150,7 +150,7 @@ function PositionPart({ task, onBack }: { task: interfaces.WarehouseTaskItem; on
       />
 
       <RemeasureLines draft={draft} />
-      <NotesAndSent draft={draft} data={section.data} onMark={setMarkWhat} />
+      <NotesAndSent draft={draft} data={section.data} onMark={setMarkWhat} m={m} />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
         <ExceptionsBlock m={m} />
@@ -158,7 +158,7 @@ function PositionPart({ task, onBack }: { task: interfaces.WarehouseTaskItem; on
       </div>
 
       <SaveBar count={draft.count} saving={section.isSaving} blocked={blocked} onSave={save} onDiscard={draft.discard} />
-      <MarkSentModal what={markWhat} saving={section.isMarking} onClose={() => setMarkWhat(null)} onSubmit={mark} />
+      <MarkSentModal what={markWhat} saving={section.isMarking} onClose={() => setMarkWhat(null)} onSubmit={mark} m={m} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { interfaces } from "@/lib/api/client";
-import { chipMatch, dockSlotText, exceptionText, expectedBecause, expectedSortKey, isExpectedToday, normalizeScan, pragueDate, pragueToday, scanMatch } from "./worklist";
+import { chipMatch, containerScanMatch, dockSlotText, exceptionText, isOnHold, releasedOn, expectedBecause, expectedSortKey, isExpectedToday, normalizeScan, pragueDate, pragueToday, scanMatch } from "./worklist";
 
 type M = interfaces.GateMovementItem;
 
@@ -180,5 +180,20 @@ describe("scan or type", () => {
   it("finds nothing for an unknown or empty value", () => {
     expect(scanMatch("WCZ2099000001", [a, b, c])).toEqual({ kind: "none" });
     expect(scanMatch("   ", [a, b, c])).toEqual({ kind: "none" });
+  });
+});
+
+describe("containers in the worklist", () => {
+  const T = "2026-10-14T08:00:00.000Z";
+  const house = (id: string, number: string) => ({ container: { id, number } as NonNullable<M["container"]> });
+  it("finds the one container a scanned number belongs to", () => {
+    expect(containerScanMatch("mscu 123456 5", [house("c1", "MSCU1234565"), house("c1", "MSCU1234565"), { container: null }])).toEqual({ id: "c1", number: "MSCU1234565" });
+    expect(containerScanMatch("TGHU0000000", [house("c1", "MSCU1234565")])).toBeNull();
+    expect(containerScanMatch("", [house("c1", "MSCU1234565")])).toBeNull();
+  });
+  it("counts the stuffed container's gate-out as the release, after which nothing is on hold", () => {
+    expect(releasedOn({ visit: "příjem", impRelease: null, gateOut: null, leftAt: T })).toBe("2026-10-14");
+    expect(isOnHold({ openExceptions: 1, impRelease: null, overridden: false, leftAt: T })).toBe(false);
+    expect(isOnHold({ openExceptions: 1, impRelease: null, overridden: false })).toBe(true);
   });
 });
