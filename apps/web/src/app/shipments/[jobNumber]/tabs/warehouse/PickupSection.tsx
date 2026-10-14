@@ -13,7 +13,7 @@ interface PickupSectionData {
 
 const emptyRow = () => ({ haulier: "", licensePlate: "", driver: "" });
 
-export function PickupSection({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
+export function PickupSection({ ownerId, messageApi, readOnly = false }: { ownerId: string; messageApi: MessageInstance; readOnly?: boolean }) {
   const { data: sectionData, save, isSaving } = useWarehouseSection(ownerId, "pickup");
   const section = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
   const [pin, setPin] = useState<string | null>(section.pin || null);
@@ -75,17 +75,19 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
           <span className="font-mono text-[32px] tracking-[0.3em] text-slate-800">
             {pin ? pin.split("").join(" ") : "– – – –"}
           </span>
-          {!pin && <Button type="primary" size="small" onClick={generatePin} loading={isSaving}>Generate PIN</Button>}
+          {!pin && !readOnly && <Button type="primary" size="small" onClick={generatePin} loading={isSaving}>Generate PIN</Button>}
           {pin && <Tag color="green">Locked</Tag>}
         </Space>
       </div>
 
       <div className="flex justify-between mb-2">
         <strong className="text-xs">Pickup Details</strong>
-        <Space size="small">
-          <Button size="small" onClick={addRow}>+ Row</Button>
-          {dirty && <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>Save</Button>}
-        </Space>
+        {!readOnly && (
+          <Space size="small">
+            <Button size="small" onClick={addRow}>+ Row</Button>
+            {dirty && <Button size="small" type="primary" onClick={handleSave} loading={isSaving}>Save</Button>}
+          </Space>
+        )}
       </div>
       <table className="w-full border-collapse text-xs">
         <thead>
@@ -102,11 +104,15 @@ export function PickupSection({ ownerId, messageApi }: { ownerId: string; messag
               <td className="p-0.5 px-1.5 font-mono text-indigo-500">{pin ?? ""}</td>
               {["haulier", "licensePlate", "driver"].map((f) => (
                 <td key={f} className="p-0.5">
-                  <Input size="small" value={row[f] || ""} onChange={(e) => update(idx, f, e.target.value)} />
+                  {readOnly ? (
+                    <span className={`block px-1.5 py-1 ${row[f] ? "text-slate-900" : "text-slate-300"}`}>{row[f] || "—"}</span>
+                  ) : (
+                    <Input size="small" value={row[f] || ""} onChange={(e) => update(idx, f, e.target.value)} />
+                  )}
                 </td>
               ))}
               <td className="p-0.5">
-                {rows.length > 1 && (
+                {!readOnly && rows.length > 1 && (
                   <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />} onClick={() => deleteRow(idx)} />
                 )}
               </td>

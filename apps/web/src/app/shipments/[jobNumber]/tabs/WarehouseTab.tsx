@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import { Input, Button, message } from "antd";
-import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
+import { DeleteOutlined, PlusOutlined, EditOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
-import type { interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
@@ -16,6 +16,9 @@ import { JobNotes, ActionPushButtons } from "./warehouse/JobExtras";
 
 interface JobSectionData {
   inform_operations_sent?: string;
+  // The warehouse's own remeasured lines (JSON of RemeasureRow[]), kept apart from the
+  // shipment's cargo dimensions.
+  remeasure_rows?: string;
   [key: string]: string | undefined;
 }
 function asJobSection(data: unknown): JobSectionData {
@@ -45,7 +48,12 @@ const SUB_TABS = [
   { key: "pickup", label: "Pick-up" },
 ];
 
-export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
+/**
+ * The warehouse part of a shipment. The warehouse edits it (Warehouse → Internal Reference);
+ * Shipments shows the same values read-only, with `editHref` leading to the warehouse page
+ * when the shipment has a warehouse position.
+ */
+export function WarehouseTab({ shipment, readOnly = false, editHref }: { shipment: ShipmentItem; readOnly?: boolean; editHref?: string }) {
   const [subTab, setSubTab] = useState<string>("details");
   const [messageApi, contextHolder] = message.useMessage();
   const rowData = buildRowData(shipment);
@@ -54,7 +62,19 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
     <div className="flex flex-col gap-5">
       {contextHolder}
 
-      <PillTabs tabs={SUB_TABS} active={subTab} onChange={setSubTab} />
+      <div className="flex items-center gap-3">
+        <PillTabs tabs={SUB_TABS} active={subTab} onChange={setSubTab} />
+        {readOnly && (
+          <span className="ml-auto flex items-center gap-3 text-xs text-slate-500">
+            Kept by the warehouse — view only
+            {editHref && (
+              <Link href={editHref}>
+                <Button size="small" icon={<EditOutlined />}>Edit in Warehouse</Button>
+              </Link>
+            )}
+          </span>
+        )}
+      </div>
 
       {subTab === "details" && (
         <>
@@ -76,19 +96,30 @@ export function WarehouseTab({ shipment }: { shipment: ShipmentItem }) {
             </div>
           </Card>
 
-          <JobNotes ownerId={shipment.id} messageApi={messageApi} />
-          <DimensionsEditor shipment={shipment} messageApi={messageApi} />
-          <ActionPushButtons ownerId={shipment.id} messageApi={messageApi} />
+          <JobNotes ownerId={shipment.id} messageApi={messageApi} readOnly={readOnly} />
+          <DimensionsEditor shipment={shipment} messageApi={messageApi} readOnly={readOnly} />
+          {!readOnly && <ActionPushButtons ownerId={shipment.id} messageApi={messageApi} />}
         </>
       )}
 
       {subTab === "pickup" && (
         <Card title="Pick-up">
-          <PickupSection ownerId={shipment.id} messageApi={messageApi} />
+          <PickupSection ownerId={shipment.id} messageApi={messageApi} readOnly={readOnly} />
         </Card>
       )}
     </div>
   );
+}
+
+/** The Warehouse tab in Shipments: view only, with a way into the warehouse page when the
+ *  shipment has a warehouse position. */
+export function ShipmentWarehouseTab({ shipment }: { shipment: ShipmentItem }) {
+  const { data } = useQuery({
+    queryKey: ["warehouse", "by-shipment", shipment.id],
+    queryFn: () => api.warehouse.warehouseList({ shipmentId: shipment.id }),
+  });
+  const inWarehouse = (data?.tasks.length ?? 0) > 0;
+  return <WarehouseTab shipment={shipment} readOnly editHref={inWarehouse ? `/warehouse/shipment/${shipment.id}` : undefined} />;
 }
 
 // ─── Stackability Badge ─────────────────────────────────────────
@@ -110,28 +141,36 @@ function StackabilityBadge({ shipment }: { shipment: ShipmentItem }) {
   return <span className={`inline-flex items-center h-6 px-2 rounded-md border text-[11px] font-semibold ${tone}`}>{label}</span>;
 }
 
-// ─── Dimensions / Remeasurement Editor (shipment-specific) ──────
-// Edits the shipment's cargo_dimension rows (the same rows the Cargo Details
-// tab manages per container). Rows keep their containerId when remeasured here;
-// rows added here belong to the shipment directly (containerId null).
+// ─── Dimensions / Remeasurement Editor ──────────────────────────
+// The warehouse's own remeasured lines, stored in its job section (remeasure_rows) and
+// compared with the shipment's cargo dimensions, which stay untouched.
 
-type DimensionRow = interfaces.CargoDimensionLine;
+type DimensionRow = { pieces: string; lengthCm: string; widthCm: string; heightCm: string; weightPerPcKg: string };
 
-const EMPTY_DIM: DimensionRow = { containerId: null, pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "", packageType: "", stackable: "" };
+const EMPTY_DIM: DimensionRow = { pieces: "", lengthCm: "", widthCm: "", heightCm: "", weightPerPcKg: "" };
 
-function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; messageApi: MessageInstance }) {
-  const queryClient = useQueryClient();
-  const { data: jobSectionData, save: saveJobSection, isSaving: isInforming } = useWarehouseSection(shipment.id, "job");
+function parseRemeasure(json: string | undefined): DimensionRow[] {
+  try {
+    const arr = JSON.parse(json || "[]");
+    return Array.isArray(arr) ? arr.map((r) => ({ ...EMPTY_DIM, ...r })) : [];
+  } catch {
+    return [];
+  }
+}
+
+function DimensionsEditor({ shipment, messageApi, readOnly }: { shipment: ShipmentItem; messageApi: MessageInstance; readOnly: boolean }) {
+  const { data: jobSectionData, save: saveJobSection, isSaving } = useWarehouseSection(shipment.id, "job");
   const jobSection = asJobSection(jobSectionData);
   const informedAt = jobSection.inform_operations_sent;
+  const saved = jobSection.remeasure_rows;
 
-  const initial: DimensionRow[] = (() => {
-    const arr = shipment.cargoDimensions ?? [];
-    return arr.length > 0 ? arr : [{ ...EMPTY_DIM }];
-  })();
-
-  const [rows, setRows] = useState<DimensionRow[]>(initial);
+  const [rows, setRows] = useState<DimensionRow[]>([{ ...EMPTY_DIM }]);
   const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    const parsed = parseRemeasure(saved);
+    setRows(parsed.length > 0 ? parsed : [{ ...EMPTY_DIM }]);
+    setDirty(false);
+  }, [saved]);
 
   const updateRow = (idx: number, field: keyof DimensionRow, value: string) => {
     setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
@@ -143,8 +182,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
   const save = async () => {
     const filtered = rows.filter((r) => r.pieces || r.lengthCm || r.widthCm || r.heightCm || r.weightPerPcKg);
     try {
-      await api.shipments.shipmentUpdate(shipment.id, { cargoDimensions: filtered });
-      queryClient.invalidateQueries({ queryKey: ["shipments"] });
+      await saveJobSection({ ...jobSection, remeasure_rows: JSON.stringify(filtered) });
       setDirty(false);
       messageApi.success("Saved");
     } catch {
@@ -200,16 +238,18 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
     <Card
       title="Dimensions / Remeasurement"
       extra={
-        <>
-          <Button size="small" icon={<PlusOutlined />} onClick={addRow}>
-            Row
-          </Button>
-          {dirty && (
-            <Button size="small" type="primary" onClick={save}>
-              Save
+        !readOnly && (
+          <>
+            <Button size="small" icon={<PlusOutlined />} onClick={addRow}>
+              Row
             </Button>
-          )}
-        </>
+            {dirty && (
+              <Button size="small" type="primary" onClick={save} loading={isSaving}>
+                Save
+              </Button>
+            )}
+          </>
+        )
       }
     >
       <table className="w-full border-collapse text-xs">
@@ -229,14 +269,18 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
             <tr key={idx} className="border-b border-slate-100">
               {(["pieces", "lengthCm", "widthCm", "heightCm", "weightPerPcKg"] as const).map((field) => (
                 <td key={field} className="p-0.5 px-1">
-                  <Input size="small" value={row[field]} placeholder="0" onChange={(e) => updateRow(idx, field, e.target.value)} className="w-full" />
+                  {readOnly ? (
+                    <span className={`block px-2 py-1 ${row[field] ? "text-slate-900" : "text-slate-300"}`}>{row[field] || "—"}</span>
+                  ) : (
+                    <Input size="small" value={row[field]} placeholder="0" onChange={(e) => updateRow(idx, field, e.target.value)} className="w-full" />
+                  )}
                 </td>
               ))}
               <td className="p-0.5 px-1 text-right text-[11px] text-slate-500">
                 {(rowCbms[idx] ?? 0) > 0 ? rowCbms[idx]!.toFixed(4) : "—"}
               </td>
               <td className="p-0.5 px-1">
-                {rows.length > 1 && <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />} onClick={() => deleteRow(idx)} />}
+                {!readOnly && rows.length > 1 && <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />} onClick={() => deleteRow(idx)} />}
               </td>
             </tr>
           ))}
@@ -281,7 +325,7 @@ function DimensionsEditor({ shipment, messageApi }: { shipment: ShipmentItem; me
             Remeasured values differ from the shipment values.
             {informedAt && <span className="block text-[11px] text-red-400">Operations informed on {formatDateTime(informedAt)}</span>}
           </span>
-          <Button danger size="small" onClick={informOperations} loading={isInforming}>{informedAt ? "Inform Again" : "Inform Operations"}</Button>
+          {!readOnly && <Button danger size="small" onClick={informOperations} loading={isSaving}>{informedAt ? "Inform Again" : "Inform Operations"}</Button>}
         </div>
       )}
       {hasData && !hasMismatch && (

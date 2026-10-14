@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button, Modal, Segmented, Select, Spin, Tooltip } from "antd";
 import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
@@ -56,7 +57,25 @@ const textCol = (key: keyof GateMovement & string, title: string, width: number,
 
 const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
   { key: "taskId", title: "Warehouse Ref", width: 150, text: (r) => r.task.taskId, render: (_, r) => <span className="font-mono font-bold text-indigo-500">{r.task.taskId}</span> },
-  { key: "jobNumber", title: "Internal Reference", width: 170, text: (r) => r.m?.jobNumber ?? "", render: (_, r) => mono(r.m?.jobNumber) },
+  // Imported positions open their shipment's warehouse part; copied ones have no shipment to open.
+  {
+    key: "jobNumber",
+    title: "Internal Reference",
+    width: 170,
+    text: (r) => r.m?.jobNumber ?? "",
+    render: (_, r) =>
+      r.task.shipmentId && r.m?.jobNumber ? (
+        <Link
+          href={`/warehouse/shipment/${r.task.shipmentId}`}
+          onClick={(e) => e.stopPropagation()}
+          className="font-mono font-semibold text-indigo-500 hover:underline"
+        >
+          {r.m.jobNumber}
+        </Link>
+      ) : (
+        mono(r.m?.jobNumber)
+      ),
+  },
   textCol("customer", "Customer", 200),
   textCol("customerRef", "Customer Reference", 160),
   textCol("handling", "Trade Direction", 130, { filterOptions: [...HANDLINGS] }),

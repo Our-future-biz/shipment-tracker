@@ -21,7 +21,7 @@ function asJob(data: unknown): JobSectionData {
 }
 
 // ─── Job Notes ──────────────────────────────────────────────────
-export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi: MessageInstance }) {
+export function JobNotes({ ownerId, messageApi, readOnly = false }: { ownerId: string; messageApi: MessageInstance; readOnly?: boolean }) {
   const { data, save, isSaving } = useWarehouseSection(ownerId, "job");
   const section = asJob(data);
   const savedNotes = section.notes ?? "";
@@ -33,14 +33,18 @@ export function JobNotes({ ownerId, messageApi }: { ownerId: string; messageApi:
     <Card
       title="Notes"
       extra={
-        dirty && (
+        !readOnly && dirty && (
           <Button size="small" type="primary" loading={isSaving} onClick={() => save({ ...section, notes }).then(() => messageApi.success("Saved")).catch(() => messageApi.error("Failed to save"))}>
             Save
           </Button>
         )
       }
     >
-      <Input.TextArea rows={2} value={notes} placeholder="Warehouse notes…" onChange={(e) => setNotes(e.target.value)} />
+      {readOnly ? (
+        <p className={`text-xs whitespace-pre-wrap ${notes ? "text-slate-900" : "text-slate-300"}`}>{notes || "—"}</p>
+      ) : (
+        <Input.TextArea rows={2} value={notes} placeholder="Warehouse notes…" onChange={(e) => setNotes(e.target.value)} />
+      )}
     </Card>
   );
 }
