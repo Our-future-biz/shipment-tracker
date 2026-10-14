@@ -13,6 +13,7 @@ export const invoiceSellingCostTable = pgTable(
     ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
     category: text("category").notNull().default(""),
+    /** Sloupec "Invoice text": text radku na fakture; prazdny = kategorie. (Nazev sloupce z mockupu.) */
     customer: text("customer").notNull().default(""),
     qty: numeric("qty", { precision: 14, scale: 2 }),
     amount: numeric("amount", { precision: 14, scale: 2 }),

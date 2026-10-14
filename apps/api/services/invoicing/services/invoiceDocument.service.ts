@@ -157,7 +157,8 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   const picked = pickRates(rateRows, isIsoDate(duzp) ? duzp : issueDate);
   const calc = calculateInvoice({
     rows: rows.map((r) => ({
-      id: r.id, category: r.category, qty: r.qty, amount: r.amount, currency: r.currency, invoice: r.invoice, vatCode: r.vatCode,
+      // the selling row's "customer" column is the Invoice text printed on the line
+      id: r.id, category: r.category, invoiceText: r.customer, qty: r.qty, amount: r.amount, currency: r.currency, invoice: r.invoice, vatCode: r.vatCode,
     })),
     currency,
     rates: picked.rates,

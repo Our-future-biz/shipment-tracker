@@ -43,6 +43,7 @@ export interface BuyingRow {
 export interface SellingRow {
   id: string;
   category: string;
+  /** sloupec "Invoice text": text radku na fakture, prazdny = kategorie */
   customer: string;
   qty: string;
   amount: string;

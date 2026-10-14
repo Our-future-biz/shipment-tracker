@@ -698,7 +698,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
             <thead>
               <tr>
                 <th className={`${TH} text-left w-[185px]`}>Category</th>
-                <th className={`${TH} text-left w-[28%]`}>Customer</th>
+                {/* the "customer" field holds the line text printed on the invoice */}
+                <th className={`${TH} text-left w-[28%]`} title="Printed on the invoice line; when empty, the category is printed">Invoice text</th>
                 <th className={`${TH} text-center w-[10%]`}>Qty</th>
                 <th className={`${TH} text-right w-[13%]`}>Amount</th>
                 <th className={`${TH} text-left w-[9%]`}>Cur</th>
@@ -736,6 +737,9 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     <input
                       className={`${FIELD}${fld}`}
                       defaultValue={r.customer}
+                      placeholder={r.category ? `On the invoice: ${r.category}` : "Text on the invoice"}
+                      maxLength={200}
+                      aria-label="Invoice text"
                       onBlur={(e) => e.target.value !== r.customer && updateSell.mutate({ id: r.id, customer: e.target.value })}
                     />
                   </td>

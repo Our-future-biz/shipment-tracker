@@ -158,6 +158,20 @@ describe("calculateInvoice", () => {
     expect(c.vat).toBe(0.02);
   });
 
+  it("prints the Invoice text on the line, the category when it is empty", () => {
+    const c = calculateInvoice({
+      rows: [
+        row({ id: "a", amount: "1500.00", invoiceText: "Rail freight Hamburg → Prague, 1x40HC" }),
+        row({ id: "b", category: "Delivery", amount: "500.00", invoiceText: "   " }),
+      ],
+      currency: "CZK",
+      rates,
+      tradeDirection: "Import",
+      vatPayer: true,
+    });
+    expect(c.lines.map((l) => l.description)).toEqual(["Rail freight Hamburg → Prague, 1x40HC", "Delivery"]);
+  });
+
   it("multiplies by quantity, keeps discounts and skips zero lines", () => {
     const c = calculateInvoice({
       rows: [

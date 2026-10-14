@@ -178,6 +178,8 @@ export function isIsoDate(v: string): boolean {
 export interface SellingRowInput {
   id: string;
   category: string;
+  /** "Invoice text" column: what the customer reads on the line; empty = the category */
+  invoiceText?: string | null;
   qty: string | null;
   amount: string | null;
   currency: string;
@@ -251,7 +253,7 @@ export function calculateInvoice(input: {
     const vatCode = effectiveVatCode(r.vatCode, tradeDirection, vatPayer);
     lines.push({
       sourceSellingCostId: r.id,
-      description: r.category || "Service",
+      description: r.invoiceText?.trim() || r.category || "Service",
       qty,
       unitPrice,
       unitCurrency: r.currency || "CZK",
