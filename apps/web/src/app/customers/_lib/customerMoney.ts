@@ -1,10 +1,8 @@
 // Money helpers shared by every customer view, so a figure reads the same wherever it appears.
+import { toNumber } from "@/lib/number";
 
 // Shipment selling/buying arrive as numeric strings (or empty); anything unparsable counts as 0.
-export function num(value: string | number | null | undefined): number {
-  const n = typeof value === "number" ? value : parseFloat(value ?? "");
-  return Number.isNaN(n) ? 0 : n;
-}
+export const num = toNumber;
 
 // "12,345 EUR"; cents are shown only when the amount has them, and then always as two digits ("1,234.50 EUR").
 export function fmtMoney(n: number | null | undefined, currency = "EUR"): string {

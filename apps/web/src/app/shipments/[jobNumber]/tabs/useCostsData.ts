@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useInvoicing } from "@/hooks/useInvoicing";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
@@ -34,14 +35,8 @@ function rateDateOf(shipment: ShipmentItem, basis: "eta" | "etd") {
 }
 
 export function useCostsData(shipment: ShipmentItem | undefined) {
-  // Same query key as the detail page, so the data is already in memory when a tab opens.
-  const { data } = useQuery({
-    queryKey: ["invoicing", shipment?.id],
-    queryFn: () => api.invoicing.invoicingGet(shipment!.id),
-    enabled: !!shipment,
-    placeholderData: (prev) => prev,
-    refetchOnMount: false,
-  });
+  // The one shared invoicing query, so the data is already in memory when a tab opens.
+  const { data } = useInvoicing(shipment?.id ?? null);
 
   const billingCur = data?.billingSettings?.billingCurrency || "CZK";
 

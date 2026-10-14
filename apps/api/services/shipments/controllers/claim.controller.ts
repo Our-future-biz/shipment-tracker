@@ -32,15 +32,15 @@ export const claimCreate = api(
 
 export const claimUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/shipments/:shipmentId/claims/:claimId" },
-  async ({ claimId, shipmentId: _shipmentId, ...input }: ClaimUpdateRequest): Promise<{ claim: ClaimItem }> => ({
-    claim: await claimService.update(claimId, company(), input),
+  async ({ claimId, shipmentId, ...input }: ClaimUpdateRequest): Promise<{ claim: ClaimItem }> => ({
+    claim: await claimService.update(shipmentId, claimId, company(), input),
   }),
 );
 
 export const claimDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/shipments/:shipmentId/claims/:claimId" },
-  async ({ claimId }: { shipmentId: string; claimId: string }): Promise<{ ok: boolean }> => {
-    await claimService.delete(claimId, company());
+  async ({ shipmentId, claimId }: { shipmentId: string; claimId: string }): Promise<{ ok: boolean }> => {
+    await claimService.delete(shipmentId, claimId, company());
     return { ok: true };
   },
 );

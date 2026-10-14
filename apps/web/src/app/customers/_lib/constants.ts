@@ -1,16 +1,18 @@
-export const CUSTOMER_STATUSES = ["Active", "Prospect", "Inactive"] as const;
+import type { interfaces } from "@/lib/api/client";
 
-export const CUSTOMER_LABELS = ["KEY ACCOUNT", "STANDARD", "TARGET CUSTOMER", "PROSPECT", "RISK"] as const;
+// Kept in step with the API's unions: `satisfies` fails the build when a value is not one of them.
+export const CUSTOMER_STATUSES = ["Active", "Prospect", "Inactive"] as const satisfies readonly interfaces.CustomerStatus[];
+
+export const CUSTOMER_LABELS = ["KEY ACCOUNT", "STANDARD", "TARGET CUSTOMER", "PROSPECT", "RISK"] as const satisfies readonly interfaces.CustomerLabel[];
 
 export const PAYMENT_TERMS = ["PREPAYMENT", "7 days", "14 days", "30 days", "45 days", "60 days"] as const;
 
-export const CONTACT_ROLES = ["Sales", "Operations", "Finance"] as const;
+export const CONTACT_ROLES = ["Sales", "Operations", "Finance"] as const satisfies readonly interfaces.ContactRole[];
 
-export const DOCUMENT_TYPES = ["Contract", "NDA", "Power of attorney", "Customs", "Other"] as const;
+export const DOCUMENT_TYPES = ["Contract", "NDA", "Power of attorney", "Customs", "Other"] as const satisfies readonly interfaces.DocumentType[];
 
-export const NOTE_TYPES = ["Note", "Email", "Call", "Follow-up", "Visit"] as const;
+export const NOTE_TYPES = ["Note", "Email", "Call", "Follow-up", "Visit"] as const satisfies readonly interfaces.NoteType[];
 
-export const CURRENCIES = ["EUR", "USD", "CZK", "GBP", "CHF"] as const;
 
 export interface CustomerTab {
   key: string;

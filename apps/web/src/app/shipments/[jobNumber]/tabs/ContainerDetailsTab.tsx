@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { Input, Button, AutoComplete, Tooltip, message } from "antd";
 import { PlusOutlined, DeleteOutlined, ContainerOutlined } from "@ant-design/icons";
 import type { ShipmentItem } from "@/hooks/useShipments";
@@ -9,11 +10,11 @@ import {
   CONTAINER_SIZES,
   CONTAINER_KINDS,
   CONTAINER_KINDS_BY_SIZE,
-  PACK_TYPES,
   teuForType,
   num,
   fmtNum,
   type ContainerLine,
+  packTypeOptions,
 } from "@/lib/cargo";
 
 const emptyContainer = (): ContainerLine => ({
@@ -51,9 +52,6 @@ function containerTypeOptions(query: string) {
     };
   }).filter((g): g is NonNullable<typeof g> => g !== null);
 }
-
-const packTypeOptions = (query: string) =>
-  PACK_TYPES.filter((p) => p.toLowerCase().includes(query.toLowerCase().trim())).map((p) => ({ value: p }));
 
 type Field = "containerNumber" | "sealNumber" | "type" | "packages" | "packageType" | "grossWeight" | "volume";
 
@@ -235,7 +233,7 @@ export function ContainerDetailsTab({
             {rows.map((c, i) =>
               isEditing(i) ? (
                 <div
-                  key={i}
+                  key={rowKey(c)}
                   className={`${COLS} px-2 py-1.5 border-b border-slate-100`}
                   onBlur={onRowBlur(i)}
                   onKeyDown={onRowKeyDown(i)}
@@ -314,7 +312,7 @@ export function ContainerDetailsTab({
                 // Read mode: double-click anywhere re-opens editing focused on the
                 // clicked column; the container number is a link to its cargo panel.
                 <div
-                  key={i}
+                  key={rowKey(c)}
                   className={`${COLS} px-2 py-1.5 border-b border-slate-100 cursor-pointer hover:bg-slate-50 select-none`}
                   onDoubleClick={(e) => {
                     const field = (e.target as HTMLElement).closest<HTMLElement>("[data-field]")?.dataset.field as

@@ -1,4 +1,5 @@
 import { APIError, ErrCode } from "encore.dev/api";
+import log from "encore.dev/log";
 import { auth, customers, quotes } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
 import { shipmentRepository, OVERDUE_DEADLINE_FIELDS } from "../repositories/shipment.repository";
@@ -8,23 +9,40 @@ import { containerRepository } from "../repositories/container.repository";
 import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { commercialInvoiceRepository } from "../repositories/commercialInvoice.repository";
-import { invoiceValueByCurrency, isValidContainerNumber, normalizeContainerNumber, projectCargo } from "./cargoProjection";
-import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "./fieldDefaults";
+import { invoiceValueByCurrency, isValidContainerNumber, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
+import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
 import type { ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
 import type { ContainerRecord } from "../schemas/container.schema";
 import type { CargoItemRecord } from "../schemas/cargoItem.schema";
 import type { CargoDimensionRecord } from "../schemas/cargoDimension.schema";
 import type { CommercialInvoiceRecord } from "../schemas/commercialInvoice.schema";
-import type { ContainerLine, CargoItemLine, CargoDimensionLine, CommercialInvoiceLine, ShipmentDueItem } from "../interfaces/interfaces";
+import type {
+  ContainerLine,
+  CargoItemLine,
+  CargoDimensionLine,
+  CommercialInvoiceLine,
+  ShipmentDueItem,
+  ShipmentItem,
+  ShipmentTileCounts,
+  CustomsPriority,
+} from "../interfaces/interfaces";
+import { iso } from "../../../lib/db/serialize";
+import { publicFields } from "../lib/rows";
+import { shipmentDeleted } from "../topics";
 
 // Extra detail rows accepted alongside the shipment's own fields on create/update.
-interface DetailRows {
+export interface DetailRows {
   containers?: ContainerLine[];
   cargoItems?: CargoItemLine[];
   cargoDimensions?: CargoDimensionLine[];
   commercialInvoices?: CommercialInvoiceLine[];
 }
+
+/** What a create writes: the shipment's own fields (a blank priority allowed), plus its detail rows. */
+export type ShipmentCreateData = Omit<NewShipmentRecord, "companyId" | "customsPriority"> & BlankablePriority & DetailRows;
+/** What an update may write: any of the shipment's own fields, plus its detail rows. */
+export type ShipmentUpdateData = Partial<Omit<NewShipmentRecord, "customsPriority">> & BlankablePriority & DetailRows;
 
 // Project table rows down to the API line shapes (drop internal
 // shipmentId/companyId/timestamps; containers keep their id — cargo lines
@@ -130,6 +148,18 @@ function enrich(
   };
 }
 
+type EnrichedShipment = ReturnType<typeof enrich> & {
+  masterJobMczNumber: string | null;
+  documentTypes: string[];
+  customsStatus: string;
+};
+
+// The API shape of an enriched shipment: dates as ISO strings, no tenant/soft-delete columns.
+function toShipmentItem(s: EnrichedShipment): ShipmentItem {
+  const { createdAt, updatedAt, ...rest } = publicFields(s);
+  return { ...rest, createdAt: iso(createdAt), updatedAt: iso(updatedAt) };
+}
+
 // Checked before anything is written, so a bad number never leaves a half-saved shipment.
 function assertValidContainerNumbers(containers: ContainerLine[] | undefined) {
   const bad = containers?.map((c) => c.containerNumber).find((n) => !isValidContainerNumber(n));
@@ -169,8 +199,13 @@ const DATE_FIELDS = new Set([
 ]);
 const MONEY_FIELDS = new Set(["selling", "buying"]);
 
-function sanitizeTypedFields<T extends Record<string, unknown>>(data: T): T {
-  const out = { ...data } as Record<string, unknown>;
+// Requests may send "" for the customs priority; it is stored as Standard.
+type BlankablePriority = { customsPriority?: CustomsPriority | "" };
+
+function sanitizeTypedFields<T extends BlankablePriority>(
+  data: T,
+): Omit<T, "customsPriority"> & { customsPriority?: CustomsPriority } {
+  const out: Record<string, unknown> = { ...data };
   for (const key of Object.keys(out)) {
     if (out[key] !== "") continue;
     if (DATE_FIELDS.has(key)) out[key] = null;
@@ -178,7 +213,7 @@ function sanitizeTypedFields<T extends Record<string, unknown>>(data: T): T {
     // Customs Priority is never blank: a shipment is Standard until someone marks it Urgent.
     else if (key === "customsPriority") out[key] = "Standard";
   }
-  return out as T;
+  return out as Omit<T, "customsPriority"> & { customsPriority?: CustomsPriority };
 }
 
 /** A classified document of a shipment and its customs review ("" | approved | declined). */
@@ -259,15 +294,16 @@ class ShipmentService {
   // The customer's stored rollups (totalRevenue/totalProfit/totalShipments/
   // lastActivityDate) live in the customers service, which cannot query this
   // database — so every shipment mutation that touches a linked customer
-  // recomputes them here and pushes them over. Failures are swallowed: a stale
-  // rollup must not fail the shipment write itself.
-  private async recalcCustomerRollups(customerId: string | null | undefined, companyId: string) {
+  // recomputes them here and pushes them over. Failures are logged, not thrown: a
+  // stale rollup must not fail the shipment write itself.
+  private async recalcCustomerRollups(customerId: string | null | undefined, companyId: string): Promise<void> {
     if (!customerId) return;
     try {
       const rollups = await shipmentRepository.customerRollups(customerId, companyId);
-      await customers.customerUpdate({ id: customerId, ...rollups });
-    } catch {
-      // Customer may have been deleted since; nothing to sync.
+      await customers.customerRollupsUpdate({ id: customerId, ...rollups });
+    } catch (err) {
+      // The customer may have been deleted since; nothing to sync then.
+      log.warn(err, "customer rollups not synced", { customerId });
     }
   }
 
@@ -279,7 +315,8 @@ class ShipmentService {
       const { users } = await auth.usersList();
       const me = users.find((u) => u.id === userId);
       return me?.displayName || me?.email || "";
-    } catch {
+    } catch (err) {
+      log.warn(err, "acting user name not resolved", { userId });
       return "";
     }
   }
@@ -292,21 +329,24 @@ class ShipmentService {
       const { quote } = await quotes.quoteGet({ quoteNumber });
       const data = (quote.data ?? {}) as { salesOwner?: string; createdBy?: string };
       return (data.salesOwner || data.createdBy || "").trim();
-    } catch {
+    } catch (err) {
       // Free-text sales numbers are allowed; an unknown reference just means
       // there is no owner to inherit.
+      if (!(err instanceof APIError && err.code === ErrCode.NotFound)) {
+        log.warn(err, "quote sales owner not resolved", { quoteNumber });
+      }
       return "";
     }
   }
 
   // Persist the shipment's detail rows. Containers first — cargo lines are
   // validated against the resulting container ids.
-  private async syncDetailRows(shipmentId: string, companyId: string, rows: DetailRows) {
+  private async syncDetailRows(shipmentId: string, companyId: string, rows: DetailRows): Promise<void> {
     if (rows.containers !== undefined) {
       await containerRepository.syncForShipment(shipmentId, companyId, rows.containers);
     }
     if (rows.cargoItems !== undefined || rows.cargoDimensions !== undefined) {
-      const containerIds = new Set((await containerRepository.listByShipmentId(shipmentId)).map((c) => c.id));
+      const containerIds = new Set((await containerRepository.listByShipmentId(shipmentId, companyId)).map((c) => c.id));
       if (rows.cargoItems !== undefined) {
         await cargoItemRepository.replaceForShipment(shipmentId, companyId, sanitizeContainerLinks(rows.cargoItems, containerIds));
       }
@@ -319,7 +359,10 @@ class ShipmentService {
     }
   }
 
-  async list(companyId: string, filters: ShipmentListFilters) {
+  async list(
+    companyId: string,
+    filters: ShipmentListFilters,
+  ): Promise<{ pagination: { total: number; offset: number; limit: number }; data: ShipmentItem[] }> {
     const result = await shipmentRepository.listFiltered(companyId, filters);
 
     // Enrich with master job MCZ numbers
@@ -349,10 +392,10 @@ class ShipmentService {
       }
       return map;
     };
-    const containersByShipment = groupByShipment(await containerRepository.listByShipmentIds(shipmentIds), toContainerLine);
-    const itemsByShipment = groupByShipment(await cargoItemRepository.listByShipmentIds(shipmentIds), toCargoItemLine);
-    const dimensionsByShipment = groupByShipment(await cargoDimensionRepository.listByShipmentIds(shipmentIds), toCargoDimensionLine);
-    const invoicesByShipment = groupByShipment(await commercialInvoiceRepository.listByShipmentIds(shipmentIds), toCommercialInvoiceLine);
+    const containersByShipment = groupByShipment(await containerRepository.listByShipmentIds(shipmentIds, companyId), toContainerLine);
+    const itemsByShipment = groupByShipment(await cargoItemRepository.listByShipmentIds(shipmentIds, companyId), toCargoItemLine);
+    const dimensionsByShipment = groupByShipment(await cargoDimensionRepository.listByShipmentIds(shipmentIds, companyId), toCargoDimensionLine);
+    const invoicesByShipment = groupByShipment(await commercialInvoiceRepository.listByShipmentIds(shipmentIds, companyId), toCommercialInvoiceLine);
 
     // Document types per shipment — the Customs screen shows a tick when the
     // required document is present.
@@ -365,7 +408,7 @@ class ShipmentService {
       docsByShipment.set(r.shipmentId, list);
     }
 
-    const enriched = result.data.map((s) => ({
+    const enriched = result.data.map((s) => toShipmentItem({
       ...enrich(
         s,
         containersByShipment.get(s.id) ?? [],
@@ -384,7 +427,7 @@ class ShipmentService {
     };
   }
 
-  async tileCounts(companyId: string) {
+  async tileCounts(companyId: string): Promise<ShipmentTileCounts> {
     return shipmentRepository.tileCounts(companyId);
   }
 
@@ -407,7 +450,19 @@ class ShipmentService {
     return { within24h: window(0, 1), within48h: window(2, 2) };
   }
 
-  async getById(id: string, companyId: string) {
+  /** Refuses work on a shipment that isn't a live shipment of the company (child rows hang off it). */
+  async requireLive(id: string, companyId: string): Promise<void> {
+    if (!(await shipmentRepository.getByIdForCompany(id, companyId))) throw APIError.notFound("Shipment not found");
+  }
+
+  /** A live shipment of the company; not found otherwise. */
+  async get(id: string, companyId: string): Promise<ShipmentItem> {
+    const shipment = await this.getById(id, companyId);
+    if (!shipment) throw APIError.notFound("Shipment not found");
+    return shipment;
+  }
+
+  async getById(id: string, companyId: string): Promise<ShipmentItem | null> {
     const shipment = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!shipment) return null;
     let masterJobMczNumber: string | null = null;
@@ -415,39 +470,50 @@ class ShipmentService {
       const mj = await masterJobRepository.getByIdForCompany(shipment.masterJobId, companyId);
       if (mj) masterJobMczNumber = mj.mczNumber;
     }
-    const containers = (await containerRepository.listByShipmentId(id)).map(toContainerLine);
-    const cargoItems = (await cargoItemRepository.listByShipmentId(id)).map(toCargoItemLine);
-    const cargoDimensions = (await cargoDimensionRepository.listByShipmentId(id)).map(toCargoDimensionLine);
-    const commercialInvoices = (await commercialInvoiceRepository.listByShipmentId(id)).map(toCommercialInvoiceLine);
+    const containers = (await containerRepository.listByShipmentId(id, companyId)).map(toContainerLine);
+    const cargoItems = (await cargoItemRepository.listByShipmentId(id, companyId)).map(toCargoItemLine);
+    const cargoDimensions = (await cargoDimensionRepository.listByShipmentId(id, companyId)).map(toCargoDimensionLine);
+    const commercialInvoices = (await commercialInvoiceRepository.listByShipmentId(id, companyId)).map(toCommercialInvoiceLine);
     const documents = await this.documentsOf(id, companyId);
-    return {
+    return toShipmentItem({
       ...enrich(shipment, containers, cargoItems, cargoDimensions, commercialInvoices),
       masterJobMczNumber,
       documentTypes: documents.map((d) => d.documentType),
       customsStatus: customsStatusFor(shipment.customsStatus, documents),
-    };
+    });
   }
 
   /**
-   * The Principal Party is a customer of the caller's company: an unknown id is refused, a
-   * blank one unlinks it, and the stored name is the customer's own.
+   * Customer links (customer, shipper, consignee, principal party) point at customers of the
+   * caller's company: an unknown id is refused and a blank one unlinks. The Principal Party
+   * also stores the customer's own name.
    */
-  private async resolvePrincipalParty(data: Record<string, unknown>) {
-    if (!("principalPartyId" in data)) return;
-    const id = data.principalPartyId as string | null | undefined;
-    if (!id) {
-      data.principalPartyId = null;
-      return;
-    }
-    try {
-      const { customer } = await customers.customerGet({ id });
-      data.principalParty = customer.companyName;
-    } catch (err) {
-      if (err instanceof APIError && err.code === ErrCode.NotFound) {
-        throw APIError.invalidArgument("Unknown principal party");
-      }
-      throw err;
-    }
+  private async resolveCustomerLinks(data: Partial<NewShipmentRecord>): Promise<void> {
+    const links = [
+      ["customerId", "customer"],
+      ["shipperId", "shipper"],
+      ["consigneeId", "consignee"],
+      ["principalPartyId", "principal party"],
+    ] as const;
+    await Promise.all(
+      links.map(async ([key, label]) => {
+        if (!(key in data)) return;
+        const id = data[key];
+        if (!id) {
+          data[key] = null;
+          return;
+        }
+        try {
+          const { customer } = await customers.customerGet({ id });
+          if (key === "principalPartyId") data.principalParty = customer.companyName;
+        } catch (err) {
+          if (err instanceof APIError && err.code === ErrCode.NotFound) {
+            throw APIError.invalidArgument(`Unknown ${label}`);
+          }
+          throw err;
+        }
+      }),
+    );
   }
 
   /** The classified documents uploaded to one shipment, with their customs review. */
@@ -456,42 +522,43 @@ class ShipmentService {
     return rows.filter((r) => r.documentType);
   }
 
-  async create(companyId: string, data: Omit<NewShipmentRecord, "companyId"> & DetailRows) {
+  async create(companyId: string, data: ShipmentCreateData): Promise<ShipmentItem> {
     const { containers, cargoItems, cargoDimensions, commercialInvoices, ...rest } = data;
     assertValidContainerNumbers(containers);
-    const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) } as Record<string, unknown>);
+    const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
     // A new shipment has no paperwork yet, so its customs status starts where the paperwork does.
     delete shipmentData.customsStatus;
     // The starting status belongs to the shipment's Trade Direction.
-    const directionStatus = statusForDirection(shipmentData.status as string, shipmentData.tradeDirection as string);
+    const directionStatus = statusForDirection(shipmentData.status ?? "", shipmentData.tradeDirection ?? "");
     if (directionStatus) shipmentData.status = directionStatus;
-    normalizeCustomsPriority(shipmentData, (key) => shipmentData[key] as string);
-    await this.resolvePrincipalParty(shipmentData);
+    const stored: Record<string, unknown> = shipmentData;
+    normalizeCustomsPriority(stored, (key) => stored[key] as string);
+    await this.resolveCustomerLinks(shipmentData);
     Object.assign(
       shipmentData,
-      exportBolDefaults(shipmentData.tradeDirection as string, {
-        houseBolType: shipmentData.houseBolType as string,
-        masterBolType: shipmentData.masterBolType as string,
+      exportBolDefaults(shipmentData.tradeDirection ?? "", {
+        houseBolType: shipmentData.houseBolType ?? "",
+        masterBolType: shipmentData.masterBolType ?? "",
       }),
       startingStateDefaults({
-        creditCheck: shipmentData.creditCheck as string,
-        vgm: shipmentData.vgm as string,
-        bookingConfirmation: shipmentData.bookingConfirmation as string,
-        invoicingStatus: shipmentData.invoicingStatus as string,
+        creditCheck: shipmentData.creditCheck,
+        vgm: shipmentData.vgm,
+        bookingConfirmation: shipmentData.bookingConfirmation,
+        invoicingStatus: shipmentData.invoicingStatus,
       }),
-      cfsDefault(shipmentData.hub as string, shipmentData.cfs as string),
+      cfsDefault(shipmentData.hub, shipmentData.cfs),
     );
 
     // A shipment created against a quote inherits that quote's sales owner.
-    const salesNumber = ((shipmentData.salesNumber as string) ?? "").trim();
-    if (salesNumber && !((shipmentData.salesPerson as string) ?? "").trim()) {
+    const salesNumber = (shipmentData.salesNumber ?? "").trim();
+    if (salesNumber && !(shipmentData.salesPerson ?? "").trim()) {
       const owner = await this.quoteSalesOwner(salesNumber);
       if (owner) shipmentData.salesPerson = owner;
     }
-    const shipment = await shipmentRepository.createForCompany(companyId, shipmentData as never);
+    const shipment = await shipmentRepository.createForCompany(companyId, shipmentData);
     await this.syncDetailRows(shipment.id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
     await this.recalcCustomerRollups(shipment.customerId, companyId);
-    return this.getById(shipment.id, companyId);
+    return (await this.getById(shipment.id, companyId))!;
   }
 
   // Next CZ job number for this company (a per-company sequence over all rows incl.
@@ -501,13 +568,13 @@ class ShipmentService {
     return `CZ${String(max + 1).padStart(8, "0")}`;
   }
 
-  async update(id: string, companyId: string, data: Partial<NewShipmentRecord> & DetailRows, userId: string) {
+  async update(id: string, companyId: string, data: ShipmentUpdateData, userId: string): Promise<ShipmentItem> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
-    if (!existing) return null;
+    if (!existing) throw APIError.notFound("Shipment not found");
 
     const { containers, cargoItems, cargoDimensions, commercialInvoices, ...rest } = data;
     assertValidContainerNumbers(containers);
-    const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) } as Record<string, unknown>);
+    const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
 
     // Up to "Paperwork Verified" the customs status follows the paperwork; only the steps
     // after it are set by hand, and only once the paperwork is approved.
@@ -515,7 +582,7 @@ class ShipmentService {
     // that is not one of those manual steps is refused rather than silently dropped.
     if ("customsStatus" in shipmentData) {
       const documents = await this.documentsOf(id, companyId);
-      const wanted = shipmentData.customsStatus as string;
+      const wanted = shipmentData.customsStatus ?? "";
       if (wanted === customsStatusFor(existing.customsStatus, documents)) {
         delete shipmentData.customsStatus;
       } else if (paperworkStatus(documents) !== PAPERWORK_VERIFIED) {
@@ -524,14 +591,16 @@ class ShipmentService {
         throw APIError.invalidArgument(`customsStatus can only be set to: ${[PAPERWORK_VERIFIED, ...AFTER_VERIFIED].join(", ")}`);
       }
     }
-    await this.resolvePrincipalParty(shipmentData);
+    await this.resolveCustomerLinks(shipmentData);
 
     // Seed the export BoL types against the values this update leaves behind, so
     // switching a shipment to Export fills them in — and so an export shipment
     // that never had them (e.g. created before this rule) picks them up. Added
     // before the audit loop below, so the change is recorded like any other.
-    const after = (key: string) => (key in shipmentData ? shipmentData[key] : (existing as Record<string, unknown>)[key]) as string;
-    normalizeCustomsPriority(shipmentData, after);
+    const written: Record<string, unknown> = shipmentData;
+    const before: Record<string, unknown> = existing;
+    const after = (key: string) => (key in written ? written[key] : before[key]) as string;
+    normalizeCustomsPriority(written, after);
     // A Trade Direction change carries the shipment status over to the new direction.
     if ("tradeDirection" in shipmentData && after("tradeDirection") !== existing.tradeDirection) {
       const moved = statusForDirection(after("status"), after("tradeDirection"));
@@ -565,23 +634,22 @@ class ShipmentService {
     // Approving the credit check records who did it and when. An explicit
     // approvedBy in the same request wins — the stamp only fills the field the
     // approval itself would leave untouched.
-    if (isCreditApproval(shipmentData.creditCheck as string, existing.creditCheck) && !("approvedBy" in shipmentData)) {
+    if (isCreditApproval(shipmentData.creditCheck, existing.creditCheck) && !("approvedBy" in shipmentData)) {
       shipmentData.approvedBy = actionStamp(await this.resolveUserName(userId), new Date());
     }
 
     // Assigning a quote number hands the shipment to whoever sold it: the
     // quote's sales owner becomes the shipment's sales person. Only on a real
     // change, and never over a salesPerson set in the same request.
-    const nextSalesNumber = (shipmentData.salesNumber as string | undefined)?.trim();
+    const nextSalesNumber = shipmentData.salesNumber?.trim();
     if (nextSalesNumber && nextSalesNumber !== existing.salesNumber && !("salesPerson" in shipmentData)) {
       const owner = await this.quoteSalesOwner(nextSalesNumber);
       if (owner) shipmentData.salesPerson = owner;
     }
 
     // Write audit entries for changed shipment fields
-    const existingRecord = existing as unknown as Record<string, unknown>;
     for (const [key, newValue] of Object.entries(shipmentData)) {
-      const oldValue = existingRecord[key];
+      const oldValue = before[key];
       if (oldValue !== newValue) {
         await shipmentAuditRepository.create({
           companyId,
@@ -597,33 +665,29 @@ class ShipmentService {
     await this.syncDetailRows(id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
 
     if (Object.keys(shipmentData).length > 0) {
-      await shipmentRepository.updateForCompany(id, companyId, shipmentData as never);
+      await shipmentRepository.updateForCompany(id, companyId, shipmentData);
     }
     if (truck && plateTyped) {
-      await shipmentRepository.setTruckPlate(companyId, truck, (shipmentData.plateNumber as string | null) ?? "");
+      await shipmentRepository.setTruckPlate(companyId, truck, shipmentData.plateNumber ?? "");
     }
 
     // Recalc for the new customer, and for the old one when the link moved.
-    const newCustomerId = ("customerId" in shipmentData
-      ? (shipmentData.customerId as string | null | undefined)
-      : existing.customerId);
+    const newCustomerId = "customerId" in shipmentData ? shipmentData.customerId : existing.customerId;
     await this.recalcCustomerRollups(newCustomerId, companyId);
     if (existing.customerId && existing.customerId !== newCustomerId) {
       await this.recalcCustomerRollups(existing.customerId, companyId);
     }
 
-    return this.getById(id, companyId);
-  }
-
-  async getAllForCompany(companyId: string, limit = 5000) {
-    return shipmentRepository.listAllForCompany(companyId, limit);
+    return (await this.getById(id, companyId))!;
   }
 
   // Soft-delete: the row and all its details are kept (only deletedAt is set) so the
-  // job reference can never be reused. Recorded in the audit log as a change.
-  async softDelete(id: string, companyId: string, userId?: string) {
+  // job reference can never be reused. Recorded in the audit log as a change. Its details
+  // drop out of every read with it (they are only reached through a live shipment), and
+  // other services are told so they can retire what they keep for it.
+  async softDelete(id: string, companyId: string, userId?: string): Promise<void> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
-    if (!existing) return null;
+    if (!existing) throw APIError.notFound("Shipment not found");
 
     if (userId) {
       await shipmentAuditRepository.create({
@@ -636,33 +700,33 @@ class ShipmentService {
       });
     }
 
-    const deleted = await shipmentRepository.softDeleteForCompany(id, companyId);
+    await shipmentRepository.softDeleteForCompany(id, companyId);
     await this.recalcCustomerRollups(existing.customerId, companyId);
-    return deleted;
+    await shipmentDeleted.publish({ shipmentId: id, companyId });
   }
 
   // Release the house bill of lading, recording who released it and when.
   // A release is a one-off act: once stamped, the record stands — re-releasing
   // returns the shipment untouched rather than rewriting who did it.
-  async releaseHouseBol(id: string, companyId: string, userId: string) {
+  async releaseHouseBol(id: string, companyId: string, userId: string): Promise<ShipmentItem> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
-    if (!existing) return null;
-    if (existing.houseBolRelease.trim()) return this.getById(id, companyId);
+    if (!existing) throw APIError.notFound("Shipment not found");
+    if (existing.houseBolRelease.trim()) return (await this.getById(id, companyId))!;
 
     const stamp = actionStamp(await this.resolveUserName(userId), new Date());
     return this.update(id, companyId, { houseBolRelease: stamp }, userId);
   }
 
-  async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string) {
+  async linkMasterJob(shipmentId: string, companyId: string, mczNumber: string): Promise<ShipmentRecord | null> {
     let masterJob = await masterJobRepository.findByMczNumber(mczNumber, companyId);
     if (!masterJob) {
-      masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber } as never);
+      masterJob = await masterJobRepository.createForCompany(companyId, { mczNumber });
     }
-    return shipmentRepository.updateForCompany(shipmentId, companyId, { masterJobId: masterJob.id } as never);
+    return shipmentRepository.updateForCompany(shipmentId, companyId, { masterJobId: masterJob.id });
   }
 
-  async unlinkMasterJob(shipmentId: string, companyId: string) {
-    return shipmentRepository.updateForCompany(shipmentId, companyId, { masterJobId: null } as never);
+  async unlinkMasterJob(shipmentId: string, companyId: string): Promise<ShipmentRecord | null> {
+    return shipmentRepository.updateForCompany(shipmentId, companyId, { masterJobId: null });
   }
 }
 

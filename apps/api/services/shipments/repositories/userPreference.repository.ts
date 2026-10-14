@@ -1,10 +1,15 @@
-import { eq, and, isNull } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { userPreferenceTable } from "../schemas/userPreference.schema";
+import { userPreferenceTable, type UserPreferenceRecord } from "../schemas/userPreference.schema";
 
-class UserPreferenceRepository {
-  async get(companyId: string, userId: string, prefKey: string) {
-    const [row] = await db
+class UserPreferenceRepository extends TenantRepository<typeof userPreferenceTable> {
+  constructor() {
+    super(db, userPreferenceTable, "user_preference");
+  }
+
+  async get(companyId: string, userId: string, prefKey: string): Promise<UserPreferenceRecord | null> {
+    const [row] = await this.db
       .select()
       .from(userPreferenceTable)
       .where(and(
@@ -17,18 +22,16 @@ class UserPreferenceRepository {
     return row ?? null;
   }
 
-  async set(companyId: string, userId: string, prefKey: string, value: unknown) {
-    const existing = await this.get(companyId, userId, prefKey);
-    if (existing) {
-      await db
-        .update(userPreferenceTable)
-        .set({ value: value as never, updatedAt: new Date() })
-        .where(eq(userPreferenceTable.id, existing.id));
-      return;
-    }
-    await db.insert(userPreferenceTable).values({
-      companyId, userId, prefKey, value: value as never,
-    });
+  // One statement, so two saves at once can't both insert.
+  async set(companyId: string, userId: string, prefKey: string, value: unknown): Promise<void> {
+    await this.db
+      .insert(userPreferenceTable)
+      .values({ companyId, userId, prefKey, value })
+      .onConflictDoUpdate({
+        target: [userPreferenceTable.companyId, userPreferenceTable.userId, userPreferenceTable.prefKey],
+        targetWhere: sql`deleted_at IS NULL`,
+        set: { value, updatedAt: new Date() },
+      });
   }
 }
 

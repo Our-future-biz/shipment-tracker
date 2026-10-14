@@ -5,7 +5,7 @@ import {
   exportBolDefaults,
   isCreditApproval,
   startingStateDefaults,
-} from "../services/fieldDefaults";
+} from "../lib/fieldDefaults";
 
 describe("exportBolDefaults", () => {
   it("seeds both BoL types for an export shipment", () => {

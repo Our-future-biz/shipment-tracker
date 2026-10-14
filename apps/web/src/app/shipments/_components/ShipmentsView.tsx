@@ -3,12 +3,11 @@
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useDebounced } from "@/hooks/useDebounced";
-import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
+import { useShipments } from "@/hooks/useShipments";
 import { useToast } from "@/lib/toast";
 import { ShipmentsTable } from "./ShipmentsTable";
 import { CreateShipmentWizard } from "./CreateShipmentWizard";
 import { MasterJobDialog } from "./MasterJobDialog";
-import { ConfirmModal } from "@/components/ConfirmModal";
 
 // Search/status live in the URL (?q= / ?status=), written by the table's toolbar and read
 // here to drive the server-side query — so filtering covers the whole company dataset
@@ -19,25 +18,13 @@ export const ShipmentsView = () => {
   const statusBucket = searchParams.get("status") ?? "all";
   const tile = searchParams.get("tile") ?? "all";
 
-  const { shipments, isLoading, createShipment, deleteShipment, linkMasterJob, isCreating, isDeleting } =
+  const { shipments, isLoading, createShipment, linkMasterJob, isCreating } =
     useShipments({ search, statusBucket, tile });
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [masterJobOpen, setMasterJobOpen] = useState(false);
   // Shipments ticked in the table when "Add to Master Job" was pressed.
   const [masterJobPreselected, setMasterJobPreselected] = useState<string[]>([]);
-  const [deleteTarget, setDeleteTarget] = useState<ShipmentItem | null>(null);
-
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      await deleteShipment(deleteTarget.id);
-      toast.success("Order deleted");
-      setDeleteTarget(null);
-    } catch {
-      toast.error("Failed to archive order");
-    }
-  };
 
   const handleLinkMasterJob = async (shipmentIds: string[], mczNumber: string) => {
     try {
@@ -56,7 +43,6 @@ export const ShipmentsView = () => {
         shipments={shipments}
         isLoading={isLoading}
         onCreateClick={() => setCreateOpen(true)}
-        onDelete={(shipment) => setDeleteTarget(shipment)}
         onAddMasterJob={(ids) => {
           setMasterJobPreselected(ids);
           setMasterJobOpen(true);
@@ -77,17 +63,6 @@ export const ShipmentsView = () => {
         createShipment={createShipment}
         isCreating={isCreating}
         existingShipments={shipments}
-      />
-
-      <ConfirmModal
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
-        title="Delete order"
-        description={`Delete order ${deleteTarget?.jobNumber || ""}? It will be archived with all its details (not erased), its reference can never be reused, and the action is recorded against your account.`}
-        confirmLabel="Delete"
-        danger
-        loading={isDeleting}
       />
       </div>
     </div>

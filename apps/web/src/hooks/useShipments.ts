@@ -118,22 +118,22 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     // search/status, so patch every cached shipments page rather than one fixed key.
     onMutate: async ({ id, data }) => {
       await queryClient.cancelQueries({ queryKey: ["shipments"] });
-      const prev = queryClient.getQueriesData<{ data: ShipmentItem[] }>({ queryKey: ["shipments"] });
-      queryClient.setQueriesData<{ data: ShipmentItem[] }>({ queryKey: ["shipments"] }, (old) => {
-        // Other queries under ["shipments"] (a single shipment, a count) have no row list to patch.
-        if (!old?.data) return old;
-        return {
-          ...old,
-          data: old.data.map((s) => {
-            if (s.id !== id) return s;
-            // Merge update request into shipment using Object.assign for type safety
-            const updated: ShipmentItem = { ...s };
-            Object.assign(updated, data);
-            // Mirrors the server rule: a HUB with no CFS makes the HUB the CFS.
-            if (updated.hub?.trim() && !updated.cfs?.trim()) updated.cfs = updated.hub.trim();
-            return updated;
-          }),
-        };
+      type Cached = { data?: ShipmentItem[]; shipment?: ShipmentItem };
+      const prev = queryClient.getQueriesData<Cached>({ queryKey: ["shipments"] });
+      const patch = (s: ShipmentItem): ShipmentItem => {
+        if (s.id !== id) return s;
+        // Merge update request into shipment using Object.assign for type safety
+        const updated: ShipmentItem = { ...s };
+        Object.assign(updated, data);
+        // Mirrors the server rule: a HUB with no CFS makes the HUB the CFS.
+        if (updated.hub?.trim() && !updated.cfs?.trim()) updated.cfs = updated.hub.trim();
+        return updated;
+      };
+      queryClient.setQueriesData<Cached>({ queryKey: ["shipments"] }, (old) => {
+        // Lists carry rows, the detail query one shipment; other queries (counts) stay as they are.
+        if (old?.data) return { ...old, data: old.data.map(patch) };
+        if (old?.shipment) return { ...old, shipment: patch(old.shipment) };
+        return old;
       });
       return { prev };
     },
@@ -172,12 +172,14 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
 
   // Update a single field (handles API field vs extra field routing)
   const updateField = useCallback(
-    (shipmentId: string, fieldKey: string, value: string) => {
+    // `current` is the shipment as shown, for callers whose shipment may not be in this list
+    // (a detail page opened on an older one); the automation needs its old value.
+    (shipmentId: string, fieldKey: string, value: string, current?: ShipmentItem) => {
       const col = COLUMN_MAP.get(fieldKey);
       if (!col) return;
 
       // Get old value for automation comparison
-      const shipment = shipments.find((s) => s.id === shipmentId);
+      const shipment = shipments.find((s) => s.id === shipmentId) ?? current;
       const oldValue = shipment ? getFieldValue(shipment, fieldKey) : "";
 
       if (col.apiField) {

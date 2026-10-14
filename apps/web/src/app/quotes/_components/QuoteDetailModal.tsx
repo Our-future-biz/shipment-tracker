@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Modal, Tabs, Input, Select, Button, Tag, Tooltip } from "antd";
 import { CopyOutlined, CheckOutlined } from "@ant-design/icons";
 import { useRouter } from "next/navigation";
@@ -73,11 +73,6 @@ function DetailsTab({ quote }: { quote: interfaces.QuoteItem }) {
     Object.fromEntries(ALL_DETAIL_COLS.map((c) => [c, quoteField(quote.data, c)])),
   );
 
-  useEffect(() => {
-    setFields(Object.fromEntries(ALL_DETAIL_COLS.map((c) => [c, quoteField(quote.data, c)])));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quote.id]);
-
   const setField = (label: string, value: string) => setFields((prev) => ({ ...prev, [label]: value }));
 
   const saveField = (label: string, value: string) => {
@@ -110,7 +105,6 @@ function TermsTab({ quoteNumber, initial }: { quoteNumber: string; initial: stri
   const { updateQuote } = useQuotes();
   const toast = useToast();
   const [terms, setTerms] = useState(initial);
-  useEffect(() => setTerms(initial), [quoteNumber, initial]);
   return (
     <div className="flex flex-col gap-3 p-1">
       <TextArea rows={14} value={terms} onChange={(e) => setTerms(e.target.value)} placeholder="Enter terms and conditions for this quote..." className="text-xs" />
@@ -221,10 +215,11 @@ export function QuoteDetailModal({ quoteNumber, onClose }: QuoteDetailModalProps
           size="small"
           destroyInactiveTabPane
           items={[
-            { key: "details", label: "Details", children: <DetailsTab quote={quote} /> },
+            // Keyed by quote, so another quote's tab starts from its own values instead of syncing state.
+            { key: "details", label: "Details", children: <DetailsTab key={quote.id} quote={quote} /> },
             { key: "costs", label: "Costs Breakdown", children: <QuoteCostSection quote={quote} /> },
             { key: "documents", label: "Documents", children: <QuoteDocumentsTab quoteNumber={quote.quoteNumber} /> },
-            { key: "terms", label: "Terms", children: <TermsTab quoteNumber={quote.quoteNumber} initial={quote.terms ?? ""} /> },
+            { key: "terms", label: "Terms", children: <TermsTab key={quote.id} quoteNumber={quote.quoteNumber} initial={quote.terms ?? ""} /> },
           ]}
         />
       )}

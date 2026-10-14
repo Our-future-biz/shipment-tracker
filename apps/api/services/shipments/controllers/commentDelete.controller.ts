@@ -15,7 +15,7 @@ export const commentDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/shipments/:shipmentId/comments/:commentId" },
   async (req: CommentDeleteRequest): Promise<CommentDeleteResponse> => {
     const { companyID, userID } = getAuthData()!;
-    await commentService.delete(req.commentId, companyID, userID);
+    await commentService.delete(req.shipmentId, req.commentId, companyID, userID);
     return { ok: true };
   },
 );

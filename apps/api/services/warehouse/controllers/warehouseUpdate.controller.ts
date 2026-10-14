@@ -1,19 +1,11 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { warehouseService } from "../services/warehouse.service";
-import type { WarehouseTaskItem } from "../interfaces/interfaces";
+import type { WarehouseTaskItem, WarehouseTaskPatch } from "../interfaces/interfaces";
 
-interface WarehouseUpdateRequest {
+interface WarehouseUpdateRequest extends WarehouseTaskPatch {
+  /** The task's id (UUID), not its WHCZ reference. */
   taskId: string;
-  type?: string;
-  priority?: string;
-  status?: string;
-  assignee?: string;
-  dueDate?: string;
-  cargo?: string;
-  weight?: string;
-  notes?: string;
-  data?: unknown;
 }
 
 interface WarehouseUpdateResponse {
@@ -22,13 +14,7 @@ interface WarehouseUpdateResponse {
 
 export const warehouseUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/warehouse/:taskId" },
-  async (req: WarehouseUpdateRequest): Promise<WarehouseUpdateResponse> => {
-    // The client sends the task's UUID as the :taskId path param; update by it.
-    const { taskId, ...data } = req;
-    const task = await warehouseService.update(taskId, getAuthData()!.companyID, data);
-    if (!task) {
-      throw APIError.notFound("Warehouse task not found");
-    }
-    return { task: task as unknown as WarehouseTaskItem };
+  async ({ taskId, ...patch }: WarehouseUpdateRequest): Promise<WarehouseUpdateResponse> => {
+    return { task: await warehouseService.update(taskId, getAuthData()!.companyID, patch) };
   },
 );

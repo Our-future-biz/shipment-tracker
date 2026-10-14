@@ -11,13 +11,13 @@ interface AttachmentClassifyRequest {
 }
 
 interface AttachmentClassifyResponse {
-  attachment: AttachmentItem | null;
+  attachment: AttachmentItem;
 }
 
 export const attachmentClassify = api(
   { expose: true, auth: true, method: "PATCH", path: "/shipments/:shipmentId/attachments/:attachmentId/type" },
   async (req: AttachmentClassifyRequest): Promise<AttachmentClassifyResponse> => {
-    const row = await attachmentService.classify(req.attachmentId, getAuthData()!.companyID, req.documentType);
-    return { attachment: row as unknown as AttachmentItem | null };
+    const companyId = getAuthData()!.companyID;
+    return { attachment: await attachmentService.classify(req.shipmentId, req.attachmentId, companyId, req.documentType) };
   },
 );

@@ -1,3 +1,4 @@
+import log from "encore.dev/log";
 import { auth } from "~encore/clients";
 
 /**
@@ -10,7 +11,8 @@ export async function userNames(): Promise<Map<string, string>> {
   try {
     const { users } = await auth.usersList();
     return new Map(users.map((u) => [u.id, u.displayName || u.email || ""]));
-  } catch {
+  } catch (err) {
+    log.warn(err, "user names could not be loaded");
     return new Map();
   }
 }

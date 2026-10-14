@@ -1,12 +1,13 @@
 import { pgTable, text, uuid, timestamp, index } from "drizzle-orm/pg-core";
 import { tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { shipmentTable } from "./shipment.schema";
 
 export const shipmentAuditTable = pgTable(
   "shipment_audit",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     ...tenantColumns,
-    shipmentId: uuid("shipment_id").notNull(),
+    shipmentId: uuid("shipment_id").notNull().references(() => shipmentTable.id, { onDelete: "cascade" }),
     userId: uuid("user_id").notNull(),
     field: text("field").notNull(),
     oldValue: text("old_value"),

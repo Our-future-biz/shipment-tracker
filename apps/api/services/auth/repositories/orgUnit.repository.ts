@@ -7,7 +7,7 @@ import type { Place } from "../../../lib/geo/place";
 
 class DepartmentRepository extends TenantRepository<typeof departmentTable> {
   constructor() {
-    super(db as never, departmentTable, "department");
+    super(db, departmentTable, "department");
   }
 
   async listByName(companyId: string) {
@@ -21,7 +21,7 @@ class DepartmentRepository extends TenantRepository<typeof departmentTable> {
 
 class BranchRepository extends TenantRepository<typeof branchTable> {
   constructor() {
-    super(db as never, branchTable, "branch");
+    super(db, branchTable, "branch");
   }
 
   async listByName(companyId: string) {
@@ -53,7 +53,7 @@ class BranchRepository extends TenantRepository<typeof branchTable> {
 
 class CountryRepository extends TenantRepository<typeof countryTable> {
   constructor() {
-    super(db as never, countryTable, "country");
+    super(db, countryTable, "country");
   }
 
   async listByName(companyId: string) {

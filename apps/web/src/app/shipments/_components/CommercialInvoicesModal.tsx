@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { rowKey } from "@/app/shipments/_lib/rowKey";
 import { AutoComplete, Button, Input, Modal } from "antd";
 import { DeleteOutlined, PlusOutlined } from "@ant-design/icons";
 import type { ShipmentItem } from "@/hooks/useShipments";
@@ -116,7 +117,7 @@ export function CommercialInvoicesModal({
       </div>
 
       {lines.map((l, idx) => (
-        <div key={idx} className={`${COLS} px-1 py-1 border-b border-slate-100`}>
+        <div key={rowKey(l)} className={`${COLS} px-1 py-1 border-b border-slate-100`}>
           <Input size="small" className="text-center" value={l.invoiceNumber} onChange={(e) => patch(idx, { invoiceNumber: e.target.value })} />
           <Input
             size="small"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { App, Spin } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
@@ -23,9 +23,11 @@ export function MasterJobsView() {
   const { masterJobs, isLoading } = useMasterJobs();
   const createMasterJob = useCreateMasterJob();
   const detail = useMasterJob(openId);
-  const [detailTab, setDetailTab] = useState<(typeof DETAIL_TABS)[number]["key"]>("mbl");
-  // Every master job opens on its first tab.
-  useEffect(() => setDetailTab("mbl"), [openId]);
+  // Every master job opens on its first tab: the chosen tab belongs to the job it was picked on.
+  type DetailTab = (typeof DETAIL_TABS)[number]["key"];
+  const [tabPick, setTabPick] = useState<{ id: string | null; tab: DetailTab }>({ id: openId, tab: "mbl" });
+  const detailTab: DetailTab = tabPick.id === openId ? tabPick.tab : "mbl";
+  const setDetailTab = (tab: DetailTab) => setTabPick({ id: openId, tab });
 
   const openMasterJob = (id: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -61,12 +63,12 @@ export function MasterJobsView() {
               <button
                 type="button"
                 onClick={backToList}
-                className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-[#d8dce6] bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-[#f4f5f9] hover:text-[#46506b] transition-colors"
+                className="inline-flex items-center gap-2 h-10 px-4 rounded-lg border border-line-soft bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-surface-2 hover:text-ink-soft transition-colors"
               >
                 <ArrowLeftOutlined /> Master Jobs
               </button>
               {mj && (
-                <span className="font-mono text-[18px] font-bold tracking-[.02em] text-[#10141f]">{mj.mczNumber}</span>
+                <span className="font-mono text-[18px] font-bold tracking-[.02em] text-ink-strong">{mj.mczNumber}</span>
               )}
               {mj?.masterBolNumber && (
                 <span className="text-[13px] font-semibold text-slate-600">MBL {mj.masterBolNumber}</span>

@@ -1,10 +1,15 @@
-import { eq, and, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { warehouseSectionTable } from "../schemas/warehouseSection.schema";
+import { warehouseSectionTable, type WarehouseSectionRecord } from "../schemas/warehouseSection.schema";
 
-class WarehouseSectionRepository {
-  async findByShipmentAndSection(shipmentId: string, section: string, companyId: string) {
-    const [row] = await db
+class WarehouseSectionRepository extends TenantRepository<typeof warehouseSectionTable> {
+  constructor() {
+    super(db, warehouseSectionTable, "warehouse_section");
+  }
+
+  async findByShipmentAndSection(shipmentId: string, section: string, companyId: string): Promise<WarehouseSectionRecord | null> {
+    const [row] = await this.db
       .select()
       .from(warehouseSectionTable)
       .where(
@@ -14,25 +19,36 @@ class WarehouseSectionRepository {
           eq(warehouseSectionTable.section, section),
           isNull(warehouseSectionTable.deletedAt),
         ),
-      );
+      )
+      .limit(1);
     return row ?? null;
   }
 
-  async upsert(shipmentId: string, section: string, companyId: string, data: unknown) {
-    const existing = await this.findByShipmentAndSection(shipmentId, section, companyId);
-    if (existing) {
-      const [row] = await db
-        .update(warehouseSectionTable)
-        .set({ data, updatedAt: new Date() } as never)
-        .where(eq(warehouseSectionTable.id, existing.id))
-        .returning();
-      return row!;
-    }
-    const [row] = await db
+  // One statement, so two saves at once can't both insert the same live section.
+  async upsert(shipmentId: string, section: string, companyId: string, data: unknown): Promise<WarehouseSectionRecord> {
+    const [row] = await this.db
       .insert(warehouseSectionTable)
       .values({ companyId, shipmentId, section, data })
+      .onConflictDoUpdate({
+        target: [warehouseSectionTable.companyId, warehouseSectionTable.shipmentId, warehouseSectionTable.section],
+        targetWhere: sql`deleted_at IS NULL`,
+        set: { data, updatedAt: new Date() },
+      })
       .returning();
     return row!;
+  }
+
+  async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {
+    await this.db
+      .update(warehouseSectionTable)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(warehouseSectionTable.companyId, companyId),
+          eq(warehouseSectionTable.shipmentId, shipmentId),
+          isNull(warehouseSectionTable.deletedAt),
+        ),
+      );
   }
 }
 

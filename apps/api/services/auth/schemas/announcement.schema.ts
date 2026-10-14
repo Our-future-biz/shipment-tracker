@@ -29,6 +29,9 @@ export const announcementTable = pgTable(
     ...defaultTableIndexes("announcement", table),
     tenantIndex("announcement", table),
     index("announcement_company_scope_idx").on(table.companyId, table.scope),
+    index("announcement_author_id_idx").on(table.authorId),
+    index("announcement_department_id_idx").on(table.departmentId),
+    index("announcement_branch_id_idx").on(table.branchId),
     check("announcement_scope_check", sql`${table.scope} IN ('company', 'audience', 'department', 'branch', 'country')`),
     check("announcement_severity_check", sql`${table.severity} IN ('info', 'warning', 'critical')`),
   ],
@@ -73,3 +76,5 @@ export const announcementAttachmentTable = pgTable(
     index("announcement_attachment_announcement_id_idx").on(table.announcementId),
   ],
 );
+
+export type AnnouncementRecord = typeof announcementTable.$inferSelect;

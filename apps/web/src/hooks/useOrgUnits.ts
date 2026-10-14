@@ -2,20 +2,10 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { services } from "@/lib/api/client";
 
-export interface Department {
-  id: string;
-  name: string;
-}
-
-export interface Branch {
-  id: string;
-  name: string;
-  country: string;
-  countryCode: string | null;
-  locationId: number | null;
-  city: string | null;
-}
+export type Department = services.DepartmentInfo;
+export type Branch = services.BranchInfo;
 
 export interface BranchInput {
   name: string;
@@ -25,13 +15,7 @@ export interface BranchInput {
 }
 
 // A UN/LOCODE place, as the city picker lists it.
-export interface Location {
-  id: number;
-  code: string;
-  name: string;
-  nameAscii: string;
-  subdivisionName: string | null;
-}
+export type Location = services.LocationInfo;
 
 const DEPARTMENTS_KEY = ["departments"];
 const BRANCHES_KEY = ["branches"];
@@ -47,7 +31,7 @@ export const useLocations = (countryCode: string | undefined) => {
     enabled: !!countryCode,
     staleTime: Infinity,
   });
-  return { locations: (query.data?.locations ?? []) as Location[], isLoading: query.isFetching };
+  return { locations: query.data?.locations ?? [], isLoading: query.isFetching };
 };
 
 // Renaming or removing a unit changes what users and noticeboard posts display.
@@ -66,7 +50,7 @@ export const useDepartments = () => {
   const remove = useMutation({ mutationFn: (id: string) => api.auth.departmentDelete(id), onSuccess: invalidate });
 
   return {
-    departments: (query.data?.departments ?? []) as Department[],
+    departments: query.data?.departments ?? [],
     isLoading: query.isLoading,
     createDepartment: create.mutateAsync,
     updateDepartment: update.mutateAsync,
@@ -87,7 +71,7 @@ export const useBranches = () => {
   const remove = useMutation({ mutationFn: (id: string) => api.auth.branchDelete(id), onSuccess: invalidate });
 
   return {
-    branches: (query.data?.branches ?? []) as Branch[],
+    branches: query.data?.branches ?? [],
     isLoading: query.isLoading,
     createBranch: create.mutateAsync,
     updateBranch: update.mutateAsync,
@@ -95,11 +79,7 @@ export const useBranches = () => {
   };
 };
 
-export interface Country {
-  id: string;
-  code: string;
-  name: string;
-}
+export type Country = services.CountryInfo;
 
 // The server takes the country's name from its own list.
 export interface CountryInput {
@@ -121,7 +101,7 @@ export const useCountries = () => {
   const remove = useMutation({ mutationFn: (id: string) => api.auth.countryDelete(id), onSuccess: invalidate });
 
   return {
-    countries: (query.data?.countries ?? []) as Country[],
+    countries: query.data?.countries ?? [],
     isLoading: query.isLoading,
     createCountry: create.mutateAsync,
     updateCountry: update.mutateAsync,

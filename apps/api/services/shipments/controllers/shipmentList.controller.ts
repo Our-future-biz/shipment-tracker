@@ -33,7 +33,7 @@ interface ShipmentListResponse {
 export const shipmentList = api(
   { expose: true, auth: true, method: "GET", path: "/shipments" },
   async (req: ShipmentListRequest): Promise<ShipmentListResponse> => {
-    const result = await shipmentService.list(getAuthData()!.companyID, {
+    return shipmentService.list(getAuthData()!.companyID, {
       customerId: req.customerId,
       status: req.status,
       statusBucket: req.statusBucket,
@@ -45,6 +45,5 @@ export const shipmentList = api(
       offset: req.offset ?? 0,
       sortDirection: req.sortDirection ?? "desc",
     });
-    return result as unknown as ShipmentListResponse;
   },
 );

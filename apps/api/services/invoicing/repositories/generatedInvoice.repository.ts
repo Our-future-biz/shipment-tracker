@@ -1,28 +1,29 @@
-import { eq, and, asc, count as drizzleCount } from "drizzle-orm";
+import { and, asc, count as drizzleCount, eq, isNull } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { generatedInvoiceTable } from "../schemas/generatedInvoice.schema";
+import { generatedInvoiceTable as t, type GeneratedInvoiceRecord } from "../schemas/generatedInvoice.schema";
 
-class GeneratedInvoiceRepository {
-  async listByShipmentId(shipmentId: string, companyId: string) {
-    return db
+class GeneratedInvoiceRepository extends TenantRepository<typeof t> {
+  constructor() {
+    super(db, t, "generated_invoice");
+  }
+
+  async listByShipmentId(shipmentId: string, companyId: string): Promise<GeneratedInvoiceRecord[]> {
+    return this.db
       .select()
-      .from(generatedInvoiceTable)
-      .where(and(eq(generatedInvoiceTable.companyId, companyId), eq(generatedInvoiceTable.shipmentId, shipmentId)))
-      .orderBy(asc(generatedInvoiceTable.createdAt));
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)))
+      .orderBy(asc(t.createdAt));
   }
 
+  /** The job number + the shipment's next sequence (JOB-001); deleted invoices keep their number. */
   async getNextInvoiceNumber(jobNumber: string, shipmentId: string, companyId: string): Promise<string> {
-    const [{ value: existing }] = await db
+    const [result] = await this.db
       .select({ value: drizzleCount() })
-      .from(generatedInvoiceTable)
-      .where(and(eq(generatedInvoiceTable.companyId, companyId), eq(generatedInvoiceTable.shipmentId, shipmentId)));
-    const nextSeq = Number(existing) + 1;
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId)));
+    const nextSeq = Number(result?.value ?? 0) + 1;
     return `${jobNumber}-${String(nextSeq).padStart(3, "0")}`;
-  }
-
-  async create(data: { companyId: string; shipmentId: string; invoiceNumber: string; invoiceType: string; billingCurrency: string; totalAmount: string }) {
-    const [row] = await db.insert(generatedInvoiceTable).values(data).returning();
-    return row!;
   }
 }
 

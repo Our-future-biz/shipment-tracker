@@ -5,7 +5,7 @@ import { publicHolidayTable, type NewPublicHolidayRecord, type PublicHolidayReco
 
 class PublicHolidayRepository extends TenantRepository<typeof publicHolidayTable> {
   constructor() {
-    super(db as never, publicHolidayTable, "public_holiday");
+    super(db, publicHolidayTable, "public_holiday");
   }
 
   // The whole list (no row cap), by country and date.

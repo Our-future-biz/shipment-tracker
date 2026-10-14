@@ -1,7 +1,15 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
-import type { ShipmentItem, ContainerLine, CargoItemLine, CargoDimensionLine, CommercialInvoiceLine } from "../interfaces/interfaces";
+import type {
+  ShipmentItem,
+  ContainerLine,
+  CargoItemLine,
+  CargoDimensionLine,
+  CommercialInvoiceLine,
+  CustomsPriority,
+  CustomsReceivedOverride,
+} from "../interfaces/interfaces";
 
 interface ShipmentUpdateRequest {
   shipmentId: string;
@@ -110,11 +118,12 @@ interface ShipmentUpdateRequest {
   approvedBy?: string;
   bookingConfirmation?: string;
   customsProcedure?: string;
-  customsPriority?: string;
+  /** "" counts as Standard. */
+  customsPriority?: CustomsPriority | "";
   customsDeadline?: string;
   mrn?: string;
-  csRecvInvoice?: string;
-  csRecvPacking?: string;
+  csRecvInvoice?: CustomsReceivedOverride;
+  csRecvPacking?: CustomsReceivedOverride;
   equipmentDelivery?: string;
   equipmentDeliveryDate?: string;
   supplierPic?: string;
@@ -174,10 +183,6 @@ export const shipmentUpdate = api(
   async (req: ShipmentUpdateRequest): Promise<ShipmentUpdateResponse> => {
     const { shipmentId, ...data } = req;
     const auth = getAuthData()!;
-    const shipment = await shipmentService.update(shipmentId, auth.companyID, data, auth.userID);
-    if (!shipment) {
-      throw APIError.notFound("Shipment not found");
-    }
-    return { shipment: shipment as unknown as ShipmentItem };
+    return { shipment: await shipmentService.update(shipmentId, auth.companyID, data, auth.userID) };
   },
 );

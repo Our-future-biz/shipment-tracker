@@ -43,13 +43,12 @@ export function CollapsibleSidebar({
         key={item.key}
         onClick={() => onSelect(item.key)}
         className={`flex items-center rounded-md text-[13px] cursor-pointer mb-0.5 transition-all duration-150 relative ${
-          collapsed ? "justify-center py-2" : "justify-start px-3 py-2"
+          collapsed ? "justify-center gap-0 py-2" : "justify-start gap-2 px-3 py-2"
         } ${
           isActive
             ? "text-indigo-500 bg-indigo-50"
             : "text-slate-500 bg-transparent"
         }`}
-        style={{ gap: collapsed ? 0 : 8 }}
       >
         <span className={`text-sm text-center shrink-0 ${collapsed ? "w-auto" : "w-[18px]"}`}>
           {item.icon}
@@ -86,11 +85,11 @@ export function CollapsibleSidebar({
 
   return (
     <div
-      className="bg-white border-r border-slate-200 flex flex-col shrink-0 transition-[width] duration-200 ease-in-out overflow-hidden"
-      style={{
-        width,
-        padding: collapsed ? "12px 4px" : "12px 8px",
-      }}
+      className={`bg-white border-r border-slate-200 flex flex-col shrink-0 transition-[width] duration-200 ease-in-out overflow-hidden py-3 ${
+        collapsed ? "px-1" : "px-2"
+      }`}
+      // The width comes from the caller (and animates), so it stays inline.
+      style={{ width }}
     >
       {header && !collapsed && <div className="mb-2">{header}</div>}
 

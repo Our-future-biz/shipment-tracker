@@ -215,7 +215,6 @@ export const InvoicingView = () => {
     if (!selectedShipment) return;
     try {
       const res = await generateInvoice({
-        jobNumber: selectedShipment.jobNumber,
         invoiceType,
         billingCurrency,
         totalAmount: fmt(totals.billing),
@@ -258,7 +257,7 @@ export const InvoicingView = () => {
               placeholder="Select a shipment..."
               value={selectedShipmentId}
               onChange={setSelectedShipmentId}
-              style={{ width: 400 }}
+              className="w-[400px]"
               showSearch
               filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
               options={shipments.map((s) => ({ value: s.id, label: `${s.jobNumber} — ${s.shipper} → ${s.consignee}` }))}
@@ -289,7 +288,7 @@ export const InvoicingView = () => {
                 <Select
                   size="small"
                   placeholder="Import from Quote…"
-                  style={{ width: 220 }}
+                  className="w-[220px]"
                   value={null}
                   onChange={(v) => v && importFromQuote(v)}
                   showSearch

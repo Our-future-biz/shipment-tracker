@@ -1,10 +1,24 @@
 import { eq, and, isNull, isNotNull, asc, inArray } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { shipmentAttachmentTable } from "../schemas/shipmentAttachment.schema";
+import {
+  shipmentAttachmentTable,
+  type NewShipmentAttachmentRecord,
+  type ShipmentAttachmentRecord,
+} from "../schemas/shipmentAttachment.schema";
 
-class ShipmentAttachmentRepository {
-  async listByShipmentId(shipmentId: string, companyId: string) {
-    return db
+/** The review/classification columns an attachment update may change. */
+export type AttachmentUpdate = Partial<
+  Pick<NewShipmentAttachmentRecord, "documentType" | "customsStatus" | "customsNote" | "customsReviewedAt" | "customsReviewedById">
+>;
+
+class ShipmentAttachmentRepository extends TenantRepository<typeof shipmentAttachmentTable> {
+  constructor() {
+    super(db, shipmentAttachmentTable, "shipment_attachment");
+  }
+
+  async listByShipmentId(shipmentId: string, companyId: string): Promise<ShipmentAttachmentRecord[]> {
+    return this.db
       .select()
       .from(shipmentAttachmentTable)
       .where(and(
@@ -21,7 +35,7 @@ class ShipmentAttachmentRepository {
    */
   async documentTypesByShipmentIds(shipmentIds: string[], companyId: string) {
     if (shipmentIds.length === 0) return [];
-    return db
+    return this.db
       .select({
         shipmentId: shipmentAttachmentTable.shipmentId,
         documentType: shipmentAttachmentTable.documentType,
@@ -37,7 +51,7 @@ class ShipmentAttachmentRepository {
 
   /** Files sent through the shipment's chat, oldest first. */
   async listChatFilesByShipmentId(shipmentId: string, companyId: string) {
-    return db
+    return this.db
       .select({
         id: shipmentAttachmentTable.id,
         commentId: shipmentAttachmentTable.commentId,
@@ -57,7 +71,7 @@ class ShipmentAttachmentRepository {
 
   /** Ids of the files sent with one chat message. */
   async listIdsByCommentId(commentId: string, companyId: string) {
-    const rows = await db
+    const rows = await this.db
       .select({ id: shipmentAttachmentTable.id })
       .from(shipmentAttachmentTable)
       .where(and(
@@ -75,7 +89,7 @@ class ShipmentAttachmentRepository {
    */
   async linkToComment(ids: string[], commentId: string, shipmentId: string, companyId: string) {
     if (ids.length === 0) return;
-    await db
+    await this.db
       .update(shipmentAttachmentTable)
       .set({ commentId, updatedAt: new Date() })
       .where(and(
@@ -87,57 +101,38 @@ class ShipmentAttachmentRepository {
       ));
   }
 
-  // Company-agnostic lookup for the PUBLIC raw content endpoint (bare-URL download that
-  // carries no token). The caller must still verify the attachment's shipmentId matches
-  // the shipmentId in the request path.
-  async getById(id: string) {
-    const [row] = await db
+  /** One file of a shipment (also checks the file belongs to that shipment). */
+  async getForShipment(id: string, shipmentId: string, companyId: string): Promise<ShipmentAttachmentRecord | null> {
+    const [row] = await this.db
       .select()
       .from(shipmentAttachmentTable)
-      .where(and(eq(shipmentAttachmentTable.id, id), isNull(shipmentAttachmentTable.deletedAt)))
+      .where(
+        and(
+          eq(shipmentAttachmentTable.id, id),
+          eq(shipmentAttachmentTable.shipmentId, shipmentId),
+          eq(shipmentAttachmentTable.companyId, companyId),
+          isNull(shipmentAttachmentTable.deletedAt),
+        ),
+      )
       .limit(1);
     return row ?? null;
-  }
-
-  async getByIdForCompany(id: string, companyId: string) {
-    const [row] = await db
-      .select()
-      .from(shipmentAttachmentTable)
-      .where(and(eq(shipmentAttachmentTable.id, id), eq(shipmentAttachmentTable.companyId, companyId), isNull(shipmentAttachmentTable.deletedAt)))
-      .limit(1);
-    return row ?? null;
-  }
-
-  async create(data: { companyId: string; shipmentId: string; fileName: string; fileSize: number; fileType: string; storageKey: string; documentType?: string; uploadedById?: string | null }) {
-    const [row] = await db.insert(shipmentAttachmentTable).values(data).returning();
-    return row!;
   }
 
   /** Partial update of an attachment's classification / customs review. */
-  async update(
-    id: string,
-    companyId: string,
-    data: Partial<{
-      documentType: string;
-      customsStatus: string;
-      customsNote: string;
-      customsReviewedAt: Date | null;
-      customsReviewedById: string | null;
-    }>,
-  ) {
-    const [row] = await db
+  async updateReview(id: string, shipmentId: string, companyId: string, data: AttachmentUpdate): Promise<ShipmentAttachmentRecord | null> {
+    const [row] = await this.db
       .update(shipmentAttachmentTable)
       .set({ ...data, updatedAt: new Date() })
-      .where(and(eq(shipmentAttachmentTable.id, id), eq(shipmentAttachmentTable.companyId, companyId), isNull(shipmentAttachmentTable.deletedAt)))
+      .where(
+        and(
+          eq(shipmentAttachmentTable.id, id),
+          eq(shipmentAttachmentTable.shipmentId, shipmentId),
+          eq(shipmentAttachmentTable.companyId, companyId),
+          isNull(shipmentAttachmentTable.deletedAt),
+        ),
+      )
       .returning();
     return row ?? null;
-  }
-
-  async delete(id: string, companyId: string) {
-    await db
-      .update(shipmentAttachmentTable)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(shipmentAttachmentTable.id, id), eq(shipmentAttachmentTable.companyId, companyId), isNull(shipmentAttachmentTable.deletedAt)));
   }
 }
 

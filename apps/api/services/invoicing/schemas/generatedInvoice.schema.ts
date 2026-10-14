@@ -1,4 +1,5 @@
-import { pgTable, text, numeric, uuid, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, numeric, uuid, uniqueIndex, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const generatedInvoiceTable = pgTable(
@@ -8,7 +9,7 @@ export const generatedInvoiceTable = pgTable(
     ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
     invoiceNumber: text("invoice_number").notNull(),
-    invoiceType: text("invoice_type").notNull(),
+    invoiceType: text("invoice_type").notNull(), // InvoiceType: "breakdown" | "total"
     billingCurrency: text("billing_currency").notNull(),
     totalAmount: numeric("total_amount", { precision: 14, scale: 2 }).notNull(),
   },
@@ -19,6 +20,7 @@ export const generatedInvoiceTable = pgTable(
     // Invoice numbers derive from per-company job numbers, so they're unique per company
     // (kept across soft-delete — a legal invoice number is never reused).
     uniqueIndex("generated_invoice_company_number_unique").on(table.companyId, table.invoiceNumber),
+    check("generated_invoice_invoice_type_check", sql`${table.invoiceType} IN ('breakdown', 'total')`),
   ],
 );
 

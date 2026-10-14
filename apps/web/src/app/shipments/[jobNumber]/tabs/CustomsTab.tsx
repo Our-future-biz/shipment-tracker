@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { DatePicker, Input, Modal, Select, TimePicker, Tooltip, message } from "antd";
 import dayjs, { type Dayjs } from "dayjs";
 import {
@@ -13,15 +13,15 @@ import {
   EyeOutlined,
   DownloadOutlined,
 } from "@ant-design/icons";
-import { api } from "@/lib/api";
+import { api, apiFileUrl } from "@/lib/api";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { DetailCard, makeStyleFor, type CommitFn } from "../ShipmentDetailContent";
 import { formatDateTime } from "@/lib/date";
-import { attachmentContentUrl } from "@/lib/files";
+import { useShipmentAttachments } from "@/hooks/useShipmentAttachments";
+import type { interfaces } from "@/lib/api/client";
 import { FileCell, CustomsPill, docPlural } from "./docsShared";
 import { CustomerLinkField } from "../_components/CustomerLinkField";
 import { EditableCell } from "../_components/EditableCell";
-import { DROPDOWN_OPTIONS } from "@/lib/columnConfig";
 import { DOCUMENT_GROUPS, documentGroupOf, isReviewedDocumentType } from "@/lib/documentTypes";
 
 // Statuses the server derives from the paperwork; while one of them shows, the field is locked.
@@ -102,9 +102,9 @@ const DOC_COLUMNS: { label: string; widthClass?: string }[] = [
 // Every cell of a document row is laid out on the same two lines (32px + 16px, see also
 // FileCell), so names, the status and its buttons share one line across the columns and
 // sizes, dates and the reviewer share the other.
-const DOC_CELL = "py-[13px] border-b border-[#E4E7F0]";
+const DOC_CELL = "py-[13px] border-b border-line";
 const DOC_BUTTON =
-  "inline-flex items-center h-8 gap-[7px] text-[12.5px] font-semibold px-[10px] rounded-[7px] border border-[#D3D8E5] bg-white text-[#151B2B] cursor-pointer transition-colors";
+  "inline-flex items-center h-8 gap-[7px] text-[12.5px] font-semibold px-[10px] rounded-[7px] border border-line-strong bg-white text-ink cursor-pointer transition-colors";
 
 const PRIORITY_DOT: Record<string, string> = { Standard: "bg-green-500", Urgent: "bg-red-500" };
 
@@ -150,6 +150,9 @@ function LockedStatusRow({ value, style }: { value: string; style?: React.CSSPro
 
 const DEADLINE_FORMAT = "YYYY-MM-DD HH:mm";
 
+type CustomsPriority = interfaces.CustomsPriority;
+const PRIORITIES: CustomsPriority[] = ["Standard", "Urgent"];
+
 // Customs Priority shows its coloured dot all the time, so an urgent shipment stands out;
 // like the other fields it is changed after a double-click. Switching to Urgent asks for the
 // deadline first and only takes effect once it is confirmed. Sits at the top of the right column.
@@ -158,9 +161,9 @@ function CustomsPriorityRow({
   deadline,
   onChange,
 }: {
-  value: string;
+  value: CustomsPriority | "";
   deadline: string;
-  onChange: (priority: string, deadline: string) => void;
+  onChange: (priority: CustomsPriority, deadline: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
   // Deadline being picked in the dialog; null while the dialog is closed.
@@ -171,7 +174,7 @@ function CustomsPriorityRow({
     <div className="flex items-center gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Customs Priority</span>
       {editing ? (
-        <Select
+        <Select<CustomsPriority>
           size="small"
           autoFocus
           defaultOpen
@@ -186,7 +189,7 @@ function CustomsPriorityRow({
             else if (next !== current) onChange(next, "");
           }}
           onBlur={() => setEditing(false)}
-          options={(DROPDOWN_OPTIONS["Customs Priority"] ?? []).map((o) => ({ value: o, label: priorityLabel(o) }))}
+          options={PRIORITIES.map((o) => ({ value: o, label: priorityLabel(o) }))}
           className="flex-1 min-w-[140px]"
         />
       ) : (
@@ -284,24 +287,19 @@ export function CustomsTab({
     (f) => f.key !== "customsStatus",
   );
 
-  const attachmentsQuery = useQuery({
-    queryKey: ["shipment-attachments", shipment.id],
-    queryFn: () => api.shipments.attachmentList(shipment.id),
-  });
+  const { attachments, refresh: refreshDocuments } = useShipmentAttachments(shipment.id);
 
-  const queryClient = useQueryClient();
   const [declining, setDeclining] = useState<string | null>(null);
   const [note, setNote] = useState("");
 
   // Customs can only approve or decline — the document type itself is set in the
   // Documents tab, so operations stays the owner of classification.
   const review = useMutation({
-    mutationFn: ({ id, status, reason }: { id: string; status: string; reason?: string }) =>
+    mutationFn: ({ id, status, reason }: { id: string; status: interfaces.AttachmentCustomsStatus; reason?: string }) =>
       api.shipments.attachmentReview(shipment.id, id, { status, note: reason ?? "" }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipment.id] });
-      // Approving or declining the paperwork moves the shipment's customs status.
-      queryClient.invalidateQueries({ queryKey: ["shipments"] });
+      // Approving or declining the paperwork moves the shipment's customs status too.
+      refreshDocuments();
       setDeclining(null);
       setNote("");
     },
@@ -310,7 +308,6 @@ export function CustomsTab({
 
   // Memoised so the `?? []` fallback does not hand the memo below a new array
   // (and therefore a new dependency) on every render.
-  const attachments = useMemo(() => attachmentsQuery.data?.attachments ?? [], [attachmentsQuery.data?.attachments]);
   const matching = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return attachments;
@@ -389,21 +386,21 @@ export function CustomsTab({
         // A table that is not reviewed has no Customs review column at all.
         const columns = reviewed ? DOC_COLUMNS : DOC_COLUMNS.filter((c) => c.label !== REVIEW_COLUMN);
         return (
-          <div key={group.title} className="bg-white border border-[#E4E7F0] rounded-[11px] overflow-hidden shadow-[0_1px_2px_rgba(21,27,43,.05)]">
+          <div key={group.title} className="bg-white border border-line rounded-[11px] overflow-hidden shadow-[0_1px_2px_rgba(21,27,43,.05)]">
             {/* .card-head */}
-            <div className="flex items-center gap-[11px] flex-wrap bg-[#EDEFFC] px-[18px] py-[13px]">
+            <div className="flex items-center gap-[11px] flex-wrap bg-accent-softer px-[18px] py-[13px]">
               {/* .ci - ikona v ramecku */}
-              <span className="w-[22px] h-[22px] rounded-[6px] grid place-items-center text-[#4457D6] border-[1.5px] border-[#4457D6] flex-none text-[12px]">
+              <span className="w-[22px] h-[22px] rounded-[6px] grid place-items-center text-accent border-[1.5px] border-accent flex-none text-[12px]">
                 <FileTextOutlined />
               </span>
               {/* h2 */}
-              <h2 className="m-0 text-[14.5px] font-extrabold tracking-[.06em] uppercase text-[#151B2B] leading-[1.2]">
+              <h2 className="m-0 text-[14.5px] font-extrabold tracking-[.06em] uppercase text-ink leading-[1.2]">
                 {group.title}
               </h2>
               {/* .right */}
               <div className="ml-auto flex items-center gap-[10px] flex-wrap">
                 {/* .count-note */}
-                <span className="text-[13px] text-[#5A6478] font-semibold whitespace-nowrap">
+                <span className="text-[13px] text-subtle font-semibold whitespace-nowrap">
                   {docPlural(documents.length)}
                   {reviewed &&
                     documents.length > 0 &&
@@ -413,11 +410,11 @@ export function CustomsTab({
                 {index === 0 && (
                 <Input
                   placeholder="Search by file name"
-                  prefix={<SearchOutlined className="!text-[#8B94A7] text-[15px]" />}
+                  prefix={<SearchOutlined className="!text-muted text-[15px]" />}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   allowClear
-                  className="flex-none !w-[210px] [&.ant-input-affix-wrapper]:!border-[#D3D8E5] [&.ant-input-affix-wrapper]:!rounded-lg [&.ant-input-affix-wrapper]:!py-[7px] [&.ant-input-affix-wrapper]:!px-[11px] [&_input]:!text-[13px]"
+                  className="flex-none !w-[210px] [&.ant-input-affix-wrapper]:!border-line-strong [&.ant-input-affix-wrapper]:!rounded-lg [&.ant-input-affix-wrapper]:!py-[7px] [&.ant-input-affix-wrapper]:!px-[11px] [&_input]:!text-[13px]"
                 />
                 )}
               </div>
@@ -437,7 +434,7 @@ export function CustomsTab({
                     {columns.map((c, i) => (
                       <th
                         key={i}
-                        className="text-left text-[11px] font-extrabold tracking-[.07em] uppercase text-[#4E5769] px-[18px] py-[12px] border-b border-[#E4E7F0] bg-white whitespace-nowrap"
+                        className="text-left text-[11px] font-extrabold tracking-[.07em] uppercase text-ink-muted px-[18px] py-[12px] border-b border-line bg-white whitespace-nowrap"
                       >
                         {c.label}
                       </th>
@@ -447,7 +444,7 @@ export function CustomsTab({
                 <tbody>
                   {filtered.map((d) => (
                     <Fragment key={d.id}>
-                      <tr className="group transition-colors hover:bg-[#FAFBFD]">
+                      <tr className="group transition-colors hover:bg-surface">
                         {/* File */}
                         <td className={`px-[18px] align-top ${DOC_CELL}`}>
                           <FileCell fileName={d.fileName} fileSize={d.fileSize} />
@@ -456,23 +453,23 @@ export function CustomsTab({
                         {/* Document type - .type-static, v Customs jen ke cteni */}
                         <td className={`px-[18px] align-top ${DOC_CELL}`}>
                           {d.documentType ? (
-                            <span className="block truncate text-[13.5px] leading-8 font-semibold text-[#5A6478]" title={d.documentType}>
+                            <span className="block truncate text-[13.5px] leading-8 font-semibold text-subtle" title={d.documentType}>
                               {d.documentType}
                             </span>
                           ) : (
                             <Tooltip title="Set the type in the Documents tab">
-                              <span className="text-[13.5px] leading-8 font-semibold text-[#8B94A7]">—</span>
+                              <span className="text-[13.5px] leading-8 font-semibold text-muted">—</span>
                             </Tooltip>
                           )}
                         </td>
 
                         {/* Uploaded by - .val */}
                         <td className={`px-[18px] align-top ${DOC_CELL}`}>
-                          <span className="block text-[13.5px] font-semibold text-[#C3392B]">
+                          <span className="block text-[13.5px] font-semibold text-danger">
                             <span className="block truncate leading-8" title={d.uploadedByName || "Unknown"}>
                               {d.uploadedByName || "Unknown"}
                             </span>
-                            <small className="block text-[12px] leading-4 font-medium text-[#8B94A7] whitespace-nowrap tabular-nums">
+                            <small className="block text-[12px] leading-4 font-medium text-muted whitespace-nowrap tabular-nums">
                               {d.createdAt ? formatDateTime(d.createdAt) : ""}
                             </small>
                           </span>
@@ -493,7 +490,7 @@ export function CustomsTab({
                                 {canReview ? (
                                   <button
                                     onClick={() => review.mutate({ id: d.id, status: "" })}
-                                    className={`${DOC_BUTTON} hover:bg-[#F6F7FB] hover:border-[#8B94A7]`}
+                                    className={`${DOC_BUTTON} hover:bg-surface-3 hover:border-muted`}
                                   >
                                     Change
                                   </button>
@@ -502,7 +499,7 @@ export function CustomsTab({
                                 )}
                                 {d.customsReviewedAt && (
                                   <small
-                                    className="col-span-2 flex w-full min-w-0 text-[11px] leading-4 text-[#8B94A7] whitespace-nowrap tabular-nums"
+                                    className="col-span-2 flex w-full min-w-0 text-[11px] leading-4 text-muted whitespace-nowrap tabular-nums"
                                     title={`${d.customsReviewedByName || "Customs"} · ${formatDateTime(d.customsReviewedAt)}`}
                                   >
                                     <span className="truncate">{d.customsReviewedByName || "Customs"}</span>
@@ -519,7 +516,7 @@ export function CustomsTab({
                               <>
                                 <button
                                   onClick={() => review.mutate({ id: d.id, status: "approved" })}
-                                  className={`${DOC_BUTTON} justify-center w-full hover:border-[#177245] hover:text-[#177245] hover:bg-[#E1F3E9]`}
+                                  className={`${DOC_BUTTON} justify-center w-full hover:border-ok hover:text-ok hover:bg-ok-soft`}
                                 >
                                   <CheckOutlined className="text-[15px]" />
                                   Approve
@@ -532,7 +529,7 @@ export function CustomsTab({
                                     setDeclining(d.id);
                                     setNote("");
                                   }}
-                                  className={`${DOC_BUTTON} hover:border-[#C3392B] hover:text-[#C3392B] hover:bg-[#FBE6E4]`}
+                                  className={`${DOC_BUTTON} hover:border-danger hover:text-danger hover:bg-danger-soft`}
                                 >
                                   <CloseOutlined className="text-[15px]" />
                                   Decline
@@ -548,18 +545,18 @@ export function CustomsTab({
                           <div className="flex gap-[2px] justify-end opacity-60 group-hover:opacity-100 transition-opacity">
                             <Tooltip title="Preview">
                               <a
-                                href={attachmentContentUrl(shipment.id, d.id)}
+                                href={apiFileUrl(d.contentUrl)}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="w-[30px] h-[30px] rounded-[7px] grid place-items-center !text-[#5A6478] hover:!bg-[#E7EAFC] hover:!text-[#4457D6]"
+                                className="w-[30px] h-[30px] rounded-[7px] grid place-items-center !text-subtle hover:!bg-accent-soft hover:!text-accent"
                               >
                                 <EyeOutlined className="text-[16px]" />
                               </a>
                             </Tooltip>
                             <Tooltip title="Download">
                               <a
-                                href={attachmentContentUrl(shipment.id, d.id, true)}
-                                className="w-[30px] h-[30px] rounded-[7px] grid place-items-center !text-[#5A6478] hover:!bg-[#E7EAFC] hover:!text-[#4457D6]"
+                                href={apiFileUrl(d.contentUrl, true)}
+                                className="w-[30px] h-[30px] rounded-[7px] grid place-items-center !text-subtle hover:!bg-accent-soft hover:!text-accent"
                               >
                                 <DownloadOutlined className="text-[16px]" />
                               </a>
@@ -571,10 +568,10 @@ export function CustomsTab({
                       {/* tr.cs-note - duvod zamitnuti v rozbalenem radku pod dokumentem */}
                       {(declining === d.id || (d.customsStatus === "declined" && d.customsNote)) && (
                         <tr className="cs-note">
-                          <td colSpan={columns.length} className="px-[18px] pb-[14px] pt-0 border-b border-[#E4E7F0] bg-[#FAFBFD]">
-                            <label className="block text-[11px] font-extrabold tracking-[.07em] uppercase text-[#C3392B] mb-[5px]">
+                          <td colSpan={columns.length} className="px-[18px] pb-[14px] pt-0 border-b border-line bg-surface">
+                            <label className="block text-[11px] font-extrabold tracking-[.07em] uppercase text-danger mb-[5px]">
                               Reason for decline
-                              <span className="block text-[11px] font-medium tracking-normal normal-case text-[#8B94A7] mt-[2px]">
+                              <span className="block text-[11px] font-medium tracking-normal normal-case text-muted mt-[2px]">
                                 Visible to the operations team in the Documents tab
                               </span>
                             </label>
@@ -586,12 +583,12 @@ export function CustomsTab({
                                   value={note}
                                   onChange={(e) => setNote(e.target.value)}
                                   placeholder="What is wrong with the document…"
-                                  className="w-full max-w-[620px] text-[13px] text-[#151B2B] border border-[#C3392B] rounded-lg px-[10px] py-2 bg-white outline-none resize-y"
+                                  className="w-full max-w-[620px] text-[13px] text-ink border border-danger rounded-lg px-[10px] py-2 bg-white outline-none resize-y"
                                 />
                                 <div className="flex gap-2 mt-2">
                                   <button
                                     onClick={() => review.mutate({ id: d.id, status: "declined", reason: note })}
-                                    className="text-[12.5px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-[#C3392B] bg-[#C3392B] text-white cursor-pointer hover:brightness-110 transition-all"
+                                    className="text-[12.5px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-danger bg-danger text-white cursor-pointer hover:brightness-110 transition-all"
                                   >
                                     Save decline
                                   </button>
@@ -600,14 +597,14 @@ export function CustomsTab({
                                       setDeclining(null);
                                       setNote("");
                                     }}
-                                    className="text-[12.5px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-[#D3D8E5] bg-white text-[#151B2B] cursor-pointer hover:bg-[#F6F7FB] transition-colors"
+                                    className="text-[12.5px] font-semibold px-[10px] py-[5px] rounded-[7px] border border-line-strong bg-white text-ink cursor-pointer hover:bg-surface-3 transition-colors"
                                   >
                                     Cancel
                                   </button>
                                 </div>
                               </>
                             ) : (
-                              <div className="text-[13px] text-[#151B2B] max-w-[620px]">“{d.customsNote}”</div>
+                              <div className="text-[13px] text-ink max-w-[620px]">“{d.customsNote}”</div>
                             )}
                           </td>
                         </tr>
@@ -619,7 +616,7 @@ export function CustomsTab({
 
               {/* .empty */}
               {filtered.length === 0 && (
-                <div className="px-[18px] py-9 text-center text-[#8B94A7] text-[13.5px]">
+                <div className="px-[18px] py-9 text-center text-muted text-[13.5px]">
                   {documents.length === 0
                     ? `No ${group.title.toLowerCase()} yet — files marked ${group.types.join(" or ")} in the Documents tab show up here.`
                     : `No file matches “${search}”.`}
@@ -628,7 +625,7 @@ export function CustomsTab({
             </div>
 
             {/* .cs-foot */}
-            <div className="px-[18px] py-[11px] border-t border-[#E4E7F0] bg-[#FAFBFD] text-[12.5px] text-[#8B94A7] font-medium">
+            <div className="px-[18px] py-[11px] border-t border-line bg-surface text-[12.5px] text-muted font-medium">
               {group.types.join(" and ")} documents. Types are set in the Documents tab
               {!reviewed ? "." : canReview ? " — customs can only approve or decline." : "; they are approved or declined in the Customs section."}
             </div>

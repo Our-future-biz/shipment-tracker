@@ -5,9 +5,10 @@ import { Select } from "antd";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomer } from "@/hooks/useCustomers";
 import type { CustomerItem } from "@/hooks/useCustomers";
-import type { controllers } from "@/lib/api/client";
+import type { controllers, interfaces } from "@/lib/api/client";
 import { useToast } from "@/lib/toast";
-import { CURRENCIES, CUSTOMER_LABELS, CUSTOMER_STATUSES, PAYMENT_TERMS } from "../../_lib/constants";
+import { CURRENCIES } from "@/lib/enums";
+import { CUSTOMER_LABELS, CUSTOMER_STATUSES, PAYMENT_TERMS } from "../../_lib/constants";
 import { CustomerInfoRow } from "./CustomerInfoRow";
 import { EditableText } from "./EditableText";
 
@@ -100,7 +101,7 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
               aria-label="Status"
               value={shown.status}
               options={STATUS_OPTIONS}
-              onChange={(value: string) => save({ status: value })}
+              onChange={(value: interfaces.CustomerStatus) => save({ status: value })}
             />
           </div>
         </CustomerInfoRow>
@@ -111,7 +112,7 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
               aria-label="Account type"
               value={shown.label}
               options={ACCOUNT_TYPE_OPTIONS}
-              onChange={(value: string) => save({ label: value })}
+              onChange={(value: interfaces.CustomerLabel) => save({ label: value })}
             />
           </div>
         </CustomerInfoRow>

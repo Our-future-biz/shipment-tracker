@@ -3,7 +3,7 @@ import { APIError } from "encore.dev/api";
 import { secret } from "encore.dev/config";
 import { SignJWT, jwtVerify } from "jose";
 import { isCompanyRole, isAdminLevel } from "../../../lib/rbac";
-import { userRepository } from "../repositories/user.repository";
+import { userRepository, type UserPatch } from "../repositories/user.repository";
 import { companyRepository } from "../repositories/company.repository";
 import { departmentRepository, branchRepository } from "../repositories/orgUnit.repository";
 
@@ -30,6 +30,13 @@ export interface AuthUserInfo {
   departmentId: string | null;
   branchId: string | null;
 }
+
+// Nobody deactivates their own account, so a company can't lock out its last admin this way.
+export function assertNotSelf(targetId: string, actorId: string): void {
+  if (targetId === actorId) throw APIError.invalidArgument("You cannot deactivate your own account");
+}
+
+const userNotFound = () => APIError.notFound("User not found");
 
 // Org placement of a user; null clears it, undefined leaves it untouched.
 interface OrgPlacement {
@@ -102,33 +109,34 @@ class AuthService {
     companyId: string,
     actor: { userID: string; role: string },
     patch: { displayName?: string; role?: string; password?: string } & OrgPlacement,
-  ): Promise<AuthUserInfo | null> {
+  ): Promise<AuthUserInfo> {
     if (patch.role !== undefined) {
       if (!isAdminLevel(actor.role)) throw APIError.permissionDenied("Only admins can change roles");
       if (!isCompanyRole(patch.role)) throw APIError.invalidArgument("role must be admin, manager or user");
       if (id === actor.userID) throw APIError.invalidArgument("You cannot change your own role");
     }
     const target = await userRepository.getByIdInCompany(id, companyId);
-    if (!target) return null;
+    if (!target) throw userNotFound();
     if (!isAdminLevel(actor.role) && target.role !== "user") {
       throw APIError.permissionDenied("Managers can only modify standard users");
     }
-    const changes: Record<string, unknown> = { ...(await this.#checkPlacement(companyId, patch)) };
+    const changes: UserPatch = { ...(await this.#checkPlacement(companyId, patch)) };
     if (patch.displayName !== undefined) changes.displayName = patch.displayName;
     if (patch.role !== undefined) changes.role = patch.role;
     if (patch.password) changes.passwordHash = await hash(patch.password);
     const updated = await userRepository.updateInCompany(id, companyId, changes);
-    return updated ? this.#toInfo(updated) : null;
+    if (!updated) throw userNotFound();
+    return this.#toInfo(updated);
   }
 
-  async deactivateUser(id: string, companyId: string, actor: { role: string }): Promise<boolean> {
+  async deactivateUser(id: string, companyId: string, actor: { userID: string; role: string }): Promise<void> {
+    assertNotSelf(id, actor.userID);
     const target = await userRepository.getByIdInCompany(id, companyId);
-    if (!target) return false;
+    if (!target) throw userNotFound();
     if (!isAdminLevel(actor.role) && target.role !== "user") {
       throw APIError.permissionDenied("Managers can only deactivate standard users");
     }
-    const deleted = await userRepository.softDeleteInCompany(id, companyId);
-    return !!deleted;
+    if (!(await userRepository.softDeleteInCompany(id, companyId))) throw userNotFound();
   }
 
   // Platform provisioning: create a company and its first admin in one step.
@@ -157,9 +165,11 @@ class AuthService {
     return { companyId: company.id, admin };
   }
 
-  async getUserById(id: string): Promise<AuthUserInfo | null> {
-    const found = await userRepository.getById(id);
-    if (!found) return null;
+  // The signed-in user behind a token; a token of a user since removed is no longer valid.
+  async me(token: string): Promise<AuthUserInfo> {
+    const { userId } = await this.verifyToken(token);
+    const found = await userRepository.getById(userId);
+    if (!found) throw APIError.unauthenticated("User not found");
     return this.#toInfo(found);
   }
 

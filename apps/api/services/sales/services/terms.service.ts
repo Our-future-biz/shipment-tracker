@@ -1,48 +1,66 @@
 import { APIError } from "encore.dev/api";
 import { termsConditionRepository } from "../repositories/termsCondition.repository";
+import type { NewTermsConditionRecord } from "../schemas/termsCondition.schema";
+import type { TermsConditionItem } from "../interfaces/interfaces";
+import { toTermsItem } from "../lib/mappers";
 
 const DEFAULT_TEMPLATES = ["AIR IMPORT", "AIR EXPORT", "FCL IMPORT", "FCL EXPORT", "LCL IMPORT", "LCL EXPORT"];
 
+export interface TermsPatch {
+  name?: string;
+  includes?: string;
+  excludes?: string;
+}
+
 class TermsService {
   // Each company gets its own set of default templates on first use.
-  async ensureSeeded(companyId: string) {
-    const count = await termsConditionRepository.count(companyId);
-    if (count > 0) return;
-    for (const name of DEFAULT_TEMPLATES) {
-      const existing = await termsConditionRepository.findByNameInsensitive(name, companyId);
-      if (!existing) {
-        await termsConditionRepository.createForCompany(companyId, { name, includes: "", excludes: "" } as never);
-      }
+  async ensureSeeded(companyId: string): Promise<void> {
+    if ((await termsConditionRepository.count(companyId)) > 0) return;
+    await termsConditionRepository.insertMissing(companyId, DEFAULT_TEMPLATES);
+  }
+
+  async list(companyId: string): Promise<TermsConditionItem[]> {
+    await this.ensureSeeded(companyId);
+    return (await termsConditionRepository.listAll(companyId)).map(toTermsItem);
+  }
+
+  async get(id: string, companyId: string): Promise<TermsConditionItem> {
+    const row = await termsConditionRepository.getByIdForCompany(id, companyId);
+    if (!row) throw APIError.notFound("Terms & conditions not found");
+    return toTermsItem(row);
+  }
+
+  async create(companyId: string, name: string): Promise<TermsConditionItem> {
+    const trimmed = await this.freeName(name, companyId);
+    const values: Omit<NewTermsConditionRecord, "companyId"> = { name: trimmed, includes: "", excludes: "" };
+    return toTermsItem(await termsConditionRepository.createForCompany(companyId, values));
+  }
+
+  async update(id: string, companyId: string, data: TermsPatch): Promise<TermsConditionItem> {
+    const patch: Partial<NewTermsConditionRecord> = {};
+    if (data.name !== undefined) patch.name = await this.freeName(data.name, companyId, id);
+    if (data.includes !== undefined) patch.includes = data.includes;
+    if (data.excludes !== undefined) patch.excludes = data.excludes;
+    const row = await termsConditionRepository.updateForCompany(id, companyId, patch);
+    if (!row) throw APIError.notFound("Terms & conditions not found");
+    return toTermsItem(row);
+  }
+
+  async softDelete(id: string, companyId: string): Promise<void> {
+    if (!(await termsConditionRepository.softDeleteForCompany(id, companyId))) {
+      throw APIError.notFound("Terms & conditions not found");
     }
   }
 
-  async list(companyId: string) {
-    await this.ensureSeeded(companyId);
-    return termsConditionRepository.listAll(companyId);
-  }
-
-  async getById(id: string, companyId: string) {
-    return termsConditionRepository.getByIdForCompany(id, companyId);
-  }
-
-  async create(companyId: string, name: string) {
+  // A template name, trimmed, that no other live template of the company uses (case-insensitive).
+  private async freeName(name: string, companyId: string, ownId?: string): Promise<string> {
     const trimmed = name.trim();
     if (!trimmed) throw APIError.invalidArgument("name is required");
     const existing = await termsConditionRepository.findByNameInsensitive(trimmed, companyId);
-    if (existing) throw APIError.alreadyExists("A terms & conditions template with this name already exists");
-    return termsConditionRepository.createForCompany(companyId, { name: trimmed, includes: "", excludes: "" } as never);
-  }
-
-  async update(id: string, companyId: string, data: { name?: string; includes?: string; excludes?: string }) {
-    const patch: Record<string, unknown> = {};
-    if (data.name !== undefined) patch.name = data.name;
-    if (data.includes !== undefined) patch.includes = data.includes;
-    if (data.excludes !== undefined) patch.excludes = data.excludes;
-    return termsConditionRepository.updateForCompany(id, companyId, patch as never);
-  }
-
-  async softDelete(id: string, companyId: string) {
-    return termsConditionRepository.softDeleteForCompany(id, companyId);
+    if (existing && existing.id !== ownId) {
+      throw APIError.alreadyExists("A terms & conditions template with this name already exists");
+    }
+    return trimmed;
   }
 }
 

@@ -14,7 +14,7 @@ export interface InvoiceCostItem {
   sortOrder: number;
 }
 
-/** Selling costs z Costs Breakdownu (mockup: #sellTable) */
+/** Selling cost line of the Costs Breakdown (mockup: #sellTable) */
 export interface SellingCostItem {
   id: string;
   shipmentId: string;
@@ -66,7 +66,7 @@ export interface GeneratedInvoiceItem {
   createdAt: string;
 }
 
-/** Kurzovni listek s tydenni platnosti (stranka Exchange) */
+/** Weekly exchange rates (Exchange page); CZK per 1 unit */
 export interface ExchangeRateItem {
   id: string;
   week: string;
@@ -75,6 +75,92 @@ export interface ExchangeRateItem {
   rateEur: string | null;
   rateUsd: string | null;
   note: string;
+}
+
+/** Everything the Costs / Invoicing views of one shipment show */
+export interface InvoicingData {
+  costs: InvoiceCostItem[];
+  sellingCosts: SellingCostItem[];
+  additionalCharges: AdditionalChargeItem[];
+  billingSettings: BillingSettingsItem | null;
+  billingOverrides: BillingOverrideItem[];
+  generatedInvoices: GeneratedInvoiceItem[];
+}
+
+/** A generated invoice lists the cost lines ("breakdown") or only the total ("total"). */
+export type InvoiceType = "breakdown" | "total";
+
+// Write inputs. Amounts are decimal strings ("1250.50"); "" clears an amount.
+
+export interface BuyingCostInput {
+  category?: string;
+  vendor?: string;
+  estQty?: string;
+  estAmount?: string;
+  estCurrency?: string;
+  realQty?: string;
+  realAmount?: string;
+  realCurrency?: string;
+  invoiceNumber?: string;
+  received?: boolean;
+  sortOrder?: number;
+}
+
+/** The older per-category buying cost (one row per category of a shipment). */
+export interface CategoryCostInput {
+  estAmount?: string;
+  estCurrency?: string;
+  realAmount?: string;
+  realCurrency?: string;
+  invoiceNumber?: string;
+  vendor?: string;
+}
+
+export interface SellingCostInput {
+  category?: string;
+  customer?: string;
+  qty?: string;
+  amount?: string;
+  currency?: string;
+  invoice?: boolean;
+  sourceBuyId?: string;
+  sortOrder?: number;
+}
+
+export interface AdditionalChargeInput {
+  invoiceNumber?: string;
+  vendor?: string;
+  description?: string;
+  estAmount?: string;
+  estCurrency?: string;
+  realAmount?: string;
+  realCurrency?: string;
+  sortOrder?: number;
+}
+
+export interface BillingSettingsInput {
+  billingCurrency?: string;
+  /** rate of exchange, decimal string */
+  roe?: string;
+  quoteRef?: string;
+}
+
+export interface ExchangeRateInput {
+  /** ISO week, e.g. "2026-W36" */
+  week: string;
+  /** yyyy-mm-dd, Monday of the week */
+  validFrom: string;
+  /** yyyy-mm-dd, Sunday of the week */
+  validTo: string;
+  rateEur?: string;
+  rateUsd?: string;
+  note?: string;
+}
+
+export interface ExchangeRatePatch {
+  rateEur?: string;
+  rateUsd?: string;
+  note?: string;
 }
 
 /** Line of the Invoicing tab in Customs */

@@ -102,12 +102,3 @@ Rules:
 - For MBL pages: return 1 object with shared info + "__type__": "MBL"
 ${PLACE_RULES}
 - Return ONLY a JSON array. No markdown, no explanation, no code fences.`;
-
-export const CLASSIFICATION_PROMPT = `Classify each page image. For each page, return its type:
-- MANIFEST: Cargo manifest/list with multiple shipments in blocks (S: Shipper, C: Consignee)
-- HBL: House Bill of Lading (full-page for ONE shipment)
-- MBL: Master Bill of Lading (consolidated with many cargo items, N/M marks, "TO BE CONTINUED")
-- SKIP: Terms & conditions, blank pages, signatures, cover pages
-
-Return a JSON array: [{"page": 1, "type": "HBL"}, {"page": 2, "type": "MANIFEST"}, ...]
-No markdown, no explanation, no code fences.`;

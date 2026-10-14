@@ -1,4 +1,5 @@
 import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
 import type { AresResult } from "../interfaces/interfaces";
 
 const ARES_BASE = "https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty";
@@ -11,7 +12,7 @@ interface AresAddress {
   psc?: number | string;
 }
 
-interface AresResponse {
+export interface AresResponse {
   ico?: string;
   dic?: string;
   obchodniJmeno?: string;
@@ -21,6 +22,26 @@ interface AresResponse {
   stavSubjektu?: string;
   datumVzniku?: string;
   czNace?: string[];
+}
+
+// The registry's record as a customer's registry fields.
+export function mapAresResponse(json: AresResponse, ico: string): AresResult {
+  const adresa = json.sidlo ?? {};
+  const houseNumber = adresa.cisloDomovni
+    ? `${adresa.cisloDomovni}${adresa.cisloOrientacni ? "/" + adresa.cisloOrientacni : ""}`
+    : "";
+  return {
+    ico: json.ico ?? ico,
+    dic: json.dic ?? "",
+    companyName: json.obchodniJmeno ?? json.nazev ?? "",
+    legalForm: json.pravniForma ?? "",
+    registeredAddress: [adresa.nazevUlice, houseNumber, adresa.nazevObce, adresa.psc].filter(Boolean).join(", "),
+    city: adresa.nazevObce ?? "",
+    country: "CZ",
+    companyStatus: json.stavSubjektu ?? "Active",
+    registrationDate: json.datumVzniku ? String(json.datumVzniku).split("T")[0]! : "",
+    nace: json.czNace ? json.czNace.join(", ") : "",
+  };
 }
 
 class AresService {
@@ -38,7 +59,8 @@ class AresService {
         signal: controller.signal,
       });
       clearTimeout(timeout);
-    } catch {
+    } catch (err) {
+      log.warn("ARES lookup failed", { ico, error: err instanceof Error ? err.message : String(err) });
       throw APIError.unavailable("ARES registry unavailable");
     }
 
@@ -46,35 +68,18 @@ class AresService {
       throw APIError.notFound("Company not found in ARES registry");
     }
     if (!res.ok) {
-      throw APIError.unavailable(`ARES registry error (HTTP ${res.status})`);
+      log.warn("ARES returned an error", { ico, status: res.status });
+      throw APIError.unavailable("ARES registry is not answering, try again later");
     }
 
     let json: AresResponse;
     try {
       json = (await res.json()) as AresResponse;
-    } catch {
+    } catch (err) {
+      log.error(err, "ARES response is not JSON", { ico });
       throw APIError.internal("Failed to parse ARES response");
     }
-
-    const adresa = json.sidlo ?? {};
-    const houseNumber = adresa.cisloDomovni
-      ? `${adresa.cisloDomovni}${adresa.cisloOrientacni ? "/" + adresa.cisloOrientacni : ""}`
-      : "";
-
-    return {
-      ico: json.ico ?? ico,
-      dic: json.dic ?? "",
-      companyName: json.obchodniJmeno ?? json.nazev ?? "",
-      legalForm: json.pravniForma ?? "",
-      registeredAddress: [adresa.nazevUlice, houseNumber, adresa.nazevObce, adresa.psc]
-        .filter(Boolean)
-        .join(", "),
-      city: adresa.nazevObce ?? "",
-      country: "CZ",
-      companyStatus: json.stavSubjektu ?? "Active",
-      registrationDate: json.datumVzniku ? String(json.datumVzniku).split("T")[0] : "",
-      nace: json.czNace ? json.czNace.join(", ") : "",
-    };
+    return mapAresResponse(json, ico);
   }
 }
 

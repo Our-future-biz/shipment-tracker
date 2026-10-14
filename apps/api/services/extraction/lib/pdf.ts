@@ -1,3 +1,4 @@
+import log from "encore.dev/log";
 import { PDFParse } from "pdf-parse";
 import { PDFDocument } from "pdf-lib";
 
@@ -25,7 +26,9 @@ export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
     await (parser as unknown as { load(): Promise<void> }).load();
     const result = await parser.getText();
     return result.text || "";
-  } catch {
+  } catch (err) {
+    // No text layer to read (scanned or damaged PDF): the caller falls back to reading it as images.
+    log.warn("pdf: text extraction failed", { error: err instanceof Error ? err.message : String(err) });
     return "";
   }
 }

@@ -5,11 +5,12 @@ import { Input, Tooltip } from "antd";
 import type { TextAreaRef } from "antd/es/input/TextArea";
 import { SendOutlined, DeleteOutlined, PaperClipOutlined, DownloadOutlined, CloseOutlined } from "@ant-design/icons";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, apiFileUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useUsers } from "@/hooks/useUsers";
 import { useToast } from "@/lib/toast";
-import { attachmentContentUrl, fileToBase64 } from "@/lib/files";
+import { fileToBase64, formatFileSize } from "@/lib/files";
+import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
 import type { interfaces } from "@/lib/api/client";
 
 // The shipment's internal conversation, laid out like a messaging app: colleagues on the
@@ -53,9 +54,6 @@ const dayLabel = (iso: string) => {
   return d.toLocaleDateString(undefined, { day: "numeric", month: "long", year: d.getFullYear() === today.getFullYear() ? undefined : "numeric" });
 };
 const timeLabel = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-
-const sizeLabel = (bytes: number) =>
-  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} kB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 
 // Coloured file-type badge, by extension.
 const FILE_KINDS: { exts: string[]; label: string; tone: string }[] = [
@@ -141,10 +139,7 @@ export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
     onSuccess: (_res, { attach }) => {
       queryClient.invalidateQueries({ queryKey: ["comments", shipmentId] });
       queryClient.invalidateQueries({ queryKey: ["shipment-comments", "unread"] });
-      if (attach.length > 0) {
-        queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipmentId] });
-        queryClient.invalidateQueries({ queryKey: ["attachments", shipmentId] });
-      }
+      if (attach.length > 0) queryClient.invalidateQueries({ queryKey: shipmentAttachmentsKey(shipmentId) });
       setMessage("");
       setFiles([]);
       setTagged([]);
@@ -157,8 +152,7 @@ export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["comments", shipmentId] });
       // The message's files go with it, so the document lists change too.
-      queryClient.invalidateQueries({ queryKey: ["shipment-attachments", shipmentId] });
-      queryClient.invalidateQueries({ queryKey: ["attachments", shipmentId] });
+      queryClient.invalidateQueries({ queryKey: shipmentAttachmentsKey(shipmentId) });
     },
     onError: () => toast.error("Failed to delete message"),
   });
@@ -237,16 +231,16 @@ export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
     <div key={a.id} className="flex items-center gap-3 w-64 max-w-full px-3 py-2 rounded-lg border border-slate-200 bg-white">
       <FileBadge fileName={a.fileName} />
       <a
-        href={attachmentContentUrl(shipmentId, a.id)}
+        href={apiFileUrl(a.contentUrl)}
         target="_blank"
         rel="noopener noreferrer"
         className="flex-1 min-w-0 !text-slate-800 hover:!text-blue-600"
       >
         <span className="block text-[12.5px] font-semibold truncate">{a.fileName}</span>
-        <span className="block text-[11px] font-normal text-slate-500">{sizeLabel(a.fileSize)}</span>
+        <span className="block text-[11px] font-normal text-slate-500">{formatFileSize(a.fileSize)}</span>
       </a>
       <a
-        href={attachmentContentUrl(shipmentId, a.id, true)}
+        href={apiFileUrl(a.contentUrl, true)}
         aria-label={`Download ${a.fileName}`}
         className="shrink-0 !text-slate-500 hover:!text-blue-600"
       >
@@ -369,7 +363,7 @@ export const ChatPanel = ({ shipmentId }: ChatPanelProps) => {
             {files.map((f, i) => (
               <span key={`${f.name}-${i}`} className="flex items-center gap-1.5 max-w-full pl-2 pr-1 py-1 rounded-md bg-slate-100 text-[12px] text-slate-700">
                 <span className="truncate">{f.name}</span>
-                <span className="shrink-0 text-slate-400">{sizeLabel(f.size)}</span>
+                <span className="shrink-0 text-slate-400">{formatFileSize(f.size)}</span>
                 <button
                   type="button"
                   aria-label={`Remove ${f.name}`}

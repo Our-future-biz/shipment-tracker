@@ -2,9 +2,9 @@ import { pgTable, text, numeric, uuid, integer, boolean, index } from "drizzle-o
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 /**
- * Selling costs z Costs Breakdownu (mockup: tabulka #sellTable).
- * Sloupce dle mockupu: Category | Customer | Qty | Amount | Cur | Total in CZK | Invoice
- * "Total in CZK" se nepocita v DB - je to odvozena hodnota dle kurzu k datu ETA/ETD.
+ * Selling costs of the Costs Breakdown (mockup: table #sellTable).
+ * Columns: Category | Customer | Qty | Amount | Cur | Total in CZK | Invoice.
+ * "Total in CZK" isn't stored: it's derived from the exchange rate of the ETA/ETD date.
  */
 export const invoiceSellingCostTable = pgTable(
   "invoice_selling_cost",
@@ -17,9 +17,9 @@ export const invoiceSellingCostTable = pgTable(
     qty: numeric("qty", { precision: 14, scale: 2 }),
     amount: numeric("amount", { precision: 14, scale: 2 }),
     currency: text("currency").notNull().default("CZK"),
-    /** zahrnout do kalkulacniho listu k fakturaci (mockup: vychozi zaskrtnuto) */
+    /** include in the billing calculation sheet (mockup: ticked by default) */
     invoice: boolean("invoice").notNull().default(true),
-    /** vazba na zdrojovy buying radek (mockup: data-src) - brani opakovanemu kopirovani */
+    /** the buying row it was copied from (mockup: data-src) — prevents copying it twice */
     sourceBuyId: uuid("source_buy_id"),
     sortOrder: integer("sort_order").notNull().default(0),
   },

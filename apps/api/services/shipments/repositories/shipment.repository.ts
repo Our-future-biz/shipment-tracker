@@ -3,7 +3,7 @@ import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { shipmentTable } from "../schemas/shipment.schema";
-import { CANCELLED_STATUS } from "../services/fieldDefaults";
+import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 
 /**
  * Predicates behind the Shipments overview tiles. Shared by the list filter and
@@ -163,7 +163,7 @@ const STATUS_BUCKETS: Record<string, string[]> = {
 
 class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   constructor() {
-    super(db as never, shipmentTable, "shipment");
+    super(db, shipmentTable, "shipment");
   }
 
   async findByJobNumber(jobNumber: string, companyId: string) {

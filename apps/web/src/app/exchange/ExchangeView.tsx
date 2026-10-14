@@ -9,11 +9,14 @@ import {
   currentWeekKey, weekRange, formatWeekLabel,
 } from "@/lib/isoWeek";
 
-/** Kurzy se zadavaji v CZK za 1 jednotku meny. CZK je zaklad. */
+/** Rates are entered in CZK per 1 unit of the currency; CZK is the base. */
 const CELL = "px-4 py-3 border-b border-slate-100 align-middle text-[14px]";
 const TH =
   "text-[11.5px] font-bold tracking-[.05em] uppercase text-slate-500 px-4 py-2.5 " +
-  "border-b border-slate-200 bg-[#fafafa] text-left whitespace-nowrap";
+  "border-b border-slate-200 bg-neutral-50 text-left whitespace-nowrap";
+
+// The server's reason (e.g. no permission to change rates) when there is one.
+const errorText = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
 export function ExchangeView() {
   const queryClient = useQueryClient();
@@ -50,13 +53,13 @@ export function ExchangeView() {
     mutationFn: ({ id, ...params }: { id: string; rateEur?: string; rateUsd?: string; note?: string }) =>
       api.invoicing.exchangeRateUpdate(id, params),
     onSuccess: invalidate,
-    onError: () => message.error("Could not save the change"),
+    onError: (e) => message.error(errorText(e, "Could not save the change")),
   });
 
   const remove = useMutation({
     mutationFn: (id: string) => api.invoicing.exchangeRateDelete(id),
     onSuccess: invalidate,
-    onError: () => message.error("Could not delete the week"),
+    onError: (e) => message.error(errorText(e, "Could not delete the week")),
   });
 
   const range = useMemo(() => weekRange(form.week), [form.week]);
@@ -118,14 +121,14 @@ export function ExchangeView() {
 
   return (
     <>
-      {/* Toolbar ve stejnem stylu jako Customs */}
+      {/* Toolbar in the same style as Customs */}
       <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
         <div className="flex items-center gap-3">
           <span className="text-[13px] font-semibold text-slate-600">
             Weekly exchange rates — CZK per 1 unit
           </span>
           {!hasThisWeek && (
-            <span className="text-[12.5px] font-semibold text-[#95620B] bg-[#FBEED2] border border-[#95620B] rounded-md px-2 py-0.5">
+            <span className="text-[12.5px] font-semibold text-warn bg-warn-soft border border-warn rounded-md px-2 py-0.5">
               No rates for the current week
             </span>
           )}
@@ -134,34 +137,34 @@ export function ExchangeView() {
           type="primary"
           icon={<PlusOutlined />}
           onClick={() => { setFormErr(""); setAdding(true); }}
-          style={{ borderRadius: 6, height: 32 }}
+          className="!rounded-md !h-8"
         >
           Add week
         </Button>
       </div>
 
-      {/* Tabulka */}
+      {/* Table */}
       <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "820px" }}>
+          <table className="w-full border-separate border-spacing-0 min-w-[820px]">
             <thead>
               <tr>
-                <th className={TH} style={{ width: 260 }}>Week</th>
-                <th className={TH} style={{ width: 190 }}>Valid</th>
-                <th className={`${TH} !text-right`} style={{ width: 150 }}>EUR</th>
-                <th className={`${TH} !text-right`} style={{ width: 150 }}>USD</th>
-                <th className={`${TH} !text-right`} style={{ width: 110 }}>CZK</th>
+                <th className={`${TH} w-[260px]`}>Week</th>
+                <th className={`${TH} w-[190px]`}>Valid</th>
+                <th className={`${TH} !text-right w-[150px]`}>EUR</th>
+                <th className={`${TH} !text-right w-[150px]`}>USD</th>
+                <th className={`${TH} !text-right w-[110px]`}>CZK</th>
                 <th className={TH}>Note</th>
-                <th className={TH} style={{ width: 60 }} />
+                <th className={`${TH} w-[60px]`} />
               </tr>
             </thead>
             <tbody>
               {rates.map((r) => (
-                <tr key={r.id} className={`hover:bg-slate-50 ${r.week === thisWeek ? "bg-[#F5F6FD]" : ""}`}>
+                <tr key={r.id} className={`hover:bg-slate-50 ${r.week === thisWeek ? "bg-accent-faint" : ""}`}>
                   <td className={CELL}>
                     <span className="font-semibold text-slate-900">{formatWeekLabel(r.week)}</span>
                     {r.week === thisWeek && (
-                      <span className="ml-2 text-[11px] font-bold uppercase tracking-wide text-[#4457D6]">
+                      <span className="ml-2 text-[11px] font-bold uppercase tracking-wide text-accent">
                         current
                       </span>
                     )}
@@ -187,7 +190,7 @@ export function ExchangeView() {
                                  rounded-md outline-none focus:border-indigo-500"
                     />
                   </td>
-                  {/* CZK je zaklad - kurz je vzdy 1 */}
+                  {/* CZK is the base, so its rate is always 1 */}
                   <td className={`${CELL} text-right text-slate-400 tabular-nums`}>
                     <Tooltip title="CZK is the base currency">
                       <span>1.0000</span>
@@ -215,7 +218,7 @@ export function ExchangeView() {
                       <button
                         aria-label={`Delete rates for ${r.week}`}
                         className="w-[28px] h-[28px] rounded-md grid place-items-center text-slate-400
-                                   hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer"
+                                   hover:bg-danger-soft hover:text-danger border-0 bg-transparent cursor-pointer"
                       >
                         <DeleteOutlined />
                       </button>
@@ -239,7 +242,7 @@ export function ExchangeView() {
         </div>
       </div>
 
-      {/* Pridani tydne */}
+      {/* Add a week */}
       <Modal
         open={adding}
         onCancel={() => setAdding(false)}
@@ -306,7 +309,7 @@ export function ExchangeView() {
           </div>
 
           {formErr && (
-            <div className="text-[#C3392B] text-[12.5px] font-semibold">{formErr}</div>
+            <div className="text-danger text-[12.5px] font-semibold">{formErr}</div>
           )}
         </div>
       </Modal>

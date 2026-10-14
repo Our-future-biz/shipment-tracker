@@ -1,31 +1,32 @@
 import { and, eq, or, ilike, desc, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { customerTable } from "../schemas/customer.schema";
+import { customerTable, type CustomerRecord } from "../schemas/customer.schema";
+import { contactTable } from "../schemas/contact.schema";
+import { customerNoteTable } from "../schemas/customerNote.schema";
+import { customerDocumentTable } from "../schemas/customerDocument.schema";
+import { customerInvoiceTable } from "../schemas/customerInvoice.schema";
+import type { CustomerLabel, CustomerStatus } from "../interfaces/interfaces";
 
 export interface CustomerListFilters {
   search?: string;
-  status?: string;
-  label?: string;
+  status?: CustomerStatus;
+  label?: CustomerLabel;
   country?: string;
   limit?: number;
 }
 
 class CustomerRepository extends TenantRepository<typeof customerTable> {
   constructor() {
-    super(db as never, customerTable, "customer");
+    super(db, customerTable, "customer");
   }
 
-  async findByIco(ico: string, companyId: string) {
+  async findByIco(ico: string, companyId: string): Promise<CustomerRecord | null> {
     return this.getByColumnForCompany(customerTable.ico, ico, companyId);
   }
 
-  async listAll(companyId: string, limit = 2000) {
-    return this.listForCompany(companyId, limit);
-  }
-
   // Server-side filtered list, always scoped to the company.
-  async listFiltered(companyId: string, f: CustomerListFilters) {
+  async listFiltered(companyId: string, f: CustomerListFilters): Promise<CustomerRecord[]> {
     const clauses = [eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)];
     if (f.status) clauses.push(eq(customerTable.status, f.status));
     if (f.label) clauses.push(eq(customerTable.label, f.label));
@@ -48,18 +49,28 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       .limit(f.limit ?? 2000);
   }
 
-  async listByStatus(status: string, companyId: string, limit = 2000) {
-    const rows = await this.db
-      .select()
-      .from(customerTable)
-      .where(and(
-        eq(customerTable.companyId, companyId),
-        eq(customerTable.status, status),
-        isNull(customerTable.deletedAt),
-      ))
-      .orderBy(desc(customerTable.createdAt))
-      .limit(limit);
-    return rows;
+  // The customer and everything filed under it go together, in one transaction, so no
+  // contact/note/document/invoice outlives its customer.
+  async softDeleteWithChildren(id: string, companyId: string): Promise<CustomerRecord | null> {
+    return this.db.transaction(async (tx) => {
+      const now = new Date();
+      const [customer] = await tx
+        .update(customerTable)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(and(eq(customerTable.id, id), eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)))
+        .returning();
+      if (!customer) return null;
+      const gone = { deletedAt: now, updatedAt: now };
+      await tx.update(contactTable).set(gone)
+        .where(and(eq(contactTable.companyId, companyId), eq(contactTable.customerId, id), isNull(contactTable.deletedAt)));
+      await tx.update(customerNoteTable).set(gone)
+        .where(and(eq(customerNoteTable.companyId, companyId), eq(customerNoteTable.customerId, id), isNull(customerNoteTable.deletedAt)));
+      await tx.update(customerDocumentTable).set(gone)
+        .where(and(eq(customerDocumentTable.companyId, companyId), eq(customerDocumentTable.customerId, id), isNull(customerDocumentTable.deletedAt)));
+      await tx.update(customerInvoiceTable).set(gone)
+        .where(and(eq(customerInvoiceTable.companyId, companyId), eq(customerInvoiceTable.customerId, id), isNull(customerInvoiceTable.deletedAt)));
+      return customer;
+    });
   }
 }
 

@@ -260,47 +260,26 @@ export namespace auth {
             return await resp.json() as controllers.BranchResponse
         }
 
-        public async columnTemplatesDelete(id: string, params: controllers.DeleteColumnTemplateRequest): Promise<controllers.DeleteColumnTemplateResponse> {
-            // Convert our params into the objects we need for the request
-            const headers = makeRecord<string, string>({
-                authorization: params.authorization,
-            })
-
+        public async columnTemplatesDelete(id: string): Promise<controllers.DeleteColumnTemplateResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/column-templates/${encodeURIComponent(id)}`, undefined, {headers})
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/column-templates/${encodeURIComponent(id)}`)
             return await resp.json() as controllers.DeleteColumnTemplateResponse
         }
 
         public async columnTemplatesList(params: controllers.ListColumnTemplatesRequest): Promise<controllers.ListColumnTemplatesResponse> {
             // Convert our params into the objects we need for the request
-            const headers = makeRecord<string, string>({
-                authorization: params.authorization,
-            })
-
             const query = makeRecord<string, string | string[]>({
                 scope: params.scope,
             })
 
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/column-templates`, undefined, {headers, query})
+            const resp = await this.baseClient.callTypedAPI("GET", `/column-templates`, undefined, {query})
             return await resp.json() as controllers.ListColumnTemplatesResponse
         }
 
         public async columnTemplatesUpsert(params: controllers.UpsertColumnTemplateRequest): Promise<controllers.UpsertColumnTemplateResponse> {
-            // Convert our params into the objects we need for the request
-            const headers = makeRecord<string, string>({
-                authorization: params.authorization,
-            })
-
-            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
-            const body: Record<string, any> = {
-                columns: params.columns,
-                name:    params.name,
-                scope:   params.scope,
-            }
-
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/column-templates`, JSON.stringify(body), {headers})
+            const resp = await this.baseClient.callTypedAPI("POST", `/column-templates`, JSON.stringify(params))
             return await resp.json() as controllers.UpsertColumnTemplateResponse
         }
 
@@ -468,6 +447,10 @@ export namespace automation {
             return await resp.json() as controllers.AutomationLogsResponse
         }
 
+        /**
+         * A watched field of a shipment changed. Only recorded in the automation log for now: the rule
+         * engine isn't ported yet, so no actions run. The actor comes from the token, never the client.
+         */
         public async automationTrigger(params: controllers.AutomationTriggerRequest): Promise<controllers.AutomationTriggerResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/automation/trigger`, JSON.stringify(params))
@@ -545,6 +528,9 @@ export namespace customers {
             return await resp.json() as controllers.CustomerCreateResponse
         }
 
+        /**
+         * Removes the customer with its contacts, notes, documents and invoices: managers and up only.
+         */
         public async customerDelete(id: string): Promise<controllers.CustomerDeleteResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/customers/${encodeURIComponent(id)}`)
@@ -561,9 +547,9 @@ export namespace customers {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 country: params.country,
-                label:   params.label,
+                label:   params.label === undefined ? undefined : String(params.label),
                 search:  params.search,
-                status:  params.status,
+                status:  params.status === undefined ? undefined : String(params.status),
             })
 
             // Now make the actual call to the API
@@ -855,10 +841,10 @@ export namespace invoicing {
             return await resp.json() as controllers.CustomsLineResponse
         }
 
-        public async exchangeRateCreate(params: controllers.CreateRateRequest): Promise<controllers.CreateRateResponse> {
+        public async exchangeRateCreate(params: controllers.CreateRateRequest): Promise<controllers.RateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/exchange-rates`, JSON.stringify(params))
-            return await resp.json() as controllers.CreateRateResponse
+            return await resp.json() as controllers.RateResponse
         }
 
         public async exchangeRateDelete(rateId: string): Promise<controllers.DeleteRateResponse> {
@@ -873,28 +859,28 @@ export namespace invoicing {
             return await resp.json() as controllers.ListRatesResponse
         }
 
-        public async exchangeRateUpdate(rateId: string, params: controllers.UpdateRateRequest): Promise<controllers.UpdateRateResponse> {
+        public async exchangeRateUpdate(rateId: string, params: controllers.UpdateRateRequest): Promise<controllers.RateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/exchange-rates/${encodeURIComponent(rateId)}`, JSON.stringify(params))
-            return await resp.json() as controllers.UpdateRateResponse
+            return await resp.json() as controllers.RateResponse
         }
 
-        public async invoicingAddBuyingCost(shipmentId: string, params: controllers.AddBuyingRequest): Promise<controllers.AddBuyingResponse> {
+        public async invoicingAddBuyingCost(shipmentId: string, params: controllers.AddBuyingRequest): Promise<controllers.BuyingResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/buying`, JSON.stringify(params))
-            return await resp.json() as controllers.AddBuyingResponse
+            return await resp.json() as controllers.BuyingResponse
         }
 
-        public async invoicingAddCharge(shipmentId: string, params: controllers.AddChargeRequest): Promise<controllers.AddChargeResponse> {
+        public async invoicingAddCharge(shipmentId: string, params: controllers.AddChargeRequest): Promise<controllers.ChargeResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/additional`, JSON.stringify(params))
-            return await resp.json() as controllers.AddChargeResponse
+            return await resp.json() as controllers.ChargeResponse
         }
 
-        public async invoicingAddSellingCost(shipmentId: string, params: controllers.AddSellingRequest): Promise<controllers.AddSellingResponse> {
+        public async invoicingAddSellingCost(shipmentId: string, params: controllers.AddSellingRequest): Promise<controllers.SellingResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/selling`, JSON.stringify(params))
-            return await resp.json() as controllers.AddSellingResponse
+            return await resp.json() as controllers.SellingResponse
         }
 
         public async invoicingDeleteBuyingCost(shipmentId: string, costId: string): Promise<controllers.DeleteBuyingResponse> {
@@ -921,30 +907,33 @@ export namespace invoicing {
             return await resp.json() as controllers.GenerateInvoiceResponse
         }
 
-        public async invoicingGet(shipmentId: string): Promise<controllers.InvoicingGetResponse> {
+        public async invoicingGet(shipmentId: string): Promise<interfaces.InvoicingData> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/invoicing/${encodeURIComponent(shipmentId)}`)
-            return await resp.json() as controllers.InvoicingGetResponse
+            return await resp.json() as interfaces.InvoicingData
         }
 
-        public async invoicingUpdateBuyingCost(shipmentId: string, costId: string, params: controllers.UpdateBuyingRequest): Promise<controllers.UpdateBuyingResponse> {
+        public async invoicingUpdateBuyingCost(shipmentId: string, costId: string, params: controllers.UpdateBuyingRequest): Promise<controllers.BuyingResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/invoicing/${encodeURIComponent(shipmentId)}/buying/${encodeURIComponent(costId)}`, JSON.stringify(params))
-            return await resp.json() as controllers.UpdateBuyingResponse
+            return await resp.json() as controllers.BuyingResponse
         }
 
-        public async invoicingUpdateCharge(shipmentId: string, chargeId: string, params: controllers.UpdateChargeRequest): Promise<controllers.UpdateChargeResponse> {
+        public async invoicingUpdateCharge(shipmentId: string, chargeId: string, params: controllers.UpdateChargeRequest): Promise<controllers.ChargeResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/invoicing/${encodeURIComponent(shipmentId)}/additional/${encodeURIComponent(chargeId)}`, JSON.stringify(params))
-            return await resp.json() as controllers.UpdateChargeResponse
+            return await resp.json() as controllers.ChargeResponse
         }
 
-        public async invoicingUpdateSellingCost(shipmentId: string, sellingId: string, params: controllers.UpdateSellingRequest): Promise<controllers.UpdateSellingResponse> {
+        public async invoicingUpdateSellingCost(shipmentId: string, sellingId: string, params: controllers.UpdateSellingRequest): Promise<controllers.SellingResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/invoicing/${encodeURIComponent(shipmentId)}/selling/${encodeURIComponent(sellingId)}`, JSON.stringify(params))
-            return await resp.json() as controllers.UpdateSellingResponse
+            return await resp.json() as controllers.SellingResponse
         }
 
+        /**
+         * Overriding a billed amount changes what the customer is invoiced: managers and up only.
+         */
         public async invoicingUpsertBillingOverride(shipmentId: string, params: controllers.UpsertBillingOverrideRequest): Promise<controllers.UpsertBillingOverrideResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/billing/overrides`, JSON.stringify(params))
@@ -957,6 +946,9 @@ export namespace invoicing {
             return await resp.json() as controllers.UpsertBillingSettingsResponse
         }
 
+        /**
+         * The older per-category buying cost (one line per category); the Costs Breakdown uses free lines.
+         */
         public async invoicingUpsertCost(shipmentId: string, params: controllers.UpsertCostRequest): Promise<controllers.UpsertCostResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/costs`, JSON.stringify(params))
@@ -992,6 +984,10 @@ export namespace quotes {
             return await resp.json() as controllers.QuoteAllocateRefResponse
         }
 
+        /**
+         * Raw file bytes for a plain browser link (<a href>, no Authorization header). Access is the
+         * signed `?t=` token from the attachment's contentUrl: valid for an hour, for this one file.
+         */
         public async quoteAttachmentContent(method: "GET", quoteNumber: string, id: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
             return this.baseClient.callAPI(method, `/quotes/${encodeURIComponent(quoteNumber)}/attachments/${encodeURIComponent(id)}/content`, body, options)
         }
@@ -1038,7 +1034,7 @@ export namespace quotes {
             return await resp.json() as controllers.QuoteGetResponse
         }
 
-        public async quoteList(params: controllers.QuoteListRequest): Promise<controllers.QuoteListResponse> {
+        public async quoteList(params: controllers.QuoteListRequest): Promise<interfaces.QuotePage> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 customerId:    params.customerId,
@@ -1049,7 +1045,7 @@ export namespace quotes {
 
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/quotes`, undefined, {query})
-            return await resp.json() as controllers.QuoteListResponse
+            return await resp.json() as interfaces.QuotePage
         }
 
         public async quoteNextRef(): Promise<controllers.QuoteNextRefResponse> {
@@ -1094,12 +1090,18 @@ export namespace sales {
             return await resp.json() as controllers.PrefSetResponse
         }
 
+        /**
+         * Terms templates are company-wide settings: managers and up.
+         */
         public async termsCreate(params: controllers.TermsCreateRequest): Promise<controllers.TermsCreateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/terms-conditions`, JSON.stringify(params))
             return await resp.json() as controllers.TermsCreateResponse
         }
 
+        /**
+         * Terms templates are company-wide settings: managers and up.
+         */
         public async termsDelete(id: string): Promise<controllers.TermsDeleteResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/terms-conditions/${encodeURIComponent(id)}`)
@@ -1118,6 +1120,9 @@ export namespace sales {
             return await resp.json() as controllers.TermsListResponse
         }
 
+        /**
+         * Terms templates are company-wide settings: managers and up.
+         */
         public async termsUpdate(id: string, params: controllers.TermsUpdateRequest): Promise<controllers.TermsUpdateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/terms-conditions/${encodeURIComponent(id)}`, JSON.stringify(params))
@@ -1183,7 +1188,7 @@ export namespace shipments {
         /**
          * Streams the raw file bytes. Inline (viewable) only for allow-listed safe types;
          * otherwise served as an attachment download.
-         * Path: /shipments/:shipmentId/attachments/:id/content
+         * Path: /shipments/:shipmentId/attachments/:id/content?t=<token>[&download=1]
          */
         public async attachmentContent(method: "GET", shipmentId: string, id: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
             return this.baseClient.callAPI(method, `/shipments/${encodeURIComponent(shipmentId)}/attachments/${encodeURIComponent(id)}/content`, body, options)
@@ -1325,10 +1330,10 @@ export namespace shipments {
             return await resp.json() as controllers.MasterJobCreateResponse
         }
 
-        public async masterJobGet(masterJobId: string): Promise<controllers.MasterJobGetResponse> {
+        public async masterJobGet(masterJobId: string): Promise<interfaces.MasterJobDetail> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/master-jobs/${encodeURIComponent(masterJobId)}`)
-            return await resp.json() as controllers.MasterJobGetResponse
+            return await resp.json() as interfaces.MasterJobDetail
         }
 
         /**
@@ -1373,10 +1378,10 @@ export namespace shipments {
             return await resp.json() as controllers.ShipmentCreateResponse
         }
 
-        public async shipmentDashboard(): Promise<controllers.DashboardResponse> {
+        public async shipmentDashboard(): Promise<interfaces.ShipmentDashboard> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/dashboard`)
-            return await resp.json() as controllers.DashboardResponse
+            return await resp.json() as interfaces.ShipmentDashboard
         }
 
         /**
@@ -1455,10 +1460,10 @@ export namespace shipments {
             return await resp.json() as controllers.ReleaseHouseBolResponse
         }
 
-        public async shipmentTileCounts(): Promise<controllers.ShipmentTileCountsResponse> {
+        public async shipmentTileCounts(): Promise<interfaces.ShipmentTileCounts> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/shipments/tile-counts`)
-            return await resp.json() as controllers.ShipmentTileCountsResponse
+            return await resp.json() as interfaces.ShipmentTileCounts
         }
 
         public async shipmentUnlinkMasterJob(shipmentId: string): Promise<controllers.UnlinkMasterJobResponse> {
@@ -1580,10 +1585,6 @@ export namespace warehouse {
 }
 
 export namespace controllers {
-    /**
-     * Buying costs jako volne pridavatelne radky (mockup: "Add buying cost").
-     * Puvodni invoicingUpsertCost klicovany kategorii zustava zachovan.
-     */
     export interface AddBuyingRequest {
         category?: string
         vendor?: string
@@ -1598,10 +1599,6 @@ export namespace controllers {
         sortOrder?: number
     }
 
-    export interface AddBuyingResponse {
-        cost: interfaces.InvoiceCostItem
-    }
-
     export interface AddChargeRequest {
         invoiceNumber?: string
         vendor?: string
@@ -1611,10 +1608,6 @@ export namespace controllers {
         realAmount?: string
         realCurrency?: string
         sortOrder?: number
-    }
-
-    export interface AddChargeResponse {
-        charge: interfaces.AdditionalChargeItem
     }
 
     export interface AddCustomsLineRequest {
@@ -1633,10 +1626,6 @@ export namespace controllers {
         invoice?: boolean
         sourceBuyId?: string
         sortOrder?: number
-    }
-
-    export interface AddSellingResponse {
-        sellingCost: interfaces.SellingCostItem
     }
 
     export interface AnnouncementAttachmentCreateRequest {
@@ -1662,7 +1651,11 @@ export namespace controllers {
         country?: string
         countryCode?: string
         severity?: string
+        /**
+         * The same limits the post dialog enforces; the whole list is polled, so text stays bounded.
+         */
         title: string
+
         body?: string
     }
 
@@ -1693,7 +1686,7 @@ export namespace controllers {
     }
 
     export interface AttachmentClassifyResponse {
-        attachment: interfaces.AttachmentItem | null
+        attachment: interfaces.AttachmentItem
     }
 
     export interface AttachmentCreateRequest {
@@ -1720,16 +1713,16 @@ export namespace controllers {
     }
 
     /**
-     * Customs review of a document. status: "approved" | "declined" | "" (back to pending).
-     * A declined document carries a reason the operations team sees in the Documents tab.
+     * Customs review of a document; "" puts it back to pending. A declined document carries a
+     * reason the operations team sees in the Documents tab.
      */
     export interface AttachmentReviewRequest {
-        status: string
+        status: interfaces.AttachmentCustomsStatus
         note?: string
     }
 
     export interface AttachmentReviewResponse {
-        attachment: interfaces.AttachmentItem | null
+        attachment: interfaces.AttachmentItem
     }
 
     export interface AuthLoginRequest {
@@ -1743,10 +1736,8 @@ export namespace controllers {
     }
 
     /**
-     * NOTE: kept auth:false with manual JWT verification (not gateway auth:true) so the
-     * generated web client's request shape stays unchanged. Security is equivalent — the
-     * token is cryptographically verified here. Migrate to auth:true + getAuthData() when
-     * the Encore client is regenerated.
+     * auth:false with the token verified here (the same check the gateway does): the web passes
+     * the header explicitly, so moving to auth:true would change the generated client call.
      */
     export interface AuthMeRequest {
         authorization: string
@@ -1769,7 +1760,11 @@ export namespace controllers {
     }
 
     export interface AutomationTriggerResponse {
+        /**
+         * Actions the rules took; empty while no rules are configured.
+         */
         actions: string[]
+
         logs: interfaces.AutomationLogItem[]
     }
 
@@ -1793,6 +1788,14 @@ export namespace controllers {
         locationId: number
     }
 
+    export interface BuyingResponse {
+        cost: interfaces.InvoiceCostItem
+    }
+
+    export interface ChargeResponse {
+        charge: interfaces.AdditionalChargeItem
+    }
+
     export interface ClaimCreateRequest {
         kind: interfaces.ClaimKind
         cargoState?: string
@@ -1810,16 +1813,6 @@ export namespace controllers {
         invoiceNumber?: string
         reason?: string
         amount?: string
-    }
-
-    /**
-     * Plain interface — do not import drizzle $inferSelect types into controllers.
-     */
-    export interface ColumnTemplateItem {
-        id: string
-        userId: string
-        name: string
-        columns: string[]
     }
 
     export interface CommentCreateRequest {
@@ -1912,7 +1905,7 @@ export namespace controllers {
         name: string
         email?: string
         phone?: string
-        role?: string
+        role?: interfaces.ContactRole
         isMain?: boolean
     }
 
@@ -1929,11 +1922,15 @@ export namespace controllers {
     }
 
     export interface ContactUpdateRequest {
-        customerId: string
+        /**
+         * Ignored: the contact's own customer is used. Kept so existing clients still validate.
+         */
+        customerId?: string
+
         name?: string
         email?: string
         phone?: string
-        role?: string
+        role?: interfaces.ContactRole
         isMain?: boolean
     }
 
@@ -1961,19 +1958,30 @@ export namespace controllers {
     }
 
     export interface CreateRateRequest {
+        /**
+         * ISO week, e.g. "2026-W36"
+         */
         week: string
+
+        /**
+         * yyyy-mm-dd
+         */
         validFrom: string
+
+        /**
+         * yyyy-mm-dd
+         */
         validTo: string
+
         rateEur?: string
         rateUsd?: string
         note?: string
     }
 
-    export interface CreateRateResponse {
-        rate: interfaces.ExchangeRateItem
-    }
-
     export interface CustomerCreateRequest {
+        /**
+         * IČO: exactly 8 digits
+         */
         ico: string
     }
 
@@ -1995,8 +2003,8 @@ export namespace controllers {
          */
         search?: string
 
-        status?: string
-        label?: string
+        status?: interfaces.CustomerStatus
+        label?: interfaces.CustomerLabel
         country?: string
     }
 
@@ -2004,12 +2012,16 @@ export namespace controllers {
         data: interfaces.CustomerItem[]
     }
 
+    /**
+     * The rollups (totalRevenue, totalProfit, totalShipments, lastActivityDate) are not here:
+     * they are computed from shipments and written only through customerRollupsUpdate.
+     */
     export interface CustomerUpdateRequest {
         companyName?: string
         dic?: string
-        status?: string
+        status?: interfaces.CustomerStatus
         salesOwner?: string
-        label?: string
+        label?: interfaces.CustomerLabel
         creditLimit?: number
         currency?: string
         paymentTerms?: string
@@ -2020,10 +2032,6 @@ export namespace controllers {
         country?: string
         registeredAddress?: string
         nace?: string
-        totalRevenue?: number
-        totalProfit?: number
-        totalShipments?: number
-        lastActivityDate?: string
     }
 
     export interface CustomerUpdateResponse {
@@ -2034,43 +2042,12 @@ export namespace controllers {
         line: interfaces.CustomsInvoiceLineItem
     }
 
-    export interface DashboardResponse {
-        kpis: {
-            totalActive: number
-            waitingUnload: number
-            sailedNotOrdered: number
-            sailedOrdered: number
-            waitingDeparture: number
-            missingSailing: number
-        }
-        deadlines: DeadlineGroup[]
-    }
-
-    export interface DeadlineGroup {
-        period: string
-        items: DeadlineItem[]
-    }
-
-    export interface DeadlineItem {
-        id: string
-        jobNumber: string
-        shipper: string
-        consignee: string
-        status: string
-        field: string
-        date: string
-    }
-
     export interface DeleteBuyingResponse {
         ok: boolean
     }
 
     export interface DeleteChargeResponse {
         ok: boolean
-    }
-
-    export interface DeleteColumnTemplateRequest {
-        authorization: string
     }
 
     export interface DeleteColumnTemplateResponse {
@@ -2113,7 +2090,7 @@ export namespace controllers {
 
     export interface DocumentCreateRequest {
         name: string
-        type?: string
+        type?: interfaces.DocumentType
         fileName?: string
         fileType?: string
         fileSize?: number
@@ -2121,6 +2098,9 @@ export namespace controllers {
     }
 
     export interface DocumentCreateResponse {
+        /**
+         * Metadata only: the file bytes are not sent back.
+         */
         document: interfaces.DocumentItem
     }
 
@@ -2140,10 +2120,7 @@ export namespace controllers {
     }
 
     export interface EnsureRefsResponse {
-        refs: {
-            shipmentId: string
-            reference: string
-        }[]
+        refs: interfaces.WarehouseRef[]
     }
 
     export interface ExtractBookingRequest {
@@ -2177,9 +2154,11 @@ export namespace controllers {
     }
 
     export interface GenerateInvoiceRequest {
-        jobNumber: string
-        invoiceType: string
+        invoiceType: interfaces.InvoiceType
         billingCurrency: string
+        /**
+         * decimal string, e.g. "1250.50"
+         */
         totalAmount: string
     }
 
@@ -2208,8 +2187,15 @@ export namespace controllers {
     export interface InvoiceCreateRequest {
         invoiceNumber: string
         amount?: number
+        /**
+         * yyyy-mm-dd, or ""
+         */
         dueDate?: string
-        status?: string
+
+        status?: interfaces.InvoiceStatus
+        /**
+         * yyyy-mm-dd, or ""
+         */
         issuedAt?: string
     }
 
@@ -2228,22 +2214,20 @@ export namespace controllers {
     export interface InvoiceUpdateRequest {
         invoiceNumber?: string
         amount?: number
+        /**
+         * yyyy-mm-dd, or "" to clear
+         */
         dueDate?: string
-        status?: string
+
+        status?: interfaces.InvoiceStatus
+        /**
+         * yyyy-mm-dd, or "" to clear
+         */
         issuedAt?: string
     }
 
     export interface InvoiceUpdateResponse {
         invoice: interfaces.InvoiceItem
-    }
-
-    export interface InvoicingGetResponse {
-        costs: interfaces.InvoiceCostItem[]
-        sellingCosts: interfaces.SellingCostItem[]
-        additionalCharges: interfaces.AdditionalChargeItem[]
-        billingSettings: interfaces.BillingSettingsItem | null
-        billingOverrides: interfaces.BillingOverrideItem[]
-        generatedInvoices: interfaces.GeneratedInvoiceItem[]
     }
 
     export interface LinkMasterJobRequest {
@@ -2255,12 +2239,11 @@ export namespace controllers {
     }
 
     export interface ListColumnTemplatesRequest {
-        authorization: string
         scope?: string
     }
 
     export interface ListColumnTemplatesResponse {
-        templates: ColumnTemplateItem[]
+        templates: interfaces.ColumnTemplateItem[]
     }
 
     export interface ListRatesResponse {
@@ -2299,12 +2282,6 @@ export namespace controllers {
 
     export interface MasterJobCreateResponse {
         masterJob: interfaces.MasterJobItem
-    }
-
-    export interface MasterJobGetResponse {
-        masterJob: interfaces.MasterJobItem
-        containers: interfaces.MasterJobContainerLine[]
-        shipments: interfaces.MasterJobShipmentItem[]
     }
 
     export interface MasterJobListResponse {
@@ -2371,7 +2348,7 @@ export namespace controllers {
     }
 
     export interface NoteCreateRequest {
-        type?: string
+        type?: interfaces.NoteType
         content: string
         author?: string
     }
@@ -2494,15 +2471,6 @@ export namespace controllers {
         customerId?: string
     }
 
-    export interface QuoteListResponse {
-        pagination: {
-            total: number
-            offset: number
-            limit: number
-        }
-        data: interfaces.QuoteItem[]
-    }
-
     export interface QuoteNextRefResponse {
         ref: string
     }
@@ -2514,6 +2482,10 @@ export namespace controllers {
 
     export interface QuoteUpdateResponse {
         quote: interfaces.QuoteItem
+    }
+
+    export interface RateResponse {
+        rate: interfaces.ExchangeRateItem
     }
 
     export interface ReleaseHouseBolResponse {
@@ -2529,6 +2501,10 @@ export namespace controllers {
          * Per item, its form in the database ("Hamburg (DEHAM)", "Germany (DE)", "DE"), or null.
          */
         values: (string | null)[]
+    }
+
+    export interface SellingResponse {
+        sellingCost: interfaces.SellingCostItem
     }
 
     export interface SetIssuedInvoiceNumberRequest {
@@ -2652,7 +2628,11 @@ export namespace controllers {
         approvedBy?: string
         bookingConfirmation?: string
         customsProcedure?: string
-        customsPriority?: string
+        /**
+         * "" counts as Standard.
+         */
+        customsPriority?: interfaces.CustomsPriority | ""
+
         customsDeadline?: string
         equipmentDelivery?: string
         equipmentDeliveryDate?: string
@@ -2778,18 +2758,6 @@ export namespace controllers {
         within48h: interfaces.ShipmentDueItem[]
     }
 
-    /**
-     * Counts behind the Shipments overview tiles, over the whole company dataset.
-     */
-    export interface ShipmentTileCountsResponse {
-        active: number
-        attention: number
-        import: number
-        export: number
-        week: number
-        nextWeek: number
-    }
-
     export interface ShipmentUpdateRequest {
         shipper?: string
         consignee?: string
@@ -2912,11 +2880,15 @@ export namespace controllers {
         approvedBy?: string
         bookingConfirmation?: string
         customsProcedure?: string
-        customsPriority?: string
+        /**
+         * "" counts as Standard.
+         */
+        customsPriority?: interfaces.CustomsPriority | ""
+
         customsDeadline?: string
         mrn?: string
-        csRecvInvoice?: string
-        csRecvPacking?: string
+        csRecvInvoice?: interfaces.CustomsReceivedOverride
+        csRecvPacking?: interfaces.CustomsReceivedOverride
         equipmentDelivery?: string
         equipmentDeliveryDate?: string
         supplierPic?: string
@@ -3048,10 +3020,10 @@ export namespace controllers {
         realCurrency?: string
         invoiceNumber?: string
         received?: boolean
-    }
-
-    export interface UpdateBuyingResponse {
-        cost: interfaces.InvoiceCostItem
+        /**
+         * position in the list (undo / re-insert keeps a line where it was)
+         */
+        sortOrder?: number
     }
 
     export interface UpdateChargeRequest {
@@ -3062,10 +3034,6 @@ export namespace controllers {
         estCurrency?: string
         realAmount?: string
         realCurrency?: string
-    }
-
-    export interface UpdateChargeResponse {
-        charge: interfaces.AdditionalChargeItem
     }
 
     export interface UpdateCustomsLineRequest {
@@ -3080,10 +3048,6 @@ export namespace controllers {
         note?: string
     }
 
-    export interface UpdateRateResponse {
-        rate: interfaces.ExchangeRateItem
-    }
-
     export interface UpdateSellingRequest {
         category?: string
         customer?: string
@@ -3091,14 +3055,17 @@ export namespace controllers {
         amount?: string
         currency?: string
         invoice?: boolean
-    }
-
-    export interface UpdateSellingResponse {
-        sellingCost: interfaces.SellingCostItem
+        /**
+         * position in the list (undo / re-insert keeps a line where it was)
+         */
+        sortOrder?: number
     }
 
     export interface UpsertBillingOverrideRequest {
         rowKey: string
+        /**
+         * decimal string; "" removes the override's amount
+         */
         billingAmount: string
     }
 
@@ -3108,7 +3075,11 @@ export namespace controllers {
 
     export interface UpsertBillingSettingsRequest {
         billingCurrency?: string
+        /**
+         * rate of exchange, decimal string
+         */
         roe?: string
+
         quoteRef?: string
     }
 
@@ -3117,14 +3088,13 @@ export namespace controllers {
     }
 
     export interface UpsertColumnTemplateRequest {
-        authorization: string
         scope?: string
         name: string
         columns: string[]
     }
 
     export interface UpsertColumnTemplateResponse {
-        template: ColumnTemplateItem
+        template: interfaces.ColumnTemplateItem
     }
 
     export interface UpsertCostRequest {
@@ -3160,14 +3130,14 @@ export namespace controllers {
 
     export interface UserPrefGetResponse {
         /**
-         * JSON s nastavenim; null kdyz uzivatel jeste nic neulozil
+         * The settings as JSON; null while the user has saved nothing.
          */
         value: string | null
     }
 
     export interface UserPrefSetRequest {
         /**
-         * JSON s nastavenim
+         * The settings as JSON.
          */
         value: string
     }
@@ -3234,7 +3204,11 @@ export namespace controllers {
         priority?: string
         status?: string
         assignee?: string
+        /**
+         * yyyy-mm-dd; "" clears it
+         */
         dueDate?: string
+
         cargo?: string
         weight?: string
         notes?: string
@@ -3287,24 +3261,29 @@ export namespace interfaces {
         nace: string
     }
 
+    /**
+     * Customs review of a document: "" while pending.
+     */
+    export type AttachmentCustomsStatus = "" | "approved" | "declined"
+
     export interface AttachmentItem {
         id: string
         shipmentId: string
         fileName: string
         fileSize: number
         fileType: string
-        storageKey: string
+        /**
+         * Where to open the file: an API path with a short-lived token (append "&download=1" to save it).
+         */
+        contentUrl: string
+
         createdAt: string
         /**
          * Business document type (Invoice, Packing list, …); "" until classified.
          */
         documentType: string
 
-        /**
-         * Customs review: "" (pending) | approved | declined.
-         */
-        customsStatus: string
-
+        customsStatus: AttachmentCustomsStatus
         customsNote: string
         customsReviewedAt: string | null
         /**
@@ -3403,6 +3382,16 @@ export namespace interfaces {
     export type ClaimKind = "cargo" | "cost"
 
     /**
+     * A saved set of visible columns for one screen
+     */
+    export interface ColumnTemplateItem {
+        id: string
+        userId: string
+        name: string
+        columns: string[]
+    }
+
+    /**
      * A file sent with a chat message.
      */
     export interface CommentAttachment {
@@ -3410,6 +3399,10 @@ export namespace interfaces {
         fileName: string
         fileSize: number
         fileType: string
+        /**
+         * Where to open the file: an API path with a short-lived token (append "&download=1" to save it).
+         */
+        contentUrl: string
     }
 
     export interface CommentItem {
@@ -3469,11 +3462,13 @@ export namespace interfaces {
         name: string
         email: string
         phone: string
-        role: string
+        role: ContactRole
         isMain: boolean
         createdAt: string
         updatedAt: string
     }
+
+    export type ContactRole = "Sales" | "Operations" | "Finance"
 
     export interface ContainerLine {
         /**
@@ -3506,13 +3501,17 @@ export namespace interfaces {
         city: string
         country: string
         companyStatus: string
+        /**
+         * yyyy-mm-dd, or "" when unknown
+         */
         registrationDate: string
+
         nace: string
         dataSource: string
         lastRegistryUpdate: string
-        status: string
+        status: CustomerStatus
         salesOwner: string
-        label: string
+        label: CustomerLabel
         creditLimit: number
         currency: string
         paymentTerms: string
@@ -3525,10 +3524,22 @@ export namespace interfaces {
         totalRevenue: number
         totalProfit: number
         totalShipments: number
+        /**
+         * yyyy-mm-dd, or "" when the customer has no shipments
+         */
         lastActivityDate: string
+
         createdAt: string
         updatedAt: string
     }
+
+    export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "PROSPECT" | "RISK"
+
+    /**
+     * The closed sets the database CHECK constraints allow (schemas/*.schema.ts). Spelled out as
+     * literal unions so Encore validates requests against them and the web client gets them.
+     */
+    export type CustomerStatus = "Active" | "Prospect" | "Inactive"
 
     /**
      * Line of the Invoicing tab in Customs
@@ -3550,11 +3561,54 @@ export namespace interfaces {
         issuedInvoiceNumber: string
     }
 
+    /**
+     * Customs priority of a shipment.
+     */
+    export type CustomsPriority = "Standard" | "Urgent"
+
+    /**
+     * Manual override of a Customs "received" tick: "" follows the uploads.
+     */
+    export type CustomsReceivedOverride = "" | "yes" | "no"
+
+    export interface DashboardKpis {
+        totalActive: number
+        waitingUnload: number
+        sailedNotOrdered: number
+        sailedOrdered: number
+        waitingDeparture: number
+        missingSailing: number
+    }
+
+    export interface DeadlineGroup {
+        period: DeadlinePeriod
+        items: DeadlineItem[]
+    }
+
+    /**
+     * A shipment date on the dashboard's deadline list.
+     */
+    export interface DeadlineItem {
+        id: string
+        jobNumber: string
+        shipper: string
+        consignee: string
+        status: string
+        /**
+         * ETD | ETA | Closing | CRD | Pickup
+         */
+        field: string
+
+        date: string
+    }
+
+    export type DeadlinePeriod = "OVERDUE" | "TODAY" | "THIS_WEEK" | "NEXT_WEEK" | "LATER"
+
     export interface DocumentItem {
         id: string
         customerId: string
         name: string
-        type: string
+        type: DocumentType
         fileName: string
         fileType: string
         fileSize: number
@@ -3562,8 +3616,10 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other"
+
     /**
-     * Kurzovni listek s tydenni platnosti (stranka Exchange)
+     * Weekly exchange rates (Exchange page); CZK per 1 unit
      */
     export interface ExchangeRateItem {
         id: string
@@ -3672,11 +3728,38 @@ export namespace interfaces {
         customerId: string
         invoiceNumber: string
         amount: number
+        /**
+         * yyyy-mm-dd, or ""
+         */
         dueDate: string
-        status: string
+
+        status: InvoiceStatus
+        /**
+         * yyyy-mm-dd, or ""
+         */
         issuedAt: string
+
         createdAt: string
         updatedAt: string
+    }
+
+    export type InvoiceStatus = "Open" | "Overdue" | "Paid"
+
+    /**
+     * A generated invoice lists the cost lines ("breakdown") or only the total ("total").
+     */
+    export type InvoiceType = "breakdown" | "total"
+
+    /**
+     * Everything the Costs / Invoicing views of one shipment show
+     */
+    export interface InvoicingData {
+        costs: InvoiceCostItem[]
+        sellingCosts: SellingCostItem[]
+        additionalCharges: AdditionalChargeItem[]
+        billingSettings: BillingSettingsItem | null
+        billingOverrides: BillingOverrideItem[]
+        generatedInvoices: GeneratedInvoiceItem[]
     }
 
     /**
@@ -3692,6 +3775,15 @@ export namespace interfaces {
         type: string
 
         shipmentIds: string[]
+    }
+
+    /**
+     * A master job with its containers and house shipments.
+     */
+    export interface MasterJobDetail {
+        masterJob: MasterJobItem
+        containers: MasterJobContainerLine[]
+        shipments: MasterJobShipmentItem[]
     }
 
     export interface MasterJobItem {
@@ -3780,12 +3872,14 @@ export namespace interfaces {
     export interface NoteItem {
         id: string
         customerId: string
-        type: string
+        type: NoteType
         content: string
         author: string
         createdAt: string
         updatedAt: string
     }
+
+    export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit"
 
     /**
      * One uploaded file of a pre-alert.
@@ -3829,21 +3923,40 @@ export namespace interfaces {
         fileName: string
         fileSize: number
         fileType: string
-        storageKey: string
         createdAt: string
+        /**
+         * Where the file can be opened, relative to the API base URL. Carries a signed token valid
+         * for an hour, so a plain link works without the auth header; add `&download=1` to download.
+         */
+        contentUrl: string
     }
 
     export interface QuoteItem {
         id: string
         quoteNumber: string
+        /**
+         * The quote's fields. Two shapes share this column: sales quotes (QCZ…, keyed by field name
+         * like `quoteStatus`, `buyingLines`) and older quotes keyed by column label ("POL", …), so it
+         * stays an open object here; each client reads the shape it wrote.
+         */
         data: any
+
         terms: string
         createdAt: string
         updatedAt: string
     }
 
+    export interface QuotePage {
+        pagination: {
+            total: number
+            offset: number
+            limit: number
+        }
+        data: QuoteItem[]
+    }
+
     /**
-     * Selling costs z Costs Breakdownu (mockup: #sellTable)
+     * Selling cost line of the Costs Breakdown (mockup: #sellTable)
      */
     export interface SellingCostItem {
         id: string
@@ -3856,6 +3969,14 @@ export namespace interfaces {
         invoice: boolean
         sourceBuyId: string | null
         sortOrder: number
+    }
+
+    /**
+     * The operations dashboard: status KPIs and upcoming shipment dates.
+     */
+    export interface ShipmentDashboard {
+        kpis: DashboardKpis
+        deadlines: DeadlineGroup[]
     }
 
     /**
@@ -4026,11 +4147,7 @@ export namespace interfaces {
         approvedBy: string
         bookingConfirmation: string
         customsProcedure: string
-        /**
-         * Standard | Urgent.
-         */
-        customsPriority: string
-
+        customsPriority: CustomsPriority
         /**
          * Deadline of an Urgent shipment, "YYYY-MM-DD HH:mm"; "" for Standard.
          */
@@ -4042,11 +4159,11 @@ export namespace interfaces {
         mrn: string
 
         /**
-         * Manual override of the Customs "received" ticks: "" | "yes" | "no".
+         * Manual override of the Customs "received" ticks.
          */
-        csRecvInvoice: string
+        csRecvInvoice: CustomsReceivedOverride
 
-        csRecvPacking: string
+        csRecvPacking: CustomsReceivedOverride
         /**
          * Business document types present on the shipment (Invoice, Packing list, …).
          */
@@ -4134,6 +4251,18 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    /**
+     * Counts behind the Shipments overview tiles, over the whole company dataset.
+     */
+    export interface ShipmentTileCounts {
+        active: number
+        attention: number
+        import: number
+        export: number
+        week: number
+        nextWeek: number
+    }
+
     export interface TaskItem {
         id: string
         shipmentId: string
@@ -4150,6 +4279,11 @@ export namespace interfaces {
         excludes: string
         createdAt: string
         updatedAt: string
+    }
+
+    export interface WarehouseRef {
+        shipmentId: string
+        reference: string
     }
 
     export interface WarehouseSectionItem {
@@ -4169,7 +4303,11 @@ export namespace interfaces {
         priority: string
         status: string
         assignee: string
-        dueDate: string
+        /**
+         * yyyy-mm-dd, or null when not set
+         */
+        dueDate: string | null
+
         cargo: string
         weight: string
         notes: string

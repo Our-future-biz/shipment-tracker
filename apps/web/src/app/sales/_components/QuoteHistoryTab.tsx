@@ -22,8 +22,7 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { SortableContext, arrayMove, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import { DataTable } from "@/components/DataTable";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { useSalesPref } from "@/hooks/useSalesPrefs";
@@ -44,26 +43,8 @@ import { QUOTE_STATUS_MAP, QUOTE_STATUSES, SERVICE_TYPES, DIRECTIONS } from "../
 import { printQuote } from "../_lib/printQuote";
 import { PdfPreviewModal } from "../quote/[ref]/_components/PdfPreviewModal";
 import { NewQuoteButton } from "./NewQuoteButton";
+import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 
-// Draggable table header cell — id comes from each column's onHeaderCell().
-type HeaderCellProps = React.ThHTMLAttributes<HTMLTableCellElement> & { id?: string };
-
-const DraggableHeaderCell = ({ id, style, ...rest }: HeaderCellProps) => {
-  const { setNodeRef, attributes, listeners, transform, transition, isDragging } = useSortable({ id: id ?? "" });
-
-  if (!id) return <th style={style} {...rest} />;
-
-  const thStyle: React.CSSProperties = {
-    ...style,
-    transform: CSS.Translate.toString(transform),
-    transition,
-    cursor: "grab",
-    userSelect: "none",
-    ...(isDragging ? { position: "relative", zIndex: 2, background: "#eef2ff" } : {}),
-  };
-
-  return <th ref={setNodeRef} style={thStyle} {...rest} {...attributes} {...listeners} />;
-};
 
 interface Filters {
   statuses: string[];
@@ -148,7 +129,7 @@ const COLUMN_DEFS: ColDef[] = [
       if (!v.date) return <span className="text-slate-300">—</span>;
       return (
         <span className="inline-flex items-center gap-1.5">
-          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: v.expired ? "#dc2626" : "#16a34a" }} />
+          <span className={`w-2 h-2 rounded-full ${v.expired ? "bg-red-600" : "bg-green-600"}`} />
           {v.date}
         </span>
       );
@@ -499,8 +480,9 @@ export function QuoteHistoryTab() {
       {/* Chips */}
       {(chips.length > 0 || savedViews.length > 0) && (
         <div className="flex flex-wrap items-center gap-2 mb-3">
-          {chips.map((chip, i) => (
-            <Tag key={i} closable onClose={chip.clear} className="rounded-xl">
+          {/* Keyed by label: a closed Tag hides itself, so an index key would hide the next chip too. */}
+          {chips.map((chip) => (
+            <Tag key={chip.label} closable onClose={chip.clear} className="rounded-xl">
               {chip.label}
             </Tag>
           ))}

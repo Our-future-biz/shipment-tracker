@@ -1,4 +1,4 @@
-import { resolveCountryCode } from "../../lib/geo/format";
+import { resolveCountryCode } from "../../../lib/geo/format";
 
 // Who a noticeboard post is addressed to. Pure helpers (no I/O) so they can be unit-tested.
 

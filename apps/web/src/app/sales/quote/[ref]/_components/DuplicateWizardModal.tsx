@@ -6,63 +6,7 @@ import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import { useSalesQuotes } from "@/hooks/useSalesQuotes";
 import { asData } from "@/app/sales/_lib/salesQuote";
 import { useToast } from "@/lib/toast";
-
-type SectionKey =
-  | "customer"
-  | "shipment"
-  | "routing"
-  | "cargo"
-  | "pricing"
-  | "terms";
-
-interface Section {
-  key: SectionKey;
-  label: string;
-}
-
-const SECTIONS: Section[] = [
-  { key: "customer", label: "Customer" },
-  { key: "shipment", label: "Shipment details" },
-  { key: "routing", label: "Routing" },
-  { key: "cargo", label: "Cargo" },
-  { key: "pricing", label: "Pricing" },
-  { key: "terms", label: "Shipping terms" },
-];
-
-// Fields that belong to each section of a SalesQuoteData record.
-const SECTION_FIELDS: Record<SectionKey, (keyof SalesQuoteData)[]> = {
-  customer: [
-    "customerName",
-    "customerId",
-    "customerContact",
-    "customerEmail",
-    "customerPhone",
-    "customerLabel",
-    "salesOwner",
-  ],
-  shipment: ["direction", "serviceType", "incoterm", "readyDate"],
-  routing: ["origin", "destination", "pickup", "delivery"],
-  cargo: ["commodity", "stackable", "dangerous", "packages", "weight", "cbm"],
-  pricing: ["buyingLines", "sellingLines", "currency"],
-  terms: ["shippingTerms", "shippingIncludes", "shippingExcludes"],
-};
-
-// Pick only the fields of the checked sections from the source data.
-function pickSections(
-  source: SalesQuoteData,
-  checked: SectionKey[],
-): Partial<SalesQuoteData> {
-  const patch: Partial<SalesQuoteData> = {};
-  for (const section of checked) {
-    for (const field of SECTION_FIELDS[section]) {
-      const value = source[field];
-      if (value === undefined) continue;
-      // Assign field-by-field; each key maps to its own value type in SalesQuoteData.
-      (patch as Record<string, unknown>)[field] = value;
-    }
-  }
-  return patch;
-}
+import { SECTIONS, pickSections, type SectionKey } from "@/app/sales/_lib/quoteSections";
 
 export function DuplicateWizardModal({
   open,

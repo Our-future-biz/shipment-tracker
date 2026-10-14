@@ -28,7 +28,8 @@ import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import type { SalesQuoteData, PackageLine, CostLine } from "../../_lib/types";
-import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, CURRENCIES, COST_LINE_TYPES, PACKING_TYPES } from "../../_lib/types";
+import { CURRENCIES } from "@/lib/enums";
+import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, COST_LINE_TYPES, PACKING_TYPES } from "../../_lib/types";
 import { computeTotals, computeCargo, fmt, validityInfo, quoteFamily } from "../../_lib/salesQuote";
 import { printQuote } from "../../_lib/printQuote";
 import { LifecycleBar } from "./_components/LifecycleBar";
@@ -37,6 +38,7 @@ import { CopyFromModal } from "./_components/CopyFromModal";
 import { DuplicateWizardModal } from "./_components/DuplicateWizardModal";
 import { PdfPreviewModal } from "./_components/PdfPreviewModal";
 import { EmailQuoteModal } from "./_components/EmailQuoteModal";
+import { useListKeys } from "@/hooks/useListKeys";
 
 const emptyPackage: PackageLine = { qty: 1, type: "Pallets", length: 120, width: 80, height: 100, weight: 100, stackable: true };
 const emptyLine = (): CostLine => ({ type: "Ocean freight", description: "", supplier: "", currency: "EUR", amount: 0 });
@@ -54,6 +56,7 @@ export function QuoteWorkflow() {
   const hydrated = useRef(false);
   const draftRef = useRef<SalesQuoteData>({});
   const [savedAt, setSavedAt] = useState<string>("");
+  const [saveError, setSaveError] = useState("");
   const [modal, setModal] = useState<null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email">(null);
   const [openKey, setOpenKey] = useState<string>("customer");
 
@@ -64,30 +67,41 @@ export function QuoteWorkflow() {
     }
   }, [loaded]);
 
-  // Debounced autosave (+ flush latest on unmount / navigation so nothing is lost)
+  // The latest save function, so the debounced save and the save on leaving never call an old one.
+  const saveRef = useRef(saveData);
+  useEffect(() => {
+    saveRef.current = saveData;
+  }, [saveData]);
+
+  // Debounced autosave; a failure is shown instead of the "Saved" time.
   useEffect(() => {
     draftRef.current = draft;
     if (!hydrated.current) return;
     const t = setTimeout(() => {
-      saveData(draft)
-        .then(() => setSavedAt(new Date().toLocaleTimeString("en-GB")))
-        .catch(() => {});
+      saveRef.current(draft)
+        .then(() => {
+          setSaveError("");
+          setSavedAt(new Date().toLocaleTimeString("en-GB"));
+        })
+        .catch((e: unknown) => setSaveError(e instanceof Error && e.message ? e.message : "Could not save"));
     }, 700);
     return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
 
-  useEffect(() => {
-    return () => {
-      if (hydrated.current) saveData(draftRef.current).catch(() => {});
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Flush the latest draft on unmount / navigation so nothing is lost. The page is gone by then,
+  // so a failure can't be shown; the debounced save above has already reported any problem.
+  useEffect(
+    () => () => {
+      if (hydrated.current) saveRef.current(draftRef.current).catch(() => undefined);
+    },
+    [],
+  );
 
   const set = (patch: Partial<SalesQuoteData>) => setDraft((d) => ({ ...d, ...patch }));
 
   // Packages
   const packages = draft.packages ?? [];
+  const packageKeys = useListKeys(packages.length);
   const cargo = useMemo(() => computeCargo(draft), [draft]);
   const updatePackages = (pkgs: PackageLine[]) => set({ packages: pkgs, weight: computeCargo({ packages: pkgs }).grossWeight, cbm: computeCargo({ packages: pkgs }).cbm });
 
@@ -282,7 +296,7 @@ export function QuoteWorkflow() {
               <span>Qty</span><span>Packing</span><span>L (cm)</span><span>W (cm)</span><span>H (cm)</span><span>Kg/ea</span><span>Stack</span><span />
             </div>
             {packages.map((p, i) => (
-              <div key={i} className="grid grid-cols-[60px_1.3fr_70px_70px_70px_80px_70px_40px] gap-2 px-3 py-2 items-center border-t border-slate-100">
+              <div key={packageKeys.keys[i]} className="grid grid-cols-[60px_1.3fr_70px_70px_70px_80px_70px_40px] gap-2 px-3 py-2 items-center border-t border-slate-100">
                 <InputNumber size="small" min={1} value={p.qty} onChange={(v) => updatePackages(packages.map((x, j) => (j === i ? { ...x, qty: v ?? 1 } : x)))} />
                 <Select size="small" value={p.type} onChange={(v) => updatePackages(packages.map((x, j) => (j === i ? { ...x, type: v } : x)))} options={PACKING_TYPES.map((t) => ({ value: t, label: t }))} />
                 <InputNumber size="small" min={0} value={p.length} onChange={(v) => updatePackages(packages.map((x, j) => (j === i ? { ...x, length: v ?? 0 } : x)))} />
@@ -292,7 +306,11 @@ export function QuoteWorkflow() {
                 <div className="flex justify-center">
                   <Checkbox checked={p.stackable !== false} onChange={(e) => updatePackages(packages.map((x, j) => (j === i ? { ...x, stackable: e.target.checked } : x)))} />
                 </div>
-                <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => updatePackages(packages.filter((_, j) => j !== i))} />
+                <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => {
+                    packageKeys.remove(i);
+                    updatePackages(packages.filter((_, j) => j !== i));
+                  }}
+                />
               </div>
             ))}
             <div className="px-3 py-2 border-t border-slate-100">
@@ -396,10 +414,21 @@ export function QuoteWorkflow() {
         <div className="flex items-center justify-between mb-5">
           <div>
             <h1 className="text-2xl font-bold text-slate-800 m-0 font-mono">{ref}</h1>
-            <div className="text-xs text-slate-400 mt-1">{savedAt ? `Saved ${savedAt}` : "Autosaves as you type"}</div>
+            {saveError ? (
+              <div className="text-xs text-red-600 mt-1">Not saved: {saveError}</div>
+            ) : (
+              <div className="text-xs text-slate-400 mt-1">{savedAt ? `Saved ${savedAt}` : "Autosaves as you type"}</div>
+            )}
           </div>
           <div className="flex gap-2">
-            <Button icon={<SaveOutlined />} onClick={() => saveData(draft).then(() => toast.success("Saved"))}>
+            <Button icon={<SaveOutlined />} onClick={() =>
+                saveData(draft)
+                  .then(() => {
+                    setSaveError("");
+                    toast.success("Saved");
+                  })
+                  .catch((e: unknown) => toast.error(e instanceof Error && e.message ? e.message : "Could not save"))
+              }>
               Save
             </Button>
             <Button icon={<CopyOutlined />} onClick={() => setModal("duplicate")}>
@@ -591,6 +620,7 @@ function QuickCard({ icon, title, onClick }: { icon: React.ReactNode; title: str
 function CostLinesEditor({ title, lines, onChange, showSupplier }: { title: string; lines: CostLine[]; onChange: (l: CostLine[]) => void; showSupplier?: boolean }) {
   const cols = showSupplier ? "grid-cols-[1.1fr_1.1fr_1fr_80px_100px_100px_36px]" : "grid-cols-[1.3fr_1.3fr_80px_100px_100px_36px]";
   const patch = (i: number, p: Partial<CostLine>) => onChange(lines.map((x, j) => (j === i ? { ...x, ...p } : x)));
+  const lineKeys = useListKeys(lines.length);
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden">
       <div className="bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500">{title}</div>
@@ -604,14 +634,18 @@ function CostLinesEditor({ title, lines, onChange, showSupplier }: { title: stri
         <span />
       </div>
       {lines.map((l, i) => (
-        <div key={i} className={`grid ${cols} gap-2 px-3 py-2 items-center border-t border-slate-100`}>
+        <div key={lineKeys.keys[i]} className={`grid ${cols} gap-2 px-3 py-2 items-center border-t border-slate-100`}>
           <Select size="small" value={l.type} onChange={(v) => patch(i, { type: v })} options={COST_LINE_TYPES.map((t) => ({ value: t, label: t }))} />
           <Input size="small" placeholder="Description" value={l.description} onChange={(e) => patch(i, { description: e.target.value })} />
           {showSupplier && <Input size="small" placeholder="Supplier" value={l.supplier ?? ""} onChange={(e) => patch(i, { supplier: e.target.value })} />}
           <Select size="small" value={l.currency} onChange={(v) => patch(i, { currency: v })} options={CURRENCIES.map((c) => ({ value: c, label: c }))} />
           <InputNumber size="small" className="w-full" min={0} value={l.amount} onChange={(v) => patch(i, { amount: v ?? 0 })} />
           <InputNumber size="small" className="w-full" min={0} placeholder="=amt" value={l.value} onChange={(v) => patch(i, { value: v ?? undefined })} />
-          <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => onChange(lines.filter((_, j) => j !== i))} />
+          <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => {
+              lineKeys.remove(i);
+              onChange(lines.filter((_, j) => j !== i));
+            }}
+          />
         </div>
       ))}
       <div className="px-3 py-2 border-t border-slate-100">

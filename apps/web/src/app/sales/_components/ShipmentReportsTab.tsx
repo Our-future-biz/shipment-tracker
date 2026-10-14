@@ -8,6 +8,7 @@ import { useShipments } from "@/hooks/useShipments";
 import { fmt } from "@/app/sales/_lib/salesQuote";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
+import { toNumber } from "@/lib/number";
 
 type Row = {
   id: string;
@@ -19,10 +20,7 @@ type Row = {
   buying: string;
 };
 
-const parseNum = (v: string): number => {
-  const n = parseFloat(v);
-  return Number.isNaN(n) ? 0 : n;
-};
+const parseNum = toNumber;
 
 export function ShipmentReportsTab() {
   const { shipments, isLoading } = useShipments();

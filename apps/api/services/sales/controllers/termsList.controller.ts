@@ -10,7 +10,6 @@ interface TermsListResponse {
 export const termsList = api(
   { expose: true, auth: true, method: "GET", path: "/terms-conditions" },
   async (): Promise<TermsListResponse> => {
-    const data = await termsService.list(getAuthData()!.companyID);
-    return { data: data as unknown as TermsConditionItem[] };
+    return { data: await termsService.list(getAuthData()!.companyID) };
   },
 );

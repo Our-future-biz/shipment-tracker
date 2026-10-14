@@ -1,10 +1,11 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { quoteService } from "../services/quote.service";
 import type { QuoteItem } from "../interfaces/interfaces";
 
 interface QuoteCreateRequest {
-  quoteNumber: string;
+  quoteNumber: string & MinLen<1> & MaxLen<100>;
   data?: unknown;
   terms?: string;
 }
@@ -16,10 +17,6 @@ interface QuoteCreateResponse {
 export const quoteCreate = api(
   { expose: true, auth: true, method: "POST", path: "/quotes" },
   async (req: QuoteCreateRequest): Promise<QuoteCreateResponse> => {
-    if (!req.quoteNumber) {
-      throw APIError.invalidArgument("quoteNumber is required");
-    }
-    const quote = await quoteService.create(getAuthData()!.companyID, req.quoteNumber, req.data ?? {}, req.terms);
-    return { quote: quote as unknown as QuoteItem };
+    return { quote: await quoteService.create(getAuthData()!.companyID, req.quoteNumber, req.data ?? {}, req.terms) };
   },
 );

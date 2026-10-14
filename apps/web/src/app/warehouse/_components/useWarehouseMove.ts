@@ -3,6 +3,7 @@
 import { api } from "@/lib/api";
 import { useShipments } from "@/hooks/useShipments";
 import { useToast } from "@/lib/toast";
+import { todayIso } from "@/lib/date";
 
 // A shipment moves through the warehouse pages by two dates it carries itself:
 //   In Warehouse → (Naskladnit, warehouseReceivedDate) → Stock
@@ -17,11 +18,6 @@ import { useToast } from "@/lib/toast";
 //   Out Warehouse → (Vrátit do Stock, warehouseReleasedDate cleared) → Stock
 // Nothing is copied between the pages; each one lists the shipments at its step.
 
-/** Today as the API stores dates (YYYY-MM-DD), in local time. */
-function todayIso(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 export const NOTHING_TICKED = "Tick the shipments in the table first";
 

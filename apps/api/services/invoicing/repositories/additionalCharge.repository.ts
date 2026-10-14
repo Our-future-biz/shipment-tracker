@@ -1,34 +1,29 @@
-import { eq, and, asc } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { invoiceAdditionalChargeTable } from "../schemas/invoiceAdditionalCharge.schema";
+import {
+  invoiceAdditionalChargeTable as t,
+  type InvoiceAdditionalChargeRecord,
+} from "../schemas/invoiceAdditionalCharge.schema";
 
-class AdditionalChargeRepository {
-  async listByShipmentId(shipmentId: string, companyId: string) {
-    return db
+class AdditionalChargeRepository extends TenantRepository<typeof t> {
+  constructor() {
+    super(db, t, "invoice_additional_charge");
+  }
+
+  async listByShipmentId(shipmentId: string, companyId: string): Promise<InvoiceAdditionalChargeRecord[]> {
+    return this.db
       .select()
-      .from(invoiceAdditionalChargeTable)
-      .where(and(eq(invoiceAdditionalChargeTable.companyId, companyId), eq(invoiceAdditionalChargeTable.shipmentId, shipmentId)))
-      .orderBy(asc(invoiceAdditionalChargeTable.sortOrder));
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)))
+      .orderBy(asc(t.sortOrder));
   }
 
-  async create(data: { companyId: string; shipmentId: string; invoiceNumber?: string; vendor?: string; description?: string; estAmount?: string; estCurrency?: string; realAmount?: string; realCurrency?: string; sortOrder?: number }) {
-    const [row] = await db.insert(invoiceAdditionalChargeTable).values(data).returning();
-    return row!;
-  }
-
-  async update(id: string, companyId: string, data: Record<string, unknown>) {
-    const [row] = await db
-      .update(invoiceAdditionalChargeTable)
-      .set({ ...data, updatedAt: new Date() } as never)
-      .where(and(eq(invoiceAdditionalChargeTable.id, id), eq(invoiceAdditionalChargeTable.companyId, companyId)))
-      .returning();
-    return row ?? null;
-  }
-
-  async delete(id: string, companyId: string) {
-    await db
-      .delete(invoiceAdditionalChargeTable)
-      .where(and(eq(invoiceAdditionalChargeTable.id, id), eq(invoiceAdditionalChargeTable.companyId, companyId)));
+  async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {
+    await this.db
+      .update(t)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)));
   }
 }
 

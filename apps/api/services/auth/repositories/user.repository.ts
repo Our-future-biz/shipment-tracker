@@ -3,9 +3,11 @@ import { BaseRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { userTable } from "../schemas/user.schema";
 
+export type UserPatch = Partial<typeof userTable.$inferInsert>;
+
 class UserRepository extends BaseRepository<typeof userTable> {
   constructor() {
-    super(db as never, userTable, "app_user");
+    super(db, userTable, "app_user");
   }
 
   // Login is global by email (a user types only their address, not their company),
@@ -37,10 +39,10 @@ class UserRepository extends BaseRepository<typeof userTable> {
     return row ?? null;
   }
 
-  async updateInCompany(id: string, companyId: string, patch: Record<string, unknown>) {
+  async updateInCompany(id: string, companyId: string, patch: UserPatch) {
     const [row] = await this.db
       .update(userTable)
-      .set({ ...patch, updatedAt: new Date() } as never)
+      .set({ ...patch, updatedAt: new Date() })
       .where(and(eq(userTable.id, id), eq(userTable.companyId, companyId), isNull(userTable.deletedAt)))
       .returning();
     return row ?? null;
@@ -64,7 +66,7 @@ class UserRepository extends BaseRepository<typeof userTable> {
   async softDeleteInCompany(id: string, companyId: string) {
     const [row] = await this.db
       .update(userTable)
-      .set({ deletedAt: new Date(), updatedAt: new Date() } as never)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(userTable.id, id), eq(userTable.companyId, companyId), isNull(userTable.deletedAt)))
       .returning();
     return row ?? null;

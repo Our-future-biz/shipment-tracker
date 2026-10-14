@@ -14,10 +14,10 @@ interface AccordionSectionProps {
   id?: string;
 }
 
-const STATUS_CONFIG: Record<SectionStatus, { label: string; color: string; icon: string }> = {
-  completed: { label: "Completed", color: "#22c55e", icon: "\u2713" },
-  "in-progress": { label: "In progress", color: "#f59e0b", icon: "\u25CF" },
-  "not-started": { label: "Not started", color: "#94a3b8", icon: "\u25CB" },
+const STATUS_CONFIG: Record<SectionStatus, { label: string; className: string; icon: string }> = {
+  completed: { label: "Completed", className: "text-green-500", icon: "\u2713" },
+  "in-progress": { label: "In progress", className: "text-amber-500", icon: "\u25CF" },
+  "not-started": { label: "Not started", className: "text-slate-400", icon: "\u25CB" },
 };
 
 export function AccordionSection({
@@ -31,7 +31,6 @@ export function AccordionSection({
   const [open, setOpen] = useState(defaultOpen);
   const [height, setHeight] = useState<number | undefined>(defaultOpen ? undefined : 0);
   const contentRef = useRef<HTMLDivElement>(null);
-  const [hovered, setHovered] = useState(false);
   const statusInfo = STATUS_CONFIG[status];
 
   const updateHeight = useCallback(() => {
@@ -55,41 +54,28 @@ export function AccordionSection({
   return (
     <div
       id={id}
-      className="bg-white rounded-lg border border-slate-200 mb-2 overflow-hidden transition-shadow duration-200"
-      style={{
-        boxShadow: open
-          ? "inset 3px 0 0 0 #6366f1"
-          : hovered
-            ? "inset 3px 0 0 0 #c7d2fe"
-            : "inset 3px 0 0 0 transparent",
-      }}
+      // The left accent: indigo while open, a lighter one while the header is hovered.
+      className={`group bg-white rounded-lg border border-slate-200 mb-2 overflow-hidden transition-shadow duration-200 ${
+        open
+          ? "shadow-[inset_3px_0_0_0_var(--color-indigo-500)]"
+          : "shadow-[inset_3px_0_0_0_transparent] hover:shadow-[inset_3px_0_0_0_var(--color-indigo-200)]"
+      }`}
     >
       {/* Header */}
       <div
         onClick={() => setOpen(!open)}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        className={`flex items-center justify-between px-[18px] py-3.5 cursor-pointer select-none transition-colors duration-150 ${
-          hovered ? "bg-[#fafaff]" : "bg-transparent"
-        }`}
+        className="flex items-center justify-between px-[18px] py-3.5 cursor-pointer select-none transition-colors duration-150 bg-transparent hover:bg-indigo-50/40"
       >
         <div className="flex items-center gap-3">
           <DownOutlined
-            className="text-slate-400 transition-transform duration-[250ms]"
-            style={{
-              fontSize: 10,
-              transform: open ? "rotate(0deg)" : "rotate(-90deg)",
-            }}
+            className={`text-slate-400 text-[10px] transition-transform duration-[250ms] ${open ? "rotate-0" : "-rotate-90"}`}
           />
           <div>
             <div className="font-semibold text-[13px] text-slate-800">{title}</div>
             <div className="text-[11px] text-slate-500 mt-0.5">{description}</div>
           </div>
         </div>
-        <div
-          className="flex items-center gap-1.5 text-[11px] font-medium"
-          style={{ color: statusInfo.color }}
-        >
+        <div className={`flex items-center gap-1.5 text-[11px] font-medium ${statusInfo.className}`}>
           <span className="text-[10px]">{statusInfo.icon}</span>
           {statusInfo.label}
         </div>
@@ -99,9 +85,8 @@ export function AccordionSection({
       <div
         ref={contentRef}
         className="overflow-hidden transition-[height] duration-[250ms] ease-in-out"
-        style={{
-          height: height === undefined ? "auto" : height,
-        }}
+        // Measured in pixels while animating, so it can't be a class.
+        style={{ height: height === undefined ? "auto" : height }}
       >
         <div className="px-[18px] pt-3 pb-4 border-t border-slate-100">
           {children}

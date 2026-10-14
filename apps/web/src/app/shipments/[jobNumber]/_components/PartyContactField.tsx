@@ -4,8 +4,7 @@ import { useRef, useState } from "react";
 import { AutoComplete } from "antd";
 import { PartyContactLink } from "./PartyContactLink";
 import { EditOutlined } from "@ant-design/icons";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { FadeText } from "@/components/FadeText";
 
 interface PartyContactFieldProps {
@@ -27,13 +26,8 @@ export function PartyContactField({ label, fieldKey, value, customerId, onCommit
   const [draft, setDraft] = useState(value);
   const justSelected = useRef(false);
 
-  const { data } = useQuery({
-    queryKey: ["customer-contacts", customerId],
-    queryFn: () => api.customers.contactList(customerId!),
-    enabled: editing && !!customerId,
-    staleTime: 60_000,
-  });
-  const contacts = data?.data ?? [];
+  // Loaded only once the field is being edited ("" keeps the query off).
+  const { contacts } = useCustomerContacts(editing && customerId ? customerId : "");
 
   // Main contact first, then the rest in the order the CRM returns them.
   const options = [...contacts]

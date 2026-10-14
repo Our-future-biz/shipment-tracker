@@ -12,6 +12,8 @@ vi.mock("../repositories/customsInvoice.repository", () => ({
   customsInvoiceRepository: invoices,
 }));
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
+const shipments = vi.hoisted(() => ({ assertShipmentExists: vi.fn() }));
+vi.mock("../../../lib/shipmentRefs", () => shipments);
 vi.mock("encore.dev/api", () => ({
   APIError: { notFound: (msg: string) => new Error(msg), invalidArgument: (msg: string) => new Error(msg) },
 }));
@@ -53,7 +55,7 @@ describe("customsInvoicingService", () => {
 
   it("refuses a value that is not an amount instead of letting Postgres fail", async () => {
     await expect(customsInvoicingService.updateLine(SHIPMENT, "l1", COMPANY, { value: "1.000.50" })).rejects.toThrow(
-      "is not an amount",
+      "value must be a number",
     );
     expect(lines.updateLine).not.toHaveBeenCalled();
   });
@@ -65,7 +67,15 @@ describe("customsInvoicingService", () => {
     await expect(customsInvoicingService.deleteLine(SHIPMENT, "x", COMPANY)).rejects.toThrow("Line not found");
   });
 
+  it("checks a new shipment before its first line or invoice number", async () => {
+    lines.createForCompany.mockResolvedValue(row());
+    shipments.assertShipmentExists.mockRejectedValueOnce(new Error("Shipment not found"));
+    await expect(customsInvoicingService.addLine(SHIPMENT, COMPANY, {})).rejects.toThrow("Shipment not found");
+    expect(lines.createForCompany).not.toHaveBeenCalled();
+  });
+
   it("trims the issued invoice number", async () => {
+    invoices.getInvoice.mockResolvedValue(null);
     invoices.upsertInvoice.mockResolvedValue({ issuedInvoiceNumber: "FV-1" });
     expect(await customsInvoicingService.setIssuedInvoiceNumber(SHIPMENT, COMPANY, " FV-1 ")).toBe("FV-1");
     expect(invoices.upsertInvoice).toHaveBeenCalledWith(SHIPMENT, COMPANY, "FV-1");

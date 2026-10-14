@@ -47,7 +47,9 @@ export function FollowUpTab() {
   );
 
   const addTask = async () => {
-    const v = await form.validateFields();
+    // antd marks the invalid fields itself; a failed check just stops here.
+    const v = await form.validateFields().catch(() => null);
+    if (!v) return;
     const id = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : String(tasks.length + 1);
     await setTasks([...tasks, { id, ...v }]);
     toast.success("Task added");

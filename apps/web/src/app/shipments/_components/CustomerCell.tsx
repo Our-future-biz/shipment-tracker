@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import { useDebounced } from "@/hooks/useDebounced";
 import { AutoComplete } from "antd";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
@@ -25,14 +26,9 @@ interface CustomerCellProps {
 export function CustomerCell({ name, customerId, textStyle, onChange }: CustomerCellProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
-  const [query, setQuery] = useState("");
+  // Debounced so holding down a key doesn't fire a request per character.
+  const query = useDebounced(draft.trim(), 250);
   const justSelected = useRef(false);
-
-  // Debounce so holding down a key doesn't fire a request per character.
-  useEffect(() => {
-    const t = setTimeout(() => setQuery(draft.trim()), 250);
-    return () => clearTimeout(t);
-  }, [draft]);
 
   const enabled = editing && query.length >= MIN_QUERY;
   const { data, isFetching } = useQuery({
@@ -47,7 +43,6 @@ export function CustomerCell({ name, customerId, textStyle, onChange }: Customer
 
   const startEdit = () => {
     setDraft(name);
-    setQuery("");
     justSelected.current = false;
     setEditing(true);
   };

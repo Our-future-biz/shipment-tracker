@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, uuid, boolean, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { customerTable } from "./customer.schema";
+import type { ContactRole } from "../interfaces/interfaces";
 
 export const contactTable = pgTable(
   "contact",
@@ -14,7 +15,7 @@ export const contactTable = pgTable(
     name: text("name").notNull(),
     email: text("email").notNull().default(""),
     phone: text("phone").notNull().default(""),
-    role: text("role").notNull().default("Operations"), // Sales / Operations / Finance
+    role: text("role").$type<ContactRole>().notNull().default("Operations"),
     isMain: boolean("is_main").notNull().default(false),
   },
   (table) => [

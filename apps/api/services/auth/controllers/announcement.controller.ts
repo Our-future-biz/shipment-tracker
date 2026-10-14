@@ -1,4 +1,5 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { requireRole } from "../../../lib/rbac";
 import { announcementService } from "../services/announcement.service";
 import type {
@@ -32,9 +33,7 @@ interface AnnouncementMarkReadRequest {
 export const announcementMarkRead = api(
   { expose: true, auth: true, method: "POST", path: "/auth/announcements/:id/read" },
   async (req: AnnouncementMarkReadRequest): Promise<OkResponse> => {
-    if (!(await announcementService.markRead(requireRole(), req.id))) {
-      throw APIError.notFound("Post not found");
-    }
+    await announcementService.markRead(requireRole(), req.id);
     return { ok: true };
   },
 );
@@ -43,10 +42,7 @@ export const announcementMarkRead = api(
 export const announcementReadReceipts = api(
   { expose: true, auth: true, method: "GET", path: "/auth/announcements/:id/read-receipts" },
   async (req: AnnouncementMarkReadRequest): Promise<AnnouncementReadReceipts> => {
-    const actor = requireRole("superadmin", "admin", "manager");
-    const receipts = await announcementService.readReceipts(actor, req.id);
-    if (!receipts) throw APIError.notFound("Post not found");
-    return receipts;
+    return announcementService.readReceipts(requireRole("superadmin", "admin", "manager"), req.id);
   },
 );
 
@@ -56,11 +52,12 @@ interface AnnouncementCreateRequest {
   // countryCode, branchId and departmentId may be left out, meaning all of them.
   departmentId?: string;
   branchId?: string;
-  country?: string;
-  countryCode?: string;
+  country?: string & MaxLen<100>;
+  countryCode?: string & MaxLen<2>;
   severity?: string; // info | warning | critical
-  title: string;
-  body?: string;
+  // The same limits the post dialog enforces; the whole list is polled, so text stays bounded.
+  title: string & MinLen<1> & MaxLen<200>;
+  body?: string & MaxLen<20000>;
 }
 
 interface AnnouncementCreateResponse {
@@ -80,8 +77,8 @@ export const announcementCreate = api(
 interface AnnouncementUpdateRequest {
   id: string;
   severity?: string;
-  title?: string;
-  body?: string;
+  title?: string & MinLen<1> & MaxLen<200>;
+  body?: string & MaxLen<20000>;
 }
 
 interface OkResponse {
@@ -93,9 +90,7 @@ export const announcementUpdate = api(
   async (req: AnnouncementUpdateRequest): Promise<OkResponse> => {
     const actor = requireRole("superadmin", "admin", "manager");
     const { id, ...patch } = req;
-    if (!(await announcementService.update(actor, id, patch))) {
-      throw APIError.notFound("Post not found");
-    }
+    await announcementService.update(actor, id, patch);
     return { ok: true };
   },
 );
@@ -107,20 +102,17 @@ interface AnnouncementDeleteRequest {
 export const announcementDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/auth/announcements/:id" },
   async (req: AnnouncementDeleteRequest): Promise<OkResponse> => {
-    const actor = requireRole("superadmin", "admin", "manager");
-    if (!(await announcementService.delete(actor, req.id))) {
-      throw APIError.notFound("Post not found");
-    }
+    await announcementService.delete(requireRole("superadmin", "admin", "manager"), req.id);
     return { ok: true };
   },
 );
 
 interface AnnouncementAttachmentCreateRequest {
   id: string;
-  fileName: string;
+  fileName: string & MinLen<1> & MaxLen<255>;
   fileType?: string;
   fileSize?: number;
-  fileData: string; // base64 data URL
+  fileData: string & MinLen<1>; // base64 data URL
 }
 
 interface AnnouncementAttachmentResponse {
@@ -133,9 +125,7 @@ export const announcementAttachmentCreate = api(
   async (req: AnnouncementAttachmentCreateRequest): Promise<AnnouncementAttachmentResponse> => {
     const actor = requireRole("superadmin", "admin", "manager");
     const { id, ...input } = req;
-    const attachment = await announcementService.addAttachment(actor, id, input);
-    if (!attachment) throw APIError.notFound("Post not found");
-    return { attachment };
+    return { attachment: await announcementService.addAttachment(actor, id, input) };
   },
 );
 
@@ -146,19 +136,14 @@ interface AnnouncementAttachmentRequest {
 export const announcementAttachmentContent = api(
   { expose: true, auth: true, method: "GET", path: "/auth/announcement-attachments/:id/content" },
   async (req: AnnouncementAttachmentRequest): Promise<AnnouncementAttachmentContent> => {
-    const content = await announcementService.attachmentContent(requireRole(), req.id);
-    if (!content) throw APIError.notFound("Attachment not found");
-    return content;
+    return announcementService.attachmentContent(requireRole(), req.id);
   },
 );
 
 export const announcementAttachmentDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/auth/announcement-attachments/:id" },
   async (req: AnnouncementAttachmentRequest): Promise<OkResponse> => {
-    const actor = requireRole("superadmin", "admin", "manager");
-    if (!(await announcementService.removeAttachment(actor, req.id))) {
-      throw APIError.notFound("Attachment not found");
-    }
+    await announcementService.removeAttachment(requireRole("superadmin", "admin", "manager"), req.id);
     return { ok: true };
   },
 );

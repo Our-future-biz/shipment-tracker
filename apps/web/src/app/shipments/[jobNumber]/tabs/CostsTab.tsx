@@ -1,28 +1,17 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { CURRENCIES } from "@/lib/cargo";
 import Link from "next/link";
 import { Input, Select, Checkbox, Tooltip, Modal, message } from "antd";
 import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined, WarningOutlined } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { formatWeekLabel } from "@/lib/isoWeek";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
-
-/** CURRENCIES z mockupu - kod a nazev meny (naseptavac filtruje podle obojiho) */
-const CURRENCIES: [string, string][] = [
-  ["USD", "US Dollar"], ["EUR", "Euro"], ["INR", "Indian Rupee"], ["CNY", "Chinese Yuan Renminbi"],
-  ["GBP", "British Pound"], ["JPY", "Japanese Yen"], ["CHF", "Swiss Franc"], ["CZK", "Czech Koruna"],
-  ["PLN", "Polish Zloty"], ["HUF", "Hungarian Forint"], ["SEK", "Swedish Krona"], ["NOK", "Norwegian Krone"],
-  ["DKK", "Danish Krone"], ["CAD", "Canadian Dollar"], ["AUD", "Australian Dollar"], ["NZD", "New Zealand Dollar"],
-  ["SGD", "Singapore Dollar"], ["HKD", "Hong Kong Dollar"], ["KRW", "South Korean Won"], ["TWD", "New Taiwan Dollar"],
-  ["THB", "Thai Baht"], ["VND", "Vietnamese Dong"], ["MYR", "Malaysian Ringgit"], ["IDR", "Indonesian Rupiah"],
-  ["PHP", "Philippine Peso"], ["AED", "UAE Dirham"], ["SAR", "Saudi Riyal"], ["TRY", "Turkish Lira"],
-  ["ZAR", "South African Rand"], ["BRL", "Brazilian Real"], ["MXN", "Mexican Peso"], ["RUB", "Russian Ruble"],
-];
-
 
 /** COST_TYPES z mockupu - kategorie nakladu (spolecne pro buying i selling) */
 const COST_CATEGORIES = [
@@ -53,7 +42,7 @@ function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: stri
         const name = String(option?.title ?? "").toLowerCase();
         return code.includes(q) || name.includes(q);
       }}
-      options={CURRENCIES.map(([code, name]) => ({
+      options={CURRENCIES.map(({ code, name }) => ({
         value: code, title: name, label: `${code} — ${name}`,
       }))}
       // v rozbalenem seznamu je videt i nazev meny, v bunce jen kod
@@ -92,8 +81,8 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   const bg = {
-    buy: "bg-[#EEF0FC] text-[#3F4DBF]",
-    sell: "bg-[#E6F5EC] text-[#177245]",
+    buy: "bg-accent-faint text-accent-strong",
+    sell: "bg-ok-soft text-ok",
   }[tone];
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden mb-4">
@@ -155,7 +144,11 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   // shows exactly the same figures as this tab.
   const { billingCur, rateBasis, rateDate, weekKey, fx, rates, ratesLoading, buyRows, sellRows, totals: t } = useCostsData(shipment);
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
+  // Costs feed the shipment's totals (list rows, the customer's rollups), so those refresh too.
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["shipments"] });
+    return queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
+  };
 
   /** Chyba zapisu se musi ukazat - drive se tise spolkla a tlacitko
    *  vypadalo, ze nic nedela. */
@@ -183,7 +176,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     onError: showError("Could not add the buying cost"),
   });
   const updateBuy = useMutation({
-    mutationFn: ({ id, ...params }: { id: string } & Record<string, unknown>) =>
+    mutationFn: ({ id, ...params }: { id: string } & controllers.UpdateBuyingRequest) =>
       api.invoicing.invoicingUpdateBuyingCost(shipment.id, id, params),
     onSuccess: invalidate,
     onError: showError("Could not save the change"),
@@ -197,16 +190,16 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
   /* ── Selling costs ── */
   // novy radek dle mockupu: Qty = 1, mena podle billing meny, Invoice zaskrtnuto
   const addSell = useMutation({
-    mutationFn: (params: Record<string, unknown> = {}) =>
+    mutationFn: (params: controllers.AddSellingRequest = {}) =>
       api.invoicing.invoicingAddSellingCost(shipment.id, {
         qty: "1", currency: billingCur, invoice: true,
         sortOrder: sellRows.length, ...params,
-      } as never),
+      }),
     onSuccess: (res) => { unlock(res.sellingCost.id); invalidate(); },
     onError: showError("Could not add the selling cost"),
   });
   const updateSell = useMutation({
-    mutationFn: ({ id, ...params }: { id: string } & Record<string, unknown>) =>
+    mutationFn: ({ id, ...params }: { id: string } & controllers.UpdateSellingRequest) =>
       api.invoicing.invoicingUpdateSellingCost(shipment.id, id, params),
     onSuccess: invalidate,
     onError: showError("Could not save the change"),
@@ -289,7 +282,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     await Promise.all([
       api.invoicing.invoicingAddBuyingCost(shipment.id, { ...entry.values, sortOrder: entry.index }),
       ...buyRows.flatMap((r, i) => i >= entry.index
-        ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, r.id, { sortOrder: i + 1 } as never)]
+        ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, r.id, { sortOrder: i + 1 })]
         : []),
     ]);
     invalidate();
@@ -308,9 +301,9 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
     setUndoSellCount(undoSellStack.current.length);
     if (!entry) return;
     await Promise.all([
-      api.invoicing.invoicingAddSellingCost(shipment.id, { ...entry.values, sortOrder: entry.index } as never),
+      api.invoicing.invoicingAddSellingCost(shipment.id, { ...entry.values, sortOrder: entry.index }),
       ...sellRows.flatMap((r, i) => i >= entry.index
-        ? [api.invoicing.invoicingUpdateSellingCost(shipment.id, r.id, { sortOrder: i + 1 } as never)]
+        ? [api.invoicing.invoicingUpdateSellingCost(shipment.id, r.id, { sortOrder: i + 1 })]
         : []),
     ]);
     invalidate();
@@ -327,7 +320,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       sortOrder: index + 1,
     });
     await Promise.all(buyRows.flatMap((row, i) => i > index
-      ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, row.id, { sortOrder: i + 1 } as never)]
+      ? [api.invoicing.invoicingUpdateBuyingCost(shipment.id, row.id, { sortOrder: i + 1 })]
       : []));
     invalidate();
   };
@@ -339,7 +332,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       sortOrder: index + 1,
     });
     await Promise.all(sellRows.flatMap((row, i) => i > index
-      ? [api.invoicing.invoicingUpdateSellingCost(shipment.id, row.id, { sortOrder: i + 1 } as never)]
+      ? [api.invoicing.invoicingUpdateSellingCost(shipment.id, row.id, { sortOrder: i + 1 })]
       : []));
     invalidate();
   };
@@ -381,7 +374,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
           currency: r.estCurrency,
           sourceBuyId: r.id,
           sortOrder: baseOrder + i,
-        } as never)),
+        })),
       ...(onlyEmpty ? [api.invoicing.invoicingDeleteSellingCost(shipment.id, onlyEmpty.id)] : []),
     ]);
     invalidate();
@@ -422,7 +415,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
           : api.invoicing.invoicingAddSellingCost(shipment.id, {
               category: c.category ?? "", qty, amount, currency, invoice: true,
               sortOrder: sellRows.length + i,
-            } as never);
+            });
       }));
       const imported = usable.length;
       const qBilling = quoteData.billingSettings;
@@ -467,15 +460,15 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         }
       >
         <div className="overflow-x-auto">
-          <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "1180px" }}>
+          <table className="w-full min-w-[1180px] border-separate border-spacing-0">
             <thead>
               {/* seskupene zahlavi Estimated / Real dle mockupu */}
               <tr>
                 <th colSpan={2} className="border-b border-slate-200" />
-                <th colSpan={3} className={`${TH} text-center bg-[#F5F6FD] text-[#3F4DBF]`}>
+                <th colSpan={3} className={`${TH} text-center bg-accent-faint text-accent-strong`}>
                   Estimated buying costs
                 </th>
-                <th colSpan={5} className={`${TH} ${SPLIT} text-center bg-[#FBF6EF] text-[#95620B]`}>
+                <th colSpan={5} className={`${TH} ${SPLIT} text-center bg-warn-faint text-warn`}>
                   Real buying costs
                 </th>
                 <th colSpan={2} className="border-b border-slate-200" />
@@ -555,7 +548,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                   </td>
                   <td
                     className={`${CELL} ${
-                      t.buyRowOver[r.id] ? "bg-[#FBE6E4]" : t.buyRowUnder[r.id] ? "bg-[#E1F3E9]" : ""
+                      t.buyRowOver[r.id] ? "bg-danger-soft" : t.buyRowUnder[r.id] ? "bg-ok-soft" : ""
                     }`}
                     title={
                       t.buyRowOver[r.id] ? "Real Cost is higher than Estimated"
@@ -563,7 +556,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                     }
                   >
                     <input
-                      className={`${FIELD} text-right${fld} ${t.buyRowUnder[r.id] ? "!text-[#177245] font-bold" : ""}`}
+                      className={`${FIELD} text-right${fld} ${t.buyRowUnder[r.id] ? "!text-ok font-bold" : ""}`}
                       defaultValue={r.realAmount}
                       onBlur={(e) => e.target.value !== r.realAmount && updateBuy.mutate({ id: r.id, realAmount: e.target.value })}
                     />
@@ -588,7 +581,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                   <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>
                     {t.buyRowTotals[r.id] == null ? (
                       <Tooltip title={`No exchange rate for ${missingFor(r.estCurrency, r.realCurrency)} — this row is left out of the totals`}>
-                        <span className="text-[#95620B] cursor-help">—</span>
+                        <span className="text-warn cursor-help">—</span>
                       </Tooltip>
                     ) : (
                       money(t.buyRowTotals[r.id]!)
@@ -600,7 +593,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                         onClick={guarded("Could not duplicate the row", () => duplicateBuy(r, rowIndex))}
                         aria-label="Duplicate buying cost row"
                         className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
-                                   hover:bg-[#E7EAFC] hover:text-[#4457D6] border-0 bg-transparent cursor-pointer inline-grid"
+                                   hover:bg-accent-soft hover:text-accent border-0 bg-transparent cursor-pointer inline-grid"
                       >
                         <CopyOutlined />
                       </button>
@@ -610,7 +603,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                         onClick={() => removeBuy(r, rowIndex)}
                         aria-label="Delete buying cost row"
                         className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
-                                   hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer inline-grid"
+                                   hover:bg-danger-soft hover:text-danger border-0 bg-transparent cursor-pointer inline-grid"
                       >
                         <DeleteOutlined />
                       </button>
@@ -674,7 +667,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         }
       >
         <div className="overflow-x-auto">
-          <table className="w-full" style={{ borderCollapse: "separate", borderSpacing: 0, minWidth: "900px" }}>
+          <table className="w-full min-w-[900px] border-separate border-spacing-0">
             <thead>
               <tr>
                 <th className={`${TH} text-left w-[185px]`}>Category</th>
@@ -739,7 +732,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                   <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums ${r.invoice ? "text-slate-800" : "text-slate-400 line-through"}`}>
                     {t.sellRowTotals[r.id] == null ? (
                       <Tooltip title={`No exchange rate for ${missingFor(r.currency)} — this row is left out of the totals`}>
-                        <span className="text-[#95620B] cursor-help">—</span>
+                        <span className="text-warn cursor-help">—</span>
                       </Tooltip>
                     ) : (
                       money(t.sellRowTotals[r.id]!)
@@ -757,7 +750,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                         onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex))}
                         aria-label="Duplicate selling cost row"
                         className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
-                                   hover:bg-[#E7EAFC] hover:text-[#4457D6] border-0 bg-transparent cursor-pointer inline-grid"
+                                   hover:bg-accent-soft hover:text-accent border-0 bg-transparent cursor-pointer inline-grid"
                       >
                         <CopyOutlined />
                       </button>
@@ -767,7 +760,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                         onClick={() => removeSell(r, rowIndex)}
                         aria-label="Delete selling cost row"
                         className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
-                                   hover:bg-[#FBE6E4] hover:text-[#C3392B] border-0 bg-transparent cursor-pointer inline-grid"
+                                   hover:bg-danger-soft hover:text-danger border-0 bg-transparent cursor-pointer inline-grid"
                       >
                         <DeleteOutlined />
                       </button>
@@ -845,15 +838,15 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
           {ratesLoading ? (
             "Loading rates…"
           ) : fx.source === "none" ? (
-            <span className="text-[#95620B] font-semibold">
+            <span className="text-warn font-semibold">
               No rates entered — <Link href="/exchange" className="underline">add them in Exchange</Link>
             </span>
           ) : !rateDate ? (
-            <span className="text-[#95620B] font-semibold">
+            <span className="text-warn font-semibold">
               Shipment has no {rateBasis.toUpperCase()} date — using {formatWeekLabel(fx.usedWeek)}
             </span>
           ) : fx.source === "older" ? (
-            <span className="text-[#95620B] font-semibold">
+            <span className="text-warn font-semibold">
               No rates for {formatWeekLabel(weekKey)} — using {formatWeekLabel(fx.usedWeek)}
             </span>
           ) : (
@@ -867,9 +860,9 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
       {/* Rows in a currency the rate sheet does not cover are left out of every
           total — say so rather than letting the numbers look complete. */}
       {t.missingCurrencies.length > 0 && (
-        <div className="flex items-start gap-2 bg-[#FBEED2] border border-[#95620B] rounded-xl px-4 py-3 mb-4">
-          <WarningOutlined className="text-[#95620B] mt-[2px]" />
-          <span className="text-[12.5px] text-[#5A4A20]">
+        <div className="flex items-start gap-2 bg-warn-soft border border-warn rounded-xl px-4 py-3 mb-4">
+          <WarningOutlined className="text-warn mt-[2px]" />
+          <span className="text-[12.5px] text-warn-ink">
             <strong>No exchange rate for {t.missingCurrencies.join(", ")}.</strong>{" "}
             {t.unconvertibleRowCount} row{t.unconvertibleRowCount === 1 ? " is" : "s are"} left out of
             the totals below.{" "}
@@ -884,7 +877,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         <button
           onClick={() => setReportOpen((v) => !v)}
           title="Show / hide report"
-          className="w-full h-[38px] px-4 flex items-center gap-3 bg-[#151B2B] text-white
+          className="w-full h-[38px] px-4 flex items-center gap-3 bg-ink text-white
                      text-[12.5px] font-bold uppercase tracking-[.05em] border-0 cursor-pointer"
         >
           <span>Report</span>
@@ -900,7 +893,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                 <span
                   className={`text-[13px] font-bold tabular-nums ${
                     !t.hasAny ? "text-white/45"
-                      : x.profit ? (t.profitCZK >= 0 ? "text-[#4ADE80]" : "text-[#F87171]")
+                      : x.profit ? (t.profitCZK >= 0 ? "text-green-400" : "text-red-400")
                         : "text-white"
                   }`}
                 >
@@ -914,7 +907,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
         {reportOpen && (
           <div className="p-4">
             {/* Profit tabulka v CZK / USD / EUR */}
-            <table className="w-full max-w-[720px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+            <table className="w-full max-w-[720px] border-separate border-spacing-0">
               <thead>
                 <tr>
                   <th className={`${TH} text-left`} />
@@ -940,7 +933,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                         key={i}
                         className={`px-[15px] py-[10px] text-right text-[13px] tabular-nums border-b border-slate-100 whitespace-nowrap ${
                           !t.hasAny || v === null ? "text-slate-300"
-                            : row.signed ? (t.profitCZK >= 0 ? "text-[#177245] font-bold" : "text-[#C3392B] font-bold")
+                            : row.signed ? (t.profitCZK >= 0 ? "text-ok font-bold" : "text-danger font-bold")
                               : "text-slate-900"
                         }`}
                       >
@@ -962,8 +955,8 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                   <span
                     className={`text-[13px] font-bold tabular-nums ${
                       !t.hasRxe ? "text-slate-300"
-                        : t.rxeTotal > 0.001 ? "text-[#C3392B]"
-                          : t.rxeTotal < -0.001 ? "text-[#177245]" : "text-slate-400"
+                        : t.rxeTotal > 0.001 ? "text-danger"
+                          : t.rxeTotal < -0.001 ? "text-ok" : "text-slate-400"
                     }`}
                   >
                     {t.hasRxe ? `${signed(t.rxeTotal)} ${billingCur}` : "—"}
@@ -972,7 +965,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
               </div>
 
               {t.rxeRows.length > 0 && (
-                <table className="w-full max-w-[720px]" style={{ borderCollapse: "separate", borderSpacing: 0 }}>
+                <table className="w-full max-w-[720px] border-separate border-spacing-0">
                   <thead>
                     <tr>
                       <th className={`${TH} text-left`}>Category</th>
@@ -990,7 +983,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
                         </td>
                         <td
                           className={`px-[15px] py-[8px] text-right text-[13px] font-semibold tabular-nums border-b border-slate-100 ${
-                            x.delta > 0.001 ? "text-[#C3392B]" : x.delta < -0.001 ? "text-[#177245]" : "text-slate-400"
+                            x.delta > 0.001 ? "text-danger" : x.delta < -0.001 ? "text-ok" : "text-slate-400"
                           }`}
                         >
                           {signed(x.delta)}
@@ -1032,7 +1025,7 @@ export function CostsTab({ shipment }: { shipment: ShipmentItem }) {
           onPressEnter={importQuoteCosts}
           className="font-mono tracking-[.03em]"
         />
-        <div className="text-[#C3392B] text-[12.5px] font-semibold min-h-[17px] mt-[7px]">
+        <div className="text-danger text-[12.5px] font-semibold min-h-[17px] mt-[7px]">
           {quoteErr}
         </div>
       </Modal>
