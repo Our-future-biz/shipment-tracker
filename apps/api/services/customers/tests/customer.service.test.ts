@@ -31,7 +31,7 @@ import { contactService } from "../services/contact.service";
 const COMPANY = "00000000-0000-0000-0000-000000000001";
 const now = new Date("2026-10-14T08:00:00Z");
 const contactRow = (over: Record<string, unknown> = {}) => ({
-  id: "k1", customerId: "c1", companyId: COMPANY, name: "Jana", email: "", phone: "", role: "Sales", isMain: false,
+  id: "k1", customerId: "c1", companyId: COMPANY, name: "Jana Nováková", firstName: "Jana", lastName: "Nováková", email: "", phone: "", role: "Sales", isMain: false,
   createdAt: now, updatedAt: now, deletedAt: null, ...over,
 });
 
@@ -57,16 +57,16 @@ describe("customerService.updateRollups", () => {
 describe("contacts of a customer", () => {
   it("can't be added under a customer that isn't live in the company", async () => {
     customers.getByIdForCompany.mockResolvedValue(null);
-    await expect(contactService.create(COMPANY, "other-company-customer", { name: "X" })).rejects.toThrow("Customer not found");
+    await expect(contactService.create(COMPANY, "other-company-customer", { firstName: "X", lastName: "Y" })).rejects.toThrow("Customer not found");
     expect(contacts.createForCompany).not.toHaveBeenCalled();
   });
 
   it("are added with defaults, and the API item carries no company or deleted fields", async () => {
     customers.getByIdForCompany.mockResolvedValue({ id: "c1" });
     contacts.createForCompany.mockResolvedValue(contactRow());
-    const item = await contactService.create(COMPANY, "c1", { name: "Jana", role: "Sales" });
+    const item = await contactService.create(COMPANY, "c1", { firstName: " Jana ", lastName: "Nováková", role: "Sales" });
     expect(contacts.createForCompany).toHaveBeenCalledWith(COMPANY, {
-      customerId: "c1", name: "Jana", email: "", phone: "", role: "Sales", isMain: false,
+      customerId: "c1", name: "Jana Nováková", firstName: "Jana", lastName: "Nováková", email: "", phone: "", role: "Sales", isMain: false,
     });
     expect(item).not.toHaveProperty("companyId");
     expect(item).not.toHaveProperty("deletedAt");
@@ -79,4 +79,19 @@ describe("contacts of a customer", () => {
     await contactService.update("k1", COMPANY, { isMain: true });
     expect(contacts.clearMainFlag).toHaveBeenCalledWith("c1", COMPANY);
   });
+
+  it("keeps the full name in step when only one part of it changes", async () => {
+    contacts.getByIdForCompany.mockResolvedValue(contactRow());
+    contacts.updateForCompany.mockResolvedValue(contactRow());
+    await contactService.update("k1", COMPANY, { lastName: "Svobodová" });
+    expect(contacts.updateForCompany).toHaveBeenCalledWith("k1", COMPANY, { firstName: "Jana", lastName: "Svobodová", name: "Jana Svobodová" });
+  });
+
+  it("leaves the name alone when neither part is sent", async () => {
+    contacts.getByIdForCompany.mockResolvedValue(contactRow());
+    contacts.updateForCompany.mockResolvedValue(contactRow());
+    await contactService.update("k1", COMPANY, { email: "jana@example.cz" });
+    expect(contacts.updateForCompany).toHaveBeenCalledWith("k1", COMPANY, { email: "jana@example.cz" });
+  });
 });
+

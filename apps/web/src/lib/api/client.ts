@@ -2272,7 +2272,8 @@ export namespace controllers {
     }
 
     export interface ContactCreateRequest {
-        name: string
+        firstName: string
+        lastName: string
         email?: string
         phone?: string
         role?: interfaces.ContactRole
@@ -2297,7 +2298,8 @@ export namespace controllers {
          */
         customerId?: string
 
-        name?: string
+        firstName?: string
+        lastName?: string
         email?: string
         phone?: string
         role?: interfaces.ContactRole
@@ -4442,7 +4444,13 @@ export namespace interfaces {
     export interface ContactItem {
         id: string
         customerId: string
+        /**
+         * "First Last", for showing and for quotes and shipments.
+         */
         name: string
+
+        firstName: string
+        lastName: string
         email: string
         phone: string
         role: ContactRole

@@ -45,6 +45,8 @@ export const toContactItem = (r: ContactRecord): ContactItem => ({
   id: r.id,
   customerId: r.customerId,
   name: r.name,
+  firstName: r.firstName,
+  lastName: r.lastName,
   email: r.email,
   phone: r.phone,
   role: r.role,

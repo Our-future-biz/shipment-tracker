@@ -60,7 +60,10 @@ export interface CustomerPipelineItem {
 export interface ContactItem {
   id: string;
   customerId: string;
+  /** "First Last", for showing and for quotes and shipments. */
   name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   phone: string;
   role: ContactRole;

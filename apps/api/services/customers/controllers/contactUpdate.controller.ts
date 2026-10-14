@@ -8,7 +8,8 @@ interface ContactUpdateRequest {
   id: string;
   /** Ignored: the contact's own customer is used. Kept so existing clients still validate. */
   customerId?: string;
-  name?: string & MinLen<1> & MaxLen<200>;
+  firstName?: string & MinLen<1> & MaxLen<100>;
+  lastName?: string & MinLen<1> & MaxLen<100>;
   email?: string & MaxLen<320>;
   phone?: string & MaxLen<50>;
   role?: ContactRole;
