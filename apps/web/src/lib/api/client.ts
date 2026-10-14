@@ -36,6 +36,7 @@ export default class Client {
     public readonly automation: automation.ServiceClient
     public readonly customers: customers.ServiceClient
     public readonly extraction: extraction.ServiceClient
+    public readonly fx: fx.ServiceClient
     public readonly holidays: holidays.ServiceClient
     public readonly invoicing: invoicing.ServiceClient
     public readonly quotes: quotes.ServiceClient
@@ -60,6 +61,7 @@ export default class Client {
         this.automation = new automation.ServiceClient(base)
         this.customers = new customers.ServiceClient(base)
         this.extraction = new extraction.ServiceClient(base)
+        this.fx = new fx.ServiceClient(base)
         this.holidays = new holidays.ServiceClient(base)
         this.invoicing = new invoicing.ServiceClient(base)
         this.quotes = new quotes.ServiceClient(base)
@@ -747,6 +749,116 @@ export namespace extraction {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/extraction/places/resolve`, JSON.stringify(params))
             return await resp.json() as controllers.ResolvePlacesResponse
+        }
+    }
+}
+
+/**
+ * Exchange rates: the official ČNB daily fixing (imported and stored, never fetched
+ * while a page waits), the company ROE % and period averages for reports.
+ */
+export namespace fx {
+
+    export class ServiceClient {
+        private baseClient: BaseClient
+
+        constructor(baseClient: BaseClient) {
+            this.baseClient = baseClient
+            this.fxAlerts = this.fxAlerts.bind(this)
+            this.fxAverages = this.fxAverages.bind(this)
+            this.fxDaily = this.fxDaily.bind(this)
+            this.fxImportRuns = this.fxImportRuns.bind(this)
+            this.fxOverview = this.fxOverview.bind(this)
+            this.fxResolve = this.fxResolve.bind(this)
+            this.fxRoeList = this.fxRoeList.bind(this)
+            this.fxRoeSet = this.fxRoeSet.bind(this)
+            this.fxSync = this.fxSync.bind(this)
+        }
+
+        /**
+         * Open "ČNB rates missing" alerts for the bell — admins only; everyone else gets none.
+         */
+        public async fxAlerts(): Promise<controllers.AlertsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/alerts`)
+            return await resp.json() as controllers.AlertsResponse
+        }
+
+        public async fxAverages(params: controllers.AveragesRequest): Promise<controllers.AveragesResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                all:  params.all === undefined ? undefined : String(params.all),
+                year: String(params.year),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/averages`, undefined, {query})
+            return await resp.json() as controllers.AveragesResponse
+        }
+
+        public async fxDaily(params: controllers.DailyRequest): Promise<controllers.DailyResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                all:   params.all === undefined ? undefined : String(params.all),
+                month: params.month,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/daily`, undefined, {query})
+            return await resp.json() as controllers.DailyResponse
+        }
+
+        public async fxImportRuns(params: controllers.ImportRunsRequest): Promise<controllers.ImportRunsResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                limit: params.limit === undefined ? undefined : String(params.limit),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/import-runs`, undefined, {query})
+            return await resp.json() as controllers.ImportRunsResponse
+        }
+
+        public async fxOverview(): Promise<interfaces.FxOverview> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/overview`)
+            return await resp.json() as interfaces.FxOverview
+        }
+
+        public async fxResolve(params: controllers.ResolveRequest): Promise<interfaces.ResolvedRate> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                currency: params.currency,
+                date:     params.date,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/resolve`, undefined, {query})
+            return await resp.json() as interfaces.ResolvedRate
+        }
+
+        public async fxRoeList(): Promise<controllers.RoeListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/fx/roe`)
+            return await resp.json() as controllers.RoeListResponse
+        }
+
+        /**
+         * Only admins change the company ROE % (owner decision); every change is kept.
+         */
+        public async fxRoeSet(params: controllers.RoeSetRequest): Promise<controllers.RoeSetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/fx/roe`, JSON.stringify(params))
+            return await resp.json() as controllers.RoeSetResponse
+        }
+
+        /**
+         * "Sync now" on the Exchange page: fetches from ČNB straight away.
+         */
+        public async fxSync(): Promise<interfaces.SyncResult> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/fx/sync`)
+            return await resp.json() as interfaces.SyncResult
         }
     }
 }
@@ -1639,6 +1751,10 @@ export namespace controllers {
         sellingCost: interfaces.SellingCostItem
     }
 
+    export interface AlertsResponse {
+        alerts: interfaces.FxAlertItem[]
+    }
+
     export interface AnnouncementAttachmentCreateRequest {
         fileName: string
         fileType?: string
@@ -1771,6 +1887,17 @@ export namespace controllers {
     export interface AutomationTriggerResponse {
         actions: string[]
         logs: interfaces.AutomationLogItem[]
+    }
+
+    export interface AveragesRequest {
+        year: number
+        all?: boolean
+    }
+
+    export interface AveragesResponse {
+        year: number
+        currencies: string[]
+        periods: interfaces.PeriodAverage[]
     }
 
     export interface BranchCreateRequest {
@@ -2034,6 +2161,17 @@ export namespace controllers {
         line: interfaces.CustomsInvoiceLineItem
     }
 
+    export interface DailyRequest {
+        month: string
+        all?: boolean
+    }
+
+    export interface DailyResponse {
+        month: string
+        currencies: string[]
+        days: interfaces.DailyRow[]
+    }
+
     export interface DashboardResponse {
         kpis: {
             totalActive: number
@@ -2203,6 +2341,14 @@ export namespace controllers {
     export interface HolidayReadRequest {
         fileBase64: string
         fileName: string
+    }
+
+    export interface ImportRunsRequest {
+        limit?: number
+    }
+
+    export interface ImportRunsResponse {
+        runs: interfaces.ImportRunItem[]
     }
 
     export interface InvoiceCreateRequest {
@@ -2529,6 +2675,25 @@ export namespace controllers {
          * Per item, its form in the database ("Hamburg (DEHAM)", "Germany (DE)", "DE"), or null.
          */
         values: (string | null)[]
+    }
+
+    export interface ResolveRequest {
+        currency: string
+        date: string
+    }
+
+    export interface RoeListResponse {
+        changes: interfaces.RoeChange[]
+    }
+
+    export interface RoeSetRequest {
+        pct: number
+        effectiveFrom: string
+        note: string
+    }
+
+    export interface RoeSetResponse {
+        changes: interfaces.RoeChange[]
     }
 
     export interface SetIssuedInvoiceNumberRequest {
@@ -3328,6 +3493,12 @@ export namespace interfaces {
         createdAt: string
     }
 
+    export interface AverageItem {
+        currency: string
+        average: number
+        fixingDays: number
+    }
+
     export interface BillingOverrideItem {
         id: string
         shipmentId: string
@@ -3550,6 +3721,27 @@ export namespace interfaces {
         issuedInvoiceNumber: string
     }
 
+    export interface DailyRow {
+        date: string
+        kind: DayKind
+        fixingNo: number | null
+        roePct: number
+        rates: DayRate[]
+    }
+
+    /**
+     * fixing: ČNB published that day · weekend · no_fixing: a Czech public holiday (no fixing)
+     * · missing: expected but not imported · pending: today before the 15:00 pull · future.
+     */
+    export type DayKind = "fixing" | "weekend" | "no_fixing" | "missing" | "pending" | "future"
+
+    export interface DayRate {
+        currency: string
+        rate: number
+        fixingDate: string
+        carried: boolean
+    }
+
     export interface DocumentItem {
         id: string
         customerId: string
@@ -3593,6 +3785,29 @@ export namespace interfaces {
         fieldCount: number
         method: "text" | "vision"
         fileName: string
+    }
+
+    /**
+     * A fixing still missing after the 16:00 pull; open until the fixing is imported.
+     */
+    export interface FxAlertItem {
+        id: string
+        fixingDate: string
+        reason: string
+        raisedAt: string
+        emailedAt: string | null
+        emailError: string
+    }
+
+    export interface FxOverview {
+        today: string
+        rates: TodayRate[]
+        roe: RoeInfo
+        scheduledRoe: RoeChange | null
+        month: string
+        monthAverages: AverageItem[]
+        sync: SyncStatus
+        alerts: FxAlertItem[]
     }
 
     export interface GeneratedInvoiceItem {
@@ -3649,6 +3864,17 @@ export namespace interfaces {
         regionalStart: string
         regionalEnd: string
         regions: string
+    }
+
+    export interface ImportRunItem {
+        id: string
+        startedAt: string
+        finishedAt: string | null
+        trigger: string
+        status: string
+        rowsAdded: number
+        latestValidDate: string | null
+        error: string
     }
 
     export interface InvoiceCostItem {
@@ -3787,6 +4013,15 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    export interface PeriodAverage {
+        type: "month" | "quarter" | "year"
+        key: string
+        from: string
+        to: string
+        final: boolean
+        averages: AverageItem[]
+    }
+
     /**
      * One uploaded file of a pre-alert.
      */
@@ -3840,6 +4075,36 @@ export namespace interfaces {
         terms: string
         createdAt: string
         updatedAt: string
+    }
+
+    export interface ResolvedRate {
+        currency: string
+        date: string
+        rate: number | null
+        fixingDate: string | null
+        carried: boolean
+        provisional: boolean
+        roePct: number
+        reason: string
+    }
+
+    export interface RoeChange {
+        id: string
+        effectiveFrom: string
+        changedAt: string
+        current: boolean
+        scheduled: boolean
+        pct: number
+        changedByName: string
+        note: string
+    }
+
+    export interface RoeInfo {
+        pct: number
+        effectiveFrom: string | null
+        changedByName: string
+        changedAt: string | null
+        note: string
     }
 
     /**
@@ -4134,6 +4399,30 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    export interface SyncResult {
+        skipped: boolean
+        status?: "ok" | "no_new_data" | "failed"
+        rowsAdded?: number
+        latestValidDate?: string | null
+        error?: string
+    }
+
+    /**
+     * ok: up to date · waiting: the expected fixing is not stored yet (ČNB late, or the next
+     * pull is due) · failed: the last import failed and data is behind · empty: nothing yet.
+     */
+    export type SyncState = "ok" | "waiting" | "failed" | "empty"
+
+    export interface SyncStatus {
+        state: SyncState
+        latestFixing: string | null
+        expectedFixing: string
+        lastRunAt: string | null
+        lastRunStatus: string | null
+        lastSuccessAt: string | null
+        lastError: string
+    }
+
     export interface TaskItem {
         id: string
         shipmentId: string
@@ -4150,6 +4439,14 @@ export namespace interfaces {
         excludes: string
         createdAt: string
         updatedAt: string
+    }
+
+    export interface TodayRate {
+        currency: string
+        rate: number | null
+        fixingDate: string | null
+        previousRate: number | null
+        previousFixingDate: string | null
     }
 
     export interface WarehouseSectionItem {
