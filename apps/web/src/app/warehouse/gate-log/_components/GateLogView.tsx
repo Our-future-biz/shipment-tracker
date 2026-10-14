@@ -17,6 +17,8 @@ import { formatDateTime } from "@/lib/date";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { Badge, CUSTOMS_CLEARED, CUSTOMS_STATUSES, GATE_STATUSES, OPERATION_TYPES, PACKINGS, isFcl, isLcl, nf } from "../_lib/gate";
 import { PrintLabelsModal } from "./PrintLabelsModal";
+import { ExpectedTodayPanel } from "./ExpectedTodayPanel";
+import { ScanBox } from "./ScanBox";
 import { gateSteps } from "../_lib/steps";
 
 type BubbleId = "attention" | "lcl" | "fcl";
@@ -311,6 +313,14 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
     </div>
   );
 
+  // The gate desk: scan or type to open a job, and what is expected today.
+  const gateDesk = (
+    <>
+      <ScanBox movements={movements} />
+      <ExpectedTodayPanel movements={movements} />
+    </>
+  );
+
   const content = (
     <>
       <AppGrid<GateMovement>
@@ -320,9 +330,13 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
             <>
               {header}
               {!archived && bubbles}
+              {!archived && gateDesk}
             </>
           ) : archived ? undefined : (
-            bubbles
+            <>
+              {bubbles}
+              {gateDesk}
+            </>
           )
         }
         actions={actions}

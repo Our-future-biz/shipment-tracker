@@ -8,6 +8,8 @@ import {
   staffRepository,
 } from "../repositories/warehouseRecords.repository";
 import { gateMovementRepository, type GateMovementRow } from "../repositories/gateMovement.repository";
+import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
+import { movementStorage } from "./storage";
 import type {
   warehouseClaimTable,
   warehouseContainerTable,
@@ -19,6 +21,7 @@ import type {
 import type {
   LaneFill,
   MonthlySummary,
+  ShipmentUpdateHealth,
   WarehouseClaimInput,
   WarehouseClaimItem,
   WarehouseContainerInput,
@@ -285,12 +288,13 @@ class WarehouseRecordsService {
   // ---------- Calculated reports ----------
 
   async reportSummary(companyId: string, now = new Date()): Promise<WarehouseReportSummary> {
-    const [movements, containerRows, slots] = await Promise.all([
+    const [movements, containerRows, slots, health] = await Promise.all([
       gateMovementRepository.listAll(companyId),
       containerRepository.listForCompany(companyId, 5000),
       dockSlotRepository.listForCompany(companyId, 5000),
+      shipmentOutboxRepository.health(companyId),
     ]);
-    return buildReportSummary(movements, containerRows, slots, now);
+    return buildReportSummary(movements, containerRows, slots, now, health);
   }
 }
 
@@ -314,7 +318,13 @@ function isoWeek(date: Date) {
   return { week, monday: monday.toISOString().slice(0, 10) };
 }
 
-export function buildReportSummary(movements: GateMovementRow[], containers: ContainerRow[], slots: SlotRow[], now = new Date()): WarehouseReportSummary {
+export function buildReportSummary(
+  movements: GateMovementRow[],
+  containers: ContainerRow[],
+  slots: SlotRow[],
+  now = new Date(),
+  shipmentUpdates: ShipmentUpdateHealth = { pending: 0, failed: 0, oldestPendingAt: null },
+): WarehouseReportSummary {
   const today = todayIso(now);
 
   // Throughput — the last 8 ISO weeks, oldest first.
@@ -428,7 +438,16 @@ export function buildReportSummary(movements: GateMovementRow[], containers: Con
     onTimeDispatch: outbound.length ? round((outbound.filter((s) => s.status === "Completed").length / outbound.length) * 100) : null,
   };
 
-  return { throughput, topCustomers, monthly, lanes, quality };
+  // Storage — cargo in the warehouse now, with the same clock as the gate job and positions.
+  const running = movements.map((m) => movementStorage(m, now)).filter((s) => s.started && !s.stopped);
+  const storage = {
+    inWarehouse: running.length,
+    expiring: running.filter((s) => s.state === "Expiring").length,
+    chargeable: running.filter((s) => s.state === "Chargeable").length,
+    estimatedCzk: running.reduce((a, s) => a + s.estimatedCzk, 0),
+  };
+
+  return { throughput, topCustomers, monthly, lanes, quality, storage, shipmentUpdates };
 }
 
 export const warehouseRecordsService = new WarehouseRecordsService();

@@ -1,10 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import dayjs from "dayjs";
-import { Input, Tooltip } from "antd";
+import { Input, InputNumber, Tooltip } from "antd";
 import {
   CarOutlined,
   CheckSquareOutlined,
+  FieldTimeOutlined,
   InboxOutlined,
   SafetyCertificateOutlined,
 } from "@ant-design/icons";
@@ -24,6 +26,8 @@ import {
 } from "../../_lib/gate";
 import { ReleaseGatesPanel, releaseState } from "./ReleaseGatesPanel";
 import { PickupPinCheck } from "./PickupPinCheck";
+import { ExceptionsPanel } from "./ExceptionsPanel";
+import { StorageLine } from "@/app/warehouse/_lib/storageText";
 import type { PinCheckResult } from "../../_lib/steps";
 import {
   btnInline,
@@ -443,6 +447,12 @@ export function OverviewTab({
           {/* ============ release gates ============ */}
           <ReleaseGatesPanel m={m} refuse={refuse} override={override} setReleaseGate={setReleaseGate} />
 
+          {/* ============ damage / short / over ============ */}
+          <ExceptionsPanel m={m} />
+
+          {/* ============ storage clock ============ */}
+          <StorageSection m={m} save={save} />
+
           {/* ============ gate checklist ============ */}
           <Section title="Gate checklist" icon={<CheckSquareOutlined />}>
             <div className="grid grid-cols-5 gap-2">
@@ -608,5 +618,71 @@ function UnNumberInput({ value, onSave }: { value: string; onSave: (v: string) =
       onBlur={(e) => e.target.value.trim() !== value && onSave(e.target.value.trim())}
       onPressEnter={(e) => e.currentTarget.blur()}
     />
+  );
+}
+
+// The storage clock of this record (one calculation, made by the server): it starts at the
+// receipt — the gate-in for inbound cargo; for outbound cargo the "Received in warehouse" date
+// (the truck's gate-in is the pick-up, never the receipt) — and stops at the WH release (outbound
+// cargo also at its gate-out; an inbound gate-out is the delivering truck leaving). Free days: empty = the default (7). Each change is logged.
+function StorageSection({ m, save }: { m: GateMovement; save: Save }) {
+  const outbound = m.visit === "výdej";
+  const s = m.storage;
+  return (
+    <Section title="Storage" icon={<FieldTimeOutlined />}>
+      <FieldRow label="Clock">
+        <span className="text-xs font-medium text-slate-900">
+          <StorageLine s={s} />
+        </span>
+      </FieldRow>
+      {outbound ? (
+        <FieldRow label="Received in warehouse">
+          <InlineDate value={m.loadInDate} onSave={(v) => save({ loadInDate: v })} />
+        </FieldRow>
+      ) : (
+        <FieldRow label="Received">
+          <span className="text-xs text-slate-700">{s.startDate ? `${dayjs(s.startDate).format("DD.MM.YYYY")} — the gate-in` : "at the gate-in"}</span>
+        </FieldRow>
+      )}
+      <FieldRow label="Free days">
+        <FreeDaysInput value={m.freeDays} onSave={(v) => save({ freeDays: v })} />
+      </FieldRow>
+      {s.started && (
+        <FieldRow label="Last free day">
+          <span className="text-xs text-slate-700">{dayjs(s.lastFreeDay).format("DD.MM.YYYY")}</span>
+        </FieldRow>
+      )}
+      <p className="text-[11px] text-slate-400 mt-2 mb-0">
+        The receipt day is day 1; calendar days in Prague time. After the free days CZK 22 per W/M a day, at least CZK 120.
+      </p>
+    </Section>
+  );
+}
+
+// Free days of this record; empty = the default (7). Saved on leaving the field.
+function FreeDaysInput({ value, onSave }: { value: number | null; onSave: (v: number | null) => void }) {
+  const [draft, setDraft] = useState<number | null>(value);
+  useEffect(() => setDraft(value), [value]);
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <InputNumber
+        size="small"
+        variant="borderless"
+        min={0}
+        max={365}
+        precision={0}
+        controls={false}
+        placeholder="7 (default)"
+        aria-label="Free days"
+        value={draft}
+        className="!text-xs -ml-[7px] hover:!bg-slate-50 w-[110px] font-mono font-medium"
+        onChange={(v) => setDraft(v == null ? null : Number(v))}
+        onBlur={() => {
+          if (draft !== value) onSave(draft);
+        }}
+        onPressEnter={(e) => (e.target as HTMLInputElement).blur()}
+      />
+      <span className="text-slate-400 text-xs">days</span>
+    </span>
   );
 }

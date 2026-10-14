@@ -13,8 +13,9 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import type { controllers } from "@/lib/api/client";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
-import { remeasurementHref } from "@/app/warehouse/_components/remeasurementLinks";
-import { errorMessage, freeDaysOver, hasAnyStamp, hasSurvey, isManager, requiredSurveyPhase, surveyTargets } from "../../_lib/gate";
+import { positionRemeasurementHref } from "@/app/warehouse/_components/remeasurementLinks";
+import { freeTimeText, storageHint } from "@/app/warehouse/_lib/storageText";
+import { errorMessage, hasAnyStamp, hasSurvey, isManager, nf, requiredSurveyPhase, surveyTargets } from "../../_lib/gate";
 import { gateSteps, isOutbound, voidBlocked, voidsGateOutToo, type GateStep } from "../../_lib/steps";
 import { PrintLabelsModal } from "../PrintLabelsModal";
 import { btnDefault, btnPrimary } from "./fields";
@@ -22,25 +23,26 @@ import { OverviewTab } from "./OverviewTab";
 import { SurveyTab } from "./SurveyTab";
 import { ShipmentManagementTab } from "./ShipmentManagementTab";
 import { ReasonModal } from "./ReleaseGatesPanel";
+import { HistoryTab } from "./HistoryTab";
 
 // The job's tab lives in the URL (?tab=survey), so refresh, Back and shared links keep it.
-const TABS = ["overview", "survey", "shipman"] as const;
+const TABS = ["overview", "survey", "shipman", "history"] as const;
 type Tab = (typeof TABS)[number];
 // The Gate Log list, now a tab of the Warehouse page.
 const GATE_LOG_HREF = "/warehouse?tab=gatelog";
 
 const cardLabel = "text-[11px] font-bold text-slate-500 uppercase tracking-wide";
 
-// Status cards under the header: customs status, storage (free days left) and the vehicle at the
+// Status cards under the header: customs status, storage (the warehouse's one storage clock:
+// days in the warehouse, free days left or chargeable, estimated charge) and the vehicle at the
 // gate — the incoming truck (IN leg) for inbound cargo, the outgoing one (OUT leg) for outbound.
 function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onRefreshCustoms?: () => void; refreshing?: boolean }) {
-  const over = freeDaysOver(m.loadInDate, m.freeDays);
-  const storage =
-    over == null
-      ? { value: m.freeDays == null ? "—" : String(m.freeDays), tone: "text-slate-900", hint: "Free storage days — set the load-in date to count down" }
-      : over > 0
-        ? { value: `+${over}`, tone: "text-red-600", hint: `${over} chargeable day${over === 1 ? "" : "s"} past free storage` }
-        : { value: String(-over), tone: -over <= 3 ? "text-amber-600" : "text-emerald-600", hint: `${-over} free storage day${over === -1 ? "" : "s"} left` };
+  const s = m.storage;
+  const storage = !s.started
+    ? { value: "—", tone: "text-slate-400", sub: isOutbound(m) ? "Not started — set “Received in warehouse” on Overview" : "Not started — starts at the gate-in" }
+    : s.chargeableDays > 0
+      ? { value: `+${s.chargeableDays}`, tone: "text-red-600", sub: `Day ${s.daysInWarehouse} · ${freeTimeText(s)} · est. CZK ${nf(s.estimatedCzk)}` }
+      : { value: String(s.freeDaysLeft), tone: s.state === "Expiring" ? "text-amber-600" : "text-emerald-600", sub: `Day ${s.daysInWarehouse} · ${freeTimeText(s)}` };
 
   const out = isOutbound(m);
   const leg = m.transportLegs.find((l) => l.leg === (out ? "OUT" : "IN"));
@@ -84,10 +86,11 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
           </div>
         )}
       </div>
-      <Tooltip title={storage.hint}>
+      <Tooltip title={storageHint(s)}>
         <div className={card}>
-          <div className={cardLabel}>Storage</div>
+          <div className={cardLabel}>Storage{s.stopped ? " · stopped" : ""}</div>
           <div className={`mt-1 text-[26px] leading-tight font-bold font-mono ${storage.tone}`}>{storage.value}</div>
+          <div className="text-[11px] text-slate-500">{storage.sub}</div>
         </div>
       </Tooltip>
       <div className={card}>
@@ -255,6 +258,7 @@ export function GateJobView({ id }: { id: string }) {
     { key: "overview", label: "Overview" },
     { key: "survey", label: "Survey", count: m.containers.length || undefined, alert: surveyDone === false, done: surveyDone === true },
     { key: "shipman", label: "Shipment Management" },
+    { key: "history", label: "History", count: m.events.length || undefined },
   ];
 
   const archived = !!m.archivedAt;
@@ -331,8 +335,9 @@ export function GateJobView({ id }: { id: string }) {
                     )}
                   </span>
                 )}
-                {m.shipmentId && (
-                  <Link href={remeasurementHref(m.shipmentId)} className="font-semibold text-indigo-500 hover:underline">
+                {/* Every position — linked or stand-alone — has its Shipment Details (Remeasurement / Release). */}
+                {m.warehouseTaskId && (
+                  <Link href={positionRemeasurementHref(m.warehouseTaskId)} className="font-semibold text-indigo-500 hover:underline">
                     Shipment Details
                   </Link>
                 )}
@@ -495,7 +500,8 @@ export function GateJobView({ id }: { id: string }) {
 
       {/* ── Tab content ── */}
       {/* An archived record is shown as it was; nothing on it can be changed until it is restored. */}
-      <div className={`p-6 ${archived ? "opacity-70" : ""}`} inert={archived}>
+      {/* History stays readable and filterable on an archived record. */}
+      <div className={`p-6 ${archived && tab !== "history" ? "opacity-70" : ""}`} inert={archived && tab !== "history"}>
         {tab === "overview" && (
           <OverviewTab
             m={m}
@@ -549,6 +555,7 @@ export function GateJobView({ id }: { id: string }) {
         )}
         {tab === "survey" && <SurveyTab m={m} saveSurvey={(survey) => saveSurvey.mutateAsync(survey)} />}
         {tab === "shipman" && <ShipmentManagementTab m={m} save={save} />}
+        {tab === "history" && <HistoryTab m={m} onVoid={manager && !archived ? setVoidStep : undefined} />}
       </div>
 
       {confirmStamp && (

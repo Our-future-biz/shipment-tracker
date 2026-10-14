@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Spin } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useClaims, useReportSummary, useSavedReports, type Claim, type SavedReport } from "@/hooks/useWarehouseRecords";
+import { formatDateTime } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
@@ -38,6 +40,7 @@ export function ReportsTab() {
   const [sub, setSub] = useUrlParam<Sub>("sub", SUBS, "throughput");
   return (
     <div className="flex flex-col gap-5">
+      <HealthLine />
       <SubTabs
         tabs={[
           { key: "throughput", label: "Throughput" },
@@ -52,6 +55,37 @@ export function ReportsTab() {
       {sub === "utilisation" && <Utilisation />}
       {sub === "quality" && <QualityAndClaims />}
       {sub === "library" && <Library />}
+    </div>
+  );
+}
+
+// ---------- Health ----------
+
+// One line on the link with Shipments and on storage: shipment updates the gate still owes
+// (retrying / failed — amber or red when not zero) and the cargo in the warehouse by free time.
+function HealthLine() {
+  const { summary } = useReportSummary();
+  if (!summary) return null;
+  const u = summary.shipmentUpdates;
+  const st = summary.storage;
+  const tone = u.failed > 0 ? "border-red-200 bg-red-50 text-red-700" : u.pending > 0 ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-white text-slate-600";
+  return (
+    <div role="status" className={`flex flex-wrap items-center gap-x-6 gap-y-1 rounded-xl border px-4 py-2 text-xs ${tone}`}>
+      <span>
+        <b>Shipment updates:</b> {u.pending} pending · {u.failed} failed
+        {u.oldestPendingAt ? ` · oldest pending since ${formatDateTime(u.oldestPendingAt)}` : ""}
+        {u.pending + u.failed > 0 && (
+          <Link href="/warehouse?tab=gatelog" className="ml-2 font-semibold underline">
+            Open the Gate Log
+          </Link>
+        )}
+      </span>
+      <span className="text-slate-600">
+        <b>Storage:</b> {st.inWarehouse} in the warehouse · <span className={st.expiring ? "text-amber-700" : ""}>{st.expiring} expiring ≤ 2 days</span> ·{" "}
+        <span className={st.chargeable ? "text-red-600" : ""}>
+          {st.chargeable} chargeable (est. CZK {nf(st.estimatedCzk)})
+        </span>
+      </span>
     </div>
   );
 }

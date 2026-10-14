@@ -2,9 +2,11 @@ import { warehouseTaskRepository } from "../repositories/warehouseTask.repositor
 import { APIError } from "encore.dev/api";
 import { shipments } from "~encore/clients";
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
-import { MAX_PICKUP_ROWS, pickupRowsFromInput } from "./pickupPin";
+import { gateMovementRepository } from "../repositories/gateMovement.repository";
+import { MAX_PICKUP_ROWS, PICKUP_SECTION, pickupRowsFromInput } from "./pickupPin";
+import { userName } from "./users";
 import type { WarehouseSectionRecord } from "../schemas/warehouseSection.schema";
-import type { WarehouseSectionItem } from "../interfaces/interfaces";
+import type { WarehouseSectionItem, WarehouseSectionSummaryItem } from "../interfaces/interfaces";
 
 export { formatWarehouseRef, warehouseRefYear } from "./warehouseRef";
 
@@ -33,6 +35,7 @@ const FIELD_LABELS: Record<string, string> = {
   remeasurement_sent: "remeasurement sent",
   inform_operations_sent: "operations informed",
   remeasure_rows: "remeasured lines",
+  remeasure_rows_saved_at: "remeasured lines saved",
 };
 
 export interface SectionKeyChange {
@@ -67,6 +70,50 @@ function badChange(section: string, c: SectionKeyChange): string | null {
   return c.value.length > OTHER_MAX ? `${c.key} is too long (at most ${OTHER_MAX} characters)` : null;
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SECTION_LABELS: Record<string, string> = { job: "Shipment Details", customs: "Customs", invoicing: "Invoicing" };
+/** What "Mark as sent" records (the field is `<kind>_sent`). */
+export const SENT_KINDS = ["vgm", "survey", "remeasurement", "inform_operations"] as const;
+const MAX_SENT_NOTE = 2_000;
+
+function checkChanges(section: string, changes: SectionKeyChange[]) {
+  if (!(KEYED_SECTIONS as readonly string[]).includes(section)) {
+    throw APIError.invalidArgument(`Section "${section}" is not saved field by field. Must be one of: ${KEYED_SECTIONS.join(", ")}`);
+  }
+  if (!Array.isArray(changes) || !changes.length || changes.length > MAX_KEYS_PER_SAVE) {
+    throw APIError.invalidArgument(`Send 1 to ${MAX_KEYS_PER_SAVE} changed fields`);
+  }
+  if (new Set(changes.map((c) => c.key)).size !== changes.length) throw APIError.invalidArgument("Each field may be sent once per save");
+  for (const c of changes) {
+    const bad = badChange(section, c);
+    if (bad) throw APIError.invalidArgument(bad);
+  }
+}
+
+// Saving the remeasured lines also records when they were saved (the "send the remeasurement"
+// prompt compares it with the last send).
+const savedExtras = (changes: SectionKeyChange[]): Record<string, string> =>
+  changes.some((c) => c.key === "remeasure_rows") ? { remeasure_rows_saved_at: new Date().toISOString() } : {};
+
+function settled(res: { row: WarehouseSectionRecord; conflicts: null } | { row: null; conflicts: string[] }) {
+  if (res.row) return res.row;
+  if (!res.conflicts.length) throw APIError.aborted("The section changed meanwhile — reload and save again");
+  const fields = res.conflicts.map((k) => FIELD_LABELS[k] ?? k).join(", ");
+  throw APIError.aborted(`Changed meanwhile: ${fields} — someone else saved this. Reload to see the latest and save again.`);
+}
+
+// When a "sent" field was last set: its JSON timestamp, or the plain time; null when not set.
+function sentAt(v: string): string | null {
+  if (!v) return null;
+  try {
+    const p: unknown = JSON.parse(v);
+    if (p && typeof p === "object" && typeof (p as { timestamp?: unknown }).timestamp === "string") return (p as { timestamp: string }).timestamp;
+  } catch {
+    // plain time
+  }
+  return v;
+}
+
 class WarehouseService {
   async listAll(companyId: string) {
     return warehouseTaskRepository.listAll(companyId);
@@ -80,35 +127,135 @@ class WarehouseService {
     return warehouseTaskRepository.update(id, companyId, data);
   }
 
-  // Warehouse sections
+  // Warehouse sections. They belong to the warehouse position (task) — linked to a shipment or
+  // not; Shipments still reads and saves them by shipment id, which resolves to the shipment's
+  // live position (or, with none, to the shipment's own row). The pick-up section stays keyed to
+  // the shipment.
+
+  /** A section by shipment id (the Shipments view): its position's row, else the shipment's own. */
   async getSection(shipmentId: string, section: string, companyId: string) {
-    return warehouseSectionRepository.findByShipmentAndSection(shipmentId, section, companyId);
+    if (section === PICKUP_SECTION) return warehouseSectionRepository.findPickup(shipmentId, companyId);
+    const task = UUID.test(shipmentId) ? await warehouseTaskRepository.findLiveForShipment(companyId, shipmentId) : null;
+    const own = task ? await warehouseSectionRepository.findByTask(task.id, section, companyId) : null;
+    return own ?? warehouseSectionRepository.findAdoptable(shipmentId, section, companyId);
+  }
+
+  /** A section of a position; before its first save, the row its shipment had (taken over then). */
+  async getSectionByTask(taskId: string, section: string, companyId: string) {
+    const task = await this.liveTask(taskId, companyId);
+    if (section === PICKUP_SECTION) return task.shipmentId ? warehouseSectionRepository.findPickup(task.shipmentId, companyId) : null;
+    const own = await warehouseSectionRepository.findByTask(task.id, section, companyId);
+    if (own || !task.shipmentId) return own;
+    return warehouseSectionRepository.findAdoptable(task.shipmentId, section, companyId);
+  }
+
+  private async liveTask(taskId: string, companyId: string) {
+    if (!UUID.test(taskId)) throw APIError.notFound("Warehouse position not found");
+    const task = await warehouseTaskRepository.findAny(taskId, companyId);
+    if (!task || task.deletedAt) throw APIError.notFound("Warehouse position not found");
+    return task;
   }
 
   // Saves only the changed fields of a section, each only if nobody changed it since the client
   // read it — two people saving different fields both keep their change, and a stale save of
-  // the same field is refused with what changed. The first save of a section checks the
+  // the same field is refused with what changed. By shipment id (Shipments): the shipment's live
+  // position's section when it has one; else the shipment's own row, whose first save checks the
   // shipment belongs to the caller's company (shipmentGet answers not_found otherwise).
-  async patchSection(shipmentId: string, section: string, companyId: string, changes: SectionKeyChange[]) {
-    if (!(KEYED_SECTIONS as readonly string[]).includes(section)) {
-      throw APIError.invalidArgument(`Section "${section}" is not saved field by field. Must be one of: ${KEYED_SECTIONS.join(", ")}`);
-    }
+  async patchSection(shipmentId: string, section: string, companyId: string, changes: SectionKeyChange[], userId = "") {
+    checkChanges(section, changes);
     if (!shipmentId.trim()) throw APIError.invalidArgument("A shipment is required");
-    if (!Array.isArray(changes) || !changes.length || changes.length > MAX_KEYS_PER_SAVE) {
-      throw APIError.invalidArgument(`Send 1 to ${MAX_KEYS_PER_SAVE} changed fields`);
-    }
-    if (new Set(changes.map((c) => c.key)).size !== changes.length) throw APIError.invalidArgument("Each field may be sent once per save");
-    for (const c of changes) {
-      const bad = badChange(section, c);
-      if (bad) throw APIError.invalidArgument(bad);
-    }
-    const res = await warehouseSectionRepository.patchKeys(shipmentId, section, companyId, changes, async () => {
-      await shipments.shipmentGet({ shipmentId });
+    const task = UUID.test(shipmentId) ? await warehouseTaskRepository.findLiveForShipment(companyId, shipmentId) : null;
+    if (task) return this.patchSectionByTask(task.id, section, companyId, changes, userId);
+    const res = await warehouseSectionRepository.patchKeys({ kind: "shipment", shipmentId }, section, companyId, changes, {
+      onCreate: async () => {
+        await shipments.shipmentGet({ shipmentId });
+      },
+      extra: savedExtras(changes),
     });
-    if (res.row) return res.row;
-    if (!res.conflicts.length) throw APIError.aborted("The section changed meanwhile — reload and save again");
-    const fields = res.conflicts.map((k) => FIELD_LABELS[k] ?? k).join(", ");
-    throw APIError.aborted(`Changed meanwhile: ${fields} — someone else saved this. Reload to see the latest and save again.`);
+    return settled(res);
+  }
+
+  // The same per-field save for a position (linked or stand-alone). The save is logged, in one
+  // summarised event, on the position's live gate records (History).
+  async patchSectionByTask(taskId: string, section: string, companyId: string, changes: SectionKeyChange[], userId = "") {
+    checkChanges(section, changes);
+    const task = await this.liveTask(taskId, companyId);
+    const by = await userName(userId);
+    const res = await warehouseSectionRepository.patchKeys(
+      { kind: "task", taskId: task.id, shipmentId: task.shipmentId },
+      section,
+      companyId,
+      changes,
+      {
+        extra: savedExtras(changes),
+        after: (tx) =>
+          gateMovementRepository.appendEventsForTask(
+            task.id,
+            companyId,
+            [{ kind: "sectionSaved", label: `${SECTION_LABELS[section] ?? section} saved: ${changes.map((c) => FIELD_LABELS[c.key] ?? c.key).join(", ")}`, at: new Date().toISOString(), by }],
+            tx,
+          ),
+      },
+    );
+    return settled(res);
+  }
+
+  // "Mark as sent" for a position: VGM, survey or remeasurement sent outside the app, or
+  // operations informed. A resend is allowed: the field shows the latest and every send stays in
+  // its history (`<field>_history`), logged on the position's gate records.
+  async markSent(taskId: string, what: string, note: string, companyId: string, userId: string) {
+    if (!(SENT_KINDS as readonly string[]).includes(what)) throw APIError.invalidArgument(`What was sent must be one of: ${SENT_KINDS.join(", ")}`);
+    const text = (note ?? "").trim();
+    if (text.length > MAX_SENT_NOTE) throw APIError.invalidArgument(`The note is too long (at most ${MAX_SENT_NOTE} characters)`);
+    const task = await this.liveTask(taskId, companyId);
+    const by = await userName(userId);
+    const at = new Date().toISOString();
+    const key = `${what}_sent`;
+    // Operations informed keeps the plain time Shipments shows; the others keep time and note.
+    const value = what === "inform_operations" ? at : JSON.stringify({ timestamp: at, note: text, by });
+    const label = FIELD_LABELS[key] ?? key;
+    return warehouseSectionRepository.markSent(
+      { kind: "task", taskId: task.id, shipmentId: task.shipmentId },
+      "job",
+      companyId,
+      key,
+      value,
+      { at, note: text, by },
+      (tx) =>
+        gateMovementRepository.appendEventsForTask(
+          task.id,
+          companyId,
+          [{ kind: "sectionSent", label: `Shipment Details: ${label}`, at, by, ...(text ? { detail: text } : {}) }],
+          tx,
+        ),
+    );
+  }
+
+  // Per position: what the remeasurement worklist needs from its Shipment Details.
+  async sectionSummary(companyId: string): Promise<WarehouseSectionSummaryItem[]> {
+    const rows = await warehouseSectionRepository.listForTasks(companyId, "job");
+    return rows.map((r) => {
+      const d = r.data && typeof r.data === "object" && !Array.isArray(r.data) ? (r.data as Record<string, unknown>) : {};
+      const str = (k: string) => (typeof d[k] === "string" ? (d[k] as string) : "");
+      let lines = 0;
+      try {
+        const parsed: unknown = JSON.parse(str("remeasure_rows") || "[]");
+        lines = Array.isArray(parsed) ? parsed.length : 0;
+      } catch {
+        lines = 0;
+      }
+      return {
+        taskId: r.taskId!,
+        hasLines: lines > 0,
+        lineCount: lines,
+        linesSavedAt: str("remeasure_rows_saved_at") || null,
+        remeasurementSentAt: sentAt(str("remeasurement_sent")),
+        operationsInformedAt: sentAt(str("inform_operations_sent")),
+        hasNotes: !!str("notes").trim(),
+        version: r.version,
+        updatedAt: r.updatedAt.toISOString(),
+      };
+    });
   }
 
   // The pick-up save from Shipments: only the haulier / plate / driver rows. The PIN, its tries
@@ -129,7 +276,8 @@ export const warehouseService = new WarehouseService();
 export function sectionItem(row: WarehouseSectionRecord): WarehouseSectionItem {
   return {
     id: row.id,
-    shipmentId: row.shipmentId,
+    taskId: row.taskId ?? null,
+    shipmentId: row.shipmentId ?? null,
     section: row.section,
     data: row.data,
     version: row.version,

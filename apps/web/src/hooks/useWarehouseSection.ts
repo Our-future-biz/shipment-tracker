@@ -74,3 +74,75 @@ export function useGeneratePickupPin(shipmentId: string) {
     },
   });
 }
+
+export type SentWhat = "vgm" | "survey" | "remeasurement" | "inform_operations";
+
+// A section of a warehouse POSITION (linked to a shipment or stand-alone) — the warehouse's own
+// way in. Same field-by-field save and conflict rules as by shipment; a save refreshes every
+// cached section (the Shipments view of the same rows included) and the gate records (History).
+export function usePositionSection(taskId: string | null | undefined, section: string) {
+  const queryClient = useQueryClient();
+  const key = ["warehouse-section", "task", taskId ?? "", section];
+
+  const query = useQuery({
+    queryKey: key,
+    queryFn: () => api.warehouse.warehousePositionSectionGet(taskId!, section),
+    enabled: !!taskId,
+  });
+
+  const refreshOthers = () => {
+    queryClient.invalidateQueries({ queryKey: ["warehouse-section"], predicate: (q) => q.queryKey[1] !== "task" || q.queryKey[2] !== taskId });
+    queryClient.invalidateQueries({ queryKey: ["warehouse-section-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+  };
+
+  const patch = useMutation({
+    mutationFn: async (changes: SectionKeyChange[]) => {
+      try {
+        return await api.warehouse.warehousePositionSectionPatch(taskId!, section, { changes });
+      } catch (e) {
+        if (e instanceof APIError && e.code === ErrCode.Aborted) {
+          await queryClient.invalidateQueries({ queryKey: key });
+          throw new SectionConflictError(e.message);
+        }
+        throw e;
+      }
+    },
+    onSuccess: (res) => {
+      queryClient.setQueryData<controllers.WarehouseSectionGetResponse>(key, { section: res.section });
+      refreshOthers();
+    },
+  });
+
+  // "Mark as sent" / "Inform Operations": a resend is allowed and kept in the history.
+  const markSent = useMutation({
+    mutationFn: ({ what, note }: { what: SentWhat; note?: string }) => api.warehouse.warehousePositionMarkSent(taskId!, { what, note }),
+    onSuccess: (res) => {
+      queryClient.setQueryData<controllers.WarehouseSectionGetResponse>(key, { section: res.section });
+      refreshOthers();
+    },
+  });
+
+  const item = query.data?.section ?? null;
+  const data = item?.data && typeof item.data === "object" && !Array.isArray(item.data) ? (item.data as Record<string, unknown>) : {};
+  return {
+    data,
+    version: item?.version ?? 0,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    saveKeys: patch.mutateAsync,
+    markSent: markSent.mutateAsync,
+    isSaving: patch.isPending,
+    isMarking: markSent.isPending,
+  };
+}
+
+// Per position: remeasured lines saved, last remeasurement sent, operations informed (worklist).
+export function useWarehouseSectionSummary(enabled = true) {
+  const query = useQuery({
+    queryKey: ["warehouse-section-summary"],
+    queryFn: () => api.warehouse.warehouseSectionSummary(),
+    enabled,
+  });
+  return { positions: query.data?.positions ?? [], isLoading: query.isLoading };
+}

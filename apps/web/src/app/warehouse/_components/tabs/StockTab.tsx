@@ -468,12 +468,13 @@ function Ageing() {
   return (
     <>
       <Callout title="Why this screen exists.">
-        Storage revenue is lost when nobody notices free time ran out. Free time is counted from the receipt date; the first chargeable day turns
-        red the moment it is reached. Storage accrues at CZK 22 per w/m per day, at least CZK 120 per day.
+        Storage revenue is lost when nobody notices free time ran out. Free time is counted in calendar days (Prague time) from the receipt date —
+        the receipt day is day 1; the first chargeable day turns red the moment it is reached. Storage accrues at CZK 22 per w/m per day, at least
+        CZK 120 per day. The same calculation is used in Positions, the gate job and Reports.
       </Callout>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Kpi label="Within free time" value={items.filter((l) => l.freeTimeState === "Within free time").length} sub="no charge yet" tone="green" />
-        <Kpi label="Expiring ≤ 3 days" value={items.filter((l) => l.freeTimeState === "Expiring").length} sub="notify customer" tone="amber" />
+        <Kpi label="Expiring ≤ 2 days" value={items.filter((l) => l.freeTimeState === "Expiring").length} sub="notify customer" tone="amber" />
         <Kpi label="Chargeable now" value={chargeable.length} sub={`CZK ${nf(chargeable.reduce((s, l) => s + l.accruedCzk, 0))} accrued to date`} tone="red" />
       </div>
       <AppGrid<StockLine>

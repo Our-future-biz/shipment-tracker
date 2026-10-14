@@ -10,6 +10,7 @@ import type { GateMovementInput, WarehouseImportResult } from "../interfaces/gat
 import { CUSTOMS_MODES, CUSTOMS_STATUSES, customsLine } from "./customs";
 import { DEFAULT_CHECKLIST, defaultReleaseGates, gateMovementService, normalizeLegs } from "./gateMovement.service";
 import { PICKUP_PIN_GATE } from "./pickupPin";
+import { EXCEPTION_GATE } from "./osd";
 import { isManager, userName } from "./users";
 
 // Bringing shipments into the warehouse. Each shipment becomes a position (WCZ reference) and
@@ -304,6 +305,9 @@ class WarehouseImportService {
           return old && line.g !== "Customs" ? { ...line, s: old.s, note: old.note } : line;
         });
         if (pickup) gates.push(pickup);
+        // An exceptions hold stays: it follows the open exceptions, not the operation type.
+        const hold = m.releaseGates.find((g) => g.g === EXCEPTION_GATE);
+        if (hold) gates.push(hold);
       }
     }
     if (customsStatus !== m.customsStatus) {

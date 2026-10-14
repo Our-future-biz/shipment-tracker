@@ -10,6 +10,7 @@ import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { Badge, isManager, type Tone } from "../../_lib/gate";
 import { PICKUP_PIN_GATE, waitingGates } from "../../_lib/steps";
 import { btnDanger, btnDefault, Section } from "./fields";
+import { EXCEPTION_GATE } from "./ExceptionsPanel";
 
 const isEmptyReturn = (g: string) => /empty return/i.test(g);
 
@@ -24,6 +25,10 @@ const GATE_ICON: Record<string, ReactNode> = {
 export function releaseState(m: GateMovement): { tone: Tone; label: string; detail?: string } {
   if (m.impRelease) return { tone: "g", label: TERMS.released, detail: `${TERMS.whRelease} stamped ${formatDateTime(m.impRelease)}` };
   if (m.status === "Refused") return { tone: "r", label: "Refused", detail: m.refusalLog || undefined };
+  // An open damage / short / over exception holds the cargo, even after a supervisor override.
+  if (m.openExceptions > 0) {
+    return { tone: "r", label: "On hold", detail: `${m.openExceptions} open damage / short / over exception${m.openExceptions === 1 ? "" : "s"} — resolve to release` };
+  }
   if (m.overridden) return { tone: "a", label: `${TERMS.clear} (supervisor override)`, detail: m.overrideLog || undefined };
   if (m.armed) return { tone: "g", label: TERMS.clear, detail: "All release gates OK" };
   return { tone: "r", label: TERMS.blocked, detail: `Waiting for: ${waitingGates(m).join(", ") || "—"}` };
@@ -53,6 +58,7 @@ export function ReleaseGatesPanel({
   const canOverride = supervisor && !m.impRelease && !m.armed;
   const isCustoms = (g: string) => /^customs$/i.test(g);
   const isPickupPin = (g: string) => g === PICKUP_PIN_GATE;
+  const isException = (g: string) => g === EXCEPTION_GATE;
   const toggle = (gate: string, ok: boolean) => {
     setBusyGate(gate);
     setReleaseGate(gate, ok).finally(() => setBusyGate(null));
@@ -72,7 +78,7 @@ export function ReleaseGatesPanel({
           <li key={x.g} className="flex items-start gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
             {/* Ticked by hand once met; Customs follows the customs status, the Pick-up PIN line the
                 PIN check, and nothing moves after release. */}
-            {!isCustoms(x.g) && !isPickupPin(x.g) && !m.impRelease ? (
+            {!isCustoms(x.g) && !isPickupPin(x.g) && !isException(x.g) && !m.impRelease ? (
               <Checkbox
                 className="pt-[1px]"
                 checked={x.s === "OK"}
@@ -92,6 +98,7 @@ export function ReleaseGatesPanel({
                 {isEmptyReturn(x.g) ? " · does not hold release" : ""}
                 {isCustoms(x.g) ? " · follows the customs status" : ""}
                 {isPickupPin(x.g) ? " · set by the PIN check at the gate" : ""}
+                {isException(x.g) ? (x.s === "OK" ? " · follows the exceptions" : " · resolve the exception to clear") : ""}
               </div>
             </div>
           </li>

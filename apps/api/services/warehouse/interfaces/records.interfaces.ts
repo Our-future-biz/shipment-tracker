@@ -254,10 +254,33 @@ export interface QualityMetrics {
   damagedPieces: number;
 }
 
+/** Cargo in the warehouse now, from the one storage calculation (gate records). */
+export interface StorageSummary {
+  /** Records whose storage clock runs (received, not released / gone out). */
+  inWarehouse: number;
+  /** Within the last 2 free days. */
+  expiring: number;
+  chargeable: number;
+  /** Estimated storage charge to date of the chargeable records, CZK. */
+  estimatedCzk: number;
+}
+
+/** Shipment updates the gate still owes (health line). */
+export interface ShipmentUpdateHealth {
+  /** Being retried. */
+  pending: number;
+  /** Stopped: need a hand in Shipments. */
+  failed: number;
+  /** Oldest pending update (ISO); null when none. */
+  oldestPendingAt: string | null;
+}
+
 export interface WarehouseReportSummary {
   throughput: ThroughputWeek[];
   topCustomers: TopCustomer[];
   monthly: MonthlySummary[];
   lanes: LaneFill[];
   quality: QualityMetrics;
+  storage: StorageSummary;
+  shipmentUpdates: ShipmentUpdateHealth;
 }

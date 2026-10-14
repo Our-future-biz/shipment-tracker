@@ -10,8 +10,14 @@ import { warehouseSectionRepository } from "../repositories/warehouseSection.rep
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
 import { gateMovementTable, type GateChecklist, type GateEvent, type GateMovementRecord, type GateReleaseLine, type GateSubPosition, type GateSurvey, type GateSurveyLine, type GateTransportLeg, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
 import type { NewShipmentOutboxRecord, ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
-import type { GateMovementInput, GateMovementItem, GatePickupInfo, GateSurveyInput } from "../interfaces/gate.interfaces";
-import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine } from "./customs";
+import { gateExceptionRepository } from "../repositories/gateException.repository";
+import type { WarehouseExceptionRecord } from "../schemas/warehouseException.schema";
+import type { GateExceptionItem, GateMovementInput, GateMovementItem, GatePickupInfo, GateSurveyInput } from "../interfaces/gate.interfaces";
+import { EXCEPTION_GATE, exceptionHold, noOpenExceptionSql } from "./osd";
+import { isIsoDate, movementStorage, pragueDate, storageNote, type StorageInfo } from "./storage";
+import { remeasureTotals, type RemeasureTotals } from "./remeasure";
+import { warehouseSectionTable } from "../schemas/warehouseSection.schema";
+import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine, setCustomsLineSql } from "./customs";
 import { deliverDue, shipmentUpdateState } from "./shipmentOutbox.service";
 import { FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
 import { userName } from "./users";
@@ -38,6 +44,7 @@ const isFcl = (operationType: string) => /^FCL|Container yard/.test(operationTyp
 
 export { CUSTOMS_CLEARED, CUSTOMS_MODES, CUSTOMS_STATUSES } from "./customs";
 export const MAX_SUB_POSITIONS = 10;
+export const MAX_FREE_DAYS = 365;
 // Labels in one print of one movement (one per piece at most).
 export const MAX_LABEL_COPIES = 500;
 const LEGS: GateTransportLeg["leg"][] = ["IN", "OUT", "CFS"];
@@ -129,9 +136,11 @@ function baseReleaseGates(handling: string, operationType: string, customsStatus
 
 // The release tick is a view of the release gates, never set by hand; the empty-return
 // line does not hold cargo release. A refusal disarms, a supervisor override (with reason)
-// arms. The old hand-set release status is no longer read (migration 0013 cleared it).
+// arms. An open damage / short / over exception holds the cargo even after an override.
+// The old hand-set release status is no longer read (migration 0013 cleared it).
 export function isArmed(m: Pick<GateMovementRow, "status" | "overridden" | "releaseGates">): boolean {
   if (m.status === "Refused") return false;
+  if (exceptionHold(m.releaseGates)) return false;
   if (m.overridden) return true;
   return !m.releaseGates.some((x) => x.s !== "OK" && !/empty return/i.test(x.g));
 }
@@ -162,14 +171,50 @@ const pickupInfo = (p: PickupData): GatePickupInfo => ({
   rows: p.rows,
 });
 
+export const exceptionItem = (e: WarehouseExceptionRecord): GateExceptionItem => ({
+  id: e.id,
+  movementId: e.movementId,
+  taskId: e.taskId ?? null,
+  type: e.type,
+  pieces: e.pieces,
+  note: e.note,
+  container: e.container,
+  surveyPhase: e.surveyPhase,
+  source: e.source,
+  fileIds: Array.isArray(e.fileIds) ? e.fileIds : [],
+  status: e.status,
+  createdBy: e.createdBy,
+  createdAt: e.createdAt.toISOString(),
+  resolvedAt: iso(e.resolvedAt),
+  resolvedBy: e.resolvedBy,
+  resolutionNote: e.resolutionNote,
+});
+
+// The "Storage settled" line shows the storage clock in its note (display only: the stored
+// gates keep their own note, and the line stays a manual tick).
+const withStorageNote = (gates: GateMovementRow["releaseGates"], storage: StorageInfo) =>
+  gates.map((g) => (g.g === "Storage settled" ? { ...g, note: storageNote(storage) } : g));
+
 // `pickup` is the shipment's pick-up section; it is read only for linked outbound rows, whose
 // PIN state then comes from it instead of the gate row's own PIN. `outbox` are the record's
-// shipment updates not delivered yet.
-function toItem(m: GateMovementRow, containers: ContainerRef[] = [], pickup?: PickupData, outbox: ShipmentOutboxRecord[] = []): GateMovementItem {
+// shipment updates not delivered yet; `exceptions` its damage / short / over exceptions.
+function toItem(
+  m: GateMovementRow,
+  containers: ContainerRef[] = [],
+  pickup?: PickupData,
+  outbox: ShipmentOutboxRecord[] = [],
+  exceptions: WarehouseExceptionRecord[] = [],
+  now = new Date(),
+): GateMovementItem {
   const { pinHash, companyId: _companyId, deletedAt, releaseStatus: _releaseStatus, shipmentCheckedAt, ...rest } = m;
   const pick = isLinkedOutbound(m) ? pickupInfo(pickup ?? readPickup(null)) : null;
+  const storage = movementStorage(m, now);
   return {
     ...rest,
+    releaseGates: withStorageNote(m.releaseGates, storage),
+    storage,
+    exceptions: exceptions.map(exceptionItem),
+    openExceptions: exceptions.filter((e) => e.status === "open").length,
     containers: containers.map((c) => ({ id: c.id, number: c.number, type: c.equipment })),
     transportLegs: normalizeLegs(m.transportLegs),
     surveys: m.surveys.map(normalizeSurvey),
@@ -200,8 +245,6 @@ const hhmm = (d: Date) =>
   new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit" }).format(d);
 const stampText = (d: Date) =>
   new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Prague", dateStyle: "short", timeStyle: "short" }).format(d);
-// YYYY-MM-DD in the warehouse's local time, for the shipment's warehouse dates.
-const pragueDate = (d: Date) => new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Prague" }).format(d);
 
 // Fields the general update never writes: status and release follow the stamps, the release
 // gates, Refuse and the supervisor override, each logged through its own endpoint. Dropped
@@ -216,11 +259,13 @@ const sameTime = (a: Date | null, b: Date) => !!a && a.getTime() === b.getTime()
 // isArmed in SQL, so the release checks the gates as they are at the moment of the UPDATE
 // (customs can change between loading the row and stamping it).
 // Safety net: a linked outbound row is released only with its Pick-up PIN line OK, even if the
-// line went missing from the gates (a supervisor override still clears it).
+// line went missing from the gates (a supervisor override still clears it). An open damage /
+// short / over exception always holds the cargo, override or not.
 const armedSql = sql`${t.status} <> 'Refused' AND (${t.overridden} OR NOT EXISTS (
   SELECT 1 FROM jsonb_array_elements(${t.releaseGates}) x
   WHERE COALESCE(x->>'s', '') <> 'OK' AND COALESCE(x->>'g', '') !~* 'empty return'))
-  AND (${t.overridden} OR NOT ${linkedOutboundCond} OR ${pickupLineOkSql})`;
+  AND (${t.overridden} OR NOT ${linkedOutboundCond} OR ${pickupLineOkSql})
+  AND ${noOpenExceptionSql}`;
 const PICKUP_PIN_FROM_SHIPMENTS = "This movement uses the pick-up PIN from Shipments";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Outgoing cargo (výdej) leaves only through WH release, which stamps the gate-out too; a
@@ -237,6 +282,7 @@ function stampBlocked(m: GateMovementRow, kind: StampKind): string | null {
       return m.visit === "výdej" && !m.impRelease ? OUT_NEEDS_RELEASE : null;
     case "impRelease":
       if (m.impRelease) return "WH release already stamped";
+      if (exceptionHold(m.releaseGates)) return "On hold — an open damage / short / over exception must be resolved before the WH release";
       return isArmed(m) ? null : "Release box NOT armed — gate must refuse. Use supervisor override only with reason.";
     case "expDraft":
       return m.expDraft ? "Draft receipt already created" : null;
@@ -274,15 +320,19 @@ class GateMovementService {
     const ids = movements.map((m) => m.id);
     const containers = await containerRepository.listForMovements(ids, companyId);
     const outbox = await shipmentOutboxRepository.openForMovements(ids, companyId);
+    const exceptions = await gateExceptionRepository.listForMovements(ids, companyId);
     const linked = [...new Set(movements.filter(isLinkedOutbound).map((m) => m.shipmentId!))];
     const sections = await warehouseSectionRepository.findPickupForShipments(linked, companyId);
     const pickupOf = (shipmentId: string | null) => readPickup(sections.find((x) => x.shipmentId === shipmentId)?.data);
+    const now = new Date();
     return movements.map((m) =>
       toItem(
         m,
         containers.filter((c) => c.movementId === m.id),
         isLinkedOutbound(m) ? pickupOf(m.shipmentId) : undefined,
         outbox.filter((o) => o.movementId === m.id),
+        exceptions.filter((e) => e.movementId === m.id),
+        now,
       ),
     );
   }
@@ -321,7 +371,8 @@ class GateMovementService {
     const containers = await containerRepository.listForMovements([m.id], companyId);
     const pickup = isLinkedOutbound(m) ? readPickup((await warehouseSectionRepository.findPickup(m.shipmentId!, companyId))?.data) : undefined;
     const outbox = await shipmentOutboxRepository.openForMovements([m.id], companyId);
-    return toItem(m, containers, pickup, outbox);
+    const exceptions = await gateExceptionRepository.listForMovements([m.id], companyId);
+    return toItem(m, containers, pickup, outbox, exceptions);
   }
 
   // Every action reads the row through here, so it always sees the Pick-up PIN line when the
@@ -352,6 +403,13 @@ class GateMovementService {
         throw APIError.invalidArgument("Warehouse task not found");
       }
       out.warehouseTaskId = warehouseTaskId || null;
+    }
+    if (out.loadInDate !== undefined) {
+      out.loadInDate = out.loadInDate.trim();
+      if (out.loadInDate && !isIsoDate(out.loadInDate)) throw APIError.invalidArgument("Received in warehouse must be a date (YYYY-MM-DD)");
+    }
+    if (out.freeDays !== undefined && out.freeDays !== null && (!Number.isInteger(out.freeDays) || out.freeDays < 0 || out.freeDays > MAX_FREE_DAYS)) {
+      throw APIError.invalidArgument(`Free days must be a whole number from 0 to ${MAX_FREE_DAYS} (empty = the default)`);
     }
     if (pin !== undefined) {
       if (pin && !/^\d{4}$/.test(pin)) throw APIError.invalidArgument("PIN must be 4 digits");
@@ -435,13 +493,10 @@ class GateMovementService {
 
     // The UN number only exists for dangerous goods.
     if (input.dangerousGoods === false) patch.unNumber = "";
-    // Customs status drives the Customs line of the release gate.
-    if (input.customsStatus !== undefined && input.customsStatus !== m.customsStatus) {
-      const gates = m.releaseGates;
-      patch.releaseGates = gates.some((g) => g.g === "Customs")
-        ? gates.map((g) => (g.g === "Customs" ? customsLine(input.customsStatus!) : g))
-        : [...gates, customsLine(input.customsStatus)];
-    }
+    // Customs status drives the Customs line of the release gate. It is set in SQL on the stored
+    // gates (as the customs follow does), so a line changed meanwhile — the "No open exceptions"
+    // hold of an exception created or resolved since the load, or the Pick-up PIN line — is kept.
+    const customsChanged = input.customsStatus !== undefined && input.customsStatus !== m.customsStatus;
     // The grid's carrier / driver / plate follow the leg the cargo moves on at this gate.
     if (patch.transportLegs) {
       const leg = patch.transportLegs.find((l) => l.leg === ((input.visit ?? m.visit) === "výdej" ? "OUT" : "IN"))!;
@@ -463,8 +518,26 @@ class GateMovementService {
     // A plate entered (or corrected) after the cargo of a linked record was released goes to the
     // shipment too, through the outbox like the release itself.
     const plateLater = !!m.shipmentId && !!m.impRelease && patch.plate !== undefined && !!patch.plate.trim() && patch.plate !== m.plate;
+    // The storage clock's inputs are logged (History): the received date of outbound cargo and the
+    // position's own free days.
+    const clockEvents: GateEvent[] = [];
+    const clockAt = new Date().toISOString();
+    if (patch.loadInDate !== undefined && patch.loadInDate !== m.loadInDate) {
+      clockEvents.push({ kind: "storageClockChanged", label: `Received in warehouse: ${patch.loadInDate || "cleared"}`, at: clockAt, by: patch.updatedBy, detail: `was ${m.loadInDate || "—"}` });
+    }
+    if (patch.freeDays !== undefined && patch.freeDays !== m.freeDays) {
+      clockEvents.push({
+        kind: "storageClockChanged",
+        label: `Free days: ${patch.freeDays ?? "default"}`,
+        at: clockAt,
+        by: patch.updatedBy,
+        detail: `was ${m.freeDays ?? "default"}`,
+      });
+    }
     await db.transaction(async (tx) => {
       await gateMovementRepository.update(id, companyId, patch, tx);
+      if (customsChanged) await gateMovementRepository.conditionalUpdate(id, companyId, { releaseGates: setCustomsLineSql(customsLine(input.customsStatus!)) }, undefined, undefined, tx);
+      if (clockEvents.length) await gateMovementRepository.appendEvents(id, companyId, clockEvents, tx);
       if (plateLater) {
         await shipmentOutboxRepository.enqueue(tx, [
           outboxRow(m, "plate", m.impRelease ? "impRelease" : "gateOut", { plateNumber: patch.plate!.trim() }, userId, role),
@@ -490,6 +563,52 @@ class GateMovementService {
         });
       }
     }
+    return this.get(id, companyId);
+  }
+
+  // "Use remeasured figures for the warehouse": the gate figures (pieces, gross kg, cbm) become
+  // the totals of the position's remeasured lines — the warehouse's own figures only; the
+  // shipment's cargo is never changed. Only on the lines as the client saw them
+  // (`sectionVersion`), and not after the WH release. Logged with the old and new figures.
+  async useRemeasured(id: string, companyId: string, userId: string, sectionVersion: number) {
+    const m = await this.load(id, companyId);
+    if (!m.warehouseTaskId) throw APIError.failedPrecondition("This gate record has no warehouse position");
+    if (m.impRelease) throw APIError.failedPrecondition("The cargo is already released — the gate figures stay as released");
+    const task = await gateMovementRepository.findTask(m.warehouseTaskId, companyId);
+    if (!task) throw APIError.failedPrecondition("This gate record has no warehouse position");
+    const section =
+      (await warehouseSectionRepository.findByTask(task.id, "job", companyId)) ??
+      (task.shipmentId ? await warehouseSectionRepository.findAdoptable(task.shipmentId, "job", companyId) : null);
+    if (!section) throw APIError.failedPrecondition("No remeasured lines are saved for this position");
+    const data = section.data && typeof section.data === "object" && !Array.isArray(section.data) ? (section.data as Record<string, unknown>) : {};
+    let totals: RemeasureTotals;
+    try {
+      totals = remeasureTotals(data.remeasure_rows ?? "[]");
+    } catch (err) {
+      throw APIError.invalidArgument(err instanceof Error ? err.message : "The remeasured lines cannot be read");
+    }
+    if (!totals.pieces) throw APIError.failedPrecondition("No remeasured lines are saved for this position");
+    const by = await this.userName(userId);
+    const fmt = (n: number) => String(Math.round(n * 1000) / 1000);
+    const detail = `pieces ${m.colli}→${totals.pieces} · kg ${fmt(m.weightKg)}→${fmt(totals.weightKg)} · cbm ${fmt(m.measureCbm)}→${fmt(totals.cbm)}`;
+    const row = await db.transaction(async (tx) => {
+      // The lines must still be the ones the client saw, and stay so until the figures are written.
+      const [same] = await tx
+        .select({ id: warehouseSectionTable.id })
+        .from(warehouseSectionTable)
+        .where(sql`${warehouseSectionTable.id} = ${section.id} AND ${warehouseSectionTable.version} = ${sectionVersion} AND ${warehouseSectionTable.deletedAt} IS NULL`)
+        .for("share");
+      if (!same) throw APIError.aborted("The remeasured lines changed meanwhile — reload and try again");
+      return gateMovementRepository.conditionalUpdate(
+        id,
+        companyId,
+        { colli: totals.pieces, weightKg: totals.weightKg, measureCbm: totals.cbm, updatedBy: by },
+        [{ kind: "gateFiguresFromRemeasurement", label: "Gate figures set from the remeasurement", at: new Date().toISOString(), by, detail }],
+        sql`${t.impRelease} IS NULL`,
+        tx,
+      );
+    });
+    if (!row) throw APIError.failedPrecondition("The cargo was released meanwhile — the gate figures stay as released");
     return this.get(id, companyId);
   }
 
@@ -731,6 +850,9 @@ class GateMovementService {
     if (gate.trim().toLowerCase() === PICKUP_PIN_GATE.toLowerCase()) {
       throw APIError.invalidArgument(`The ${PICKUP_PIN_GATE} line is set by the PIN check at the gate`);
     }
+    if (gate.trim().toLowerCase() === EXCEPTION_GATE.toLowerCase()) {
+      throw APIError.invalidArgument(`The ${EXCEPTION_GATE} line follows the exceptions — resolve the exception to clear it`);
+    }
     const m = await this.load(id, companyId);
     if (m.impRelease) throw APIError.failedPrecondition("Movement is already released");
     const line = m.releaseGates.find((x) => x.g === gate);
@@ -797,7 +919,10 @@ class GateMovementService {
       await gateMovementRepository.refundPinTry(id, companyId);
       return { result: "match" as const, tries: taken.pinTries - 1 };
     }
-    if (taken.pinTries < MAX_PIN_TRIES) return { result: "no_match" as const, tries: taken.pinTries };
+    if (taken.pinTries < MAX_PIN_TRIES) {
+      await this.logPinMiss(id, companyId, userId, MAX_PIN_TRIES - taken.pinTries);
+      return { result: "no_match" as const, tries: taken.pinTries };
+    }
     await gateMovementRepository.conditionalUpdate(id, companyId, {}, [
       { kind: "pinLocked", label: "PIN locked after 3 failed attempts", at: new Date().toISOString(), by: await this.userName(userId) },
     ]);
@@ -847,7 +972,10 @@ class GateMovementService {
       }
       return { result: "match" as const, tries: taken.pinTries - 1 };
     }
-    if (taken.pinTries < MAX_PIN_TRIES) return { result: "no_match" as const, tries: taken.pinTries };
+    if (taken.pinTries < MAX_PIN_TRIES) {
+      await this.logPinMiss(m.id, companyId, userId, MAX_PIN_TRIES - taken.pinTries);
+      return { result: "no_match" as const, tries: taken.pinTries };
+    }
     await gateMovementRepository.conditionalUpdate(m.id, companyId, {}, [
       {
         kind: "pinLocked",
@@ -857,6 +985,14 @@ class GateMovementService {
       },
     ]);
     return { result: "locked" as const, tries: taken.pinTries };
+  }
+
+  // A wrong PIN is logged (never the PIN itself) with the tries left; the try that locks the PIN
+  // logs the lock instead.
+  private async logPinMiss(id: string, companyId: string, userId: string, left: number) {
+    await gateMovementRepository.appendEvents(id, companyId, [
+      { kind: "pinCheckFailed", label: `PIN check: no match — ${left} ${left === 1 ? "try" : "tries"} left`, at: new Date().toISOString(), by: await this.userName(userId) },
+    ]);
   }
 
   // Operations make the pick-up PIN in Shipments: six digits from a secure random source. A new

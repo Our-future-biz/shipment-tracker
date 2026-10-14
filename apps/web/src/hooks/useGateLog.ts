@@ -116,6 +116,20 @@ export const useGateMovement = (id: string | undefined) => {
     mutationFn: () => api.warehouse.gateMovementShipmentUpdateDismiss(id!),
     onSuccess: onRow,
   });
+  // Gate figures (pieces, kg, cbm) from the position's saved remeasured lines — never the shipment.
+  const applyRemeasured = useMutation({
+    mutationFn: (sectionVersion: number) => api.warehouse.gateMovementUseRemeasured(id!, { sectionVersion }),
+    onSuccess: onRow,
+  });
+  // Damage / short / over: an open exception holds the release until resolved with a note.
+  const createException = useMutation({
+    mutationFn: (exception: interfaces.GateExceptionInput) => api.warehouse.gateExceptionCreate(id!, { exception }),
+    onSuccess: onRow,
+  });
+  const resolveException = useMutation({
+    mutationFn: ({ exceptionId, note }: { exceptionId: string; note: string }) => api.warehouse.gateExceptionResolve(id!, exceptionId, { note }),
+    onSuccess: onRow,
+  });
 
   return {
     movement: query.data?.movement,
@@ -137,8 +151,13 @@ export const useGateMovement = (id: string | undefined) => {
     refreshFromShipment,
     retryShipmentUpdate,
     dismissShipmentUpdate,
+    applyRemeasured,
+    createException,
+    resolveException,
   };
 };
+
+export type GateException = interfaces.GateExceptionItem;
 
 export type GateFile = interfaces.GateFileItem;
 

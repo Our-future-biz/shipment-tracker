@@ -113,16 +113,6 @@ export const stamp = (iso: string | null) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hhmm(iso)}`;
 };
 
-// Days past the last free day (positive = chargeable), from the load-in date and free days.
-export const freeDaysOver = (loadInDate: string, freeDays: number | null) => {
-  if (!loadInDate || freeDays == null) return null;
-  const start = new Date(`${loadInDate}T00:00:00`);
-  if (isNaN(start.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return Math.floor((today.getTime() - start.getTime()) / 86400000) - freeDays;
-};
-
 export const errorMessage = (e: unknown, fallback: string) => (e instanceof APIError ? e.message : fallback);
 
 // Managers (same roles the server allows): supervisor override, void a stamp, archive / restore

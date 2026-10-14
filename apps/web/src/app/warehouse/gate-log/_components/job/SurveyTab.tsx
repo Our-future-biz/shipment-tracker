@@ -22,6 +22,7 @@ import {
   type SurveyPhaseKey,
 } from "../../_lib/gate";
 import { fmtSize, Section } from "./fields";
+import { ExceptionsPanel } from "./ExceptionsPanel";
 
 type SurveyInput = interfaces.GateSurveyInput;
 type SurveyLine = interfaces.GateSurveyLine;
@@ -320,6 +321,9 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
           </div>
         </div>
       </Section>
+
+      {/* What the survey found can become a damage / short exception — the cargo is then on hold. */}
+      <ExceptionsPanel m={m} survey={{ container, phase: draft.phase, damaged: draft.damaged, lost: draft.lost }} />
 
       <div ref={photosRef}>
         <PhotosSection

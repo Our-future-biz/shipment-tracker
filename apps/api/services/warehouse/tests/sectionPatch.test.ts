@@ -28,7 +28,8 @@ describe("Shipment Details saved field by field", () => {
       job(c, s, [{ key: "remeasure_rows", value: JSON.stringify([{ qty: 2 }]), expected: "" }]),
     ]);
     const row = (await warehouseService.getSection(s, "job", c))!;
-    expect(row.data).toEqual({ notes: "fragile", remeasure_rows: '[{"qty":2}]' });
+    // Saving the lines also records when they were saved (the "send the remeasurement" prompt).
+    expect(row.data).toEqual({ notes: "fragile", remeasure_rows: '[{"qty":2}]', remeasure_rows_saved_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/) });
     expect(row.version).toBe(2);
   });
 

@@ -30,20 +30,23 @@ const line = (receivedAt: string, freeDays: number, cbm: number, weightKg: numbe
   }) as Parameters<typeof stockLineItem>[0];
 
 describe("stock on hand", () => {
-  it("counts free time from the receipt date and accrues storage once it runs out", () => {
-    // Received 13 days ago with 7 free days: 6 chargeable days at max(2.6 × 22, 120) = 120 CZK.
+  it("counts free time from the receipt date (day 1) and accrues storage once it runs out", () => {
+    // Received 08-07, today 08-20: day 14 with 7 free days (08-07 … 08-13), 7 chargeable days at
+    // max(2.6 × 22, 120) = 120 CZK.
     expect(stockLineItem(line("2026-08-07", 7, 2.6, 1180), now)).toMatchObject({
-      daysInStock: 13,
-      overFreeTime: 6,
+      daysInStock: 14,
+      overFreeTime: 7,
       freeTimeState: "Chargeable",
-      lastFreeDay: "2026-08-14",
-      chargeableDays: 6,
-      accruedCzk: 720,
+      lastFreeDay: "2026-08-13",
+      chargeableDays: 7,
+      accruedCzk: 840,
       wm: 2.6,
     });
-    // w/m is the larger of cbm and tonnes; within the last 2 days of free time it is expiring.
-    expect(stockLineItem(line("2026-08-15", 7, 2.9, 3980), now)).toMatchObject({ wm: 3.98, overFreeTime: -2, freeTimeState: "Expiring", accruedCzk: 0 });
+    // w/m is the larger of cbm and tonnes; with 2 free days left or fewer it is expiring.
+    expect(stockLineItem(line("2026-08-15", 7, 2.9, 3980), now)).toMatchObject({ wm: 3.98, daysInStock: 6, overFreeTime: -1, freeTimeState: "Expiring", accruedCzk: 0 });
     expect(stockLineItem(line("2026-08-19", 7, 1, 100), now).freeTimeState).toBe("Within free time");
+    // Prague dates: 23:30 UTC on 08-20 is already 08-21 in the warehouse.
+    expect(stockLineItem(line("2026-08-21", 7, 1, 100), new Date("2026-08-20T23:30:00Z")).daysInStock).toBe(1);
   });
 
   it("validates lines and keeps them per company", async () => {

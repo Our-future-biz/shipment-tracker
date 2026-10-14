@@ -1719,6 +1719,8 @@ export namespace warehouse {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.gateExceptionCreate = this.gateExceptionCreate.bind(this)
+            this.gateExceptionResolve = this.gateExceptionResolve.bind(this)
             this.gateFileContent = this.gateFileContent.bind(this)
             this.gateFileDelete = this.gateFileDelete.bind(this)
             this.gateFileList = this.gateFileList.bind(this)
@@ -1742,6 +1744,7 @@ export namespace warehouse {
             this.gateMovementShipmentUpdateRetry = this.gateMovementShipmentUpdateRetry.bind(this)
             this.gateMovementStamp = this.gateMovementStamp.bind(this)
             this.gateMovementUpdate = this.gateMovementUpdate.bind(this)
+            this.gateMovementUseRemeasured = this.gateMovementUseRemeasured.bind(this)
             this.gateMovementVerifyPin = this.gateMovementVerifyPin.bind(this)
             this.gateMovementVoidStamp = this.gateMovementVoidStamp.bind(this)
             this.pickupPinGenerate = this.pickupPinGenerate.bind(this)
@@ -1770,7 +1773,10 @@ export namespace warehouse {
             this.warehouseImport = this.warehouseImport.bind(this)
             this.warehouseList = this.warehouseList.bind(this)
             this.warehousePositionCreate = this.warehousePositionCreate.bind(this)
+            this.warehousePositionMarkSent = this.warehousePositionMarkSent.bind(this)
             this.warehousePositionRemove = this.warehousePositionRemove.bind(this)
+            this.warehousePositionSectionGet = this.warehousePositionSectionGet.bind(this)
+            this.warehousePositionSectionPatch = this.warehousePositionSectionPatch.bind(this)
             this.warehouseReportSummary = this.warehouseReportSummary.bind(this)
             this.warehouseSavedReportCreate = this.warehouseSavedReportCreate.bind(this)
             this.warehouseSavedReportDelete = this.warehouseSavedReportDelete.bind(this)
@@ -1778,6 +1784,7 @@ export namespace warehouse {
             this.warehouseSavedReportUpdate = this.warehouseSavedReportUpdate.bind(this)
             this.warehouseSectionGet = this.warehouseSectionGet.bind(this)
             this.warehouseSectionPatch = this.warehouseSectionPatch.bind(this)
+            this.warehouseSectionSummary = this.warehouseSectionSummary.bind(this)
             this.warehouseSectionUpsert = this.warehouseSectionUpsert.bind(this)
             this.warehouseStaffCreate = this.warehouseStaffCreate.bind(this)
             this.warehouseStaffDelete = this.warehouseStaffDelete.bind(this)
@@ -1794,6 +1801,29 @@ export namespace warehouse {
             this.warehouseZoneDelete = this.warehouseZoneDelete.bind(this)
             this.warehouseZoneList = this.warehouseZoneList.bind(this)
             this.warehouseZoneUpdate = this.warehouseZoneUpdate.bind(this)
+        }
+
+        /**
+         * Records a damage / short / over exception on the movement (from a survey or by hand). While it
+         * is open the cargo is ON HOLD: the "No open exceptions" release-gate line is Blocked.
+         */
+        public async gateExceptionCreate(id: string, params: {
+    exception: interfaces.GateExceptionInput
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/exceptions`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * Resolves an open exception with a note (any user, logged). The last one resolved clears the hold.
+         */
+        public async gateExceptionResolve(id: string, exceptionId: string, params: {
+    note: string
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/exceptions/${encodeURIComponent(exceptionId)}/resolve`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
         }
 
         public async gateFileContent(id: string, fileId: string): Promise<controllers.GateFileContentResponse> {
@@ -2023,6 +2053,19 @@ export namespace warehouse {
         public async gateMovementUpdate(id: string, params: controllers.GateMovementUpdateRequest): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-gate/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * "Use remeasured figures for the warehouse": the gate figures (pieces, kg, cbm) become the
+         * totals of the position's remeasured lines. Only the warehouse's figures — the shipment's cargo
+         * is never changed. Refused when the lines changed since `sectionVersion`, or after the release.
+         */
+        public async gateMovementUseRemeasured(id: string, params: {
+    sectionVersion: number
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/use-remeasured`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -2261,6 +2304,20 @@ export namespace warehouse {
         }
 
         /**
+         * "Mark as sent" (VGM / survey / remeasurement sent outside the app) or "Inform Operations" for a
+         * position. Nothing is e-mailed. A resend is allowed and kept in the history; logged.
+         */
+        public async warehousePositionMarkSent(taskId: string, params: controllers.PositionMarkSentRequest): Promise<{
+    section: interfaces.WarehouseSectionItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions/${encodeURIComponent(taskId)}/mark-sent`, JSON.stringify(params))
+            return await resp.json() as {
+    section: interfaces.WarehouseSectionItem
+}
+        }
+
+        /**
          * Removes a position from the warehouse, with an optional reason; its gate records are archived
          * with it (kept, with the reason). A position whose gate record has stamps is removed only by a
          * manager with a reason.
@@ -2269,6 +2326,31 @@ export namespace warehouse {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions/${encodeURIComponent(taskId)}/remove`, JSON.stringify(params))
             return await resp.json() as controllers.WarehouseDeleteResponse
+        }
+
+        /**
+         * A section of a position; before its first save, the row its shipment had (if any).
+         */
+        public async warehousePositionSectionGet(taskId: string, section: string): Promise<controllers.PositionSectionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-positions/${encodeURIComponent(taskId)}/sections/${encodeURIComponent(section)}`)
+            return await resp.json() as controllers.PositionSectionResponse
+        }
+
+        /**
+         * Saves changed fields of a position's section (Shipment Details: notes, remeasured lines). A
+         * field someone else changed since the client read it is refused with "Changed meanwhile …
+         * reload" (aborted); different fields saved at the same time both stay. Logged on the position's
+         * gate records.
+         */
+        public async warehousePositionSectionPatch(taskId: string, section: string, params: controllers.PositionSectionPatchRequest): Promise<{
+    section: interfaces.WarehouseSectionItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-positions/${encodeURIComponent(taskId)}/sections/${encodeURIComponent(section)}`, JSON.stringify(params))
+            return await resp.json() as {
+    section: interfaces.WarehouseSectionItem
+}
         }
 
         /**
@@ -2327,6 +2409,19 @@ export namespace warehouse {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
             return await resp.json() as controllers.WarehouseSectionPatchResponse
+        }
+
+        /**
+         * Per position: remeasured lines saved, last remeasurement sent, operations informed (worklist).
+         */
+        public async warehouseSectionSummary(): Promise<{
+    positions: interfaces.WarehouseSectionSummaryItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-section-summary`)
+            return await resp.json() as {
+    positions: interfaces.WarehouseSectionSummaryItem[]
+}
         }
 
         /**
@@ -3236,8 +3331,16 @@ export namespace controllers {
         checklist?: interfaces.GateChecklist
         cfsCustomsNumber?: string
         cfsCustomsProcedure?: string
+        /**
+         * Outbound: the date the cargo was received in the warehouse (YYYY-MM-DD, "" clears); starts the storage clock.
+         */
         loadInDate?: string
+
+        /**
+         * Free days of this position (0–365); null = the default (7).
+         */
         freeDays?: number | null
+
         note?: string
     }
 
@@ -3306,8 +3409,16 @@ export namespace controllers {
         checklist?: interfaces.GateChecklist
         cfsCustomsNumber?: string
         cfsCustomsProcedure?: string
+        /**
+         * Outbound: the date the cargo was received in the warehouse (YYYY-MM-DD, "" clears); starts the storage clock.
+         */
         loadInDate?: string
+
+        /**
+         * Free days of this position (0–365); null = the default (7).
+         */
         freeDays?: number | null
+
         note?: string
     }
 
@@ -3628,6 +3739,27 @@ export namespace controllers {
     export interface PlaceSearchRequest {
         q: string
         countryCode?: string
+    }
+
+    export interface PositionMarkSentRequest {
+        /**
+         * vgm | survey | remeasurement | inform_operations
+         */
+        what: string
+
+        note?: string
+    }
+
+    export interface PositionSectionPatchRequest {
+        /**
+         * The fields to save (1–10), each with the value the client last saw in `expected` ("" = not
+         * set). Fields not listed are left as stored.
+         */
+        changes: services.SectionKeyChange[]
+    }
+
+    export interface PositionSectionResponse {
+        section: interfaces.WarehouseSectionItem | null
     }
 
     export interface PrefGetResponse {
@@ -5162,6 +5294,68 @@ export namespace interfaces {
         detail?: string
     }
 
+    /**
+     * A new exception, from a survey or by hand.
+     */
+    export interface GateExceptionInput {
+        /**
+         * Damaged | Short | Over
+         */
+        type: string
+
+        pieces: number
+        note?: string
+        container?: string
+        surveyPhase?: string
+        /**
+         * survey | manual (default)
+         */
+        source?: string
+
+        /**
+         * Photos of this movement to attach (gate file ids, at most 20).
+         */
+        fileIds?: string[]
+    }
+
+    /**
+     * A damage / short / over exception of the movement; an open one holds the release.
+     */
+    export interface GateExceptionItem {
+        id: string
+        movementId: string
+        taskId: string | null
+        /**
+         * Damaged | Short | Over
+         */
+        type: string
+
+        pieces: number
+        note: string
+        container: string
+        surveyPhase: string
+        /**
+         * survey | manual
+         */
+        source: string
+
+        /**
+         * Photos of the movement (gate file ids).
+         */
+        fileIds: string[]
+
+        /**
+         * open | resolved
+         */
+        status: string
+
+        createdBy: string
+        createdAt: string
+        resolvedAt: string | null
+        resolvedBy: string
+        resolutionNote: string
+    }
+
     export interface GateFileItem {
         id: string
         movementId: string
@@ -5296,6 +5490,21 @@ export namespace interfaces {
          */
         shipmentUpdate: GateShipmentUpdateState | null
 
+        /**
+         * Days in the warehouse, free time and the estimated storage charge.
+         */
+        storage: GateStorageInfo
+
+        /**
+         * Damage / short / over exceptions, oldest first (open and resolved).
+         */
+        exceptions: GateExceptionItem[]
+
+        /**
+         * Open exceptions: the cargo is ON HOLD while this is above 0.
+         */
+        openExceptions: number
+
         createdAt: string
         updatedAt: string
     }
@@ -5341,6 +5550,52 @@ export namespace interfaces {
          * Next try (pending only).
          */
         nextAttemptAt: string | null
+    }
+
+    /**
+     * The storage clock of a movement — the warehouse's one free-time calculation. Starts at the
+     * receipt (inbound: the gate-in; outbound: the "Received in warehouse" date), stops at the WH
+     * release or gate-out; calendar days in Prague time, the arrival day is day 1. CZK 22 per W/M per
+     * day, at least CZK 120, after the free days.
+     */
+    export interface GateStorageInfo {
+        started: boolean
+        /**
+         * YYYY-MM-DD (Prague); "" when not started.
+         */
+        startDate: string
+
+        /**
+         * What started the clock: "gateIn" (inbound), "loadInDate" (outbound), "" (not started).
+         */
+        startSource: string
+
+        stopped: boolean
+        /**
+         * YYYY-MM-DD (Prague) of the WH release / gate-out; "" while the cargo is in the warehouse.
+         */
+        stopDate: string
+
+        daysInWarehouse: number
+        freeDays: number
+        freeDaysLeft: number
+        /**
+         * YYYY-MM-DD; "" when not started.
+         */
+        lastFreeDay: string
+
+        chargeableDays: number
+        /**
+         * Chargeable W/M from the gate figures: the larger of cbm and tonnes.
+         */
+        wm: number
+
+        dailyCzk: number
+        estimatedCzk: number
+        /**
+         * Not started | Within free time | Expiring (2 free days left or fewer) | Chargeable
+         */
+        state: string
     }
 
     export interface GateSubPosition {
@@ -6286,6 +6541,47 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    /**
+     * Shipment updates the gate still owes (health line).
+     */
+    export interface ShipmentUpdateHealth {
+        /**
+         * Being retried.
+         */
+        pending: number
+
+        /**
+         * Stopped: need a hand in Shipments.
+         */
+        failed: number
+
+        /**
+         * Oldest pending update (ISO); null when none.
+         */
+        oldestPendingAt: string | null
+    }
+
+    /**
+     * Cargo in the warehouse now, from the one storage calculation (gate records).
+     */
+    export interface StorageSummary {
+        /**
+         * Records whose storage clock runs (received, not released / gone out).
+         */
+        inWarehouse: number
+
+        /**
+         * Within the last 2 free days.
+         */
+        expiring: number
+
+        chargeable: number
+        /**
+         * Estimated storage charge to date of the chargeable records, CZK.
+         */
+        estimatedCzk: number
+    }
+
     export interface SyncResult {
         skipped: boolean
         status?: "ok" | "no_new_data" | "failed"
@@ -6608,6 +6904,8 @@ export namespace interfaces {
         monthly: MonthlySummary[]
         lanes: LaneFill[]
         quality: QualityMetrics
+        storage: StorageSummary
+        shipmentUpdates: ShipmentUpdateHealth
     }
 
     export interface WarehouseSavedReportInput {
@@ -6631,7 +6929,16 @@ export namespace interfaces {
 
     export interface WarehouseSectionItem {
         id: string
-        shipmentId: string
+        /**
+         * The warehouse position the section belongs to; null for the pick-up section and for shipments with no position.
+         */
+        taskId: string | null
+
+        /**
+         * The shipment of the section (for information); null for a stand-alone position.
+         */
+        shipmentId: string | null
+
         section: string
         data: any
         /**
@@ -6640,6 +6947,37 @@ export namespace interfaces {
         version: number
 
         createdAt: string
+        updatedAt: string
+    }
+
+    /**
+     * Per position: what the remeasurement worklist needs from its Shipment Details.
+     */
+    export interface WarehouseSectionSummaryItem {
+        taskId: string
+        /**
+         * Remeasured lines are saved.
+         */
+        hasLines: boolean
+
+        lineCount: number
+        /**
+         * When the remeasured lines were last saved (ISO); null when unknown.
+         */
+        linesSavedAt: string | null
+
+        /**
+         * Last "Remeasurement marked as sent" (ISO); null when never.
+         */
+        remeasurementSentAt: string | null
+
+        /**
+         * Last "Operations informed" (ISO); null when never.
+         */
+        operationsInformedAt: string | null
+
+        hasNotes: boolean
+        version: number
         updatedAt: string
     }
 
@@ -6715,7 +7053,7 @@ export namespace interfaces {
         consol: string
         marks: string
         /**
-         * Whole days since receipt.
+         * Calendar days in the warehouse (Prague dates); the receipt day is day 1.
          */
         daysInStock: number
 
@@ -6725,7 +7063,7 @@ export namespace interfaces {
         overFreeTime: number
 
         /**
-         * Within free time | Expiring | Chargeable
+         * Within free time | Expiring (2 free days left or fewer) | Chargeable
          */
         freeTimeState: string
 

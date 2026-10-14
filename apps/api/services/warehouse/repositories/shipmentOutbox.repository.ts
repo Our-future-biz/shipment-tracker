@@ -134,6 +134,30 @@ class ShipmentOutboxRepository {
     });
   }
 
+  // Health of the company's shipment updates: how many are being retried or stopped, and the
+  // oldest one still being retried.
+  async health(companyId: string) {
+    const [row] = await db
+      .select({
+        pending: sql<number>`count(*) FILTER (WHERE ${o.status} = 'pending')`,
+        failed: sql<number>`count(*) FILTER (WHERE ${o.status} = 'failed')`,
+        oldest: sql<Date | string | null>`min(${o.createdAt}) FILTER (WHERE ${o.status} = 'pending')`,
+      })
+      .from(o)
+      .where(and(eq(o.companyId, companyId), isNull(o.deletedAt), inArray(o.status, ["pending", "failed"])));
+    const oldest = row?.oldest ? new Date(row.oldest) : null;
+    return { pending: Number(row?.pending ?? 0), failed: Number(row?.failed ?? 0), oldestPendingAt: oldest ? oldest.toISOString() : null };
+  }
+
+  // Pending updates (all companies) older than `minutes`: count and the oldest, for the warning log.
+  async stalePending(minutes: number) {
+    const [row] = await db
+      .select({ n: sql<number>`count(*)`, oldest: sql<Date | string | null>`min(${o.createdAt})` })
+      .from(o)
+      .where(and(eq(o.status, "pending"), isNull(o.deletedAt), sql`${o.createdAt} < now() - make_interval(mins => ${minutes})`));
+    return { count: Number(row?.n ?? 0), oldest: row?.oldest ? new Date(row.oldest).toISOString() : null };
+  }
+
   // Failed rows the user has settled by hand in Shipments.
   async dismissFailed(movementId: string, companyId: string) {
     return db

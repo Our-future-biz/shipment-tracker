@@ -17,10 +17,13 @@ import { isSalesQuote, toSalesQuote } from "@/app/sales/_lib/salesQuote";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { CUSTOMS_STATUSES, errorMessage, hasAnyStamp, isFcl, isLcl, isManager, nf } from "../gate-log/_lib/gate";
+import { Badge, CUSTOMS_STATUSES, errorMessage, hasAnyStamp, isFcl, isLcl, isManager, nf } from "../gate-log/_lib/gate";
 import { GateLogView } from "../gate-log/_components/GateLogView";
 import { PrintLabelsModal } from "../gate-log/_components/PrintLabelsModal";
-import { DIRECTIONS, TERMS, directionOfVisit } from "../_lib/glossary";
+import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOfVisit, releaseGatesText } from "../_lib/glossary";
+import { CHIPS, CHIP_IDS, exceptionText, isOnHold, pragueToday, type ChipId } from "../_lib/worklist";
+import { freeTimeSort, freeTimeText, freeTimeTone, storageHint } from "../_lib/storageText";
+import { confirmLeave } from "../_lib/useUnsavedGuard";
 import { ContainersTab } from "./tabs/ContainersTab";
 import { StockTab } from "./tabs/StockTab";
 import { DockYardTab } from "./tabs/DockYardTab";
@@ -28,7 +31,7 @@ import { ReportsTab } from "./tabs/ReportsTab";
 import { ReadmeTab } from "./tabs/ReadmeTab";
 import { ImportOutcomeTag, ShipmentImportPicker, type ImportMode } from "./ShipmentImportPicker";
 import { RemeasurementTab } from "./tabs/RemeasurementTab";
-import { remeasurementHref } from "./remeasurementLinks";
+import { positionRemeasurementHref } from "./remeasurementLinks";
 import { reportBulk, runBulk } from "./tabs/shared";
 
 // The Warehouse module works with its own data: a position (WCZ reference) and the record
@@ -61,27 +64,38 @@ const textCol = (key: keyof GateMovement & string, title: string, width: number,
   ...extra,
 });
 
+// Sort helpers: text and numbers of the position's gate record; rows without one sort last.
+const byText = (get: (r: PositionRow) => string) => (a: PositionRow, b: PositionRow) => get(a).localeCompare(get(b));
+const byNum = (get: (m: GateMovement) => number) => (a: PositionRow, b: PositionRow) =>
+  (a.m ? get(a.m) : Number.MAX_SAFE_INTEGER) - (b.m ? get(b.m) : Number.MAX_SAFE_INTEGER);
+const storageOf = (r: PositionRow) => (r.m?.storage.started ? r.m.storage : null);
+
 const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
-  { key: "taskId", title: TERMS.warehouseRef, width: 150, text: (r) => r.task.taskId, render: (_, r) => <span className="font-mono font-bold text-indigo-500">{r.task.taskId}</span> },
-  // Imported positions open their shipment's warehouse part (Remeasurement / Release); copied
-  // ones have no shipment to open.
+  {
+    key: "taskId",
+    title: TERMS.warehouseRef,
+    width: 150,
+    text: (r) => r.task.taskId,
+    sorter: byText((r) => r.task.taskId),
+    render: (_, r) => <span className="font-mono font-bold text-indigo-500">{r.task.taskId}</span>,
+  },
+  // Every position — imported or stand-alone — opens its Remeasurement / Release.
   {
     key: "jobNumber",
     title: TERMS.jobNo,
     width: 170,
     text: (r) => r.m?.jobNumber ?? "",
-    render: (_, r) =>
-      r.task.shipmentId && r.m?.jobNumber ? (
-        <Link
-          href={remeasurementHref(r.task.shipmentId)}
-          onClick={(e) => e.stopPropagation()}
-          className="font-mono font-semibold text-indigo-500 hover:underline"
-        >
-          {r.m.jobNumber}
-        </Link>
-      ) : (
-        mono(r.m?.jobNumber)
-      ),
+    sorter: byText((r) => r.m?.jobNumber ?? ""),
+    render: (_, r) => (
+      <Link
+        href={positionRemeasurementHref(r.task.id)}
+        onClick={(e) => e.stopPropagation()}
+        className={r.m?.jobNumber ? "font-mono font-semibold text-indigo-500 hover:underline" : "text-[11px] text-indigo-400 hover:underline"}
+        title="Open Remeasurement / Release"
+      >
+        {r.m?.jobNumber || "Remeasure"}
+      </Link>
+    ),
   },
   textCol("customer", "Customer", 200),
   textCol("customerRef", "Customer Reference", 160),
@@ -97,21 +111,112 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
   textCol("freightMode", "Freight Mode", 130),
   textCol("loadType", "Load Type", 140),
   textCol("status", TERMS.warehouseStatus, 150),
+  // The storage clock (one calculation, made by the server): received, days in the warehouse,
+  // free time left and the estimated storage charge.
+  {
+    key: "received",
+    title: "Received",
+    width: 110,
+    text: (r) => storageOf(r)?.startDate ?? "",
+    sorter: byText((r) => storageOf(r)?.startDate ?? "9999"),
+    render: (_, r) => dim(formatDate(storageOf(r)?.startDate)),
+  },
+  {
+    key: "daysInWarehouse",
+    title: "Days in WH",
+    width: 100,
+    align: "right",
+    text: (r) => (storageOf(r) ? String(storageOf(r)!.daysInWarehouse) : ""),
+    sorter: (a, b) => (storageOf(a)?.daysInWarehouse ?? -1) - (storageOf(b)?.daysInWarehouse ?? -1),
+    render: (_, r) => numCell(storageOf(r) ? String(storageOf(r)!.daysInWarehouse) : ""),
+  },
+  {
+    key: "freeTimeLeft",
+    title: "Free time left",
+    width: 150,
+    text: (r) => (r.m ? freeTimeText(r.m.storage) : ""),
+    sorter: (a, b) => (a.m ? freeTimeSort(a.m.storage) : Number.MAX_SAFE_INTEGER) - (b.m ? freeTimeSort(b.m.storage) : Number.MAX_SAFE_INTEGER),
+    render: (_, r) =>
+      r.m?.storage.started ? (
+        <span className={`font-medium ${freeTimeTone(r.m.storage)}`} title={storageHint(r.m.storage)}>
+          {freeTimeText(r.m.storage)}
+        </span>
+      ) : (
+        dim("")
+      ),
+  },
+  {
+    key: "storageCzk",
+    title: "Est. storage CZK",
+    width: 130,
+    align: "right",
+    text: (r) => (r.m?.storage.estimatedCzk ? String(r.m.storage.estimatedCzk) : ""),
+    sorter: byNum((m) => m.storage.estimatedCzk),
+    render: (_, r) => (r.m?.storage.estimatedCzk ? <span className="text-red-600 tabular-nums">{nf(r.m.storage.estimatedCzk)}</span> : dim("")),
+  },
+  {
+    key: "release",
+    title: TERMS.releaseGates,
+    width: 130,
+    text: (r) => (r.m ? releaseGatesText(r.m) : ""),
+    filterOptions: RELEASE_GATES_VALUES,
+    sorter: byText((r) => (r.m ? releaseGatesText(r.m) : "~")),
+    render: (_, r) => dim(r.m ? releaseGatesText(r.m) : ""),
+  },
+  {
+    key: "exceptions",
+    title: "Exceptions",
+    width: 120,
+    text: (r) => (r.m ? exceptionText(r.m) : ""),
+    sorter: byNum((m) => -m.openExceptions),
+    render: (_, r) => (r.m?.openExceptions ? <Badge tone={isOnHold(r.m) ? "r" : "a"}>{exceptionText(r.m)}</Badge> : dim("")),
+  },
   textCol("customsStatus", "Customs Status", 230, { filterOptions: [...CUSTOMS_STATUSES] }),
   textCol("pol", "POL", 110),
   textCol("pod", "POD", 110),
-  { key: "etd", title: "ETD", width: 110, text: (r) => formatDate(r.m?.etd), render: (_, r) => dim(formatDate(r.m?.etd)) },
-  { key: "eta", title: "ETA", width: 110, text: (r) => formatDate(r.m?.eta), render: (_, r) => dim(formatDate(r.m?.eta)) },
-  { key: "colli", title: TERMS.pieces, width: 90, align: "right", text: (r) => (r.m?.colli ? String(r.m.colli) : ""), render: (_, r) => numCell(r.m?.colli ? nf(r.m.colli) : "") },
+  { key: "etd", title: "ETD", width: 110, text: (r) => formatDate(r.m?.etd), sorter: byText((r) => r.m?.etd || "9999"), render: (_, r) => dim(formatDate(r.m?.etd)) },
+  { key: "eta", title: "ETA", width: 110, text: (r) => formatDate(r.m?.eta), sorter: byText((r) => r.m?.eta || "9999"), render: (_, r) => dim(formatDate(r.m?.eta)) },
+  {
+    key: "colli",
+    title: TERMS.pieces,
+    width: 90,
+    align: "right",
+    text: (r) => (r.m?.colli ? String(r.m.colli) : ""),
+    sorter: byNum((m) => m.colli),
+    render: (_, r) => numCell(r.m?.colli ? nf(r.m.colli) : ""),
+  },
   textCol("packing", "Type Of Packages", 150),
-  { key: "weightKg", title: TERMS.weightKg, width: 110, align: "right", text: (r) => (r.m?.weightKg ? String(r.m.weightKg) : ""), render: (_, r) => numCell(r.m?.weightKg ? nf(r.m.weightKg) : "") },
-  { key: "measureCbm", title: TERMS.volumeCbm, width: 110, align: "right", text: (r) => (r.m?.measureCbm ? String(r.m.measureCbm) : ""), render: (_, r) => numCell(r.m?.measureCbm ? nf(r.m.measureCbm, 2) : "") },
+  {
+    key: "weightKg",
+    title: TERMS.weightKg,
+    width: 110,
+    align: "right",
+    text: (r) => (r.m?.weightKg ? String(r.m.weightKg) : ""),
+    sorter: byNum((m) => m.weightKg),
+    render: (_, r) => numCell(r.m?.weightKg ? nf(r.m.weightKg) : ""),
+  },
+  {
+    key: "measureCbm",
+    title: TERMS.volumeCbm,
+    width: 110,
+    align: "right",
+    text: (r) => (r.m?.measureCbm ? String(r.m.measureCbm) : ""),
+    sorter: byNum((m) => m.measureCbm),
+    render: (_, r) => numCell(r.m?.measureCbm ? nf(r.m.measureCbm, 2) : ""),
+  },
   textCol("commodity", "Commodity", 200),
   textCol("shipmentOwner", "Person In Charge", 180),
   textCol("containerNumber", "Container Number", 150, { defaultVisible: false, render: (_, r) => mono(r.m?.containerNumber) }),
   textCol("bookingNumber", "Booking Number", 150, { defaultVisible: false, render: (_, r) => mono(r.m?.bookingNumber) }),
   textCol("vessel", "Vessel", 150, { defaultVisible: false }),
-  { key: "createdAt", title: "Created", width: 110, text: (r) => formatDate(r.task.createdAt), render: (_, r) => dim(formatDate(r.task.createdAt)) },
+  {
+    key: "createdAt",
+    title: "Created",
+    width: 110,
+    text: (r) => formatDate(r.task.createdAt),
+    sorter: byText((r) => r.task.createdAt),
+    render: (_, r) => dim(formatDate(r.task.createdAt)),
+  },
 ];
 
 // Warehouse module tabs, in work order; the Read me is in the "?" help drawer.
@@ -230,6 +335,35 @@ function FilterBubbles({ active, counts, onSelect }: { active: BubbleId | null; 
   );
 }
 
+// Quick filters for the exception worklist (?view=), with live counts; one at a time, combined
+// with the tiles above and FCL / LCL.
+function QuickChips({ active, counts, onSelect }: { active: ChipId | null; counts: Record<ChipId, number>; onSelect: (id: ChipId | null) => void }) {
+  return (
+    <div role="group" aria-label="Quick filters" className="flex flex-wrap gap-2 mt-3">
+      {CHIPS.map((c) => {
+        const on = active === c.id;
+        const n = counts[c.id];
+        return (
+          <Tooltip key={c.id} title={c.hint} mouseEnterDelay={0.4}>
+            <button
+              type="button"
+              aria-pressed={on}
+              onClick={() => onSelect(on ? null : c.id)}
+              className={[
+                "inline-flex items-center gap-1.5 rounded-full border px-3 h-7 text-[12.5px] font-medium transition-colors cursor-pointer",
+                on ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+              ].join(" ")}
+            >
+              {c.label}
+              <span className={`tabular-nums font-semibold ${c.danger && n > 0 ? "text-red-600" : on ? "text-indigo-700" : "text-slate-500"}`}>{n}</span>
+            </button>
+          </Tooltip>
+        );
+      })}
+    </div>
+  );
+}
+
 // Positions grid: every warehouse position with its own data (the gate movement record).
 export const WarehouseView = () => {
   const router = useRouter();
@@ -247,8 +381,10 @@ export const WarehouseView = () => {
   };
   // The open shipment, sub-tab and Positions filters belong to their tab and do not carry over.
   const setTab = (tab: ModuleTab) => {
+    // Unsaved edits (Remeasurement / Release) are not dropped without asking.
+    if (!confirmLeave()) return;
     const params = new URLSearchParams(searchParams.toString());
-    for (const key of ["shipment", "sub", "bubble", "load", "archived"]) params.delete(key);
+    for (const key of ["shipment", "position", "sub", "bubble", "load", "archived", "view"]) params.delete(key);
     if (tab === "positions") params.delete("tab");
     else params.set("tab", tab);
     const qs = params.toString();
@@ -279,6 +415,17 @@ export const WarehouseView = () => {
     return tasks.map((task) => ({ task, m: byTask.get(task.id) })).sort((a, b) => b.task.createdAt.localeCompare(a.task.createdAt));
   }, [tasks, movements]);
 
+  // Quick filter chip (?view=), by Prague date.
+  const today = pragueToday();
+  const viewParam = searchParams.get("view");
+  const activeChip = (CHIP_IDS as string[]).includes(viewParam ?? "") ? (viewParam as ChipId) : null;
+  const setChip = (id: ChipId | null) => setParam("view", id);
+  const chipCounts = useMemo(
+    () => Object.fromEntries(CHIPS.map((c) => [c.id, allRows.filter((r) => r.m && c.match(r.m, today)).length])) as Record<ChipId, number>,
+    [allRows, today],
+  );
+  const chip = CHIPS.find((c) => c.id === activeChip) ?? null;
+
   const bubbleCounts = useMemo(
     () => Object.fromEntries(BUBBLES.map((b) => [b.id, allRows.filter((r) => r.m && b.match(r.m)).length])) as Record<BubbleId, number>,
     [allRows],
@@ -293,9 +440,10 @@ export const WarehouseView = () => {
       allRows.filter(
         (r) =>
           (!activeBubble || (r.m && activeBubble.match(r.m))) &&
+          (!chip || (r.m && chip.match(r.m, today))) &&
           (!load || (r.m && (load === "fcl" ? isFcl(r.m.operationType) : isLcl(r.m.operationType)))),
       ),
-    [allRows, activeBubble, load],
+    [allRows, activeBubble, chip, today, load],
   );
 
   const { user } = useAuth();
@@ -366,7 +514,20 @@ export const WarehouseView = () => {
             <h1 className="text-2xl font-bold text-slate-900">Warehouse</h1>
             {moduleTabs}
           </div>
-          {activeTab === "remeasurement" && <RemeasurementTab shipmentId={searchParams.get("shipment")} onBack={() => setTab("positions")} />}
+          {activeTab === "remeasurement" && (
+            <RemeasurementTab
+              shipmentId={searchParams.get("shipment")}
+              positionId={searchParams.get("position")}
+              // Back to the worklist of this tab (the position closes; unsaved edits ask first).
+              onBack={() => {
+                if (!confirmLeave()) return;
+                const params = new URLSearchParams(searchParams.toString());
+                params.delete("shipment");
+                params.delete("position");
+                router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+              }}
+            />
+          )}
           {activeTab === "stock" && <StockTab />}
           {activeTab === "containers" && <ContainersTab />}
           {activeTab === "dock" && <DockYardTab />}
@@ -386,6 +547,7 @@ export const WarehouseView = () => {
             <>
               {moduleTabs}
               <FilterBubbles active={activeBubble?.id ?? null} counts={bubbleCounts} onSelect={setBubble} />
+              <QuickChips active={activeChip} counts={chipCounts} onSelect={setChip} />
             </>
           }
           searchPlaceholder="Search warehouse ref, customer, job no.…"
@@ -398,7 +560,7 @@ export const WarehouseView = () => {
           storageKey="warehouse:positions"
           exportFilePrefix="warehouse"
           emptyText={tasks.length ? "No positions match this filter." : "No positions in the warehouse yet."}
-          resetKey={`${activeBubble?.id ?? ""}|${load ?? ""}`}
+          resetKey={`${activeBubble?.id ?? ""}|${activeChip ?? ""}|${load ?? ""}`}
           actions={
             <>
               <button

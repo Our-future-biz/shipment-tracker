@@ -176,6 +176,15 @@ class GateMovementRepository {
       .where(and(eq(t.id, id), eq(t.companyId, companyId)));
   }
 
+  // Adds events to every live record of a position (section saves, "mark as sent").
+  async appendEventsForTask(taskId: string, companyId: string, events: GateEvent[], tx: Tx | typeof db = db) {
+    const t = gateMovementTable;
+    await tx
+      .update(t)
+      .set({ events: sql`${t.events} || ${JSON.stringify(events)}::jsonb`, updatedAt: new Date() })
+      .where(and(liveRow(companyId), eq(t.warehouseTaskId, taskId)));
+  }
+
   // Records that the linked shipment was read just now (customs follow), without counting as
   // a change of the record.
   async markShipmentChecked(ids: string[], companyId: string, at: Date) {

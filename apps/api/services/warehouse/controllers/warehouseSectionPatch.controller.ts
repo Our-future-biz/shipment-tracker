@@ -23,7 +23,9 @@ interface WarehouseSectionPatchResponse {
 export const warehouseSectionPatch = api(
   { expose: true, auth: true, method: "PATCH", path: "/warehouse/sections/:shipmentId/:section" },
   async (req: WarehouseSectionPatchRequest): Promise<WarehouseSectionPatchResponse> => {
-    const row = await warehouseService.patchSection(req.shipmentId, req.section, getAuthData()!.companyID, req.changes);
+    const { companyID, userID } = getAuthData()!;
+    // The shipment's live warehouse position owns the section when it has one.
+    const row = await warehouseService.patchSection(req.shipmentId, req.section, companyID, req.changes, userID);
     return { section: sectionItem(row) };
   },
 );

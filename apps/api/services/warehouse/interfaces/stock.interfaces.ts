@@ -22,11 +22,11 @@ export interface WarehouseStockLineItem {
   status: string;
   consol: string;
   marks: string;
-  /** Whole days since receipt. */
+  /** Calendar days in the warehouse (Prague dates); the receipt day is day 1. */
   daysInStock: number;
   /** Days past free time (negative = days left). */
   overFreeTime: number;
-  /** Within free time | Expiring | Chargeable */
+  /** Within free time | Expiring (2 free days left or fewer) | Chargeable */
   freeTimeState: string;
   /** YYYY-MM-DD */
   lastFreeDay: string;

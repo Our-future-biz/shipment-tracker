@@ -137,6 +137,73 @@ export interface GateShipmentUpdateState {
   nextAttemptAt: string | null;
 }
 
+/**
+ * The storage clock of a movement — the warehouse's one free-time calculation. Starts at the
+ * receipt (inbound: the gate-in; outbound: the "Received in warehouse" date), stops at the WH
+ * release or gate-out; calendar days in Prague time, the arrival day is day 1. CZK 22 per W/M per
+ * day, at least CZK 120, after the free days.
+ */
+export interface GateStorageInfo {
+  started: boolean;
+  /** YYYY-MM-DD (Prague); "" when not started. */
+  startDate: string;
+  /** What started the clock: "gateIn" (inbound), "loadInDate" (outbound), "" (not started). */
+  startSource: string;
+  stopped: boolean;
+  /** YYYY-MM-DD (Prague) of the WH release / gate-out; "" while the cargo is in the warehouse. */
+  stopDate: string;
+  daysInWarehouse: number;
+  freeDays: number;
+  freeDaysLeft: number;
+  /** YYYY-MM-DD; "" when not started. */
+  lastFreeDay: string;
+  chargeableDays: number;
+  /** Chargeable W/M from the gate figures: the larger of cbm and tonnes. */
+  wm: number;
+  dailyCzk: number;
+  estimatedCzk: number;
+  /** Not started | Within free time | Expiring (2 free days left or fewer) | Chargeable */
+  state: string;
+}
+
+/** A damage / short / over exception of the movement; an open one holds the release. */
+export interface GateExceptionItem {
+  id: string;
+  movementId: string;
+  taskId: string | null;
+  /** Damaged | Short | Over */
+  type: string;
+  pieces: number;
+  note: string;
+  container: string;
+  surveyPhase: string;
+  /** survey | manual */
+  source: string;
+  /** Photos of the movement (gate file ids). */
+  fileIds: string[];
+  /** open | resolved */
+  status: string;
+  createdBy: string;
+  createdAt: string;
+  resolvedAt: string | null;
+  resolvedBy: string;
+  resolutionNote: string;
+}
+
+/** A new exception, from a survey or by hand. */
+export interface GateExceptionInput {
+  /** Damaged | Short | Over */
+  type: string;
+  pieces: number;
+  note?: string;
+  container?: string;
+  surveyPhase?: string;
+  /** survey | manual (default) */
+  source?: string;
+  /** Photos of this movement to attach (gate file ids, at most 20). */
+  fileIds?: string[];
+}
+
 export interface GateMovementItem {
   id: string;
   gateRef: string;
@@ -228,6 +295,12 @@ export interface GateMovementItem {
   shipmentCheckedAt: string | null;
   /** Shipment update still owed by a stamp; null when everything reached the shipment. */
   shipmentUpdate: GateShipmentUpdateState | null;
+  /** Days in the warehouse, free time and the estimated storage charge. */
+  storage: GateStorageInfo;
+  /** Damage / short / over exceptions, oldest first (open and resolved). */
+  exceptions: GateExceptionItem[];
+  /** Open exceptions: the cargo is ON HOLD while this is above 0. */
+  openExceptions: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -303,7 +376,9 @@ export interface GateMovementInput {
   checklist?: GateChecklist;
   cfsCustomsNumber?: string;
   cfsCustomsProcedure?: string;
+  /** Outbound: the date the cargo was received in the warehouse (YYYY-MM-DD, "" clears); starts the storage clock. */
   loadInDate?: string;
+  /** Free days of this position (0–365); null = the default (7). */
   freeDays?: number | null;
   note?: string;
 }

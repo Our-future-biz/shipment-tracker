@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Table, Input, Select, Tooltip, Popover, Pagination, Button, Badge, Checkbox, type InputRef } from "antd";
 import { SearchOutlined, FilterOutlined, CloseOutlined, DownloadOutlined, SettingOutlined } from "@ant-design/icons";
 import type { ColumnType } from "antd/es/table";
+import type { SortOrder } from "antd/es/table/interface";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -26,6 +27,15 @@ export interface AppGridColumn<T> extends Omit<ColumnType<T>, "key" | "title"> {
 }
 
 type ColFilter = { key: string; value: string };
+type Sort = { key: string; order: Exclude<SortOrder, null> };
+
+// A column's compare function (`sorter` as a function or `{ compare }`), if it sorts on the client.
+function compareOf<T>(col: AppGridColumn<T> | undefined): ((a: T, b: T) => number) | null {
+  const s = col?.sorter;
+  if (typeof s === "function") return (a, b) => s(a, b, "ascend");
+  if (s && typeof s === "object" && typeof s.compare === "function") return s.compare;
+  return null;
+}
 
 const PAGE_SIZE_OPTIONS = [50, 100, 150, 200];
 
@@ -179,9 +189,22 @@ export function AppGrid<T extends object>({
     });
   }, [rows, columns, columnMap, search, activeFilters]);
 
+  // Column sorting: a column with a compare `sorter` sorts the whole filtered list (not only the
+  // page shown), then the list is paged.
+  const [sort, setSort] = useState<Sort | null>(null);
+  const sorted = useMemo(() => {
+    const compare = sort ? compareOf(columnMap.get(sort.key)) : null;
+    if (!sort || !compare) return filtered;
+    const dir = sort.order === "descend" ? -1 : 1;
+    return filtered
+      .map((r, i) => ({ r, i }))
+      .sort((a, b) => compare(a.r, b.r) * dir || a.i - b.i)
+      .map((x) => x.r);
+  }, [filtered, sort, columnMap]);
+
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, activeFilters, pageSize, resetKey]);
+  }, [search, activeFilters, pageSize, resetKey, sort]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const onDragEnd = ({ active, over }: DragEndEvent) => {
@@ -197,15 +220,17 @@ export function AppGrid<T extends object>({
       visibleColumns.map(({ text: _text, defaultVisible: _dv, filterOptions: _fo, ...col }) => ({
         ellipsis: true,
         ...col,
+        // Sorting is done above on the whole list; the table only shows the arrow.
+        ...(compareOf(col as AppGridColumn<T>) ? { sorter: true, sortOrder: sort?.key === col.key ? sort.order : null } : {}),
         onHeaderCell: () => ({ id: col.key }) as React.HTMLAttributes<HTMLTableCellElement>,
       })),
-    [visibleColumns],
+    [visibleColumns, sort],
   );
 
   const totalRows = filtered.length;
   const pageCount = Math.max(1, Math.ceil(totalRows / pageSize));
   const safePage = Math.min(currentPage, pageCount);
-  const paged = useMemo(() => filtered.slice((safePage - 1) * pageSize, safePage * pageSize), [filtered, safePage, pageSize]);
+  const paged = useMemo(() => sorted.slice((safePage - 1) * pageSize, safePage * pageSize), [sorted, safePage, pageSize]);
 
   const selectedRows = useMemo(() => {
     const set = new Set(selectedKeys.map(String));
@@ -429,6 +454,10 @@ export function AppGrid<T extends object>({
               size="small"
               components={{ header: { cell: DraggableHeaderCell } }}
               pagination={false}
+              onChange={(_p, _f, sorter) => {
+                const s = Array.isArray(sorter) ? sorter[0] : sorter;
+                setSort(s?.order && s.columnKey != null ? { key: String(s.columnKey), order: s.order } : null);
+              }}
               rowSelection={{
                 selectedRowKeys: selectedKeys,
                 onChange: setSelectedKeys,

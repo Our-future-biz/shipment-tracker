@@ -39,7 +39,13 @@ export function ReadmeTab() {
         <ul>
           <li>Positions lists every position, newest first. Click a row (or move to it with Tab and press Enter) to open its Gate Log job.</li>
           <li>
-            The <b>{TERMS.jobNo}</b> link opens the shipment&rsquo;s warehouse part in Remeasurement / Release.
+            The <b>{TERMS.jobNo}</b> link (&ldquo;Remeasure&rdquo; on a position without one) opens the position&rsquo;s Remeasurement / Release — every position has one,
+            linked to a shipment or not.
+          </li>
+          <li>
+            Positions is also the exception worklist: <b>Received</b>, <b>Days in WH</b>, <b>Free time left</b>, <b>Est. storage CZK</b>, {TERMS.releaseGates} and
+            open <b>Exceptions</b>, each sortable by clicking its header. The quick filters (Needs attention, Expected today, In warehouse, Free time expiring ≤ 2 days,
+            Chargeable, On hold, Released today) show their counts and are kept in the address.
           </li>
           <li>
             <b>Create new</b> has two kinds of position:
@@ -92,9 +98,15 @@ export function ReadmeTab() {
           means outbound cargo whose {TERMS.releaseGates.toLowerCase()} are blocked, or outbound cargo still under customs with no MRN.
         </p>
         <p>
-          The job has three tabs (Overview, Survey, Shipment Management); the open tab is kept in the address, so a shared link opens the same tab. Fields save when
-          you leave them. The header shows the customer, the <b>{TERMS.jobNo}</b> (a link to the shipment, when the position is linked) and <b>Shipment Details</b>{" "}
-          (the shipment&rsquo;s Remeasurement / Release).
+          <b>Scan or type</b>: scan a label (its barcode and QR code carry the {TERMS.warehouseRef.toLowerCase()}) or type a reference, {TERMS.jobNo.toLowerCase()},
+          container or plate and press Enter — one match opens its job, several are listed, none offers to record a walk-in. <b>Expected today</b> lists the
+          positions due at the gate today (by ETA, dock slot or ETA warehouse) that have not arrived yet.
+        </p>
+        <p>
+          The job has four tabs (Overview, Survey, Shipment Management, History); the open tab is kept in the address, so a shared link opens the same tab. Fields
+          save when you leave them. The header shows the customer, the <b>{TERMS.jobNo}</b> (a link to the shipment, when the position is linked) and{" "}
+          <b>Shipment Details</b> (the position&rsquo;s Remeasurement / Release). <b>History</b> lists everything logged on the record, newest first, filtered by
+          kind; a manager can void a current stamp from there too.
         </p>
         <p>
           The Vehicle card shows the incoming truck (IN leg) for inbound cargo and the outgoing truck (OUT leg) for outbound cargo.
@@ -246,6 +258,22 @@ export function ReadmeTab() {
         </ul>
       </Part>
 
+      <Part title="Remeasurement / Release">
+        <ul>
+          <li>
+            Opened for one position: the header (reference, {TERMS.jobNo}, customer, status, customs, days in the warehouse and free time, chargeable W/M), the cargo
+            comparison — declared on the shipment, received at the gate, remeasured — with the differences beyond the tolerance (any piece, or more than 5 % on
+            weight or volume), the remeasured lines, notes, &ldquo;Mark as sent&rdquo; with its history, the exceptions and the release readiness.
+          </li>
+          <li>
+            Lines: Tab moves Qty → L → W → H → kg, Enter adds a line. One <b>Save changes</b> bar saves notes and lines together; leaving with unsaved changes asks
+            first. <b>Use remeasured figures for the warehouse</b> sets the gate figures from the saved lines — the shipment&rsquo;s cargo is never changed.
+          </li>
+          <li>With no position open it lists the positions waiting for remeasurement (in the warehouse, no lines saved) or release (outbound, not released).</li>
+          <li>The release itself is stamped on the gate job (&ldquo;Open gate job to release&rdquo;).</li>
+        </ul>
+      </Part>
+
       <Part title="The other tabs">
         <ul>
           <li>
@@ -258,7 +286,8 @@ export function ReadmeTab() {
             <b>Stock</b>: stock on hand, locations and occupancy, movements, ageing and free time, bonded register.
           </li>
           <li>
-            <b>Reports</b>: throughput, consol utilisation, quality and claims, report library.
+            <b>Reports</b>: throughput, consol utilisation, quality and claims, report library. The line on top shows shipment updates still pending or failed,
+            and the cargo in the warehouse by free time.
           </li>
         </ul>
         <p>The sub-tab you are on is kept in the address too.</p>

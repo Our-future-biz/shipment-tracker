@@ -64,6 +64,21 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     meaning:
       "A manager clears a wrong stamp from its step (with a reason, logged). Later steps are voided first. The shipment is not changed back — if the stamp already set its warehouse date, correct it in Shipments.",
   },
+  {
+    term: "Free time / storage",
+    meaning:
+      "One calculation everywhere in the warehouse. The clock starts at the receipt — the gate-in for inbound cargo, the “Received in warehouse” date for outbound cargo — and stops when the cargo leaves — the WH release (or gate-out) of outbound cargo. An inbound gate-out is only the delivering truck leaving and does not stop it. Calendar days in Prague time; the receipt day is day 1. After the free days (7 unless set on the record) storage is CZK 22 per W/M a day, at least CZK 120. Expiring = 2 free days left or fewer.",
+  },
+  {
+    term: "Exception / On hold",
+    meaning:
+      "Damaged, short or over cargo recorded on the gate job (from a survey or by hand). While one is open the cargo is on hold: the release gate “No open exceptions” is Blocked and the WH release is refused, even after a supervisor override. Anyone resolves it with a note; both are logged.",
+    replaces: "OS&D",
+  },
+  {
+    term: "W/M",
+    meaning: "Weight or measure — the larger of the volume in cbm and the weight in tonnes; storage is charged on it.",
+  },
 ];
 
 export const DIRECTIONS = [TERMS.inbound, TERMS.outbound] as const;

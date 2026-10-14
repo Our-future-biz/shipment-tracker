@@ -4,7 +4,8 @@ import { requireRole } from "../../../lib/rbac";
 import { gateMovementService, type StampKind } from "../services/gateMovement.service";
 import { gateFileService } from "../services/gateFile.service";
 import { gateAdminService } from "../services/gateAdmin.service";
-import type { GateFileItem, GateMovementInput, GateMovementItem, GateSurveyInput } from "../interfaces/gate.interfaces";
+import { gateExceptionService } from "../services/gateException.service";
+import type { GateExceptionInput, GateFileItem, GateMovementInput, GateMovementItem, GateSurveyInput } from "../interfaces/gate.interfaces";
 
 interface GateMovementResponse {
   movement: GateMovementItem;
@@ -250,5 +251,35 @@ export const gateFileDelete = api(
   async ({ id, fileId }: { id: string; fileId: string }): Promise<{ ok: boolean }> => {
     await gateFileService.remove(id, fileId, getAuthData()!.companyID);
     return { ok: true };
+  },
+);
+
+// "Use remeasured figures for the warehouse": the gate figures (pieces, kg, cbm) become the
+// totals of the position's remeasured lines. Only the warehouse's figures — the shipment's cargo
+// is never changed. Refused when the lines changed since `sectionVersion`, or after the release.
+export const gateMovementUseRemeasured = api(
+  { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/use-remeasured" },
+  async ({ id, sectionVersion }: { id: string; sectionVersion: number }): Promise<GateMovementResponse> => {
+    const { companyID, userID } = getAuthData()!;
+    return { movement: await gateMovementService.useRemeasured(id, companyID, userID, sectionVersion) };
+  },
+);
+
+// Records a damage / short / over exception on the movement (from a survey or by hand). While it
+// is open the cargo is ON HOLD: the "No open exceptions" release-gate line is Blocked.
+export const gateExceptionCreate = api(
+  { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/exceptions" },
+  async ({ id, exception }: { id: string; exception: GateExceptionInput }): Promise<GateMovementResponse> => {
+    const { companyID, userID } = getAuthData()!;
+    return { movement: await gateExceptionService.create(id, companyID, userID, exception) };
+  },
+);
+
+// Resolves an open exception with a note (any user, logged). The last one resolved clears the hold.
+export const gateExceptionResolve = api(
+  { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/exceptions/:exceptionId/resolve" },
+  async ({ id, exceptionId, note }: { id: string; exceptionId: string; note: string }): Promise<GateMovementResponse> => {
+    const { companyID, userID } = getAuthData()!;
+    return { movement: await gateExceptionService.resolve(id, exceptionId, companyID, userID, note) };
   },
 );

@@ -112,6 +112,21 @@ export function shipmentUpdateState(rows: ShipmentOutboxRecord[]): GateShipmentU
   };
 }
 
+/** A pending update older than this is reported as a warning (it should have reached Shipments). */
+export const STALE_PENDING_MINUTES = 10;
+
+/** Logs a warning when shipment updates wait longer than STALE_PENDING_MINUTES. Never throws. */
+export async function warnStaleOutbox(): Promise<number> {
+  try {
+    const { count, oldest } = await shipmentOutboxRepository.stalePending(STALE_PENDING_MINUTES);
+    if (count) log.warn("warehouse: shipment updates from the gate are waiting longer than expected", { count, oldest, minutes: STALE_PENDING_MINUTES });
+    return count;
+  } catch (err) {
+    log.error(err, "warehouse: shipment update health check failed");
+    return 0;
+  }
+}
+
 let started = false;
 
 // Encore cron jobs do not fire under `encore run`, so a minute timer does the same job locally
@@ -119,5 +134,5 @@ let started = false;
 export function startOutboxTimer(): void {
   if (started || process.env.VITEST) return;
   started = true;
-  setInterval(() => void deliverDue(), TICK_MS).unref();
+  setInterval(() => void deliverDue().then(() => warnStaleOutbox()), TICK_MS).unref();
 }

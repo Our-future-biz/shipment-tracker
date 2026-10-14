@@ -1,4 +1,5 @@
 import { APIError } from "encore.dev/api";
+import { pragueDate, storageClock, wmOf } from "./storage";
 import { auth } from "~encore/clients";
 import {
   bondedEntryRepository,
@@ -32,18 +33,11 @@ export const STOCK_STATUSES = ["Available", "Allocated", "On hold", "Picked"];
 export const STOCK_CUSTOMS = ["Free circulation", "T1 bonded", "Export cleared"];
 export const MOVEMENT_TYPES = ["Receipt", "Put-away", "Transfer", "Pick", "Load", "Adjustment", "Rework"];
 
-const DAY = 86_400_000;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
 
-// Storage tariff used for the accrual: CZK 22 per w/m per day, at least CZK 120 per day.
-const STORAGE_CZK_PER_WM = 22;
-const STORAGE_MIN_CZK = 120;
-
 const stamps = (r: { createdAt: Date; updatedAt: Date }) => ({ createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString() });
 const notFound = (what: string) => APIError.notFound(`${what} not found`);
-const dayIndex = (d: string) => Math.floor(Date.parse(`${d}T00:00:00Z`) / DAY);
-const todayIso = (now: Date) => now.toISOString().slice(0, 10);
 
 const requireText = (value: string | undefined, label: string) => {
   if (value !== undefined && !value.trim()) throw APIError.invalidArgument(`${label} is required`);
@@ -60,21 +54,20 @@ const checkNotNegative = (value: number | undefined, label: string) => {
 
 // ---------- Stock on hand ----------
 
+// Free time follows the warehouse's one storage calculation (storage.ts): the receipt day is
+// day 1, calendar days in Prague time, CZK 22 per W/M per day (at least CZK 120).
 export function stockLineItem(r: StockLineRow, now = new Date()): WarehouseStockLineItem {
   const { companyId: _c, deletedAt: _d, createdAt: _ca, updatedAt: _ua, ...fields } = r;
-  const daysInStock = Math.max(0, dayIndex(todayIso(now)) - dayIndex(r.receivedAt));
-  const overFreeTime = daysInStock - r.freeDays;
-  const wm = Math.round(Math.max(r.cbm, r.weightKg / 1000) * 100) / 100;
-  const chargeableDays = Math.max(0, overFreeTime);
+  const clock = storageClock({ start: r.receivedAt, stop: null, freeDays: r.freeDays, wm: wmOf(r.cbm, r.weightKg), today: pragueDate(now) });
   return {
     ...fields,
-    wm,
-    daysInStock,
-    overFreeTime,
-    freeTimeState: overFreeTime > 0 ? "Chargeable" : overFreeTime > -3 ? "Expiring" : "Within free time",
-    lastFreeDay: new Date(Date.parse(`${r.receivedAt}T00:00:00Z`) + r.freeDays * DAY).toISOString().slice(0, 10),
-    chargeableDays,
-    accruedCzk: Math.round(chargeableDays * Math.max(wm * STORAGE_CZK_PER_WM, STORAGE_MIN_CZK)),
+    wm: clock.wm,
+    daysInStock: clock.daysInWarehouse,
+    overFreeTime: clock.daysInWarehouse - clock.freeDays,
+    freeTimeState: clock.state === "Not started" ? "Within free time" : clock.state,
+    lastFreeDay: clock.lastFreeDay,
+    chargeableDays: clock.chargeableDays,
+    accruedCzk: clock.estimatedCzk,
     ...stamps(r),
   };
 }
