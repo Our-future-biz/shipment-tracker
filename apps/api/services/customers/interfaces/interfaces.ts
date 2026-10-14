@@ -14,6 +14,8 @@ export type ContactRole =
   | "Sales"
   | "Management"
   | "Owner";
+/** Registered is the company's seat; the others are where invoices go and goods are picked up or delivered. */
+export type AddressType = "Registered" | "Billing" | "Pickup" | "Delivery" | "Warehouse";
 export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";
 export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other";
 /** Credited = reversed by a credit note; like Paid, it no longer counts as owed. */
@@ -115,6 +117,20 @@ export interface InvoiceItem {
   status: InvoiceStatus;
   /** yyyy-mm-dd, or "" */
   issuedAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AddressItem {
+  id: string;
+  customerId: string;
+  type: AddressType;
+  label: string;
+  street: string;
+  city: string;
+  postalCode: string;
+  /** ISO 3166-1 alpha-2 */
+  country: string;
   createdAt: string;
   updatedAt: string;
 }

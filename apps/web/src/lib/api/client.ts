@@ -468,6 +468,10 @@ export namespace customers {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.addressCreate = this.addressCreate.bind(this)
+            this.addressDelete = this.addressDelete.bind(this)
+            this.addressList = this.addressList.bind(this)
+            this.addressUpdate = this.addressUpdate.bind(this)
             this.aresLookup = this.aresLookup.bind(this)
             this.aresSearch = this.aresSearch.bind(this)
             this.contactCreate = this.contactCreate.bind(this)
@@ -493,6 +497,30 @@ export namespace customers {
             this.noteCreate = this.noteCreate.bind(this)
             this.noteDelete = this.noteDelete.bind(this)
             this.noteList = this.noteList.bind(this)
+        }
+
+        public async addressCreate(customerId: string, params: controllers.AddressCreateRequest): Promise<controllers.AddressCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(customerId)}/addresses`, JSON.stringify(params))
+            return await resp.json() as controllers.AddressCreateResponse
+        }
+
+        public async addressDelete(id: string): Promise<controllers.AddressDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/customer-addresses/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.AddressDeleteResponse
+        }
+
+        public async addressList(customerId: string): Promise<controllers.AddressListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/${encodeURIComponent(customerId)}/addresses`)
+            return await resp.json() as controllers.AddressListResponse
+        }
+
+        public async addressUpdate(id: string, params: controllers.AddressUpdateRequest): Promise<controllers.AddressUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/customer-addresses/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.AddressUpdateResponse
         }
 
         public async aresLookup(ico: string): Promise<interfaces.AresResult> {
@@ -1998,6 +2026,46 @@ export namespace controllers {
          * VAT code on the invoice; "" = default by trade direction
          */
         vatCode?: interfaces.SellingVatCode | ""
+    }
+
+    export interface AddressCreateRequest {
+        type: interfaces.AddressType
+        label?: string
+        street: string
+        city: string
+        postalCode: string
+        /**
+         * ISO 3166-1 alpha-2
+         */
+        country: string
+    }
+
+    export interface AddressCreateResponse {
+        address: interfaces.AddressItem
+    }
+
+    export interface AddressDeleteResponse {
+        ok: boolean
+    }
+
+    export interface AddressListResponse {
+        data: interfaces.AddressItem[]
+    }
+
+    export interface AddressUpdateRequest {
+        type?: interfaces.AddressType
+        label?: string
+        street?: string
+        city?: string
+        postalCode?: string
+        /**
+         * ISO 3166-1 alpha-2
+         */
+        country?: string
+    }
+
+    export interface AddressUpdateResponse {
+        address: interfaces.AddressItem
     }
 
     export interface AlertsResponse {
@@ -4216,6 +4284,28 @@ export namespace interfaces {
         realCurrency: string
         sortOrder: number
     }
+
+    export interface AddressItem {
+        id: string
+        customerId: string
+        type: AddressType
+        label: string
+        street: string
+        city: string
+        postalCode: string
+        /**
+         * ISO 3166-1 alpha-2
+         */
+        country: string
+
+        createdAt: string
+        updatedAt: string
+    }
+
+    /**
+     * Registered is the company's seat; the others are where invoices go and goods are picked up or delivered.
+     */
+    export type AddressType = "Registered" | "Billing" | "Pickup" | "Delivery" | "Warehouse"
 
     export interface AresResult {
         ico: string

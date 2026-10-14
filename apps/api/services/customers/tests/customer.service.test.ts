@@ -152,6 +152,7 @@ describe("customerService.createManual", () => {
         label: "TARGET CUSTOMER",
       }),
       { name: "Hans Müller", firstName: "Hans", lastName: "Müller", email: "hans.mueller@siemens.com", phone: "", role: "Logistics Manager", isMain: true },
+      { type: "Registered", street: "Wittelsbacherplatz 2", city: "München", postalCode: "80333", country: "DE" },
     );
   });
 
@@ -159,7 +160,7 @@ describe("customerService.createManual", () => {
     customers.createWithContact.mockResolvedValue({ id: "c9", createdAt: now, updatedAt: now });
     await customerService.createManual(COMPANY, { ...SIEMENS, registrationNumber: " " });
     expect(customers.findByIco).not.toHaveBeenCalled();
-    expect(customers.createWithContact).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ ico: "" }), expect.anything());
+    expect(customers.createWithContact).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ ico: "" }), expect.anything(), expect.anything());
   });
 
   it("refuses a registration number the company already has, and a Czech company", async () => {

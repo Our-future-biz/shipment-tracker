@@ -125,7 +125,8 @@ class CustomerService {
       freightPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
       dutyPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
     };
-    const row = await customerRepository.createWithContact(companyId, values, mainContact);
+    const registered = { type: "Registered" as const, street: ares.street, city: ares.postalCity || ares.city, postalCode: ares.postalCode, country: ares.country };
+    const row = await customerRepository.createWithContact(companyId, values, mainContact, registered);
     return toCustomerItem(row);
   }
 
@@ -155,7 +156,8 @@ class CustomerService {
       freightPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
       dutyPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
     };
-    const row = await customerRepository.createWithContact(companyId, values, mainContact);
+    const registered = { type: "Registered" as const, street, city, postalCode, country };
+    const row = await customerRepository.createWithContact(companyId, values, mainContact, registered);
     return toCustomerItem(row);
   }
 

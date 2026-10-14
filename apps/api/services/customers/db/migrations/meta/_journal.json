@@ -92,6 +92,13 @@
       "when": 1792008811414,
       "tag": "0012_customer_ico_optional",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792010147121,
+      "tag": "0013_customer_address",
+      "breakpoints": true
     }
   ]
 }

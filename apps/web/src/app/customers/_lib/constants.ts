@@ -20,6 +20,8 @@ export const CONTACT_ROLES = [
 
 export const DOCUMENT_TYPES = ["Contract", "NDA", "Power of attorney", "Customs", "Other"] as const satisfies readonly interfaces.DocumentType[];
 
+export const ADDRESS_TYPES = ["Registered", "Billing", "Pickup", "Delivery", "Warehouse"] as const satisfies readonly interfaces.AddressType[];
+
 export const NOTE_TYPES = ["Note", "Email", "Call", "Follow-up", "Visit"] as const satisfies readonly interfaces.NoteType[];
 
 
@@ -79,6 +81,14 @@ export const CONTACT_ROLE_COLORS: Record<string, string> = {
   Sales: "blue",
   Management: "magenta",
   Owner: "volcano",
+};
+
+export const ADDRESS_TYPE_COLORS: Record<string, string> = {
+  Registered: "blue",
+  Billing: "gold",
+  Pickup: "green",
+  Delivery: "purple",
+  Warehouse: "orange",
 };
 
 export const DOCUMENT_TYPE_COLORS: Record<string, string> = {

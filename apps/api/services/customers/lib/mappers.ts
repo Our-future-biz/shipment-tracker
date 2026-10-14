@@ -1,9 +1,10 @@
 import { iso } from "../../../lib/db/serialize";
 import type { ContactRecord } from "../schemas/contact.schema";
+import type { CustomerAddressRecord } from "../schemas/customerAddress.schema";
 import type { CustomerRecord } from "../schemas/customer.schema";
 import type { CustomerInvoiceRecord } from "../schemas/customerInvoice.schema";
 import type { CustomerNoteRecord } from "../schemas/customerNote.schema";
-import type { ContactItem, CustomerItem, DocumentItem, InvoiceItem, NoteItem } from "../interfaces/interfaces";
+import type { AddressItem, ContactItem, CustomerItem, DocumentItem, InvoiceItem, NoteItem } from "../interfaces/interfaces";
 import { dateOutput } from "./dates";
 
 // Rows → API items: only the declared fields go out (no companyId, deletedAt, file bytes).
@@ -88,6 +89,19 @@ export const toInvoiceItem = (r: CustomerInvoiceRecord): InvoiceItem => ({
   dueDate: dateOutput(r.dueDate),
   status: r.status,
   issuedAt: dateOutput(r.issuedAt),
+  createdAt: iso(r.createdAt),
+  updatedAt: iso(r.updatedAt),
+});
+
+export const toAddressItem = (r: CustomerAddressRecord): AddressItem => ({
+  id: r.id,
+  customerId: r.customerId,
+  type: r.type,
+  label: r.label,
+  street: r.street,
+  city: r.city,
+  postalCode: r.postalCode,
+  country: r.country,
   createdAt: iso(r.createdAt),
   updatedAt: iso(r.updatedAt),
 });

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCustomer } from "@/hooks/useCustomers";
+import { CustomerAddressesCard } from "../_components/CustomerAddressesCard";
 import { CustomerAttentionCard } from "../_components/CustomerAttentionCard";
 import { CustomerCompanyAnalysisCard } from "../_components/CustomerCompanyAnalysisCard";
 import { CustomerCreditSummaryCard } from "../_components/CustomerCreditSummaryCard";
@@ -19,7 +20,7 @@ interface OverviewTabProps {
 
 // The customer at a glance. Main column, most urgent first: what needs attention, the current state in
 // four figures, the latest shipments and interaction, then who the company is. Side column: who to call,
-// the credit position, and the CRM and registry records. The all-time totals stay in the header and every
+// where the company is, the credit position, and the CRM and registry records. The all-time totals stay in the header and every
 // full list in its own tab; the cards here are summaries that lead there.
 export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
   const { customer } = useCustomer(customerId);
@@ -42,6 +43,7 @@ export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
 
       <div className="space-y-5">
         <CustomerMainContactCard customerId={customerId} onSelectTab={onSelectTab} />
+        <CustomerAddressesCard customerId={customerId} country={customer.country} />
         <CustomerCreditSummaryCard customerId={customerId} onSelectTab={onSelectTab} />
         {/* Keyed so an edit still being saved never carries over to another customer. */}
         <CustomerCrmCard key={customer.id} customer={customer} />
