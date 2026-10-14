@@ -7,6 +7,7 @@ import { DeleteOutlined, PlusOutlined, EditOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { remeasurementHref } from "@/app/warehouse/_components/remeasurementLinks";
 import { buildRowData, getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { formatDateTime } from "@/lib/date";
 import { useWarehouseSection } from "@/hooks/useWarehouseSection";
@@ -51,7 +52,7 @@ const SUB_TABS = [
 /**
  * The warehouse part of a shipment, shown both in Shipments (`readOnly`) and on the warehouse
  * page. Shipment Details (notes, remeasurement, push to suppliers) is kept by the warehouse:
- * Shipments shows it read-only, with `editHref` leading to the warehouse page when the
+ * Shipments shows it read-only, with `editHref` leading to Warehouse → Remeasurement / Release when the
  * shipment has a position. Pick-up is the other way round: Shipments generates the PIN and
  * enters the pick-up, the warehouse only sees it.
  */
@@ -125,7 +126,7 @@ export function ShipmentWarehouseTab({ shipment }: { shipment: ShipmentItem }) {
     queryFn: () => api.warehouse.warehouseList({ shipmentId: shipment.id }),
   });
   const inWarehouse = (data?.tasks.length ?? 0) > 0;
-  return <WarehouseTab shipment={shipment} readOnly editHref={inWarehouse ? `/warehouse/shipment/${shipment.id}` : undefined} />;
+  return <WarehouseTab shipment={shipment} readOnly editHref={inWarehouse ? remeasurementHref(shipment.id) : undefined} />;
 }
 
 // ─── Stackability Badge ─────────────────────────────────────────

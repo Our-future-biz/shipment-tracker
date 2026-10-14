@@ -24,6 +24,8 @@ import { DockYardTab } from "./tabs/DockYardTab";
 import { ReportsTab } from "./tabs/ReportsTab";
 import { ReadmeTab } from "./tabs/ReadmeTab";
 import { ShipmentImportPicker, type ImportMode } from "./ShipmentImportPicker";
+import { RemeasurementTab } from "./tabs/RemeasurementTab";
+import { remeasurementHref } from "./remeasurementLinks";
 
 // The Warehouse module works with its own data: a position (WCZ reference) and the record
 // on its gate movement. "Create new" either copies job or quote values in once (a position
@@ -57,7 +59,8 @@ const textCol = (key: keyof GateMovement & string, title: string, width: number,
 
 const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
   { key: "taskId", title: "Warehouse Ref", width: 150, text: (r) => r.task.taskId, render: (_, r) => <span className="font-mono font-bold text-indigo-500">{r.task.taskId}</span> },
-  // Imported positions open their shipment's warehouse part; copied ones have no shipment to open.
+  // Imported positions open their shipment's warehouse part (Remeasurement / Release); copied
+  // ones have no shipment to open.
   {
     key: "jobNumber",
     title: "Internal Reference",
@@ -66,7 +69,7 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
     render: (_, r) =>
       r.task.shipmentId && r.m?.jobNumber ? (
         <Link
-          href={`/warehouse/shipment/${r.task.shipmentId}`}
+          href={remeasurementHref(r.task.shipmentId)}
           onClick={(e) => e.stopPropagation()}
           className="font-mono font-semibold text-indigo-500 hover:underline"
         >
@@ -196,16 +199,6 @@ function FilterBubbles({ active, counts, onSelect }: { active: BubbleId | null; 
   );
 }
 
-// Remeasurement / Release: the tab is in place; its content comes later.
-function RemeasurementReleaseTab() {
-  return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center">
-      <div className="text-sm font-semibold text-slate-700">Remeasurement / Release</div>
-      <div className="text-xs text-slate-400 mt-1">Coming soon.</div>
-    </div>
-  );
-}
-
 // Positions grid: every warehouse position with its own data (the gate movement record).
 export const WarehouseView = () => {
   const router = useRouter();
@@ -221,7 +214,15 @@ export const WarehouseView = () => {
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
-  const setTab = (tab: ModuleTab) => setParam("tab", tab === "positions" ? null : tab);
+  // The open shipment belongs to Remeasurement / Release and does not carry over to other tabs.
+  const setTab = (tab: ModuleTab) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("shipment");
+    if (tab === "positions") params.delete("tab");
+    else params.set("tab", tab);
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
 
   const { tasks, isLoading: tasksLoading, deleteTask } = useWarehouse();
   const { movements, isLoading: movementsLoading } = useGateLog();
@@ -286,7 +287,7 @@ export const WarehouseView = () => {
             <h1 className="text-2xl font-bold text-slate-900">Warehouse</h1>
             {moduleTabs}
           </div>
-          {activeTab === "remeasurement" && <RemeasurementReleaseTab />}
+          {activeTab === "remeasurement" && <RemeasurementTab shipmentId={searchParams.get("shipment")} onBack={() => setTab("positions")} />}
           {activeTab === "stock" && <StockTab />}
           {activeTab === "containers" && <ContainersTab />}
           {activeTab === "dock" && <DockYardTab />}
