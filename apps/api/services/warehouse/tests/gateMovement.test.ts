@@ -180,6 +180,43 @@ describe("gate movement flow", () => {
   });
 });
 
+describe("release gate lines", () => {
+  it("arms an import release once every line is ticked, and logs each tick", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091630", visit: "výdej", handling: "Import", mrn: "26CZ9" });
+    await gateMovementService.update(m.id, c, user, { customsStatus: "Customs Cleared/Released" });
+    expect((await gateMovementService.get(m.id, c)).armed).toBe(false);
+    const ticked = await gateMovementService.setReleaseGate(m.id, c, user, "B/L / release order", true);
+    expect(ticked.releaseGates.find((g) => g.g === "B/L / release order")!.s).toBe("OK");
+    expect(ticked.armed).toBe(true);
+    expect(ticked.events.filter((e) => e.kind === "releaseGate").map((e) => e.label)).toEqual(["B/L / release order: OK"]);
+    const back = await gateMovementService.setReleaseGate(m.id, c, user, "B/L / release order", false);
+    expect(back.armed).toBe(false);
+  });
+
+  it("never ticks Customs by hand, nor lines after release", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091631", visit: "výdej", handling: "Import", mrn: "26CZ10" });
+    await expect(gateMovementService.setReleaseGate(m.id, c, user, "Customs", true)).rejects.toThrow(/customs status/);
+    await expect(gateMovementService.setReleaseGate(m.id, c, user, "No such gate", true)).rejects.toThrow(/No release gate/);
+    await gateMovementRepository.update(m.id, c, { releaseGates: allOk(m.releaseGates) });
+    await gateMovementService.stamp(m.id, c, user, "impRelease");
+    await expect(gateMovementService.setReleaseGate(m.id, c, user, "Charges", false)).rejects.toThrow(/already released/);
+  });
+
+  it("keeps both changes when two lines are ticked at the same time", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091632", visit: "výdej", handling: "Import", operationType: "FCL import", mrn: "26CZ11" });
+    const pending = m.releaseGates.filter((g) => g.s === "Pending" && g.g !== "Customs").map((g) => g.g);
+    const results = await Promise.allSettled(pending.map((g) => gateMovementService.setReleaseGate(m.id, c, user, g, true)));
+    // A tick that lost the race is refused, never silently dropped: retry those and all land.
+    for (const [i, r] of results.entries()) if (r.status === "rejected") await gateMovementService.setReleaseGate(m.id, c, user, pending[i]!, true);
+    const after = await gateMovementService.get(m.id, c);
+    expect(after.releaseGates.filter((g) => pending.includes(g.g)).every((g) => g.s === "OK")).toBe(true);
+    expect(after.events.filter((e) => e.kind === "releaseGate")).toHaveLength(pending.length);
+  });
+});
+
 describe("parallel gate actions", () => {
   it("stamps gate-in once when ten clerks press it at the same time", async () => {
     const c = company();

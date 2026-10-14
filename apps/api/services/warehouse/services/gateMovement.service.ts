@@ -605,6 +605,32 @@ class GateMovementService {
     return this.get(id, companyId);
   }
 
+  // Ticks one release-gate line OK, or sets it back to Pending. Any user may, and each change
+  // is logged with who and when. Customs follows the customs status and is never ticked by
+  // hand; nothing changes once the WH release is stamped. The write only lands on the gates
+  // as they were read, so two people ticking at once cannot lose each other's change.
+  async setReleaseGate(id: string, companyId: string, userId: string, gate: string, ok: boolean) {
+    if (/^customs$/i.test(gate)) throw APIError.invalidArgument("The Customs line follows the customs status");
+    const m = await this.load(id, companyId);
+    if (m.impRelease) throw APIError.failedPrecondition("Movement is already released");
+    const line = m.releaseGates.find((x) => x.g === gate);
+    if (!line) throw APIError.notFound(`No release gate "${gate}" on this movement`);
+    const s: GateReleaseLine["s"] = ok ? "OK" : "Pending";
+    if (line.s === s) return this.get(id, companyId);
+    const now = new Date();
+    const by = await this.userName(userId);
+    const releaseGates = m.releaseGates.map((x) => (x.g === gate ? { ...x, s } : x));
+    const row = await gateMovementRepository.conditionalUpdate(
+      id,
+      companyId,
+      { releaseGates },
+      [{ kind: "releaseGate", label: ok ? `${gate}: OK` : `${gate}: back to Pending`, at: now.toISOString(), by }],
+      sql`${t.releaseGates} = ${JSON.stringify(m.releaseGates)}::jsonb AND ${t.impRelease} IS NULL`,
+    );
+    if (!row) throw APIError.aborted("The release gates changed meanwhile — reload and try again");
+    return this.get(id, companyId);
+  }
+
   // The clerk types what the driver says; the answer is only match / no match.
   // A try is taken before the PIN is checked (and given back on a match), so parallel wrong
   // guesses never get more than MAX_PIN_TRIES and only the try that locks it logs the lock.

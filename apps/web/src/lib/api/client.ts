@@ -1729,6 +1729,7 @@ export namespace warehouse {
             this.gateMovementList = this.gateMovementList.bind(this)
             this.gateMovementOverride = this.gateMovementOverride.bind(this)
             this.gateMovementRefuse = this.gateMovementRefuse.bind(this)
+            this.gateMovementReleaseGate = this.gateMovementReleaseGate.bind(this)
             this.gateMovementRequestMrn = this.gateMovementRequestMrn.bind(this)
             this.gateMovementRequestRelease = this.gateMovementRequestRelease.bind(this)
             this.gateMovementSaveSurvey = this.gateMovementSaveSurvey.bind(this)
@@ -1867,6 +1868,18 @@ export namespace warehouse {
 }): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/refuse`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * Ticks one release-gate line OK (or back to Pending); any user, logged on the movement.
+         */
+        public async gateMovementReleaseGate(id: string, params: {
+    gate: string
+    ok: boolean
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/release-gate`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 

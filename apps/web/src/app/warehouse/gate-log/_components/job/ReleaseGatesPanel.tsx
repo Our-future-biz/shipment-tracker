@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Input, Modal } from "antd";
+import { Checkbox, Input, Modal } from "antd";
 import { CheckCircleFilled, ClockCircleOutlined, CloseCircleFilled, UnlockOutlined } from "@ant-design/icons";
 import type { GateMovement } from "@/hooks/useGateLog";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -29,26 +29,32 @@ export function releaseState(m: GateMovement): { tone: Tone; label: string; deta
   return { tone: "r", label: "Blocked", detail: `Waiting for: ${waiting.join(", ") || "—"}` };
 }
 
-// Read-only release checklist: the release follows these gates and nothing here sets it by
-// hand. The gate can Refuse (with a reason); a supervisor can override (with a reason).
+// Release checklist: the release follows these gates. Any user ticks a line OK (or back to
+// Pending) once it is met, each change logged; Customs follows the customs status. The gate
+// can Refuse (with a reason); a supervisor can override (with a reason).
 export function ReleaseGatesPanel({
   m,
   refuse,
   override,
+  setReleaseGate,
 }: {
   m: GateMovement;
   refuse: (reason: string) => Promise<unknown>;
   override: (reason: string) => Promise<unknown>;
+  setReleaseGate: (gate: string, ok: boolean) => Promise<unknown>;
 }) {
   const { user } = useAuth();
   const [dialog, setDialog] = useState<"refuse" | "override" | null>(null);
+  const [busyGate, setBusyGate] = useState<string | null>(null);
   const state = releaseState(m);
   const canRefuse = !m.impRelease && m.status !== "Refused";
   const supervisor = !!user && SUPERVISOR_ROLES.includes(user.role);
   const canOverride = supervisor && !m.impRelease && !m.armed;
-  // Only the Customs line moves on its own (it follows the customs status); the other lines
-  // cannot be ticked here yet, so a blocked release needs a supervisor override.
-  const blocked = !m.impRelease && !m.armed && m.status !== "Refused";
+  const isCustoms = (g: string) => /^customs$/i.test(g);
+  const toggle = (gate: string, ok: boolean) => {
+    setBusyGate(gate);
+    setReleaseGate(gate, ok).finally(() => setBusyGate(null));
+  };
 
   return (
     <Section title="Release gates" icon={<UnlockOutlined />}>
@@ -57,19 +63,25 @@ export function ReleaseGatesPanel({
           {state.label}
         </Badge>
         {state.detail && <div className="text-[11px] text-slate-500 break-words">{state.detail}</div>}
-        {blocked && !supervisor && (
-          <div className="text-[11px] text-amber-700 break-words">
-            Lines other than Customs cannot be ticked here yet — ask a supervisor to override.
-          </div>
-        )}
       </div>
 
       <ul className="list-none m-0 mt-3 p-0 border-t border-slate-100">
         {m.releaseGates.map((x) => (
           <li key={x.g} className="flex items-start gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-            <span className="pt-[1px]" title={x.s} aria-label={x.s}>
-              {GATE_ICON[x.s]}
-            </span>
+            {/* Ticked by hand once met; Customs follows the customs status, and nothing moves after release. */}
+            {!isCustoms(x.g) && !m.impRelease ? (
+              <Checkbox
+                className="pt-[1px]"
+                checked={x.s === "OK"}
+                disabled={busyGate !== null}
+                aria-label={`${x.g}: ${x.s === "OK" ? "OK — untick to set back to Pending" : "tick when met"}`}
+                onChange={(e) => toggle(x.g, e.target.checked)}
+              />
+            ) : (
+              <span className="pt-[1px]" title={x.s} aria-label={x.s}>
+                {GATE_ICON[x.s]}
+              </span>
+            )}
             <div className="min-w-0 flex-1">
               <div className="font-semibold text-slate-800">{x.g}</div>
               <div className="text-[11px] text-slate-500 break-words">

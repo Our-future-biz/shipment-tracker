@@ -90,6 +90,15 @@ export const gateMovementRequestMrn = api(
   },
 );
 
+// Ticks one release-gate line OK (or back to Pending); any user, logged on the movement.
+export const gateMovementReleaseGate = api(
+  { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/release-gate" },
+  async ({ id, gate, ok }: { id: string; gate: string; ok: boolean }): Promise<GateMovementResponse> => {
+    const { companyID, userID } = getAuthData()!;
+    return { movement: await gateMovementService.setReleaseGate(id, companyID, userID, gate, ok) };
+  },
+);
+
 // Overriding the release box is a supervisor permission, not a button everyone has.
 export const gateMovementOverride = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/override" },

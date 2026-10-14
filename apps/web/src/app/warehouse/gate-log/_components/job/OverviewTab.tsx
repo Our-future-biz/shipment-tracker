@@ -99,6 +99,7 @@ export function OverviewTab({
   requestingMrn,
   refuse,
   override,
+  setReleaseGate,
 }: {
   m: GateMovement;
   save: Save;
@@ -109,6 +110,7 @@ export function OverviewTab({
   requestingMrn: boolean;
   refuse: (reason: string) => Promise<unknown>;
   override: (reason: string) => Promise<unknown>;
+  setReleaseGate: (gate: string, ok: boolean) => Promise<unknown>;
 }) {
   // Release follows the release gates (see the Release gates card); nothing here sets it by hand.
   const release = releaseState(m);
@@ -432,7 +434,7 @@ export function OverviewTab({
 
         <div className="space-y-5 min-w-0">
           {/* ============ release gates ============ */}
-          <ReleaseGatesPanel m={m} refuse={refuse} override={override} />
+          <ReleaseGatesPanel m={m} refuse={refuse} override={override} setReleaseGate={setReleaseGate} />
 
           {/* ============ gate checklist ============ */}
           <Section title="Gate checklist" icon={<CheckSquareOutlined />}>

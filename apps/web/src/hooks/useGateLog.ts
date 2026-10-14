@@ -56,6 +56,10 @@ export const useGateMovement = (id: string | undefined) => {
     mutationFn: (reason: string) => api.warehouse.gateMovementOverride(id!, { reason }),
     onSuccess: onRow,
   });
+  const setReleaseGate = useMutation({
+    mutationFn: ({ gate, ok }: { gate: string; ok: boolean }) => api.warehouse.gateMovementReleaseGate(id!, { gate, ok }),
+    onSuccess: onRow,
+  });
   const verifyPin = useMutation({
     mutationFn: (pin: string) => api.warehouse.gateMovementVerifyPin(id!, { pin }),
     // Failed attempts count towards the lock, so refresh the row either way.
@@ -70,7 +74,7 @@ export const useGateMovement = (id: string | undefined) => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: KEY }),
   });
 
-  return { movement: query.data?.movement, isLoading: query.isLoading, update, stamp, requestRelease, requestMrn, refuse, override, verifyPin, saveSurvey, remove };
+  return { movement: query.data?.movement, isLoading: query.isLoading, update, stamp, requestRelease, requestMrn, refuse, override, setReleaseGate, verifyPin, saveSurvey, remove };
 };
 
 export type GateFile = interfaces.GateFileItem;
