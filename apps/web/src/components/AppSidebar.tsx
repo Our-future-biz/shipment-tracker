@@ -52,13 +52,8 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/invoicing", label: "Invoicing", icon: <DollarOutlined /> },
   { path: "/exchange", label: "Exchange", icon: <SwapOutlined /> },
   { path: "/customs", label: "Customs", icon: <SafetyCertificateOutlined /> },
-  {
-    path: "/warehouse",
-    label: "Warehouse",
-    icon: <InboxOutlined />,
-    ownPage: true,
-    children: [{ path: "/warehouse/gate-log", label: "Gate Log" }],
-  },
+  // Gate Log is a tab of the Warehouse page.
+  { path: "/warehouse", label: "Warehouse", icon: <InboxOutlined /> },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
   {

@@ -168,11 +168,14 @@ export function InlineSelect({
   options,
   onSave,
   width = 220,
+  labels,
 }: {
   value: string;
   options: readonly string[];
   onSave: (v: string) => void;
   width?: number;
+  /** Shown text of a stored value (e.g. "Import" shown as "Outbound"); the stored value is saved. */
+  labels?: (v: string) => string;
 }) {
   // Keep a stored value that is not in the list selectable, so it is never silently lost.
   const all = value && !options.includes(value) ? [value, ...options] : options;
@@ -186,7 +189,7 @@ export function InlineSelect({
       popupMatchSelectWidth={false}
       style={{ width }}
       className={`${inlineClass} [&_.ant-select-selection-item]:!font-medium`}
-      options={all.map((o) => ({ value: o, label: o }))}
+      options={all.map((o) => ({ value: o, label: labels ? labels(o) : o }))}
       onChange={(v) => onSave(v ?? "")}
     />
   );

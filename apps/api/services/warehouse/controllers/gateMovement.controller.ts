@@ -108,6 +108,15 @@ export const gateMovementOverride = api(
   },
 );
 
+// Logs a label print (or reprint) with the number of labels on the movement.
+export const gateMovementLabelPrinted = api(
+  { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/label-printed" },
+  async ({ id, copies }: { id: string; copies: number }): Promise<GateMovementResponse> => {
+    const { companyID, userID } = getAuthData()!;
+    return { movement: await gateMovementService.labelPrinted(id, companyID, userID, copies) };
+  },
+);
+
 interface GatePinVerifyResponse {
   result: "match" | "no_match" | "locked" | "no_pin";
   tries: number;

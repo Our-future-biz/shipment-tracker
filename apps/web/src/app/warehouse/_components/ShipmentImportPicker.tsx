@@ -6,6 +6,7 @@ import { SearchOutlined } from "@ant-design/icons";
 import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/date";
+import { TERMS } from "../_lib/glossary";
 
 // One shipment offered for import, whichever list it came from.
 type ImportRow = {
@@ -59,7 +60,7 @@ type ListProps = { inWarehouse: Set<string>; selected: string[]; onChange: (ids:
 
 const columns = (withMaster: boolean, inWarehouse: Set<string>) => [
   {
-    title: "Internal Reference",
+    title: TERMS.jobNo,
     dataIndex: "jobNumber",
     width: 210,
     render: (v: string, r: ImportRow) => (
@@ -111,7 +112,7 @@ function ShipmentsList({ inWarehouse, selected, onChange }: ListProps) {
       <Input
         allowClear
         prefix={<SearchOutlined className="text-slate-400" />}
-        placeholder="Search by internal reference, customer, shipper…"
+        placeholder="Search by job no., customer, shipper…"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         className="mb-3"

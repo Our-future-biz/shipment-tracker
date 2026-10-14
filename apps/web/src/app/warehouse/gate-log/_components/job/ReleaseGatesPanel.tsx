@@ -6,7 +6,9 @@ import { CheckCircleFilled, ClockCircleOutlined, CloseCircleFilled, UnlockOutlin
 import type { GateMovement } from "@/hooks/useGateLog";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDateTime } from "@/lib/date";
+import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { Badge, type Tone } from "../../_lib/gate";
+import { waitingGates } from "../../_lib/steps";
 import { btnDanger, btnDefault, Section } from "./fields";
 
 // Same roles the server allows for the supervisor override.
@@ -19,14 +21,14 @@ const GATE_ICON: Record<string, ReactNode> = {
   Blocked: <CloseCircleFilled className="text-red-500" />,
 };
 
-// Release state in words, most decisive first: stamped, refused, overridden, armed, blocked.
+// Release gates in words, most decisive first: released (only after the WH release stamp),
+// refused, cleared by override, clear, blocked.
 export function releaseState(m: GateMovement): { tone: Tone; label: string; detail?: string } {
-  if (m.impRelease) return { tone: "g", label: "Released", detail: `WH release stamped ${formatDateTime(m.impRelease)}` };
+  if (m.impRelease) return { tone: "g", label: TERMS.released, detail: `${TERMS.whRelease} stamped ${formatDateTime(m.impRelease)}` };
   if (m.status === "Refused") return { tone: "r", label: "Refused", detail: m.refusalLog || undefined };
-  if (m.overridden) return { tone: "a", label: "Armed by supervisor override", detail: m.overrideLog || undefined };
-  if (m.armed) return { tone: "g", label: "Armed — all release gates OK" };
-  const waiting = m.releaseGates.filter((x) => x.s !== "OK" && !isEmptyReturn(x.g)).map((x) => x.g);
-  return { tone: "r", label: "Blocked", detail: `Waiting for: ${waiting.join(", ") || "—"}` };
+  if (m.overridden) return { tone: "a", label: `${TERMS.clear} (supervisor override)`, detail: m.overrideLog || undefined };
+  if (m.armed) return { tone: "g", label: TERMS.clear, detail: "All release gates OK" };
+  return { tone: "r", label: TERMS.blocked, detail: `Waiting for: ${waitingGates(m).join(", ") || "—"}` };
 }
 
 // Release checklist: the release follows these gates. Any user ticks a line OK (or back to
@@ -57,7 +59,7 @@ export function ReleaseGatesPanel({
   };
 
   return (
-    <Section title="Release gates" icon={<UnlockOutlined />}>
+    <Section title={TERMS.releaseGates} icon={<UnlockOutlined />}>
       <div className="flex flex-col gap-1">
         <Badge tone={state.tone} className="self-start !text-[11.5px]">
           {state.label}
@@ -113,7 +115,7 @@ export function ReleaseGatesPanel({
       <ReasonModal
         open={dialog === "refuse"}
         title="Refuse at the gate"
-        hint="The movement is refused and the release box disarmed. The reason is logged on the movement."
+        hint="The movement is refused and its release gates blocked. The reason is logged on the movement."
         okText="Refuse"
         danger
         onClose={() => setDialog(null)}
@@ -122,7 +124,7 @@ export function ReleaseGatesPanel({
       <ReasonModal
         open={dialog === "override"}
         title="Supervisor override"
-        hint="Arms the release box regardless of the gates. Who, when, the gates at this moment and the reason are logged."
+        hint="Clears the release gates whatever the lines say. Who, when, the lines at this moment and the reason are logged."
         okText="Override"
         onClose={() => setDialog(null)}
         onSubmit={override}

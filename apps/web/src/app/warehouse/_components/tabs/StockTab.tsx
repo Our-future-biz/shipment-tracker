@@ -17,6 +17,8 @@ import {
 import { formatDate, formatDateTime } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { PACKINGS } from "@/app/warehouse/gate-log/_lib/gate";
+import { TERMS } from "@/app/warehouse/_lib/glossary";
+import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { BulkDeleteButton, Callout, Card, Kpi, RecordFormModal, StatusTag, SubTabs, dim, nf, type FieldDef } from "./shared";
 
 // Stock tab: what is on hand (per house job), where it sits on the floor, how it moved, how long
@@ -50,8 +52,10 @@ const JOB_TONE: Record<string, string> = { Chargeable: "text-red-600", Expiring:
 const job = (l: StockLine) => <span className={`font-mono font-bold ${JOB_TONE[l.freeTimeState] ?? "text-indigo-500"}`}>{l.job}</span>;
 
 
+const SUBS = ["onhand", "locations", "movements", "ageing", "bonded"] as const satisfies readonly Sub[];
+
 export function StockTab() {
-  const [sub, setSub] = useState<Sub>("onhand");
+  const [sub, setSub] = useUrlParam<Sub>("sub", SUBS, "onhand");
   return (
     <div className="flex flex-col gap-5">
       <SubTabs
@@ -81,10 +85,10 @@ const stockFields: FieldDef[] = [
   { name: "customer", label: "Customer" },
   { name: "shipper", label: "Shipper" },
   { name: "pod", label: "POD" },
-  { name: "pieces", label: "Pieces", type: "number" },
+  { name: "pieces", label: TERMS.pieces, type: "number" },
   { name: "packageType", label: "Package", type: "select", options: PACKINGS },
-  { name: "weightKg", label: "Gross weight (kg)", type: "number" },
-  { name: "cbm", label: "Volume (cbm)", type: "number", step: 0.01 },
+  { name: "weightKg", label: TERMS.weightKg, type: "number" },
+  { name: "cbm", label: TERMS.volumeCbm, type: "number", step: 0.01 },
   { name: "location", label: "Location", placeholder: "A-04-2", section: "Storage" },
   { name: "receivedAt", label: "Received", type: "date", required: true },
   { name: "freeDays", label: "Free days", type: "number" },
@@ -108,10 +112,10 @@ function StockOnHand() {
     { key: "customer", title: "Customer", width: 180, text: (l) => l.customer, render: (_, l) => dim(l.customer) },
     { key: "shipper", title: "Shipper", width: 160, text: (l) => l.shipper, render: (_, l) => dim(l.shipper) },
     { key: "pod", title: "POD", width: 110, text: (l) => l.pod, render: (_, l) => dim(l.pod) },
-    { key: "pieces", title: "Pcs", width: 70, align: "right", text: (l) => String(l.pieces), render: (_, l) => dim(l.pieces) },
+    { key: "pieces", title: TERMS.pieces, width: 80, align: "right", text: (l) => String(l.pieces), render: (_, l) => dim(l.pieces) },
     { key: "packageType", title: "Package", width: 140, text: (l) => l.packageType, render: (_, l) => dim(l.packageType) },
-    { key: "weightKg", title: "Gross kg", width: 100, align: "right", text: (l) => String(l.weightKg), render: (_, l) => dim(nf(l.weightKg)) },
-    { key: "cbm", title: "CBM", width: 80, align: "right", text: (l) => String(l.cbm), render: (_, l) => dim(nf(l.cbm, 2)) },
+    { key: "weightKg", title: TERMS.weightKg, width: 100, align: "right", text: (l) => String(l.weightKg), render: (_, l) => dim(nf(l.weightKg)) },
+    { key: "cbm", title: TERMS.volumeCbm, width: 110, align: "right", text: (l) => String(l.cbm), render: (_, l) => dim(nf(l.cbm, 2)) },
     { key: "wm", title: "w/m", width: 80, align: "right", text: (l) => String(l.wm), render: (_, l) => dim(nf(l.wm, 2)) },
     { key: "location", title: "Location", width: 110, text: (l) => l.location, render: (_, l) => mono(l.location) },
     { key: "receivedAt", title: "Received", width: 110, text: (l) => l.receivedAt, render: (_, l) => dim(formatDate(l.receivedAt)) },
@@ -133,9 +137,9 @@ function StockOnHand() {
     <>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         <Kpi label="Lines in stock" value={items.length} sub="house-job level" />
-        <Kpi label="Packages" value={nf(items.reduce((s, l) => s + l.pieces, 0))} sub={`${nf(pallets)} of which pallets`} />
-        <Kpi label="Gross weight" value={nf(items.reduce((s, l) => s + l.weightKg, 0))} sub="kg" tone="indigo" />
-        <Kpi label="Volume" value={nf(items.reduce((s, l) => s + l.cbm, 0), 1)} sub="cbm" tone="indigo" />
+        <Kpi label={TERMS.pieces} value={nf(items.reduce((s, l) => s + l.pieces, 0))} sub={`${nf(pallets)} of which pallets`} />
+        <Kpi label={TERMS.weightKg} value={nf(items.reduce((s, l) => s + l.weightKg, 0))} sub="in stock" tone="indigo" />
+        <Kpi label={TERMS.volumeCbm} value={nf(items.reduce((s, l) => s + l.cbm, 0), 1)} sub="in stock" tone="indigo" />
         <Kpi label="Bonded / T1" value={items.filter((l) => l.customs === "T1 bonded").length} sub="lines under customs control" tone="amber" />
       </div>
       <AppGrid<StockLine>
@@ -329,9 +333,9 @@ function Locations() {
                     ["Bay", l.location],
                     ["House job", l.job],
                     ["Customer", l.customer],
-                    ["Pieces", `${l.pieces}${l.packageType ? ` × ${l.packageType}` : ""}`],
-                    ["Gross", `${nf(l.weightKg)} kg`],
-                    ["Volume", `${nf(l.cbm, 2)} cbm`],
+                    [TERMS.pieces, `${l.pieces}${l.packageType ? ` × ${l.packageType}` : ""}`],
+                    [TERMS.weightKg, nf(l.weightKg)],
+                    [TERMS.volumeCbm, nf(l.cbm, 2)],
                     ["Received", formatDate(l.receivedAt)],
                     ["Days in stock", String(l.daysInStock)],
                     ["Customs", l.customs],
@@ -373,7 +377,7 @@ const movementFields: FieldDef[] = [
   { name: "type", label: "Type", type: "select", options: MOVEMENT_TYPES, required: true },
   { name: "at", label: "Time", type: "datetime", placeholder: "Now when empty" },
   { name: "job", label: "House job" },
-  { name: "pieces", label: "Pieces", type: "number" },
+  { name: "pieces", label: TERMS.pieces, type: "number" },
   { name: "fromLocation", label: "From", placeholder: "Dock 2 / A-04-2" },
   { name: "toLocation", label: "To", placeholder: "A-04-2 / container" },
   { name: "reference", label: "Reference / reason", type: "textarea" },
@@ -389,7 +393,7 @@ function Movements() {
     { key: "at", title: "Timestamp", width: 150, text: (m) => m.at, render: (_, m) => <span className="font-mono text-slate-600">{formatDateTime(m.at)}</span> },
     { key: "type", title: "Type", width: 120, text: (m) => m.type, filterOptions: MOVEMENT_TYPES, render: (_, m) => <StatusTag value={m.type} colors={MOVEMENT_COLORS} /> },
     { key: "job", title: "House job", width: 150, text: (m) => m.job, render: (_, m) => mono(m.job) },
-    { key: "pieces", title: "Pcs", width: 70, align: "right", text: (m) => String(m.pieces), render: (_, m) => dim(m.pieces) },
+    { key: "pieces", title: TERMS.pieces, width: 80, align: "right", text: (m) => String(m.pieces), render: (_, m) => dim(m.pieces) },
     { key: "fromLocation", title: "From", width: 130, text: (m) => m.fromLocation, render: (_, m) => dim(m.fromLocation) },
     { key: "toLocation", title: "To", width: 150, text: (m) => m.toLocation, render: (_, m) => dim(m.toLocation) },
     { key: "userName", title: "User", width: 150, text: (m) => m.userName, render: (_, m) => dim(m.userName) },
@@ -494,8 +498,8 @@ const bondedFields: FieldDef[] = [
   { name: "consignee", label: "Consignee" },
   { name: "procedure", label: "Procedure" },
   { name: "entryDate", label: "Entry date", type: "date" },
-  { name: "pieces", label: "Pieces", type: "number" },
-  { name: "weightKg", label: "Gross weight (kg)", type: "number" },
+  { name: "pieces", label: TERMS.pieces, type: "number" },
+  { name: "weightKg", label: TERMS.weightKg, type: "number" },
   { name: "customsValue", label: "Customs value", placeholder: "CZK 412 000" },
   { name: "discharge", label: "Discharge", placeholder: "2026-08-06 · 40 00 release", section: "Discharge" },
   { name: "balance", label: "Balance (pieces)", type: "number" },
@@ -511,8 +515,8 @@ function Bonded() {
     { key: "consignee", title: "Consignee", width: 180, text: (b) => b.consignee, render: (_, b) => dim(b.consignee) },
     { key: "procedure", title: "Procedure", width: 220, text: (b) => b.procedure, render: (_, b) => dim(b.procedure) },
     { key: "entryDate", title: "Entry date", width: 110, text: (b) => b.entryDate, render: (_, b) => dim(formatDate(b.entryDate)) },
-    { key: "pieces", title: "Pcs", width: 70, align: "right", text: (b) => String(b.pieces), render: (_, b) => dim(b.pieces) },
-    { key: "weightKg", title: "Gross kg", width: 100, align: "right", text: (b) => String(b.weightKg), render: (_, b) => dim(nf(b.weightKg)) },
+    { key: "pieces", title: TERMS.pieces, width: 80, align: "right", text: (b) => String(b.pieces), render: (_, b) => dim(b.pieces) },
+    { key: "weightKg", title: TERMS.weightKg, width: 100, align: "right", text: (b) => String(b.weightKg), render: (_, b) => dim(nf(b.weightKg)) },
     { key: "customsValue", title: "Customs value", width: 140, align: "right", text: (b) => b.customsValue, render: (_, b) => dim(b.customsValue) },
     { key: "discharge", title: "Discharge", width: 220, text: (b) => b.discharge, render: (_, b) => dim(b.discharge) },
     { key: "balance", title: "Balance", width: 90, align: "right", text: (b) => String(b.balance), render: (_, b) => dim(b.balance) },

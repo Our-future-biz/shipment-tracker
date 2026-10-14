@@ -15,7 +15,7 @@ export function RemeasurementTab({ shipmentId, onBack }: { shipmentId: string | 
     return (
       <div className="bg-white border border-slate-200 rounded-2xl p-12 text-center">
         <div className="text-sm font-semibold text-slate-700">No shipment open</div>
-        <div className="text-xs text-slate-400 mt-1">Click an Internal Reference in Positions to open its remeasurement here.</div>
+        <div className="text-xs text-slate-400 mt-1">Click a Job no. in Positions to open its remeasurement here.</div>
       </div>
     );
   }

@@ -1726,6 +1726,7 @@ export namespace warehouse {
             this.gateMovementCreate = this.gateMovementCreate.bind(this)
             this.gateMovementDelete = this.gateMovementDelete.bind(this)
             this.gateMovementGet = this.gateMovementGet.bind(this)
+            this.gateMovementLabelPrinted = this.gateMovementLabelPrinted.bind(this)
             this.gateMovementList = this.gateMovementList.bind(this)
             this.gateMovementOverride = this.gateMovementOverride.bind(this)
             this.gateMovementRefuse = this.gateMovementRefuse.bind(this)
@@ -1839,6 +1840,17 @@ export namespace warehouse {
         public async gateMovementGet(id: string): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * Logs a label print (or reprint) with the number of labels on the movement.
+         */
+        public async gateMovementLabelPrinted(id: string, params: {
+    copies: number
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/label-printed`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -4932,6 +4944,11 @@ export namespace interfaces {
          * WCZ reference of the linked warehouse task, empty when unlinked.
          */
         positionRef: string
+
+        /**
+         * Shipment of the linked warehouse task; null for walk-ins and positions without a shipment.
+         */
+        shipmentId: string | null
 
         visit: string
         handling: string

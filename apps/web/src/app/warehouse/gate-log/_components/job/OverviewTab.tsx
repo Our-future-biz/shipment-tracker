@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import dayjs from "dayjs";
 import { Input } from "antd";
 import {
@@ -12,6 +11,7 @@ import {
 import type { GateMovement } from "@/hooks/useGateLog";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
+import { TERMS, directionOfHandling } from "@/app/warehouse/_lib/glossary";
 import {
   Badge,
   CUSTOMS_MODES,
@@ -179,23 +179,16 @@ export function OverviewTab({
           >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
               <div>
-                <FieldRow label="Internal ref.">
-                  {/* Links back to the position in Warehouse (the gate ref is its WCZ reference). */}
-                  {m.warehouseTaskId ? (
-                    <Link
-                      href={`/warehouse/${m.warehouseTaskId}`}
-                      className="font-mono font-semibold text-indigo-500 hover:underline"
-                    >
-                      {m.gateRef}
-                    </Link>
-                  ) : (
-                    <span className="font-mono font-semibold text-slate-900">{m.gateRef}</span>
-                  )}
+                {/* This job is the position's page, so its reference is plain text. */}
+                <FieldRow label={TERMS.warehouseRef}>
+                  <span className="font-mono font-semibold text-slate-900">{m.gateRef}</span>
                 </FieldRow>
-                <FieldRow label="Trade direction">
+                {/* Saves the stored handling (Import / Export), shown as Outbound / Inbound. */}
+                <FieldRow label={TERMS.direction}>
                   <InlineSelect
                     value={m.handling}
                     options={HANDLINGS}
+                    labels={directionOfHandling}
                     onSave={(v) => save({ handling: v })}
                   />
                 </FieldRow>
@@ -223,7 +216,7 @@ export function OverviewTab({
               </div>
               <div>
                 {/* Status moves only through the stamps, Refuse and the supervisor override. */}
-                <FieldRow label="Shipment status">
+                <FieldRow label={TERMS.warehouseStatus}>
                   <Badge tone={STATUS_TONE[m.status] ?? ""}>{m.status || "—"}</Badge>
                 </FieldRow>
                 <FieldRow label="Customs status">
@@ -234,12 +227,12 @@ export function OverviewTab({
                     onSave={(v) => save({ customsStatus: v })}
                   />
                 </FieldRow>
-                <FieldRow label="Release">
+                <FieldRow label={TERMS.releaseGates}>
                   <div className="flex flex-col gap-0.5 min-w-0">
                     <Badge tone={release.tone} className="self-start">
                       {release.label}
                     </Badge>
-                    {release.detail && <span className="text-[11px] text-slate-500 break-words">{release.detail} · see Release gates</span>}
+                    {release.detail && <span className="text-[11px] text-slate-500 break-words">{release.detail} · see {TERMS.releaseGates}</span>}
                   </div>
                 </FieldRow>
                 <FieldRow label="Ask for release">
@@ -301,7 +294,7 @@ export function OverviewTab({
           <Section title="Cargo details" icon={<InboxOutlined />}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
               <div>
-                <FieldRow label="Total pieces">
+                <FieldRow label={TERMS.pieces}>
                   <InlineNumber value={m.colli} onSave={(v) => save({ colli: v })} />
                 </FieldRow>
                 <FieldRow label="Type of packages">
@@ -324,10 +317,10 @@ export function OverviewTab({
                 </FieldRow>
               </div>
               <div>
-                <FieldRow label="Total gross weight (kg)">
+                <FieldRow label={TERMS.weightKg}>
                   <InlineNumber value={m.weightKg} onSave={(v) => save({ weightKg: v })} />
                 </FieldRow>
-                <FieldRow label="Total volume (m³)">
+                <FieldRow label={TERMS.volumeCbm}>
                   <InlineNumber
                     value={m.measureCbm}
                     step={0.1}
@@ -360,8 +353,8 @@ export function OverviewTab({
                   {[
                     "Leg",
                     "Transport company",
-                    "License plate",
-                    "Drivers Name",
+                    TERMS.plate,
+                    TERMS.driver,
                     "Phone Number",
                     "Gate date",
                     "Gate time",
@@ -482,7 +475,7 @@ export function OverviewTab({
           {/* ============ CFS ============ */}
           {cfs && (
             <Section
-              title="CFS Informations"
+              title="CFS information"
               icon={<CarOutlined />}
               bodyClassName="overflow-x-auto"
             >
@@ -501,7 +494,7 @@ export function OverviewTab({
                       ),
                     },
                     {
-                      label: "License plate",
+                      label: TERMS.plate,
                       cell: (
                         <InlineText
                           value={cfs.plate}
@@ -511,7 +504,7 @@ export function OverviewTab({
                       ),
                     },
                     {
-                      label: "Drivers Name",
+                      label: TERMS.driver,
                       cell: (
                         <InlineText
                           value={cfs.driver}

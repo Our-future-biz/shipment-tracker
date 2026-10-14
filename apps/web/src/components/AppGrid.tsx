@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Table, Input, Select, Tooltip, Popover, Pagination, Button, Badge, Checkbox } from "antd";
+import { Table, Input, Select, Tooltip, Popover, Pagination, Button, Badge, Checkbox, type InputRef } from "antd";
 import { SearchOutlined, FilterOutlined, CloseOutlined, DownloadOutlined, SettingOutlined } from "@ant-design/icons";
 import type { ColumnType } from "antd/es/table";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -138,6 +138,28 @@ export function AppGrid<T extends object>({
   };
 
   const [search, setSearch] = useState("");
+  const searchRef = useRef<InputRef>(null);
+
+  // "/" jumps to the search, unless the user is typing somewhere. The first grid on screen
+  // takes it (preventDefault), and a grid hidden on another tab never does.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(t.tagName))) return;
+      const input = searchRef.current?.input;
+      if (!input || input.offsetParent === null) return;
+      // An open drawer or modal covers the grid; only a grid inside it may take the key.
+      const overlays = Array.from(document.querySelectorAll<HTMLElement>(".ant-drawer-open, .ant-modal-wrap")).filter(
+        (el) => el.getClientRects().length > 0,
+      );
+      if (overlays.some((el) => !el.contains(input))) return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const [colFilters, setColFilters] = useState<ColFilter[]>([]);
   const [columnSearch, setColumnSearch] = useState("");
   const [pageSize, setPageSize] = useState(50);
@@ -222,9 +244,10 @@ export function AppGrid<T extends object>({
       {/* Filters Row */}
       <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
         <div className="flex items-center gap-3 min-w-0">{actions}</div>
-        {/* Search sits in the middle of the toolbar, actions left, the rest right. */}
+        {/* Search sits in the middle of the toolbar, actions left, the rest right. "/" focuses it. */}
         <div className="flex flex-1 justify-center min-w-0">
           <Input
+            ref={searchRef}
             placeholder={searchPlaceholder}
             prefix={<SearchOutlined className="text-slate-400" />}
             value={search}
@@ -419,7 +442,16 @@ export function AppGrid<T extends object>({
                   ? (r) => ({
                       // Ticking the row checkbox must not open the row.
                       onClick: (e) => !(e.target as HTMLElement).closest(".ant-table-selection-column") && onRowClick(r),
-                      className: "cursor-pointer",
+                      // Rows can be reached with Tab and opened with Enter (only on the row itself,
+                      // so Enter on a link or checkbox inside it keeps its own meaning).
+                      tabIndex: 0,
+                      onKeyDown: (e) => {
+                        if (e.key === "Enter" && e.target === e.currentTarget) {
+                          e.preventDefault();
+                          onRowClick(r);
+                        }
+                      },
+                      className: "cursor-pointer focus-visible:outline-2 focus-visible:outline-indigo-500 focus-visible:-outline-offset-2",
                     })
                   : undefined
               }

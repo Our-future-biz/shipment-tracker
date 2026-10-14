@@ -25,6 +25,8 @@ export const CUSTOMS_STATUSES = [
 ];
 export const CUSTOMS_CLEARED = "Customs Cleared/Released";
 export const MAX_SUB_POSITIONS = 10;
+// Labels in one print of one movement (one per piece at most).
+export const MAX_LABEL_COPIES = 500;
 const LEGS: GateTransportLeg["leg"][] = ["IN", "OUT", "CFS"];
 
 const customsLine = (customsStatus: string): GateReleaseLine =>
@@ -135,7 +137,7 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
 type ContainerRef = { id: string; number: string; equipment: string };
 
 function toItem(m: GateMovementRow, containers: ContainerRef[] = []): GateMovementItem {
-  const { pinHash, companyId: _companyId, deletedAt: _deletedAt, shipmentId: _shipmentId, releaseStatus: _releaseStatus, ...rest } = m;
+  const { pinHash, companyId: _companyId, deletedAt: _deletedAt, releaseStatus: _releaseStatus, ...rest } = m;
   return {
     ...rest,
     containers: containers.map((c) => ({ id: c.id, number: c.number, type: c.equipment })),
@@ -143,6 +145,7 @@ function toItem(m: GateMovementRow, containers: ContainerRef[] = []): GateMoveme
     surveys: m.surveys.map(normalizeSurvey),
     subPositions: m.subPositions.map(normalizeDrop),
     positionRef: m.positionRef ?? "",
+    shipmentId: m.shipmentId ?? null,
     hasPin: !!pinHash,
     pinLocked: m.pinTries >= MAX_PIN_TRIES,
     armed: isArmed(m),
@@ -628,6 +631,27 @@ class GateMovementService {
       sql`${t.releaseGates} = ${JSON.stringify(m.releaseGates)}::jsonb AND ${t.impRelease} IS NULL`,
     );
     if (!row) throw APIError.aborted("The release gates changed meanwhile — reload and try again");
+    return this.get(id, companyId);
+  }
+
+  // Logs a label print on the movement: the first one is "Label printed", every later one
+  // "Label reprinted". One UPDATE that appends in SQL, so parallel prints each keep their
+  // event and the first/reprint choice reads the log as it is at that moment.
+  async labelPrinted(id: string, companyId: string, userId: string, copies: number) {
+    if (!Number.isInteger(copies) || copies < 1 || copies > MAX_LABEL_COPIES) {
+      throw APIError.invalidArgument(`Copies must be a whole number from 1 to ${MAX_LABEL_COPIES}`);
+    }
+    const at = new Date().toISOString();
+    const by = await this.userName(userId);
+    const detail = `${copies} label${copies === 1 ? "" : "s"}`;
+    const event = (label: string): GateEvent => ({ kind: "labelPrinted", label, at, by, detail });
+    const row = await gateMovementRepository.conditionalUpdate(
+      id,
+      companyId,
+      {},
+      sql`CASE WHEN ${t.events} @> '[{"kind":"labelPrinted"}]'::jsonb THEN ${json([event("Label reprinted")])} ELSE ${json([event("Label printed")])} END`,
+    );
+    if (!row) throw APIError.notFound("Gate movement not found");
     return this.get(id, companyId);
   }
 

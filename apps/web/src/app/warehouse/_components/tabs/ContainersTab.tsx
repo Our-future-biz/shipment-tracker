@@ -9,6 +9,7 @@ import { useWarehouseContainers, type WarehouseContainer } from "@/hooks/useWare
 import { formatDate } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { CONTAINER_TYPES, PACKINGS } from "@/app/warehouse/gate-log/_lib/gate";
+import { DIRECTIONS as WAREHOUSE_DIRECTIONS, TERMS, directionOfHandling } from "@/app/warehouse/_lib/glossary";
 import { BulkDeleteButton, RecordFormModal, StatusTag, dim, nf, type FieldDef } from "./shared";
 
 type Mode = "register" | "schedule" | "vgm";
@@ -42,12 +43,13 @@ export function ContainersTab() {
     [movements],
   );
 
+  // Opens the position's Gate Log job (the old position page forwards there too).
   const position = (c: WarehouseContainer) =>
-    c.positionRef && c.warehouseTaskId ? (
+    c.positionRef && (c.movementId || c.warehouseTaskId) ? (
       <span
         onClick={(e) => {
           e.stopPropagation();
-          router.push(`/warehouse/${c.warehouseTaskId}`);
+          router.push(c.movementId ? `/warehouse/gate-log/${c.movementId}` : `/warehouse/${c.warehouseTaskId}`);
         }}
         className="font-mono font-bold text-indigo-500 hover:underline cursor-pointer"
       >
@@ -80,7 +82,7 @@ export function ContainersTab() {
     { key: "seal", title: "Seal", width: 130, text: (c) => c.seal, render: (_, c) => dim(c.seal) },
     {
       key: "position",
-      title: "Position",
+      title: TERMS.warehouseRef,
       width: 160,
       text: (c) => c.positionRef,
       render: (_, c) => position(c),
@@ -94,15 +96,15 @@ export function ContainersTab() {
     },
     {
       key: "handling",
-      title: "Handling",
+      title: TERMS.direction,
       width: 110,
-      text: (c) => c.handling,
-      filterOptions: ["Import", "Export"],
-      render: (_, c) => dim(c.handling),
+      text: (c) => directionOfHandling(c.handling),
+      filterOptions: [...WAREHOUSE_DIRECTIONS],
+      render: (_, c) => dim(directionOfHandling(c.handling)),
     },
     {
       key: "pieces",
-      title: "Pieces",
+      title: TERMS.pieces,
       width: 90,
       align: "right",
       text: (c) => String(c.pieces ?? ""),
@@ -117,7 +119,7 @@ export function ContainersTab() {
     },
     {
       key: "weightKg",
-      title: "Weight kg",
+      title: TERMS.weightKg,
       width: 110,
       align: "right",
       text: (c) => String(c.weightKg ?? ""),
@@ -125,7 +127,7 @@ export function ContainersTab() {
     },
     {
       key: "cbm",
-      title: "Cbm",
+      title: TERMS.volumeCbm,
       width: 90,
       align: "right",
       text: (c) => String(c.cbm ?? ""),
@@ -165,10 +167,10 @@ export function ContainersTab() {
     { name: "movementId", label: "Position", type: "select", options: positionOptions },
     { name: "equipment", label: "Equipment", type: "select", options: CONTAINER_TYPES },
     { name: "seal", label: "Seal number" },
-    { name: "pieces", label: "Pieces", type: "number" },
+    { name: "pieces", label: TERMS.pieces, type: "number" },
     { name: "packages", label: "Packages", type: "select", options: PACKINGS },
-    { name: "weightKg", label: "Weight (kg)", type: "number" },
-    { name: "cbm", label: "Cbm", type: "number", step: 0.01 },
+    { name: "weightKg", label: TERMS.weightKg, type: "number" },
+    { name: "cbm", label: TERMS.volumeCbm, type: "number", step: 0.01 },
     {
       name: "direction",
       label: "Loading / unloading",
@@ -190,7 +192,7 @@ export function ContainersTab() {
   ];
   const vgmFields: FieldDef[] = [
     { name: "tareKg", label: "Tare (kg)", type: "number", section: "VGM" },
-    { name: "cargoKg", label: "Cargo gross (kg)", type: "number" },
+    { name: "cargoKg", label: `Cargo ${TERMS.weightKg.toLowerCase()}`, type: "number" },
     { name: "vgmMethod", label: "VGM method", type: "select", options: VGM_METHODS },
     { name: "vgmDeclaredBy", label: "Declared by" },
     { name: "vgmDeclaredAt", label: "Declared at", type: "datetime" },

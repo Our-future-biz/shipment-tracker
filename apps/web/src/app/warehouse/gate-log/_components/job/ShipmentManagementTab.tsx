@@ -5,6 +5,7 @@ import { Button } from "antd";
 import { ApartmentOutlined, PlusOutlined } from "@ant-design/icons";
 import type { GateMovement } from "@/hooks/useGateLog";
 import type { controllers, interfaces } from "@/lib/api/client";
+import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { MAX_DROPS, PACKINGS } from "../../_lib/gate";
 import { Section } from "./fields";
 
@@ -16,17 +17,17 @@ type TextKey = "description" | "plate" | "driver" | "transport";
 const COLUMNS: { title: string; width: number }[] = [
   { title: "Sub-position", width: 128 },
   { title: "ETW", width: 132 },
-  { title: "Qty", width: 72 },
+  { title: TERMS.pieces, width: 80 },
   { title: "Packing", width: 118 },
   { title: "Width", width: 86 },
   { title: "Length", width: 86 },
   { title: "Height", width: 86 },
   { title: "Description", width: 190 },
-  { title: "Weight", width: 92 },
-  { title: "Measure", width: 96 },
+  { title: TERMS.weightKg, width: 92 },
+  { title: TERMS.volumeCbm, width: 104 },
   { title: "Total gross", width: 104 },
-  { title: "SPZ", width: 112 },
-  { title: "Driver", width: 128 },
+  { title: TERMS.plate, width: 112 },
+  { title: TERMS.driver, width: 128 },
   { title: "Transport", width: 150 },
   { title: "VGM", width: 58 },
   { title: "VGM date", width: 132 },
@@ -224,9 +225,9 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
           {rows.length} of {MAX_DROPS} drops
         </span>
         <div className="ml-auto flex flex-wrap gap-2">
-          <Total label="Total Qty">{qty}</Total>
+          <Total label={`Total ${TERMS.pieces.toLowerCase()}`}>{qty}</Total>
           <Total label="Total weight">{fmt(weight, "kg")}</Total>
-          <Total label="Total measure">{fmt(measure, "cbm")}</Total>
+          <Total label="Total volume">{fmt(measure, "cbm")}</Total>
         </div>
       </div>
     </Section>

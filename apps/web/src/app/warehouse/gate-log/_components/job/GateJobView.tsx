@@ -1,27 +1,36 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Dropdown, Spin, Tooltip } from "antd";
-import { ArrowLeftOutlined, DownOutlined } from "@ant-design/icons";
+import { Dropdown, Spin, Tabs, Tag, Tooltip } from "antd";
+import { ArrowLeftOutlined, CheckCircleOutlined, DownOutlined, PrinterOutlined, RightOutlined } from "@ant-design/icons";
 import { useGateMovement, type GateMovement, type GateStampKind } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import type { controllers } from "@/lib/api/client";
+import { TERMS } from "@/app/warehouse/_lib/glossary";
+import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
+import { remeasurementHref } from "@/app/warehouse/_components/remeasurementLinks";
 import { errorMessage, freeDaysOver, hasSurvey, requiredSurveyPhase, surveyTargets } from "../../_lib/gate";
-import { downloadWarehouseLabel } from "../../_lib/labelPdf";
-import { btnDanger, btnDefault, btnPrimary } from "./fields";
+import { gateSteps, isOutbound, type GateStep } from "../../_lib/steps";
+import { PrintLabelsModal } from "../PrintLabelsModal";
+import { btnDefault, btnPrimary } from "./fields";
 import { OverviewTab } from "./OverviewTab";
 import { SurveyTab } from "./SurveyTab";
 import { ShipmentManagementTab } from "./ShipmentManagementTab";
 
-type Tab = "overview" | "survey" | "shipman";
+// The job's tab lives in the URL (?tab=survey), so refresh, Back and shared links keep it.
+const TABS = ["overview", "survey", "shipman"] as const;
+type Tab = (typeof TABS)[number];
+// The Gate Log list, now a tab of the Warehouse page.
+const GATE_LOG_HREF = "/warehouse?tab=gatelog";
 
 const cardLabel = "text-[11px] font-bold text-slate-500 uppercase tracking-wide";
 
-// Status cards under the header: customs status, storage (free days left) and the vehicle at the gate.
+// Status cards under the header: customs status, storage (free days left) and the vehicle at the
+// gate — the incoming truck (IN leg) for inbound cargo, the outgoing one (OUT leg) for outbound.
 function StatusCards({ m }: { m: GateMovement }) {
   const over = freeDaysOver(m.loadInDate, m.freeDays);
   const storage =
@@ -31,10 +40,12 @@ function StatusCards({ m }: { m: GateMovement }) {
         ? { value: `+${over}`, tone: "text-red-600", hint: `${over} chargeable day${over === 1 ? "" : "s"} past free storage` }
         : { value: String(-over), tone: -over <= 3 ? "text-amber-600" : "text-emerald-600", hint: `${-over} free storage day${over === -1 ? "" : "s"} left` };
 
-  const inLeg = m.transportLegs.find((l) => l.leg === "IN");
-  const driver = inLeg?.driver || m.driver;
-  const plate = inLeg?.plate || m.plate;
-  const gateIn = inLeg?.gateTime || (m.gateIn ? formatDateTime(m.gateIn) : "");
+  const out = isOutbound(m);
+  const leg = m.transportLegs.find((l) => l.leg === (out ? "OUT" : "IN"));
+  const driver = leg?.driver || m.driver;
+  const plate = leg?.plate || m.plate;
+  const stampAt = out ? m.gateOut : m.gateIn;
+  const gateTime = leg?.gateTime ? formatDateTime(leg.gateTime) : stampAt ? formatDateTime(stampAt) : "";
 
   const card = "bg-white border border-slate-200 rounded-xl shadow-sm px-4 py-3 min-w-0";
   const line = (k: string, v: string, mono = false) => (
@@ -57,25 +68,62 @@ function StatusCards({ m }: { m: GateMovement }) {
         </div>
       </Tooltip>
       <div className={card}>
-        <div className={cardLabel}>Vehicle</div>
+        <div className={cardLabel}>Vehicle · {out ? "outgoing truck" : "incoming truck"}</div>
         <div className="mt-1.5 flex flex-col gap-0.5">
-          {line("Driver's name", driver)}
-          {line("Plate number", plate, true)}
-          {line("Gate in time", gateIn, true)}
+          {line(TERMS.driver, driver)}
+          {line(TERMS.plate, plate, true)}
+          {line(out ? "Gate-out time" : "Gate-in time", gateTime, true)}
         </div>
       </div>
     </div>
   );
 }
 
-// Gate log job: header with the WH stamps, status cards, and the Overview, Survey and
-// Shipment Management tabs. Fields save as you leave them.
+// One step of the gate action bar: a green tag (time + user) once stamped; otherwise a button,
+// primary for the next step and disabled with the reason for the others.
+function StepItem({ step, onPick }: { step: GateStep; onPick: () => void }) {
+  if (step.state === "done") {
+    return (
+      <Tooltip title={step.note}>
+        <Tag
+          color={step.legacy ? "default" : "success"}
+          icon={step.legacy ? undefined : <CheckCircleOutlined />}
+          className={`m-0 !px-2 !py-1 !text-[12px] ${step.legacy ? "opacity-70" : ""}`}
+        >
+          <span className="font-semibold">{step.label}</span> <span className="font-mono">{formatDateTime(step.at)}</span>
+          {step.by ? ` · ${step.by}` : ""}
+        </Tag>
+      </Tooltip>
+    );
+  }
+  const next = step.state === "next";
+  return (
+    <Tooltip title={next ? undefined : step.reason}>
+      {/* A disabled button gets no mouse events; the wrapper keeps the tooltip working. */}
+      <span className="inline-flex">
+        <button
+          type="button"
+          className={next ? btnPrimary : btnDefault}
+          disabled={!next}
+          aria-label={next ? undefined : `${step.label} — ${step.reason}`}
+          onClick={onPick}
+        >
+          {step.label}
+        </button>
+      </span>
+    </Tooltip>
+  );
+}
+
+// Gate log job — the one page of a position: header with the gate steps, status cards, and the
+// Overview, Survey and Shipment Management tabs. Fields save as you leave them.
 export function GateJobView({ id }: { id: string }) {
   const router = useRouter();
   const toast = useToast();
   const { movement: m, isLoading, update, stamp, requestRelease, requestMrn, refuse, override, setReleaseGate, saveSurvey, remove } = useGateMovement(id);
-  const [tab, setTab] = useState<Tab>("overview");
+  const [tab, setTab] = useUrlParam<Tab>("tab", TABS, "overview");
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
   const [confirmStamp, setConfirmStamp] = useState<{ kind: GateStampKind; label: string } | null>(null);
 
   if (isLoading) {
@@ -89,7 +137,7 @@ export function GateJobView({ id }: { id: string }) {
     return (
       <div className="p-10 text-center text-slate-500">
         Movement not found.{" "}
-        <Link href="/warehouse/gate-log" className="text-indigo-500">
+        <Link href={GATE_LOG_HREF} className="text-indigo-500">
           Back to Gate Log
         </Link>
       </div>
@@ -106,8 +154,8 @@ export function GateJobView({ id }: { id: string }) {
       toast.info(`${label} was already stamped ${formatDateTime(at)}`);
       return;
     }
-    if (kind === "gateOut" && m.visit === "výdej" && !m.impRelease) {
-      toast.info("Outgoing cargo leaves through WH release — it stamps the gate-out too.");
+    if (kind === "gateOut" && isOutbound(m) && !m.impRelease) {
+      toast.info(`Outbound cargo leaves through ${TERMS.whRelease} — it stamps the gate-out too.`);
       return;
     }
     setConfirmStamp({ kind, label });
@@ -126,7 +174,7 @@ export function GateJobView({ id }: { id: string }) {
   const writesBack = (kind: GateStampKind) =>
     kind === "gateIn" || ((kind === "expDraft" || kind === "expReceipt") && !m.gateIn)
       ? "received date"
-      : kind === "impRelease" || (kind === "gateOut" && m.visit === "výdej")
+      : kind === "impRelease" || (kind === "gateOut" && isOutbound(m))
         ? "released date and plate"
         : null;
 
@@ -140,16 +188,9 @@ export function GateJobView({ id }: { id: string }) {
     { key: "shipman", label: "Shipment Management" },
   ];
 
-  const stampButton = (kind: GateStampKind, label: string, at: string | null, primary = false) => (
-    <button
-      type="button"
-      className={primary ? btnPrimary : btnDefault}
-      title={at ? `${label} stamped ${formatDateTime(at)}` : undefined}
-      onClick={() => pickStamp(kind, label, at)}
-    >
-      {label}
-    </button>
-  );
+  const steps = gateSteps(m);
+  const mainSteps = steps.filter((x) => !x.legacy);
+  const legacySteps = steps.filter((x) => x.legacy);
 
   return (
     <div className="bg-slate-50 min-h-full">
@@ -158,7 +199,7 @@ export function GateJobView({ id }: { id: string }) {
         <div className="flex flex-wrap items-start gap-4">
           <div className="flex items-start gap-2 flex-1 min-w-[240px]">
             <button
-              onClick={() => router.push("/warehouse/gate-log")}
+              onClick={() => router.push(GATE_LOG_HREF)}
               aria-label="Back to Gate Log"
               className="mt-1 text-slate-400 hover:text-indigo-500 cursor-pointer bg-transparent border-none p-1"
             >
@@ -166,27 +207,48 @@ export function GateJobView({ id }: { id: string }) {
             </button>
             <div className="min-w-0">
               <h1 className="text-[22px] font-bold text-slate-800 m-0 font-mono">{m.gateRef}</h1>
-              <div className="text-xs text-slate-500 mt-0.5">
-                Customer <span className="font-semibold text-slate-800">{m.customer || "—"}</span>
+              <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 text-xs text-slate-500 mt-0.5">
+                <span>
+                  Customer <span className="font-semibold text-slate-800">{m.customer || "—"}</span>
+                </span>
+                {/* The shipment it came from: its job, and its warehouse part (Remeasurement / Release). */}
+                {m.jobNumber && (
+                  <span>
+                    {TERMS.jobNo}{" "}
+                    {m.shipmentId ? (
+                      <Link href={`/shipments/${m.shipmentId}`} className="font-mono font-semibold text-indigo-500 hover:underline">
+                        {m.jobNumber}
+                      </Link>
+                    ) : (
+                      <span className="font-mono font-semibold text-slate-800">{m.jobNumber}</span>
+                    )}
+                  </span>
+                )}
+                {m.shipmentId && (
+                  <Link href={remeasurementHref(m.shipmentId)} className="font-semibold text-indigo-500 hover:underline">
+                    Shipment Details
+                  </Link>
+                )}
               </div>
             </div>
           </div>
 
           <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
-            {/* Downloads the warehouse label (PDF) led by the WCZ reference. */}
-            <button
-              type="button"
-              className={btnDanger}
-              onClick={() => downloadWarehouseLabel(m).catch(() => toast.error("Failed to create the label"))}
-            >
-              Create Label
+            {/* Gate steps in process order for this direction; only the next one is primary. */}
+            <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Gate steps">
+              {mainSteps.map((x, i) => (
+                <Fragment key={x.kind}>
+                  {i > 0 && <RightOutlined className="text-[10px] text-slate-300" aria-hidden />}
+                  <StepItem step={x} onPick={() => pickStamp(x.kind, x.label, x.at)} />
+                </Fragment>
+              ))}
+              {legacySteps.map((x) => (
+                <StepItem key={x.kind} step={x} onPick={() => undefined} />
+              ))}
+            </div>
+            <button type="button" className={btnDefault} onClick={() => setPrintOpen(true)}>
+              <PrinterOutlined /> Print labels
             </button>
-            {/* Stamps in process order: arrival, export receipts, release, departure. */}
-            {stampButton("gateIn", "Gate-in", m.gateIn)}
-            {stampButton("expDraft", "WH Draft Receipt", m.expDraft)}
-            {stampButton("expReceipt", "WH receipt", m.expReceipt)}
-            {stampButton("impRelease", "WH release", m.impRelease, true)}
-            {stampButton("gateOut", "Gate-out", m.gateOut)}
             <Dropdown
               trigger={["click"]}
               menu={{
@@ -205,38 +267,35 @@ export function GateJobView({ id }: { id: string }) {
         <StatusCards m={m} />
 
         {/* Tabs */}
-        <div className="flex gap-0 mt-4">
-          {tabs.map((t) => (
-            <div
-              key={t.key}
-              role="tab"
-              aria-selected={tab === t.key}
-              onClick={() => setTab(t.key)}
-              className={`px-4 py-2.5 text-sm cursor-pointer transition-all duration-150 border-b-2 ${
-                tab === t.key
-                  ? `font-semibold ${t.alert ? "text-red-600 border-red-500" : "text-indigo-500 border-indigo-500"}`
-                  : `font-normal border-transparent ${t.alert ? "text-red-500 hover:text-red-600" : "text-slate-400 hover:text-slate-600"}`
-              }`}
-            >
-              {t.label}
-              {t.alert && (
-                <span className="ml-1 font-bold text-red-600" title="Survey missing" aria-label="Survey missing">
-                  !
-                </span>
-              )}
-              {t.done && (
-                <span className="ml-1 font-bold text-emerald-600" title="Surveys done" aria-label="Surveys done">
-                  ✓
-                </span>
-              )}
-              {t.count ? (
-                <span className={`ml-1.5 rounded-full px-1.5 text-[11px] font-semibold ${tab === t.key ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500"}`}>
-                  {t.count}
-                </span>
-              ) : null}
-            </div>
-          ))}
-        </div>
+        <Tabs
+          activeKey={tab}
+          onChange={(k) => setTab(k as Tab)}
+          className="mt-4 [&_.ant-tabs-nav::before]:!border-b-0"
+          tabBarStyle={{ marginBottom: 0 }}
+          items={tabs.map((t) => ({
+            key: t.key,
+            label: (
+              <span className={t.alert ? "text-red-600" : undefined}>
+                {t.label}
+                {t.alert && (
+                  <span className="ml-1 font-bold text-red-600" title="Survey missing" aria-label="Survey missing">
+                    !
+                  </span>
+                )}
+                {t.done && (
+                  <span className="ml-1 font-bold text-emerald-600" title="Surveys done" aria-label="Surveys done">
+                    ✓
+                  </span>
+                )}
+                {t.count ? (
+                  <span className={`ml-1.5 rounded-full px-1.5 text-[11px] font-semibold ${tab === t.key ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500"}`}>
+                    {t.count}
+                  </span>
+                ) : null}
+              </span>
+            ),
+          }))}
+        />
       </div>
 
       {/* ── Tab content ── */}
@@ -272,7 +331,7 @@ export function GateJobView({ id }: { id: string }) {
             override={(reason) =>
               override
                 .mutateAsync(reason)
-                .then(() => toast.success("Release armed by supervisor override — logged on the movement"))
+                .then(() => toast.success(`${TERMS.releaseGates} cleared by supervisor override — logged on the movement`))
                 .catch((e) => {
                   toast.error(errorMessage(e, "Failed to override"));
                   throw e;
@@ -304,6 +363,8 @@ export function GateJobView({ id }: { id: string }) {
         />
       )}
 
+      <PrintLabelsModal open={printOpen} movements={[m]} onClose={() => setPrintOpen(false)} />
+
       <ConfirmModal
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
@@ -311,7 +372,7 @@ export function GateJobView({ id }: { id: string }) {
           try {
             await remove.mutateAsync();
             toast.success("Movement deleted");
-            router.push("/warehouse/gate-log");
+            router.push(GATE_LOG_HREF);
           } catch (e) {
             toast.error(errorMessage(e, "Failed to delete"));
           }

@@ -6,6 +6,8 @@ import { PlusOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useClaims, useReportSummary, useSavedReports, type Claim, type SavedReport } from "@/hooks/useWarehouseRecords";
 import type { interfaces } from "@/lib/api/client";
+import { TERMS } from "@/app/warehouse/_lib/glossary";
+import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { Callout, Card, Kpi, RecordFormModal, StatusTag, SubTabs, dim, nf } from "./shared";
 
 type Sub = "throughput" | "utilisation" | "quality" | "library";
@@ -30,8 +32,10 @@ const REPORT_FORMATS = ["XLSX", "PDF", "CSV"];
 const btnPrimary =
   "flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors";
 
+const SUBS = ["throughput", "utilisation", "quality", "library"] as const satisfies readonly Sub[];
+
 export function ReportsTab() {
-  const [sub, setSub] = useState<Sub>("throughput");
+  const [sub, setSub] = useUrlParam<Sub>("sub", SUBS, "throughput");
   return (
     <div className="flex flex-col gap-5">
       <SubTabs
@@ -93,16 +97,16 @@ function Throughput() {
   const topColumns: AppGridColumn<Top>[] = [
     { key: "customer", title: "Customer", width: 200, text: (r) => r.customer, render: (_, r) => <span className="font-medium text-slate-800">{r.customer}</span> },
     { key: "jobs", title: "Jobs", width: 80, align: "right", text: (r) => String(r.jobs), render: (_, r) => dim(r.jobs) },
-    { key: "cbm", title: "CBM", width: 90, align: "right", text: (r) => String(r.cbm), render: (_, r) => dim(nf(r.cbm, 1)) },
+    { key: "cbm", title: TERMS.volumeCbm, width: 110, align: "right", text: (r) => String(r.cbm), render: (_, r) => dim(nf(r.cbm, 1)) },
     { key: "wm", title: "w/m", width: 90, align: "right", text: (r) => String(r.wm), render: (_, r) => dim(nf(r.wm, 1)) },
     { key: "share", title: "Share", width: 90, align: "right", text: (r) => `${r.share} %`, render: (_, r) => dim(`${r.share} %`) },
   ];
   const monthColumns: AppGridColumn<Month>[] = [
     { key: "month", title: "Month", width: 130, text: (r) => r.month, render: (_, r) => <span className="font-medium text-slate-800">{r.month}{r.monthToDate ? " (MTD)" : ""}</span> },
     { key: "receipts", title: "Receipts", width: 100, align: "right", text: (r) => String(r.receipts), render: (_, r) => dim(r.receipts) },
-    { key: "cbmIn", title: "CBM in", width: 100, align: "right", text: (r) => String(r.cbmIn), render: (_, r) => dim(nf(r.cbmIn, 1)) },
+    { key: "cbmIn", title: `${TERMS.volumeCbm} in`, width: 120, align: "right", text: (r) => String(r.cbmIn), render: (_, r) => dim(nf(r.cbmIn, 1)) },
     { key: "dispatches", title: "Dispatches", width: 110, align: "right", text: (r) => String(r.dispatches), render: (_, r) => dim(r.dispatches) },
-    { key: "cbmOut", title: "CBM out", width: 100, align: "right", text: (r) => String(r.cbmOut), render: (_, r) => dim(nf(r.cbmOut, 1)) },
+    { key: "cbmOut", title: `${TERMS.volumeCbm} out`, width: 120, align: "right", text: (r) => String(r.cbmOut), render: (_, r) => dim(nf(r.cbmOut, 1)) },
     { key: "consolPositions", title: "Consols", width: 100, align: "right", text: (r) => String(r.consolPositions), render: (_, r) => dim(r.consolPositions) },
     { key: "containersLoaded", title: "Containers loaded", width: 150, align: "right", text: (r) => String(r.containersLoaded), render: (_, r) => dim(r.containersLoaded) },
     { key: "fclStuffed", title: "FCL stuffed", width: 110, align: "right", text: (r) => String(r.fclStuffed), render: (_, r) => dim(r.fclStuffed) },
@@ -173,7 +177,7 @@ function Utilisation() {
   const columns: AppGridColumn<Lane>[] = [
     { key: "lane", title: "Lane (discharge port)", width: 200, text: (r) => r.lane, render: (_, r) => <span className="font-medium text-slate-800">{r.lane}</span> },
     { key: "containers", title: "Containers", width: 110, align: "right", text: (r) => String(r.containers), render: (_, r) => dim(r.containers) },
-    { key: "avgCbm", title: "Avg CBM", width: 100, align: "right", text: (r) => String(r.avgCbm), render: (_, r) => dim(nf(r.avgCbm, 1)) },
+    { key: "avgCbm", title: `Avg ${TERMS.volumeCbm.toLowerCase()}`, width: 130, align: "right", text: (r) => String(r.avgCbm), render: (_, r) => dim(nf(r.avgCbm, 1)) },
     { key: "capacityCbm", title: "Capacity", width: 100, align: "right", text: (r) => String(r.capacityCbm), render: (_, r) => dim(r.capacityCbm) },
     { key: "fill", title: "Fill rate", width: 170, text: (r) => `${r.fill} %`, render: (_, r) => <FillMeter value={r.fill} /> },
     { key: "avgPieces", title: "Avg pieces", width: 110, align: "right", text: (r) => String(r.avgPieces), render: (_, r) => dim(nf(r.avgPieces, 1)) },

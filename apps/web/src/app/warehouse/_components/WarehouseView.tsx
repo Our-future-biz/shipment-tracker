@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Button, Modal, Segmented, Select, Spin, Tooltip } from "antd";
-import { PlusOutlined, DeleteOutlined } from "@ant-design/icons";
+import { Button, Drawer, Modal, Segmented, Select, Spin, Tabs, Tooltip } from "antd";
+import { PlusOutlined, DeleteOutlined, PrinterOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useWarehouse } from "@/hooks/useWarehouse";
@@ -17,7 +17,10 @@ import { api } from "@/lib/api";
 import { isSalesQuote, toSalesQuote } from "@/app/sales/_lib/salesQuote";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { CUSTOMS_STATUSES, HANDLINGS, errorMessage, isFcl, isLcl, nf } from "../gate-log/_lib/gate";
+import { CUSTOMS_STATUSES, errorMessage, isFcl, isLcl, nf } from "../gate-log/_lib/gate";
+import { GateLogView } from "../gate-log/_components/GateLogView";
+import { PrintLabelsModal } from "../gate-log/_components/PrintLabelsModal";
+import { DIRECTIONS, TERMS, directionOfVisit } from "../_lib/glossary";
 import { ContainersTab } from "./tabs/ContainersTab";
 import { StockTab } from "./tabs/StockTab";
 import { DockYardTab } from "./tabs/DockYardTab";
@@ -59,12 +62,12 @@ const textCol = (key: keyof GateMovement & string, title: string, width: number,
 });
 
 const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
-  { key: "taskId", title: "Warehouse Ref", width: 150, text: (r) => r.task.taskId, render: (_, r) => <span className="font-mono font-bold text-indigo-500">{r.task.taskId}</span> },
+  { key: "taskId", title: TERMS.warehouseRef, width: 150, text: (r) => r.task.taskId, render: (_, r) => <span className="font-mono font-bold text-indigo-500">{r.task.taskId}</span> },
   // Imported positions open their shipment's warehouse part (Remeasurement / Release); copied
   // ones have no shipment to open.
   {
     key: "jobNumber",
-    title: "Internal Reference",
+    title: TERMS.jobNo,
     width: 170,
     text: (r) => r.m?.jobNumber ?? "",
     render: (_, r) =>
@@ -82,19 +85,27 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
   },
   textCol("customer", "Customer", 200),
   textCol("customerRef", "Customer Reference", 160),
-  textCol("handling", "Trade Direction", 130, { filterOptions: [...HANDLINGS] }),
+  // Direction follows the visit (příjem / výdej), which the gate stamps and release rules use.
+  {
+    key: "handling",
+    title: TERMS.direction,
+    width: 120,
+    text: (r) => (r.m ? directionOfVisit(r.m.visit) : ""),
+    filterOptions: [...DIRECTIONS],
+    render: (_, r) => dim(r.m ? directionOfVisit(r.m.visit) : ""),
+  },
   textCol("freightMode", "Freight Mode", 130),
   textCol("loadType", "Load Type", 140),
-  textCol("status", "Status", 120),
+  textCol("status", TERMS.warehouseStatus, 150),
   textCol("customsStatus", "Customs Status", 230, { filterOptions: [...CUSTOMS_STATUSES] }),
   textCol("pol", "POL", 110),
   textCol("pod", "POD", 110),
   { key: "etd", title: "ETD", width: 110, text: (r) => formatDate(r.m?.etd), render: (_, r) => dim(formatDate(r.m?.etd)) },
   { key: "eta", title: "ETA", width: 110, text: (r) => formatDate(r.m?.eta), render: (_, r) => dim(formatDate(r.m?.eta)) },
-  { key: "colli", title: "Pieces", width: 90, align: "right", text: (r) => (r.m?.colli ? String(r.m.colli) : ""), render: (_, r) => numCell(r.m?.colli ? nf(r.m.colli) : "") },
+  { key: "colli", title: TERMS.pieces, width: 90, align: "right", text: (r) => (r.m?.colli ? String(r.m.colli) : ""), render: (_, r) => numCell(r.m?.colli ? nf(r.m.colli) : "") },
   textCol("packing", "Type Of Packages", 150),
-  { key: "weightKg", title: "Weight kg", width: 110, align: "right", text: (r) => (r.m?.weightKg ? String(r.m.weightKg) : ""), render: (_, r) => numCell(r.m?.weightKg ? nf(r.m.weightKg) : "") },
-  { key: "measureCbm", title: "Volume cbm", width: 110, align: "right", text: (r) => (r.m?.measureCbm ? String(r.m.measureCbm) : ""), render: (_, r) => numCell(r.m?.measureCbm ? nf(r.m.measureCbm, 2) : "") },
+  { key: "weightKg", title: TERMS.weightKg, width: 110, align: "right", text: (r) => (r.m?.weightKg ? String(r.m.weightKg) : ""), render: (_, r) => numCell(r.m?.weightKg ? nf(r.m.weightKg) : "") },
+  { key: "measureCbm", title: TERMS.volumeCbm, width: 110, align: "right", text: (r) => (r.m?.measureCbm ? String(r.m.measureCbm) : ""), render: (_, r) => numCell(r.m?.measureCbm ? nf(r.m.measureCbm, 2) : "") },
   textCol("commodity", "Commodity", 200),
   textCol("shipmentOwner", "Person In Charge", 180),
   textCol("containerNumber", "Container Number", 150, { defaultVisible: false, render: (_, r) => mono(r.m?.containerNumber) }),
@@ -103,64 +114,83 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
   { key: "createdAt", title: "Created", width: 110, text: (r) => formatDate(r.task.createdAt), render: (_, r) => dim(formatDate(r.task.createdAt)) },
 ];
 
-// Warehouse module tabs.
+// Warehouse module tabs, in work order; the Read me is in the "?" help drawer.
 const MODULE_TABS = [
   { key: "positions", label: "Positions" },
   { key: "remeasurement", label: "Remeasurement / Release" },
+  { key: "gatelog", label: "Gate Log" },
   { key: "containers", label: "Containers" },
   { key: "dock", label: "Dock & Yard" },
-  { key: "reports", label: "Reports" },
-  { key: "readme", label: "Read me" },
   { key: "stock", label: "Stock" },
+  { key: "reports", label: "Reports" },
 ] as const;
 type ModuleTab = (typeof MODULE_TABS)[number]["key"];
 
-function ModuleTabs({ active, counts, onChange }: { active: ModuleTab; counts: Partial<Record<ModuleTab, number>>; onChange: (tab: ModuleTab) => void }) {
+// Real tabs (keyboard: Tab to the bar, arrow keys between tabs), used as the tab bar only —
+// each tab's content renders below it.
+function ModuleTabs({
+  active,
+  counts,
+  onChange,
+  onHelp,
+}: {
+  active: ModuleTab;
+  counts: Partial<Record<ModuleTab, number>>;
+  onChange: (tab: ModuleTab) => void;
+  onHelp: () => void;
+}) {
   return (
-    <div className="flex gap-0 mt-3 border-b border-slate-200 overflow-x-auto">
-      {MODULE_TABS.map((t) => {
-        const on = active === t.key;
+    <Tabs
+      activeKey={active}
+      onChange={(k) => onChange(k as ModuleTab)}
+      className="mt-3"
+      tabBarStyle={{ marginBottom: 0 }}
+      tabBarExtraContent={{
+        right: (
+          <Tooltip title="Read me — how the Warehouse module works">
+            <Button type="text" shape="circle" aria-label="Help" icon={<QuestionCircleOutlined />} onClick={onHelp} />
+          </Tooltip>
+        ),
+      }}
+      items={MODULE_TABS.map((t) => {
         const count = counts[t.key];
-        return (
-          <div
-            key={t.key}
-            role="tab"
-            aria-selected={on}
-            onClick={() => onChange(t.key)}
-            className={`px-4 py-2.5 text-sm cursor-pointer whitespace-nowrap transition-all duration-150 border-b-2 -mb-px ${
-              on ? "font-semibold text-indigo-500 border-indigo-500" : "font-normal text-slate-500 border-transparent hover:text-slate-700"
-            }`}
-          >
-            {t.label}
-            {count != null && (
-              <span className={`ml-1.5 rounded-full px-1.5 py-px text-[11px] font-semibold ${on ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500"}`}>
-                {count}
-              </span>
-            )}
-          </div>
-        );
+        const on = active === t.key;
+        return {
+          key: t.key,
+          label: (
+            <span className="whitespace-nowrap">
+              {t.label}
+              {count != null && (
+                <span className={`ml-1.5 rounded-full px-1.5 py-px text-[11px] font-semibold ${on ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500"}`}>
+                  {count}
+                </span>
+              )}
+            </span>
+          ),
+        };
       })}
-    </div>
+    />
   );
 }
 
 // Filter bubbles above the Positions grid, in the same format as the Shipments overview
 // tiles. They read the warehouse's own data on each position (its gate log movement):
-// trade direction, load type, freight mode, and whether the movement is still open.
+// handling (import cargo goes out, export cargo comes in), load type, freight mode, and
+// whether the movement is still open.
 type BubbleId = "consolImport" | "consolExport" | "shuttle";
 
 const isOpen = (m: GateMovement) => !["Released", "Refused"].includes(m.status);
 const BUBBLES: { id: BubbleId; label: string; hint: string; match: (m: GateMovement) => boolean }[] = [
   {
     id: "consolImport",
-    label: "Open Consol Import Containers",
-    hint: "Import · load type Consolidation · not yet done",
+    label: "Open Consol Outbound Containers",
+    hint: "Outbound (import) · load type Consolidation · not yet done",
     match: (m) => isOpen(m) && m.handling === "Import" && m.loadType === "Consolidation",
   },
   {
     id: "consolExport",
-    label: "Open Consol Export Containers",
-    hint: "Export · load type Consolidation · not yet done",
+    label: "Open Consol Inbound Containers",
+    hint: "Inbound (export) · load type Consolidation · not yet done",
     match: (m) => isOpen(m) && m.handling === "Export" && m.loadType === "Consolidation",
   },
   {
@@ -215,10 +245,10 @@ export const WarehouseView = () => {
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
-  // The open shipment belongs to Remeasurement / Release and does not carry over to other tabs.
+  // The open shipment, sub-tab and Positions filters belong to their tab and do not carry over.
   const setTab = (tab: ModuleTab) => {
     const params = new URLSearchParams(searchParams.toString());
-    params.delete("shipment");
+    for (const key of ["shipment", "sub", "bubble", "load"]) params.delete(key);
     if (tab === "positions") params.delete("tab");
     else params.set("tab", tab);
     const qs = params.toString();
@@ -228,6 +258,15 @@ export const WarehouseView = () => {
   const { tasks, isLoading: tasksLoading, deleteTask } = useWarehouse();
   const { movements, isLoading: movementsLoading } = useGateLog();
   const [createOpen, setCreateOpen] = useState(false);
+  // Read me lives in a help drawer; an old ?tab=readme link opens it on Positions.
+  // Read from the URL on every render, so a ?tab=readme link opens it while the page is mounted too.
+  const [helpToggled, setHelpOpen] = useState(false);
+  const helpOpen = helpToggled || tabParam === "readme";
+  const closeHelp = () => {
+    setHelpOpen(false);
+    if (tabParam === "readme") setTab("positions");
+  };
+  const [printRows, setPrintRows] = useState<GateMovement[] | null>(null);
 
   // Bubble filter is URL-backed (?bubble=).
   const activeBubble = BUBBLES.find((b) => b.id === searchParams.get("bubble")) ?? null;
@@ -274,7 +313,39 @@ export const WarehouseView = () => {
   };
 
   const { items: stockLines } = useStockLines();
-  const moduleTabs = <ModuleTabs active={activeTab} counts={{ positions: tasks.length, stock: stockLines.length }} onChange={setTab} />;
+  const moduleTabs = (
+    <ModuleTabs
+      active={activeTab}
+      counts={{ positions: tasks.length, gatelog: movements.length, stock: stockLines.length }}
+      onChange={setTab}
+      onHelp={() => setHelpOpen(true)}
+    />
+  );
+
+  // Labels print from the position's gate movement; positions without one are reported.
+  const printSelected = (selected: PositionRow[]) => {
+    const withMovement = selected.flatMap((r) => (r.m ? [r.m] : []));
+    const without = selected.length - withMovement.length;
+    if (without) toast.info(`${without} position${without === 1 ? " has" : "s have"} no Gate Log job yet and get${without === 1 ? "s" : ""} no label.`);
+    if (withMovement.length) setPrintRows(withMovement);
+  };
+
+  const help = (
+    <Drawer title="Read me" width={760} open={helpOpen} onClose={closeHelp}>
+      <ReadmeTab />
+    </Drawer>
+  );
+
+  if (activeTab === "gatelog") {
+    return (
+      <div className="bg-slate-50 min-h-full px-8 py-6">
+        <div className="max-w-[1400px] mx-auto">
+          <GateLogView embedded header={moduleTabs} />
+        </div>
+        {help}
+      </div>
+    );
+  }
 
   if (activeTab !== "positions") {
     return (
@@ -289,8 +360,8 @@ export const WarehouseView = () => {
           {activeTab === "containers" && <ContainersTab />}
           {activeTab === "dock" && <DockYardTab />}
           {activeTab === "reports" && <ReportsTab />}
-          {activeTab === "readme" && <ReadmeTab />}
         </div>
+        {help}
       </div>
     );
   }
@@ -306,12 +377,13 @@ export const WarehouseView = () => {
               <FilterBubbles active={activeBubble?.id ?? null} counts={bubbleCounts} onSelect={setBubble} />
             </>
           }
-          searchPlaceholder="Search warehouse ref, customer, job…"
+          searchPlaceholder="Search warehouse ref, customer, job no.…"
           columns={POSITION_COLUMNS}
           rows={rows}
           rowKey={(r) => r.task.id}
           loading={tasksLoading || movementsLoading}
-          onRowClick={(r) => router.push(`/warehouse/${r.task.id}`)}
+          // The position's one page is its Gate Log job; a position without one gets a short note.
+          onRowClick={(r) => router.push(r.m ? `/warehouse/gate-log/${r.m.id}` : `/warehouse/${r.task.id}`)}
           storageKey="warehouse:positions"
           exportFilePrefix="warehouse"
           emptyText={tasks.length ? "No positions match this filter." : "No positions in the warehouse yet."}
@@ -348,14 +420,20 @@ export const WarehouseView = () => {
             </>
           }
           bulkActions={(selected, clear) => (
-            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setRemoveRows({ rows: selected, clear })}>
-              Remove from warehouse
-            </Button>
+            <>
+              <Button size="small" icon={<PrinterOutlined />} onClick={() => printSelected(selected)}>
+                Print labels
+              </Button>
+              <Button size="small" danger icon={<DeleteOutlined />} onClick={() => setRemoveRows({ rows: selected, clear })}>
+                Remove from warehouse
+              </Button>
+            </>
           )}
         />
 
         {/* Create new: a position of its own, or shipments imported as linked positions. */}
         <NewPositionModal open={createOpen} onClose={() => setCreateOpen(false)} tasks={tasks} />
+        <PrintLabelsModal open={!!printRows} movements={printRows ?? []} onClose={() => setPrintRows(null)} />
 
         <ConfirmModal
           open={!!removeRows}
@@ -368,6 +446,7 @@ export const WarehouseView = () => {
           loading={removing}
         />
       </div>
+      {help}
     </div>
   );
 };
@@ -522,7 +601,7 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
     }
     setSaving(from);
     try {
-      const { task } = await api.warehouse.warehousePositionCreate(
+      const { task, movement } = await api.warehouse.warehousePositionCreate(
         Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined)) as NewPositionValues,
       );
       await Promise.all([
@@ -531,7 +610,8 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
       ]);
       toast.success(`Position ${task.taskId} created`);
       onClose();
-      router.push(`/warehouse/${task.id}`);
+      // Straight to the new position's one page, its Gate Log job.
+      router.push(`/warehouse/gate-log/${movement.id}`);
     } catch (e) {
       toast.error(errorMessage(e, "Failed to create the position"));
     } finally {
@@ -545,7 +625,7 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
       title="Create new warehouse position"
       onCancel={onClose}
       width={importing ? 960 : 800}
-      destroyOnClose
+      destroyOnHidden
       footer={
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
@@ -585,7 +665,7 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
         value={source}
         onChange={(v) => changeSource(v as Exclude<Source, "blank">)}
         options={[
-          { label: "Copy from job", value: "job" },
+          { label: `Copy from ${TERMS.jobNo}`, value: "job" },
           { label: "Copy from quote", value: "quote" },
           { label: "Import from Shipments", value: "shipments" },
           { label: "Import from Master Jobs", value: "masters" },
@@ -595,13 +675,13 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
         <ShipmentImportPicker key={source} mode={source} inWarehouse={inWarehouse} selected={importIds} onChange={setImportIds} />
       ) : source === "job" ? (
         <>
-          <label className="block text-[11px] text-slate-500 mb-1">Copy from Internal Reference</label>
+          <label className="block text-[11px] text-slate-500 mb-1">Copy from {TERMS.jobNo}</label>
           <Select
             showSearch
             allowClear
             filterOption={false}
             className="w-full"
-            placeholder="Search by internal reference, customer, shipper…"
+            placeholder="Search by job no., customer, shipper…"
             value={jobId || undefined}
             onChange={(v) => setJobId(v ?? "")}
             onSearch={setJobQuery}

@@ -420,3 +420,53 @@ describe("standalone warehouse positions", () => {
     expect(rows.filter((m) => m.warehouseTaskId === task.id)).toHaveLength(1);
   });
 });
+
+describe("label prints", () => {
+  it("logs the first print as printed and every later one as reprinted, changing nothing else", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091630", visit: "výdej" });
+    const first = await gateMovementService.labelPrinted(m.id, c, user, 1);
+    const second = await gateMovementService.labelPrinted(m.id, c, user, 12);
+    expect(second.events.filter((e) => e.kind === "labelPrinted").map((e) => [e.label, e.detail])).toEqual([
+      ["Label printed", "1 label"],
+      ["Label reprinted", "12 labels"],
+    ]);
+    expect(first.events.at(-1)!.label).toBe("Label printed");
+    const { events: _e, updatedAt: _u, ...before } = m;
+    const { events: _e2, updatedAt: _u2, ...after } = second;
+    expect(after).toEqual(before);
+  });
+
+  it("keeps every event when ten prints arrive together", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091631" });
+    await Promise.all(Array.from({ length: 10 }, () => gateMovementService.labelPrinted(m.id, c, user, 2)));
+    const prints = (await gateMovementService.get(m.id, c)).events.filter((e) => e.kind === "labelPrinted");
+    expect(prints).toHaveLength(10);
+    expect(prints.filter((e) => e.label === "Label printed").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("rejects copies outside 1–500 and rows that are gone", async () => {
+    const c = company();
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091632" });
+    for (const copies of [0, 501, 1.5, -1]) {
+      await expect(gateMovementService.labelPrinted(m.id, c, user, copies)).rejects.toThrow(/whole number/);
+    }
+    await gateMovementService.remove(m.id, c);
+    await expect(gateMovementService.labelPrinted(m.id, c, user, 1)).rejects.toThrow(/not found/);
+    await expect(gateMovementService.labelPrinted(m.id, company(), user, 1)).rejects.toThrow(/not found/);
+  });
+});
+
+describe("shipment link on the gate row", () => {
+  it("carries the shipment id of a linked task and null otherwise", async () => {
+    const c = company();
+    const shipmentId = randomUUID();
+    const { task } = await warehouseTaskRepository.createForShipment(c, shipmentId, "WCZ20260916");
+    const linked = (await gateMovementService.list(c)).find((m) => m.warehouseTaskId === task.id)!;
+    expect(linked.shipmentId).toBe(shipmentId);
+    expect((await gateMovementService.get(linked.id, c)).shipmentId).toBe(shipmentId);
+    const walkIn = await gateMovementService.create(c, user, { gateRef: "WCZ2026091633" });
+    expect(walkIn.shipmentId).toBeNull();
+  });
+});

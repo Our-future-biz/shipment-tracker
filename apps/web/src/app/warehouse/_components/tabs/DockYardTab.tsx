@@ -17,6 +17,8 @@ import {
 } from "@/hooks/useWarehouseRecords";
 import type { interfaces } from "@/lib/api/client";
 import { CONTAINER_TYPES } from "@/app/warehouse/gate-log/_lib/gate";
+import { TERMS } from "@/app/warehouse/_lib/glossary";
+import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { Card, ExpiryTag, Kpi, RecordFormModal, StatusTag, SubTabs, daysUntil, dim, type FieldDef } from "./shared";
 
 type Sub = "schedule" | "yard" | "resources";
@@ -50,8 +52,10 @@ const shiftDate = (iso: string, days: number) => {
 const longDate = (iso: string) =>
   new Date(`${iso}T12:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
+const SUBS = ["schedule", "yard", "resources"] as const satisfies readonly Sub[];
+
 export function DockYardTab() {
-  const [sub, setSub] = useState<Sub>("schedule");
+  const [sub, setSub] = useUrlParam<Sub>("sub", SUBS, "schedule");
   return (
     <div className="flex flex-col gap-5">
       <SubTabs
@@ -85,7 +89,7 @@ function DockSchedule() {
     { name: "direction", label: "Direction", type: "select", options: ["IN", "OUT"], required: true },
     { name: "reference", label: "Reference", placeholder: "WCZ… / master job / order" },
     { name: "party", label: "Party" },
-    { name: "vehicle", label: "Vehicle", placeholder: "Plate number" },
+    { name: "vehicle", label: "Vehicle", placeholder: TERMS.plate },
     { name: "status", label: "Status", type: "select", options: SLOT_STATUSES },
     { name: "note", label: "Note", type: "textarea" },
   ];
@@ -243,15 +247,16 @@ function YardPark() {
     { key: "daysOnYard", title: "Days on yard", width: 110, align: "right", text: (c) => String(c.daysOnYard ?? ""), render: (_, c) => dim(c.daysOnYard) },
     {
       key: "position",
-      title: "Position",
+      title: TERMS.warehouseRef,
       width: 160,
       text: (c) => c.positionRef,
+      // Opens the position's Gate Log job (the old position page forwards there too).
       render: (_, c) =>
-        c.positionRef && c.warehouseTaskId ? (
+        c.positionRef && (c.movementId || c.warehouseTaskId) ? (
           <span
             onClick={(e) => {
               e.stopPropagation();
-              router.push(`/warehouse/${c.warehouseTaskId}`);
+              router.push(c.movementId ? `/warehouse/gate-log/${c.movementId}` : `/warehouse/${c.warehouseTaskId}`);
             }}
             className="font-mono font-bold text-indigo-500 hover:underline cursor-pointer"
           >

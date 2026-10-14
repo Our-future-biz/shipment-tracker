@@ -115,6 +115,8 @@ export interface GateMovementItem {
   warehouseTaskId: string | null;
   /** WCZ reference of the linked warehouse task, empty when unlinked. */
   positionRef: string;
+  /** Shipment of the linked warehouse task; null for walk-ins and positions without a shipment. */
+  shipmentId: string | null;
   visit: string;
   handling: string;
   operationType: string;
