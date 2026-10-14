@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { interfaces } from "@/lib/api/client";
-import { chipMatch, exceptionText, expectedBecause, isExpectedToday, normalizeScan, pragueDate, pragueToday, scanMatch } from "./worklist";
+import { chipMatch, dockSlotText, exceptionText, expectedBecause, expectedSortKey, isExpectedToday, normalizeScan, pragueDate, pragueToday, scanMatch } from "./worklist";
 
 type M = interfaces.GateMovementItem;
 
@@ -40,6 +40,7 @@ const mv = (over: Partial<M> = {}): M =>
     eta: "",
     slot: "",
     subPositions: [],
+    dockSlots: [],
     needsAttention: false,
     openExceptions: 0,
     shipmentUpdate: null,
@@ -73,6 +74,45 @@ describe("expected today", () => {
   });
   it("says why", () => {
     expect(expectedBecause(mv({ eta: today, slot: "2026-10-14 08:00" }), today)).toBe("Slot 08:00 · ETA");
+  });
+
+  const slot = (over: Partial<interfaces.GateDockSlot> = {}): interfaces.GateDockSlot => ({
+    id: "s1",
+    date: today,
+    time: "08:00",
+    end: "09:00",
+    dock: "Dock 2",
+    direction: "IN",
+    status: "Booked",
+    durationMin: 60,
+    startsAt: "2026-10-14T06:00:00.000Z",
+    endsAt: "2026-10-14T07:00:00.000Z",
+    ...over,
+  });
+  it("uses the dock slot booked in Dock & Yard first", () => {
+    expect(isExpectedToday(mv({ dockSlots: [slot()] }), today)).toBe(true);
+    expect(isExpectedToday(mv({ dockSlots: [slot({ date: "2026-10-15" })] }), today)).toBe(false);
+    // A cancelled or completed slot no longer makes it expected.
+    expect(isExpectedToday(mv({ dockSlots: [slot({ status: "Cancelled" })] }), today)).toBe(false);
+    expect(isExpectedToday(mv({ dockSlots: [slot({ status: "Completed" })] }), today)).toBe(false);
+    expect(expectedBecause(mv({ eta: today, dockSlots: [slot()], slot: "2026-10-14 07:00" }), today)).toBe("Slot 08:00 · Dock 2 · ETA");
+    // No booked slot: the older slot text still counts.
+    expect(expectedBecause(mv({ slot: "2026-10-14 07:00" }), today)).toBe("Slot 07:00");
+  });
+  it("sorts by the slot time today, then the slot text and ETA times, untimed last", () => {
+    const list = [
+      mv({ id: "eta", eta: today }),
+      mv({ id: "late", dockSlots: [slot({ time: "14:30" })] }),
+      mv({ id: "early", dockSlots: [slot({ time: "07:15" }), slot({ id: "s2", time: "12:00" })] }),
+      mv({ id: "text", slot: "2026-10-14 09:00" }),
+      mv({ id: "etaTime", eta: "2026-10-14T08:00:00Z" }), // 10:00 Prague
+    ];
+    const sorted = [...list].sort((a, b) => expectedSortKey(a, today).localeCompare(expectedSortKey(b, today)));
+    expect(sorted.map((m) => m.id)).toEqual(["early", "text", "etaTime", "late", "eta"]);
+  });
+  it("words a dock slot", () => {
+    expect(dockSlotText(slot())).toBe("Dock 2 · 14 Oct 08:00–09:00 · Booked");
+    expect(dockSlotText(slot({ end: "" }))).toBe("Dock 2 · 14 Oct 08:00 · Booked");
   });
 });
 

@@ -15,8 +15,9 @@ import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { positionRemeasurementHref } from "@/app/warehouse/_components/remeasurementLinks";
 import { freeTimeText, storageHint } from "@/app/warehouse/_lib/storageText";
+import { dockSlotText } from "@/app/warehouse/_lib/worklist";
 import { errorMessage, hasAnyStamp, hasSurvey, isManager, nf, requiredSurveyPhase, surveyTargets } from "../../_lib/gate";
-import { gateSteps, isOutbound, voidBlocked, voidsGateOutToo, type GateStep } from "../../_lib/steps";
+import { gateSteps, isOutbound, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, type GateStep } from "../../_lib/steps";
 import { PrintLabelsModal } from "../PrintLabelsModal";
 import { btnDefault, btnPrimary } from "./fields";
 import { OverviewTab } from "./OverviewTab";
@@ -32,6 +33,8 @@ type Tab = (typeof TABS)[number];
 const GATE_LOG_HREF = "/warehouse?tab=gatelog";
 
 const cardLabel = "text-[11px] font-bold text-slate-500 uppercase tracking-wide";
+/** Dock & Yard → Dock Schedule with the booking form open for this position. */
+export const dockBookingHref = (movementId: string) => `/warehouse?tab=dock&book=${encodeURIComponent(movementId)}`;
 
 // Status cards under the header: customs status, storage (the warehouse's one storage clock:
 // days in the warehouse, free days left or chargeable, estimated charge) and the vehicle at the
@@ -99,6 +102,15 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
           {line(TERMS.driver, driver)}
           {line(TERMS.plate, plate, true)}
           {line(out ? "Gate-out time" : "Gate-in time", gateTime, true)}
+          {/* Dock slots booked for this position in Dock & Yard. */}
+          {m.dockSlots.map((d) => (
+            <Fragment key={d.id}>{line("Dock slot", dockSlotText(d))}</Fragment>
+          ))}
+          {!m.archivedAt && (
+            <Link href={dockBookingHref(m.id)} className="self-end text-[11px] font-semibold text-indigo-500 hover:underline">
+              {m.dockSlots.length ? "Book another dock slot" : "Book dock slot"}
+            </Link>
+          )}
         </div>
       </div>
     </div>
@@ -221,12 +233,9 @@ export function GateJobView({ id }: { id: string }) {
   // Stamps are final, so each one is confirmed first (as in the Gate Log bulk bar).
   const pickStamp = (kind: GateStampKind, label: string, at: string | null) => {
     // An already stamped movement is not an error — the stamp is final, so just say so.
-    if (at) {
-      toast.info(`${label} was already stamped ${formatDateTime(at)}`);
-      return;
-    }
-    if (kind === "gateOut" && isOutbound(m) && !m.impRelease) {
-      toast.info(`Outbound cargo leaves through ${TERMS.whRelease} — it stamps the gate-out too.`);
+    const info = stampPrecheck(m, kind, label, at, formatDateTime);
+    if (info) {
+      toast.info(info);
       return;
     }
     setConfirmStamp({ kind, label });
@@ -241,14 +250,6 @@ export function GateJobView({ id }: { id: string }) {
       setConfirmStamp(null);
     }
   };
-  // What the stamp writes to the linked shipment, for the confirmation text.
-  // Only inbound arrival is a receipt; an outbound gate-in is the pickup truck.
-  const writesBack = (kind: GateStampKind) =>
-    !isOutbound(m) && (kind === "gateIn" || ((kind === "expDraft" || kind === "expReceipt") && !m.gateIn))
-      ? "received date"
-      : kind === "impRelease" || (kind === "gateOut" && isOutbound(m))
-        ? "released date and plate"
-        : null;
 
   // Survey is flagged red while a container (or the position) still lacks the survey pass due
   // now, and ticked green once all are done; nothing is shown before the cargo arrives.
@@ -564,9 +565,7 @@ export function GateJobView({ id }: { id: string }) {
           onClose={() => setConfirmStamp(null)}
           onConfirm={() => doStamp(confirmStamp.kind, confirmStamp.label)}
           title={confirmStamp.label}
-          description={`Stamp the ${confirmStamp.label} on ${m.gateRef}? The stamp cannot be taken back${
-            writesBack(confirmStamp.kind) ? ` and sets the linked shipment's ${writesBack(confirmStamp.kind)} (if any)` : ""
-          }.`}
+          description={stampConfirmText(m, confirmStamp.kind, confirmStamp.label)}
           confirmLabel={confirmStamp.label}
           loading={stamp.isPending}
         />

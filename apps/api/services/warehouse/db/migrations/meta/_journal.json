@@ -113,6 +113,13 @@
       "when": 1791995642693,
       "tag": "0015_section_per_task_exceptions",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792000362884,
+      "tag": "0016_floor_offline_dock_slots",
+      "breakpoints": true
     }
   ]
 }

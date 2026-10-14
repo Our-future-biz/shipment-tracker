@@ -87,22 +87,48 @@ export interface WarehouseContainerInput {
 
 export interface WarehouseDockSlotItem {
   id: string;
+  /** Gate movement (position) the slot is for; null only on slots booked before the link existed. */
+  movementId: string | null;
+  /** Position of the movement: its WCZ reference, customer and gate visit (příjem / výdej). */
+  warehouseTaskId: string | null;
+  positionRef: string;
+  customer: string;
+  visit: string;
+  /** YYYY-MM-DD (Prague) */
   date: string;
+  /** HH:MM (Prague) */
   time: string;
+  /** Minutes the dock door is booked for (15–480, in steps of 15). */
+  durationMin: number;
+  /** HH:MM (Prague) the slot ends; "" when unknown. */
+  end: string;
+  /** ISO; null on old slots whose date / time could not be read. */
+  startsAt: string | null;
+  endsAt: string | null;
   dock: string;
+  /** IN | OUT — follows the position (příjem = IN, výdej = OUT). */
   direction: string;
   reference: string;
   party: string;
   vehicle: string;
+  /** Booked | In progress | Completed | Overdue | Cancelled */
   status: string;
   note: string;
   createdAt: string;
   updatedAt: string;
 }
 
+/**
+ * A new slot needs `movementId` (the position), date, time and dock; reference, party and vehicle
+ * default to the position's WCZ reference, customer and plate. The same dock door cannot be
+ * booked twice for overlapping times (409 with the clashing slot named).
+ */
 export interface WarehouseDockSlotInput {
+  movementId?: string | null;
   date?: string;
   time?: string;
+  /** 15–480 minutes in steps of 15; default 60. */
+  durationMin?: number;
   dock?: string;
   direction?: string;
   reference?: string;

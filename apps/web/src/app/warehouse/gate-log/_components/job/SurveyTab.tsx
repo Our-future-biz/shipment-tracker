@@ -18,41 +18,21 @@ import {
   hasSurvey,
   requiredSurveyPhase,
   surveyPhaseKey,
-  surveyPhaseOf,
   type SurveyPhaseKey,
 } from "../../_lib/gate";
+import { blankLine, blankSurvey, lineFilled, pickInput, surveyPhotoCheck, type SurveyInput, type SurveyLine } from "../../_lib/survey";
 import { fmtSize, Section } from "./fields";
 import { ExceptionsPanel } from "./ExceptionsPanel";
-
-type SurveyInput = interfaces.GateSurveyInput;
-type SurveyLine = interfaces.GateSurveyLine;
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 const ACCEPT = "image/*,application/pdf,.tif,.tiff,.doc,.docx,.xls,.xlsx,.txt,.csv";
 
-const blankLine = (): SurveyLine => ({ qty: null, outerPacking: "", visual: [], inner: [] });
-const blankSurvey = (container: string, phase: SurveyPhaseKey): SurveyInput => ({
-  container,
-  phase: surveyPhaseOf(phase),
-  damaged: 0,
-  lost: 0,
-  lines: [blankLine()],
-  driverNote: "",
-  warehouseNote: "",
-});
-// The phase is written in its current wording, so a legacy "Both" survey saves back as receipt.
-const pickInput = ({ surveyedAt: _at, surveyedBy: _by, ...input }: interfaces.GateSurvey): SurveyInput => ({
-  ...input,
-  phase: surveyPhaseOf(surveyPhaseKey(input.phase)),
-});
 const PHASE_OPTIONS = [
   { value: "receipt", label: "Receipt — gate in" },
   { value: "release", label: "Release — gate out" },
 ];
 
 const isImage = (f: GateFile) => f.fileType.startsWith("image/");
-// A line counts as filled once it has a number of packages and an outer packing.
-const lineFilled = (l: SurveyLine) => l.qty != null && !!l.outerPacking;
 
 const readBase64 = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -104,13 +84,14 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
   };
 
   const surveyedCount = m.containers.filter((c) => hasSurvey(m, c.number, phase)).length;
-  const flagCount = draft.lines.reduce((a, l) => a + l.visual.length, 0);
   const containerPhotos = files.filter((f) => isImage(f) && f.container === container).length;
+  const photoCheck = surveyPhotoCheck(draft.lines, containerPhotos);
+  const flagCount = photoCheck.flags;
   const canAddLine = draft.lines.length > 0 && lineFilled(draft.lines[draft.lines.length - 1]!);
 
   const printSurvey = () => {
-    if (flagCount > 0 && containerPhotos < flagCount) {
-      toast.warning(`Each condition flag needs at least one photo before the survey can be printed — ${flagCount} flag(s), ${containerPhotos} photo(s).`);
+    if (photoCheck.short) {
+      toast.warning(photoCheck.text);
       return;
     }
     const w = window.open("", "_blank", "width=860,height=900");

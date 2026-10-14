@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button, Tooltip } from "antd";
 import { LeftOutlined, PlusOutlined, RightOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
@@ -15,9 +16,11 @@ import {
   type StaffMember,
   type WarehouseContainer,
 } from "@/hooks/useWarehouseRecords";
+import { useGateLog, type GateMovement } from "@/hooks/useGateLog";
+import { useToast } from "@/lib/toast";
 import type { interfaces } from "@/lib/api/client";
 import { CONTAINER_TYPES } from "@/app/warehouse/gate-log/_lib/gate";
-import { TERMS } from "@/app/warehouse/_lib/glossary";
+import { TERMS, directionOfVisit } from "@/app/warehouse/_lib/glossary";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { Card, ExpiryTag, Kpi, RecordFormModal, StatusTag, SubTabs, daysUntil, dim, type FieldDef } from "./shared";
 
@@ -25,8 +28,8 @@ type Sub = "schedule" | "yard" | "resources";
 
 const DOCKS = ["Dock 1", "Dock 2", "Dock 3", "Dock 4"];
 const HOURS = ["06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18"];
-const SLOT_STATUSES = ["Booked", "In progress", "Completed", "Overdue"];
-const SLOT_COLORS: Record<string, string> = { Completed: "green", "In progress": "orange", Booked: "default", Overdue: "red" };
+const SLOT_STATUSES = ["Booked", "In progress", "Completed", "Overdue", "Cancelled"];
+const SLOT_COLORS: Record<string, string> = { Completed: "green", "In progress": "orange", Booked: "default", Overdue: "red", Cancelled: "default" };
 const SLOT_CELL: Record<string, string> = {
   Completed: "bg-emerald-50 border-emerald-200",
   "In progress": "bg-amber-50 border-amber-200",
@@ -76,33 +79,150 @@ export function DockYardTab() {
 
 // ---------- Dock schedule ----------
 
+const DURATIONS = [30, 60, 90, 120];
+const HOUR_MIN = Number(HOURS[0]) * 60;
+const HOUR_MAX = (Number(HOURS[HOURS.length - 1]) + 1) * 60;
+const toMin = (hhmm: string) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? h! * 60 + m! : NaN;
+};
+
+type Placed = { slot: DockSlot; col: number; span: number; lane: number };
+
+/**
+ * Where each slot of one dock goes on the hour grid: from the hour it starts over every hour it
+ * runs into, in lanes so slots sharing an hour (e.g. 08:00–08:30 and 08:30–09:00) sit one under
+ * the other. Cancelled slots free the door and are left off the grid (they stay in the list).
+ */
+function placeSlots(slots: DockSlot[]): { placed: Placed[]; lanes: number } {
+  const placed: Placed[] = [];
+  const laneEnds: number[] = [];
+  for (const slot of [...slots].sort((a, b) => a.time.localeCompare(b.time))) {
+    const start = toMin(slot.time);
+    if (!Number.isFinite(start) || start >= HOUR_MAX) continue;
+    const end = Math.min(HOUR_MAX, start + (slot.durationMin || 60));
+    if (end <= HOUR_MIN) continue;
+    const first = Math.floor((Math.max(start, HOUR_MIN) - HOUR_MIN) / 60);
+    const last = Math.ceil((end - HOUR_MIN) / 60) - 1;
+    let lane = laneEnds.findIndex((e) => e <= first);
+    if (lane < 0) lane = laneEnds.length;
+    laneEnds[lane] = last + 1;
+    placed.push({ slot, col: first, span: Math.max(1, last - first + 1), lane });
+  }
+  return { placed, lanes: Math.max(1, laneEnds.length) };
+}
+
+const slotDirection = (m: GateMovement) => (m.visit === "výdej" ? "OUT" : "IN");
+const positionLabel = (m: Pick<GateMovement, "positionRef" | "gateRef" | "customer" | "visit">) =>
+  `${m.positionRef || m.gateRef} · ${m.customer || "—"} · ${directionOfVisit(m.visit)}`;
+
+type SlotForm = Omit<interfaces.WarehouseDockSlotInput, "durationMin"> & { durationMin?: string };
+
 function DockSchedule() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const toast = useToast();
   const { items, isLoading, create, update, remove, isSaving } = useDockSlots();
+  const { movements, isLoading: movementsLoading } = useGateLog();
   const [date, setDate] = useState(localDate(new Date()));
   const [editing, setEditing] = useState<{ slot?: DockSlot; preset?: Partial<interfaces.WarehouseDockSlotInput> } | null>(null);
   const daySlots = useMemo(() => items.filter((s) => s.date === date).sort((a, b) => a.time.localeCompare(b.time)), [items, date]);
+  // The four doors, and any other door name used on this day.
+  const docks = useMemo(() => [...DOCKS, ...[...new Set(daySlots.map((s) => s.dock))].filter((d) => d && !DOCKS.includes(d)).sort()], [daySlots]);
+  const byId = useMemo(() => new Map(movements.map((m) => [m.id, m])), [movements]);
+
+  const presetFor = (m: GateMovement, extra: Partial<interfaces.WarehouseDockSlotInput> = {}): Partial<interfaces.WarehouseDockSlotInput> => ({
+    movementId: m.id,
+    date,
+    direction: slotDirection(m),
+    reference: m.positionRef || m.gateRef,
+    party: m.customer,
+    vehicle: m.plate,
+    status: "Booked",
+    durationMin: 60,
+    ...extra,
+  });
+
+  // ?book=<movement id> (from the gate job): the booking form for that position.
+  const book = searchParams.get("book");
+  useEffect(() => {
+    if (!book || movementsLoading) return;
+    const m = byId.get(book);
+    if (m) setEditing({ preset: presetFor(m) });
+    else toast.warning("That position is not in the Gate Log (archived?) — pick it in the form");
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("book");
+    router.replace(params.toString() ? `${pathname}?${params}` : pathname, { scroll: false });
+    // Once per link.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [book, movementsLoading]);
+
+  const legacy = !!editing?.slot && !editing.slot.movementId;
+  const positionOptions = useMemo(() => {
+    const opts = movements.map((m) => ({ value: m.id, label: positionLabel(m) }));
+    // A slot's position that is no longer in the Gate Log (archived) keeps its label.
+    const s = editing?.slot;
+    if (s?.movementId && !byId.has(s.movementId)) opts.unshift({ value: s.movementId, label: `${s.positionRef || s.reference} · ${s.customer || "—"} · archived` });
+    return opts;
+  }, [movements, byId, editing]);
+  const durationOptions = useMemo(() => {
+    const d = editing?.slot?.durationMin;
+    return [...new Set([...DURATIONS, ...(d ? [d] : [])])].sort((a, b) => a - b).map((n) => ({ value: String(n), label: `${n} min` }));
+  }, [editing]);
 
   const fields: FieldDef[] = [
+    {
+      name: "movementId",
+      label: "Position",
+      type: "select",
+      options: positionOptions,
+      required: !legacy,
+      full: true,
+      placeholder: legacy ? "Booked before slots were linked — pick its position" : "WCZ… · customer · direction",
+    },
     { name: "date", label: "Date", type: "date", required: true },
     { name: "time", label: "Time", type: "time", required: true },
-    { name: "dock", label: "Dock", type: "select", options: DOCKS, required: true },
+    { name: "durationMin", label: "Duration", type: "select", options: durationOptions, required: true },
+    { name: "dock", label: "Dock", type: "select", options: docks, required: true },
     { name: "direction", label: "Direction", type: "select", options: ["IN", "OUT"], required: true },
-    { name: "reference", label: "Reference", placeholder: "WCZ… / master job / order" },
-    { name: "party", label: "Party" },
-    { name: "vehicle", label: "Vehicle", placeholder: TERMS.plate },
     { name: "status", label: "Status", type: "select", options: SLOT_STATUSES },
+    { name: "reference", label: "Reference", placeholder: "WCZ… (from the position)" },
+    { name: "party", label: "Party", placeholder: "Customer (from the position)" },
+    { name: "vehicle", label: "Vehicle", placeholder: TERMS.plate },
     { name: "note", label: "Note", type: "textarea" },
   ];
 
+  // The form works with the duration as text (a select); the API takes minutes.
+  const initial = useMemo<Partial<SlotForm> | undefined>(() => {
+    const v = editing?.slot ?? editing?.preset;
+    if (!v) return undefined;
+    return { ...v, movementId: v.movementId ?? undefined, durationMin: v.durationMin ? String(v.durationMin) : "60" };
+  }, [editing]);
+  const toInput = (v: SlotForm): interfaces.WarehouseDockSlotInput => ({ ...v, movementId: v.movementId || null, durationMin: Number(v.durationMin) || 60 });
+
+  const gateLink = (s: DockSlot) =>
+    s.movementId ? (
+      <Link href={`/warehouse/gate-log/${s.movementId}`} onClick={(e) => e.stopPropagation()} className="font-mono font-bold text-indigo-500 hover:underline">
+        {s.positionRef || s.reference || "Position"}
+      </Link>
+    ) : s.reference ? (
+      <span className="font-mono font-bold text-slate-600">{s.reference}</span>
+    ) : (
+      dim("")
+    );
+
   const columns: AppGridColumn<DockSlot>[] = [
-    { key: "time", title: "Time", width: 90, text: (s) => s.time, render: (_, s) => <span className="font-mono text-slate-700">{s.time}</span> },
-    { key: "dock", title: "Dock", width: 100, text: (s) => s.dock, filterOptions: DOCKS, render: (_, s) => dim(s.dock) },
+    { key: "time", title: "Time", width: 110, text: (s) => `${s.time}${s.end ? `–${s.end}` : ""}`, render: (_, s) => <span className="font-mono text-slate-700">{s.time}{s.end ? `–${s.end}` : ""}</span> },
+    { key: "dock", title: "Dock", width: 100, text: (s) => s.dock, filterOptions: docks, render: (_, s) => dim(s.dock) },
     { key: "direction", title: "Direction", width: 100, text: (s) => s.direction, filterOptions: ["IN", "OUT"], render: (_, s) => <StatusTag value={s.direction} colors={{ IN: "blue", OUT: "purple" }} /> },
-    { key: "reference", title: "Reference", width: 170, text: (s) => s.reference, render: (_, s) => (s.reference ? <span className="font-mono font-bold text-indigo-500">{s.reference}</span> : dim("")) },
+    { key: "reference", title: "Position", width: 170, text: (s) => s.positionRef || s.reference, render: (_, s) => gateLink(s) },
     { key: "party", title: "Party", width: 180, text: (s) => s.party, render: (_, s) => dim(s.party) },
     { key: "vehicle", title: "Vehicle", width: 120, text: (s) => s.vehicle, render: (_, s) => dim(s.vehicle) },
     { key: "status", title: "Status", width: 120, text: (s) => s.status, filterOptions: SLOT_STATUSES, render: (_, s) => <StatusTag value={s.status} colors={SLOT_COLORS} /> },
   ];
+
+  const gridCols = `80px repeat(${HOURS.length}, minmax(0, 1fr))`;
 
   return (
     <>
@@ -115,7 +235,7 @@ function DockSchedule() {
               Today
             </Button>
             <Button size="small" icon={<RightOutlined />} onClick={() => setDate(shiftDate(date, 1))} aria-label="Next day" />
-            <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ preset: { date, direction: "IN", status: "Booked" } })}>
+            <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ preset: { date, direction: "IN", status: "Booked", durationMin: 60 } })}>
               Book slot
             </Button>
           </>
@@ -123,7 +243,7 @@ function DockSchedule() {
       >
         <div className="overflow-x-auto">
           <div className="min-w-[860px]">
-            <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: `80px repeat(${HOURS.length}, minmax(0, 1fr))` }}>
+            <div className="grid gap-1 mb-1" style={{ gridTemplateColumns: gridCols }}>
               <div />
               {HOURS.map((h) => (
                 <div key={h} className="text-[11px] text-slate-400 text-center">
@@ -131,54 +251,60 @@ function DockSchedule() {
                 </div>
               ))}
             </div>
-            {DOCKS.map((dock) => (
-              <div key={dock} className="grid gap-1 mb-1 items-stretch" style={{ gridTemplateColumns: `80px repeat(${HOURS.length}, minmax(0, 1fr))` }}>
-                <div className="text-xs font-semibold text-slate-700 self-center">{dock}</div>
-                {HOURS.map((h) => {
-                  const cell = daySlots.filter((s) => s.dock === dock && s.time.slice(0, 2) === h);
-                  return cell.length ? (
-                    <div key={h} className="flex flex-col gap-0.5">
-                      {cell.map((s) => (
-                        <Tooltip key={s.id} title={`${s.time} · ${s.reference || "—"} · ${s.party || "—"} · ${s.status}`}>
-                          <button
-                            type="button"
-                            onClick={() => setEditing({ slot: s })}
-                            className={`text-left border rounded-md px-1.5 py-1 overflow-hidden cursor-pointer ${SLOT_CELL[s.status] ?? SLOT_CELL.Booked}`}
-                          >
-                            <div className="text-[10px] font-semibold leading-tight text-slate-800">
-                              {s.direction} {s.time}
-                            </div>
-                            <div className="text-[10px] text-slate-500 truncate">{s.reference || s.party || "—"}</div>
-                          </button>
-                        </Tooltip>
-                      ))}
-                    </div>
-                  ) : (
+            {docks.map((dock) => {
+              const { placed, lanes } = placeSlots(daySlots.filter((s) => s.dock === dock && s.status !== "Cancelled"));
+              return (
+                <div
+                  key={dock}
+                  className="grid gap-1 mb-1"
+                  style={{ gridTemplateColumns: gridCols, gridTemplateRows: `repeat(${lanes}, minmax(36px, auto))` }}
+                >
+                  <div className="text-xs font-semibold text-slate-700 self-center" style={{ gridRow: `1 / span ${lanes}` }}>
+                    {dock}
+                  </div>
+                  {HOURS.map((h, i) => (
                     <button
                       key={h}
                       type="button"
                       aria-label={`Book ${dock} at ${h}:00`}
-                      onClick={() => setEditing({ preset: { date, time: `${h}:00`, dock, direction: "IN", status: "Booked" } })}
-                      className="h-9 rounded-md border border-dashed border-slate-200 bg-slate-50/60 hover:border-indigo-300 hover:bg-indigo-50/40 cursor-pointer"
+                      onClick={() => setEditing({ preset: { date, time: `${h}:00`, dock, direction: "IN", status: "Booked", durationMin: 60 } })}
+                      style={{ gridColumn: i + 2, gridRow: `1 / span ${lanes}` }}
+                      className="rounded-md border border-dashed border-slate-200 bg-slate-50/60 hover:border-indigo-300 hover:bg-indigo-50/40 cursor-pointer"
                     />
-                  );
-                })}
-              </div>
-            ))}
+                  ))}
+                  {placed.map(({ slot: s, col, span, lane }) => (
+                    <Tooltip key={s.id} title={`${s.time}–${s.end || "?"} · ${s.positionRef || s.reference || "—"} · ${s.party || "—"} · ${s.status}`}>
+                      <button
+                        type="button"
+                        onClick={() => setEditing({ slot: s })}
+                        style={{ gridColumn: `${col + 2} / span ${span}`, gridRow: lane + 1 }}
+                        className={`relative z-[1] text-left border rounded-md px-1.5 py-1 overflow-hidden cursor-pointer ${SLOT_CELL[s.status] ?? SLOT_CELL.Booked}`}
+                      >
+                        <div className="text-[10px] font-semibold leading-tight text-slate-800 truncate">
+                          {s.direction} {s.time}–{s.end}
+                        </div>
+                        <div className="text-[10px] text-slate-500 truncate">{s.positionRef || s.reference || s.party || "—"}</div>
+                      </button>
+                    </Tooltip>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         </div>
         <div className="flex flex-wrap gap-4 mt-3 text-xs text-slate-500">
-          {SLOT_STATUSES.map((s) => (
+          {SLOT_STATUSES.filter((s) => SLOT_CELL[s]).map((s) => (
             <span key={s} className="inline-flex items-center gap-1.5">
               <i className={`inline-block w-2.5 h-2.5 rounded-sm border ${SLOT_CELL[s]}`} />
               {s}
             </span>
           ))}
+          <span>Cancelled slots free the door and are listed below only.</span>
         </div>
       </Card>
 
       <AppGrid<DockSlot>
-        searchPlaceholder="Search reference, party, vehicle…"
+        searchPlaceholder="Search position, party, vehicle…"
         columns={columns}
         rows={daySlots}
         rowKey={(s) => s.id}
@@ -191,14 +317,20 @@ function DockSchedule() {
       />
 
       {editing && (
-        <RecordFormModal<interfaces.WarehouseDockSlotInput>
+        <RecordFormModal<SlotForm>
           open
-          title={editing.slot ? `Slot ${editing.slot.dock} · ${editing.slot.time}` : "Book slot"}
+          title={editing.slot ? `Slot ${editing.slot.dock} · ${editing.slot.time}${editing.slot.end ? `–${editing.slot.end}` : ""}` : "Book slot"}
+          note="A dock door cannot be booked twice for overlapping times. Direction, reference, party and vehicle come from the position."
           fields={fields}
-          initial={editing.slot ?? editing.preset}
+          initial={initial}
           saving={isSaving}
           onCancel={() => setEditing(null)}
-          onSubmit={(v) => (editing.slot ? update(editing.slot.id, v) : create(v))}
+          onValuesChange={(changed, set) => {
+            if (!("movementId" in changed)) return;
+            const m = changed.movementId ? byId.get(changed.movementId) : undefined;
+            if (m) set({ direction: slotDirection(m), reference: m.positionRef || m.gateRef, party: m.customer, vehicle: m.plate });
+          }}
+          onSubmit={(v) => (editing.slot ? update(editing.slot.id, toInput(v)) : create(toInput(v)))}
           onDelete={editing.slot ? () => remove(editing.slot!.id) : undefined}
           okText={editing.slot ? "Save" : "Book slot"}
         />

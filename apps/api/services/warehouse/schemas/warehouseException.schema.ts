@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, integer, jsonb, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, integer, jsonb, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 // Damage / short / over (OS&D) exceptions of a gate movement, recorded from a survey or by hand.
@@ -25,12 +25,17 @@ export const warehouseExceptionTable = pgTable(
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     resolvedBy: text("resolved_by").notNull().default(""),
     resolutionNote: text("resolution_note").notNull().default(""),
+    // Id the phone gave the exception (floor mode); a replay of the same request adds nothing.
+    clientRequestId: text("client_request_id"),
   },
   (table) => [
     ...defaultTableIndexes("warehouse_exception", table),
     tenantIndex("warehouse_exception", table),
     index("warehouse_exception_movement_idx").on(table.movementId),
     index("warehouse_exception_open_idx").on(table.companyId, table.movementId).where(sql`status = 'open' AND deleted_at IS NULL`),
+    uniqueIndex("warehouse_exception_request_unique")
+      .on(table.companyId, table.movementId, table.clientRequestId)
+      .where(sql`client_request_id IS NOT NULL`),
   ],
 );
 

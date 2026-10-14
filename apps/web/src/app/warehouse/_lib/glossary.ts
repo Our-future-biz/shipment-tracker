@@ -27,6 +27,9 @@ export const TERMS = {
   pickupPin: "Pick-up PIN",
   archived: "Archived",
   voidStamp: "Void a stamp",
+  floorMode: "Floor mode",
+  dockSlot: "Dock slot",
+  waitingToSend: "Waiting to send",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -74,6 +77,22 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     meaning:
       "Damaged, short or over cargo recorded on the gate job (from a survey or by hand). While one is open the cargo is on hold: the release gate “No open exceptions” is Blocked and the WH release is refused unless a supervisor overrides. Anyone resolves it with a note; both are logged.",
     replaces: "OS&D",
+  },
+  {
+    term: TERMS.floorMode,
+    meaning:
+      "The Warehouse on a phone or handheld scanner (button Floor mode in the Warehouse header and the Gate Log): scan a label, then stamp the next gate step with one big button, do the survey with photos from the phone camera, record damage / short / over and check the pick-up PIN. The same steps, rules and confirmations as the gate job.",
+  },
+  {
+    term: TERMS.waitingToSend,
+    meaning:
+      "Floor mode without a connection: stamps (except the WH release), surveys, exceptions and photos are kept on the phone and sent in order, with the time they were made, as soon as it is back online. Each is applied once; one stamped meanwhile by someone else is reported, not doubled. The PIN check and the WH release need a connection. Items older than 12 hours are not sent.",
+  },
+  {
+    term: TERMS.dockSlot,
+    meaning:
+      "A dock door booked for a position in Dock & Yard → Dock Schedule (date, time, duration). The same door cannot be booked twice for overlapping times; Cancelled and Completed slots free it. The slot shows on the gate job and in floor mode, and Expected today uses its time.",
+    replaces: "Slot (free text)",
   },
   {
     term: "W/M",

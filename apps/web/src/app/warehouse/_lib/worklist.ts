@@ -27,26 +27,62 @@ function dayOf(v: string | null | undefined): string {
   return "";
 }
 
-type ExpectedFields = Pick<Movement, "status" | "gateIn" | "eta" | "slot" | "subPositions">;
+type ExpectedFields = Pick<Movement, "status" | "gateIn" | "eta" | "slot" | "subPositions" | "dockSlots">;
+type DockSlot = interfaces.GateDockSlot;
+
+/** Dock slots that still hold their door (Cancelled and Completed ones free it). */
+const liveSlot = (s: DockSlot) => s.status !== "Cancelled" && s.status !== "Completed";
+
+/** The movement's first live dock slot on `today` (Prague date), if any. */
+export function slotToday(m: Pick<Movement, "dockSlots">, today: string): DockSlot | undefined {
+  return m.dockSlots.filter((s) => liveSlot(s) && s.date === today).sort((a, b) => a.time.localeCompare(b.time))[0];
+}
+
+/** "Dock 2 · 14 Oct 08:00–09:00 · Booked" — a dock slot as the gate job and floor mode show it. */
+export function dockSlotText(s: DockSlot): string {
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(s.date) ? new Date(`${s.date}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" }) : s.date;
+  return `${s.dock} · ${day} ${s.time}${s.end ? `–${s.end}` : ""} · ${s.status}`;
+}
 
 /**
  * Expected at the gate today: not arrived yet (status Expected, no gate-in) and today is its ETA,
- * its dock slot or the ETA warehouse (ETW) of one of its sub-positions.
+ * its dock slot (Dock & Yard; the older slot text when it has none) or the ETA warehouse (ETW) of
+ * one of its sub-positions.
  */
 export function isExpectedToday(m: ExpectedFields, today: string): boolean {
   if (m.status !== "Expected" || m.gateIn) return false;
-  if (dayOf(m.eta) === today || dayOf(m.slot) === today) return true;
+  if (slotToday(m, today) || dayOf(m.eta) === today || dayOf(m.slot) === today) return true;
   return m.subPositions.some((s) => dayOf(s.etw) === today);
 }
 
-/** What made a movement expected today, for the panel ("ETA", "Slot 08:00", "ETW"). */
+/** What made a movement expected today, for the panel ("Slot 08:00 · Dock 2", "ETA", "ETW"). */
 export function expectedBecause(m: ExpectedFields, today: string): string {
   const parts: string[] = [];
-  if (dayOf(m.slot) === today) parts.push(`Slot ${m.slot.slice(11, 16) || m.slot}`.trim());
+  const booked = slotToday(m, today);
+  if (booked) parts.push(`Slot ${booked.time} · ${booked.dock}`);
+  else if (dayOf(m.slot) === today) parts.push(`Slot ${m.slot.slice(11, 16) || m.slot}`.trim());
   if (dayOf(m.eta) === today) parts.push("ETA");
   if (m.subPositions.some((s) => dayOf(s.etw) === today)) parts.push("ETW");
   return parts.join(" · ");
 }
+
+/**
+ * Sort key of the Expected today list: the dock slot time today first (HH:MM), then the older slot
+ * text's time, then the ETA's; without a time the position goes last ("99:99").
+ */
+export function expectedSortKey(m: ExpectedFields, today: string): string {
+  const booked = slotToday(m, today);
+  if (booked) return booked.time;
+  if (dayOf(m.slot) === today && /\d{2}:\d{2}/.test(m.slot.slice(11))) return m.slot.slice(11, 16);
+  const eta = (m.eta ?? "").trim();
+  if (dayOf(eta) === today && /[ T]\d{2}:\d{2}/.test(eta)) {
+    const zoned = /[zZ]|[+-]\d{2}:?\d{2}$/.test(eta);
+    return zoned ? PRAGUE_TIME.format(new Date(eta)) : eta.slice(11, 16);
+  }
+  return "99:99";
+}
+
+const PRAGUE_TIME = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 
 // ─── Positions quick filters ───────────────────────────────────
 
@@ -54,7 +90,7 @@ export type ChipId = "attention" | "expectedToday" | "inWarehouse" | "expiring" 
 
 type ChipFields = Pick<
   Movement,
-  "status" | "gateIn" | "gateOut" | "impRelease" | "visit" | "eta" | "slot" | "subPositions" | "needsAttention" | "openExceptions" | "overridden" | "shipmentUpdate" | "storage"
+  "status" | "gateIn" | "gateOut" | "impRelease" | "visit" | "eta" | "slot" | "subPositions" | "dockSlots" | "needsAttention" | "openExceptions" | "overridden" | "shipmentUpdate" | "storage"
 >;
 
 // An inbound (příjem) gate-out is the delivering truck leaving: the cargo stays In Warehouse.

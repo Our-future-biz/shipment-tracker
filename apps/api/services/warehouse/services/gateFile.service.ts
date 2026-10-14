@@ -6,6 +6,7 @@ import { gateMovementRepository } from "../repositories/gateMovement.repository"
 import { gateFileBucket } from "../storage/gateFileBucket";
 import type { GateFileRecord } from "../schemas/gateFile.schema";
 import type { GateFileItem } from "../interfaces/gate.interfaces";
+import { checkRequestId, pgCode } from "./offline";
 
 // A single upload may be up to 25 MB; the page shows usage against ~20 MB per shipment.
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -38,9 +39,13 @@ class GateFileService {
     movementId: string,
     companyId: string,
     userId: string,
-    input: { fileName: string; fileType: string; contentBase64: string; container?: string; tag?: string },
+    input: { fileName: string; fileType: string; contentBase64: string; container?: string; tag?: string; clientRequestId?: string },
   ) {
     await this.movement(movementId, companyId);
+    // Floor mode: a photo sent again (offline queue, lost answer) returns the file already stored.
+    const requestId = checkRequestId(input.clientRequestId);
+    const prev = requestId ? await gateFileRepository.findByRequestId(movementId, companyId, requestId) : null;
+    if (prev) return toItem(prev);
     if (!input.fileName.trim()) throw APIError.invalidArgument("fileName is required");
     const buffer = Buffer.from(input.contentBase64 ?? "", "base64");
     if (!buffer.length) throw APIError.invalidArgument("The file is empty");
@@ -56,18 +61,27 @@ class GateFileService {
     } catch {
       // Name is cosmetic — keep the upload.
     }
-    const row = await gateFileRepository.create({
-      companyId,
-      movementId,
-      container: input.container ?? "",
-      tag: input.tag ?? "",
-      fileName: input.fileName.trim(),
-      fileSize: buffer.length,
-      fileType: input.fileType ?? "",
-      storageKey,
-      uploadedBy,
-    });
-    return toItem(row);
+    try {
+      const row = await gateFileRepository.create({
+        companyId,
+        movementId,
+        container: input.container ?? "",
+        tag: input.tag ?? "",
+        fileName: input.fileName.trim(),
+        fileSize: buffer.length,
+        fileType: input.fileType ?? "",
+        storageKey,
+        uploadedBy,
+        ...(requestId ? { clientRequestId: requestId } : {}),
+      });
+      return toItem(row);
+    } catch (err) {
+      // Two copies of one upload at once: the first one stored is the file (the other copy's
+      // bytes stay in the bucket unused, as removed files' bytes do).
+      const first = requestId && pgCode(err) === "23505" ? await gateFileRepository.findByRequestId(movementId, companyId, requestId) : null;
+      if (!first) throw err;
+      return toItem(first);
+    }
   }
 
   // Bytes come back through an authenticated call; the browser turns them into an object URL.

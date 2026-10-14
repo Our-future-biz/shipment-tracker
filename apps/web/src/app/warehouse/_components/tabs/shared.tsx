@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Button, Form, Input, InputNumber, Modal, Select, Tag } from "antd";
+import { Alert, Button, Form, Input, InputNumber, Modal, Select, Tag } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
@@ -214,6 +214,8 @@ export function RecordFormModal<V extends object>({
   onSubmit,
   onDelete,
   okText = "Save",
+  onValuesChange,
+  note,
 }: {
   open: boolean;
   title: string;
@@ -224,13 +226,20 @@ export function RecordFormModal<V extends object>({
   onSubmit: (values: V) => Promise<unknown>;
   onDelete?: () => Promise<unknown>;
   okText?: string;
+  /** A field changed: may fill in others (e.g. a dock slot's party from its position). */
+  onValuesChange?: (changed: Partial<V>, set: (values: Partial<V>) => void) => void;
+  /** A line above the fields. */
+  note?: ReactNode;
 }) {
   const [form] = Form.useForm<V>();
   const toast = useToast();
+  // The server's refusal stays in the form (e.g. a dock door already booked) until the next try.
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (!open) return;
     form.resetFields();
+    setError("");
     if (initial) form.setFieldsValue(initial as never);
   }, [open, initial, form]);
 
@@ -243,11 +252,14 @@ export function RecordFormModal<V extends object>({
         return [f.name, f.type === "number" ? (v === undefined || v === "" ? null : v) : (v ?? "")];
       }),
     ) as V;
+    setError("");
     try {
       await onSubmit(cleaned);
       onCancel();
     } catch (e) {
-      toast.error(errorMessage(e, "Failed to save"));
+      const msg = errorMessage(e, "Failed to save");
+      setError(msg);
+      toast.error(msg);
     }
   };
 
@@ -289,7 +301,15 @@ export function RecordFormModal<V extends object>({
         </div>
       )}
     >
-      <Form form={form} layout="vertical" requiredMark={false} className="grid grid-cols-2 gap-x-4 [&_.ant-form-item]:mb-3">
+      {note && <div className="mb-3 text-xs text-slate-500">{note}</div>}
+      {error && <Alert type="error" showIcon className="!mb-3" message={error} />}
+      <Form
+        form={form}
+        layout="vertical"
+        requiredMark={false}
+        className="grid grid-cols-2 gap-x-4 [&_.ant-form-item]:mb-3"
+        onValuesChange={onValuesChange ? (changed: Partial<V>) => onValuesChange(changed, (v) => form.setFieldsValue(v as never)) : undefined}
+      >
         {fields.map((f) => {
           const header =
             f.section && f.section !== lastSection ? (

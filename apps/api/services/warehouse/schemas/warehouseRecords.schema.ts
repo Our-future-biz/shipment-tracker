@@ -1,4 +1,4 @@
-import { pgTable, text, integer, doublePrecision, uuid, index } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, doublePrecision, uuid, index, timestamp } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 // Warehouse module records behind the Containers, Dock & Yard and Reports tabs.
@@ -50,23 +50,37 @@ export const warehouseContainerTable = pgTable(
   ],
 );
 
-// A booked slot at one of the warehouse docks.
+// A booked slot at one of the warehouse docks, linked to the position's gate movement.
+// No double booking: migration 0016 adds the EXCLUDE constraint warehouse_dock_slot_no_overlap
+// (same company, same dock, overlapping [starts_at, ends_at) of live slots that are not
+// Cancelled or Completed). drizzle-kit cannot model it, so it is not in this schema or the
+// snapshot — a later generate does not drop it.
 export const warehouseDockSlotTable = pgTable(
   "warehouse_dock_slot",
   {
     ...defaultTableColumns,
     ...tenantColumns,
-    date: text("date").notNull(), // YYYY-MM-DD
-    time: text("time").notNull(), // HH:MM
+    // Gate movement (position) the slot is for; null only on slots booked before the link existed.
+    movementId: uuid("movement_id"),
+    date: text("date").notNull(), // YYYY-MM-DD (Prague)
+    time: text("time").notNull(), // HH:MM (Prague)
+    durationMin: integer("duration_min").notNull().default(60),
+    // The slot as instants (from date, time and duration in Prague time); what the overlap rule uses.
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
     dock: text("dock").notNull(),
     direction: text("direction").notNull().default("IN"), // IN | OUT
     reference: text("reference").notNull().default(""),
     party: text("party").notNull().default(""),
     vehicle: text("vehicle").notNull().default(""),
-    status: text("status").notNull().default("Booked"), // Booked | In progress | Completed | Overdue
+    status: text("status").notNull().default("Booked"), // Booked | In progress | Completed | Overdue | Cancelled
     note: text("note").notNull().default(""),
   },
-  (table) => [...defaultTableIndexes("warehouse_dock_slot", table), tenantIndex("warehouse_dock_slot", table)],
+  (table) => [
+    ...defaultTableIndexes("warehouse_dock_slot", table),
+    tenantIndex("warehouse_dock_slot", table),
+    index("warehouse_dock_slot_movement_idx").on(table.movementId),
+  ],
 );
 
 // Shift roster — who works where today.

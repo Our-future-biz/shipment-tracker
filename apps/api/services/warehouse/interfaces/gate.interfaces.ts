@@ -107,6 +107,8 @@ export interface GateEvent {
   at: string;
   by: string;
   detail?: string;
+  /** Id of the phone request that made it (floor mode, offline queue). */
+  requestId?: string;
 }
 
 /**
@@ -202,6 +204,30 @@ export interface GateExceptionInput {
   source?: string;
   /** Photos of this movement to attach (gate file ids, at most 20). */
   fileIds?: string[];
+  /** Floor mode: id the phone gave this exception; the same id sent again adds nothing. */
+  clientRequestId?: string;
+  /** Floor mode: when it was recorded on the phone (ISO), if it was sent later (offline). */
+  recordedAt?: string;
+}
+
+/** A dock slot booked for the movement (Dock & Yard), as the gate job and floor mode show it. */
+export interface GateDockSlot {
+  id: string;
+  /** YYYY-MM-DD (Prague) */
+  date: string;
+  /** HH:MM (Prague) */
+  time: string;
+  /** HH:MM (Prague) the slot ends; "" when unknown. */
+  end: string;
+  dock: string;
+  /** IN | OUT */
+  direction: string;
+  /** Booked | In progress | Completed | Overdue */
+  status: string;
+  durationMin: number;
+  /** ISO; null on old slots whose date / time could not be read. */
+  startsAt: string | null;
+  endsAt: string | null;
 }
 
 export interface GateMovementItem {
@@ -301,6 +327,8 @@ export interface GateMovementItem {
   exceptions: GateExceptionItem[];
   /** Open exceptions: the cargo is ON HOLD while this is above 0. */
   openExceptions: number;
+  /** Dock slots booked for this movement (not cancelled), earliest first. */
+  dockSlots: GateDockSlot[];
   createdAt: string;
   updatedAt: string;
 }

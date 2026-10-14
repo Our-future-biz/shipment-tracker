@@ -19,8 +19,8 @@ interface RecordApi<Item, Input> {
   remove: (id: string) => Promise<unknown>;
 }
 
-// List + create/update/delete for one warehouse record type. Changes to containers also
-// refresh the gate log (positions show their containers) and the calculated reports.
+// List + create/update/delete for one warehouse record type. Changes to containers and dock
+// slots also refresh the gate log, and every change the calculated reports.
 function useRecords<Item, Input>({ key, list, create, update, remove }: RecordApi<Item, Input>) {
   const queryClient = useQueryClient();
   const query = useQuery({ queryKey: ["warehouse-records", key], queryFn: list });
@@ -28,7 +28,8 @@ function useRecords<Item, Input>({ key, list, create, update, remove }: RecordAp
     Promise.all([
       queryClient.invalidateQueries({ queryKey: ["warehouse-records", key] }),
       queryClient.invalidateQueries({ queryKey: ["warehouse-records", "report-summary"] }),
-      ...(key === "containers" ? [queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] })] : []),
+      // Positions show their containers, and their dock slots (gate job, Expected today, floor mode).
+      ...(key === "containers" || key === "dock-slots" ? [queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] })] : []),
     ]);
 
   const createMut = useMutation({ mutationFn: create, onSuccess: refresh });

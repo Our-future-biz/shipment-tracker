@@ -113,6 +113,35 @@ export function ReadmeTab() {
         </p>
       </Part>
 
+      <Part title={`${TERMS.floorMode}: phones and handheld scanners`}>
+        <p>
+          <b>{TERMS.floorMode}</b> (button in the Warehouse header and the Gate Log) is the Warehouse for a phone held in one hand. It covers the whole screen;{" "}
+          <b>×</b> goes back to the desk view. Home is a scan box and <b>Expected today</b> (earliest dock slot first). Scan a label with the handheld scanner
+          (or type, after <b>Keyboard</b>; or <b>Scan with camera</b> where the phone&rsquo;s browser can read barcodes — Chrome on Android over https) and the
+          position opens.
+        </p>
+        <p>
+          A position shows the {TERMS.warehouseRef.toLowerCase()}, {TERMS.jobNo.toLowerCase()}, {TERMS.direction.toLowerCase()}, customs status,{" "}
+          {TERMS.pieces.toLowerCase()} / weight / volume, the {TERMS.dockSlot.toLowerCase()} and the gate steps. The next step is one big button at the bottom —
+          same order, same confirmation and the same shipment write-back as on the gate job. From there: the survey of the pass due now (one container per
+          screen), photos with the phone camera, damage / short / over, the {TERMS.pickupPin} check (outbound) and the release readiness. <b>Open full gate job</b>{" "}
+          has everything else.
+        </p>
+        <p>
+          <b>Handheld scanners everywhere</b>: on any Warehouse page, a scan made while no field is focused opens that position (its gate job; its floor screen in
+          floor mode). A scanner is told apart from typing by its speed, so typing in fields is never affected. Scanners must end each code with Enter (or Tab);
+          a scanner set to the wrong keyboard layout (Czech number row, Y and Z swapped) is still read.
+        </p>
+        <p>
+          <b>No connection</b>: the header shows <b>Offline</b>. Stamps (all but the {TERMS.whRelease}), survey saves, exceptions and photos are kept on the phone —{" "}
+          <b>{TERMS.waitingToSend} (n)</b> — and sent in order, with the time they were made, once it is back online; the log says &ldquo;recorded offline at
+          …, sent …&rdquo;. Each is applied once: one already stamped (by this phone or someone else) is reported, not doubled, and a survey older than the one
+          stored is not applied. The {TERMS.pickupPin} check and the {TERMS.whRelease} need a connection. Items older than 12 hours, or refused by the server,
+          stay in the list until you try again or discard them; items of another user wait until that user signs in. Keep the floor page open while offline —
+          reloading it without a connection does not work.
+        </p>
+      </Part>
+
       <Part title="Gate stamps, step by step">
         <p>The job header shows the stamps as steps in the order of the work for the cargo&rsquo;s direction:</p>
         <ul>
@@ -280,7 +309,10 @@ export function ReadmeTab() {
             <b>Containers</b>: the container register with its unloading / loading schedule and VGM.
           </li>
           <li>
-            <b>Dock &amp; Yard</b>: dock schedule, yard / container park, labour and equipment.
+            <b>Dock &amp; Yard</b>: dock schedule, yard / container park, labour and equipment. A {TERMS.dockSlot.toLowerCase()} is booked for a position
+            (pick it in the form, or <b>Book dock slot</b> on the gate job) with a date, time and duration; direction, reference, party and vehicle come from
+            the position. The same dock door cannot be booked twice for overlapping times — the form says which booking is in the way. Cancelled and Completed
+            slots free the door. Slots booked before this link stay editable without a position.
           </li>
           <li>
             <b>Stock</b>: stock on hand, locations and occupancy, movements, ageing and free time, bonded register.

@@ -2,17 +2,17 @@ import { randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { hash, verify } from "@node-rs/argon2";
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { db } from "../db/db";
 import { gateMovementRepository, hasStampSql, type GateMovementRow } from "../repositories/gateMovement.repository";
-import { containerRepository } from "../repositories/warehouseRecords.repository";
+import { containerRepository, dockSlotRepository } from "../repositories/warehouseRecords.repository";
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
 import { gateMovementTable, type GateChecklist, type GateEvent, type GateMovementRecord, type GateReleaseLine, type GateSubPosition, type GateSurvey, type GateSurveyLine, type GateTransportLeg, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
 import type { NewShipmentOutboxRecord, ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
 import { gateExceptionRepository } from "../repositories/gateException.repository";
 import type { WarehouseExceptionRecord } from "../schemas/warehouseException.schema";
-import type { GateExceptionItem, GateMovementInput, GateMovementItem, GatePickupInfo, GateSurveyInput } from "../interfaces/gate.interfaces";
+import type { GateDockSlot, GateExceptionItem, GateMovementInput, GateMovementItem, GatePickupInfo, GateSurveyInput } from "../interfaces/gate.interfaces";
 import { EXCEPTION_GATE, exceptionHold, noOpenExceptionSql } from "./osd";
 import { isIsoDate, movementStorage, pragueDate, storageNote, type StorageInfo } from "./storage";
 import { remeasureTotals, type RemeasureTotals } from "./remeasure";
@@ -21,6 +21,8 @@ import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine, setCustomsLineSql } fro
 import { deliverDue, shipmentUpdateState } from "./shipmentOutbox.service";
 import { FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
 import { userName } from "./users";
+import { acceptRecordedAt, checkRequestId, latest, offlineDetail, pragueHhmm, type StampOutcome, type SurveyOutcome } from "./offline";
+import { dockSlotsOf } from "./dockSlots";
 import {
   isLinkedOutbound,
   linkedOutboundCond,
@@ -206,6 +208,7 @@ function toItem(
   outbox: ShipmentOutboxRecord[] = [],
   exceptions: WarehouseExceptionRecord[] = [],
   now = new Date(),
+  dockSlots: GateDockSlot[] = [],
 ): GateMovementItem {
   const { pinHash, companyId: _companyId, deletedAt, releaseStatus: _releaseStatus, shipmentCheckedAt, ...rest } = m;
   const pick = isLinkedOutbound(m) ? pickupInfo(pickup ?? readPickup(null)) : null;
@@ -216,6 +219,7 @@ function toItem(
     storage,
     exceptions: exceptions.map(exceptionItem),
     openExceptions: exceptions.filter((e) => e.status === "open").length,
+    dockSlots,
     containers: containers.map((c) => ({ id: c.id, number: c.number, type: c.equipment })),
     transportLegs: normalizeLegs(m.transportLegs),
     surveys: m.surveys.map(normalizeSurvey),
@@ -293,6 +297,54 @@ function stampBlocked(m: GateMovementRow, kind: StampKind): string | null {
   }
 }
 
+const STAMP_LABEL: Record<StampKind, string> = {
+  gateIn: "Gate-in",
+  gateOut: "Gate-out",
+  impRelease: "WH release",
+  expDraft: "WH draft receipt",
+  expReceipt: "WH receipt",
+};
+
+/** Floor mode (phones): the time the stamp was made on the phone and the id of the request. */
+export interface StampOptions {
+  recordedAt?: string;
+  clientRequestId?: string;
+}
+
+// A stamp request with an id that finds its stamp already there: the same request came before
+// (its event carries the id — even if a manager voided the stamp since, it is not stamped again),
+// or another clerk stamped first. Null when the column is still empty and the id is new.
+function stampConflict(m: GateMovementRow, kind: StampKind, requestId: string): { outcome: StampOutcome; notice: string } | null {
+  const mine = m.events.find((e) => e.requestId === requestId);
+  if (mine) {
+    return { outcome: "already_stamped", notice: `${STAMP_LABEL[kind]} was already sent from this phone (stamped ${pragueHhmm(new Date(mine.at))})` };
+  }
+  const value = m[kind];
+  if (!value) return null;
+  const evt = [...m.events].reverse().find((e) => e.kind === kind);
+  const who = evt?.by ? ` by ${evt.by}` : "";
+  return { outcome: "stamped_by_someone_else", notice: `${STAMP_LABEL[kind]} was already stamped ${pragueHhmm(value)}${who}` };
+}
+
+// The step a stamp made offline must not come before: a WH receipt after its draft, a gate-out
+// after the arrival (gate-in, receipt) and the WH release.
+function stampNotBefore(m: GateMovementRow, kind: StampKind): { notBefore: Date | null; after: string } {
+  switch (kind) {
+    case "expDraft":
+      // An export arrival may set the gate-in itself; one stamped before stays first.
+      return { notBefore: m.gateIn, after: "the gate-in" };
+    case "expReceipt": {
+      const notBefore = latest(m.gateIn, m.expDraft);
+      const afterDraft = !!m.expDraft && notBefore?.getTime() === m.expDraft.getTime();
+      return { notBefore, after: afterDraft ? "the draft receipt" : "the gate-in" };
+    }
+    case "gateOut":
+      return { notBefore: latest(m.gateIn, m.expReceipt, m.impRelease), after: "the arrival / release" };
+    default:
+      return { notBefore: null, after: "" };
+  }
+}
+
 // A record as stored now (after a change made while it was being read), keeping its task link.
 const withStored = (m: GateMovementRow, stored?: GateMovementRecord): GateMovementRow => (stored ? { ...m, ...stored } : m);
 
@@ -322,6 +374,7 @@ class GateMovementService {
     const containers = await containerRepository.listForMovements(ids, companyId);
     const outbox = await shipmentOutboxRepository.openForMovements(ids, companyId);
     const exceptions = await gateExceptionRepository.listForMovements(ids, companyId);
+    const slots = await dockSlotRepository.listForMovements(ids, companyId);
     const linked = [...new Set(movements.filter(isLinkedOutbound).map((m) => m.shipmentId!))];
     const sections = await warehouseSectionRepository.findPickupForShipments(linked, companyId);
     const pickupOf = (shipmentId: string | null) => readPickup(sections.find((x) => x.shipmentId === shipmentId)?.data);
@@ -334,6 +387,7 @@ class GateMovementService {
         outbox.filter((o) => o.movementId === m.id),
         exceptions.filter((e) => e.movementId === m.id),
         now,
+        dockSlotsOf(slots, m.id),
       ),
     );
   }
@@ -373,7 +427,8 @@ class GateMovementService {
     const pickup = isLinkedOutbound(m) ? readPickup((await warehouseSectionRepository.findPickup(m.shipmentId!, companyId))?.data) : undefined;
     const outbox = await shipmentOutboxRepository.openForMovements([m.id], companyId);
     const exceptions = await gateExceptionRepository.listForMovements([m.id], companyId);
-    return toItem(m, containers, pickup, outbox, exceptions);
+    const slots = await dockSlotRepository.listForMovements([m.id], companyId);
+    return toItem(m, containers, pickup, outbox, exceptions, new Date(), dockSlotsOf(slots, m.id));
   }
 
   // Every action reads the row through here, so it always sees the Pick-up PIN line when the
@@ -616,9 +671,44 @@ class GateMovementService {
   // Saves the survey of one container (or the position when it has no container) for one
   // pass — receipt or release — and records who surveyed it and when. Damaged / lost are
   // capped to the pieces on the movement only when those are known (pieces > 0).
-  async saveSurvey(id: string, companyId: string, userId: string, survey: GateSurveyInput) {
+  async saveSurvey(id: string, companyId: string, userId: string, survey: GateSurveyInput, opts: StampOptions = {}) {
+    return (await this.saveSurveyWithOutcome(id, companyId, userId, survey, opts)).movement;
+  }
+
+  // The survey save as the endpoint answers it. Floor mode may send it later than it was made
+  // (offline queue, `recordedAt` = the time on the phone, logged as recorded offline). The latest
+  // survey wins: a save older than the one stored for that container and pass changes nothing
+  // ("newer_exists"), and the same request sent again is recognised by its id ("already_saved").
+  async saveSurveyWithOutcome(
+    id: string,
+    companyId: string,
+    userId: string,
+    survey: GateSurveyInput,
+    opts: StampOptions = {},
+  ): Promise<{ movement: GateMovementItem; outcome: SurveyOutcome; notice: string }> {
     if (!SURVEY_PHASES.includes(survey.phase)) throw APIError.invalidArgument(`Survey phase must be one of: ${SURVEY_PHASES.join(", ")}`);
+    const requestId = checkRequestId(opts.clientRequestId);
     const m = await this.load(id, companyId);
+    const key = surveyPhaseKey(survey.phase);
+    const passName = `${key}${survey.container ? `, ${survey.container}` : ""}`;
+    const storedOf = (row: Pick<GateMovementRecord, "surveys">) =>
+      row.surveys.find((e) => e.container === survey.container && surveyPhaseKey(e.phase) === key);
+    const answer = async (stored: GateSurvey | undefined): Promise<{ movement: GateMovementItem; outcome: SurveyOutcome; notice: string }> => {
+      const movement = await this.get(id, companyId);
+      if (requestId && stored?.requestId === requestId) {
+        return { movement, outcome: "already_saved", notice: `Survey (${passName}) was already sent from this phone` };
+      }
+      const when = stored?.surveyedAt ? pragueHhmm(new Date(stored.surveyedAt)) : "";
+      return {
+        movement,
+        outcome: "newer_exists",
+        notice: `A newer survey (${passName}) was saved${when ? ` at ${when}` : ""}${stored?.surveyedBy ? ` by ${stored.surveyedBy}` : ""} — this one was not applied`,
+      };
+    };
+    if (requestId && storedOf(m)?.requestId === requestId) return answer(storedOf(m));
+
+    const now = new Date();
+    const at = opts.recordedAt ? acceptRecordedAt(opts.recordedAt, now) : now;
     const pieces = m.colli;
     const clamp = (n: number) => {
       const v = Math.max(0, Math.floor(n || 0));
@@ -633,18 +723,32 @@ class GateMovementService {
       lines: normalizeSurvey({ ...survey, surveyedAt: "", surveyedBy: "" }).lines,
       driverNote: survey.driverNote,
       warehouseNote: survey.warehouseNote,
-      surveyedAt: new Date().toISOString(),
+      surveyedAt: at.toISOString(),
       surveyedBy: by,
+      ...(requestId ? { requestId } : {}),
     };
     // One statement replaces this container's survey of this pass, so two tablets saving
-    // different containers (or passes) at once do not overwrite each other.
-    const key = surveyPhaseKey(survey.phase);
+    // different containers (or passes) at once do not overwrite each other. It lands only while
+    // the stored survey of that container and pass is not newer (and not this very request).
+    const samePass = (e: SQL) => sql`(${e}->>'container' = ${survey.container}
+        AND (CASE WHEN ${e}->>'phase' ~ '^Release' THEN 'release' ELSE 'receipt' END) = ${key})`;
     const kept = sql`COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(${t.surveys}) e
-      WHERE NOT (e->>'container' = ${survey.container}
-        AND (CASE WHEN e->>'phase' ~ '^Release' THEN 'release' ELSE 'receipt' END) = ${key})), '[]'::jsonb)`;
-    const row = await gateMovementRepository.conditionalUpdate(id, companyId, { surveys: sql`${kept} || ${json([record])}`, updatedBy: by });
-    if (!row) throw APIError.notFound("Gate movement not found");
-    return this.get(id, companyId);
+      WHERE NOT ${samePass(sql`e`)}), '[]'::jsonb)`;
+    const notNewer = sql`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(${t.surveys}) s
+      WHERE ${samePass(sql`s`)}
+        AND ((s->>'surveyedAt' ~ '^[0-9]{4}-' AND (s->>'surveyedAt')::timestamptz > ${at.toISOString()}::timestamptz)
+          ${requestId ? sql`OR s->>'requestId' = ${requestId}` : sql``}))`;
+    const events: GateEvent[] | undefined = opts.recordedAt
+      ? [{ kind: "surveySaved", label: `Survey saved (${passName})`, at: at.toISOString(), by, detail: offlineDetail(at, now), ...(requestId ? { requestId } : {}) }]
+      : undefined;
+    const row = await gateMovementRepository.conditionalUpdate(id, companyId, { surveys: sql`${kept} || ${json([record])}`, updatedBy: by }, events, notNewer);
+    if (!row) {
+      const cur = await gateMovementRepository.findById(id, companyId);
+      if (!cur) throw APIError.notFound("Gate movement not found");
+      return answer(storedOf(cur));
+    }
+    const notice = opts.recordedAt ? `Survey (${passName}) saved — recorded offline at ${pragueHhmm(at)}` : "";
+    return { movement: await this.get(id, companyId), outcome: "saved", notice };
   }
 
   // Any user may delete a record the gate never stamped (it moves to the archive, logged). A
@@ -674,17 +778,51 @@ class GateMovementService {
   // What the stamp owes the linked shipment is stored in the outbox in the same transaction and
   // sent straight after; if Shipments cannot take it now, it is retried (shipmentOutbox.service).
   // `role` is the stamping user's role, kept with the outbox row for the delivery.
-  async stamp(id: string, companyId: string, userId: string, kind: StampKind, role = "user") {
+  async stamp(id: string, companyId: string, userId: string, kind: StampKind, role = "user", opts: StampOptions = {}) {
+    return (await this.stampWithOutcome(id, companyId, userId, kind, role, opts)).movement;
+  }
+
+  // The stamp as the endpoint answers it. Floor mode (phones) may send the stamp later than it was
+  // made (offline queue): `recordedAt` is the time on the phone, accepted within a sane window
+  // (offline.ts) and never before the step it follows; the stamp, its log and the shipment's
+  // received date then carry that time, and the log says when it was recorded and sent.
+  // The WH release is never taken from the queue: its release gates and PIN are the server's.
+  // With a `clientRequestId`, a stamp that is already there is an answer, not an error: the same
+  // request sent again ("already_stamped"), or another clerk was first ("stamped_by_someone_else").
+  // Without one, an existing stamp is refused as before.
+  async stampWithOutcome(
+    id: string,
+    companyId: string,
+    userId: string,
+    kind: StampKind,
+    role = "user",
+    opts: StampOptions = {},
+  ): Promise<{ movement: GateMovementItem; outcome: StampOutcome; notice: string }> {
+    const requestId = checkRequestId(opts.clientRequestId);
+    if (opts.recordedAt && kind === "impRelease") {
+      throw APIError.failedPrecondition("WH release needs a connection — it is checked against the release gates when it is stamped");
+    }
     const m = await this.load(id, companyId);
+    const known = requestId ? stampConflict(m, kind, requestId) : null;
+    if (known) return { movement: await this.get(id, companyId), ...known };
     const blocked = stampBlocked(m, kind);
     if (blocked) throw APIError.failedPrecondition(blocked);
     const now = new Date();
+    const at = opts.recordedAt ? acceptRecordedAt(opts.recordedAt, now, stampNotBefore(m, kind)) : now;
+    const offline = opts.recordedAt ? { detail: offlineDetail(at, now) } : {};
     const by = await this.userName(userId);
-    const evt = (k: string, label: string): GateEvent => ({ kind: k, label, at: now.toISOString(), by });
+    const evt = (k: string, label: string, own = false): GateEvent => ({
+      kind: k,
+      label,
+      at: at.toISOString(),
+      by,
+      ...offline,
+      ...(own && requestId ? { requestId } : {}),
+    });
     const toWarehouse = sql`CASE WHEN ${t.status} = 'Expected' THEN 'In Warehouse' ELSE ${t.status} END`;
     // Export arrival: gate-in too when it is still empty, logged before the stamp itself.
     const arrival = (own: GateEvent) => ({
-      set: { gateIn: sql`COALESCE(${t.gateIn}, ${now.toISOString()}::timestamptz)` },
+      set: { gateIn: sql`COALESCE(${t.gateIn}, ${at.toISOString()}::timestamptz)` },
       events: sql`CASE WHEN ${t.gateIn} IS NULL THEN ${json([evt("gateIn", "Gate-in"), own])} ELSE ${json([own])} END`,
     });
 
@@ -692,14 +830,14 @@ class GateMovementService {
       let row: GateMovementRecord | null = null;
       switch (kind) {
         case "gateIn":
-          row = await gateMovementRepository.conditionalUpdate(id, companyId, { gateIn: now, status: toWarehouse }, [evt(kind, "Gate-in")], sql`${t.gateIn} IS NULL`, tx);
+          row = await gateMovementRepository.conditionalUpdate(id, companyId, { gateIn: at, status: toWarehouse }, [evt(kind, STAMP_LABEL.gateIn, true)], sql`${t.gateIn} IS NULL`, tx);
           break;
         case "gateOut":
           row = await gateMovementRepository.conditionalUpdate(
             id,
             companyId,
-            { gateOut: now },
-            [evt(kind, "Gate-out")],
+            { gateOut: at },
+            [evt(kind, STAMP_LABEL.gateOut, true)],
             sql`${t.gateOut} IS NULL AND (${t.visit} <> 'výdej' OR ${t.impRelease} IS NOT NULL)`,
             tx,
           );
@@ -708,23 +846,23 @@ class GateMovementService {
           row = await gateMovementRepository.conditionalUpdate(
             id,
             companyId,
-            { impRelease: now, status: "Released", gateOut: sql`COALESCE(${t.gateOut}, ${now.toISOString()}::timestamptz)` },
-            [evt(kind, "WH release")],
+            { impRelease: at, status: "Released", gateOut: sql`COALESCE(${t.gateOut}, ${at.toISOString()}::timestamptz)` },
+            [evt(kind, STAMP_LABEL.impRelease, true)],
             sql`${t.impRelease} IS NULL AND ${armedSql}`,
             tx,
           );
           break;
         case "expDraft": {
-          const a = arrival(evt(kind, "WH draft receipt"));
-          row = await gateMovementRepository.conditionalUpdate(id, companyId, { ...a.set, expDraft: now, status: toWarehouse }, a.events, sql`${t.expDraft} IS NULL`, tx);
+          const a = arrival(evt(kind, STAMP_LABEL.expDraft, true));
+          row = await gateMovementRepository.conditionalUpdate(id, companyId, { ...a.set, expDraft: at, status: toWarehouse }, a.events, sql`${t.expDraft} IS NULL`, tx);
           break;
         }
         case "expReceipt": {
-          const a = arrival(evt(kind, "WH receipt"));
+          const a = arrival(evt(kind, STAMP_LABEL.expReceipt, true));
           row = await gateMovementRepository.conditionalUpdate(
             id,
             companyId,
-            { ...a.set, expReceipt: now, status: toWarehouse },
+            { ...a.set, expReceipt: at, status: toWarehouse },
             a.events,
             sql`${t.expReceipt} IS NULL AND ${t.expDraft} IS NOT NULL`,
             tx,
@@ -737,14 +875,15 @@ class GateMovementService {
       // outbound (výdej) gate-in is the pickup truck, not a receipt. (A výdej gate-out of its own
       // happens only on an already released row whose release left the gate-out empty.)
       // Positions without a shipment have nothing to update. (Export gate-out writes nothing back
-      // yet — an open decision.)
+      // yet — an open decision.) The dates are the Prague day the stamp was made (recorded), so
+      // cargo received offline before midnight keeps its day.
       const owed: NewShipmentOutboxRecord[] = [];
       if (m.shipmentId) {
-        const date = pragueDate(now);
-        if (sameTime(row.gateIn, now) && m.visit !== "výdej") {
+        const date = pragueDate(at);
+        if (sameTime(row.gateIn, at) && m.visit !== "výdej") {
           owed.push(outboxRow(m, "received", "gateIn", { warehouseReceivedDate: date, ...(m.positionRef ? { warehouseReference: m.positionRef } : {}) }, userId, role));
         }
-        if ((kind === "impRelease" && sameTime(row.gateOut, now)) || (kind === "gateOut" && row.visit === "výdej")) {
+        if ((kind === "impRelease" && sameTime(row.gateOut, at)) || (kind === "gateOut" && row.visit === "výdej")) {
           owed.push(outboxRow(m, "released", kind, { warehouseReleasedDate: date, ...(row.plate ? { plateNumber: row.plate } : {}) }, userId, role));
         }
       }
@@ -754,10 +893,13 @@ class GateMovementService {
     if (!row) {
       // Someone else got there first (or the row is gone): report what the row says now.
       const cur = await this.load(id, companyId);
+      const raced = requestId ? stampConflict(cur, kind, requestId) : null;
+      if (raced) return { movement: await this.get(id, companyId), ...raced };
       throw APIError.failedPrecondition(stampBlocked(cur, kind) ?? `${kind} could not be stamped — reload and try again`);
     }
     if (owed.length) await deliverDue(id);
-    return this.get(id, companyId);
+    const notice = opts.recordedAt ? `${STAMP_LABEL[kind]} stamped ${pragueHhmm(at)} (recorded offline, sent ${pragueHhmm(now)})` : "";
+    return { movement: await this.get(id, companyId), outcome: "stamped", notice };
   }
 
   async refuse(id: string, companyId: string, userId: string, reason: string) {

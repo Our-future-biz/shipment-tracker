@@ -39,4 +39,13 @@ describe("glossary", () => {
     expect(GLOSSARY.find((g) => g.term === TERMS.archived)?.meaning).toMatch(/only by a manager/);
     expect(GLOSSARY.find((g) => g.term === TERMS.voidStamp)?.meaning).toMatch(/not changed back/);
   });
+
+  it("explains floor mode, the offline queue and dock slots", () => {
+    expect(TERMS.floorMode).toBe("Floor mode");
+    expect(GLOSSARY.find((g) => g.term === TERMS.floorMode)?.meaning).toMatch(/phone camera/);
+    const waiting = GLOSSARY.find((g) => g.term === TERMS.waitingToSend)?.meaning;
+    expect(waiting).toMatch(/PIN check and the WH release need a connection/);
+    expect(waiting).toMatch(/12 hours/);
+    expect(GLOSSARY.find((g) => g.term === TERMS.dockSlot)?.meaning).toMatch(/cannot be booked twice/);
+  });
 });

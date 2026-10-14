@@ -1,4 +1,5 @@
-import { and, eq, inArray, isNull, like, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, like, lt, ne, notInArray, sql } from "drizzle-orm";
+import log from "encore.dev/log";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import {
@@ -31,9 +32,56 @@ class WarehouseContainerRepository extends TenantRepository<typeof warehouseCont
   }
 }
 
+const ds = warehouseDockSlotTable;
+// Postgres "undefined_table" / "undefined_column": the slot link comes with migration 0016, which
+// Encore applies only on a restart. Until then the Gate Log keeps working without dock slots.
+const missingSchema = (err: unknown) => {
+  const code = (err as { code?: string })?.code ?? (err as { cause?: { code?: string } })?.cause?.code;
+  return code === "42P01" || code === "42703";
+};
+
 class WarehouseDockSlotRepository extends TenantRepository<typeof warehouseDockSlotTable> {
   constructor() {
     super(db as never, warehouseDockSlotTable, "warehouse_dock_slot");
+  }
+
+  // Live slots of these movements (every status), earliest first.
+  async listForMovements(movementIds: string[], companyId: string) {
+    if (!movementIds.length) return [];
+    try {
+      return await this.db
+        .select()
+        .from(ds)
+        .where(and(eq(ds.companyId, companyId), inArray(ds.movementId, movementIds), isNull(ds.deletedAt)))
+        .orderBy(asc(ds.startsAt), asc(ds.createdAt));
+    } catch (err) {
+      if (!missingSchema(err)) throw err;
+      log.warn("warehouse: dock slot link missing — restart the API so migration 0016 is applied");
+      return [];
+    }
+  }
+
+  // A live slot of the company that holds `dock` at some time in [startsAt, endsAt), other
+  // than `exceptId`; null when the door is free. The EXCLUDE constraint is the guarantee — this
+  // only names the clash in the message.
+  async findOverlap(companyId: string, dock: string, startsAt: Date, endsAt: Date, exceptId?: string) {
+    const [row] = await this.db
+      .select()
+      .from(ds)
+      .where(
+        and(
+          eq(ds.companyId, companyId),
+          eq(ds.dock, dock),
+          isNull(ds.deletedAt),
+          notInArray(ds.status, ["Cancelled", "Completed"]),
+          lt(ds.startsAt, endsAt),
+          gt(ds.endsAt, startsAt),
+          exceptId ? ne(ds.id, exceptId) : undefined,
+        ),
+      )
+      .orderBy(asc(ds.startsAt))
+      .limit(1);
+    return row ?? null;
   }
 }
 

@@ -1,4 +1,5 @@
-import { pgTable, text, uuid, bigint, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, uuid, bigint, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 // Photos and documents of a gate movement (survey evidence). Metadata lives here;
@@ -16,11 +17,16 @@ export const gateFileTable = pgTable(
     fileType: text("file_type").notNull().default(""),
     storageKey: text("storage_key").notNull(),
     uploadedBy: text("uploaded_by").notNull().default(""),
+    // Id the phone gave the upload (floor mode); a replay returns the file already stored.
+    clientRequestId: text("client_request_id"),
   },
   (table) => [
     ...defaultTableIndexes("warehouse_gate_file", table),
     tenantIndex("warehouse_gate_file", table),
     index("warehouse_gate_file_movement_idx").on(table.movementId),
+    uniqueIndex("warehouse_gate_file_request_unique")
+      .on(table.companyId, table.movementId, table.clientRequestId)
+      .where(sql`client_request_id IS NOT NULL`),
   ],
 );
 

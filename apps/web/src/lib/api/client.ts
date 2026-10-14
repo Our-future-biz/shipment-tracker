@@ -1803,16 +1803,12 @@ export namespace warehouse {
             this.warehouseZoneUpdate = this.warehouseZoneUpdate.bind(this)
         }
 
-        /**
-         * Records a damage / short / over exception on the movement (from a survey or by hand). While it
-         * is open the cargo is ON HOLD: the "No open exceptions" release-gate line is Blocked.
-         */
         public async gateExceptionCreate(id: string, params: {
     exception: interfaces.GateExceptionInput
-}): Promise<controllers.GateMovementResponse> {
+}): Promise<controllers.GateExceptionCreateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/exceptions`, JSON.stringify(params))
-            return await resp.json() as controllers.GateMovementResponse
+            return await resp.json() as controllers.GateExceptionCreateResponse
         }
 
         /**
@@ -2016,12 +2012,10 @@ export namespace warehouse {
             return await resp.json() as controllers.GateMovementResponse
         }
 
-        public async gateMovementSaveSurvey(id: string, params: {
-    survey: interfaces.GateSurveyInput
-}): Promise<controllers.GateMovementResponse> {
+        public async gateMovementSaveSurvey(id: string, params: controllers.GateSurveySaveRequest): Promise<controllers.GateSurveySaveResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse-gate/${encodeURIComponent(id)}/survey`, JSON.stringify(params))
-            return await resp.json() as controllers.GateMovementResponse
+            return await resp.json() as controllers.GateSurveySaveResponse
         }
 
         /**
@@ -2042,12 +2036,10 @@ export namespace warehouse {
             return await resp.json() as controllers.GateMovementResponse
         }
 
-        public async gateMovementStamp(id: string, params: {
-    kind: services.StampKind
-}): Promise<controllers.GateMovementResponse> {
+        public async gateMovementStamp(id: string, params: controllers.GateStampRequest): Promise<controllers.GateStampResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/stamp`, JSON.stringify(params))
-            return await resp.json() as controllers.GateMovementResponse
+            return await resp.json() as controllers.GateStampResponse
         }
 
         public async gateMovementUpdate(id: string, params: controllers.GateMovementUpdateRequest): Promise<controllers.GateMovementResponse> {
@@ -3181,8 +3173,14 @@ export namespace controllers {
     }
 
     export interface DockSlotUpdateRequest {
+        movementId?: string | null
         date?: string
         time?: string
+        /**
+         * 15–480 minutes in steps of 15; default 60.
+         */
+        durationMin?: number
+
         dock?: string
         direction?: string
         reference?: string
@@ -3265,6 +3263,20 @@ export namespace controllers {
         destination: string
     }
 
+    /**
+     * Records a damage / short / over exception on the movement (from a survey or by hand). While it
+     * is open the cargo is ON HOLD: the "No open exceptions" release-gate line is Blocked.
+     */
+    export interface GateExceptionCreateResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * recorded · already_recorded (the same clientRequestId came before; nothing was added)
+         */
+        outcome: "recorded" | "already_recorded"
+
+        notice: string
+    }
+
     export interface GateFileContentResponse {
         fileName: string
         fileType: string
@@ -3277,6 +3289,10 @@ export namespace controllers {
         contentBase64: string
         container?: string
         tag?: string
+        /**
+         * Floor mode: id of this upload (UUID); the same id sent again returns the file already stored.
+         */
+        clientRequestId?: string
     }
 
     export interface GateMovementCreateRequest {
@@ -3447,6 +3463,58 @@ export namespace controllers {
             ref: string
             reason: string
         }[]
+    }
+
+    export interface GateStampRequest {
+        kind: services.StampKind
+        /**
+         * Floor mode (offline queue): when the stamp was made on the phone (ISO with a time zone).
+         * Accepted up to 2 minutes ahead and 12 hours back, never before the step it follows; never
+         * for the WH release (it needs a connection). The stamp and its log carry this time.
+         */
+        recordedAt?: string
+
+        /**
+         * Floor mode: id of this request (UUID). A stamp already there is then an answer, not an error.
+         */
+        clientRequestId?: string
+    }
+
+    export interface GateStampResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * stamped · already_stamped (this request came before) · stamped_by_someone_else (the step was
+         * stamped by another request first; only with a clientRequestId — without one that is a 400).
+         */
+        outcome: "stamped" | "already_stamped" | "stamped_by_someone_else"
+
+        /**
+         * Text for a toast, e.g. "Gate-in was already stamped 10:05 by Jana"; "" when nothing to say.
+         */
+        notice: string
+    }
+
+    export interface GateSurveySaveRequest {
+        survey: interfaces.GateSurveyInput
+        /**
+         * Floor mode (offline queue): when it was saved on the phone (ISO); within the last 12 hours.
+         */
+        recordedAt?: string
+
+        /**
+         * Floor mode: id of this request (UUID); the same id sent again changes nothing.
+         */
+        clientRequestId?: string
+    }
+
+    export interface GateSurveySaveResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * saved · already_saved (this request came before) · newer_exists (a later survey of that container and pass is kept)
+         */
+        outcome: "saved" | "already_saved" | "newer_exists"
+
+        notice: string
     }
 
     export interface GateVoidStampResponse {
@@ -5286,12 +5354,56 @@ export namespace interfaces {
         type: string
     }
 
+    /**
+     * A dock slot booked for the movement (Dock & Yard), as the gate job and floor mode show it.
+     */
+    export interface GateDockSlot {
+        id: string
+        /**
+         * YYYY-MM-DD (Prague)
+         */
+        date: string
+
+        /**
+         * HH:MM (Prague)
+         */
+        time: string
+
+        /**
+         * HH:MM (Prague) the slot ends; "" when unknown.
+         */
+        end: string
+
+        dock: string
+        /**
+         * IN | OUT
+         */
+        direction: string
+
+        /**
+         * Booked | In progress | Completed | Overdue
+         */
+        status: string
+
+        durationMin: number
+        /**
+         * ISO; null on old slots whose date / time could not be read.
+         */
+        startsAt: string | null
+
+        endsAt: string | null
+    }
+
     export interface GateEvent {
         kind: string
         label: string
         at: string
         by: string
         detail?: string
+        /**
+         * Id of the phone request that made it (floor mode, offline queue).
+         */
+        requestId?: string
     }
 
     /**
@@ -5316,6 +5428,16 @@ export namespace interfaces {
          * Photos of this movement to attach (gate file ids, at most 20).
          */
         fileIds?: string[]
+
+        /**
+         * Floor mode: id the phone gave this exception; the same id sent again adds nothing.
+         */
+        clientRequestId?: string
+
+        /**
+         * Floor mode: when it was recorded on the phone (ISO), if it was sent later (offline).
+         */
+        recordedAt?: string
     }
 
     /**
@@ -5504,6 +5626,11 @@ export namespace interfaces {
          * Open exceptions: the cargo is ON HOLD while this is above 0.
          */
         openExceptions: number
+
+        /**
+         * Dock slots booked for this movement (not cancelled), earliest first.
+         */
+        dockSlots: GateDockSlot[]
 
         createdAt: string
         updatedAt: string
@@ -6823,9 +6950,20 @@ export namespace interfaces {
         vgmStatus: string
     }
 
+    /**
+     * A new slot needs `movementId` (the position), date, time and dock; reference, party and vehicle
+     * default to the position's WCZ reference, customer and plate. The same dock door cannot be
+     * booked twice for overlapping times (409 with the clashing slot named).
+     */
     export interface WarehouseDockSlotInput {
+        movementId?: string | null
         date?: string
         time?: string
+        /**
+         * 15–480 minutes in steps of 15; default 60.
+         */
+        durationMin?: number
+
         dock?: string
         direction?: string
         reference?: string
@@ -6837,14 +6975,59 @@ export namespace interfaces {
 
     export interface WarehouseDockSlotItem {
         id: string
+        /**
+         * Gate movement (position) the slot is for; null only on slots booked before the link existed.
+         */
+        movementId: string | null
+
+        /**
+         * Position of the movement: its WCZ reference, customer and gate visit (příjem / výdej).
+         */
+        warehouseTaskId: string | null
+
+        positionRef: string
+        customer: string
+        visit: string
+        /**
+         * YYYY-MM-DD (Prague)
+         */
         date: string
+
+        /**
+         * HH:MM (Prague)
+         */
         time: string
+
+        /**
+         * Minutes the dock door is booked for (15–480, in steps of 15).
+         */
+        durationMin: number
+
+        /**
+         * HH:MM (Prague) the slot ends; "" when unknown.
+         */
+        end: string
+
+        /**
+         * ISO; null on old slots whose date / time could not be read.
+         */
+        startsAt: string | null
+
+        endsAt: string | null
         dock: string
+        /**
+         * IN | OUT — follows the position (příjem = IN, výdej = OUT).
+         */
         direction: string
+
         reference: string
         party: string
         vehicle: string
+        /**
+         * Booked | In progress | Completed | Overdue | Cancelled
+         */
         status: string
+
         note: string
         createdAt: string
         updatedAt: string

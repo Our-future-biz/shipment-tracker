@@ -5,15 +5,17 @@ import Link from "next/link";
 import { DownOutlined, RightOutlined } from "@ant-design/icons";
 import type { GateMovement } from "@/hooks/useGateLog";
 import { TERMS, directionOfVisit } from "@/app/warehouse/_lib/glossary";
-import { expectedBecause, isExpectedToday, pragueToday } from "@/app/warehouse/_lib/worklist";
+import { expectedBecause, expectedSortKey, isExpectedToday, pragueToday } from "@/app/warehouse/_lib/worklist";
 import { Badge, VISIT_TONE, nf } from "../_lib/gate";
 
 // Gate Log: positions expected at the gate today (Prague date) by ETA, dock slot or ETA warehouse,
-// not arrived yet. Click one to open its job.
+// not arrived yet, earliest dock slot first. Click one to open its job.
 export function ExpectedTodayPanel({ movements }: { movements: GateMovement[] }) {
   const today = pragueToday();
   const list = useMemo(
-    () => movements.filter((m) => isExpectedToday(m, today)).sort((a, b) => (a.slot || a.eta).localeCompare(b.slot || b.eta)),
+    () => movements
+        .filter((m) => isExpectedToday(m, today))
+        .sort((a, b) => expectedSortKey(a, today).localeCompare(expectedSortKey(b, today)) || (a.positionRef || a.gateRef).localeCompare(b.positionRef || b.gateRef)),
     [movements, today],
   );
   const [open, setOpen] = useState(true);

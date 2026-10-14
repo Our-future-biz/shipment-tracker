@@ -41,6 +41,8 @@ export interface GateSurvey {
   warehouseNote: string;
   surveyedAt: string;
   surveyedBy: string;
+  /** Id of the phone request that saved it (floor mode), so a replay is recognised. */
+  requestId?: string;
 }
 
 // One drop / run of the position (WCZ…-1, -2 …), numbered by its order.
@@ -70,6 +72,8 @@ export interface GateEvent {
   at: string;
   by: string;
   detail?: string;
+  /** Id of the phone request that made it (floor mode), so a replay is recognised. */
+  requestId?: string;
 }
 
 // Gate desk row: one expected movement (a position, a delivery run or a container)

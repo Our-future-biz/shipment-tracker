@@ -10,6 +10,18 @@ import {
 import { gateMovementRepository, type GateMovementRow } from "../repositories/gateMovement.repository";
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
 import { movementStorage } from "./storage";
+import { pgCode } from "./offline";
+import {
+  DOCK_SLOT_DEFAULT_MIN,
+  DOCK_SLOT_MAX_MIN,
+  DOCK_SLOT_MIN_MIN,
+  DOCK_SLOT_NEEDS_POSITION,
+  DOCK_SLOT_STATUSES,
+  directionOfVisit,
+  slotEnd,
+  slotHoldsDock,
+  slotWindow,
+} from "./dockSlots";
 import type {
   warehouseClaimTable,
   warehouseContainerTable,
@@ -42,7 +54,7 @@ type SlotRow = typeof warehouseDockSlotTable.$inferSelect;
 
 const DAY = 86_400_000;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
-const TIME = /^\d{2}:\d{2}$/;
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 const stamps = (r: { createdAt: Date; updatedAt: Date }) => ({ createdAt: r.createdAt.toISOString(), updatedAt: r.updatedAt.toISOString() });
 const notFound = (what: string) => APIError.notFound(`${what} not found`);
@@ -54,8 +66,14 @@ const todayIso = (now = new Date()) => now.toISOString().slice(0, 10);
 const requireText = (value: string | undefined, label: string) => {
   if (value !== undefined && !value.trim()) throw APIError.invalidArgument(`${label} is required`);
 };
+// A real calendar day: "2026-02-30" is refused (Date would roll it to 2 March).
+export const isCalendarDate = (value: string) => {
+  if (!DATE.test(value)) return false;
+  const t = Date.parse(`${value}T00:00:00Z`);
+  return !Number.isNaN(t) && new Date(t).toISOString().slice(0, 10) === value;
+};
 const checkDate = (value: string | undefined, label: string) => {
-  if (value && !DATE.test(value)) throw APIError.invalidArgument(`${label} must be a date (YYYY-MM-DD)`);
+  if (value && !isCalendarDate(value)) throw APIError.invalidArgument(`${label} must be a date (YYYY-MM-DD)`);
 };
 
 // ---------- Containers ----------
@@ -140,33 +158,129 @@ class WarehouseRecordsService {
   }
 
   // ---------- Dock slots ----------
+  // A slot books a dock door for a position (its gate movement): direction, reference, party and
+  // vehicle come from the position. The same door is never booked twice for overlapping times —
+  // the database refuses it (EXCLUDE constraint, migration 0016); the check before it only names
+  // the clashing slot. Cancelled and Completed slots free the door.
 
-  private slotItem = (s: SlotRow): WarehouseDockSlotItem => {
-    const { companyId: _c, deletedAt: _d, createdAt: _ca, updatedAt: _ua, ...fields } = s;
-    return { ...fields, ...stamps(s) };
+  private slotItem = (s: SlotRow, movement?: GateMovementRow | null): WarehouseDockSlotItem => {
+    const { companyId: _c, deletedAt: _d, createdAt: _ca, updatedAt: _ua, startsAt, endsAt, ...fields } = s;
+    return {
+      ...fields,
+      warehouseTaskId: movement?.warehouseTaskId ?? null,
+      positionRef: movement?.positionRef ?? "",
+      customer: movement?.customer ?? "",
+      visit: movement?.visit ?? "",
+      startsAt: startsAt ? startsAt.toISOString() : null,
+      endsAt: endsAt ? endsAt.toISOString() : null,
+      end: slotEnd(s),
+      ...stamps(s),
+    };
   };
 
-  private slotFields(input: WarehouseDockSlotInput) {
+  // What a create (no `stored`) or an update writes: the input checked, merged with the stored
+  // slot, the position's fields filled in and the start / end recomputed in Prague time.
+  private async slotValues(companyId: string, input: WarehouseDockSlotInput, stored?: SlotRow) {
     checkDate(input.date, "Date");
     if (input.time !== undefined && !TIME.test(input.time)) throw APIError.invalidArgument("Time must be HH:MM");
     requireText(input.dock, "Dock");
     if (input.direction !== undefined && !["IN", "OUT"].includes(input.direction)) throw APIError.invalidArgument("Direction must be IN or OUT");
-    return input;
+    if (input.status !== undefined && !(DOCK_SLOT_STATUSES as readonly string[]).includes(input.status)) {
+      throw APIError.invalidArgument(`Status must be one of: ${DOCK_SLOT_STATUSES.join(", ")}`);
+    }
+    if (
+      input.durationMin !== undefined &&
+      (!Number.isInteger(input.durationMin) || input.durationMin < DOCK_SLOT_MIN_MIN || input.durationMin > DOCK_SLOT_MAX_MIN || input.durationMin % 15)
+    ) {
+      throw APIError.invalidArgument(`Duration must be ${DOCK_SLOT_MIN_MIN}–${DOCK_SLOT_MAX_MIN} minutes, in steps of 15`);
+    }
+    const { movementId: inputMovement, ...rest } = input;
+    const values: Partial<typeof warehouseDockSlotTable.$inferInsert> = { ...rest };
+    if (rest.dock !== undefined) values.dock = rest.dock.trim().replace(/\s+/g, " ");
+    for (const key of ["reference", "party", "vehicle", "note"] as const) if (rest[key] !== undefined) values[key] = rest[key]!.trim();
+
+    const movementId = inputMovement !== undefined ? inputMovement || null : (stored?.movementId ?? null);
+    const relinked = movementId !== (stored?.movementId ?? null);
+    if (!movementId && DOCK_SLOT_NEEDS_POSITION && (!stored || stored.movementId)) {
+      throw APIError.invalidArgument("Pick the position this dock slot is for");
+    }
+    let movement: GateMovementRow | null = null;
+    if (movementId) {
+      // A new link must be a live position of this company; a kept link may be archived since.
+      movement = relinked ? await gateMovementRepository.findById(movementId, companyId) : await gateMovementRepository.findByIdAny(movementId, companyId);
+      if (!movement) throw APIError.invalidArgument("Position not found — it may be archived");
+      values.direction = directionOfVisit(movement.visit);
+      if (relinked) {
+        values.reference ||= movement.positionRef || movement.gateRef;
+        values.party ||= movement.customer;
+        values.vehicle ||= movement.plate;
+      }
+    }
+    values.movementId = movementId;
+
+    const date = values.date ?? stored?.date ?? "";
+    const time = values.time ?? stored?.time ?? "";
+    const durationMin = values.durationMin ?? stored?.durationMin ?? DOCK_SLOT_DEFAULT_MIN;
+    if (isCalendarDate(date) && TIME.test(time)) Object.assign(values, slotWindow(date, time, durationMin));
+    return {
+      values,
+      dock: values.dock ?? stored?.dock ?? "",
+      status: values.status ?? stored?.status ?? "Booked",
+      startsAt: values.startsAt ?? stored?.startsAt ?? null,
+      endsAt: values.endsAt ?? stored?.endsAt ?? null,
+      movement,
+    };
+  }
+
+  private async clashMessage(companyId: string, dock: string, startsAt: Date, endsAt: Date, exceptId?: string) {
+    const o = await dockSlotRepository.findOverlap(companyId, dock, startsAt, endsAt, exceptId);
+    if (!o) return null;
+    return `${o.dock} is already booked ${o.time}–${slotEnd(o)} on ${o.date} for ${o.reference || "another booking"} — pick another time or door`;
+  }
+
+  // Runs the write; a clash with another slot (also one booked at the same moment, which only the
+  // constraint sees) is a 409 naming that slot.
+  private async writeSlot<T>(companyId: string, v: Awaited<ReturnType<typeof this.slotValues>>, exceptId: string | undefined, write: () => Promise<T>) {
+    if (v.startsAt && v.endsAt && slotHoldsDock({ status: v.status })) {
+      const clash = await this.clashMessage(companyId, v.dock, v.startsAt, v.endsAt, exceptId);
+      if (clash) throw APIError.alreadyExists(clash);
+    }
+    try {
+      return await write();
+    } catch (err) {
+      if (pgCode(err) !== "23P01") throw err;
+      const clash = v.startsAt && v.endsAt ? await this.clashMessage(companyId, v.dock, v.startsAt, v.endsAt, exceptId) : null;
+      throw APIError.alreadyExists(clash ?? `${v.dock} is already booked at that time — pick another time or door`);
+    }
   }
 
   async listDockSlots(companyId: string) {
-    return (await dockSlotRepository.listForCompany(companyId, 5000)).map(this.slotItem);
+    const [rows, movements] = await Promise.all([dockSlotRepository.listForCompany(companyId, 5000), this.movementsById(companyId)]);
+    return rows.map((s) => this.slotItem(s, s.movementId ? movements.get(s.movementId) : undefined));
+  }
+
+  private async slotById(id: string, companyId: string) {
+    const s = await dockSlotRepository.getByIdForCompany(id, companyId);
+    if (!s) throw notFound("Dock slot");
+    return this.slotItem(s, s.movementId ? await gateMovementRepository.findByIdAny(s.movementId, companyId) : null);
   }
 
   async createDockSlot(companyId: string, input: WarehouseDockSlotInput) {
-    if (!input.date || !input.time || !input.dock) throw APIError.invalidArgument("Date, time and dock are required");
-    return this.slotItem(await dockSlotRepository.createForCompany(companyId, this.slotFields(input) as typeof warehouseDockSlotTable.$inferInsert));
+    if (!input.date || !input.time || !input.dock?.trim()) throw APIError.invalidArgument("Date, time and dock are required");
+    const v = await this.slotValues(companyId, input);
+    const row = await this.writeSlot(companyId, v, undefined, () =>
+      dockSlotRepository.createForCompany(companyId, v.values as Omit<typeof warehouseDockSlotTable.$inferInsert, "companyId">),
+    );
+    return this.slotById(row.id, companyId);
   }
 
   async updateDockSlot(id: string, companyId: string, input: WarehouseDockSlotInput) {
-    const row = await dockSlotRepository.updateForCompany(id, companyId, this.slotFields(input));
+    const stored = await dockSlotRepository.getByIdForCompany(id, companyId);
+    if (!stored) throw notFound("Dock slot");
+    const v = await this.slotValues(companyId, input, stored);
+    const row = await this.writeSlot(companyId, v, id, () => dockSlotRepository.updateForCompany(id, companyId, v.values));
     if (!row) throw notFound("Dock slot");
-    return this.slotItem(row);
+    return this.slotById(id, companyId);
   }
 
   async deleteDockSlot(id: string, companyId: string) {

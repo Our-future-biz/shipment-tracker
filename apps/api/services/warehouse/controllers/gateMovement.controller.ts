@@ -75,11 +75,35 @@ export const gateMovementDelete = api(
   },
 );
 
+interface GateStampRequest {
+  id: string;
+  kind: StampKind;
+  /**
+   * Floor mode (offline queue): when the stamp was made on the phone (ISO with a time zone).
+   * Accepted up to 2 minutes ahead and 12 hours back, never before the step it follows; never
+   * for the WH release (it needs a connection). The stamp and its log carry this time.
+   */
+  recordedAt?: string;
+  /** Floor mode: id of this request (UUID). A stamp already there is then an answer, not an error. */
+  clientRequestId?: string;
+}
+
+interface GateStampResponse {
+  movement: GateMovementItem;
+  /**
+   * stamped · already_stamped (this request came before) · stamped_by_someone_else (the step was
+   * stamped by another request first; only with a clientRequestId — without one that is a 400).
+   */
+  outcome: "stamped" | "already_stamped" | "stamped_by_someone_else";
+  /** Text for a toast, e.g. "Gate-in was already stamped 10:05 by Jana"; "" when nothing to say. */
+  notice: string;
+}
+
 export const gateMovementStamp = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/stamp" },
-  async ({ id, kind }: { id: string; kind: StampKind }): Promise<GateMovementResponse> => {
+  async ({ id, kind, recordedAt, clientRequestId }: GateStampRequest): Promise<GateStampResponse> => {
     const { companyID, userID, role } = getAuthData()!;
-    return { movement: await gateMovementService.stamp(id, companyID, userID, kind, role) };
+    return gateMovementService.stampWithOutcome(id, companyID, userID, kind, role, { recordedAt, clientRequestId });
   },
 );
 
@@ -200,11 +224,27 @@ export const gateMovementVerifyPin = api(
   },
 );
 
+interface GateSurveySaveRequest {
+  id: string;
+  survey: GateSurveyInput;
+  /** Floor mode (offline queue): when it was saved on the phone (ISO); within the last 12 hours. */
+  recordedAt?: string;
+  /** Floor mode: id of this request (UUID); the same id sent again changes nothing. */
+  clientRequestId?: string;
+}
+
+interface GateSurveySaveResponse {
+  movement: GateMovementItem;
+  /** saved · already_saved (this request came before) · newer_exists (a later survey of that container and pass is kept) */
+  outcome: "saved" | "already_saved" | "newer_exists";
+  notice: string;
+}
+
 export const gateMovementSaveSurvey = api(
   { expose: true, auth: true, method: "PUT", path: "/warehouse-gate/:id/survey" },
-  async ({ id, survey }: { id: string; survey: GateSurveyInput }): Promise<GateMovementResponse> => {
+  async ({ id, survey, recordedAt, clientRequestId }: GateSurveySaveRequest): Promise<GateSurveySaveResponse> => {
     const { companyID, userID } = getAuthData()!;
-    return { movement: await gateMovementService.saveSurvey(id, companyID, userID, survey) };
+    return gateMovementService.saveSurveyWithOutcome(id, companyID, userID, survey, { recordedAt, clientRequestId });
   },
 );
 
@@ -222,6 +262,8 @@ interface GateFileUploadRequest {
   contentBase64: string;
   container?: string;
   tag?: string;
+  /** Floor mode: id of this upload (UUID); the same id sent again returns the file already stored. */
+  clientRequestId?: string;
 }
 
 export const gateFileUpload = api(
@@ -267,11 +309,18 @@ export const gateMovementUseRemeasured = api(
 
 // Records a damage / short / over exception on the movement (from a survey or by hand). While it
 // is open the cargo is ON HOLD: the "No open exceptions" release-gate line is Blocked.
+interface GateExceptionCreateResponse {
+  movement: GateMovementItem;
+  /** recorded · already_recorded (the same clientRequestId came before; nothing was added) */
+  outcome: "recorded" | "already_recorded";
+  notice: string;
+}
+
 export const gateExceptionCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/exceptions" },
-  async ({ id, exception }: { id: string; exception: GateExceptionInput }): Promise<GateMovementResponse> => {
+  async ({ id, exception }: { id: string; exception: GateExceptionInput }): Promise<GateExceptionCreateResponse> => {
     const { companyID, userID } = getAuthData()!;
-    return { movement: await gateExceptionService.create(id, companyID, userID, exception) };
+    return gateExceptionService.createWithOutcome(id, companyID, userID, exception);
   },
 );
 

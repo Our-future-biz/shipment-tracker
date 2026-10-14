@@ -155,3 +155,43 @@ export function voidBlocked(m: Pick<interfaces.GateMovementItem, StepKind> & { v
 /** The gate-out goes with a voided WH release when both were stamped at the same moment. */
 export const voidsGateOutToo = (m: Pick<interfaces.GateMovementItem, "impRelease" | "gateOut">, kind: StepKind) =>
   kind === "impRelease" && sameTime(m.gateOut, m.impRelease);
+
+// ─── Stamp confirmation (gate job and floor mode) ──────────────
+
+type StampFields = Pick<interfaces.GateMovementItem, "visit" | "gateIn" | "impRelease">;
+
+/**
+ * What the stamp writes to the linked shipment, for the confirmation text; null when nothing.
+ * Only inbound arrival is a receipt; an outbound gate-in is the pickup truck.
+ */
+export function writesBack(m: StampFields, kind: StepKind): string | null {
+  if (!isOutbound(m) && (kind === "gateIn" || ((kind === "expDraft" || kind === "expReceipt") && !m.gateIn))) return "received date";
+  if (kind === "impRelease" || (kind === "gateOut" && isOutbound(m))) return "released date and plate";
+  return null;
+}
+
+/** The confirmation text of a stamp: stamps are final, and some set the linked shipment's dates. */
+export function stampConfirmText(m: StampFields & { gateRef: string }, kind: StepKind, label: string): string {
+  const back = writesBack(m, kind);
+  return `Stamp the ${label} on ${m.gateRef}? The stamp cannot be taken back${back ? ` and sets the linked shipment's ${back} (if any)` : ""}.`;
+}
+
+/**
+ * Why a picked stamp is not asked for at all (an info message), or null to go on and confirm it:
+ * an already stamped step is not an error (the stamp is final), and outbound cargo leaves
+ * through the WH release, which stamps the gate-out too.
+ */
+export function stampPrecheck(m: StampFields, kind: StepKind, label: string, at: string | null, fmt: (iso: string) => string): string | null {
+  if (at) return `${label} was already stamped ${fmt(at)}`;
+  if (kind === "gateOut" && isOutbound(m) && !m.impRelease) return `Outbound cargo leaves through ${TERMS.whRelease} — it stamps the gate-out too.`;
+  return null;
+}
+
+/**
+ * Stamps a phone may record without a connection (floor mode) and send later: the gate-in, the
+ * draft receipt, the receipt and the gate-out of inbound cargo. The WH release (and the outbound
+ * gate-out it stamps) needs the server's answer — release gates and the PIN — so never waits.
+ */
+export const QUEUEABLE_STAMPS: readonly StepKind[] = ["gateIn", "expDraft", "expReceipt", "gateOut"];
+export const isQueueableStamp = (m: Pick<interfaces.GateMovementItem, "visit">, kind: StepKind) =>
+  QUEUEABLE_STAMPS.includes(kind) && !(kind === "gateOut" && isOutbound(m));

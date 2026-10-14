@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gateSteps, pinCheckMessage, voidBlocked, voidsGateOutToo } from "./steps";
+import { QUEUEABLE_STAMPS, gateSteps, isQueueableStamp, pinCheckMessage, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, writesBack } from "./steps";
 
 type M = Parameters<typeof gateSteps>[0];
 const T = "2026-10-14T08:00:00.000Z";
@@ -119,5 +119,36 @@ describe("voidBlocked", () => {
     expect(voidsGateOutToo(base({ impRelease: T, gateOut: T }), "impRelease")).toBe(true);
     expect(voidsGateOutToo(base({ impRelease: T, gateOut: "2026-10-14T09:00:00.000Z" }), "impRelease")).toBe(false);
     expect(voidsGateOutToo(base({ impRelease: T, gateOut: T }), "gateOut")).toBe(false);
+  });
+});
+
+describe("stamp confirmation (gate job and floor mode)", () => {
+  const inbound = { visit: "příjem", gateIn: null, impRelease: null, gateRef: "WCZ2026000001" };
+  const outbound = { ...inbound, visit: "výdej" };
+  it("says what the stamp writes to the shipment: received date inbound only, released date on the release", () => {
+    expect(writesBack(inbound, "gateIn")).toBe("received date");
+    expect(writesBack(inbound, "expDraft")).toBe("received date");
+    expect(writesBack({ ...inbound, gateIn: T }, "expDraft")).toBeNull();
+    expect(writesBack(outbound, "gateIn")).toBeNull();
+    expect(writesBack(outbound, "impRelease")).toBe("released date and plate");
+    expect(writesBack(inbound, "gateOut")).toBeNull();
+  });
+  it("words the confirmation as the gate job always did", () => {
+    expect(stampConfirmText(inbound, "gateIn", "Gate-in")).toBe(
+      "Stamp the Gate-in on WCZ2026000001? The stamp cannot be taken back and sets the linked shipment's received date (if any).",
+    );
+    expect(stampConfirmText({ ...inbound, gateIn: T }, "expReceipt", "Receipt")).toBe("Stamp the Receipt on WCZ2026000001? The stamp cannot be taken back.");
+  });
+  it("answers an already stamped step or an outbound gate-out with information, not a confirmation", () => {
+    expect(stampPrecheck(inbound, "gateIn", "Gate-in", T, () => "14 Oct 10:00")).toBe("Gate-in was already stamped 14 Oct 10:00");
+    expect(stampPrecheck(outbound, "gateOut", "Gate-out", null, String)).toMatch(/leaves through WH release/);
+    expect(stampPrecheck(inbound, "gateOut", "Gate-out", null, String)).toBeNull();
+  });
+  it("queues offline every stamp but the WH release and the outbound gate-out it stamps", () => {
+    expect([...QUEUEABLE_STAMPS]).toEqual(["gateIn", "expDraft", "expReceipt", "gateOut"]);
+    expect(isQueueableStamp(inbound, "gateOut")).toBe(true);
+    expect(isQueueableStamp(outbound, "gateIn")).toBe(true);
+    expect(isQueueableStamp(outbound, "impRelease")).toBe(false);
+    expect(isQueueableStamp(outbound, "gateOut")).toBe(false);
   });
 });

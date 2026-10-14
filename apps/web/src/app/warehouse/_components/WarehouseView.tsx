@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button, Drawer, Input, Modal, Segmented, Select, Spin, Tabs, Tooltip } from "antd";
-import { PlusOutlined, DeleteOutlined, PrinterOutlined, QuestionCircleOutlined } from "@ant-design/icons";
+import { PlusOutlined, DeleteOutlined, MobileOutlined, PrinterOutlined, QuestionCircleOutlined } from "@ant-design/icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useWarehouse } from "@/hooks/useWarehouse";
@@ -252,9 +252,20 @@ function ModuleTabs({
       tabBarStyle={{ marginBottom: 0 }}
       tabBarExtraContent={{
         right: (
-          <Tooltip title="Read me — how the Warehouse module works">
-            <Button type="text" shape="circle" aria-label="Help" icon={<QuestionCircleOutlined />} onClick={onHelp} />
-          </Tooltip>
+          <span className="flex items-center gap-1">
+            {/* Phones and handheld scanners at the gate and in the warehouse. */}
+            <Tooltip title="Floor mode — for phones and handheld scanners: scan, stamp, survey and photos, also offline">
+              <Link
+                href="/warehouse/floor"
+                className="inline-flex h-6 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-[13px] text-slate-700 hover:border-indigo-400 hover:text-indigo-600 transition-colors"
+              >
+                <MobileOutlined /> Floor mode
+              </Link>
+            </Tooltip>
+            <Tooltip title="Read me — how the Warehouse module works">
+              <Button type="text" shape="circle" aria-label="Help" icon={<QuestionCircleOutlined />} onClick={onHelp} />
+            </Tooltip>
+          </span>
         ),
       }}
       items={MODULE_TABS.map((t) => {

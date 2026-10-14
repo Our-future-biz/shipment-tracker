@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Switch, Tooltip } from "antd";
-import { PrinterOutlined } from "@ant-design/icons";
+import { MobileOutlined, PrinterOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -275,6 +276,15 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
       >
         <PrinterOutlined /> Print labels
       </button>
+      {/* In the Warehouse page the module tabs carry the Floor mode button. */}
+      {!embedded && (
+        <Link
+          href="/warehouse/floor"
+          className="flex items-center gap-1.5 shrink-0 rounded-lg px-3 h-8 text-[13px] border border-slate-300 bg-white font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+        >
+          <MobileOutlined /> Floor mode
+        </Link>
+      )}
     </div>
   );
 

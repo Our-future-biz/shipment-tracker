@@ -9,6 +9,8 @@ import type { GateExceptionInput } from "../interfaces/gate.interfaces";
 import { gateMovementService } from "./gateMovement.service";
 import { EXCEPTION_GATE, EXCEPTION_TYPES, openExceptionsNote, setExceptionLineSql } from "./osd";
 import { userName } from "./users";
+import { acceptRecordedAt, checkRequestId, offlineDetail, pgCode, pragueHhmm, type ExceptionOutcome } from "./offline";
+import type { GateMovementItem } from "../interfaces/gate.interfaces";
 
 // Damage / short / over (OS&D) exceptions of a gate movement. Recording one puts the cargo ON
 // HOLD (the "No open exceptions" release-gate line goes to Blocked); any user may resolve it with
@@ -54,6 +56,19 @@ async function syncLine(tx: Tx, id: string, companyId: string, released: boolean
 
 class GateExceptionService {
   async create(id: string, companyId: string, userId: string, input: GateExceptionInput) {
+    return (await this.createWithOutcome(id, companyId, userId, input)).movement;
+  }
+
+  // Records the exception. Floor mode (phones) sends an id with it (`clientRequestId`) and, when
+  // it was recorded offline, the time on the phone (`recordedAt`, logged as recorded offline):
+  // the same id sent again adds nothing ("already_recorded"), even when two copies arrive at once
+  // (the movement lock, then the unique index, decide).
+  async createWithOutcome(
+    id: string,
+    companyId: string,
+    userId: string,
+    input: GateExceptionInput,
+  ): Promise<{ movement: GateMovementItem; outcome: ExceptionOutcome; notice: string }> {
     const type = (input?.type ?? "").trim();
     if (!(EXCEPTION_TYPES as readonly string[]).includes(type)) throw APIError.invalidArgument(`Type must be one of: ${EXCEPTION_TYPES.join(", ")}`);
     const pieces = input.pieces;
@@ -61,6 +76,22 @@ class GateExceptionService {
     const note = (input.note ?? "").trim();
     if (note.length > MAX_NOTE) throw APIError.invalidArgument(`The note is too long (at most ${MAX_NOTE} characters)`);
     const source = input.source === "survey" ? "survey" : "manual";
+    const requestId = checkRequestId(input.clientRequestId);
+    const now = new Date();
+    const already = async () => {
+      const prev = requestId ? await gateExceptionRepository.findByRequestId(db, id, companyId, requestId) : null;
+      if (!prev) return null;
+      return {
+        movement: await gateMovementService.get(id, companyId),
+        outcome: "already_recorded" as const,
+        notice: `Exception (${prev.type} ${prev.pieces} pc${prev.pieces === 1 ? "" : "s"}) was already sent from this phone (${pragueHhmm(prev.createdAt)})`,
+      };
+    };
+    // A replay is answered before its time is checked (as stamps and surveys are): an exception
+    // the server stored but whose answer was lost may come back late or with a skewed clock.
+    const known = await already();
+    if (known) return known;
+    const at = input.recordedAt ? acceptRecordedAt(input.recordedAt, now) : now;
     const fileIds = [...new Set(input.fileIds ?? [])];
     if (fileIds.length > MAX_FILES) throw APIError.invalidArgument(`At most ${MAX_FILES} photos per exception`);
     for (const f of fileIds) {
@@ -69,32 +100,50 @@ class GateExceptionService {
       }
     }
     const by = await userName(userId);
-    await db.transaction(async (tx) => {
-      const m = await lockMovement(tx, id, companyId);
-      if (!m) throw APIError.notFound("Gate movement not found");
-      const row = await gateExceptionRepository.create(tx, {
-        companyId,
-        movementId: id,
-        taskId: m.warehouseTaskId,
-        type,
-        pieces,
-        note,
-        container: (input.container ?? "").trim().slice(0, 50),
-        surveyPhase: (input.surveyPhase ?? "").trim().slice(0, 100),
-        source,
-        fileIds,
-        createdBy: by,
+    let created: boolean;
+    try {
+      created = await db.transaction(async (tx) => {
+        const m = await lockMovement(tx, id, companyId);
+        if (!m) throw APIError.notFound("Gate movement not found");
+        // A copy of this request that got the lock first has made it already.
+        if (requestId && (await gateExceptionRepository.findByRequestId(tx, id, companyId, requestId))) return false;
+        const row = await gateExceptionRepository.create(tx, {
+          companyId,
+          movementId: id,
+          taskId: m.warehouseTaskId,
+          type,
+          pieces,
+          note,
+          container: (input.container ?? "").trim().slice(0, 50),
+          surveyPhase: (input.surveyPhase ?? "").trim().slice(0, 100),
+          source,
+          fileIds,
+          createdBy: by,
+          createdAt: at,
+          ...(requestId ? { clientRequestId: requestId } : {}),
+        });
+        const event: GateEvent = {
+          kind: "exceptionOpened",
+          label: `Exception: ${type} ${pieces} pc${pieces === 1 ? "" : "s"}${m.impRelease ? "" : " — cargo on hold"}`,
+          at: row.createdAt.toISOString(),
+          by,
+          ...(note || input.recordedAt ? { detail: [note, input.recordedAt ? offlineDetail(at, now) : ""].filter(Boolean).join(" · ") } : {}),
+          ...(requestId ? { requestId } : {}),
+        };
+        await syncLine(tx, id, companyId, !!m.impRelease, [event], by);
+        return true;
       });
-      const event: GateEvent = {
-        kind: "exceptionOpened",
-        label: `Exception: ${type} ${pieces} pc${pieces === 1 ? "" : "s"}${m.impRelease ? "" : " — cargo on hold"}`,
-        at: row.createdAt.toISOString(),
-        by,
-        ...(note ? { detail: note } : {}),
-      };
-      await syncLine(tx, id, companyId, !!m.impRelease, [event], by);
-    });
-    return gateMovementService.get(id, companyId);
+    } catch (err) {
+      // Two copies of one request racing past the lock: the unique index lets one in.
+      if (pgCode(err) !== "23505" || !requestId) throw err;
+      created = false;
+    }
+    if (!created) {
+      const again = await already();
+      if (again) return again;
+    }
+    const notice = input.recordedAt ? `Exception recorded — recorded offline at ${pragueHhmm(at)}` : "";
+    return { movement: await gateMovementService.get(id, companyId), outcome: "recorded", notice };
   }
 
   async resolve(id: string, exceptionId: string, companyId: string, userId: string, note: string) {

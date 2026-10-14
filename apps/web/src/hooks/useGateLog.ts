@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
@@ -17,6 +18,23 @@ export const useGateLog = ({ archived = false }: { archived?: boolean } = {}) =>
     queryFn: () => api.warehouse.gateMovementList(archived ? { archived: true } : {}),
   });
   return { movements: query.data?.movements ?? [], isLoading: query.isLoading };
+};
+
+/**
+ * Writes a movement the server returned into the cache — its detail and its row in the Gate Log
+ * list — without reading the list again (floor mode works from the cached list, also offline).
+ */
+export const useGateRowCache = () => {
+  const queryClient = useQueryClient();
+  return useCallback(
+    (movement: GateMovement) => {
+      queryClient.setQueryData([...KEY, movement.id], { movement });
+      queryClient.setQueryData<{ movements: GateMovement[] }>(KEY, (old) =>
+        old ? { ...old, movements: old.movements.map((m) => (m.id === movement.id ? movement : m)) } : old,
+      );
+    },
+    [queryClient],
+  );
 };
 
 // Mutations write the returned row into the cache so the list and the detail stay in step.

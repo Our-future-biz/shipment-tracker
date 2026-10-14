@@ -26,6 +26,16 @@ class GateFileRepository {
     return row ?? null;
   }
 
+  // The file a phone request already uploaded to this movement (archived or not), if any.
+  async findByRequestId(movementId: string, companyId: string, requestId: string) {
+    const [row] = await db
+      .select()
+      .from(gateFileTable)
+      .where(and(eq(gateFileTable.movementId, movementId), eq(gateFileTable.companyId, companyId), eq(gateFileTable.clientRequestId, requestId)))
+      .limit(1);
+    return row ?? null;
+  }
+
   async create(data: typeof gateFileTable.$inferInsert) {
     const [row] = await db.insert(gateFileTable).values(data).returning();
     return row!;

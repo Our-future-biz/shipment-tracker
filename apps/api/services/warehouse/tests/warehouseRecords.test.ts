@@ -39,8 +39,10 @@ describe("container register", () => {
 describe("dock slots, roster, equipment, report library", () => {
   it("validate what they need and stay per company", async () => {
     const c = randomUUID();
-    const slot = await svc.createDockSlot(c, { date: "2026-09-16", time: "09:00", dock: "Dock 4", direction: "IN", reference: "WCZ2026091601" });
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091601", customer: "Alpine Trading", handling: "Export" });
+    const slot = await svc.createDockSlot(c, { movementId: m.id, date: "2026-09-16", time: "09:00", dock: "Dock 4", direction: "IN", reference: "WCZ2026091601" });
     expect(slot.status).toBe("Booked");
+    await expect(svc.createDockSlot(c, { date: "2026-09-16", time: "11:00", dock: "Dock 1" })).rejects.toThrow(/Pick the position/);
     await expect(svc.createDockSlot(c, { date: "2026-09-16", time: "9", dock: "Dock 1" })).rejects.toThrow(/HH:MM/);
     await expect(svc.updateDockSlot(slot.id, c, { direction: "UP" })).rejects.toThrow(/IN or OUT/);
     expect(await svc.listDockSlots(randomUUID())).toEqual([]);
