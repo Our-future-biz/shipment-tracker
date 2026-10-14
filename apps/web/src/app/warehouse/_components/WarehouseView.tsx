@@ -22,10 +22,12 @@ import { StockTab } from "./tabs/StockTab";
 import { DockYardTab } from "./tabs/DockYardTab";
 import { ReportsTab } from "./tabs/ReportsTab";
 import { ReadmeTab } from "./tabs/ReadmeTab";
+import { ShipmentImportPicker, type ImportMode } from "./ShipmentImportPicker";
 
-// The Warehouse module works only with its own data: a position (WCZ reference) and the
-// record on its gate movement. Shipment or quote values are copied in once, when the
-// position is recorded ("Create new"); nothing reads from or writes to Shipments afterwards.
+// The Warehouse module works with its own data: a position (WCZ reference) and the record
+// on its gate movement. "Create new" either copies job or quote values in once (a position
+// of its own), or imports shipments as positions linked to them; for those the Gate Log
+// writes the warehouse dates back to the shipment.
 
 type WarehouseTask = interfaces.WarehouseTaskItem;
 type PositionRow = { task: WarehouseTask; m: GateMovement | undefined };
@@ -54,7 +56,7 @@ const textCol = (key: keyof GateMovement & string, title: string, width: number,
 
 const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
   { key: "taskId", title: "Warehouse Ref", width: 150, text: (r) => r.task.taskId, render: (_, r) => <span className="font-mono font-bold text-indigo-500">{r.task.taskId}</span> },
-  { key: "jobNumber", title: "Job Number", width: 140, text: (r) => r.m?.jobNumber ?? "", render: (_, r) => mono(r.m?.jobNumber) },
+  { key: "jobNumber", title: "Internal Reference", width: 170, text: (r) => r.m?.jobNumber ?? "", render: (_, r) => mono(r.m?.jobNumber) },
   textCol("customer", "Customer", 200),
   textCol("customerRef", "Customer Reference", 160),
   textCol("handling", "Trade Direction", 130, { filterOptions: [...HANDLINGS] }),
@@ -323,8 +325,8 @@ export const WarehouseView = () => {
           )}
         />
 
-        {/* Create new: a warehouse position of its own — not paired with a shipment. */}
-        <NewPositionModal open={createOpen} onClose={() => setCreateOpen(false)} />
+        {/* Create new: a position of its own, or shipments imported as linked positions. */}
+        <NewPositionModal open={createOpen} onClose={() => setCreateOpen(false)} tasks={tasks} />
 
         <ConfirmModal
           open={!!removeRows}
@@ -343,7 +345,7 @@ export const WarehouseView = () => {
 
 type NewPositionValues = controllers.WarehousePositionCreateRequest;
 
-type Source = "job" | "quote" | "blank";
+type Source = "job" | "quote" | "blank" | ImportMode;
 
 // Quote → warehouse value mappings (the same values a job would carry).
 const FREIGHT_MODE: Record<string, string> = { Air: "Air Freight", "Sea FCL": "Sea Freight", "Sea LCL": "Sea Freight", Rail: "Rail Freight", Road: "Road Freight" };
@@ -408,7 +410,9 @@ const fromQuote = (d: SalesQuoteData): Partial<NewPositionValues> => {
 // "Create new" — a new warehouse position, created straight away (no form to fill in):
 // blank, or with values copied from a job or a quote. It gets its own WCZ reference and is
 // never paired with Shipments or Sales; everything else is filled in on its detail page.
-const NewPositionModal = ({ open, onClose }: { open: boolean; onClose: () => void }) => {
+// "Import from Shipments / Master Jobs" instead makes one position per checked shipment,
+// linked to it (an already imported shipment keeps its position).
+const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: () => void; tasks: WarehouseTask[] }) => {
   const queryClient = useQueryClient();
   const router = useRouter();
   const toast = useToast();
@@ -417,6 +421,9 @@ const NewPositionModal = ({ open, onClose }: { open: boolean; onClose: () => voi
   const [jobId, setJobId] = useState("");
   const [quoteNumber, setQuoteNumber] = useState("");
   const [jobQuery, setJobQuery] = useState("");
+  const [importIds, setImportIds] = useState<string[]>([]);
+  const inWarehouse = useMemo(() => new Set(tasks.flatMap((t) => (t.shipmentId ? [t.shipmentId] : []))), [tasks]);
+  const importing = source === "shipments" || source === "masters";
   const debouncedJobQuery = useDebounced(jobQuery.trim(), 300);
 
   const { data: jobData, isFetching: jobsLoading } = useQuery({
@@ -437,7 +444,43 @@ const NewPositionModal = ({ open, onClose }: { open: boolean; onClose: () => voi
     setJobId("");
     setQuoteNumber("");
     setJobQuery("");
+    setImportIds([]);
   }, [open]);
+
+  const changeSource = (v: Exclude<Source, "blank">) => {
+    setSource(v);
+    setImportIds([]);
+  };
+
+  // One linked position per shipment, a few at a time.
+  const importShipments = async () => {
+    setSaving(source);
+    let created = 0;
+    const failed: string[] = [];
+    const queue = [...importIds];
+    const worker = async () => {
+      for (let id = queue.shift(); id; id = queue.shift()) {
+        try {
+          if ((await api.warehouse.warehouseCreate({ shipmentId: id })).created) created++;
+        } catch {
+          failed.push(id);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: 4 }, worker));
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["warehouse"] }),
+      queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] }),
+    ]);
+    setSaving(null);
+    if (created) toast.success(`${created} shipment${created === 1 ? "" : "s"} imported to the warehouse`);
+    if (failed.length) {
+      toast.error(`${failed.length} shipment${failed.length === 1 ? "" : "s"} could not be imported`);
+      setImportIds(failed);
+    } else {
+      onClose();
+    }
+  };
 
   const create = async (from: Source) => {
     let values: NewPositionValues = {};
@@ -472,7 +515,7 @@ const NewPositionModal = ({ open, onClose }: { open: boolean; onClose: () => voi
       open={open}
       title="Create new warehouse position"
       onCancel={onClose}
-      width={560}
+      width={importing ? 960 : 800}
       destroyOnClose
       footer={
         <div className="flex justify-end gap-2">
@@ -480,40 +523,56 @@ const NewPositionModal = ({ open, onClose }: { open: boolean; onClose: () => voi
           <Button onClick={() => create("blank")} loading={saving === "blank"} disabled={!!saving && saving !== "blank"}>
             Create blank
           </Button>
-          <Button
-            type="primary"
-            loading={saving === source}
-            disabled={(source === "job" ? !jobId : !quoteNumber) || (!!saving && saving !== source)}
-            onClick={() => create(source)}
-          >
-            {source === "job" ? "Create from job" : "Create from quote"}
-          </Button>
+          {importing ? (
+            <Button
+              type="primary"
+              loading={saving === source}
+              disabled={!importIds.length || (!!saving && saving !== source)}
+              onClick={importShipments}
+            >
+              {importIds.length ? `Import ${importIds.length} shipment${importIds.length === 1 ? "" : "s"}` : "Import"}
+            </Button>
+          ) : (
+            <Button
+              type="primary"
+              loading={saving === source}
+              disabled={(source === "job" ? !jobId : !quoteNumber) || (!!saving && saving !== source)}
+              onClick={() => create(source)}
+            >
+              {source === "job" ? "Create from job" : "Create from quote"}
+            </Button>
+          )}
         </div>
       }
     >
       <p className="text-xs text-slate-600 mb-4">
-        Would you like to copy data from a job or a quote? The values are only copied — the new warehouse position gets its own WCZ reference
-        and stays separate from Shipments and Sales.
+        {importing
+          ? "Each checked shipment becomes its own warehouse position with a WCZ reference, linked to the shipment: gate-in and release update the shipment's warehouse dates."
+          : "Would you like to copy data from a job or a quote? The values are only copied — the new warehouse position gets its own WCZ reference and stays separate from Shipments and Sales."}
       </p>
       <Segmented
         block
         className="mb-4"
         value={source}
-        onChange={(v) => setSource(v as Exclude<Source, "blank">)}
+        onChange={(v) => changeSource(v as Exclude<Source, "blank">)}
         options={[
           { label: "Copy from job", value: "job" },
           { label: "Copy from quote", value: "quote" },
+          { label: "Import from Shipments", value: "shipments" },
+          { label: "Import from Master Jobs", value: "masters" },
         ]}
       />
-      {source === "job" ? (
+      {importing ? (
+        <ShipmentImportPicker key={source} mode={source} inWarehouse={inWarehouse} selected={importIds} onChange={setImportIds} />
+      ) : source === "job" ? (
         <>
-          <label className="block text-[11px] text-slate-500 mb-1">Copy from Job Number</label>
+          <label className="block text-[11px] text-slate-500 mb-1">Copy from Internal Reference</label>
           <Select
             showSearch
             allowClear
             filterOption={false}
             className="w-full"
-            placeholder="Search by job number, customer, shipper…"
+            placeholder="Search by internal reference, customer, shipper…"
             value={jobId || undefined}
             onChange={(v) => setJobId(v ?? "")}
             onSearch={setJobQuery}

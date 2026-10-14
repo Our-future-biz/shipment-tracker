@@ -36,7 +36,7 @@ export async function downloadWarehouseLabel(m: GateMovement): Promise<void> {
 
   const rows: [string, string][] = [
     ["Customer", m.customer],
-    ["Job number", m.jobNumber],
+    ["Internal Reference", m.jobNumber],
     ["Trade direction", m.handling],
     ["Operation", m.operationType],
     ["Pieces", m.colli ? `${num(m.colli)}${m.packing ? ` ${m.packing}` : ""}` : m.packing],

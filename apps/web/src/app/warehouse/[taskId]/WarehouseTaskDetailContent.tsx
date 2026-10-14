@@ -134,7 +134,7 @@ export function WarehouseTaskDetailContent() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
               <div>
                 <FieldRow label="Warehouse ref.">{value(task.taskId, true)}</FieldRow>
-                <FieldRow label="Job number">{value(m?.jobNumber, true)}</FieldRow>
+                <FieldRow label="Internal Reference">{value(m?.jobNumber, true)}</FieldRow>
                 <FieldRow label="Customer">{value(m?.customer)}</FieldRow>
                 <FieldRow label="Customer ref.">{value(m?.customerRef)}</FieldRow>
                 <FieldRow label="Customer contact">{value(m?.customerContact)}</FieldRow>
