@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { hash, verify } from "@node-rs/argon2";
@@ -5,8 +6,22 @@ import { sql } from "drizzle-orm";
 import { auth, shipments } from "~encore/clients";
 import { gateMovementRepository, type GateMovementRow } from "../repositories/gateMovement.repository";
 import { containerRepository } from "../repositories/warehouseRecords.repository";
+import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
 import { gateMovementTable, type GateChecklist, type GateEvent, type GateReleaseLine, type GateSubPosition, type GateSurvey, type GateSurveyLine, type GateTransportLeg, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
-import type { GateMovementInput, GateMovementItem, GateSurveyInput } from "../interfaces/gate.interfaces";
+import type { GateMovementInput, GateMovementItem, GatePickupInfo, GateSurveyInput } from "../interfaces/gate.interfaces";
+import {
+  isLinkedOutbound,
+  linkedOutboundCond,
+  linkedToShipmentCond,
+  newPickupPin,
+  PICKUP_PIN_GATE,
+  pickupLineOkSql,
+  pickupPinLine,
+  pinMatches,
+  readPickup,
+  setPickupLineSql,
+  type PickupData,
+} from "./pickupPin";
 
 export const MAX_PIN_TRIES = 3;
 
@@ -93,7 +108,14 @@ export const normalizeLegs = (legs: GateTransportLeg[] | null | undefined): Gate
 
 // Release-gate set by operation type, as on the warehouse position (LCL vs FCL).
 // The Customs line follows the customs status: cargo is blocked by customs until cleared.
-export function defaultReleaseGates(handling: string, operationType: string, customsStatus: string): GateReleaseLine[] {
+// Outbound cargo of a position linked to a shipment also waits for the pick-up PIN
+// (`pickupPin`): that line is set only by the PIN check at the gate.
+export function defaultReleaseGates(handling: string, operationType: string, customsStatus: string, pickupPin = false): GateReleaseLine[] {
+  const gates = baseReleaseGates(handling, operationType, customsStatus);
+  return pickupPin ? [...gates, pickupPinLine()] : gates;
+}
+
+function baseReleaseGates(handling: string, operationType: string, customsStatus: string): GateReleaseLine[] {
   if (!isFcl(operationType)) {
     return [
       { g: "B/L / release order", s: handling === "Import" ? "Pending" : "OK", note: handling === "Import" ? "original or telex awaited" : "export — n/a" },
@@ -136,8 +158,22 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
 type ContainerRef = { id: string; number: string; equipment: string };
 
-function toItem(m: GateMovementRow, containers: ContainerRef[] = []): GateMovementItem {
+// What the gate shows of the shipment's pick-up: status, tries and the haulier rows to compare
+// with the truck. Never the PIN itself, so the check at the gate is a real check.
+const pickupInfo = (p: PickupData): GatePickupInfo => ({
+  pinSet: !!p.pin,
+  tries: p.pinTries,
+  locked: !!p.pin && p.pinTries >= MAX_PIN_TRIES,
+  pinCreatedAt: p.pinCreatedAt,
+  pinCreatedBy: p.pinCreatedBy,
+  rows: p.rows,
+});
+
+// `pickup` is the shipment's pick-up section; it is read only for linked outbound rows, whose
+// PIN state then comes from it instead of the gate row's own PIN.
+function toItem(m: GateMovementRow, containers: ContainerRef[] = [], pickup?: PickupData): GateMovementItem {
   const { pinHash, companyId: _companyId, deletedAt: _deletedAt, releaseStatus: _releaseStatus, ...rest } = m;
+  const pick = isLinkedOutbound(m) ? pickupInfo(pickup ?? readPickup(null)) : null;
   return {
     ...rest,
     containers: containers.map((c) => ({ id: c.id, number: c.number, type: c.equipment })),
@@ -146,8 +182,10 @@ function toItem(m: GateMovementRow, containers: ContainerRef[] = []): GateMoveme
     subPositions: m.subPositions.map(normalizeDrop),
     positionRef: m.positionRef ?? "",
     shipmentId: m.shipmentId ?? null,
-    hasPin: !!pinHash,
-    pinLocked: m.pinTries >= MAX_PIN_TRIES,
+    hasPin: pick ? pick.pinSet : !!pinHash,
+    pinTries: pick ? pick.tries : m.pinTries,
+    pinLocked: pick ? pick.locked : m.pinTries >= MAX_PIN_TRIES,
+    pickup: pick,
     armed: isArmed(m),
     needsAttention: needsAttention(m),
     gateIn: iso(m.gateIn),
@@ -180,9 +218,14 @@ const json = (v: unknown) => sql`${JSON.stringify(v)}::jsonb`;
 const sameTime = (a: Date | null, b: Date) => !!a && a.getTime() === b.getTime();
 // isArmed in SQL, so the release checks the gates as they are at the moment of the UPDATE
 // (customs can change between loading the row and stamping it).
+// Safety net: a linked outbound row is released only with its Pick-up PIN line OK, even if the
+// line went missing from the gates (a supervisor override still clears it).
 const armedSql = sql`${t.status} <> 'Refused' AND (${t.overridden} OR NOT EXISTS (
   SELECT 1 FROM jsonb_array_elements(${t.releaseGates}) x
-  WHERE COALESCE(x->>'s', '') <> 'OK' AND COALESCE(x->>'g', '') !~* 'empty return'))`;
+  WHERE COALESCE(x->>'s', '') <> 'OK' AND COALESCE(x->>'g', '') !~* 'empty return'))
+  AND (${t.overridden} OR NOT ${linkedOutboundCond} OR ${pickupLineOkSql})`;
+const PICKUP_PIN_FROM_SHIPMENTS = "This movement uses the pick-up PIN from Shipments";
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Outgoing cargo (výdej) leaves only through WH release, which stamps the gate-out too; a
 // gate-out of its own would skip the release gates.
 const OUT_NEEDS_RELEASE = "Outgoing cargo leaves through WH release (it stamps the gate-out too) — stamp WH release first";
@@ -209,9 +252,30 @@ function stampBlocked(m: GateMovementRow, kind: StampKind): string | null {
 class GateMovementService {
   async list(companyId: string) {
     await this.ensureForTasks(companyId);
+    await this.ensurePickupLine(companyId);
     const movements = await gateMovementRepository.listAll(companyId);
     const containers = await containerRepository.listForMovements(movements.map((m) => m.id), companyId);
-    return movements.map((m) => toItem(m, containers.filter((c) => c.movementId === m.id)));
+    const linked = [...new Set(movements.filter(isLinkedOutbound).map((m) => m.shipmentId!))];
+    const sections = await warehouseSectionRepository.findPickupForShipments(linked, companyId);
+    const pickupOf = (shipmentId: string | null) => readPickup(sections.find((x) => x.shipmentId === shipmentId)?.data);
+    return movements.map((m) => toItem(m, containers.filter((c) => c.movementId === m.id), isLinkedOutbound(m) ? pickupOf(m.shipmentId) : undefined));
+  }
+
+  // Linked outbound rows made before the Pick-up PIN line existed get it on read (no migration).
+  // Rows that stopped being linked outbound other than through update() (the task was deleted
+  // or unlinked elsewhere) lose it on read, so they are not stuck on a line nothing can tick.
+  private async ensurePickupLine(companyId: string, id?: string) {
+    const at = new Date().toISOString();
+    await gateMovementRepository.dropPickupLine(
+      companyId,
+      { kind: "pickupPinLine", label: `${PICKUP_PIN_GATE} line removed — no longer a linked outbound movement`, at, by: "" },
+      id,
+    );
+    await gateMovementRepository.ensurePickupLine(
+      companyId,
+      { kind: "pickupPinLine", label: `${PICKUP_PIN_GATE} line added — release waits for the pick-up PIN`, at, by: "" },
+      id,
+    );
   }
 
   // Every warehouse task shows up in the Gate Log: tasks without a gate row get one,
@@ -265,7 +329,8 @@ class GateMovementService {
           customsStatus,
           transportLegs: normalizeLegs([]),
           checklist: DEFAULT_CHECKLIST,
-          releaseGates: defaultReleaseGates(handling, operationType, customsStatus),
+          // Import rows are outbound and linked to the task's shipment: they wait for the pick-up PIN.
+          releaseGates: defaultReleaseGates(handling, operationType, customsStatus, handling === "Import"),
           events: [{ kind: "created", label: `Created from warehouse task ${task.taskId}`, at: now, by: "" }],
         };
       }),
@@ -280,10 +345,14 @@ class GateMovementService {
   async get(id: string, companyId: string) {
     const m = await this.load(id, companyId);
     const containers = await containerRepository.listForMovements([m.id], companyId);
-    return toItem(m, containers);
+    const pickup = isLinkedOutbound(m) ? readPickup((await warehouseSectionRepository.findPickup(m.shipmentId!, companyId))?.data) : undefined;
+    return toItem(m, containers, pickup);
   }
 
+  // Every action reads the row through here, so it always sees the Pick-up PIN line when the
+  // row is linked outbound.
   private async load(id: string, companyId: string) {
+    await this.ensurePickupLine(companyId, id);
     const m = await gateMovementRepository.findById(id, companyId);
     if (!m) throw APIError.notFound("Gate movement not found");
     return m;
@@ -338,6 +407,10 @@ class GateMovementService {
     }
     if (walkIn) gateRef ||= "— walk-in";
     if (!gateRef) throw APIError.invalidArgument("Gate ref is required unless a warehouse task is linked");
+    // Outbound cargo of a position linked to a shipment is released against the pick-up PIN.
+    const task = data.warehouseTaskId ? await gateMovementRepository.findTask(data.warehouseTaskId, companyId) : null;
+    const pickupPin = (data.visit ?? "příjem") === "výdej" && !!task?.shipmentId;
+    if (pickupPin && rest.pin) throw APIError.invalidArgument(PICKUP_PIN_FROM_SHIPMENTS);
 
     const events: GateEvent[] = [
       { kind: walkIn ? "walkIn" : "created", label: walkIn ? "Walk-in at the gate — unlinked, ops notified" : "Movement created", at: now.toISOString(), by: await this.userName(userId) },
@@ -353,7 +426,7 @@ class GateMovementService {
       transportLegs: data.transportLegs ?? normalizeLegs([]),
       updatedBy: await this.userName(userId),
       checklist: { ...DEFAULT_CHECKLIST, ...(data.checklist ?? {}) },
-      releaseGates: defaultReleaseGates(handling, operationType, customsStatus),
+      releaseGates: defaultReleaseGates(handling, operationType, customsStatus, pickupPin),
       events,
       ...(walkIn
         ? {
@@ -400,8 +473,36 @@ class GateMovementService {
       patch.driver = leg.driver;
       patch.plate = leg.plate;
     }
+    // A linked outbound row uses the pick-up PIN from Shipments, judged on the row as it will be
+    // after this update (direction and task link may change in the same save).
+    const shipmentAfter =
+      patch.warehouseTaskId === undefined
+        ? m.shipmentId
+        : patch.warehouseTaskId
+          ? ((await gateMovementRepository.findTask(patch.warehouseTaskId, companyId))?.shipmentId ?? null)
+          : null;
+    const linkedAfter = isLinkedOutbound({ shipmentId: shipmentAfter, visit: patch.visit ?? m.visit });
+    if (input.pin && linkedAfter) throw APIError.invalidArgument(PICKUP_PIN_FROM_SHIPMENTS);
     patch.updatedBy = await this.userName(userId);
     await gateMovementRepository.update(id, companyId, patch);
+    // Direction or task link changed: the Pick-up PIN line follows (until the release).
+    if (patch.visit !== undefined || patch.warehouseTaskId !== undefined) {
+      const at = new Date().toISOString();
+      await gateMovementRepository.dropPickupLine(
+        companyId,
+        { kind: "pickupPinLine", label: `${PICKUP_PIN_GATE} line removed — no longer a linked outbound movement`, at, by: patch.updatedBy },
+        id,
+      );
+      // Linked to another shipment: a PIN verified for the old shipment does not count.
+      if (linkedAfter && m.shipmentId && shipmentAfter && shipmentAfter !== m.shipmentId) {
+        await gateMovementRepository.resetPickupLine(id, companyId, shipmentAfter, "linked to another shipment — check the PIN again", {
+          kind: "pickupPinLine",
+          label: `${PICKUP_PIN_GATE} back to Pending — linked to another shipment`,
+          at,
+          by: patch.updatedBy,
+        });
+      }
+    }
     return this.get(id, companyId);
   }
 
@@ -627,6 +728,9 @@ class GateMovementService {
   // as they were read, so two people ticking at once cannot lose each other's change.
   async setReleaseGate(id: string, companyId: string, userId: string, gate: string, ok: boolean) {
     if (/^customs$/i.test(gate)) throw APIError.invalidArgument("The Customs line follows the customs status");
+    if (gate.trim().toLowerCase() === PICKUP_PIN_GATE.toLowerCase()) {
+      throw APIError.invalidArgument(`The ${PICKUP_PIN_GATE} line is set by the PIN check at the gate`);
+    }
     const m = await this.load(id, companyId);
     if (m.impRelease) throw APIError.failedPrecondition("Movement is already released");
     const line = m.releaseGates.find((x) => x.g === gate);
@@ -673,7 +777,11 @@ class GateMovementService {
   // guesses never get more than MAX_PIN_TRIES and only the try that locks it logs the lock.
   // A matching PIN holds the last try for a moment before giving it back, so a check that
   // finds no try free waits a little (PIN_BUSY_WAITS) before it calls the PIN locked.
+  // Outbound cargo of a position linked to a shipment is checked against the shipment's pick-up
+  // PIN instead (see verifyPickupPin); every other movement keeps its own gate PIN.
   async verifyPin(id: string, companyId: string, userId: string, pin: string) {
+    const m = await this.load(id, companyId);
+    if (isLinkedOutbound(m)) return this.verifyPickupPin(m, companyId, userId, pin);
     let taken = await gateMovementRepository.takePinTry(id, companyId, MAX_PIN_TRIES);
     for (let wait = 0; !taken; wait++) {
       const m = await this.load(id, companyId);
@@ -694,6 +802,92 @@ class GateMovementService {
       { kind: "pinLocked", label: "PIN locked after 3 failed attempts", at: new Date().toISOString(), by: await this.userName(userId) },
     ]);
     return { result: "locked" as const, tries: taken.pinTries };
+  }
+
+  // The driver's PIN against the pick-up PIN operations made in Shipments. Same try rules as the
+  // gate PIN, but the tries belong to the PIN (the section), not to the gate row, so several gate
+  // rows of one shipment still get three tries in all. A match sets the Pick-up PIN line OK, logged
+  // with who and when — unless operations made a new PIN meanwhile.
+  private async verifyPickupPin(m: GateMovementRow, companyId: string, userId: string, pin: string) {
+    const shipmentId = m.shipmentId!;
+    let taken = await warehouseSectionRepository.takePickupPinTry(shipmentId, companyId, MAX_PIN_TRIES);
+    for (let wait = 0; !taken; wait++) {
+      const p = readPickup((await warehouseSectionRepository.findPickup(shipmentId, companyId))?.data);
+      if (!p.pin) return { result: "no_pin" as const, tries: p.pinTries };
+      if (wait >= PIN_BUSY_WAITS) {
+        if (p.pinTries >= MAX_PIN_TRIES) return { result: "locked" as const, tries: p.pinTries };
+        throw APIError.unavailable("The PIN check is busy — try again");
+      }
+      await sleep(30);
+      taken = await warehouseSectionRepository.takePickupPinTry(shipmentId, companyId, MAX_PIN_TRIES);
+    }
+    const now = new Date();
+    if (pinMatches(taken.pin, pin)) {
+      await warehouseSectionRepository.refundPickupPinTry(shipmentId, companyId, taken.pinId);
+      const by = await this.userName(userId);
+      const outcome = await warehouseSectionRepository.withPickupLock(shipmentId, companyId, async (tx) => {
+        const cur = readPickup((await warehouseSectionRepository.findPickup(shipmentId, companyId, tx))?.data);
+        if (cur.pinId !== taken.pinId || cur.pin !== taken.pin.trim()) return "renewed" as const;
+        const row = await gateMovementRepository.conditionalUpdate(
+          m.id,
+          companyId,
+          { releaseGates: setPickupLineSql({ g: PICKUP_PIN_GATE, s: "OK", note: `verified ${hhmm(now)} · by ${by || "—"}` }) },
+          [{ kind: "pickupPinVerified", label: PICKUP_PIN_GATE, at: now.toISOString(), by }],
+          // Still linked to the shipment whose PIN was checked (not relinked meanwhile).
+          sql`${t.impRelease} IS NULL AND ${linkedOutboundCond} AND ${linkedToShipmentCond(shipmentId)}`,
+          tx,
+        );
+        return row ? ("set" as const) : ("unchanged" as const);
+      });
+      if (outcome === "renewed") throw APIError.aborted("The pick-up PIN was renewed meanwhile — ask the driver for the new PIN");
+      // Not written: already released (nothing left to set), or no longer linked outbound.
+      if (outcome === "unchanged") {
+        const cur = await this.load(m.id, companyId);
+        if (!cur.impRelease && isLinkedOutbound(cur)) throw APIError.aborted("The movement changed meanwhile — reload and try again");
+      }
+      return { result: "match" as const, tries: taken.pinTries - 1 };
+    }
+    if (taken.pinTries < MAX_PIN_TRIES) return { result: "no_match" as const, tries: taken.pinTries };
+    await gateMovementRepository.conditionalUpdate(m.id, companyId, {}, [
+      {
+        kind: "pinLocked",
+        label: "Pick-up PIN locked after 3 failed attempts — operations must make a new PIN",
+        at: now.toISOString(),
+        by: await this.userName(userId),
+      },
+    ]);
+    return { result: "locked" as const, tries: taken.pinTries };
+  }
+
+  // Operations make the pick-up PIN in Shipments: six digits from a secure random source. A new
+  // one replaces the old only after the old one is locked at the gate (3 wrong tries); then the
+  // tries start again and the Pick-up PIN line of the shipment's open gate rows goes back to
+  // Pending, logged. The PIN itself is never logged.
+  async generatePickupPin(shipmentId: string, companyId: string, userId: string) {
+    if (!shipmentId.trim()) throw APIError.invalidArgument("A shipment is required");
+    const at = new Date().toISOString();
+    const by = await this.userName(userId);
+    const res = await warehouseSectionRepository.setPickupPin(
+      shipmentId,
+      companyId,
+      { pin: newPickupPin(), pinId: randomUUID(), at, by },
+      MAX_PIN_TRIES,
+      (tx, kind) =>
+        gateMovementRepository.resetPickupLineForShipment(
+          tx,
+          shipmentId,
+          companyId,
+          kind === "renewed" ? "new PIN generated — check again" : "waiting for the driver's PIN",
+          kind === "renewed"
+            ? { kind: "pickupPinRenewed", label: "New pick-up PIN generated in Shipments", at, by }
+            : { kind: "pickupPinCreated", label: "Pick-up PIN generated in Shipments", at, by },
+        ),
+    );
+    if (!res) {
+      throw APIError.failedPrecondition("This shipment already has a pick-up PIN. A new one can be made only after it is locked at the gate (3 wrong tries).");
+    }
+    log.info("warehouse: pick-up PIN generated", { shipmentId, kind: res.kind, by });
+    return res.row;
   }
 }
 

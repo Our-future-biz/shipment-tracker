@@ -154,7 +154,14 @@ export function ReadmeTab() {
           here.
         </p>
         <p>
-          <b>Pick-up</b> works the other way round: Shipments enters the pick-up and generates the PIN; the warehouse only sees it here.
+          <b>Pick-up</b> works the other way round: operations enter the pick-up (haulier, plate, driver) in Shipments and generate the {TERMS.pickupPin} there
+          — six digits made by the server. The warehouse sees it here, read-only.
+        </p>
+        <p>
+          The warehouse releases against that PIN. In the Gate Log job of an outbound position linked to the shipment, the {TERMS.pickupPin} card shows the
+          pick-up rows next to the truck at the gate. Type the PIN the driver gives and press <b>Check PIN</b>: a match sets the release gate &ldquo;Pick-up PIN
+          verified&rdquo; to OK (logged with who and when) — it cannot be ticked by hand. After 3 wrong tries the PIN is locked; operations then make a new PIN in
+          Shipments, which sets the line back to Pending.
         </p>
       </Part>
 

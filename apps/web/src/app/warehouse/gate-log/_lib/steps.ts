@@ -31,6 +31,29 @@ type StepMovement = Pick<
 
 const isEmptyReturn = (g: string) => /empty return/i.test(g);
 
+// Release-gate line set by the PIN check at the gate, never by hand. Must match the API's
+// PICKUP_PIN_GATE (apps/api/services/warehouse/services/pickupPin.ts).
+export const PICKUP_PIN_GATE = "Pick-up PIN verified";
+export const MAX_PIN_TRIES = 3;
+
+export type PinCheckResult = "match" | "no_match" | "locked" | "no_pin";
+
+/** What the clerk sees after a PIN check: the tone and the words. */
+export function pinCheckMessage(result: PinCheckResult, tries: number): { tone: "g" | "a" | "r"; text: string } {
+  switch (result) {
+    case "match":
+      return { tone: "g", text: `Match — ${PICKUP_PIN_GATE} is OK` };
+    case "no_match": {
+      const left = Math.max(0, MAX_PIN_TRIES - tries);
+      return { tone: "a", text: `No match — ${left} ${left === 1 ? "try" : "tries"} left` };
+    }
+    case "locked":
+      return { tone: "r", text: "Locked after 3 wrong tries — ask operations for a new PIN in Shipments → Warehouse → Pick-up" };
+    case "no_pin":
+      return { tone: "r", text: "No pick-up PIN yet — operations make it in Shipments → Warehouse → Pick-up" };
+  }
+}
+
 /** Release gates that still hold the release (the empty return never does). */
 export const waitingGates = (m: Pick<interfaces.GateMovementItem, "releaseGates">) =>
   m.releaseGates.filter((x) => x.s !== "OK" && !isEmptyReturn(x.g)).map((x) => x.g);

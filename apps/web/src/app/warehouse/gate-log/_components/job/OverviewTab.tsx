@@ -23,6 +23,8 @@ import {
   STATUS_TONE,
 } from "../../_lib/gate";
 import { ReleaseGatesPanel, releaseState } from "./ReleaseGatesPanel";
+import { PickupPinCheck } from "./PickupPinCheck";
+import type { PinCheckResult } from "../../_lib/steps";
 import {
   btnInline,
   FieldRow,
@@ -100,6 +102,7 @@ export function OverviewTab({
   refuse,
   override,
   setReleaseGate,
+  verifyPin,
 }: {
   m: GateMovement;
   save: Save;
@@ -111,6 +114,7 @@ export function OverviewTab({
   refuse: (reason: string) => Promise<unknown>;
   override: (reason: string) => Promise<unknown>;
   setReleaseGate: (gate: string, ok: boolean) => Promise<unknown>;
+  verifyPin: (pin: string) => Promise<{ result: PinCheckResult; tries: number }>;
 }) {
   // Release follows the release gates (see the Release gates card); nothing here sets it by hand.
   const release = releaseState(m);
@@ -433,6 +437,9 @@ export function OverviewTab({
         </div>
 
         <div className="space-y-5 min-w-0">
+          {/* ============ pick-up PIN (linked outbound) ============ */}
+          {m.pickup && !m.impRelease && <PickupPinCheck m={m} verifyPin={verifyPin} />}
+
           {/* ============ release gates ============ */}
           <ReleaseGatesPanel m={m} refuse={refuse} override={override} setReleaseGate={setReleaseGate} />
 

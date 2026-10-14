@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDateTime } from "@/lib/date";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { Badge, type Tone } from "../../_lib/gate";
-import { waitingGates } from "../../_lib/steps";
+import { PICKUP_PIN_GATE, waitingGates } from "../../_lib/steps";
 import { btnDanger, btnDefault, Section } from "./fields";
 
 // Same roles the server allows for the supervisor override.
@@ -32,7 +32,8 @@ export function releaseState(m: GateMovement): { tone: Tone; label: string; deta
 }
 
 // Release checklist: the release follows these gates. Any user ticks a line OK (or back to
-// Pending) once it is met, each change logged; Customs follows the customs status. The gate
+// Pending) once it is met, each change logged; Customs follows the customs status and the
+// Pick-up PIN line is set by the PIN check at the gate. The gate
 // can Refuse (with a reason); a supervisor can override (with a reason).
 export function ReleaseGatesPanel({
   m,
@@ -53,6 +54,7 @@ export function ReleaseGatesPanel({
   const supervisor = !!user && SUPERVISOR_ROLES.includes(user.role);
   const canOverride = supervisor && !m.impRelease && !m.armed;
   const isCustoms = (g: string) => /^customs$/i.test(g);
+  const isPickupPin = (g: string) => g === PICKUP_PIN_GATE;
   const toggle = (gate: string, ok: boolean) => {
     setBusyGate(gate);
     setReleaseGate(gate, ok).finally(() => setBusyGate(null));
@@ -70,8 +72,9 @@ export function ReleaseGatesPanel({
       <ul className="list-none m-0 mt-3 p-0 border-t border-slate-100">
         {m.releaseGates.map((x) => (
           <li key={x.g} className="flex items-start gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
-            {/* Ticked by hand once met; Customs follows the customs status, and nothing moves after release. */}
-            {!isCustoms(x.g) && !m.impRelease ? (
+            {/* Ticked by hand once met; Customs follows the customs status, the Pick-up PIN line the
+                PIN check, and nothing moves after release. */}
+            {!isCustoms(x.g) && !isPickupPin(x.g) && !m.impRelease ? (
               <Checkbox
                 className="pt-[1px]"
                 checked={x.s === "OK"}
@@ -89,7 +92,8 @@ export function ReleaseGatesPanel({
               <div className="text-[11px] text-slate-500 break-words">
                 {x.note && x.note !== "—" ? x.note : x.s}
                 {isEmptyReturn(x.g) ? " · does not hold release" : ""}
-                {/^customs$/i.test(x.g) ? " · follows the customs status" : ""}
+                {isCustoms(x.g) ? " · follows the customs status" : ""}
+                {isPickupPin(x.g) ? " · set by the PIN check at the gate" : ""}
               </div>
             </div>
           </li>

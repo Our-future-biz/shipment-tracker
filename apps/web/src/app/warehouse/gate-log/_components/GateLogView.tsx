@@ -92,7 +92,21 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
     filterOptions: RELEASE_GATES_VALUES,
     render: (_, r) => <span className={RELEASE_TEXT_TONE[releaseGatesText(r)] ?? "text-slate-300"}>{releaseGatesText(r)}</span>,
   },
-  { key: "pin", title: "PIN", width: 90, text: (r) => (r.hasPin ? "set" : ""), render: (_, r) => (r.hasPin ? <span className="font-mono tracking-[2px] text-slate-400">••••</span> : dim("")) },
+  // Linked outbound rows show the pick-up PIN from Shipments; the PIN itself never reaches the list.
+  {
+    key: "pin",
+    title: "PIN",
+    width: 90,
+    text: (r) => (r.pinLocked ? "locked" : r.hasPin ? "set" : ""),
+    render: (_, r) =>
+      r.pinLocked ? (
+        <span className="text-[11px] font-semibold text-red-600">locked</span>
+      ) : r.hasPin ? (
+        <span className="font-mono tracking-[2px] text-slate-400">••••</span>
+      ) : (
+        dim("")
+      ),
+  },
   { key: "colli", title: TERMS.pieces, width: 90, defaultVisible: false, align: "right", text: (r) => String(r.colli), render: (_, r) => num(String(r.colli)) },
   { key: "status", title: TERMS.warehouseStatus, width: 150, defaultVisible: false, text: (r) => r.status, filterOptions: GATE_STATUSES, render: (_, r) => dim(r.status) },
   { key: "slot", title: "Slot", width: 150, defaultVisible: false, text: (r) => r.slot, render: (_, r) => dim(r.slot) },

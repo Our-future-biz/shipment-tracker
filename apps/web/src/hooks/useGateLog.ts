@@ -62,8 +62,12 @@ export const useGateMovement = (id: string | undefined) => {
   });
   const verifyPin = useMutation({
     mutationFn: (pin: string) => api.warehouse.gateMovementVerifyPin(id!, { pin }),
-    // Failed attempts count towards the lock, so refresh the row either way.
-    onSettled: () => queryClient.invalidateQueries({ queryKey: KEY }),
+    // Failed attempts count towards the lock, so refresh the row either way — and the pick-up
+    // section, whose tries a linked outbound movement uses.
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: KEY });
+      queryClient.invalidateQueries({ queryKey: ["warehouse-section"] });
+    },
   });
   const saveSurvey = useMutation({
     mutationFn: (survey: interfaces.GateSurveyInput) => api.warehouse.gateMovementSaveSurvey(id!, { survey }),

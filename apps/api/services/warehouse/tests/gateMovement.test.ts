@@ -290,6 +290,8 @@ describe("warehouse tasks in the gate log", () => {
     const first = await gateMovementService.list(c);
     const row = first.find((m) => m.warehouseTaskId === task.id);
     expect(row).toMatchObject({ gateRef: task.taskId, positionRef: task.taskId, status: "Expected", visit: "výdej", handling: "Import" });
+    // Linked outbound: the release also waits for the pick-up PIN from Shipments.
+    expect(row!.releaseGates.filter((g) => g.g === "Pick-up PIN verified")).toEqual([{ g: "Pick-up PIN verified", s: "Pending", note: "waiting for the driver's PIN" }]);
     expect(first.map((m) => m.id)).toContain(manual.id);
 
     await Promise.all([gateMovementService.list(c), gateMovementService.list(c)]);

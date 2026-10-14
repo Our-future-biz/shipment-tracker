@@ -1,30 +1,40 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Input, Button, Space, Tag } from "antd";
+import { Input, Button, Popconfirm, Space, Tag } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
-import { useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { useGeneratePickupPin, useWarehouseSection } from "@/hooks/useWarehouseSection";
+import { APIError } from "@/lib/api/client";
+import { formatDateTime } from "@/lib/date";
 import { SaveStatus } from "./JobExtras";
 
+// The PIN and its fields are written by the server only; this page sends the rows.
 interface PickupSectionData {
   pin?: string;
+  pinTries?: number;
+  pinCreatedAt?: string;
+  pinCreatedBy?: string;
   rows?: string;
 }
+
+// Same as the server: the PIN locks after this many wrong tries at the warehouse gate.
+const MAX_PIN_TRIES = 3;
 
 const emptyRow = () => ({ haulier: "", licensePlate: "", driver: "" });
 
 export function PickupSection({ ownerId, messageApi, readOnly = false }: { ownerId: string; messageApi: MessageInstance; readOnly?: boolean }) {
   const { data: sectionData, save, isSaving } = useWarehouseSection(ownerId, "pickup");
+  const generate = useGeneratePickupPin(ownerId);
   const section = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
-  const [pin, setPin] = useState<string | null>(section.pin || null);
+  const pin = section.pin || null;
+  const locked = !!pin && (section.pinTries ?? 0) >= MAX_PIN_TRIES;
   const [rows, setRows] = useState<Record<string, string>[]>([emptyRow()]);
   const [dirty, setDirty] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
 
   useEffect(() => {
     const sec = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
-    if (sec.pin) setPin(sec.pin);
     try {
       const parsed: Record<string, string>[] = JSON.parse(sec.rows || "[]");
       if (parsed.length > 0) {
@@ -36,14 +46,13 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
     }
   }, [sectionData]);
 
+  // The server makes the PIN (six digits). A new one only once the old one is locked at the gate.
   const generatePin = async () => {
-    const newPin = String(Math.floor(1000 + Math.random() * 9000));
-    setPin(newPin);
     try {
-      await save({ pin: newPin, rows: section.rows || "[]" });
-      messageApi.success("PIN generated");
-    } catch {
-      messageApi.error("Failed to save");
+      await generate.mutateAsync();
+      messageApi.success(locked ? "New PIN generated — give it to the haulier" : "PIN generated");
+    } catch (e) {
+      messageApi.error(e instanceof APIError ? e.message : "Failed to generate the PIN");
     }
   };
 
@@ -61,7 +70,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
   };
   const handleSave = async () => {
     try {
-      await save({ pin: pin || "", rows: JSON.stringify(rows) });
+      await save({ rows: JSON.stringify(rows) });
       setDirty(false);
       setSavedAt(new Date());
       messageApi.success("Saved");
@@ -74,13 +83,36 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
     <div>
       <div className="mb-5">
         <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">PIN</div>
-        <Space align="center">
+        <Space align="center" wrap>
           <span className="font-mono text-[32px] tracking-[0.3em] text-slate-800">
-            {pin ? pin.split("").join(" ") : "– – – –"}
+            {pin ? pin.split("").join(" ") : "– – – – – –"}
           </span>
-          {!pin && !readOnly && <Button type="primary" size="small" onClick={generatePin} loading={isSaving}>Generate PIN</Button>}
-          {pin && <Tag color="green">Locked</Tag>}
+          {!pin && !readOnly && (
+            <Button type="primary" size="small" onClick={generatePin} loading={generate.isPending}>
+              Generate PIN
+            </Button>
+          )}
+          {locked && <Tag color="red">Locked — 3 wrong tries at the gate</Tag>}
+          {locked && !readOnly && (
+            <Popconfirm
+              title="Generate a new PIN?"
+              description="The old PIN stops working. Give the new PIN to the haulier."
+              okText="New PIN"
+              onConfirm={generatePin}
+            >
+              <Button size="small" danger loading={generate.isPending}>
+                New PIN
+              </Button>
+            </Popconfirm>
+          )}
+          {pin && !locked && <Tag color="green">Set</Tag>}
         </Space>
+        {pin && section.pinCreatedAt && (
+          <div className="text-[11px] text-slate-500 mt-1">
+            generated {formatDateTime(section.pinCreatedAt)}
+            {section.pinCreatedBy ? ` · ${section.pinCreatedBy}` : ""}
+          </div>
+        )}
       </div>
 
       <div className="flex justify-between mb-2">

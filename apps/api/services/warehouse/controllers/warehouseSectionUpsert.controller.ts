@@ -21,7 +21,12 @@ export const warehouseSectionUpsert = api(
     if (!VALID_SECTIONS.has(req.section)) {
       throw APIError.invalidArgument(`Invalid section: ${req.section}. Must be one of: ${[...VALID_SECTIONS].join(", ")}`);
     }
-    const row = await warehouseService.upsertSection(req.shipmentId, req.section, getAuthData()!.companyID, req.data);
+    const companyId = getAuthData()!.companyID;
+    // Pick-up: only the rows are saved; the PIN is made by the server (pickupPinGenerate).
+    const row =
+      req.section === "pickup"
+        ? await warehouseService.upsertPickupRows(req.shipmentId, companyId, req.data)
+        : await warehouseService.upsertSection(req.shipmentId, req.section, companyId, req.data);
     return {
       section: {
         id: row.id,

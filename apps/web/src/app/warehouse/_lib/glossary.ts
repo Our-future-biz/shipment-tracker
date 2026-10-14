@@ -24,6 +24,7 @@ export const TERMS = {
   draftReceipt: "Draft receipt",
   receipt: "Receipt",
   gateOut: "Gate-out",
+  pickupPin: "Pick-up PIN",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -39,6 +40,12 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   { term: TERMS.weightKg, meaning: "Gross weight in kilograms.", replaces: "Gross kg, Gross weight" },
   { term: TERMS.volumeCbm, meaning: "Volume in cubic metres.", replaces: "Measure, CBM, Total volume (m³)" },
   { term: TERMS.plate, meaning: "The truck's licence plate.", replaces: "SPZ, License plate, Plate number" },
+  {
+    term: TERMS.pickupPin,
+    meaning:
+      "Six digits operations make in Shipments (Warehouse tab → Pick-up) and give to the haulier. At the outbound gate the clerk types the PIN the driver gives; a match sets the release gate \"Pick-up PIN verified\" to OK. After 3 wrong tries the PIN is locked until operations make a new one.",
+    replaces: "PIN",
+  },
 ];
 
 export const DIRECTIONS = [TERMS.inbound, TERMS.outbound] as const;

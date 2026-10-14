@@ -3,6 +3,8 @@ import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
 import { gateMovementTable, type GateEvent, type GateMovementRecord, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
 import { warehouseTaskTable } from "../schemas/warehouseTask.schema";
+import { dropPickupLineSql, hasPickupLineSql, linkedOutboundCond, linkedToShipmentCond, pickupPinLine, setPickupLineSql } from "../services/pickupPin";
+import type { Tx } from "./warehouseSection.repository";
 
 // Gate rows come back with the linked warehouse reference (WCZ…) of their task.
 export type GateMovementRow = GateMovementRecord & { positionRef: string | null; shipmentId: string | null };
@@ -111,10 +113,11 @@ class GateMovementRepository {
     set: PgUpdateSetSource<typeof gateMovementTable>,
     events?: GateEvent[] | SQL,
     cond?: SQL,
+    tx: Tx | typeof db = db,
   ): Promise<GateMovementRecord | null> {
     const t = gateMovementTable;
     const append = events === undefined ? null : Array.isArray(events) ? sql`${JSON.stringify(events)}::jsonb` : events;
-    const [row] = await db
+    const [row] = await tx
       .update(t)
       .set({ ...set, ...(append ? { events: sql`${t.events} || ${append}` } : {}), updatedAt: new Date() })
       .where(and(eq(t.id, id), liveRow(companyId), cond))
@@ -141,6 +144,61 @@ class GateMovementRepository {
       .update(t)
       .set({ pinTries: sql`GREATEST(${t.pinTries} - 1, 0)` })
       .where(and(eq(t.id, id), liveRow(companyId)));
+  }
+
+  // Adds the Pick-up PIN line (Pending) to linked outbound rows that do not have it yet — rows
+  // made before the line existed, or rows that became linked outbound. One idempotent UPDATE,
+  // logged on each row it changes; released and deleted rows are never touched.
+  // With `id`, only that row.
+  async ensurePickupLine(companyId: string, event: GateEvent, id?: string) {
+    const t = gateMovementTable;
+    await db
+      .update(t)
+      .set({
+        releaseGates: sql`${t.releaseGates} || jsonb_build_array(${JSON.stringify(pickupPinLine())}::jsonb)`,
+        events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(and(liveRow(companyId), id ? eq(t.id, id) : undefined, isNull(t.impRelease), linkedOutboundCond, sql`NOT ${hasPickupLineSql}`));
+  }
+
+  // Takes the Pick-up PIN line off rows that are no longer linked outbound (direction changed,
+  // the task was unlinked or deleted); logged. One row with `id`, else every row of the company.
+  // Released rows keep what they were released with.
+  async dropPickupLine(companyId: string, event: GateEvent, id?: string) {
+    const t = gateMovementTable;
+    await db
+      .update(t)
+      .set({ releaseGates: dropPickupLineSql, events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`, updatedAt: new Date() })
+      .where(and(liveRow(companyId), id ? eq(t.id, id) : undefined, isNull(t.impRelease), hasPickupLineSql, sql`NOT ${linkedOutboundCond}`));
+  }
+
+  // The row was linked to another shipment: a Pick-up PIN line verified against the old
+  // shipment's PIN no longer counts, so it goes back to Pending; logged. Unreleased rows only.
+  async resetPickupLine(id: string, companyId: string, shipmentId: string, note: string, event: GateEvent) {
+    const t = gateMovementTable;
+    await db
+      .update(t)
+      .set({
+        releaseGates: setPickupLineSql(pickupPinLine(note)),
+        events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(t.id, id), liveRow(companyId), isNull(t.impRelease), linkedOutboundCond, linkedToShipmentCond(shipmentId)));
+  }
+
+  // A new pick-up PIN: the Pick-up PIN line of every unreleased linked outbound row of the
+  // shipment goes back to Pending, logged. Runs inside the PIN's transaction.
+  async resetPickupLineForShipment(tx: Tx, shipmentId: string, companyId: string, note: string, event: GateEvent) {
+    const t = gateMovementTable;
+    await tx
+      .update(t)
+      .set({
+        releaseGates: setPickupLineSql(pickupPinLine(note)),
+        events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(and(liveRow(companyId), isNull(t.impRelease), linkedOutboundCond, linkedToShipmentCond(shipmentId)));
   }
 
   async softDelete(id: string, companyId: string) {

@@ -1,5 +1,7 @@
 import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
+import { APIError } from "encore.dev/api";
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
+import { MAX_PICKUP_ROWS, pickupRowsFromInput } from "./pickupPin";
 
 class WarehouseService {
   async listAll(companyId: string) {
@@ -34,6 +36,17 @@ class WarehouseService {
 
   async upsertSection(shipmentId: string, section: string, companyId: string, data: unknown) {
     return warehouseSectionRepository.upsert(shipmentId, section, companyId, data);
+  }
+
+  // The pick-up save from Shipments: only the haulier / plate / driver rows. The PIN, its tries
+  // and history are the server's (see gateMovementService.generatePickupPin) and stay as stored,
+  // whatever the client sends.
+  async upsertPickupRows(shipmentId: string, companyId: string, data: unknown) {
+    const rows = pickupRowsFromInput(data);
+    if (!rows) {
+      throw APIError.invalidArgument(`Pick-up rows must be a list of up to ${MAX_PICKUP_ROWS} rows with haulier, license plate and driver as text`);
+    }
+    return warehouseSectionRepository.upsertPickupRows(shipmentId, companyId, rows);
   }
 }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { gateSteps } from "./steps";
+import { gateSteps, pinCheckMessage } from "./steps";
 
 type M = Parameters<typeof gateSteps>[0];
 const T = "2026-10-14T08:00:00.000Z";
@@ -79,5 +79,15 @@ describe("gateSteps", () => {
       }),
     );
     expect(s[0]!.by).toBe("New");
+  });
+});
+
+describe("pinCheckMessage", () => {
+  it("says match, tries left, locked or no PIN", () => {
+    expect(pinCheckMessage("match", 0)).toEqual({ tone: "g", text: "Match — Pick-up PIN verified is OK" });
+    expect(pinCheckMessage("no_match", 1).text).toBe("No match — 2 tries left");
+    expect(pinCheckMessage("no_match", 2).text).toBe("No match — 1 try left");
+    expect(pinCheckMessage("locked", 3)).toMatchObject({ tone: "r", text: expect.stringMatching(/^Locked after 3 wrong tries — ask operations for a new PIN/) });
+    expect(pinCheckMessage("no_pin", 0).text).toMatch(/^No pick-up PIN yet/);
   });
 });

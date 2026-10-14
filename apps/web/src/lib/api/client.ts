@@ -1737,6 +1737,7 @@ export namespace warehouse {
             this.gateMovementStamp = this.gateMovementStamp.bind(this)
             this.gateMovementUpdate = this.gateMovementUpdate.bind(this)
             this.gateMovementVerifyPin = this.gateMovementVerifyPin.bind(this)
+            this.pickupPinGenerate = this.pickupPinGenerate.bind(this)
             this.warehouseBondedCreate = this.warehouseBondedCreate.bind(this)
             this.warehouseBondedDelete = this.warehouseBondedDelete.bind(this)
             this.warehouseBondedList = this.warehouseBondedList.bind(this)
@@ -1941,6 +1942,16 @@ export namespace warehouse {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/verify-pin`, JSON.stringify(params))
             return await resp.json() as controllers.GatePinVerifyResponse
+        }
+
+        /**
+         * Operations make the pick-up PIN of a shipment (Shipments → Warehouse → Pick-up): six digits
+         * made on the server. A new one only once the current one is locked at the gate; logged.
+         */
+        public async pickupPinGenerate(shipmentId: string): Promise<controllers.PickupPinGenerateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse/pickup-pin/${encodeURIComponent(shipmentId)}`)
+            return await resp.json() as controllers.PickupPinGenerateResponse
         }
 
         public async warehouseBondedCreate(params: interfaces.WarehouseBondedEntryInput): Promise<{
@@ -3398,6 +3409,10 @@ export namespace controllers {
         contentBase64: string
 
         sha256: string
+    }
+
+    export interface PickupPinGenerateResponse {
+        section: interfaces.WarehouseSectionItem
     }
 
     export interface PipelineExtractHblRequest {
@@ -5000,12 +5015,18 @@ export namespace interfaces {
         subPositions: GateSubPosition[]
         updatedBy: string
         /**
-         * The PIN itself is never returned — the gate only verifies it.
+         * The PIN itself is never returned — the gate only verifies it. On a linked outbound movement
+         * these follow the shipment's pick-up PIN (see `pickup`).
          */
         hasPin: boolean
 
         pinTries: number
         pinLocked: boolean
+        /**
+         * Pick-up from Shipments; only on outbound movements linked to a shipment, else null.
+         */
+        pickup: GatePickupInfo | null
+
         slot: string
         carrier: string
         driver: string
@@ -5033,6 +5054,24 @@ export namespace interfaces {
         events: GateEvent[]
         createdAt: string
         updatedAt: string
+    }
+
+    /**
+     * The shipment's pick-up, as the gate sees it on a linked outbound movement: whether the PIN
+     * operations made in Shipments is set, its tries and lock, and the haulier / plate / driver
+     * rows to compare with the truck. The PIN itself is not here — the gate checks it.
+     */
+    export interface GatePickupInfo {
+        pinSet: boolean
+        tries: number
+        locked: boolean
+        pinCreatedAt: string
+        pinCreatedBy: string
+        rows: {
+            haulier: string
+            licensePlate: string
+            driver: string
+        }[]
     }
 
     export interface GateReleaseLine {

@@ -109,6 +109,20 @@ export interface GateEvent {
   detail?: string;
 }
 
+/**
+ * The shipment's pick-up, as the gate sees it on a linked outbound movement: whether the PIN
+ * operations made in Shipments is set, its tries and lock, and the haulier / plate / driver
+ * rows to compare with the truck. The PIN itself is not here — the gate checks it.
+ */
+export interface GatePickupInfo {
+  pinSet: boolean;
+  tries: number;
+  locked: boolean;
+  pinCreatedAt: string;
+  pinCreatedBy: string;
+  rows: { haulier: string; licensePlate: string; driver: string }[];
+}
+
 export interface GateMovementItem {
   id: string;
   gateRef: string;
@@ -160,10 +174,15 @@ export interface GateMovementItem {
   surveys: GateSurvey[];
   subPositions: GateSubPosition[];
   updatedBy: string;
-  /** The PIN itself is never returned — the gate only verifies it. */
+  /**
+   * The PIN itself is never returned — the gate only verifies it. On a linked outbound movement
+   * these follow the shipment's pick-up PIN (see `pickup`).
+   */
   hasPin: boolean;
   pinTries: number;
   pinLocked: boolean;
+  /** Pick-up from Shipments; only on outbound movements linked to a shipment, else null. */
+  pickup: GatePickupInfo | null;
   slot: string;
   carrier: string;
   driver: string;
@@ -191,7 +210,8 @@ export interface GateMovementItem {
 }
 
 /**
- * Editable fields. `pin` sets a new 4-digit PIN (empty string clears it).
+ * Editable fields. `pin` sets a new 4-digit gate PIN (empty string clears it); outbound
+ * movements linked to a shipment use the pick-up PIN from Shipments and refuse it.
  * Status, release gates and override are not here: they change only through the stamps,
  * Refuse and the supervisor override, each logged on the movement.
  */

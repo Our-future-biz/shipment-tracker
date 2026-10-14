@@ -26,3 +26,16 @@ export function useWarehouseSection(shipmentId: string, section: string) {
     isSaving: mutation.isPending,
   };
 }
+
+// Pick-up PIN: made by the server (six digits). A new one only once the old one is locked at
+// the gate. The answer is the saved section; the Gate Log refreshes so its PIN state follows.
+export function useGeneratePickupPin(shipmentId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => api.warehouse.pickupPinGenerate(shipmentId),
+    onSuccess: (res) => {
+      queryClient.setQueryData(["warehouse-section", shipmentId, "pickup"], res);
+      queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+    },
+  });
+}

@@ -120,7 +120,7 @@ function StepItem({ step, onPick }: { step: GateStep; onPick: () => void }) {
 export function GateJobView({ id }: { id: string }) {
   const router = useRouter();
   const toast = useToast();
-  const { movement: m, isLoading, update, stamp, requestRelease, requestMrn, refuse, override, setReleaseGate, saveSurvey, remove } = useGateMovement(id);
+  const { movement: m, isLoading, update, stamp, requestRelease, requestMrn, refuse, override, setReleaseGate, verifyPin, saveSurvey, remove } = useGateMovement(id);
   const [tab, setTab] = useUrlParam<Tab>("tab", TABS, "overview");
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
@@ -343,6 +343,12 @@ export function GateJobView({ id }: { id: string }) {
                 .mutateAsync({ gate, ok })
                 .then(() => toast.success(ok ? `${gate}: OK — logged on the movement` : `${gate}: back to Pending — logged on the movement`))
                 .catch((e) => toast.error(errorMessage(e, "Failed to change the release gate")))
+            }
+            verifyPin={(pin) =>
+              verifyPin.mutateAsync(pin).catch((e) => {
+                toast.error(errorMessage(e, "Failed to check the PIN"));
+                throw e;
+              })
             }
           />
         )}

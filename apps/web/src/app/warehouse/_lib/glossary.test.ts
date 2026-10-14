@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { directionOfHandling, directionOfVisit, handlingOfDirection, releaseGatesText } from "./glossary";
+import { directionOfHandling, directionOfVisit, GLOSSARY, handlingOfDirection, releaseGatesText, TERMS } from "./glossary";
 
 describe("direction mapping", () => {
   it("maps visits", () => {
@@ -23,5 +23,14 @@ describe("releaseGatesText", () => {
     expect(releaseGatesText({ visit: "výdej", armed: true, impRelease: null })).toBe("Clear");
     expect(releaseGatesText({ visit: "výdej", armed: false, impRelease: null })).toBe("Blocked");
     expect(releaseGatesText({ visit: "výdej", armed: false, impRelease: "2026-10-14T08:00:00Z" })).toBe("Released");
+  });
+});
+
+describe("glossary", () => {
+  it("explains the pick-up PIN", () => {
+    expect(TERMS.pickupPin).toBe("Pick-up PIN");
+    const entry = GLOSSARY.find((g) => g.term === TERMS.pickupPin);
+    expect(entry?.meaning).toMatch(/Six digits/);
+    expect(entry?.meaning).toMatch(/Pick-up PIN verified/);
   });
 });
