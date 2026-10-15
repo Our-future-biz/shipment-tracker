@@ -228,7 +228,7 @@ class TripService {
     try {
       const settings = await settingsService.get(companyId);
       const level = c.serviceLevel ?? settings.serviceLevels.find((l) => l.active)?.code ?? null;
-      const rated = await rateService.rate(companyId, rateRequestOf(c, c.customerId, level));
+      const rated = await rateService.rate(companyId, rateRequestOf(c, c.customerId, level), ["BUY"]);
       return rated.results[0]?.buy ?? [];
     } catch {
       return [];

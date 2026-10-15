@@ -553,6 +553,15 @@ class SalesQuoteService {
   // Which shipment each of the company's quotes is linked to, for the shipments service to
   // compare with the shipments that name a quote. A quote older code left without columns has
   // no link and is not missed here.
+  // Open quotes (not won or lost) road-priced with one of these trucking tariff versions, for the
+  // tariff diff in Trucking. Quotes older code left without columns are adopted first.
+  async countByTariffVersions(companyId: string, versionIds: string[]): Promise<number> {
+    const ids = versionIds.filter((id) => typeof id === "string" && id.length > 0 && id.length <= 64).slice(0, 500);
+    if (!ids.length) return 0;
+    await salesQuoteRepository.adoptPending(companyId);
+    return salesQuoteRepository.countOpenByTariffVersions(companyId, ids);
+  }
+
   async shipmentLinks(companyId: string): Promise<{ quoteNumber: string; shipmentId: string }[]> {
     return salesQuoteRepository.shipmentLinks(companyId);
   }

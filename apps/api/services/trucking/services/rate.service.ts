@@ -1,12 +1,15 @@
 import { customers, fx } from "~encore/clients";
+import log from "encore.dev/log";
 import { czHolidays } from "../lib/czHolidays";
 import { tariffRepository } from "../repositories/tariff.repository";
+import { rateGapRepository } from "../repositories/rateGap.repository";
 import { haulierRepository } from "../repositories/haulier.repository";
 import type { TruckingTariffRecord, TruckingTariffVersionRecord } from "../schemas/truckingTariff.schema";
-import type { PricedSide, RateLevelResult, RateRequest, RateResponse, ServiceLevelSetting, Unpriced } from "../interfaces/interfaces";
+import type { PricedSide, RateLevelResult, RateRequest, RateResponse, ServiceLevelSetting, TariffSide, Unpriced } from "../interfaces/interfaces";
 import { addDays, businessDay } from "../../../lib/businessDate";
 import { formatDay } from "../lib/format";
 import { cleanRateRequest } from "../lib/tariffRules";
+import { gapsOf, type RateGapInput } from "../lib/rateGaps";
 import {
   applyDiscount,
   isPriced,
@@ -48,9 +51,10 @@ class RateService {
   /**
    * Prices a shipment on every requested service level: the customer's (or the Standard) sell
    * price, every usable haulier's buy price, the internal price, the margin and the promised date.
-   * Tariffs, fuel index and ČNB rate are those of the pickup date.
+   * Tariffs, fuel index and ČNB rate are those of the pickup date. What could not be priced on
+   * the `gapSides` is recorded as a coverage gap (a caller that asks only for buy prices names BUY).
    */
-  async rate(companyId: string, raw: RateRequest): Promise<RateResponse> {
+  async rate(companyId: string, raw: RateRequest, gapSides: readonly TariffSide[] = ["SELL", "BUY", "INTERNAL"]): Promise<RateResponse> {
     const req = cleanRateRequest(raw);
     const day = req.pickupDate;
     const [settings, tariffs, fuel, extraHolidays] = await Promise.all([
@@ -150,7 +154,17 @@ class RateService {
         ...margin(sell, sortedBuy, settings.marginFloor),
       };
     });
+    await this.recordGaps(companyId, gapsOf(req, results).filter((g) => gapSides.includes(g.side)));
     return { request: req, ratedAt: new Date().toISOString(), results };
+  }
+
+  /** Coverage gaps for Reports; a failure to record one never fails the pricing (logged). */
+  private async recordGaps(companyId: string, gaps: RateGapInput[]): Promise<void> {
+    try {
+      await rateGapRepository.record(companyId, gaps);
+    } catch (err) {
+      log.warn("coverage gaps could not be recorded", { companyId, err: String(err) });
+    }
   }
 }
 

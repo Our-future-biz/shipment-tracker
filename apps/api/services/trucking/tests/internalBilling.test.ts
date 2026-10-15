@@ -219,7 +219,7 @@ describe("internal charges", () => {
   it("POD received: the Internal tariff's price in the month of the delivery, and the job's one internal buying line", async () => {
     const c = await delivered();
     await consignmentService.stamp(manager, c.id, "podReceived", null);
-    expect(rateService.rate).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ includeInternal: true, includeBuy: false, pickupDate: "2026-09-29", serviceLevels: ["D1"], scope: "FTL" }));
+    expect(rateService.rate).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ includeInternal: true, includeBuy: false, pickupDate: "2026-09-29", serviceLevels: ["D1"], scope: "FTL" }), ["INTERNAL"]);
     expect(store.internalCharges).toEqual([
       expect.objectContaining({ kind: "CHARGE", month: "2026-09", amount: 7000, department: "Ocean Department", consignmentRef: c.ref, notPriced: false, tariffVersionId: "00000000-0000-0000-0000-0000000000e1" }),
     ]);

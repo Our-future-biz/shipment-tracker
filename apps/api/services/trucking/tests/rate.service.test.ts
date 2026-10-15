@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The rate service runs for real against stand-ins for the repositories, the settings, the fuel
 // index and the customers / fx / holidays services.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   customers: { _internalHaulierList: vi.fn(), _internalCustomerPipelineList: vi.fn() },
   fx: { fxResolve: vi.fn() },
@@ -10,6 +11,8 @@ vi.mock("~encore/clients", () => ({
 }));
 const tariffs = vi.hoisted(() => ({ list: vi.fn(), bindingOn: vi.fn() }));
 vi.mock("../repositories/tariff.repository", () => ({ tariffRepository: tariffs }));
+const gaps = vi.hoisted(() => ({ record: vi.fn(async () => undefined) }));
+vi.mock("../repositories/rateGap.repository", () => ({ rateGapRepository: gaps }));
 const hauliers = vi.hoisted(() => ({ findMany: vi.fn() }));
 vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: hauliers }));
 const settings = vi.hoisted(() => ({ get: vi.fn() }));
@@ -272,6 +275,27 @@ describe("rate calculator", () => {
       { from: "2026-10-15", to: "2026-11-29" },
       { authData: expect.objectContaining({ companyID: C }) },
     );
+  });
+
+  it("records what it could not price as coverage gaps, dates taken out", async () => {
+    tariffs.bindingOn.mockResolvedValue([version("h1", 6)]);
+    await rateService.rate(C, request());
+    expect(gaps.record).toHaveBeenCalledWith(C, [
+      { side: "SELL", scope: "LTL", serviceLevel: "D1", postcode: "60200", reason: "Standard LTL has no version valid" },
+      { side: "INTERNAL", scope: "LTL", serviceLevel: "D1", postcode: "60200", reason: "No internal LTL tariff" },
+    ]);
+  });
+
+  it("records only the sides a caller names (a buy-only pricing never records the sell)", async () => {
+    tariffs.bindingOn.mockResolvedValue([version("h1", 6)]);
+    await rateService.rate(C, request(), ["BUY"]);
+    expect(gaps.record).toHaveBeenCalledWith(C, []);
+  });
+
+  it("still prices when the gaps cannot be recorded", async () => {
+    gaps.record.mockRejectedValue(new Error("relation does not exist"));
+    const [d1] = (await rateService.rate(C, request())).results;
+    expect(isPriced(d1.sell)).toBe(true);
   });
 
   it("returns the cleaned request", async () => {

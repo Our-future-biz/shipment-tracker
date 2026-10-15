@@ -1,5 +1,8 @@
 import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
+import { quotes } from "~encore/clients";
 import { tariffRepository } from "../repositories/tariff.repository";
+import { reportsRepository } from "../repositories/reports.repository";
 import type { TariffVersionDiff, TestLaneLevel, TestLaneRequest } from "../interfaces/interfaces";
 import { businessDay } from "../../../lib/businessDate";
 import { cleanRateRequest, versionLevels } from "../lib/tariffRules";
@@ -25,7 +28,30 @@ class TariffReviewService {
     } else {
       against = (await tariffRepository.bindingOn(companyId, [version.tariffId], day))[0] ?? null;
     }
-    return diffVersions(version.input, against?.input ?? null, against ? toSummary(against, day) : null);
+    const diff = diffVersions(version.input, against?.input ?? null, against ? toSummary(against, day) : null);
+    return { ...diff, ...(await this.affected(companyId, version.tariffId)) };
+  }
+
+  /**
+   * What a change of the tariff touches: open quotes (not won or lost) and open consignments (not
+   * ready to bill or cancelled) priced with any of its versions. A count that cannot be read is
+   * null (logged), as before Phase 7.
+   */
+  private async affected(companyId: string, tariffId: string): Promise<{ affectedOpenQuotes: number | null; affectedOpenConsignments: number | null }> {
+    const versionIds = (await tariffRepository.versionSummaries(companyId, [tariffId])).map((v) => v.id);
+    const settle = async (what: string, read: () => Promise<number>) => {
+      try {
+        return await read();
+      } catch (err) {
+        log.warn(`affected open ${what} could not be counted`, { companyId, tariffId, err: String(err) });
+        return null;
+      }
+    };
+    const [affectedOpenQuotes, affectedOpenConsignments] = await Promise.all([
+      settle("quotes", async () => (versionIds.length ? (await quotes._internalQuotesByTariffVersions({ versionIds })).count : 0)),
+      settle("consignments", () => reportsRepository.openConsignmentsPricedWith(companyId, versionIds)),
+    ]);
+    return { affectedOpenQuotes, affectedOpenConsignments };
   }
 
   /**
