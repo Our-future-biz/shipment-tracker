@@ -1,4 +1,4 @@
-// Styling shared by the inline Selects of the customer cards (CRM, Company analysis).
+// Styling shared by the inline Selects of the customer cards (CRM, Company analysis, Payment terms).
 
 // Inline Selects fill the value slot of a row and use its 12px text. A borderless Select keeps 8px of inner
 // inset (padding + transparent border), so its wrapper pulls it back by as much: the text then lines up with the

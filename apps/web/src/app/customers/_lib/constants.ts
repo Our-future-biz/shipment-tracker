@@ -46,8 +46,8 @@ export const CUSTOMER_DETAIL_TABS: CustomerTab[] = [
 export const CUSTOMER_TAB_ALIASES: Record<string, string> = {
   financial: "finance",
   credit: "finance",
-  // Payment terms are edited in the CRM card on the Overview tab.
-  payment: "overview",
+  // Payment terms are edited in the Payment terms card on the Finance tab.
+  payment: "finance",
 };
 
 // Account type (label) badge colours, as Tailwind background + text classes.
