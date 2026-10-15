@@ -26,7 +26,7 @@ import { isUuid } from "../../../lib/uuid";
 import { businessDay } from "../../../lib/businessDate";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { servedFileType } from "../../warehouse/services/fileType";
-import { bankAccountCheck, cleanInvoiceInput, cleanReason, invoiceBlockReasons, matchInvoice, type CleanInvoice } from "../lib/haulierInvoiceRules";
+import { bankAccountCheck, cleanInvoiceInput, cleanReason, currentStatus, invoiceBlockReasons, matchInvoice, OPEN_STATUSES, type CleanInvoice } from "../lib/haulierInvoiceRules";
 import { realCosts, type RealTarget, type TargetJob } from "../lib/haulierInvoiceReal";
 import { haulierClaims } from "../lib/haulierClaims";
 import { isInternalDepartment } from "../lib/internalRules";
@@ -45,7 +45,7 @@ import { deliverDue } from "./truckingOutbox.service";
 // ledger (the line's allocations).
 
 export const INVOICE_CONFLICT = "The invoice was changed by someone else. Reload and try again.";
-const EDITABLE: HaulierInvoiceStatus[] = ["DRAFT", "NEEDS_APPROVAL", "BLOCKED"];
+const EDITABLE = OPEN_STATUSES;
 const APPROVABLE: HaulierInvoiceStatus[] = ["NEEDS_APPROVAL", "BLOCKED"];
 const AUTO_APPROVER = "Exact match (automatic)";
 const AUTO_REASON = "Every line and the net total match the expected cost exactly";
@@ -66,7 +66,11 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 const targetKey = (kind: HaulierInvoiceTargetKind, id: string) => `${kind}:${id}`;
 
+/** The invoice as shown: an open one with its status and block reasons worked out against the haulier's profile now. */
 function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile | null): HaulierInvoice {
+  const open = OPEN_STATUSES.includes(r.status);
+  const blockReasons = open ? invoiceBlockReasons(profile, r.bankAccount) : r.blockReasons;
+  const status = currentStatus(r.status, r.totalNet, lines, blockReasons);
   return {
     id: r.id,
     haulierCustomerId: r.haulierCustomerId,
@@ -92,8 +96,8 @@ function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile
       note: l.note,
     })),
     difference: r.difference,
-    status: r.status,
-    blockReasons: r.blockReasons,
+    status,
+    blockReasons,
     approval: r.approvedAt ? { byName: r.approvedBy ?? "", at: r.approvedAt.toISOString(), reason: r.approvalReason ?? "" } : null,
     fileName: r.fileName,
     createdAt: r.createdAt.toISOString(),
@@ -511,10 +515,13 @@ class HaulierInvoiceService {
     if (status && !["DRAFT", "MATCHED", "NEEDS_APPROVAL", "APPROVED", "BLOCKED", "REJECTED"].includes(status)) throw bad("Unknown status");
     const haulierCustomerId = filter.haulierCustomerId || undefined;
     if (haulierCustomerId && !isUuid(haulierCustomerId)) throw bad("Unknown haulier");
-    const stored = await haulierInvoiceRepository.list(actor.companyID, { status, haulierCustomerId });
+    // An open invoice's status is worked out on reading: it is filtered by that, not the stored one.
+    const statuses = !status ? undefined : OPEN_STATUSES.includes(status) ? OPEN_STATUSES : [status];
+    const stored = await haulierInvoiceRepository.list(actor.companyID, { statuses, haulierCustomerId });
     const profiles = await haulierRepository.findMany(actor.companyID, [...new Set(stored.map((s) => s.invoice.haulierCustomerId))]);
     const profileOf = new Map(profiles.map((p) => [p.profile.customerId, toProfile(p)]));
-    return stored.map((s) => toInvoice(s, profileOf.get(s.invoice.haulierCustomerId) ?? null));
+    const invoices = stored.map((s) => toInvoice(s, profileOf.get(s.invoice.haulierCustomerId) ?? null));
+    return status ? invoices.filter((i) => i.status === status) : invoices;
   }
 
   /**

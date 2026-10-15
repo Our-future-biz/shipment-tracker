@@ -516,6 +516,8 @@ class ConsignmentService {
       customerReference: f.pickup.reference,
       quoteNumber: f.quoteNumber,
       createdBy: by ? `Trucking · ${by}` : "Trucking",
+      // LTL goes through our warehouse's consolidation: the job (and the warehouse position made from it) says so.
+      loadType: f.scope === "LTL" ? "Consolidation" : "Full Load",
     })) };
     // A job of another department is billed internally (no customer selling lines).
     const internal = isInternalDepartment(job.department);

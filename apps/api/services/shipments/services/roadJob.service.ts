@@ -12,7 +12,7 @@ import type { RoadJobBasics, RoadJobInput } from "../interfaces/interfaces";
 const MAX_IDS = 500;
 
 class RoadJobService {
-  /** A new Road Freight job (Full Load) for a domestic order; the job number is the next CZ one. */
+  /** A new Road Freight job (Full Load, or Consolidation for LTL) for a domestic order; the job number is the next CZ one. */
   async create(companyId: string, input: RoadJobInput): Promise<{ shipmentId: string; jobNumber: string }> {
     if (!isUuid(input.customerId)) throw APIError.invalidArgument("Unknown customer");
     const { shipment } = await shipmentService.create(companyId, {
@@ -23,7 +23,7 @@ class RoadJobService {
       freightMode: "Road Freight",
       tradeDirection: "Domestic",
       status: "Booking Confirmation Pending [DOM]",
-      loadType: "Full Load",
+      loadType: input.loadType === "Consolidation" ? "Consolidation" : "Full Load",
       department: "Road Department",
       serviceName: "Domestic",
       pickupAddress: input.pickupAddress,

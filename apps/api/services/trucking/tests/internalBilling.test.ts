@@ -151,11 +151,15 @@ describe("which consignments are internal and what their jobs' Costs get", () =>
     expect(d).toMatchObject({ internal: true, jobNumber: "CZ00000077" });
     expect(store.consignments[0]).toMatchObject({ internal: true, department: "Ocean Department" });
     expect(costs()).toEqual([]);
+    // The customer's price is not this consignment's: the detail shows none (the internal price comes from the statement).
+    expect(d.sell).toBeNull();
+    expect((await consignmentService.get(user, d.id)).sell).toBeNull();
   });
 
   it("a Road Department job keeps Phase 4: the customer's selling lines", async () => {
     const d = await consignmentService.create(user, input({ shipmentId: SHIPMENT }));
     expect(d.internal).toBe(false);
+    expect(d.sell).toMatchObject({ total: 12000 });
     expect(costs()).toEqual([expect.objectContaining({ sourceRef: `trucking:consignment:${d.id}`, selling: [expect.objectContaining({ amount: 12000 })] })]);
   });
 

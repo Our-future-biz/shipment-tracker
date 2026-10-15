@@ -722,6 +722,7 @@ export interface ConsignmentDetail extends ConsignmentListItem {
   pickup: Stop;
   delivery: Stop;
   load: LoadInput;
+  /** The customer's price; null when not priced, and for an internal consignment (billed from the Internal tariff) */
   sell: PriceSnapshot | null;
   quoteNumber: string | null;
   stamps: Record<StampKind, { at: string; by: string } | null>;

@@ -4,6 +4,7 @@ import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import type { GateEvent } from "../schemas/gateMovement.schema";
 import type { Tx } from "./warehouseSection.repository";
+import { isUuid } from "../../../lib/uuid";
 import {
   warehouseClaimTable,
   warehouseContainerPositionTable,
@@ -51,7 +52,9 @@ class WarehouseContainerRepository extends TenantRepository<typeof warehouseCont
     return out;
   }
 
+  // An id that is not a uuid (from a request) finds nothing: Postgres would answer it with an error.
   async findById(id: string, companyId: string, tx: Tx | typeof db = db) {
+    if (!isUuid(id)) return null;
     const [row] = await tx.select().from(ct).where(and(eq(ct.id, id), eq(ct.companyId, companyId), isNull(ct.deletedAt)));
     return row ?? null;
   }
@@ -64,6 +67,7 @@ class WarehouseContainerRepository extends TenantRepository<typeof warehouseCont
   // The live container, locked until the transaction ends. Every change of a container's houses
   // or stamps locks it first (then the positions, ordered by id), so they never deadlock.
   async lock(tx: Tx, id: string, companyId: string) {
+    if (!isUuid(id)) return null;
     const [row] = await tx.select().from(ct).where(and(eq(ct.id, id), eq(ct.companyId, companyId), isNull(ct.deletedAt))).for("update");
     return row ?? null;
   }

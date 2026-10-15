@@ -197,6 +197,26 @@ describe("LTL consignment and its legs", () => {
     ]);
   });
 
+  it("an order with no job gets a Road / Domestic job of load type Consolidation (our warehouse consolidates it)", async () => {
+    vi.mocked(shipments._internalShipmentCreateRoad).mockResolvedValue({ shipmentId: SHIPMENT, jobNumber: "CZ00000099" });
+    await consignmentService.create(user, {
+      shipmentId: null,
+      customerId: CUSTOMER,
+      quoteNumber: null,
+      serviceLevel: "D1",
+      pickupDate: "2026-10-15",
+      pickupTime: null,
+      pickup: stop({ name: "Alfa" }),
+      delivery: stop({ name: "Beta", postcode: "602 00", city: "Brno" }),
+      load: load({ weightKg: 500 }),
+      price: { source: "TARIFF" },
+      scope: "LTL",
+      lastMile: "OWN_RUN",
+      partnerHaulierCustomerId: null,
+    });
+    expect(shipments._internalShipmentCreateRoad).toHaveBeenCalledWith(expect.objectContaining({ loadType: "Consolidation" }));
+  });
+
   it("brought by the customer: only the delivery leg; FTL ↔ LTL cannot change later", async () => {
     const c = await consignmentService.create(user, {
       shipmentId: SHIPMENT,
@@ -439,6 +459,17 @@ describe("transport order, our warehouse and the trip's stamps", () => {
     const back = await ltlService.tripStamp(user, trip.id, "arrived", null);
     expect(back.status).toBe("DONE");
     expect(cOf(a.id)).toMatchObject({ status: "PICKED_UP", pickedUpBy: "Jana Nováková" });
+  });
+
+  it("a delivery run (or line haul) leaves only once every consignment on it passed our gate-in", async () => {
+    const a = await ltl({ selfDelivered: true });
+    const run = await ltlService.createTrip(user, { kind: "DELIVERY_RUN", date: "2026-10-16", haulierCustomerId: HAULIER, vehicleTypeCode: "van", legIds: [legOf(a.id, "DELIVERY").id], price: manual(600) });
+    await transportOrderService.send(user, run.id, { pickupPin: null, language: "en", to: [], note: "" });
+    await expect(ltlService.tripStamp(user, run.id, "departed", null)).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringContaining(`gate-in of ${a.ref}`) });
+    expect(legOf(a.id, "DELIVERY").status).toBe("PLANNED");
+    await ltlService.handleGateStamped({ companyId: COMPANY, shipmentId: SHIPMENT, positionId: "p", wczRef: "", kind: "gateIn", stampKind: "gateIn", at: "2026-10-15T07:00:00.000Z", userId: "" });
+    const gone = await ltlService.tripStamp(user, run.id, "departed", null);
+    expect(gone.status).toBe("IN_TRANSIT");
   });
 });
 

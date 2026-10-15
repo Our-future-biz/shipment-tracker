@@ -88,6 +88,11 @@ describe("roadMargin", () => {
     expect(roadMargin(road([], [line(1000)]), ctx({ floor: { percent: 8, minAmountCzk: 0 } }))).toMatchObject({ belowFloor: true });
   });
 
+  it("does not block a quote with no lines yet: no margin, nothing to approve", () => {
+    expect(roadMargin(road([], []), ctx())).toMatchObject({ sellingCzk: 0, buyingCzk: 0, marginCzk: null, marginPercent: null, belowFloor: false, needsApproval: false, problem: null });
+    expect(roadMargin({ serviceType: "Road" }, ctx())).toMatchObject({ marginCzk: null, needsApproval: false });
+  });
+
   it("takes qty × unit price when both are set, else the amount", () => {
     const selling = [line(999, "CZK", { qty: 3, unitPrice: 1000 }), line(500, "CZK", { qty: 2 }), line(250, "CZK", { unitPrice: 7 })];
     expect(roadMargin(road(selling, []), ctx())).toMatchObject({ sellingCzk: 3750 });

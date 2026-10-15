@@ -7,6 +7,7 @@ import { formatDate, formatDateTime } from "@/lib/date";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { formatPsc } from "../../_lib/hauliers";
 import { PriceSnapshotTable } from "../../_components/PriceSnapshotTable";
+import { TERMS } from "../../_lib/glossary";
 
 type Stop = ConsignmentDetail["pickup"];
 
@@ -63,7 +64,17 @@ export const ConsignmentOverviewTab = ({ c }: ConsignmentOverviewTabProps) => (
         <Line k="Goods" v={c.load.description} />
         <Line k="Booked" v={formatDate(c.createdAt)} />
       </SectionCard>
-      <SectionCard title="Sell price">{c.sell ? <PriceSnapshotTable price={c.sell} /> : <p className="m-0 text-[13px] text-slate-500">Not priced.</p>}</SectionCard>
+      <SectionCard title="Sell price">
+        {c.internal ? (
+          <p className="m-0 text-[13px] text-slate-500">
+            No customer price: billed internally from the {TERMS.internalTariff.toLowerCase()} in the monthly {TERMS.internalStatement.toLowerCase()} (see Money).
+          </p>
+        ) : c.sell ? (
+          <PriceSnapshotTable price={c.sell} />
+        ) : (
+          <p className="m-0 text-[13px] text-slate-500">Not priced.</p>
+        )}
+      </SectionCard>
     </div>
   </div>
 );

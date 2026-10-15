@@ -174,9 +174,9 @@ vi.mock("../repositories/haulierInvoice.repository", () => {
         const invoice = mem.invoices.find((i) => i.id === id);
         return invoice ? { invoice, lines: linesOf(id) } : null;
       }),
-      list: vi.fn(async (_c: string, f: { status?: string; haulierCustomerId?: string }) =>
+      list: vi.fn(async (_c: string, f: { statuses?: string[]; haulierCustomerId?: string }) =>
         mem.invoices
-          .filter((i) => (!f.status || i.status === f.status) && (!f.haulierCustomerId || i.haulierCustomerId === f.haulierCustomerId))
+          .filter((i) => (!f.statuses || f.statuses.includes(i.status)) && (!f.haulierCustomerId || i.haulierCustomerId === f.haulierCustomerId))
           .map((invoice) => ({ invoice, lines: linesOf(invoice.id) })),
       ),
       doneTrips: vi.fn(async (_c: string, h: string) => mem.trips.filter((t) => t.haulierCustomerId === h && t.status === "DONE" && !t.cancelledAt && t.buy)),
@@ -404,6 +404,20 @@ describe("VAT block: nobody can approve", () => {
     const approved = await haulierInvoiceService.approve(manager, inv.id, "Account confirmed in the register");
     expect(approved).toMatchObject({ status: "APPROVED", blockReasons: [], approval: { byName: "Jana Nováková", reason: "Account confirmed in the register" } });
     expect(mem.outbox).toHaveLength(1);
+  });
+
+  it("shows a blocked invoice as waiting for approval once the profile is fixed (no re-save), never approved by itself", async () => {
+    mem.profiles.set(H, profile({ vatUnreliable: true }));
+    const inv = await haulierInvoiceService.create(user, invoice());
+    expect(inv.status).toBe("BLOCKED");
+    mem.profiles.set(H, profile());
+    expect(await haulierInvoiceService.get(user, inv.id)).toMatchObject({ status: "NEEDS_APPROVAL", blockReasons: [], approval: null });
+    expect((await haulierInvoiceService.list(user, { status: "NEEDS_APPROVAL" })).map((i) => i.id)).toEqual([inv.id]);
+    expect(await haulierInvoiceService.list(user, { status: "BLOCKED" })).toEqual([]);
+    expect(mem.outbox).toEqual([]);
+    // Failing the check again blocks it again on read.
+    mem.profiles.set(H, profile({ vatUnreliable: true }));
+    expect(await haulierInvoiceService.get(user, inv.id)).toMatchObject({ status: "BLOCKED", blockReasons: [expect.stringMatching(/unreliable VAT payer/)] });
   });
 });
 

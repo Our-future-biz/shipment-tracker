@@ -547,7 +547,8 @@ class LtlService {
   /**
    * Any user. The departure / arrival of an LTL trip (once each, in order; a past time within 7
    * days). A pick-up run's arrival at our warehouse is not the gate-in (the warehouse stamps that)
-   * but it stamps the pick-up of every consignment it carried that has none yet. A line haul's
+   * but it stamps the pick-up of every consignment it carried that has none yet. A line haul or a
+   * delivery run leaves only once our warehouse stamped the gate-in of everything on it. A line haul's
    * arrival at the depot finishes its legs. A delivery run's deliveries are the consignments'
    * own stamps.
    */
@@ -561,6 +562,13 @@ class LtlService {
     if (departed ? trip.departedAt : trip.arrivedAt) throw APIError.alreadyExists("Already stamped");
     if (departed && !trip.orderSentAt) throw APIError.failedPrecondition("Send the transport order first");
     if (!departed && !trip.departedAt) throw APIError.failedPrecondition("Stamp the departure first");
+    // A line haul or delivery run carries goods out of our warehouse: they must have passed its gate-in.
+    if (departed && trip.kind !== "PICKUP_RUN") {
+      const legs = await legRepository.forTrips(companyId, [trip.id]);
+      const consignments = await consignmentRepository.findMany(companyId, [...new Set(legs.map((l) => l.consignmentId))]);
+      const notIn = consignments.filter((c) => !c.cancelledAt && !c.gateInAt).map((c) => c.ref);
+      if (notIn.length) throw APIError.failedPrecondition(`The truck cannot leave before our warehouse stamps the gate-in of ${notIn.join(", ")}`);
+    }
     const time = stampTime(at, new Date());
     if (!departed && trip.departedAt && time < trip.departedAt) throw bad(`The arrival cannot be before the departure (${stampText(trip.departedAt)})`);
     const by = await userName(actor.userID);

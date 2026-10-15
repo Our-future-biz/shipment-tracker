@@ -602,6 +602,8 @@ export interface RoadJobInput {
   quoteNumber: string | null;
   /** Who created it, as text ("Trucking · Jana Nováková") */
   createdBy: string;
+  /** "Consolidation" for an LTL consignment (our warehouse consolidates it); default "Full Load" */
+  loadType?: "Full Load" | "Consolidation";
 }
 
 /** What Trucking shows of a job. */

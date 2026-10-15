@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { containerPositionRepository, containerRepository } from "../repositories/warehouseRecords.repository";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import type { Tx } from "../repositories/warehouseSection.repository";
+import { isUuid } from "../../../lib/uuid";
 import { gateMovementTable, type GateEvent } from "../schemas/gateMovement.schema";
 import {
   warehouseContainerPositionTable,
@@ -115,10 +116,12 @@ const holdsPosition = (h: HouseCtx) => !h.container.gateOutAt && (!!h.link.stuff
  * tallied yet), logged on the container. Runs in the archive's transaction.
  */
 export async function releaseHousesForArchive(tx: Tx, movementIds: string[], companyId: string, by: string, label: string) {
+  // An id out of a request that is not a uuid has no houses (the archive then finds no record).
+  const ids = movementIds.filter(isUuid);
   // Containers first (as every container action locks them), then read the houses as they are.
-  const linked = await containerPositionRepository.liveForMovements(movementIds, companyId, tx);
+  const linked = await containerPositionRepository.liveForMovements(ids, companyId, tx);
   for (const id of [...new Set(linked.map((l) => l.containerId))].sort()) await containerRepository.lock(tx, id, companyId);
-  const houses = await houseContexts(movementIds, companyId, tx);
+  const houses = await houseContexts(ids, companyId, tx);
   for (const h of houses.values()) {
     if (holdsPosition(h)) {
       const what = h.link.stuffedAt ? "stuffed in" : "tallied in";

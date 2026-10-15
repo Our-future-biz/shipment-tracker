@@ -5,12 +5,16 @@ import { gateMovementTable, type GateEvent, type GateMovementRecord, type NewGat
 import { warehouseTaskTable } from "../schemas/warehouseTask.schema";
 import { dropPickupLineSql, hasPickupLineSql, linkedOutboundCond, linkedToShipmentCond, pickupPinLine, setPickupLineSql } from "../services/pickupPin";
 import type { Tx } from "./warehouseSection.repository";
+import { isUuid } from "../../../lib/uuid";
 
 // Gate rows come back with the linked warehouse reference (WCZ…) of their task.
 export type GateMovementRow = GateMovementRecord & { positionRef: string | null; shipmentId: string | null };
 
 const liveRow = (companyId: string) =>
   and(eq(gateMovementTable.companyId, companyId), isNull(gateMovementTable.deletedAt));
+// The record with this id. An id out of a request that is not a uuid matches nothing (the
+// endpoint answers "not found"): Postgres would answer it in the uuid column with an error.
+const byId = (id: string) => (isUuid(id) ? eq(gateMovementTable.id, id) : sql`false`);
 const archivedRow = (companyId: string) =>
   and(eq(gateMovementTable.companyId, companyId), isNotNull(gateMovementTable.deletedAt));
 
@@ -63,13 +67,13 @@ class GateMovementRepository {
   }
 
   async findById(id: string, companyId: string): Promise<GateMovementRow | null> {
-    const [row] = await this.select().where(and(eq(gateMovementTable.id, id), liveRow(companyId)));
+    const [row] = await this.select().where(and(byId(id), liveRow(companyId)));
     return row ? toRow(row) : null;
   }
 
   // Live or archived.
   async findByIdAny(id: string, companyId: string): Promise<GateMovementRow | null> {
-    const [row] = await this.selectAny().where(and(eq(gateMovementTable.id, id), eq(gateMovementTable.companyId, companyId)));
+    const [row] = await this.selectAny().where(and(byId(id), eq(gateMovementTable.companyId, companyId)));
     return row ? toRow(row) : null;
   }
 
@@ -95,6 +99,7 @@ class GateMovementRepository {
   }
 
   async findTask(taskId: string, companyId: string) {
+    if (!isUuid(taskId)) return null;
     const [row] = await db
       .select()
       .from(warehouseTaskTable)
@@ -159,7 +164,7 @@ class GateMovementRepository {
     const [row] = await tx
       .update(t)
       .set({ deletedAt: now, archivedBy: by, archiveReason: reason, events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`, updatedAt: now })
-      .where(and(eq(t.id, id), liveRow(companyId), cond))
+      .where(and(byId(id), liveRow(companyId), cond))
       .returning();
     return row ?? null;
   }
@@ -181,7 +186,7 @@ class GateMovementRepository {
     const [row] = await tx
       .update(t)
       .set({ deletedAt: null, archivedBy: "", archiveReason: "", events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`, updatedAt: new Date() })
-      .where(and(eq(t.id, id), archivedRow(companyId)))
+      .where(and(byId(id), archivedRow(companyId)))
       .returning();
     return row ?? null;
   }
@@ -204,7 +209,7 @@ class GateMovementRepository {
     await tx
       .update(t)
       .set({ events: sql`${t.events} || ${JSON.stringify(events)}::jsonb`, updatedAt: new Date() })
-      .where(and(eq(t.id, id), eq(t.companyId, companyId)));
+      .where(and(byId(id), eq(t.companyId, companyId)));
   }
 
   // Adds events to every live record of a position (section saves, "mark as sent").
@@ -235,7 +240,7 @@ class GateMovementRepository {
     const [row] = await tx
       .update(gateMovementTable)
       .set({ ...data, updatedAt: new Date() })
-      .where(and(eq(gateMovementTable.id, id), liveRow(companyId)))
+      .where(and(byId(id), liveRow(companyId)))
       .returning();
     return row ?? null;
   }
@@ -257,7 +262,7 @@ class GateMovementRepository {
     const [row] = await tx
       .update(t)
       .set({ ...set, ...(append ? { events: sql`${t.events} || ${append}` } : {}), updatedAt: new Date() })
-      .where(and(eq(t.id, id), liveRow(companyId), cond))
+      .where(and(byId(id), liveRow(companyId), cond))
       .returning();
     return row ?? null;
   }
@@ -269,7 +274,7 @@ class GateMovementRepository {
     const [row] = await db
       .update(t)
       .set({ pinTries: sql`${t.pinTries} + 1`, updatedAt: new Date() })
-      .where(and(eq(t.id, id), liveRow(companyId), isNotNull(t.pinHash), lt(t.pinTries, max)))
+      .where(and(byId(id), liveRow(companyId), isNotNull(t.pinHash), lt(t.pinTries, max)))
       .returning({ pinHash: t.pinHash, pinTries: t.pinTries });
     return row?.pinHash ? { pinHash: row.pinHash, pinTries: row.pinTries } : null;
   }
@@ -280,7 +285,7 @@ class GateMovementRepository {
     await db
       .update(t)
       .set({ pinTries: sql`GREATEST(${t.pinTries} - 1, 0)` })
-      .where(and(eq(t.id, id), liveRow(companyId)));
+      .where(and(byId(id), liveRow(companyId)));
   }
 
   // Adds the Pick-up PIN line (Pending) to linked outbound rows that do not have it yet — rows
@@ -296,7 +301,7 @@ class GateMovementRepository {
         events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`,
         updatedAt: new Date(),
       })
-      .where(and(liveRow(companyId), id ? eq(t.id, id) : undefined, isNull(t.impRelease), linkedOutboundCond, sql`NOT ${hasPickupLineSql}`));
+      .where(and(liveRow(companyId), id ? byId(id) : undefined, isNull(t.impRelease), linkedOutboundCond, sql`NOT ${hasPickupLineSql}`));
   }
 
   // Takes the Pick-up PIN line off rows that are no longer linked outbound (direction changed,
@@ -307,7 +312,7 @@ class GateMovementRepository {
     await db
       .update(t)
       .set({ releaseGates: dropPickupLineSql, events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`, updatedAt: new Date() })
-      .where(and(liveRow(companyId), id ? eq(t.id, id) : undefined, isNull(t.impRelease), hasPickupLineSql, sql`NOT ${linkedOutboundCond}`));
+      .where(and(liveRow(companyId), id ? byId(id) : undefined, isNull(t.impRelease), hasPickupLineSql, sql`NOT ${linkedOutboundCond}`));
   }
 
   // The row was linked to another shipment: a Pick-up PIN line verified against the old
@@ -321,7 +326,7 @@ class GateMovementRepository {
         events: sql`${t.events} || ${JSON.stringify([event])}::jsonb`,
         updatedAt: new Date(),
       })
-      .where(and(eq(t.id, id), liveRow(companyId), isNull(t.impRelease), linkedOutboundCond, linkedToShipmentCond(shipmentId)));
+      .where(and(byId(id), liveRow(companyId), isNull(t.impRelease), linkedOutboundCond, linkedToShipmentCond(shipmentId)));
   }
 
   // A new pick-up PIN: the Pick-up PIN line of every unreleased linked outbound row of the

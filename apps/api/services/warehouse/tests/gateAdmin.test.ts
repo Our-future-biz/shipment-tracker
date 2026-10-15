@@ -7,6 +7,8 @@ import { reweighService } from "../services/reweigh.service";
 import { gateAdminService, statusAfterVoid, voidBlocked } from "../services/gateAdmin.service";
 import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
+import { containerService } from "../services/container.service";
+import { gateFileService } from "../services/gateFile.service";
 import { shipmentOutboxTable } from "../schemas/shipmentOutbox.schema";
 
 const { shipmentUpdate } = vi.hoisted(() => ({ shipmentUpdate: vi.fn(async (_req: Record<string, unknown>, _opts?: unknown) => ({})) }));
@@ -173,5 +175,30 @@ describe("voiding a stamp", () => {
     await expect(gateAdminService.voidStamp(m.id, c, user, "manager", "expDraft", "wrong")).rejects.toThrow(/changed meanwhile/);
     spy.mockRestore();
     expect((await gateMovementService.get(m.id, c)).expDraft).not.toBeNull();
+  });
+});
+
+describe("an id that is not a record's id", () => {
+  it("is not found (404), never a database error", async () => {
+    const c = randomUUID();
+    const notFound = { code: "not_found" };
+    await expect(gateAdminService.voidStamp("not-an-id", c, user, "manager", "gateIn", "wrong")).rejects.toMatchObject(notFound);
+    await expect(gateAdminService.archive("not-an-id", c, user, "manager", "duplicate")).rejects.toMatchObject(notFound);
+    await expect(gateAdminService.restore("not-an-id", c, user, "manager", "back")).rejects.toMatchObject(notFound);
+    await expect(gateAdminService.removePosition("not-an-id", c, user, "manager", "wrong")).rejects.toMatchObject(notFound);
+    await expect(gateMovementService.get("not-an-id", c)).rejects.toMatchObject(notFound);
+    await expect(gateMovementService.stamp("not-an-id", c, user, "gateIn")).rejects.toMatchObject(notFound);
+    await expect(containerService.voidStamp("not-an-id", c, user, "manager", "gateIn", "wrong")).rejects.toMatchObject(notFound);
+    await expect(gateMovementService.update("not-an-id", c, user, { gateRef: "X" })).rejects.toMatchObject(notFound);
+    await expect(gateMovementService.remove("not-an-id", c, user)).rejects.toMatchObject(notFound);
+    await expect(gateMovementService.refuse("not-an-id", c, user, "no papers")).rejects.toMatchObject(notFound);
+    await expect(gateMovementService.override("not-an-id", c, user, "ok")).rejects.toMatchObject(notFound);
+    await expect(gateMovementService.verifyPin("not-an-id", c, user, "1234")).rejects.toMatchObject(notFound);
+    await expect(gateAdminService.retryShipmentUpdate("not-an-id", c, user)).rejects.toMatchObject(notFound);
+    await expect(gateFileService.list("not-an-id", c)).rejects.toMatchObject(notFound);
+    await expect(reweighService.record("not-an-id", c, user, { weighedKg: 100 })).rejects.toMatchObject(notFound);
+    const m = await gateMovementService.create(c, user, { gateRef: "D" });
+    await expect(gateFileService.content(m.id, "not-an-id", c)).rejects.toMatchObject(notFound);
+    await expect(gateFileService.remove(m.id, "not-an-id", c)).rejects.toMatchObject(notFound);
   });
 });

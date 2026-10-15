@@ -164,7 +164,8 @@ export function detail(
     pickup: c.pickup,
     delivery: c.delivery,
     load: c.load,
-    sell: c.sell,
+    // An internal consignment is not sold to the customer here: its price is the internal charge.
+    sell: c.internal ? null : c.sell,
     quoteNumber: c.quoteNumber,
     stamps,
     marginApproval: c.marginApproval

@@ -1,6 +1,7 @@
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "../db/db";
 import { gateFileTable } from "../schemas/gateFile.schema";
+import { isUuid } from "../../../lib/uuid";
 
 class GateFileRepository {
   async listForMovement(movementId: string, companyId: string) {
@@ -12,6 +13,7 @@ class GateFileRepository {
   }
 
   async findById(id: string, movementId: string, companyId: string) {
+    if (!isUuid(id) || !isUuid(movementId)) return null;
     const [row] = await db
       .select()
       .from(gateFileTable)
@@ -42,6 +44,7 @@ class GateFileRepository {
   }
 
   async softDelete(id: string, movementId: string, companyId: string) {
+    if (!isUuid(id) || !isUuid(movementId)) return null;
     const [row] = await db
       .update(gateFileTable)
       .set({ deletedAt: new Date(), updatedAt: new Date() })

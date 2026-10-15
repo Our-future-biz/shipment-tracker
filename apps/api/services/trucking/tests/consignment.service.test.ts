@@ -169,7 +169,7 @@ describe("create and price sources", () => {
     const d = await consignmentService.create(user, input({ shipmentId: null }));
     expect(d.jobNumber).toBe("CZ00000099");
     expect(shipments._internalShipmentCreateRoad).toHaveBeenCalledWith(
-      expect.objectContaining({ customerId: CUSTOMER, pickupPostcode: "11000", deliveryPostcode: "60200", pickupDate: "2026-10-16", plannedDeliveryDate: "2026-10-19" }),
+      expect.objectContaining({ customerId: CUSTOMER, pickupPostcode: "11000", deliveryPostcode: "60200", pickupDate: "2026-10-16", plannedDeliveryDate: "2026-10-19", loadType: "Full Load" }),
     );
   });
 

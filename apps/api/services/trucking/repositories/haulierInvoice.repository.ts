@@ -151,9 +151,9 @@ class HaulierInvoiceRepository {
   }
 
   /** Invoices, newest first (at most 1000), each with its lines. */
-  async list(companyId: string, filter: { status?: HaulierInvoiceStatus; haulierCustomerId?: string }): Promise<StoredInvoice[]> {
+  async list(companyId: string, filter: { statuses?: HaulierInvoiceStatus[]; haulierCustomerId?: string }): Promise<StoredInvoice[]> {
     const clauses: SQL[] = [eq(i.companyId, companyId), isNull(i.deletedAt)];
-    if (filter.status) clauses.push(eq(i.status, filter.status));
+    if (filter.statuses) clauses.push(inArray(i.status, filter.statuses));
     if (filter.haulierCustomerId) clauses.push(eq(i.haulierCustomerId, filter.haulierCustomerId));
     const invoices = await db
       .select()

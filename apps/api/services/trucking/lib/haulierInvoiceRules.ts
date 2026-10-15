@@ -91,6 +91,20 @@ export function matchInvoice(totalNet: number, lines: MatchLine[], blockReasons:
   return { status, lineDifferences, difference, mismatches };
 }
 
+/** The statuses an invoice is still open in (changed, approved or rejected from). */
+export const OPEN_STATUSES: HaulierInvoiceStatus[] = ["DRAFT", "NEEDS_APPROVAL", "BLOCKED"];
+
+/**
+ * An open invoice's status as it is now, with the haulier's block reasons worked out again
+ * (its VAT profile may have been fixed - or broken - since the save). An exact match that is no
+ * longer blocked waits for a manager's approval: reading an invoice never approves it.
+ */
+export function currentStatus(stored: HaulierInvoiceStatus, totalNet: number, lines: MatchLine[], blockReasons: string[]): HaulierInvoiceStatus {
+  if (!OPEN_STATUSES.includes(stored)) return stored;
+  const { status } = matchInvoice(totalNet, lines, blockReasons);
+  return status === "APPROVED" ? "NEEDS_APPROVAL" : status;
+}
+
 /**
  * `amount` split like `weights` (the estimate's split), exact to the cent, largest remainder.
  * When the weights cannot split it (none above 0, or a negative one), it all goes to the first part.

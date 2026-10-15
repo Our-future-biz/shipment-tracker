@@ -91,7 +91,8 @@ export function approvalOf(data: unknown): QuoteMarginApproval | null {
 /**
  * The margin of a quote, or null when the rule does not apply to it. Each line is converted to
  * CZK with the rate the quote stored when it was sent, else today's; a line no rate converts is
- * left out of the sums and the margin is unknown - which counts as below the floor.
+ * left out of the sums and the margin is unknown - which counts as below the floor. A quote with
+ * no selling and no buying lines has no margin (null) and is not below the floor.
  */
 export function roadMargin(data: unknown, ctx: MarginContext): RoadMargin | null {
   if (!isObject(data) || !roadMarginApplies(data)) return null;
@@ -106,14 +107,18 @@ export function roadMargin(data: unknown, ctx: MarginContext): RoadMargin | null
     }
     return roundCents(total);
   };
-  const sellingCzk = sum(linesOf(data.sellingLines));
-  const buyingCzk = sum(linesOf(data.buyingLines));
+  const selling = linesOf(data.sellingLines);
+  const buying = linesOf(data.buyingLines);
+  const sellingCzk = sum(selling);
+  const buyingCzk = sum(buying);
   const problem = missing.size ? [...missing].sort().map((c) => `No ČNB rate for ${c} on ${ctx.today}`).join("; ") : null;
+  // A quote with no lines yet has no margin to judge: nothing blocks it.
+  const empty = !selling.length && !buying.length;
 
-  const marginCzk = problem ? null : roundCents(sellingCzk - buyingCzk);
+  const marginCzk = problem || empty ? null : roundCents(sellingCzk - buyingCzk);
   const marginPercent = marginCzk !== null && sellingCzk !== 0 ? roundCents((marginCzk / sellingCzk) * 100) : null;
   const belowFloor =
-    marginCzk === null || (marginPercent !== null && marginPercent < ctx.floor.percent) || marginCzk < ctx.floor.minAmountCzk;
+    !empty && (marginCzk === null || (marginPercent !== null && marginPercent < ctx.floor.percent) || marginCzk < ctx.floor.minAmountCzk);
   const approval = approvalOf(data);
   const approvalValid = approval !== null && marginCzk !== null && marginCzk >= approval.marginCzk - APPROVAL_TOLERANCE_CZK;
   return {
