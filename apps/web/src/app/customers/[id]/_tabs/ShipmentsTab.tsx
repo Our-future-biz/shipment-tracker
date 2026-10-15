@@ -11,11 +11,13 @@ import { SectionCard } from "@/components/SectionCard";
 import { CUSTOMER_SHIPMENTS_LIMIT, useCustomerShipments } from "@/hooks/useCustomerShipments";
 import type { ShipmentItem } from "@/hooks/useCustomerShipments";
 import { useCustomer } from "@/hooks/useCustomers";
+import { useJobCostTotals } from "@/hooks/useJobCostTotals";
+import type { JobCostTotals } from "@/hooks/useJobCostTotals";
 import { formatDate } from "@/lib/date";
 import { isCompletedStatus } from "@/lib/enums";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { useToast } from "@/lib/toast";
-import { fmtMoney, marginPct, num } from "../../_lib/customerMoney";
+import { fmtMoney, marginPct } from "../../_lib/customerMoney";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
 import { CustomerKpiTile, KPI_GRID_CLASS } from "../_components/CustomerKpiTile";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
@@ -67,6 +69,17 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       return true;
     });
   }, [shipments, search, status, mode, direction]);
+
+  // Revenue, cost and profit come from each job's Costs (Invoicing), worked out as its Costs Breakdown tab does.
+  // Only the rows on the page are fetched, so a long list does not load the costs of every job at once.
+  const pageRows = filtered.slice((page - 1) * TABLE_PAGINATION.pageSize, page * TABLE_PAGINATION.pageSize);
+  const costs = useJobCostTotals(pageRows, currency ?? "CZK");
+  // A job whose figures are still loading shows "…"; one that cannot be worked out (a missing rate) a dash.
+  const money = (id: string, pick: (t: JobCostTotals) => number) => {
+    const totals = costs.totals.get(id);
+    if (!totals) return costs.isLoading ? "…" : EMPTY_CELL;
+    return fmtMoney(pick(totals), currency);
+  };
 
   // antd keeps the current page when the rows change, so a narrowed list would open on a later
   // page with its first matches hidden. Every filter change therefore returns to page 1.
@@ -156,7 +169,7 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       fixed: "right",
       align: "right",
       className: "tabular-nums",
-      render: (_: unknown, r) => fmtMoney(num(r.selling), currency),
+      render: (_: unknown, r) => money(r.id, (t) => t.revenue),
     },
     {
       title: "Cost",
@@ -165,7 +178,7 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       fixed: "right",
       align: "right",
       className: "tabular-nums",
-      render: (_: unknown, r) => fmtMoney(num(r.buying), currency),
+      render: (_: unknown, r) => money(r.id, (t) => t.cost),
     },
     {
       title: "Profit",
@@ -175,8 +188,9 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       align: "right",
       className: "tabular-nums",
       render: (_: unknown, r) => {
-        const profit = num(r.selling) - num(r.buying);
-        return <span className={profitClassName(profit)}>{fmtMoney(profit, currency)}</span>;
+        const totals = costs.totals.get(r.id);
+        if (!totals) return costs.isLoading ? "…" : EMPTY_CELL;
+        return <span className={profitClassName(totals.profit)}>{fmtMoney(totals.profit, currency)}</span>;
       },
     },
     {
@@ -187,10 +201,10 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       align: "right",
       className: "tabular-nums",
       render: (_: unknown, r) => {
-        const revenue = num(r.selling);
+        const totals = costs.totals.get(r.id);
         // Without revenue there is nothing to take a percentage of.
-        if (!revenue) return EMPTY_CELL;
-        return `${marginPct(revenue, revenue - num(r.buying))}%`;
+        if (!totals || !totals.revenue) return totals || !costs.isLoading ? EMPTY_CELL : "…";
+        return `${marginPct(totals.revenue, totals.profit)}%`;
       },
     },
     {

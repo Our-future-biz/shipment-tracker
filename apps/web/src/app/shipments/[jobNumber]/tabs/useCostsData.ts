@@ -3,17 +3,16 @@
 import { useMemo } from "react";
 import { useInvoicing } from "@/hooks/useInvoicing";
 import { useJobFxRates } from "@/hooks/useFx";
-import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
-import { computeCosts, type BuyingRow, type Rates, type SellingRow } from "./costsCalc";
+import type { ShipmentItem } from "@/hooks/useShipments";
+import { computeCosts } from "./costsCalc";
+import { buyRowsOf, jobFxDates, ratesOf, sellRowsOf } from "./costsRows";
 
 /**
  * The costs of one shipment: the rows of the Costs Breakdown tab with the exchange rates
  * that apply to them, and the totals computed from both. The Costs Breakdown tab and the
- * Quote card on the detail page share this, so they always show the same numbers.
+ * Quote card on the detail page share this, so they always show the same numbers. The
+ * customer's Shipments tab computes its totals with the same functions (useJobCostTotals).
  */
-
-/** Without rates only CZK is known. */
-const CZK_ONLY: Rates = { CZK: 1 };
 
 export function useCostsData(shipment: ShipmentItem | undefined) {
   // The one shared invoicing query, so the data is already in memory when a tab opens.
@@ -23,53 +22,12 @@ export function useCostsData(shipment: ShipmentItem | undefined) {
 
   // ČNB rates for this job, chosen on the server: locked at ATA (import) / ATD (export),
   // provisional by ETA / ETD until then. The key carries the dates, so editing one refetches.
-  const dateKey = shipment
-    ? ["tradeDirection", "estimatedArrival", "estimatedDeparture", "actualArrival", "actualDeparture"].map((f) =>
-        String(getFieldValue(shipment, f) ?? ""),
-      )
-    : [];
-  const ratesQuery = useJobFxRates(shipment?.id, dateKey);
+  const ratesQuery = useJobFxRates(shipment?.id, shipment ? jobFxDates(shipment) : []);
   const fx = ratesQuery.data ?? null;
 
-  const rates: Rates = useMemo(
-    () => (fx ? { CZK: 1, ...Object.fromEntries(fx.rates.map((r) => [r.currency, r.rate])) } : CZK_ONLY),
-    [fx],
-  );
-
-  const buyRows: BuyingRow[] = useMemo(
-    () =>
-      (data?.costs ?? []).map((c) => ({
-        id: c.id,
-        category: c.category ?? "",
-        description: c.description ?? "",
-        vendor: c.vendor ?? "",
-        estQty: c.estQty ?? "",
-        estAmount: c.estAmount ?? "",
-        estCurrency: c.estCurrency || "CZK",
-        realQty: c.realQty ?? "",
-        realAmount: c.realAmount ?? "",
-        realCurrency: c.realCurrency || "CZK",
-        invoiceNumber: c.invoiceNumber ?? "",
-        received: !!c.received,
-      })),
-    [data?.costs],
-  );
-
-  const sellRows: SellingRow[] = useMemo(
-    () =>
-      (data?.sellingCosts ?? []).map((c) => ({
-        id: c.id,
-        category: c.category ?? "",
-        description: c.description ?? "",
-        customer: c.customer ?? "",
-        qty: c.qty ?? "",
-        amount: c.amount ?? "",
-        currency: c.currency || "CZK",
-        invoice: !!c.invoice,
-        sourceBuyId: c.sourceBuyId ?? null,
-      })),
-    [data?.sellingCosts],
-  );
+  const rates = useMemo(() => ratesOf(fx), [fx]);
+  const buyRows = useMemo(() => buyRowsOf(data?.costs), [data?.costs]);
+  const sellRows = useMemo(() => sellRowsOf(data?.sellingCosts), [data?.sellingCosts]);
 
   const totals = useMemo(() => computeCosts(buyRows, sellRows, billingCur, rates), [buyRows, sellRows, billingCur, rates]);
 
