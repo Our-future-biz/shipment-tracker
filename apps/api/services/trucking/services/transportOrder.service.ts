@@ -67,18 +67,23 @@ const language = (v: unknown): DocLanguageCode => {
   return v as DocLanguageCode;
 };
 
+/** Who an internal call is made as when the request has no app user (the haulier portal). */
+export type CallAs = Pick<Actor, "userID" | "companyID" | "role">;
+
+const callOpts = (as?: CallAs) => (as ? { authData: as } : undefined);
+
 /** Our company as printed (issuer details, the quotation details filling gaps); empty when neither can be read. */
-export async function ourCompany(): Promise<DocParty> {
+export async function ourCompany(as?: CallAs): Promise<DocParty> {
   const [profile, quote] = await Promise.all([
     invoicing
-      .invoiceProfileGet()
+      .invoiceProfileGet(callOpts(as))
       .then((r): IssuerProfile => r.profile)
       .catch((err: unknown) => {
         log.warn(err, "trucking: invoicing company details not read");
         return null;
       }),
     sales
-      .prefGet({ prefKey: "company_details" })
+      .prefGet({ prefKey: "company_details" }, callOpts(as))
       .then((r): QuoteCompanyDetails => asQuoteCompanyDetails(r.value))
       .catch((err: unknown) => {
         log.warn(err, "trucking: quotation company details not read");
@@ -89,11 +94,11 @@ export async function ourCompany(): Promise<DocParty> {
 }
 
 /** The haulier as printed, with its payment days; the address and contact from the Customer Database. */
-export async function haulierOf(companyId: string, haulierId: string) {
-  const detail = await haulierService.get(companyId, haulierId);
+export async function haulierOf(companyId: string, haulierId: string, as?: CallAs) {
+  const detail = await haulierService.get(companyId, haulierId, as);
   const [customer, contacts] = await Promise.all([
-    customers.customerGet({ id: haulierId }).then((r) => r.customer).catch(() => null),
-    customers.contactList({ customerId: haulierId }).then((r) => r.data).catch(() => []),
+    customers.customerGet({ id: haulierId }, callOpts(as)).then((r) => r.customer).catch(() => null),
+    customers.contactList({ customerId: haulierId }, callOpts(as)).then((r) => r.data).catch(() => []),
   ]);
   const contact = contacts.find((x) => x.isMain) ?? contacts[0] ?? null;
   return {
@@ -134,6 +139,7 @@ class TransportOrderService {
     haulier: { party: DocParty; paymentDays: number },
     vehicles: { code: string; label: string; tailLift: boolean }[],
     our: DocParty,
+    pinAsGiven = false,
   ): Promise<Uint8Array> {
     const vehicle = vehicles.find((v) => v.code === trip.vehicleTypeCode) ?? null;
     const doc = transportOrderDoc({
@@ -146,6 +152,7 @@ class TransportOrderService {
       vehicle: vehicle ? { label: vehicle.label, tailLift: vehicle.tailLift } : null,
       consignment: c,
       pickupPin: pin,
+      pinAsGiven,
       podLink,
     });
     return buildTransportOrderPdf(doc);
@@ -303,9 +310,7 @@ class TransportOrderService {
     const companyId = actor.companyID;
     const trip = await tripService.load(companyId, tripId);
     const [settings, haulier] = await Promise.all([settingsService.get(companyId), haulierOf(companyId, trip.haulierCustomerId)]);
-    const legs = inStopOrder(await legRepository.forTrips(companyId, [trip.id]), trip.stopOrder);
-    const consignments = await consignmentRepository.findMany(companyId, [...new Set(legs.map((l) => l.consignmentId))]);
-    const byId = new Map(consignments.map((c) => [c.id, c]));
+    const { docLegs, consignments } = await this.docLegsOf(trip);
     const { legs: allLegs } = await consignmentService.ltlContext(companyId, consignments.map((c) => c.id));
     const low = consignments.find((c) => {
       const m = moneyOf(c, null, settings.marginFloor, allLegs);
@@ -320,9 +325,52 @@ class TransportOrderService {
       haulierBlockIssues: haulier.detail.issues.filter((i) => i.severity === "block").map((i) => i.message),
     });
     if (refusal) throw APIError.failedPrecondition(low && !trip.cancelledAt ? `${low.ref}: ${refusal}` : refusal);
-    if (!legs.length) throw APIError.failedPrecondition("The trip has no legs yet");
-    const docLegs: DocLeg[] = legs.map((l) => ({ kind: l.kind as LegKind, toText: l.toText, toPostcode: l.toPostcode, consignment: byId.get(l.consignmentId)! }));
+    if (!docLegs.length) throw APIError.failedPrecondition("The trip has no legs yet");
     return { trip, settings, haulier, docLegs, consignmentIds: consignments.map((c) => c.id) };
+  }
+
+  /** An LTL trip's legs in stop order with their consignments, as the transport order prints them. */
+  private async docLegsOf(trip: TruckingTripRecord): Promise<{ docLegs: DocLeg[]; consignments: TruckingConsignmentRecord[] }> {
+    const legs = inStopOrder(await legRepository.forTrips(trip.companyId, [trip.id]), trip.stopOrder);
+    const consignments = await consignmentRepository.findMany(trip.companyId, [...new Set(legs.map((l) => l.consignmentId))]);
+    const byId = new Map(consignments.map((c) => [c.id, c]));
+    const docLegs = legs.map((l): DocLeg => ({ kind: l.kind as LegKind, toText: l.toText, toPostcode: l.toPostcode, consignment: byId.get(l.consignmentId)! }));
+    return { docLegs, consignments };
+  }
+
+  /**
+   * The haulier's copy of a sent transport order (the haulier portal), in Czech and English:
+   * regenerated without a PIN - it says the PIN is given by the dispatcher - and without the
+   * order link. Internal calls are made `as` the given app identity. The download is logged.
+   */
+  async haulierCopy(trip: TruckingTripRecord, as: CallAs, who: string): Promise<FileDownload> {
+    const companyId = trip.companyId;
+    const lang: DocLanguageCode = "both";
+    const [settings, haulier, our] = await Promise.all([settingsService.get(companyId), haulierOf(companyId, trip.haulierCustomerId, as), ourCompany(as)]);
+    let bytes: Uint8Array;
+    let consignmentId: string | null = null;
+    if (trip.kind === "FTL") {
+      const c = await consignmentRepository.findByTrip(companyId, trip.id);
+      if (!c) throw APIError.failedPrecondition("The trip has no consignment");
+      consignmentId = c.id;
+      bytes = await this.build(trip, c, lang, null, null, haulier, settings.vehicleTypes, our, true);
+    } else {
+      const { docLegs } = await this.docLegsOf(trip);
+      if (!docLegs.length) throw APIError.failedPrecondition("The trip has no legs yet");
+      bytes = await this.buildLtl(trip, docLegs, lang, null, haulier, settings, our, true);
+    }
+    await inTx((tx) =>
+      appendEvent(tx, companyId, {
+        kind: "transport_order_printed",
+        tripId: trip.id,
+        consignmentId,
+        customerId: trip.haulierCustomerId,
+        byUserId: null,
+        byName: who,
+        payload: { changes: {}, summary: `Transport order ${trip.ref} downloaded in the haulier portal`, facts: { pinPrinted: false, language: lang, via: "PORTAL" } },
+      }),
+    );
+    return pdfFile(`${trip.ref}.pdf`, bytes);
   }
 
   private async buildLtl(
@@ -333,6 +381,7 @@ class TransportOrderService {
     haulier: { party: DocParty; paymentDays: number },
     settings: TruckingSettings,
     our: DocParty,
+    pinAsGiven = false,
   ): Promise<Uint8Array> {
     if (trip.kind === "FTL") throw new Error("not an LTL trip");
     const vehicle = settings.vehicleTypes.find((v) => v.code === trip.vehicleTypeCode) ?? null;
@@ -347,6 +396,7 @@ class TransportOrderService {
       hub: settings.hub,
       legs: docLegs,
       pickupPin: pin,
+      pinAsGiven,
       podLink: null,
     });
     return buildLtlTransportOrderPdf(doc);

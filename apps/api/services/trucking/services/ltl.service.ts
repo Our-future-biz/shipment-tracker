@@ -553,6 +553,15 @@ class LtlService {
    * own stamps.
    */
   async tripStamp(actor: Actor, tripId: string, kind: unknown, at: string | null): Promise<TripDetail> {
+    await this.tripStampChecked(actor, tripId, kind, at, null);
+    return tripService.get(actor, tripId);
+  }
+
+  /**
+   * The departure / arrival with every check of tripStamp, as the user (`haulier` null) or as the
+   * haulier through the portal (its name; no user id; pick-ups stamped with source HAULIER).
+   */
+  async tripStampChecked(actor: Pick<Actor, "userID" | "role" | "companyID">, tripId: string, kind: unknown, at: string | null, haulier: { by: string } | null): Promise<void> {
     if (!TRIP_STAMPS.includes(kind as TripStampKind)) throw bad("The stamp must be departed or arrived");
     const companyId = actor.companyID;
     const trip = await tripService.load(companyId, tripId);
@@ -571,7 +580,9 @@ class LtlService {
     }
     const time = stampTime(at, new Date());
     if (!departed && trip.departedAt && time < trip.departedAt) throw bad(`The arrival cannot be before the departure (${stampText(trip.departedAt)})`);
-    const by = await userName(actor.userID);
+    const by = haulier ? haulier.by : await userName(actor.userID);
+    const byUserId = haulier ? null : actor.userID || null;
+    const source = haulier ? "HAULIER" : "USER";
 
     await inTx(async (tx) => {
       const locked = await tripRepository.lock(tx, companyId, trip.id);
@@ -592,9 +603,9 @@ class LtlService {
             kind: "stamp_set",
             consignmentId: c.id,
             tripId: trip.id,
-            byUserId: actor.userID || null,
+            byUserId,
             byName: by,
-            payload: { changes: { pickedUp: { before: null, after: time.toISOString() } }, summary: `Picked up: ${stampText(time)} (pick-up run ${trip.ref} arrived)`, facts: { kind: "pickedUp", source: "USER" } },
+            payload: { changes: { pickedUp: { before: null, after: time.toISOString() } }, summary: `Picked up: ${stampText(time)} (pick-up run ${trip.ref} arrived)`, facts: { kind: "pickedUp", source } },
           });
         }
       }
@@ -602,12 +613,15 @@ class LtlService {
       await appendEvent(tx, companyId, {
         kind: "trip_stamp_set",
         tripId: trip.id,
-        byUserId: actor.userID || null,
+        byUserId,
         byName: by,
-        payload: { changes: { [kind as string]: { before: null, after: time.toISOString() } }, summary: `${trip.ref} ${departed ? "departed" : "arrived"}: ${stampText(time)}` },
+        payload: {
+          changes: { [kind as string]: { before: null, after: time.toISOString() } },
+          summary: `${trip.ref} ${departed ? "departed" : "arrived"}: ${stampText(time)}${haulier ? " (by the haulier)" : ""}`,
+          facts: { source },
+        },
       });
     });
-    return tripService.get(actor, trip.id);
   }
 
   // ---- a partner's delivery --------------------------------------------------------------------------

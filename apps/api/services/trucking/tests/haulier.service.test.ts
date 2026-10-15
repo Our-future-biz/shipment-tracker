@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("~encore/clients", () => ({ customers: { _internalHaulierList: vi.fn() } }));
 const repo = vi.hoisted(() => ({ find: vi.fn(), listWithLaneCounts: vi.fn(), save: vi.fn() }));
+const portal = vi.hoisted(() => ({ revokeSessionsOfHaulier: vi.fn(async () => undefined) }));
+vi.mock("../repositories/portal.repository", () => ({ portalRepository: portal }));
 vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: repo }));
 vi.mock("../services/settings.service", () => ({ settingsService: { vehicleCodes: vi.fn(async () => ["van", "tautliner_136"]) } }));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
@@ -168,6 +170,17 @@ describe("block and unblock", () => {
     expect(event).toMatchObject({ kind: "haulier_blocked", payload: { reason: "Cargo damaged", changes: { blocked: { before: false, after: true } } } });
     repo.find.mockResolvedValue({ profile: record({ blocked: true, blockReason: "x" }), lanes: [] });
     await expect(haulierService.block(C, U, "manager", H, "Again")).rejects.toMatchObject({ code: "failed_precondition" });
+  });
+
+  it("a block logs the haulier's portal users out; an unblock does not touch sessions", async () => {
+    repo.find.mockResolvedValue({ profile: record(), lanes: [] });
+    repo.save.mockResolvedValue(record({ version: 5 }));
+    await haulierService.block(C, U, "manager", H, "Cargo damaged");
+    expect(portal.revokeSessionsOfHaulier).toHaveBeenCalledWith(C, H);
+    portal.revokeSessionsOfHaulier.mockClear();
+    repo.find.mockResolvedValue({ profile: record({ blocked: true, blockReason: "Cargo damaged" }), lanes: [] });
+    await haulierService.unblock(C, U, "manager", H, "Claim settled");
+    expect(portal.revokeSessionsOfHaulier).not.toHaveBeenCalled();
   });
 
   it("unblocks a blocked haulier and clears the block", async () => {

@@ -246,6 +246,9 @@ export const tripRepository = {
     store.trips.filter((t) => t.companyId === companyId && !t.cancelledAt && t.kind === kind && t.plannedPickupDate === date).map(copy),
   ),
   list: vi.fn(async (companyId: string) => store.trips.filter((t) => t.companyId === companyId).map(copy)),
+  forHaulier: vi.fn(async (companyId: string, haulierId: string) =>
+    store.trips.filter((t) => t.companyId === companyId && t.haulierCustomerId === haulierId && !t.cancelledAt && t.orderSentAt && !t.deletedAt).map(copy),
+  ),
   update: vi.fn(async (_tx: unknown, companyId: string, id: string, values: Partial<TruckingTripRecord>, guard: TripGuard = {}) => {
     remember(values);
     const row = store.trips.find((t) => t.companyId === companyId && t.id === id);
@@ -315,6 +318,9 @@ export const legRepository = {
   ),
   forTrips: vi.fn(async (companyId: string, ids: string[]) => store.ltlLegs.filter(liveLeg(companyId)).filter((l) => l.tripId && ids.includes(l.tripId)).map(copy)),
   open: vi.fn(async (companyId: string, kind: string) => store.ltlLegs.filter(liveLeg(companyId)).filter((l) => l.kind === kind && l.status === "OPEN" && !l.tripId).map(copy)),
+  partnerFor: vi.fn(async (companyId: string, haulierId: string) =>
+    store.ltlLegs.filter(liveLeg(companyId)).filter((l) => l.kind === "DELIVERY" && !l.tripId && l.haulierCustomerId === haulierId && l.status !== "OPEN").map(copy),
+  ),
   update: vi.fn(async (_tx: unknown, companyId: string, id: string, values: Partial<TruckingLegRecord>, guard: LegGuard = {}) => {
     remember(values);
     const row = store.ltlLegs.filter(liveLeg(companyId)).find((l) => l.id === id);
@@ -346,6 +352,7 @@ export const truckingDocumentRepository = {
   list: vi.fn(async (_companyId: string, consignmentId: string) => store.documents.filter((d) => d.consignmentId === consignmentId).map(copy)),
   find: vi.fn(async (_companyId: string, id: string) => copy(store.documents.find((d) => d.id === id) ?? null)),
   hasPod: vi.fn(async (_companyId: string, consignmentId: string) => store.documents.some((d) => d.consignmentId === consignmentId && d.kind === "POD")),
+  withPod: vi.fn(async (_companyId: string, ids: string[]) => new Set(store.documents.filter((d) => ids.includes(d.consignmentId) && d.kind === "POD").map((d) => d.consignmentId))),
 };
 
 export const truckingOutboxRepository = {

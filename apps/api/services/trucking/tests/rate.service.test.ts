@@ -14,6 +14,7 @@ vi.mock("../repositories/tariff.repository", () => ({ tariffRepository: tariffs 
 const gaps = vi.hoisted(() => ({ record: vi.fn(async () => undefined) }));
 vi.mock("../repositories/rateGap.repository", () => ({ rateGapRepository: gaps }));
 const hauliers = vi.hoisted(() => ({ findMany: vi.fn() }));
+vi.mock("../repositories/portal.repository", () => ({ portalRepository: { revokeSessionsOfHaulier: vi.fn(async () => undefined) } }));
 vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: hauliers }));
 const settings = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("../services/settings.service", () => ({ settingsService: settings }));

@@ -9,6 +9,7 @@ import {
   drawOrderEnd,
   drawParties,
   drawPin,
+  drawPinNote,
   drawTable,
   issuedLine,
   M,
@@ -45,6 +46,7 @@ export async function buildLtlTransportOrderPdf(doc: LtlTransportOrderDoc): Prom
 
   // ── Pick-up PIN (printed only, never logged) ──
   if (doc.pickupPin) drawPin(w, L("pickupPin"), L("pinHint"), doc.pickupPin);
+  else if (doc.pinAsGiven) drawPinNote(w, L("pickupPin"), L("pinAsGiven"));
 
   // ── Stops in order, with totals ──
   const columns: TableColumn[] = [

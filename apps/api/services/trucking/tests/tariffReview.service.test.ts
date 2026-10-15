@@ -11,6 +11,7 @@ vi.mock("~encore/clients", () => ({
   holidays: { _internalHolidaysCzNational: vi.fn() },
 }));
 const repo = vi.hoisted(() => ({ find: vi.fn(), findVersion: vi.fn(), bindingOn: vi.fn(), versionSummaries: vi.fn() }));
+vi.mock("../repositories/portal.repository", () => ({ portalRepository: { revokeSessionsOfHaulier: vi.fn(async () => undefined) } }));
 vi.mock("../repositories/tariff.repository", () => ({ tariffRepository: repo }));
 const reports = vi.hoisted(() => ({ openConsignmentsPricedWith: vi.fn() }));
 vi.mock("../repositories/reports.repository", () => ({ reportsRepository: reports }));

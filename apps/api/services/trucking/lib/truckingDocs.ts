@@ -164,6 +164,8 @@ export interface TransportOrderInput {
   consignment: { ref: string; jobNumber: string; pickup: StopInput; delivery: StopInput; load: LoadInput };
   /** Typed by the user for this print; printed only */
   pickupPin: string | null;
+  /** No PIN: the order says the dispatcher gives it (the haulier portal's copy) */
+  pinAsGiven?: boolean;
   podLink: string | null;
 }
 
@@ -187,6 +189,7 @@ export function transportOrderDoc(i: TransportOrderInput): TransportOrderDoc {
     agreedPrice: agreedPriceOf(i.trip.buy, i.language),
     paymentTerms: paymentTermsText(i.language, i.paymentDays),
     pickupPin: i.pickupPin,
+    pinAsGiven: !i.pickupPin && !!i.pinAsGiven,
     podLink: i.podLink,
     terms: transportOrderTerms(i.language, { adr: load.adr, paymentDays: i.paymentDays, pinPrinted: !!i.pickupPin }),
   };
