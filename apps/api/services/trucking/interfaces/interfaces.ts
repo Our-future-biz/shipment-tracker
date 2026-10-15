@@ -213,3 +213,256 @@ export interface TruckingSettingsInput {
 export interface TruckingHaulierResponse {
   haulier: HaulierDetail;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Phase 2a: tariffs and the rate engine.
+
+/** BUY = a haulier's prices to us; SELL = our prices to a customer (no owner = the Standard list); INTERNAL = what Trucking charges Operations. */
+export type TariffSide = "BUY" | "SELL" | "INTERNAL";
+export type TariffScope = "LTL" | "FTL" | "LINEHAUL";
+/** DISCOUNT = a customer's % off (negative = uplift) the Standard sell list. */
+export type TariffMode = "MATRIX" | "DISCOUNT";
+export type ZoneBy = "DESTINATION" | "ORIGIN";
+/** TRIP = one price per trip/lane (line haul, FTL) */
+export type BandBasis = "KG" | "PALLET" | "LDM" | "TRIP";
+/** PER_UNIT = per kg / pallet / LDM of the basis */
+export type PriceType = "FLAT" | "PER_UNIT" | "PER_100KG";
+export type TariffVersionStatus = "DRAFT" | "SCHEDULED" | "ACTIVE" | "EXPIRED" | "SUPERSEDED";
+export type SurchargeCode =
+  | "FUEL"
+  | "TOLL"
+  | "ADR"
+  | "TAIL_LIFT"
+  | "AVIZACE"
+  | "TIME_WINDOW"
+  | "B2C"
+  | "WAITING_TIME"
+  | "REDELIVERY"
+  | "INSURANCE"
+  | "REMOTE_AREA"
+  | "NON_STACKABLE";
+export type SurchargeCalc = "PCT" | "FLAT" | "PER_KG" | "PER_PALLET" | "PER_HOUR" | "PCT_OF_VALUE" | "FUEL_INDEX";
+
+/** A zone: a CZ postcode range, 5 digits, from <= to. Ranges may nest; the narrowest one wins. */
+export interface TariffZone {
+  code: string;
+  label: string;
+  postcodeFrom: string;
+  postcodeTo: string;
+  remote: boolean;
+}
+
+export interface TariffBand {
+  /** Client-chosen, unique within the version ("b1", "b2"…) */
+  id: string;
+  basis: BandBasis;
+  fromExcl: number;
+  /** null = open top band */
+  toIncl: number | null;
+}
+
+export interface TariffRate {
+  serviceLevel: ServiceLevelCode;
+  zoneCode: string;
+  bandId: string;
+  amount: number;
+  priceType: PriceType;
+}
+
+export interface TariffMinCharge {
+  serviceLevel: ServiceLevelCode;
+  zoneCode: string;
+  amount: number;
+}
+
+export interface TariffSurcharge {
+  code: SurchargeCode;
+  calc: SurchargeCalc;
+  /** PCT: 12.5 = 12.5 %; FUEL_INDEX: ignored (the month's % comes from the fuel index) */
+  value: number;
+  /** Minimum amount of this surcharge */
+  min: number | null;
+  /** PCT / FUEL_INDEX base: false = freight only, true = freight + the other surcharges */
+  onBasePlusSurcharges: boolean;
+}
+
+export interface TariffFactors {
+  kgPerLdm: number;
+  kgPerCbm: number;
+  kgPerPalletPlace: number;
+}
+
+export interface TariffRounding {
+  /** Chargeable weight is rounded up to this step, e.g. 1 */
+  weightStepKg: number;
+  /** Each price line is rounded to this step, e.g. 0.01 or 1 (whole CZK) */
+  moneyStep: number;
+}
+
+export interface TariffVersionInput {
+  /** YYYY-MM-DD */
+  validFrom: string;
+  validTo: string | null;
+  factors: TariffFactors;
+  rounding: TariffRounding;
+  zones: TariffZone[];
+  bands: TariffBand[];
+  rates: TariffRate[];
+  minCharges: TariffMinCharge[];
+  surcharges: TariffSurcharge[];
+  notes: string;
+}
+
+export interface ValidationFinding {
+  severity: "error" | "warning";
+  message: string;
+  /** "Sheet D1, zone 3, band 1 001–1 500 kg" style text */
+  where: string;
+}
+
+export interface TariffVersionSummary {
+  id: string;
+  versionNo: number;
+  status: TariffVersionStatus;
+  validFrom: string;
+  validTo: string | null;
+  createdAt: string;
+  /** Display name */
+  createdBy: string | null;
+  activatedAt: string | null;
+  /** Display name */
+  activatedBy: string | null;
+  serviceLevels: ServiceLevelCode[];
+  zoneCount: number;
+  warningCount: number;
+}
+
+export interface TariffListItem {
+  id: string;
+  side: TariffSide;
+  scope: TariffScope;
+  mode: TariffMode;
+  name: string;
+  /** null owner on SELL = "Standard" */
+  ownerCustomerId: string | null;
+  ownerName: string | null;
+  currency: "CZK" | "EUR";
+  zoneBy: ZoneBy;
+  /** DISCOUNT mode only */
+  discountPercent: number | null;
+  activeVersion: TariffVersionSummary | null;
+  /** Earliest SCHEDULED */
+  nextVersion: TariffVersionSummary | null;
+  draftCount: number;
+}
+
+export interface TariffDetail extends TariffListItem {
+  /** Newest first */
+  versions: TariffVersionSummary[];
+}
+
+export interface TariffVersionDetail extends TariffVersionSummary {
+  tariffId: string;
+  input: TariffVersionInput;
+  findings: ValidationFinding[];
+}
+
+export interface FuelIndexMonth {
+  /** "YYYY-MM" */
+  month: string;
+  percent: number;
+}
+
+export interface RateExtras {
+  adr: boolean;
+  tailLift: boolean;
+  avizace: boolean;
+  timeWindow: boolean;
+  b2c: boolean;
+  nonStackable: boolean;
+  waitingHours: number;
+  declaredValueCzk: number | null;
+}
+
+export interface RateRequest {
+  /** CZ, normalised server-side */
+  fromPostcode: string;
+  toPostcode: string;
+  /** YYYY-MM-DD */
+  pickupDate: string;
+  /** "HH:MM" (Prague); null = before cut-off */
+  pickupTime: string | null;
+  scope: TariffScope;
+  pieces: number;
+  palletPlaces: number;
+  ldm: number;
+  weightKg: number;
+  cbm: number;
+  extras: RateExtras;
+  /** SELL: the customer's tariff, else Standard */
+  customerId: string | null;
+  /** null = all active levels */
+  serviceLevels: ServiceLevelCode[] | null;
+  includeBuy: boolean;
+  includeInternal: boolean;
+}
+
+export interface PriceLine {
+  code: string;
+  label: string;
+  qty: number;
+  unit: string;
+  unitPrice: number;
+  amount: number;
+}
+
+export interface PricedSide {
+  tariffId: string;
+  tariffName: string;
+  tariffVersionId: string;
+  versionNo: number;
+  ownerCustomerId: string | null;
+  ownerName: string | null;
+  currency: "CZK" | "EUR";
+  zoneCode: string;
+  zoneLabel: string;
+  bandLabel: string;
+  /** explanation e.g. "1 250 kg (3 pallets × 400 kg beats 900 kg actual)" */
+  chargeable: { basis: BandBasis; quantity: number; explanation: string };
+  lines: PriceLine[];
+  total: number;
+  totalCzk: number;
+  /** null when the currency is CZK */
+  fx: { rate: number; date: string } | null;
+  /** BUY only */
+  preferred: boolean;
+}
+
+export interface Unpriced {
+  /** e.g. "No zone for postcode 790 01 in Standard sell list" */
+  reason: string;
+}
+
+export interface RateLevelResult {
+  serviceLevel: ServiceLevelCode;
+  label: string;
+  promisedDate: string | null;
+  promisedTime: string | null;
+  promiseNote: string;
+  sell: PricedSide | Unpriced;
+  /** Sorted: preferred first, then cheapest */
+  buy: PricedSide[];
+  /** Hauliers with a price that may not be used (blocked), with why */
+  excluded: { customerId: string; name: string; issues: HaulierIssue[] }[];
+  /** null when not requested */
+  internal: PricedSide | Unpriced | null;
+  marginCzk: number | null;
+  marginPercent: number | null;
+  belowFloor: boolean;
+}
+
+export interface RateResponse {
+  request: RateRequest;
+  ratedAt: string;
+  results: RateLevelResult[];
+}

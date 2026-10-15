@@ -1,6 +1,7 @@
 import { APIError } from "encore.dev/api";
 import { addDays, isRealYmd } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
+import { formatDay } from "./format";
 import type {
   HaulierIssue,
   HaulierProfile,
@@ -45,13 +46,7 @@ export const defaultProfile = (customerId: string): HaulierProfile => ({
   version: 0,
 });
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** "2026-09-30" → "30 Sep 2026" */
-export const formatDay = (ymd: string): string => {
-  const [y, m, d] = ymd.split("-");
-  return `${Number(d)} ${MONTHS[Number(m) - 1]} ${y}`;
-};
+export { formatDay };
 
 const block = (code: HaulierIssue["code"], message: string): HaulierIssue => ({ code, severity: "block", message });
 const warn = (code: HaulierIssue["code"], message: string): HaulierIssue => ({ code, severity: "warn", message });
