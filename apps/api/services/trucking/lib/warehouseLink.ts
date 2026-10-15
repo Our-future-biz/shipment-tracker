@@ -1,15 +1,14 @@
-import log from "encore.dev/log";
+import { APIError } from "encore.dev/api";
+import { warehouse } from "~encore/clients";
 import type { Actor } from "../../../lib/rbac";
 
 // Trucking's calls to the Warehouse service (our warehouse = the hub of every line haul) and the
 // gate event Warehouse publishes. Warehouse owns gate stamps, dock slots and positions; Trucking
 // only announces its trips and listens to the gate.
 //
-// NOT WIRED YET: the warehouse internal endpoints and the `warehouse-gate-stamped` topic are
-// built in another branch. Until they are merged these functions log and return null, and the
-// outbox records the row as sent. After the merge each one calls its endpoint through
-// `~encore/clients` (warehouse._internalWarehouseExpectArrival(input, { authData: as }) …), and a
-// subscription file hands the topic's messages to ltlService.handleGateStamped.
+// Each call is made as the user who caused the outbox row (Warehouse needs the company and
+// checks the user as for their own request); a failure throws, so the outbox retries it. The
+// topic's messages reach ltlService.handleGateStamped through subscriptions/gateStamped.
 
 /** POST /internal/warehouse/expect-arrival — idempotent per (company, shipmentId, tripRef). */
 export interface ExpectArrivalInput {
@@ -74,19 +73,20 @@ export interface GateStampedEvent {
 /** Who the call is made as (the user who caused the outbox row, with their role now). */
 export type WarehouseCaller = Pick<Actor, "userID" | "companyID" | "role">;
 
-const notWired = (what: string, shipmentId: string, tripRef: string) => log.warn("warehouse link not wired", { what, shipmentId, tripRef });
+/** The identity an internal call carries; there is none to make it without. */
+const authOf = (as: WarehouseCaller | undefined) => {
+  if (!as) throw APIError.failedPrecondition("A warehouse call needs the user it is made for");
+  return { authData: as };
+};
 
-export async function expectArrival(input: ExpectArrivalInput, _as?: WarehouseCaller): Promise<ExpectArrivalResult | null> {
-  notWired("expect-arrival", input.shipmentId, input.tripRef);
-  return null;
+export async function expectArrival(input: ExpectArrivalInput, as?: WarehouseCaller): Promise<ExpectArrivalResult | null> {
+  return warehouse._internalWarehouseExpectArrival(input, authOf(as));
 }
 
-export async function expectDeparture(input: ExpectDepartureInput, _as?: WarehouseCaller): Promise<WarehouseOk | null> {
-  notWired("expect-departure", input.shipmentId, input.tripRef);
-  return null;
+export async function expectDeparture(input: ExpectDepartureInput, as?: WarehouseCaller): Promise<WarehouseOk | null> {
+  return warehouse._internalWarehouseExpectDeparture(input, authOf(as));
 }
 
-export async function cancelExpected(input: CancelExpectedInput, _as?: WarehouseCaller): Promise<WarehouseOk | null> {
-  notWired("cancel-expected", input.shipmentId, input.tripRef);
-  return null;
+export async function cancelExpected(input: CancelExpectedInput, as?: WarehouseCaller): Promise<WarehouseOk | null> {
+  return warehouse._internalWarehouseCancelExpected(input, authOf(as));
 }
