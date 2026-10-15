@@ -36,10 +36,10 @@ const DATA = {
   sellingLines: [{ type: "Ocean freight", description: "All-in", currency: "USD", amount: 2400 }],
 };
 const BUYING = [
-  { category: "Ocean freight", description: "", vendor: "Maersk", estQty: "1", estAmount: "2000.00", estCurrency: "USD", realQty: "1", realCurrency: "USD" },
-  { category: "THC Destination", description: "", vendor: "", estQty: "1", estAmount: "3500.00", estCurrency: "CZK", realQty: "1", realCurrency: "CZK" },
+  { category: "ocean_freight", description: "", vendor: "Maersk", estQty: "1", estAmount: "2000.00", estCurrency: "USD", realQty: "1", realCurrency: "USD", unit: "" },
+  { category: "thc_destination", description: "", vendor: "", estQty: "1", estAmount: "3500.00", estCurrency: "CZK", realQty: "1", realCurrency: "CZK", unit: "" },
 ];
-const SELLING = [{ category: "Ocean freight", description: "All-in", customer: "ITTEC s.r.o.", qty: "1", amount: "2400.00", currency: "USD", invoice: true }];
+const SELLING = [{ category: "ocean_freight", description: "All-in", customer: "ITTEC s.r.o.", qty: "1", amount: "2400.00", currency: "USD", invoice: true }];
 
 beforeEach(() => {
   vi.resetAllMocks();

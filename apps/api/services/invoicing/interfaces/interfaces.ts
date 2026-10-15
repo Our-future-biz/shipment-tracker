@@ -9,9 +9,13 @@ export interface InvoiceCostItem {
   realQty: string | null;
   realAmount: string | null;
   realCurrency: string;
+  /** what the quantity counts ("km", "pallet"); "" = a charge counted as a whole */
+  unit: string;
   invoiceNumber: string;
   received: boolean;
   vendor: string;
+  /** the haulier the cost is owed to (a Customer Database company), or null */
+  haulierId: string | null;
   sortOrder: number;
 }
 
@@ -97,6 +101,7 @@ export type InvoiceType = "breakdown" | "total";
 // Write inputs. Amounts are decimal strings ("1250.50"); "" clears an amount.
 
 export interface BuyingCostInput {
+  /** the charge code (apps/api/lib/chargeCodes.ts); a label is stored as its code */
   category?: string;
   /** what is charged, in words (from the quote) */
   description?: string;
@@ -107,12 +112,55 @@ export interface BuyingCostInput {
   realQty?: string;
   realAmount?: string;
   realCurrency?: string;
+  /** what the quantity counts ("km", "pallet") */
+  unit?: string;
   invoiceNumber?: string;
   received?: boolean;
+  /** a Customer Database company id; "" clears it */
+  haulierId?: string;
   sortOrder?: number;
 }
 
-/** The older per-category buying cost (one row per category of a shipment). */
+/** A shipment and its weight in a split (freight tons, or any measure the split goes by). */
+export interface CostSplitLine {
+  shipmentId: string;
+  weight: number;
+}
+
+/** A shipment's real cost that a split would replace. */
+export interface CostSplitExisting {
+  realAmount: string;
+  realCurrency: string;
+  invoiceNumber: string;
+}
+
+/** One vendor invoice to split over shipments by weight (e.g. a master job's freight tons). */
+export interface CostSplitInput {
+  /** the charge code the parts are posted under */
+  category: string;
+  /** the invoice total, a decimal string ("1250.50") */
+  total: string;
+  currency: string;
+  invoiceNumber: string;
+  lines: CostSplitLine[];
+  /** shipments whose real cost of the code is replaced; the others keep theirs */
+  overwriteShipmentIds?: string[];
+  /** only answer the split, write nothing */
+  dryRun?: boolean;
+}
+
+/** A shipment's part of a split cost. */
+export interface CostSplitResultLine {
+  shipmentId: string;
+  /** its part ("33.34"); null for a shipment of weight 0, which gets nothing */
+  amount: string | null;
+  /** the real cost the shipment already has under the code */
+  existing: CostSplitExisting | null;
+  /** the part was posted to the shipment */
+  written: boolean;
+}
+
+/** A buying cost posted by its charge code (one line per code of a shipment). */
 export interface CategoryCostInput {
   estAmount?: string;
   estCurrency?: string;

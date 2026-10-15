@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { COST_CATEGORIES } from "@/app/invoicing/_lib/billing";
+import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { CURRENCIES } from "@/lib/enums";
 import { Modal, Tabs, Input, InputNumber, Select, Button, Alert, message } from "antd";
 import { ArrowLeftOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
+import type { controllers } from "@/lib/api/client";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { computeDimensionTotals } from "@/lib/columnConfig";
 
@@ -244,49 +245,57 @@ function MachineProcessingTab({
   const [invoiceValue, setInvoiceValue] = useState<number | null>(null);
   const [currency, setCurrency] = useState("CZK");
   const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [category, setCategory] = useState("freight");
+  const [category, setCategory] = useState<string | undefined>(undefined);
   const [overwriteRows, setOverwriteRows] = useState<Set<string>>(new Set());
   const [existing, setExisting] = useState<Record<string, ExistingCost | undefined>>({});
+  // Each shipment's part, as the server splits it (to the cent, adding up to the invoice total).
+  const [parts, setParts] = useState<Record<string, string | null>>({});
+  const [splitError, setSplitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitDone, setSubmitDone] = useState(false);
 
   const invValueNum = invoiceValue ?? 0;
-  const inputsValid = invValueNum > 0 && invoiceNumber.trim().length > 0 && totalFreightTons > 0;
+  const inputsValid = invValueNum > 0 && invoiceNumber.trim().length > 0 && totalFreightTons > 0 && !!category;
   const multiplier = totalFreightTons > 0 ? invValueNum / totalFreightTons : 0;
   const zeroFreightCount = rows.filter((r) => r.freightTon <= 0).length;
   const blockProceed = zeroFreightCount > 0;
   const conflicts = rows.filter((r) => existing[r.shipmentId] && !overwriteRows.has(r.shipmentId));
-  const canSubmit = !blockProceed && conflicts.length === 0 && !submitting && rows.length > 0;
-  const categoryLabel = COST_CATEGORIES.find((c) => c.key === category)?.label;
+  const splitReady = rows.every((r) => r.shipmentId in parts);
+  const canSubmit = !blockProceed && conflicts.length === 0 && !submitting && rows.length > 0 && splitReady && !splitError;
+  const categoryLabel = category ? chargeLabel(category) : "";
 
-  // Fetch existing costs for the chosen category when entering review
+  // The split request; the review asks it as a dry run, "Proceed" posts it.
+  const splitRequest = (dryRun: boolean): controllers.SplitCostRequest => ({
+    category: category ?? "",
+    total: invValueNum.toFixed(2),
+    currency,
+    invoiceNumber: invoiceNumber.trim(),
+    lines: rows.map((r) => ({ shipmentId: r.shipmentId, weight: r.freightTon })),
+    overwriteShipmentIds: [...overwriteRows],
+    dryRun,
+  });
+
+  // Entering review: each shipment's part and the real cost it already has under the charge
   useEffect(() => {
     if (step !== "review") return;
     let cancelled = false;
-    (async () => {
-      const map: Record<string, ExistingCost | undefined> = {};
-      await Promise.all(
-        rows.map(async (r) => {
-          try {
-            const data = await api.invoicing.invoicingGet(r.shipmentId);
-            const match = data.costs?.find((c) => c.category === category);
-            if (match && match.realAmount && match.realAmount.trim()) {
-              map[r.shipmentId] = {
-                realAmount: match.realAmount,
-                realCurrency: match.realCurrency,
-                invoiceNumber: match.invoiceNumber,
-              };
-            }
-          } catch {
-            /* ignore */
-          }
-        }),
-      );
-      if (!cancelled) setExisting(map);
-    })();
+    setParts({});
+    setSplitError("");
+    api.invoicing
+      .invoicingSplitCost(splitRequest(true))
+      .then(({ lines }) => {
+        if (cancelled) return;
+        setParts(Object.fromEntries(lines.map((l) => [l.shipmentId, l.amount])));
+        setExisting(Object.fromEntries(lines.map((l) => [l.shipmentId, l.existing ?? undefined])));
+      })
+      .catch((err) => {
+        if (!cancelled) setSplitError(apiErrorMessage(err));
+      });
     return () => {
       cancelled = true;
     };
+    // overwriteRows only matter for posting, not for the split shown
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, category, rows]);
 
   const toggleOverwrite = (shipmentId: string) => {
@@ -301,17 +310,10 @@ function MachineProcessingTab({
   const handleProceed = async () => {
     setSubmitting(true);
     try {
-      for (const r of rows) {
-        if (r.freightTon <= 0) continue;
-        if (existing[r.shipmentId] && !overwriteRows.has(r.shipmentId)) continue;
-        const amt = (r.freightTon * multiplier).toFixed(2);
-        await api.invoicing.invoicingUpsertCost(r.shipmentId, {
-          category,
-          realAmount: amt,
-          realCurrency: currency,
-          invoiceNumber: invoiceNumber.trim(),
-        });
-        queryClient.invalidateQueries({ queryKey: ["invoicing", r.shipmentId] });
+      // Shipments of 0 freight tons get nothing; one that keeps its own real cost is skipped.
+      const { lines } = await api.invoicing.invoicingSplitCost(splitRequest(false));
+      for (const l of lines) {
+        if (l.written) queryClient.invalidateQueries({ queryKey: ["invoicing", l.shipmentId] });
       }
       setSubmitDone(true);
       message.success("Pushed to Invoicing");
@@ -356,7 +358,7 @@ function MachineProcessingTab({
 
         <div className="mb-5">
           <Field label="Service / category (from Invoicing)">
-            <Select className="w-full" value={category} onChange={setCategory} options={COST_CATEGORIES.map((c) => ({ value: c.key, label: c.label }))} />
+            <Select className="w-full" placeholder="Select category…" value={category} onChange={setCategory} options={chargeOptions()} />
           </Field>
         </div>
 
@@ -409,7 +411,7 @@ function MachineProcessingTab({
         </thead>
         <tbody>
           {rows.map((r) => {
-            const amt = r.freightTon * multiplier;
+            const amt = parts[r.shipmentId];
             const isZero = r.freightTon <= 0;
             const isExisting = !!existing[r.shipmentId];
             const overwrite = overwriteRows.has(r.shipmentId);
@@ -419,7 +421,7 @@ function MachineProcessingTab({
                 <td className="p-2 font-mono font-semibold text-indigo-500">{r.jobNumber}</td>
                 <td className={`p-2 text-right tabular-nums ${isZero ? "text-red-500" : ""}`}>{r.freightTon.toFixed(3)}</td>
                 <td className={`p-2 text-right tabular-nums font-semibold ${isZero ? "text-red-500" : "text-indigo-500"}`}>
-                  {isZero ? "—" : amt.toFixed(2)}
+                  {isZero ? "—" : (amt ?? "…")}
                 </td>
                 <td className="p-2">
                   {isZero ? (
@@ -448,7 +450,7 @@ function MachineProcessingTab({
           <tr className="bg-slate-50 border-t-2 border-slate-200">
             <td className="p-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">Σ total</td>
             <td className="p-2 text-right tabular-nums font-bold">{totalFreightTons.toFixed(3)}</td>
-            <td className="p-2 text-right tabular-nums font-bold text-indigo-500">{(totalFreightTons * multiplier).toFixed(2)}</td>
+            <td className="p-2 text-right tabular-nums font-bold text-indigo-500">{invValueNum.toFixed(2)}</td>
             <td />
           </tr>
         </tfoot>
@@ -470,6 +472,7 @@ function MachineProcessingTab({
           message={`${conflicts.length} shipment${conflicts.length === 1 ? "" : "s"} already ha${conflicts.length === 1 ? "s" : "ve"} a value for "${categoryLabel}". Tick overwrite for any you want to replace; un-ticked rows will be skipped.`}
         />
       )}
+      {splitError && <Alert type="error" showIcon className="mb-4" message={`Could not split the invoice: ${splitError}`} />}
       {submitDone && (
         <Alert type="success" showIcon icon={<CheckCircleOutlined />} className="mb-4" message="Pushed to Invoicing — closing…" />
       )}

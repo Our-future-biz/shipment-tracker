@@ -48,12 +48,13 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
     return rows.length > 0;
   }
 
-  /** The live line of a category of a shipment (the older per-category costs). */
+  /** The first live line of a charge code of a shipment, in the order Costs Breakdown lists them. */
   async findByCategory(shipmentId: string, companyId: string, category: string): Promise<InvoiceCostRecord | null> {
     const [row] = await this.db
       .select()
       .from(t)
       .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), eq(t.category, category), isNull(t.deletedAt)))
+      .orderBy(asc(t.sortOrder), asc(t.createdAt))
       .limit(1);
     return row ?? null;
   }

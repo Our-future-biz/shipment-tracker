@@ -2,7 +2,10 @@ import { APIError, ErrCode } from "encore.dev/api";
 import { quotes } from "~encore/clients";
 import { iso } from "../../../lib/db/serialize";
 import { assertShipmentExists } from "../../../lib/shipmentRefs";
+import { toChargeCode } from "../../../lib/chargeCodes";
+import { isUuid } from "../../../lib/uuid";
 import { definedOnly, toDecimal } from "../lib/amounts";
+import { splitAmount } from "../lib/costSplit";
 import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
 import { additionalChargeRepository } from "../repositories/additionalCharge.repository";
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
@@ -29,6 +32,8 @@ import type {
   BillingSettingsItem,
   BuyingCostInput,
   CategoryCostInput,
+  CostSplitInput,
+  CostSplitResultLine,
   GeneratedInvoiceItem,
   InvoiceCostItem,
   InvoicingData,
@@ -51,9 +56,11 @@ const toCostItem = (r: InvoiceCostRecord): InvoiceCostItem => ({
   realQty: r.realQty,
   realAmount: r.realAmount,
   realCurrency: r.realCurrency,
+  unit: r.unit,
   invoiceNumber: r.invoiceNumber,
   received: r.received,
   vendor: r.vendor,
+  haulierId: r.haulierId,
   sortOrder: r.sortOrder,
 });
 
@@ -112,9 +119,23 @@ const toInvoiceItem = (r: GeneratedInvoiceRecord): GeneratedInvoiceItem => ({
 
 // ── Inputs → column values (amounts checked, undefined fields left out) ──
 
+// A category is stored as its charge code, however the caller wrote it ("Road freight").
+const chargeCodeOf = (category: string | undefined) => (category === undefined ? undefined : toChargeCode(category));
+
+// "" clears the haulier; anything else must be a company id.
+function haulierIdOf(value: string | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  const id = value.trim();
+  if (id === "") return null;
+  if (!isUuid(id)) throw APIError.invalidArgument("haulierId must be a company id");
+  return id;
+}
+
 export function buyingChanges(input: BuyingCostInput): Partial<NewInvoiceCostRecord> {
   return definedOnly({
     ...input,
+    category: chargeCodeOf(input.category),
+    haulierId: haulierIdOf(input.haulierId),
     estQty: toDecimal(input.estQty, "estQty"),
     estAmount: toDecimal(input.estAmount, "estAmount"),
     realQty: toDecimal(input.realQty, "realQty"),
@@ -125,6 +146,7 @@ export function buyingChanges(input: BuyingCostInput): Partial<NewInvoiceCostRec
 export function sellingChanges(input: SellingCostInput): Partial<NewInvoiceSellingCostRecord> {
   return definedOnly({
     ...input,
+    category: chargeCodeOf(input.category),
     qty: toDecimal(input.qty, "qty"),
     amount: toDecimal(input.amount, "amount"),
     // "" goes back to the default by trade direction
@@ -177,17 +199,62 @@ class InvoicingService {
     if (!(await invoiceCostRepository.softDeleteLine(id, companyId, shipmentId))) throw APIError.notFound("Buying cost not found");
   }
 
-  /** The older per-category buying cost: one line per category, created on first write. */
+  /**
+   * A buying cost posted by its charge code (master jobs, document reading). It goes onto the
+   * shipment's first line of that code - so a real cost lands on the estimate it belongs to
+   * instead of a second line - and a line is created when the shipment has none.
+   */
   async upsertCost(shipmentId: string, companyId: string, category: string, input: CategoryCostInput): Promise<InvoiceCostItem> {
+    const code = toChargeCode(category);
     const changes = buyingChanges(input);
-    const existing = await invoiceCostRepository.findByCategory(shipmentId, companyId, category);
+    const existing = await invoiceCostRepository.findByCategory(shipmentId, companyId, code);
     if (existing) {
       const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, changes);
       if (!row) throw APIError.notFound("Buying cost not found");
       return toCostItem(row);
     }
     await assertShipmentExists(shipmentId);
-    return toCostItem(await invoiceCostRepository.createForCompany(companyId, { shipmentId, category, ...changes }));
+    return toCostItem(await invoiceCostRepository.createForCompany(companyId, { shipmentId, category: code, ...changes }));
+  }
+
+  /**
+   * One vendor invoice split over shipments by weight (a master job's invoice by freight tons):
+   * the parts add up to the total to the cent and are posted as the real cost of each
+   * shipment's line of the code. A shipment of weight 0 gets nothing. A shipment that already
+   * has a real cost of the code keeps it unless it is in `overwriteShipmentIds`; its part is
+   * not handed to the others. `dryRun` only answers the split and what each shipment has.
+   */
+  async splitCost(companyId: string, input: CostSplitInput): Promise<CostSplitResultLine[]> {
+    const code = toChargeCode(input.category);
+    const total = toDecimal(input.total, "total");
+    if (!total || Number(total) <= 0) throw APIError.invalidArgument("total must be above 0");
+    const ids = input.lines.map((l) => l.shipmentId);
+    if (!ids.every(isUuid)) throw APIError.invalidArgument("shipmentId must be a shipment id");
+    if (new Set(ids).size !== ids.length) throw APIError.invalidArgument("a shipment is listed twice");
+    const weights = input.lines.map((l) => l.weight);
+    if (weights.some((w) => !Number.isFinite(w) || w < 0)) throw APIError.invalidArgument("a weight must be a number of at least 0");
+    if (!weights.some((w) => w > 0)) throw APIError.invalidArgument("no shipment has a weight to split by");
+
+    const parts = splitAmount(total, weights);
+    const overwrite = new Set(input.overwriteShipmentIds ?? []);
+    const result: CostSplitResultLine[] = [];
+    for (const [i, line] of input.lines.entries()) {
+      const row = await invoiceCostRepository.findByCategory(line.shipmentId, companyId, code);
+      const existing = row?.realAmount
+        ? { realAmount: row.realAmount, realCurrency: row.realCurrency, invoiceNumber: row.invoiceNumber }
+        : null;
+      const amount = line.weight > 0 ? parts[i]! : null;
+      const write = !input.dryRun && amount !== null && (!existing || overwrite.has(line.shipmentId));
+      if (write) {
+        await this.upsertCost(line.shipmentId, companyId, code, {
+          realAmount: amount,
+          realCurrency: input.currency,
+          invoiceNumber: input.invoiceNumber.trim(),
+        });
+      }
+      result.push({ shipmentId: line.shipmentId, amount, existing, written: write });
+    }
+    return result;
   }
 
   // ── Selling costs ──

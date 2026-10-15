@@ -1,3 +1,4 @@
+import { chargeLabel } from "../../../lib/chargeCodes";
 import type { VatCode } from "../interfaces/interfaces";
 
 /**
@@ -252,7 +253,8 @@ export function calculateInvoice(input: {
     const vatCode = effectiveVatCode(r.vatCode, tradeDirection, vatPayer);
     lines.push({
       sourceSellingCostId: r.id,
-      description: r.invoiceText?.trim() || r.category || "Service",
+      // the category is a charge code: the customer reads its label ("road_freight" -> "Road freight")
+      description: r.invoiceText?.trim() || chargeLabel(r.category) || "Service",
       qty,
       unitPrice,
       unitCurrency: r.currency || "CZK",

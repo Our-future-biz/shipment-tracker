@@ -2,14 +2,7 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import { getFieldValue } from "@/hooks/useShipments";
 import { toNumber } from "@/lib/number";
 
-export const COST_CATEGORIES = [
-  { key: "freight", label: "Freight" },
-  { key: "collection", label: "Collection / Delivery" },
-  { key: "locals", label: "Locals" },
-  { key: "others", label: "Others" },
-  { key: "insurance", label: "Insurance" },
-  { key: "customs", label: "Customs clearance" },
-] as const;
+// Cost categories are charge codes: the catalogue is CHARGE_CODES in @/lib/chargeCodes.
 
 export interface CostRow {
   category: string;

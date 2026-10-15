@@ -13,12 +13,22 @@ export interface PackageLine {
 }
 
 export interface CostLine {
+  // The label of the charge ("Road freight"); quotes saved before the catalogue hold only this.
   type: string;
+  // The charge code (@/lib/chargeCodes), kept beside the label; copied as the cost line's category.
+  chargeCode?: string;
   description: string;
   supplier?: string;
   currency: string;
+  // The whole line; with qty and unitPrice it is their product.
   amount: number;
   value?: number;
+  // A line priced per unit (e.g. by a tariff): copied to Costs Breakdown as qty × unit price.
+  qty?: number;
+  unit?: string;
+  unitPrice?: number;
+  // The tariff the line was priced from.
+  tariffRef?: string;
 }
 
 // One exchange rate an older quote kept for itself (the weekly Exchange sheet's, or typed). Read
@@ -226,25 +236,6 @@ export { INCOTERMS } from "@/lib/incoterms";
 export const SERVICE_TYPES = ["Air", "Sea FCL", "Sea LCL", "Rail", "Road"] as const;
 export const DIRECTIONS = ["Export", "Import"] as const;
 export const VALIDITY_OPTIONS = [7, 10, 15, 21, 30] as const;
-
-export const COST_LINE_TYPES = [
-  "Ocean freight",
-  "Air freight",
-  "Rail freight",
-  "Road freight",
-  "Documentation",
-  "THC Origin",
-  "THC Destination",
-  "Customs clearance",
-  "Handling",
-  "Delivery",
-  "Pickup",
-  "Insurance",
-  "Inspection",
-  "Storage",
-  "Demurrage",
-  "Other",
-] as const;
 
 /** Background class of the win-probability bar. */
 export function winProbClass(p: number): string {

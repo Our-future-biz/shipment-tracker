@@ -12,6 +12,7 @@
  * so the user can be told.
  */
 
+import { chargeLabel } from "@/lib/chargeCodes";
 import { money, num } from "@/lib/money";
 
 // num() and money() live in the shared @/lib/money; re-exported so existing imports keep working.
@@ -177,7 +178,7 @@ export function computeCosts(
       hasRxe = true;
       rxeRows.push({
         id: r.id,
-        cat: r.category || "(no category)",
+        cat: chargeLabel(r.category) || "(no category)",
         vendor: r.vendor.trim(),
         delta: d,
         pct: estC ? (d / estC) * 100 : 0,

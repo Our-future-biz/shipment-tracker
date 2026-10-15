@@ -24,7 +24,7 @@ describe("quoteLinesToCostRows", () => {
   it("makes one buying row per buying line, in the quote's order: type, description, supplier, and the amount as the estimate", () => {
     expect(quoteLinesToCostRows(QUOTE).buying).toEqual([
       {
-        category: "Ocean freight",
+        category: "ocean_freight",
         description: "Shanghai - Hamburg, 1x40HC",
         vendor: "Maersk",
         estQty: "1",
@@ -32,16 +32,17 @@ describe("quoteLinesToCostRows", () => {
         estCurrency: "USD",
         realQty: "1",
         realCurrency: "USD",
+        unit: "",
       },
-      { category: "THC Destination", description: "", vendor: "Metrans", estQty: "1", estAmount: "3500.00", estCurrency: "CZK", realQty: "1", realCurrency: "CZK" },
-      { category: "Handling", description: "Terminal handling", vendor: "", estQty: "1", estAmount: "80.00", estCurrency: "EUR", realQty: "1", realCurrency: "EUR" },
+      { category: "thc_destination", description: "", vendor: "Metrans", estQty: "1", estAmount: "3500.00", estCurrency: "CZK", realQty: "1", realCurrency: "CZK", unit: "" },
+      { category: "handling", description: "Terminal handling", vendor: "", estQty: "1", estAmount: "80.00", estCurrency: "EUR", realQty: "1", realCurrency: "EUR", unit: "" },
     ]);
   });
 
   it("makes one selling row per selling line, charged to the quote's customer and ticked for invoicing", () => {
     expect(quoteLinesToCostRows(QUOTE).selling).toEqual([
-      { category: "Ocean freight", description: "All-in rate", customer: "ITTEC s.r.o.", qty: "1", amount: "2400.00", currency: "USD", invoice: true },
-      { category: "Handling", description: "", customer: "ITTEC s.r.o.", qty: "1", amount: "120.50", currency: "EUR", invoice: true },
+      { category: "ocean_freight", description: "All-in rate", customer: "ITTEC s.r.o.", qty: "1", amount: "2400.00", currency: "USD", invoice: true },
+      { category: "handling", description: "", customer: "ITTEC s.r.o.", qty: "1", amount: "120.50", currency: "EUR", invoice: true },
     ]);
   });
 
@@ -52,9 +53,9 @@ describe("quoteLinesToCostRows", () => {
       { type: "Ocean freight", currency: "EUR", amount: 300 },
     ]);
     expect(rows.map((row) => [row.category, row.estAmount, row.estCurrency, row.realCurrency])).toEqual([
-      ["Ocean freight", "2000.00", "USD", "USD"],
-      ["Ocean freight", "150.00", "USD", "USD"],
-      ["Ocean freight", "300.00", "EUR", "EUR"],
+      ["ocean_freight", "2000.00", "USD", "USD"],
+      ["ocean_freight", "150.00", "USD", "USD"],
+      ["ocean_freight", "300.00", "EUR", "EUR"],
     ]);
   });
 
@@ -104,8 +105,8 @@ describe("quoteLinesToCostRows", () => {
       {},
     ]);
     expect(rows.map((row) => [row.category, row.vendor, row.estAmount])).toEqual([
-      ["Handling", "", "80.00"],
-      ["Other", "DHL", "0.00"],
+      ["handling", "", "80.00"],
+      ["other", "DHL", "0.00"],
     ]);
   });
 
@@ -124,12 +125,43 @@ describe("quoteLinesToCostRows", () => {
 
   it("takes text as text only, trimmed: a type, supplier or customer of another kind is empty", () => {
     expect(buying([{ type: 5, description: [" x "], supplier: { name: "Maersk" }, amount: 80 }])).toEqual([
-      { category: "", description: "", vendor: "", estQty: "1", estAmount: "80.00", estCurrency: "EUR", realQty: "1", realCurrency: "EUR" },
+      { category: "", description: "", vendor: "", estQty: "1", estAmount: "80.00", estCurrency: "EUR", realQty: "1", realCurrency: "EUR", unit: "" },
     ]);
     expect(selling([{ type: " Handling ", description: " per container ", amount: 80 }], { customerName: 42 })).toEqual([
-      { category: "Handling", description: "per container", customer: "", qty: "1", amount: "80.00", currency: "EUR", invoice: true },
+      { category: "handling", description: "per container", customer: "", qty: "1", amount: "80.00", currency: "EUR", invoice: true },
     ]);
     expect(selling([{ type: "Handling", amount: 80 }], { customerName: " ITTEC s.r.o. " })[0]?.customer).toBe("ITTEC s.r.o.");
+  });
+
+  it("stores the charge code: the line's own, else its type read as a label; text of no code stays as typed", () => {
+    const rows = buying([
+      { type: "Road freight", chargeCode: "road_freight", amount: 80 },
+      { type: "Road freight", amount: 80 },
+      { type: "Others", amount: 80 },
+      { type: "Courier", amount: 80 },
+    ]);
+    expect(rows.map((row) => row.category)).toEqual(["road_freight", "road_freight", "other", "Courier"]);
+  });
+
+  it("copies a line priced per unit as its quantity, unit and unit price; a quantity without a unit price is one charge", () => {
+    const lines = [
+      { type: "Road freight", qty: 420, unit: "km", unitPrice: 1.15, amount: 483 },
+      { type: "Road freight", qty: "2,5", unit: "pallet", unitPrice: "40", amount: 100 },
+      { type: "Road freight", qty: 3, unit: "pallet", amount: 120 },
+      { type: "Road freight", qty: 0, unitPrice: 10, amount: 120 },
+    ];
+    expect(buying(lines).map((row) => [row.estQty, row.estAmount, row.realQty, row.unit])).toEqual([
+      ["420.00", "1.15", "420.00", "km"],
+      ["2.50", "40.00", "2.50", "pallet"],
+      ["1", "120.00", "1", "pallet"],
+      ["1", "120.00", "1", ""],
+    ]);
+    expect(selling(lines).map((row) => [row.qty, row.amount])).toEqual([
+      ["420.00", "1.15"],
+      ["2.50", "40.00"],
+      ["1", "120.00"],
+      ["1", "120.00"],
+    ]);
   });
 
   it("copies one side without the other", () => {

@@ -28,6 +28,7 @@ import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
+import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
 import { FieldReviewTable } from "./FieldReviewTable";
 import { QuoteOpenButton, QuoteReview, QuoteTarget } from "./QuoteReading";
@@ -39,7 +40,6 @@ import {
   buildFields,
   withBookingEquipment,
   containerRowsFromNumbers,
-  COST_CATEGORY_OPTIONS,
   createdByStamp,
   type Destination,
   type ExtractedField,
@@ -289,8 +289,9 @@ export function DocumentReadingWorkflow() {
             : await api.extraction.extractText({ text: textInput.trim(), destination: "invoicing" });
         const extracted = result.extracted as InvoiceExtracted;
         setInvoiceData(extracted);
-        const suggested = extracted.service_type || "";
-        setInvoiceCategory(COST_CATEGORY_OPTIONS.some((c) => c.value === suggested) ? suggested : "");
+        // The reader suggests a charge code; one the picker does not offer is not taken.
+        const suggested = toChargeCode(extracted.service_type || "");
+        setInvoiceCategory(chargeOptions().some((c) => c.value === suggested) ? suggested : "");
         setStep("review");
       } else if (destination === "customs") {
         const result =
@@ -962,7 +963,7 @@ export function DocumentReadingWorkflow() {
                 label: INVOICE_FIELD_LABELS[key] || key,
                 children:
                   key === "service_type"
-                    ? COST_CATEGORY_OPTIONS.find((c) => c.value === value)?.label || value
+                    ? chargeLabel(String(value))
                     : key === "total_amount" && invoiceData.currency
                       ? `${value} ${invoiceData.currency}`
                       : String(value),
@@ -977,9 +978,9 @@ export function DocumentReadingWorkflow() {
               placeholder="Select category…"
               value={invoiceCategory || undefined}
               onChange={setInvoiceCategory}
-              options={COST_CATEGORY_OPTIONS.map((c) => ({
+              options={chargeOptions().map((c) => ({
                 value: c.value,
-                label: c.value === invoiceData.service_type ? `${c.label} (suggested)` : c.label,
+                label: c.value === toChargeCode(invoiceData.service_type || "") ? `${c.label} (suggested)` : c.label,
               }))}
             />
           </div>
