@@ -40,6 +40,8 @@ export const TERMS = {
   standardList: "Standard list",
   fuelIndex: "Fuel index",
   minimumCharge: "Minimum charge",
+  template: "Template",
+  draftVersion: "Draft version",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -150,5 +152,17 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     term: TERMS.minimumCharge,
     meaning: "The lowest freight price of a zone and service level, whatever the chargeable weight.",
     replaces: "minimální cena, minimum za zásilku",
+  },
+  {
+    term: TERMS.template,
+    meaning:
+      "The Excel file a tariff version is typed in and uploaded from: Read me, Meta, Zones, one sheet per service level and Surcharges. Downloaded from the tariff page, empty or as the current version.",
+    replaces: "šablona ceníku",
+  },
+  {
+    term: TERMS.draftVersion,
+    meaning:
+      "A tariff version that is saved and checked but never activated, so nothing is priced with it. Every upload becomes one; it is activated from a date, kept for later or discarded.",
+    replaces: "koncept ceníku, rozpracovaný ceník",
   },
 ];

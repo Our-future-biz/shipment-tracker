@@ -38,13 +38,18 @@ const Quantity = ({ label, value, step = 1, precision, onChange }: QuantityProps
 
 interface RateCalculatorFormProps {
   form: RateForm;
-  customerName: string | null;
   onChange: (form: RateForm) => void;
-  onCustomerChange: (customerId: string | null, name: string | null) => void;
+  /** Whose prices: the customer and the sides to include. Left out when one tariff version is tried (the lane test). */
+  customer?: {
+    name: string | null;
+    onChange: (customerId: string | null, name: string | null) => void;
+  };
+  /** Only the lane, date, what is carried and the extras: no pick-up time or scope (the lane test of a tariff version). */
+  laneOnly?: boolean;
 }
 
 // What the calculator prices: the lane and pick-up, what is carried, extras, and whose prices.
-export const RateCalculatorForm = ({ form, customerName, onChange, onCustomerChange }: RateCalculatorFormProps) => {
+export const RateCalculatorForm = ({ form, onChange, customer, laneOnly = false }: RateCalculatorFormProps) => {
   const set = <K extends keyof RateForm>(key: K, value: RateForm[K]) => onChange({ ...form, [key]: value });
   const setExtra = <K extends keyof RateExtras>(key: K, value: RateExtras[K]) => onChange({ ...form, extras: { ...form.extras, [key]: value } });
 
@@ -67,20 +72,24 @@ export const RateCalculatorForm = ({ form, customerName, onChange, onCustomerCha
             className="w-full"
           />
         </TruckingField>
-        <TruckingField label="Pick-up time" hint={`Empty = before the ${TERMS.cutoff.toLowerCase()}`}>
-          <TimePicker
-            aria-label="Pick-up time"
-            format="HH:mm"
-            minuteStep={5}
-            needConfirm={false}
-            value={form.pickupTime ? dayjs(`2000-01-01T${form.pickupTime}`) : null}
-            onChange={(t) => set("pickupTime", t ? t.format("HH:mm") : null)}
-            className="w-full"
-          />
-        </TruckingField>
-        <TruckingField label="Scope">
-          <Select aria-label="Scope" value={form.scope} options={SCOPE_OPTIONS} onChange={(v) => set("scope", v)} />
-        </TruckingField>
+        {!laneOnly && (
+          <TruckingField label="Pick-up time" hint={`Empty = before the ${TERMS.cutoff.toLowerCase()}`}>
+            <TimePicker
+              aria-label="Pick-up time"
+              format="HH:mm"
+              minuteStep={5}
+              needConfirm={false}
+              value={form.pickupTime ? dayjs(`2000-01-01T${form.pickupTime}`) : null}
+              onChange={(t) => set("pickupTime", t ? t.format("HH:mm") : null)}
+              className="w-full"
+            />
+          </TruckingField>
+        )}
+        {!laneOnly && (
+          <TruckingField label="Scope">
+            <Select aria-label="Scope" value={form.scope} options={SCOPE_OPTIONS} onChange={(v) => set("scope", v)} />
+          </TruckingField>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -117,21 +126,23 @@ export const RateCalculatorForm = ({ form, customerName, onChange, onCustomerCha
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3 items-end">
-        <TruckingField label="Customer" hint="Empty = the Standard sell list">
-          <TruckingCustomerSelect ariaLabel="Customer" placeholder="Standard sell list" value={form.customerId} valueName={customerName} onChange={onCustomerChange} />
-        </TruckingField>
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pb-1">
-          <span className="flex items-center gap-2">
-            <Switch size="small" checked={form.includeBuy} aria-label="Include buy prices" onChange={(on) => set("includeBuy", on)} />
-            <span className="text-[13px] text-slate-700">Include buy (hauliers, margin)</span>
-          </span>
-          <span className="flex items-center gap-2">
-            <Switch size="small" checked={form.includeInternal} aria-label="Include internal price" onChange={(on) => set("includeInternal", on)} />
-            <span className="text-[13px] text-slate-700">Include internal</span>
-          </span>
+      {customer && (
+        <div className="grid grid-cols-1 md:grid-cols-[2fr_3fr] gap-3 items-end">
+          <TruckingField label="Customer" hint="Empty = the Standard sell list">
+            <TruckingCustomerSelect ariaLabel="Customer" placeholder="Standard sell list" value={form.customerId} valueName={customer.name} onChange={customer.onChange} />
+          </TruckingField>
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 pb-1">
+            <span className="flex items-center gap-2">
+              <Switch size="small" checked={form.includeBuy} aria-label="Include buy prices" onChange={(on) => set("includeBuy", on)} />
+              <span className="text-[13px] text-slate-700">Include buy (hauliers, margin)</span>
+            </span>
+            <span className="flex items-center gap-2">
+              <Switch size="small" checked={form.includeInternal} aria-label="Include internal price" onChange={(on) => set("includeInternal", on)} />
+              <span className="text-[13px] text-slate-700">Include internal</span>
+            </span>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

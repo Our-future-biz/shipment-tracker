@@ -2,20 +2,22 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Alert, Button, Input, InputNumber, Radio, Spin } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, UploadOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { CountChip, SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
-import { useTariff, useTruckingSettings, type TariffDetail, type TariffUpdate, type TariffVersionSummary } from "@/hooks/useTrucking";
+import { fetchTariffTemplate, useTariff, useTruckingSettings, type TariffDetail, type TariffUpdate, type TariffVersionSummary } from "@/hooks/useTrucking";
 import { useUnsavedGuard } from "@/app/warehouse/_lib/useUnsavedGuard";
 import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
 import { SCOPE_LABELS, TARIFF_SIDES, ZONE_BY_LABELS, discountLabel, modeLabel, ownerLabel, versionLabel } from "../../_lib/tariffs";
 import { TruckingField } from "../../_components/TruckingField";
 import { TariffActivateDialog } from "./TariffActivateDialog";
+import { TariffDownloadButton } from "./TariffDownloadButton";
 import { TariffVersionsTable } from "./TariffVersionsTable";
 
 /** What the header form edits; the discount may be empty while typing (the save checks it). */
@@ -38,9 +40,10 @@ interface TariffViewProps {
   tariffId: string;
 }
 
-// One tariff: whose it is and how it prices, its name, discount and zone rule (manager), and its
-// versions — a manager activates a draft from a date or discards it.
+// One tariff: whose it is and how it prices, its name, discount and zone rule (manager), its Excel
+// template and upload, and its versions — a manager activates a draft from a date or discards it.
 export const TariffView = ({ tariffId }: TariffViewProps) => {
+  const router = useRouter();
   const toast = useToast();
   const { user } = useAuth();
   const { tariff, isLoading, error, save, isSaving, activate, isActivating, discard, isDiscarding } = useTariff(tariffId);
@@ -157,7 +160,22 @@ export const TariffView = ({ tariffId }: TariffViewProps) => {
             message={`No price sheet of its own: prices come from the Standard sell list active on the rating day, ${discountLabel(tariff.discountPercent)}.`}
           />
         ) : (
-          <Alert type="info" showIcon message="Uploading a price list from Excel arrives in the next step (Phase 2b); each upload becomes a draft version here." />
+          <SectionCard title="Price list file">
+            <p className="mt-0 mb-3 text-[13px] text-slate-600">
+              Prices are kept in the Excel {TERMS.template.toLowerCase()}: download it ({tariff.activeVersion ? "as the current version" : "empty"}), change it and
+              upload it. Each upload becomes a {TERMS.draftVersion.toLowerCase()}, checked and compared with the active one before it is activated.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <TariffDownloadButton load={() => fetchTariffTemplate(tariff.id)}>
+                {tariff.activeVersion ? "Download current version" : "Download template"}
+              </TariffDownloadButton>
+              {canManage && (
+                <Button type="primary" icon={<UploadOutlined />} onClick={() => router.push(`/trucking/tariffs/${tariff.id}/upload`)}>
+                  Upload price list…
+                </Button>
+              )}
+            </div>
+          </SectionCard>
         )}
 
         <SectionCard title="Tariff">
@@ -209,6 +227,7 @@ export const TariffView = ({ tariffId }: TariffViewProps) => {
           <TariffVersionsTable
             tariffId={tariff.id}
             versions={tariff.versions}
+            hasFile={!isDiscount}
             canManage={canManage}
             levelLabel={levelLabel}
             onActivate={setActivating}

@@ -83,8 +83,32 @@ export const TruckingReadme = () => (
         saving and lists errors (overlapping postcode ranges, a price for an unknown zone, gaps between bands…) and warnings (a price that falls as weight rises,
         a slower service dearer than a faster one, changes over 15 % against the active version). A manager activates a draft without errors from a date: it is{" "}
         <b>Scheduled</b> until then and <b>Active</b> from it, and the version it replaces ends the day before — so exactly one version prices on any day.
-        Later it becomes <b>Expired</b>, or <b>Superseded</b> if replaced before it started. A draft that is not wanted is discarded. Uploading versions from
-        Excel arrives in the next step.
+        Later it becomes <b>Expired</b>, or <b>Superseded</b> if replaced before it started. A draft that is not wanted is discarded.
+      </p>
+      <p>
+        <b>Excel {TERMS.template.toLowerCase()}.</b> Prices are typed in Excel. On the tariff page anyone downloads the template — empty, or as the current
+        version so only the changes need typing — and every version can be downloaded as a template or as the file it was uploaded from. Its sheets:
+      </p>
+      <ul>
+        <li>
+          <b>Read me</b> — how to fill it in (ignored on upload). <b>Meta</b> — valid from / to, kg per LDM, per m³ and per pallet place, weight and money
+          rounding, notes.
+        </li>
+        <li>
+          <b>Zones</b> — zone code, label, PSČ from and to, remote (Y/N). <b>D1 … D4, EXP_…</b> — one sheet per service level the version offers: bands down
+          (basis kg, pallet, LDM or trip; from, to, price type), zones across, and a last <b>MIN</b> row with the {TERMS.minimumCharge.toLowerCase()}. A blank
+          cell means no price there; a missing sheet means the level is not offered.
+        </li>
+        <li>
+          <b>Surcharges</b> — code, calculation, value, minimum and whether it counts on freight plus surcharges.
+        </li>
+      </ul>
+      <p>
+        <b>Upload.</b> A manager uploads the filled-in file (.xlsx, up to 5 MB) in six steps: <b>File</b>, <b>Read</b> (what was used from each sheet),{" "}
+        <b>Check</b> (errors and warnings by sheet, row and column), <b>Compare</b> (every price that changed against the active version, with the average and
+        largest rise and fall), <b>Test a lane</b> (prices one consignment with the new version) and <b>Activate</b> (from today or a later day). The upload
+        is saved as a <b>{TERMS.draftVersion.toLowerCase()}</b> at once, so closing the wizard keeps it. Errors must be fixed in the file and uploaded again;
+        warnings can be accepted. A discount tariff has no file of its own.
       </p>
       <p>
         <b>Zones.</b> Each version splits the Czech postcodes (PSČ, e.g. 110 00 – 199 99) into zones. The zone comes from the delivery postcode, or from the

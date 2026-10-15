@@ -94,6 +94,8 @@ describe("tariff labels", () => {
     serviceLevels: [],
     zoneCount: 0,
     warningCount: 0,
+    sourceFileName: null,
+    errorCount: 0,
     ...p,
   });
 

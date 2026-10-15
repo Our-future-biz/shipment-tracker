@@ -7,16 +7,19 @@ import { Alert, Button, Spin } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { InfoRow } from "@/components/InfoRow";
+import { Pill } from "@/components/Pill";
 import { CountChip, PillTabs, SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
-import { useTariff, useTariffVersion, useTruckingSettings } from "@/hooks/useTrucking";
+import { fetchTariffTemplate, fetchTariffVersionSource, useTariff, useTariffVersion, useTruckingSettings } from "@/hooks/useTrucking";
 import { isTruckingManager } from "../../_lib/roles";
 import { buildLevelMatrices, countErrors, formatMoney, formatQty, validityLabel, versionLabel, type ServiceLevelCode } from "../../_lib/tariffs";
 import { TariffVersionStatusChip } from "../../_components/TariffVersionStatusChip";
 import { TariffActivateDialog } from "./TariffActivateDialog";
+import { TariffDiffPanel } from "./TariffDiffPanel";
+import { TariffDownloadButton } from "./TariffDownloadButton";
 import { TariffFindingList } from "./TariffFindingList";
 import { TariffMatrix } from "./TariffMatrix";
 import { TariffSurchargesTable } from "./TariffSurchargesTable";
@@ -27,9 +30,9 @@ interface TariffVersionViewProps {
   versionId: string;
 }
 
-// One version of a tariff, read-only: what the server found in it, its validity, factors and
-// rounding, the zones, a price matrix per service level and the surcharges. A manager activates or
-// discards a draft from here too.
+// One version of a tariff, read-only: the file it came from, what the server found in it, how it
+// compares with the active version, its validity, factors and rounding, the zones, a price matrix
+// per service level and the surcharges. A manager activates or discards a draft from here too.
 export const TariffVersionView = ({ tariffId, versionId }: TariffVersionViewProps) => {
   const router = useRouter();
   const toast = useToast();
@@ -72,6 +75,8 @@ export const TariffVersionView = ({ tariffId, versionId }: TariffVersionViewProp
   const errors = countErrors(version.findings);
   const canManage = isTruckingManager(user) && version.status === "DRAFT";
   const shown = matrices.find((m) => m.level === level) ?? matrices[0] ?? null;
+  // Compared with the active version unless it is the active one (a discount tariff has no versions).
+  const comparable = !!tariff && tariff.activeVersion?.id !== version.id;
 
   const handleActivate = async (validFrom: string) => {
     await activate({ versionId: version.id, validFrom });
@@ -101,11 +106,28 @@ export const TariffVersionView = ({ tariffId, versionId }: TariffVersionViewProp
                 {tariff?.name ?? "Tariff"} · {versionLabel(version)}
               </h1>
               <TariffVersionStatusChip status={version.status} />
+              {errors > 0 && <Pill tone="red">{`${errors} error${errors === 1 ? "" : "s"}`}</Pill>}
             </div>
             <div className="text-xs text-slate-500 mt-1">
               Valid {validityLabel(version.validFrom, version.validTo)} · created {formatDateTime(version.createdAt)}
               {version.createdBy ? ` by ${version.createdBy}` : ""}
               {version.activatedAt ? ` · activated ${formatDateTime(version.activatedAt)}${version.activatedBy ? ` by ${version.activatedBy}` : ""}` : ""}
+            </div>
+            <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-slate-500">
+              <span>{version.sourceFileName ? `Uploaded from ${version.sourceFileName}` : "Not uploaded from a file"}</span>
+              {version.sourceFileName && (
+                <TariffDownloadButton size="small" load={() => fetchTariffVersionSource(version.id)} ariaLabel={`Download ${version.sourceFileName}`}>
+                  Download file
+                </TariffDownloadButton>
+              )}
+              <TariffDownloadButton size="small" load={() => fetchTariffTemplate(tariffId, version.id)}>
+                Download as template
+              </TariffDownloadButton>
+              {comparable && (
+                <a href="#compare" className="text-indigo-600 hover:underline">
+                  Compare with active
+                </a>
+              )}
             </div>
           </div>
           {canManage && (
@@ -139,6 +161,14 @@ export const TariffVersionView = ({ tariffId, versionId }: TariffVersionViewProp
             {input.notes && <InfoRow label="Notes">{input.notes}</InfoRow>}
           </SectionCard>
         </div>
+
+        {comparable && (
+          <div id="compare" className="scroll-mt-4">
+            <SectionCard title="Compare with active">
+              <TariffDiffPanel versionId={version.id} currency={currency} levelLabel={levelLabel} />
+            </SectionCard>
+          </div>
+        )}
 
         <SectionCard title="Prices" bodyClassName="p-0">
           {shown ? (
