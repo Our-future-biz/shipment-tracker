@@ -30,14 +30,26 @@ export interface CostsPayload {
   selling: CostLinePush[];
 }
 
+const cents = (n: number) => Math.round(n * 100);
+/** Whether n has at most 2 decimals (allowing for binary float noise). */
+const twoDecimals = (n: number) => Math.abs(n * 100 - cents(n)) < 1e-6;
+
+/**
+ * How a price line is stored in Costs, where quantity and unit price keep 2 decimals: as it is
+ * when qty × unit price gives its amount exactly, else as 1 × the amount (a percentage surcharge
+ * like 12.5 % of 20 800 would otherwise become 0.13 × 20 800 = 2 704 instead of 2 600).
+ */
+export function storableLine(l: { qty: number; unit: string; unitPrice: number; amount: number }): { qty: number; unit: string; unitPrice: number } {
+  const exact = twoDecimals(l.unitPrice) && twoDecimals(l.qty) && cents(l.qty * l.unitPrice) === cents(l.amount);
+  return exact ? { qty: l.qty, unit: l.unit, unitPrice: l.unitPrice } : { qty: 1, unit: "", unitPrice: l.amount };
+}
+
 // Every price line is road freight; the line's label ("Fuel surcharge 12 %") tells them apart.
 const lines = (ref: string, price: PriceSnapshot, vendor: { name: string; id: string } | null): CostLinePush[] =>
   price.lines.map((l) => ({
     chargeCode: "road_freight",
     description: `${ref} · ${l.label}`,
-    qty: l.qty,
-    unit: l.unit,
-    unitPrice: l.unitPrice,
+    ...storableLine(l),
     amount: l.amount,
     currency: price.currency,
     vendor: vendor?.name ?? "",

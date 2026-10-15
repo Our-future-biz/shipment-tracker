@@ -1,4 +1,5 @@
-import { customers, fx, holidays } from "~encore/clients";
+import { customers, fx } from "~encore/clients";
+import { czHolidays } from "../lib/czHolidays";
 import { tariffRepository } from "../repositories/tariff.repository";
 import { haulierRepository } from "../repositories/haulier.repository";
 import type { TruckingTariffRecord, TruckingTariffVersionRecord } from "../schemas/truckingTariff.schema";
@@ -56,7 +57,7 @@ class RateService {
       settingsService.get(companyId),
       tariffRepository.list(companyId, { scope: req.scope }),
       fuelIndexService.list(companyId),
-      holidays._internalHolidaysCzNational({ from: day, to: addDays(day, HOLIDAY_WINDOW_DAYS) }).then((r) => r.dates),
+      czHolidays(companyId, day, addDays(day, HOLIDAY_WINDOW_DAYS)),
     ]);
     const versions = await tariffRepository.bindingOn(companyId, tariffs.map((t) => t.id), day);
     const versionOf = new Map(versions.map((v) => [v.tariffId, v]));

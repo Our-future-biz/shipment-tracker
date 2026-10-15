@@ -92,10 +92,12 @@ function linesOf(value: unknown, quoteCurrency: string): QuoteLine[] {
     const supplier = text(line.supplier);
     if (!cents && !description && !supplier) continue;
     // A line priced per unit (a tariff: 420 km at 1.15) is copied as its quantity and unit price;
-    // the amount alone is the whole charge, counted once.
+    // the amount alone is the whole charge, counted once. Only when the two (each kept to 2
+    // decimals) still give the line's amount: a 12.5 % surcharge kept as 0.13 × base would not.
     const qtyCents = centsOf(line.qty);
     const unitPriceCents = centsOf(line.unitPrice);
-    const perUnit = qtyCents !== null && qtyCents > 0 && unitPriceCents !== null;
+    const perUnit =
+      qtyCents !== null && qtyCents > 0 && unitPriceCents !== null && cents !== null && Math.round((qtyCents * unitPriceCents) / 100) === cents;
     lines.push({
       // Stored as its charge code: the code the editor keeps, else the type (a label) as its code.
       category: toChargeCode(text(line.chargeCode) || text(line.type)),

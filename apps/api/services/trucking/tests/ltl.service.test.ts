@@ -38,7 +38,7 @@ vi.mock("../lib/ltlTransportOrderPdf", () => ({ buildLtlTransportOrderPdf: vi.fn
 vi.mock("../lib/manifestPdf", () => ({ buildManifestPdf: vi.fn(async () => new Uint8Array([37, 80, 68, 70])) }));
 vi.mock("../lib/labelsPdf", () => ({ buildLabelsPdf: vi.fn(async () => new Uint8Array([37, 80, 68, 70])) }));
 
-import { customers, shipments } from "~encore/clients";
+import { customers, holidays, shipments } from "~encore/clients";
 import { ltlService } from "../services/ltl.service";
 import { ltlDocumentService } from "../services/ltlDocument.service";
 import { consignmentService, newLegs } from "../services/consignment.service";
@@ -468,6 +468,17 @@ describe("the warehouse's gate", () => {
     expect(eventsOf("gate_in")).toHaveLength(events);
     const detail = await consignmentService.get(user, a.id);
     expect(detail).toMatchObject({ gateInAt: "2026-10-15T11:00:00.000Z", promisedFinal: true });
+  });
+
+  it("gate event: the holidays read names the company itself (a pub/sub message carries no login)", async () => {
+    const a = await ltl({ promisedDate: "2026-10-16" });
+    await pickupRun([legOf(a.id, "PICKUP")]);
+    vi.mocked(holidays._internalHolidaysCzNational).mockClear();
+    await ltlService.handleGateStamped(gate("gateIn", "2026-10-15T11:00:00.000Z"));
+    expect(holidays._internalHolidaysCzNational).toHaveBeenCalled();
+    for (const call of vi.mocked(holidays._internalHolidaysCzNational).mock.calls) {
+      expect(call[1]).toMatchObject({ authData: { companyID: COMPANY } });
+    }
   });
 
   it("gate-out: OUT_FOR_DELIVERY (or ON_LINEHAUL when a line haul follows); voided stamps are taken back", async () => {

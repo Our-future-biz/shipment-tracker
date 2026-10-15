@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { czHolidays } from "../lib/czHolidays";
 import { APIError, ErrCode } from "encore.dev/api";
 import log from "encore.dev/log";
-import { customers, holidays, quotes, shipments, warehouse } from "~encore/clients";
+import { customers, quotes, shipments, warehouse } from "~encore/clients";
 import { inTx, type Tx } from "../db/db";
 import { consignmentRepository, STAMP_COLUMNS, type ConsignmentValues } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
@@ -298,7 +299,7 @@ class ConsignmentService {
       exceptionRepository.openCounts(actor.companyID, rows.map((r) => r.id)),
       // Company holidays of the last weeks, for "POD missing" in working days.
       rows.some((r) => r.deliveredAt && !r.podReceivedAt)
-        ? holidays._internalHolidaysCzNational({ from: addDays(day, -HOLIDAY_WINDOW_DAYS), to: day }).then((r) => r.dates)
+        ? czHolidays(actor.companyID, addDays(day, -HOLIDAY_WINDOW_DAYS), day)
         : Promise.resolve([] as string[]),
     ]);
     const tripOf = new Map([...trips.map((t) => [t.id, t] as const), ...ltl.tripOf]);
@@ -329,7 +330,7 @@ class ConsignmentService {
     if (!level) return null;
     const [settings, extra] = await Promise.all([
       settingsService.get(companyId),
-      holidays._internalHolidaysCzNational({ from: pickupDate, to: addDays(pickupDate, HOLIDAY_WINDOW_DAYS) }).then((r) => r.dates),
+      czHolidays(companyId, pickupDate, addDays(pickupDate, HOLIDAY_WINDOW_DAYS)),
     ]);
     const setting = settings.serviceLevels.find((l) => l.code === level);
     return setting ? promise(setting, pickupDate, pickupTime, "FTL", extra).promisedDate : null;
@@ -449,7 +450,7 @@ class ConsignmentService {
     const day = businessDay(gateInAt);
     const [settings, extra] = await Promise.all([
       settingsService.get(companyId),
-      holidays._internalHolidaysCzNational({ from: day, to: addDays(day, HOLIDAY_WINDOW_DAYS) }).then((r) => r.dates),
+      czHolidays(companyId, day, addDays(day, HOLIDAY_WINDOW_DAYS)),
     ]);
     const setting = settings.serviceLevels.find((l) => l.code === level) ?? null;
     return ltlPromise(setting, gateInAt, day, extra)?.promisedDate ?? fallback;

@@ -1,6 +1,7 @@
 import log from "encore.dev/log";
+import { czHolidays } from "../lib/czHolidays";
 import { APIError } from "encore.dev/api";
-import { customers, holidays } from "~encore/clients";
+import { customers } from "~encore/clients";
 import { inTx, type Tx } from "../db/db";
 import { consignmentRepository, type ConsignmentValues } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
@@ -725,11 +726,11 @@ class LtlService {
     const companyId = event.companyId;
     const shipmentId = event.shipmentId && isUuid(event.shipmentId) ? event.shipmentId : null;
     const day = businessDay(at);
+    const actor = { userID: isUuid(event.userId) ? event.userId : "", role: "user", companyID: companyId };
     const [settings, extra] = await Promise.all([
       settingsService.get(companyId),
-      holidays._internalHolidaysCzNational({ from: addDays(day, -10), to: addDays(day, HOLIDAY_WINDOW_DAYS) }).then((r) => r.dates),
+      czHolidays(companyId, addDays(day, -10), addDays(day, HOLIDAY_WINDOW_DAYS)),
     ]);
-    const actor = { userID: isUuid(event.userId) ? event.userId : "", role: "user", companyID: companyId };
     let touched = 0;
     await inTx(async (tx) => {
       const fresh = await legRepository.recordGateEvent(tx, {

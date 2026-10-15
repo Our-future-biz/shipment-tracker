@@ -164,6 +164,12 @@ describe("quoteLinesToCostRows", () => {
     ]);
   });
 
+  it("copies a percentage line as one charge: 12.5 % of 20 800 stays 2 600, never 0.13 × 20 800", () => {
+    const lines = [{ type: "Road freight", description: "Fuel surcharge 12.5 %", qty: 20800, unit: "%", unitPrice: 0.125, amount: 2600 }];
+    expect(buying(lines).map((row) => [row.estQty, row.estAmount])).toEqual([["1", "2600.00"]]);
+    expect(selling(lines).map((row) => [row.qty, row.amount])).toEqual([["1", "2600.00"]]);
+  });
+
   it("copies one side without the other", () => {
     expect(quoteLinesToCostRows({ buyingLines: QUOTE.buyingLines })).toMatchObject({ buying: [{}, {}, {}], selling: [] });
     expect(quoteLinesToCostRows({ sellingLines: QUOTE.sellingLines })).toMatchObject({ buying: [], selling: [{}, {}] });
