@@ -2017,18 +2017,30 @@ export namespace trucking {
         }
 
         /**
-         * Signs a portal user in (no session). A wrong e-mail, a wrong password and a locked account all answer the same.
+         * Logs in. Unknown e-mail, wrong password and a locked e-mail (5 wrong passwords: 15 minutes) get the same answer.
          */
         public async portalLogin(params: controllers.PortalLoginRequest): Promise<controllers.PortalLoginResponse> {
+            // Convert our params into the objects we need for the request
+            const headers = makeRecord<string, string>({
+                "user-agent":      params.userAgent,
+                "x-forwarded-for": params.forwardedFor,
+            })
+
+            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
+            const body: Record<string, any> = {
+                email:    params.email,
+                password: params.password,
+            }
+
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/portal/login`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/portal/login`, JSON.stringify(body), {headers})
             return await resp.json() as controllers.PortalLoginResponse
         }
 
         /**
-         * Ends the portal session.
+         * Ends the session.
          */
-        public async portalLogout(params: controllers.PortalSessionRequest): Promise<controllers.PortalOkResponse> {
+        public async portalLogout(params: controllers.PortalSession): Promise<controllers.PortalOk> {
             // Convert our params into the objects we need for the request
             const headers = makeRecord<string, string>({
                 "x-portal-session": params.session,
@@ -2036,13 +2048,10 @@ export namespace trucking {
 
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/portal/logout`, undefined, {headers})
-            return await resp.json() as controllers.PortalOkResponse
+            return await resp.json() as controllers.PortalOk
         }
 
-        /**
-         * Who is signed in to the portal.
-         */
-        public async portalMe(params: controllers.PortalSessionRequest): Promise<controllers.PortalMeResponse> {
+        public async portalMe(params: controllers.PortalSession): Promise<controllers.PortalMeResponse> {
             // Convert our params into the objects we need for the request
             const headers = makeRecord<string, string>({
                 "x-portal-session": params.session,
@@ -2053,10 +2062,7 @@ export namespace trucking {
             return await resp.json() as controllers.PortalMeResponse
         }
 
-        /**
-         * One order of the portal user's haulier (a trip or a partner delivery leg).
-         */
-        public async portalOrderGet(id: string, params: controllers.PortalSessionRequest): Promise<controllers.PortalOrderResponse> {
+        public async portalOrderGet(id: string, params: controllers.PortalOrderRequest): Promise<controllers.PortalOrderResponse> {
             // Convert our params into the objects we need for the request
             const headers = makeRecord<string, string>({
                 "x-portal-session": params.session,
@@ -2068,7 +2074,7 @@ export namespace trucking {
         }
 
         /**
-         * Confirm or reject the order, once (trips only).
+         * Confirms or rejects a trip's transport order, once.
          */
         public async portalOrderRespond(id: string, params: controllers.PortalOrderRespondRequest): Promise<controllers.PortalOrderResponse> {
             // Convert our params into the objects we need for the request
@@ -2087,9 +2093,6 @@ export namespace trucking {
             return await resp.json() as controllers.PortalOrderResponse
         }
 
-        /**
-         * Loaded, departed or arrived, as the haulier.
-         */
         public async portalOrderStamp(id: string, params: controllers.PortalOrderStampRequest): Promise<controllers.PortalOrderResponse> {
             // Convert our params into the objects we need for the request
             const headers = makeRecord<string, string>({
@@ -2098,8 +2101,8 @@ export namespace trucking {
 
             // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
             const body: Record<string, any> = {
+                at:   params.at,
                 kind: params.kind,
-                at: params.at,
             }
 
             // Now make the actual call to the API
@@ -2108,7 +2111,7 @@ export namespace trucking {
         }
 
         /**
-         * The orders of the portal user's haulier, open or done.
+         * The haulier's orders: its trips and partner deliveries.
          */
         public async portalOrders(params: controllers.PortalOrdersRequest): Promise<controllers.PortalOrdersResponse> {
             // Convert our params into the objects we need for the request
@@ -2126,7 +2129,7 @@ export namespace trucking {
         }
 
         /**
-         * Uploads the POD of one stop (a photo or a PDF, at most 10 MB).
+         * The POD of one stop: stamps delivered (when missing) and POD received.
          */
         public async portalPodUpload(id: string, consignmentId: string, params: controllers.PortalPodUploadRequest): Promise<controllers.PortalOrderResponse> {
             // Convert our params into the objects we need for the request
@@ -2136,10 +2139,10 @@ export namespace trucking {
 
             // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
             const body: Record<string, any> = {
-                fileName: params.fileName,
-                fileBase64: params.fileBase64,
+                deliveredAt:  params.deliveredAt,
+                fileBase64:   params.fileBase64,
+                fileName:     params.fileName,
                 receiverName: params.receiverName,
-                deliveredAt: params.deliveredAt,
             }
 
             // Now make the actual call to the API
@@ -2148,17 +2151,14 @@ export namespace trucking {
         }
 
         /**
-         * Sets the password from an invitation or reset link (no session); the link works once.
+         * Sets the password through the invitation or reset link (once; valid 72 hours).
          */
-        public async portalSetPassword(params: controllers.PortalSetPasswordRequest): Promise<controllers.PortalOkResponse> {
+        public async portalSetPassword(params: controllers.PortalSetPasswordRequest): Promise<controllers.PortalOk> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/portal/set-password`, JSON.stringify(params))
-            return await resp.json() as controllers.PortalOkResponse
+            return await resp.json() as controllers.PortalOk
         }
 
-        /**
-         * Stamps one stop delivered.
-         */
         public async portalStopDelivered(id: string, consignmentId: string, params: controllers.PortalStopDeliveredRequest): Promise<controllers.PortalOrderResponse> {
             // Convert our params into the objects we need for the request
             const headers = makeRecord<string, string>({
@@ -2167,7 +2167,7 @@ export namespace trucking {
 
             // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
             const body: Record<string, any> = {
-                at: params.at,
+                at:           params.at,
                 receiverName: params.receiverName,
             }
 
@@ -2177,9 +2177,9 @@ export namespace trucking {
         }
 
         /**
-         * The transport order PDF, made again without a pick-up PIN.
+         * The transport order as a PDF, regenerated without the Pick-up PIN.
          */
-        public async portalTransportOrderPdf(id: string, params: controllers.PortalSessionRequest): Promise<controllers.PortalFileResponse> {
+        public async portalTransportOrderPdf(id: string, params: controllers.PortalOrderRequest): Promise<controllers.PortalFileResponse> {
             // Convert our params into the objects we need for the request
             const headers = makeRecord<string, string>({
                 "x-portal-session": params.session,
@@ -2607,7 +2607,7 @@ export namespace trucking {
         }
 
         /**
-         * Adds a portal user to the haulier and returns its one-time invitation link. Managers only.
+         * Adds a portal user (manager) and gives the invitation link.
          */
         public async truckingPortalUserCreate(customerId: string, params: controllers.TruckingPortalUserCreateRequest): Promise<controllers.TruckingPortalUserCreateResponse> {
             // Now make the actual call to the API
@@ -2616,7 +2616,7 @@ export namespace trucking {
         }
 
         /**
-         * Disables a portal user and ends its sessions. Managers only.
+         * Disables a portal user (manager): their sessions and open links end.
          */
         public async truckingPortalUserDisable(id: string, params: controllers.TruckingPortalUserDisableRequest): Promise<controllers.TruckingPortalUserResponse> {
             // Now make the actual call to the API
@@ -2625,7 +2625,7 @@ export namespace trucking {
         }
 
         /**
-         * Enables a disabled portal user again. Managers only.
+         * Enables a disabled portal user (manager).
          */
         public async truckingPortalUserEnable(id: string): Promise<controllers.TruckingPortalUserResponse> {
             // Now make the actual call to the API
@@ -2633,9 +2633,6 @@ export namespace trucking {
             return await resp.json() as controllers.TruckingPortalUserResponse
         }
 
-        /**
-         * The haulier's portal users. Any user.
-         */
         public async truckingPortalUserList(customerId: string): Promise<controllers.TruckingPortalUserListResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/hauliers/${encodeURIComponent(customerId)}/portal-users`)
@@ -2643,7 +2640,7 @@ export namespace trucking {
         }
 
         /**
-         * A one-time link to set a new password; ends the user's sessions. Managers only.
+         * Resets the password (manager): the old one stops working, the user's sessions end, a one-time link comes back.
          */
         public async truckingPortalUserReset(id: string): Promise<controllers.TruckingPortalUserResetResponse> {
             // Now make the actual call to the API
@@ -5748,11 +5745,13 @@ export namespace controllers {
     export interface PortalLoginRequest {
         email: string
         password: string
+        userAgent?: string
+        forwardedFor?: string
     }
 
     export interface PortalLoginResponse {
         /**
-         * The portal session token, sent back as the X-Portal-Session header
+         * The session token: send it as X-Portal-Session
          */
         session: string
 
@@ -5764,14 +5763,26 @@ export namespace controllers {
         me: interfaces.PortalMe
     }
 
-    export interface PortalOkResponse {
-        ok: true
+    export interface PortalOk {
+        ok: boolean
+    }
+
+    export interface PortalOrderRequest {
+        session?: string
+    }
+
+    export interface PortalOrderRequest {
+        session?: string
     }
 
     export interface PortalOrderRespondRequest {
-        session: string
         action: "CONFIRM" | "REJECT"
+        /**
+         * Required to reject
+         */
         reason: string
+
+        session?: string
     }
 
     export interface PortalOrderResponse {
@@ -5779,17 +5790,22 @@ export namespace controllers {
     }
 
     export interface PortalOrderStampRequest {
-        session: string
         kind: "LOADED" | "DEPARTED" | "ARRIVED"
         /**
-         * null = now
+         * null = now; at most 7 days back
          */
         at: string | null
+
+        session?: string
     }
 
     export interface PortalOrdersRequest {
-        session: string
+        /**
+         * open (default) or done
+         */
         view?: "open" | "done"
+
+        session?: string
     }
 
     export interface PortalOrdersResponse {
@@ -5797,7 +5813,6 @@ export namespace controllers {
     }
 
     export interface PortalPodUploadRequest {
-        session: string
         fileName: string
         /**
          * A photo or a PDF, at most 10 MB
@@ -5806,28 +5821,41 @@ export namespace controllers {
 
         receiverName: string
         /**
-         * null = now
+         * null = now; at most 7 days back
          */
         deliveredAt: string | null
+
+        session?: string
     }
 
-    export interface PortalSessionRequest {
-        session: string
+    export interface PortalSession {
+        session?: string
+    }
+
+    export interface PortalSession {
+        session?: string
     }
 
     export interface PortalSetPasswordRequest {
+        /**
+         * The token of the one-time link
+         */
         token: string
+
+        /**
+         * At least 12 characters, not the e-mail
+         */
         password: string
     }
 
     export interface PortalStopDeliveredRequest {
-        session: string
         /**
-         * null = now
+         * null = now; at most 7 days back
          */
         at: string | null
 
         receiverName: string
+        session?: string
     }
 
     export interface PositionMarkSentRequest {
@@ -7437,7 +7465,7 @@ export namespace controllers {
     export interface TruckingPortalUserCreateResponse {
         user: interfaces.PortalUserItem
         /**
-         * Shown once
+         * One-time link to set the password: shown once
          */
         inviteLink: string
 
@@ -7445,6 +7473,9 @@ export namespace controllers {
     }
 
     export interface TruckingPortalUserDisableRequest {
+        /**
+         * Why (3 to 500 characters)
+         */
         reason: string
     }
 
@@ -7454,7 +7485,7 @@ export namespace controllers {
 
     export interface TruckingPortalUserResetResponse {
         /**
-         * Shown once
+         * One-time link to set a new password: shown once
          */
         resetLink: string
 
@@ -11392,9 +11423,14 @@ export namespace interfaces {
         ourCompany: string
     }
 
+    /**
+     * An order in full: every field of PortalOrderItem, with `stops` the stops themselves (their
+     * number is stops.length). Written out rather than extended, as TypeScript does not let an
+     * extending interface turn `stops: number` into a list.
+     */
     export interface PortalOrder {
         id: string
-        kind: "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN" | "PARTNER_DELIVERY"
+        kind: PortalOrderKind
         ref: string
         date: string
         status: string
@@ -11421,6 +11457,9 @@ export namespace interfaces {
             departed: string | null
             arrived: string | null
         }
+        /**
+         * Newest first
+         */
         history: {
             at: string
             text: string
@@ -11428,25 +11467,43 @@ export namespace interfaces {
     }
 
     export interface PortalOrderItem {
+        /**
+         * The trip id, or the leg id of a partner delivery
+         */
         id: string
-        kind: "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN" | "PARTNER_DELIVERY"
+
+        kind: PortalOrderKind
+        /**
+         * The trip ref, or the consignment ref of a partner delivery
+         */
         ref: string
+
+        /**
+         * YYYY-MM-DD
+         */
         date: string
+
         status: string
         from: string
         to: string
         stops: number
         palletPlaces: number
         weightKg: number
+        /**
+         * The agreed (buy) price only
+         */
         agreedPrice: {
             total: number
             currency: string
         } | null
+
         /**
-         * "Confirm the order", "Upload POD for 2 stops"…
+         * "Confirm the order", "Upload POD for 2 stops", …
          */
         needsAction: string | null
     }
+
+    export type PortalOrderKind = "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN" | "PARTNER_DELIVERY"
 
     export interface PortalStop {
         consignmentRef: string
@@ -11479,7 +11536,11 @@ export namespace interfaces {
         email: string
         name: string
         phone: string
+        /**
+         * INVITED = the password was never set; LOCKED = too many wrong passwords (15 minutes)
+         */
         status: "INVITED" | "ACTIVE" | "DISABLED" | "LOCKED"
+
         lastLoginAt: string | null
         createdAt: string
     }
