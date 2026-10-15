@@ -9,6 +9,7 @@ import { gateAdminService } from "../services/gateAdmin.service";
 import { deliverDue, MAX_ATTEMPTS } from "../services/shipmentOutbox.service";
 import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
+import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
 import { shipmentOutboxTable } from "../schemas/shipmentOutbox.schema";
 
 // The real shipments service needs an authenticated caller, so the clients are replaced here
@@ -241,7 +242,7 @@ describe("shipment update outbox", () => {
     });
     await deliverDue(row.id);
     expect(notice).toMatch(/not changed back/);
-    expect((await outboxOf(row.id))[0]).toMatchObject({ status: "sent" });
+    expect((await outboxOf(row.id))[0]).toMatchObject({ status: "sent", lastError: "sent just before the stamp was voided" });
     const after = await gateMovementService.get(row.id, c);
     expect(after.gateIn).toBeNull();
     expect(after.events.filter((e) => e.kind === "shipmentMayNeedCorrecting")).toHaveLength(2);
@@ -293,6 +294,17 @@ describe("shipment update outbox", () => {
     spy.mockRestore();
     expect(await outboxOf(row.id)).toEqual([]);
     expect((await gateMovementService.get(row.id, c)).gateIn).toBeNull();
+  });
+
+  it("counts updates still pending after the given minutes, for the warning log", async () => {
+    const { c, row } = await inboundRow();
+    shipmentUpdate.mockRejectedValueOnce(new Error("down"));
+    await gateMovementService.stamp(row.id, c, user, "gateIn");
+    const before = await shipmentOutboxRepository.stalePending(10);
+    await db.update(o).set({ createdAt: new Date(Date.now() - 11 * 60_000) }).where(eq(o.movementId, row.id));
+    const after = await shipmentOutboxRepository.stalePending(10);
+    expect(after.count).toBe(before.count + 1);
+    expect(after.oldest).not.toBeNull();
   });
 });
 

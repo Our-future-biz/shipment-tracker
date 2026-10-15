@@ -2,15 +2,17 @@ import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { shipmentOutboxTable, type NewShipmentOutboxRecord, type ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
 import type { Tx } from "./warehouseSection.repository";
-import { TenantRepository } from "../../../lib/db/repository";
+import { OutboxRepository } from "../../../lib/outbox/outboxRepository";
 
 const o = shipmentOutboxTable;
-// A claimed row is held this long; a delivery that dies leaves it to the next run after that.
-const LOCK = sql`interval '2 minutes'`;
 
-class ShipmentOutboxRepository extends TenantRepository<typeof shipmentOutboxTable> {
+// Claiming and settling (claimDueRows, markSent, markRetry, markFailed, stalePending) come from
+// the shared OutboxRepository; what is particular to gate stamps is here.
+class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTable> {
   constructor() {
-    super(db, shipmentOutboxTable, "warehouse_shipment_outbox");
+    // Updates of one shipment go out in order; a row cancelled by a voided stamp while it was on
+    // its way is recorded as sent with this note.
+    super(db, shipmentOutboxTable, "warehouse_shipment_outbox", { orderKey: "shipment_id", sentAfterCancelNote: "sent just before the stamp was voided" });
   }
 
   // Written in the stamp's own transaction, so the stamp and what it owes the shipment are
@@ -20,67 +22,21 @@ class ShipmentOutboxRepository extends TenantRepository<typeof shipmentOutboxTab
     return tx.insert(o).values(rows).returning();
   }
 
-  // Takes up to `limit` due rows for delivery and counts the attempt. Safe to run from several
-  // places at once (the cron and the local timer, or two app instances): rows are claimed with
-  // SKIP LOCKED and held for a while. Updates of one shipment go out in the order they were
-  // made — a row waits while an older one of the same shipment is still pending, or failed for
-  // good (a "released" date must not reach a shipment whose "received" date never did; the
-  // failed row is retried or dismissed by hand first).
+  // Takes up to `limit` due rows for delivery (see OutboxRepository.claimDueRows). Updates of one
+  // shipment go out in the order they were made — a "released" date must not reach a shipment
+  // whose "received" date never did; a failed row is retried or dismissed by hand first.
   // With `movementId`, only that record's rows (the delivery right after a stamp); with
   // `shipmentIds`, only the rows of those shipments ("Retry now").
-  // Each claim adds one to `attempts`, which then serves as the claim's token: only the run
-  // holding the latest claim can settle the row (markSent / markRetry / markFailed).
   async claimDue(limit: number, filter: { movementId?: string; shipmentIds?: string[] } = {}): Promise<ShipmentOutboxRecord[]> {
     const { movementId, shipmentIds } = filter;
     if (shipmentIds && !shipmentIds.length) return [];
-    const res = await db.execute(sql`
-      UPDATE ${o} SET locked_until = now() + ${LOCK}, attempts = attempts + 1, updated_at = now()
-      WHERE id IN (
-        SELECT x.id FROM ${o} x
-        WHERE x.status = 'pending' AND x.deleted_at IS NULL AND x.next_attempt_at <= now()
-          AND (x.locked_until IS NULL OR x.locked_until < now())
-          ${movementId ? sql`AND x.movement_id = ${movementId}` : sql``}
-          ${shipmentIds ? sql`AND x.shipment_id IN (${sql.join(shipmentIds.map((id) => sql`${id}`), sql`, `)})` : sql``}
-          AND NOT EXISTS (
-            SELECT 1 FROM ${o} y
-            WHERE y.shipment_id = x.shipment_id AND y.status IN ('pending', 'failed') AND y.deleted_at IS NULL
-              AND (y.created_at, y.id) < (x.created_at, x.id))
-        ORDER BY x.created_at, x.id
-        LIMIT ${limit}
-        FOR UPDATE SKIP LOCKED)
-      RETURNING id`);
-    const ids = (res.rows as { id: string }[]).map((r) => r.id);
+    const ids = await this.claimDueRows(
+      limit,
+      sql`${movementId ? sql`AND x.movement_id = ${movementId}` : sql``}
+          ${shipmentIds ? sql`AND x.shipment_id IN (${sql.join(shipmentIds.map((id) => sql`${id}`), sql`, `)})` : sql``}`,
+    );
     if (!ids.length) return [];
     return db.select().from(o).where(inArray(o.id, ids)).orderBy(asc(o.createdAt), asc(o.id));
-  }
-
-  // Settles a delivered row. A row cancelled meanwhile (its stamp was voided while the update
-  // was on its way) is recorded as sent too, since the shipment did get it. Returns the status the
-  // row had ("pending" or "cancelled"), or null when the claim was lost (another run took the
-  // row again after the lock ran out and settles it).
-  async markSent(id: string, attempts: number): Promise<"pending" | "cancelled" | null> {
-    const res = await db.execute(sql`
-      UPDATE ${o} SET status = 'sent', sent_at = now(), locked_until = NULL, updated_at = now(),
-        last_error = CASE WHEN p.was = 'cancelled' THEN 'sent just before the stamp was voided' ELSE '' END
-      FROM (SELECT id, status AS was FROM ${o} WHERE id = ${id} FOR UPDATE) p
-      WHERE ${o}.id = p.id AND ${o}.attempts = ${attempts} AND ${o}.status IN ('pending', 'cancelled')
-      RETURNING p.was`);
-    const was = (res.rows as { was: string }[])[0]?.was;
-    return was === "pending" || was === "cancelled" ? was : null;
-  }
-
-  async markRetry(id: string, attempts: number, error: string, nextAttemptAt: Date) {
-    await db
-      .update(o)
-      .set({ nextAttemptAt, lockedUntil: null, lastError: error, updatedAt: new Date() })
-      .where(and(eq(o.id, id), eq(o.attempts, attempts), eq(o.status, "pending")));
-  }
-
-  async markFailed(id: string, attempts: number, error: string) {
-    await db
-      .update(o)
-      .set({ status: "failed", lockedUntil: null, lastError: error, updatedAt: new Date() })
-      .where(and(eq(o.id, id), eq(o.attempts, attempts), eq(o.status, "pending")));
   }
 
   // A voided stamp: what it still owes the shipment is cancelled. Returns the rows of those
@@ -172,15 +128,6 @@ class ShipmentOutboxRepository extends TenantRepository<typeof shipmentOutboxTab
       blockedByFailed: Number(row?.blocked ?? 0),
       oldestPendingAt: oldest ? oldest.toISOString() : null,
     };
-  }
-
-  // Pending updates (all companies) older than `minutes`: count and the oldest, for the warning log.
-  async stalePending(minutes: number) {
-    const [row] = await db
-      .select({ n: sql<number>`count(*)`, oldest: sql<Date | string | null>`min(${o.createdAt})` })
-      .from(o)
-      .where(and(eq(o.status, "pending"), isNull(o.deletedAt), sql`${o.createdAt} < now() - make_interval(mins => ${minutes})`));
-    return { count: Number(row?.n ?? 0), oldest: row?.oldest ? new Date(row.oldest).toISOString() : null };
   }
 
   // Failed rows the user has settled by hand in Shipments.
