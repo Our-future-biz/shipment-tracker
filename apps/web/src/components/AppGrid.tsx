@@ -267,10 +267,11 @@ export function AppGrid<T extends object>({
       )}
 
       {/* Filters Row */}
-      <div className="flex items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
-        <div className="flex items-center gap-3 min-w-0">{actions}</div>
+      {/* Wraps onto a second line when narrow, so the search never shrinks under the buttons. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3">
+        <div className="flex items-center gap-3 shrink-0">{actions}</div>
         {/* Search sits in the middle of the toolbar, actions left, the rest right. "/" focuses it. */}
-        <div className="flex flex-1 justify-center min-w-0">
+        <div className="flex flex-1 basis-[220px] justify-center min-w-[200px]">
           <Input
             ref={searchRef}
             placeholder={searchPlaceholder}
@@ -281,7 +282,7 @@ export function AppGrid<T extends object>({
             className="w-[320px] max-w-full"
           />
         </div>
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-3">
           {extraFilters && (
             <>
               {extraFilters}
