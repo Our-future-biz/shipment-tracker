@@ -1969,6 +1969,8 @@ export namespace trucking {
             this.truckingManifestPdf = this.truckingManifestPdf.bind(this)
             this.truckingPlanningBoard = this.truckingPlanningBoard.bind(this)
             this.truckingRate = this.truckingRate.bind(this)
+            this.truckingReport = this.truckingReport.bind(this)
+            this.truckingReportExport = this.truckingReportExport.bind(this)
             this.truckingSettingsGet = this.truckingSettingsGet.bind(this)
             this.truckingSettingsUpdate = this.truckingSettingsUpdate.bind(this)
             this.truckingTariffCreate = this.truckingTariffCreate.bind(this)
@@ -2422,6 +2424,40 @@ export namespace trucking {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/rate`, JSON.stringify(params))
             return await resp.json() as interfaces.RateResponse
+        }
+
+        /**
+         * Trucking reports and KPIs of a period (any user): KPIs, margin, haulier scorecard, coverage gaps and the department result.
+         */
+        public async truckingReport(params: controllers.TruckingReportRequest): Promise<{
+    report: interfaces.TruckingReport
+}> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                from: params.from,
+                to:   params.to,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/reports`, undefined, {query})
+            return await resp.json() as {
+    report: interfaces.TruckingReport
+}
+        }
+
+        /**
+         * The Trucking report of a period as an Excel workbook.
+         */
+        public async truckingReportExport(params: controllers.TruckingReportRequest): Promise<controllers.TruckingFileResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                from: params.from,
+                to:   params.to,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/reports/export`, undefined, {query})
+            return await resp.json() as controllers.TruckingFileResponse
         }
 
         /**
@@ -7061,6 +7097,18 @@ export namespace controllers {
         kind: interfaces.LtlTripKind
     }
 
+    export interface TruckingReportRequest {
+        /**
+         * YYYY-MM-DD (Prague), first day included
+         */
+        from: string
+
+        /**
+         * YYYY-MM-DD (Prague), last day included; at most 366 days
+         */
+        to: string
+    }
+
     export interface TruckingSettingsResponse {
         settings: interfaces.TruckingSettings
     }
@@ -8455,6 +8503,19 @@ export namespace interfaces {
         written: boolean
     }
 
+    /**
+     * A lane asked for (rate calculator, quotes, consignments) that a tariff could not price, in the period.
+     */
+    export interface CoverageGap {
+        side: "SELL" | "BUY" | "INTERNAL"
+        scope: "LTL" | "FTL" | "LINEHAUL"
+        serviceLevel: ServiceLevelCode | null
+        postcode: string
+        reason: string
+        count: number
+        lastAt: string
+    }
+
     export interface CustomerItem {
         id: string
         ico: string
@@ -8724,6 +8785,21 @@ export namespace interfaces {
         photos: {
             id: string
             fileName: string
+        }[]
+    }
+
+    /**
+     * Trucking department P&L for the period (internal billing included).
+     */
+    export interface DepartmentResult {
+        externalSellCzk: number
+        internalChargesCzk: number
+        haulierCostCzk: number
+        resultCzk: number
+        internalByDepartment: {
+            department: string
+            amountCzk: number
+            consignments: number
         }[]
     }
 
@@ -9852,6 +9928,30 @@ export namespace interfaces {
         version: number
     }
 
+    export interface HaulierScore {
+        haulierCustomerId: string
+        name: string
+        trips: number
+        consignments: number
+        onTimePercent: number | null
+        firstAttemptPercent: number | null
+        avgDaysToPod: number | null
+        claims: number
+        claimedCzk: number
+        costCzk: number
+        costPerKg: number | null
+        invoicesBlocked: number
+        /**
+         * Σ |difference| of approved invoices
+         */
+        invoiceDifferenceCzk: number
+
+        /**
+         * current profile status
+         */
+        status: HaulierStatus
+    }
+
     export type HaulierStatus = "ok" | "warning" | "blocked"
 
     export interface HolidayImportResult {
@@ -10424,6 +10524,28 @@ export namespace interfaces {
          * >= 0, default 300
          */
         minAmountCzk: number
+    }
+
+    export interface MarginRow {
+        /**
+         * customer id / lane key / service level code / haulier id
+         */
+        key: string
+
+        /**
+         * "TEST Odběratel Ostrava" / "110 00 → 602 00 (zones 1 → 4)" / "+1 day" / haulier name
+         */
+        label: string
+
+        consignments: number
+        sellCzk: number
+        buyCzk: number
+        marginCzk: number
+        marginPercent: number | null
+        /**
+         * how many consignments were below the floor
+         */
+        belowFloor: number
     }
 
     /**
@@ -12615,6 +12737,36 @@ export namespace interfaces {
 
     export interface TruckingHaulierResponse {
         haulier: HaulierDetail
+    }
+
+    export interface TruckingKpi {
+        key: "onTime" | "firstAttempt" | "daysToPod" | "podMissing" | "lineHaulFill" | "costPerKg" | "costPerPallet" | "margin" | "exceptionRate" | "avizaceDone"
+        label: string
+        value: number | null
+        unit: string
+        n: number
+        measured: string
+        notMeasured: string
+        breakdown: TruckingKpiPart[]
+    }
+
+    export interface TruckingKpiPart {
+        label: string
+        value: number | null
+        unit: string
+        n: number
+    }
+
+    export interface TruckingReport {
+        from: string
+        to: string
+        kpis: TruckingKpi[]
+        marginByCustomer: MarginRow[]
+        marginByLane: MarginRow[]
+        marginByServiceLevel: MarginRow[]
+        hauliers: HaulierScore[]
+        coverageGaps: CoverageGap[]
+        department: DepartmentResult
     }
 
     export interface TruckingSettings {

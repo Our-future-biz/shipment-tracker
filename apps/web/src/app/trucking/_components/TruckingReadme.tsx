@@ -39,7 +39,8 @@ export const TruckingReadme = () => (
       </p>
       <p>
         The module is built in phases. Live today: {LIVE_TABS.map((t) => t.label).join(", ")} and the Trucking settings (the gear at the right of the tab bar).
-        Every other tab says what it will hold and which phase brings it — {PLANNED_TABS.map((t) => `${t.label}: Phase ${t.phase}`).join(", ")}.
+        {PLANNED_TABS.length > 0 &&
+          ` Every other tab says what it will hold and which phase brings it — ${PLANNED_TABS.map((t) => `${t.label}: Phase ${t.phase}`).join(", ")}.`}
       </p>
     </Part>
 
@@ -329,6 +330,43 @@ export const TruckingReadme = () => (
           never changes.
         </li>
       </ul>
+    </Part>
+
+    <Part title="Reports">
+      <p>
+        The <b>Reports</b> tab shows how Trucking did in a period: <b>Today</b>, <b>7 days</b>, <b>30 days</b> or <b>Custom</b> (at most 366 Prague days; the
+        period stays in the address, so a link shows the same figures). Unless a figure says otherwise, a consignment counts in the period of its{" "}
+        <b>delivered</b> day. Everything is worked out on the server from the stamps, prices, trips, exceptions and invoices — nothing is typed in. Money is in
+        CZK; EUR prices at the rate stored with each price. <b>Export to Excel</b> downloads the same figures, one sheet per section.
+      </p>
+      <p>
+        <b>KPIs.</b> Each card shows its value, how many records it counts and a <b>How it is measured</b> note (start → stop, which records, the rule). A
+        figure that cannot be measured says <b>Not measured</b> and why — it is never guessed. The KPIs: <b>{TERMS.onTime}</b>, <b>{TERMS.firstAttempt}</b>,{" "}
+        <b>{TERMS.daysToPod}</b> and <b>{TERMS.pod} missing</b> (as of now), <b>{TERMS.lineHaul} {TERMS.fill.toLowerCase()}</b>, <b>cost per kg</b> and{" "}
+        <b>per pallet place</b> (the real cost where an approved haulier invoice exists, else the expected one), <b>margin</b>, <b>exception rate</b> (per 100
+        delivered) and <b>{TERMS.avizace} done</b> (recorded before delivery, where it was needed).
+      </p>
+      <ul>
+        <li>
+          <b>Margin</b> — sell minus buy of the Road consignments by <b>Customer</b>, <b>Lane</b> or <b>Service level</b>, with how many were below the{" "}
+          {TERMS.marginFloor.toLowerCase()}. A loss is red and says &quot;(loss)&quot;. Internal consignments are left out here.
+        </li>
+        <li>
+          <b>Haulier scorecard</b> — per haulier: trips, consignments, on time, first attempt, days to {TERMS.pod}, claims, cost, cost per kg, blocked invoices and
+          the differences on its approved invoices, with its status now. The name opens the haulier page.
+        </li>
+        <li>
+          <b>{TERMS.coverageGap}s</b> — lanes someone asked a price for that no tariff could price, most asked first. <b>Open Tariffs</b> goes to the tariffs of
+          that side, to add the missing zone or price.
+        </li>
+        <li>
+          <b>{TERMS.departmentResult}</b> — external sell + internal charges − haulier cost = result, with the internal charges per department.
+        </li>
+      </ul>
+      <p>
+        When a new tariff version is compared before activation, the comparison also says how many open quotes and open consignments are priced with that
+        tariff today.
+      </p>
     </Part>
 
     <Part title="Three kinds of work">

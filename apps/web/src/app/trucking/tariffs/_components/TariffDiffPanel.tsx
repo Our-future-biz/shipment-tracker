@@ -3,6 +3,7 @@
 import { Alert, Spin } from "antd";
 import { apiErrorMessage } from "@/lib/api";
 import { useTariffVersionDiff, type TariffSide } from "@/hooks/useTrucking";
+import { affectedText } from "../../_lib/reports";
 import { DIFF_CELL_LIMIT, diffStructureLines, diffTiles, isSameAsAgainst } from "../../_lib/tariffUpload";
 import { validityLabel, versionLabel } from "../../_lib/tariffs";
 import { TariffDiffCellsTable, diffToneClass } from "./TariffDiffCellsTable";
@@ -33,10 +34,7 @@ export const TariffDiffPanel = ({ versionId, currency, side, levelLabel }: Tarif
   }
 
   const lines = diffStructureLines(diff, levelLabel);
-  const affected = [
-    diff.affectedOpenQuotes != null ? `${diff.affectedOpenQuotes} open quotes` : null,
-    diff.affectedOpenConsignments != null ? `${diff.affectedOpenConsignments} open consignments` : null,
-  ].filter(Boolean);
+  const affected = affectedText(diff.affectedOpenQuotes, diff.affectedOpenConsignments);
 
   return (
     <div className="flex flex-col gap-4">
@@ -61,7 +59,21 @@ export const TariffDiffPanel = ({ versionId, currency, side, levelLabel }: Tarif
           ))}
         </ul>
       )}
-      {affected.length > 0 && <p className="m-0 text-[13px] text-slate-600">Affects {affected.join(" and ")}.</p>}
+      {affected && (
+        <div role="status" className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] text-slate-700">
+          {diff.affectedOpenQuotes != null && (
+            <span>
+              Open quotes: <b className="tabular-nums">{diff.affectedOpenQuotes}</b>
+            </span>
+          )}
+          {diff.affectedOpenConsignments != null && (
+            <span>
+              Open consignments: <b className="tabular-nums">{diff.affectedOpenConsignments}</b>
+            </span>
+          )}
+          <span className="text-slate-500">{affected}</span>
+        </div>
+      )}
 
       {diff.cells.length > 0 && (
         <div className="rounded-lg border border-slate-200 bg-white">
