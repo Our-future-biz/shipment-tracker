@@ -4,6 +4,7 @@ import { tariffRepository, type VersionSummaryRecord } from "../repositories/tar
 import type { TruckingTariffRecord, TruckingTariffVersionRecord } from "../schemas/truckingTariff.schema";
 import type {
   TariffDetail,
+  ValidationFinding,
   TariffListItem,
   TariffSide,
   TariffVersionDetail,
@@ -47,6 +48,8 @@ export function toSummary(r: VersionSummaryRecord, day: string): TariffVersionSu
     serviceLevels: r.serviceLevels,
     zoneCount: r.zoneCount,
     warningCount: r.warningCount,
+    errorCount: r.errorCount,
+    sourceFileName: r.sourceFileName,
   };
 }
 
@@ -100,7 +103,7 @@ class TariffService {
     return tariffs.map((t) => listItem(t, versions, names, day));
   }
 
-  private async tariff(companyId: string, id: string): Promise<TruckingTariffRecord> {
+  async tariff(companyId: string, id: string): Promise<TruckingTariffRecord> {
     const t = isUuid(id) ? await tariffRepository.find(companyId, id) : null;
     if (!t) throw APIError.notFound("Tariff not found");
     return t;
@@ -157,14 +160,17 @@ class TariffService {
     return this.get(companyId, id);
   }
 
-  /** The findings of an input, against the version binding today and the company's fuel index. */
-  private async findings(companyId: string, tariffId: string, input: TariffVersionInput, exceptVersionId?: string) {
+  /**
+   * The findings of an input, against the version binding today and the company's fuel index;
+   * the problems met reading its file (if any) come first and count too.
+   */
+  private async findings(companyId: string, tariffId: string, input: TariffVersionInput, parseFindings: ValidationFinding[], exceptVersionId?: string) {
     const [active, months] = await Promise.all([
       tariffRepository.bindingOn(companyId, [tariffId], today()),
       fuelIndexService.list(companyId),
     ]);
     const activeInput = active.find((v) => v.id !== exceptVersionId)?.input ?? null;
-    const findings = validateVersion(input, { fuelMonthCount: months.length, activeInput });
+    const findings = [...parseFindings, ...validateVersion(input, { fuelMonthCount: months.length, activeInput })];
     return {
       findings,
       errorCount: findings.filter((f) => f.severity === "error").length,
@@ -177,9 +183,24 @@ class TariffService {
     requireManager(role, "add a tariff version");
     const t = await this.tariff(companyId, tariffId);
     if (t.mode === "DISCOUNT") throw APIError.invalidArgument("A discount tariff has no prices of its own: it follows the Standard sell list");
-    const input = cleanVersionInput(raw);
-    const checked = await this.findings(companyId, t.id, input);
+    return this.saveDraft(companyId, userId, t, cleanVersionInput(raw), null);
+  }
+
+  /**
+   * Saves a cleaned input as a new DRAFT of the tariff with its findings, and its event. An
+   * imported draft also keeps its file (already stored under `file.key`) and the problems met
+   * reading it.
+   */
+  async saveDraft(
+    companyId: string,
+    userId: string,
+    t: TruckingTariffRecord,
+    input: TariffVersionInput,
+    file: { id: string; name: string; sha256: string; key: string; parseFindings: ValidationFinding[] } | null,
+  ): Promise<TariffVersionDetail> {
+    const checked = await this.findings(companyId, t.id, input, file?.parseFindings ?? []);
     const by = await userName(userId);
+    const changes = { validFrom: { before: null, after: input.validFrom }, validTo: { before: null, after: input.validTo } };
     const row = await tariffRepository.createVersion(
       companyId,
       t.id,
@@ -192,23 +213,31 @@ class TariffService {
         zoneCount: input.zones.length,
         createdByUserId: userId || null,
         createdBy: by || null,
+        ...(file && { id: file.id, parseFindings: file.parseFindings, sourceFileName: file.name, sourceSha256: file.sha256, sourceKey: file.key }),
       },
       {
-        kind: "tariff_version_created",
+        kind: file ? "tariff_version_imported" : "tariff_version_created",
         customerId: t.ownerCustomerId,
         byUserId: userId || null,
         byName: by,
-        payload: { changes: { validFrom: { before: null, after: input.validFrom }, validTo: { before: null, after: input.validTo } } },
+        payload: file
+          ? { changes, file: { name: file.name, sha256: file.sha256, errorCount: checked.errorCount, warningCount: checked.warningCount } }
+          : { changes },
       },
     );
     if (!row) throw APIError.notFound("Tariff not found");
     return toDetail(row, today());
   }
 
-  async getVersion(companyId: string, id: string): Promise<TariffVersionDetail> {
+  /** A live version with everything stored on it (file key, parse problems). */
+  async versionRow(companyId: string, id: string): Promise<TruckingTariffVersionRecord> {
     const row = isUuid(id) ? await tariffRepository.findVersion(companyId, id) : null;
     if (!row) throw APIError.notFound("Tariff version not found");
-    return toDetail(row, today());
+    return row;
+  }
+
+  async getVersion(companyId: string, id: string): Promise<TariffVersionDetail> {
+    return toDetail(await this.versionRow(companyId, id), today());
   }
 
   // Manager only. A draft without errors becomes binding from `validFrom` (today or later) to its
@@ -218,12 +247,13 @@ class TariffService {
     if (typeof validFrom !== "string" || !isRealYmd(validFrom)) throw APIError.invalidArgument("Valid from must be a date like 2026-12-31");
     const day = today();
     if (validFrom < day) throw APIError.invalidArgument(`A version cannot start in the past: valid from must be ${formatDay(day)} or later`);
-    const draft = await this.getVersion(companyId, id);
+    const row = await this.versionRow(companyId, id);
+    const draft = toDetail(row, day);
     if (draft.status !== "DRAFT") throw APIError.aborted("Only a draft can be activated; this version already was");
     const validTo = draft.input.validTo;
     if (validTo !== null && validTo < validFrom) throw APIError.invalidArgument(`Valid from is after the version's valid to (${formatDay(validTo)})`);
     const input = { ...draft.input, validFrom };
-    const checked = await this.findings(companyId, draft.tariffId, input, id);
+    const checked = await this.findings(companyId, draft.tariffId, input, row.parseFindings, id);
     if (checked.errorCount) {
       throw APIError.failedPrecondition(`Fix the ${checked.errorCount} error${checked.errorCount === 1 ? "" : "s"} in this version before activating it`);
     }

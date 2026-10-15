@@ -10,6 +10,7 @@ export type TruckingEventKind =
   | "tariff_created"
   | "tariff_updated"
   | "tariff_version_created"
+  | "tariff_version_imported"
   | "tariff_version_activated"
   | "tariff_version_discarded"
   | "fuel_index_set";
@@ -26,6 +27,8 @@ export interface TruckingEventPayload {
   /** Tariff events: the tariff and (for version events) the version */
   tariffId?: string;
   versionId?: string;
+  /** Imported versions: the uploaded file and what reading it found */
+  file?: { name: string; sha256: string; errorCount: number; warningCount: number };
 }
 
 // What happened in trucking: every settings save, every haulier profile save, block and unblock,

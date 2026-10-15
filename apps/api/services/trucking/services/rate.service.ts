@@ -28,7 +28,7 @@ const HOLIDAY_WINDOW_DAYS = 45;
 
 const unpriced = (reason: string): Unpriced => ({ reason });
 
-const ratingTariff = (t: TruckingTariffRecord, names: Map<string, string>): RatingTariff => ({
+export const ratingTariff = (t: TruckingTariffRecord, names: Map<string, string>): RatingTariff => ({
   id: t.id,
   name: t.name,
   ownerCustomerId: t.ownerCustomerId,
@@ -38,7 +38,7 @@ const ratingTariff = (t: TruckingTariffRecord, names: Map<string, string>): Rati
 });
 
 /** The ČNB rate of EUR for the day, or null when the fx service has none. */
-async function eurRate(day: string): Promise<FxRate> {
+export async function eurRate(day: string): Promise<FxRate> {
   const r = await fx.fxResolve({ currency: "EUR", date: day });
   return r.rate !== null ? { rate: r.rate, date: r.fixingDate ?? r.date } : null;
 }

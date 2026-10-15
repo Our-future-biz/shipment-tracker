@@ -17,7 +17,7 @@ const t = truckingTariffTable;
 const v = truckingTariffVersionTable;
 
 /** A version without its input and findings: what lists show. */
-export type VersionSummaryRecord = Omit<TruckingTariffVersionRecord, "input" | "findings">;
+export type VersionSummaryRecord = Omit<TruckingTariffVersionRecord, "input" | "findings" | "parseFindings">;
 
 const summaryColumns = {
   id: v.id,
@@ -38,16 +38,20 @@ const summaryColumns = {
   activatedAt: v.activatedAt,
   activatedBy: v.activatedBy,
   supersededAt: v.supersededAt,
+  sourceFileName: v.sourceFileName,
+  sourceSha256: v.sourceSha256,
+  sourceKey: v.sourceKey,
 };
 
 /** Versions that bind: activated, not superseded, not discarded. */
 const binding = and(isNull(v.deletedAt), isNotNull(v.activatedAt), isNull(v.supersededAt));
 
-/** What a new version stores. */
+/** What a new version stores; an imported one also its id (chosen before the file is stored), file and parse problems. */
 export type NewVersionValues = Pick<
   TruckingTariffVersionRecord,
   "validFrom" | "validTo" | "input" | "findings" | "serviceLevels" | "zoneCount" | "warningCount" | "errorCount" | "createdByUserId" | "createdBy"
->;
+> &
+  Partial<Pick<TruckingTariffVersionRecord, "id" | "parseFindings" | "sourceFileName" | "sourceSha256" | "sourceKey">>;
 
 export type ActivateResult =
   | { ok: true; version: TruckingTariffVersionRecord }

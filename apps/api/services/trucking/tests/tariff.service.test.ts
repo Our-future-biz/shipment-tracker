@@ -82,6 +82,10 @@ const version = (over: object = {}) => ({
   activatedAt: null,
   activatedBy: null,
   supersededAt: null,
+  parseFindings: [],
+  sourceFileName: null,
+  sourceSha256: null,
+  sourceKey: null,
   ...over,
 });
 
@@ -181,6 +185,16 @@ describe("versions", () => {
     expect(values).toMatchObject({ validFrom: "2026-10-20", validTo: null, activatedBy: "Jana Nováková", errorCount: 0 });
     expect(values.findings[0].message).toBe("1 prices change by more than 15 % against the active version");
     expect(event).toMatchObject({ kind: "tariff_version_activated", payload: { changes: { validFrom: { before: "2026-11-01", after: "2026-10-20" } } } });
+  });
+
+  it("still refuses a draft whose file had problems: the parse findings count at activation", async () => {
+    const parseFindings = [{ severity: "error", message: '"abc" is not a number', where: "Sheet D1, row 5, column F" }];
+    repo.findVersion.mockResolvedValue(version({ parseFindings, sourceFileName: "standard.xlsx" }));
+    await expect(tariffService.activate(C, U, "manager", V, "2026-11-01")).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Fix the 1 error in this version before activating it",
+    });
+    expect(repo.activate).not.toHaveBeenCalled();
   });
 
   it("answers 409 when the activation would overlap another binding version", async () => {

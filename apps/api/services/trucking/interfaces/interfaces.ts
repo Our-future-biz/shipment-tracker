@@ -335,6 +335,9 @@ export interface TariffVersionSummary {
   serviceLevels: ServiceLevelCode[];
   zoneCount: number;
   warningCount: number;
+  errorCount: number;
+  /** The uploaded file the version was imported from; null when it was entered without one */
+  sourceFileName: string | null;
 }
 
 export interface TariffListItem {
@@ -465,4 +468,81 @@ export interface RateResponse {
   request: RateRequest;
   ratedAt: string;
   results: RateLevelResult[];
+}
+
+// ---------------------------------------------------------------------------------------------
+// Phase 2b: the Excel tariff template, the importer, the diff and the test lane.
+
+export interface FileDownload {
+  fileName: string;
+  fileBase64: string;
+  contentType: string;
+}
+
+export interface ImportSheetReport {
+  sheet: string;
+  read: "used" | "ignored" | "missing";
+  rows: number;
+  note: string;
+}
+
+export interface TariffImportResult {
+  /** The new DRAFT; its findings include the problems met reading the file ("Sheet D2, row 7, column F") */
+  version: TariffVersionDetail;
+  sheets: ImportSheetReport[];
+}
+
+export interface DiffCell {
+  serviceLevel: ServiceLevelCode;
+  zoneCode: string;
+  /** "1 001–1 500 kg", "Minimum charge" */
+  bandLabel: string;
+  /** null = absent */
+  before: number | null;
+  after: number | null;
+  /** null when before or after is absent (or before is 0) */
+  changePercent: number | null;
+}
+
+export interface TariffVersionDiff {
+  /** null = nothing to compare with */
+  against: TariffVersionSummary | null;
+  changedCells: number;
+  addedCells: number;
+  removedCells: number;
+  unchangedCells: number;
+  averageChangePercent: number | null;
+  maxIncreasePercent: number | null;
+  maxDecreasePercent: number | null;
+  zonesAdded: string[];
+  zonesRemoved: string[];
+  levelsAdded: ServiceLevelCode[];
+  levelsRemoved: ServiceLevelCode[];
+  /** Plain English, e.g. "Fuel surcharge: 12 % → fuel index" */
+  surchargeChanges: string[];
+  /** Changed, added and removed only; largest change first; at most 500 */
+  cells: DiffCell[];
+  /** null until Phase 3 */
+  affectedOpenQuotes: number | null;
+  /** null until Phase 4 */
+  affectedOpenConsignments: number | null;
+}
+
+export interface TestLaneRequest {
+  fromPostcode: string;
+  toPostcode: string;
+  /** YYYY-MM-DD */
+  pickupDate: string;
+  pieces: number;
+  palletPlaces: number;
+  ldm: number;
+  weightKg: number;
+  cbm: number;
+  extras: RateExtras;
+}
+
+export interface TestLaneLevel {
+  serviceLevel: ServiceLevelCode;
+  label: string;
+  result: PricedSide | Unpriced;
 }
