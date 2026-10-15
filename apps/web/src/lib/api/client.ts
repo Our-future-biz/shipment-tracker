@@ -8100,6 +8100,10 @@ export namespace interfaces {
         startsAt: string | null
 
         endsAt: string | null
+        /**
+         * The Trucking trip that booked the slot ("" when booked by hand).
+         */
+        tripRef: string
     }
 
     export interface GateEvent {
@@ -8413,10 +8417,14 @@ export namespace interfaces {
         locked: boolean
         pinCreatedAt: string
         pinCreatedBy: string
+        /**
+         * A row a Trucking trip filled carries `source` ("From trip LCZ…", read-only).
+         */
         rows: {
             haulier: string
             licensePlate: string
             driver: string
+            source?: GateTripSource | null
         }[]
     }
 
@@ -8710,6 +8718,18 @@ export namespace interfaces {
         phone: string
 
         gateTime: string
+        /**
+         * Set when a Trucking trip filled the leg ("From trip LCZ…"): read-only, cleared only by the trip.
+         */
+        source?: GateTripSource | null
+    }
+
+    /**
+     * What a Trucking trip filled (transport leg, pick-up row, dock slot).
+     */
+    export interface GateTripSource {
+        kind: "trucking"
+        tripRef: string
     }
 
     /**
@@ -11871,6 +11891,11 @@ export namespace interfaces {
         status: string
 
         note: string
+        /**
+         * The Trucking trip that booked the slot ("" when booked by hand).
+         */
+        tripRef: string
+
         createdAt: string
         updatedAt: string
     }

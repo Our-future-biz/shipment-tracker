@@ -131,7 +131,8 @@ export interface GatePickupInfo {
   locked: boolean;
   pinCreatedAt: string;
   pinCreatedBy: string;
-  rows: { haulier: string; licensePlate: string; driver: string }[];
+  /** A row a Trucking trip filled carries `source` ("From trip LCZ…", read-only). */
+  rows: { haulier: string; licensePlate: string; driver: string; source?: GateTripSource | null }[];
 }
 
 /**

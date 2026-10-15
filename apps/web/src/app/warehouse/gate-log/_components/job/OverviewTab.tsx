@@ -15,6 +15,7 @@ import {
 import type { GateMovement } from "@/hooks/useGateLog";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
+import { tripLabel } from "@/lib/tripSource";
 import { TERMS, directionOfHandling } from "@/app/warehouse/_lib/glossary";
 import {
   Badge,
@@ -398,7 +399,33 @@ export function OverviewTab({
               <tbody>
                 {m.transportLegs
                   .filter((l) => l.leg !== "CFS")
-                  .map((l) => (
+                  .map((l) => {
+                    // Filled by a Trucking trip: read-only here, changed only by the trip.
+                    const fromTrip = tripLabel(l);
+                    if (fromTrip) {
+                      const shown = (v: string, cls = "") => <span className={`block py-1 ${v ? "text-slate-900" : "text-slate-300"} ${cls}`}>{v || "—"}</span>;
+                      const stamp = parseStamp(gateTimeOf(l));
+                      return (
+                        <tr key={l.leg} className="border-b border-slate-100 last:border-b-0 bg-sky-50/40">
+                          <td className="px-4 py-1.5">
+                            <span className="inline-flex items-center gap-2 font-bold tracking-wide text-slate-700">
+                              <i className={`w-2 h-2 rounded-sm ${LEG_DOT[l.leg]}`} />
+                              {l.leg}
+                            </span>
+                            <Tooltip title="Planned in Trucking — change it on the trip">
+                              <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700">{fromTrip}</span>
+                            </Tooltip>
+                          </td>
+                          <td className="px-4 py-1.5">{shown(l.company)}</td>
+                          <td className="px-4 py-1.5">{shown(l.plate, "font-mono")}</td>
+                          <td className="px-4 py-1.5">{shown(l.driver)}</td>
+                          <td className="px-4 py-1.5">{shown(l.phone, "!text-slate-500")}</td>
+                          <td className="px-4 py-1.5">{shown(stamp ? stamp.format("YYYY-MM-DD") : "", "!text-slate-500")}</td>
+                          <td className="px-4 py-1.5">{shown(stamp ? stamp.format("HH:mm") : "", "!text-slate-500")}</td>
+                        </tr>
+                      );
+                    }
+                    return (
                     <tr key={l.leg} className="border-b border-slate-100 last:border-b-0">
                       <td className="px-4 py-1.5">
                         <span className="inline-flex items-center gap-2 font-bold tracking-wide text-slate-700">
@@ -446,7 +473,8 @@ export function OverviewTab({
                         />
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
               </tbody>
             </table>
           </Section>
