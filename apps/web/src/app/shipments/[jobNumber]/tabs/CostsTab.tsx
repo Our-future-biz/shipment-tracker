@@ -15,6 +15,8 @@ import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
+import { useConsignments } from "@/hooks/useTruckingConsignments";
+import { isTruckingCost, truckingCostTag } from "@/app/trucking/_lib/truckingCosts";
 
 interface CurrencyPickerProps {
   value: string;
@@ -170,7 +172,18 @@ export function CostsTab({ shipment }: CostsTabProps) {
 
   // Rows, rates and totals come from the shared hook, so the Quote card on the detail page
   // shows exactly the same figures as this tab.
-  const { billingCur, fx, rates, ratesLoading, ratesError, buyRows, sellRows, totals: t } = useCostsData(shipment);
+  const { data, billingCur, fx, rates, ratesLoading, ratesError, buyRows, sellRows, totals: t } = useCostsData(shipment);
+
+  // Rows Trucking writes (a consignment's sell, its trip's buy) are kept by Trucking: read-only
+  // here, tagged with the consignment they come from.
+  const truckingRefs = new Map(
+    [...(data?.costs ?? []), ...(data?.sellingCosts ?? [])].filter((c) => isTruckingCost(c.sourceTruckingRef)).map((c) => [c.id, c.sourceTruckingRef ?? ""]),
+  );
+  const { consignments: jobConsignments } = useConsignments({ shipmentId: shipment.id }, { enabled: truckingRefs.size > 0 });
+  const truckingTagOf = (id: string): string | null => {
+    const ref = truckingRefs.get(id);
+    return ref ? truckingCostTag(ref, jobConsignments) : null;
+  };
 
   // Costs feed the shipment's totals (list rows, the customer's rollups), so those refresh too.
   const invalidate = () => {
@@ -374,7 +387,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
      used. Rows copied before are skipped (linked by sourceBuyId). */
   const copyFromBuying = async () => {
     const already = new Set(sellRows.map((r) => r.sourceBuyId).filter(Boolean));
-    const rows = buyRows.filter((r) => !already.has(r.id) && (r.category || num(r.estAmount)));
+    const rows = buyRows.filter((r) => !already.has(r.id) && !truckingRefs.has(r.id) && (r.category || num(r.estAmount)));
     if (!rows.length) {
       message.info(already.size ? "All buying rows are already copied" : "No buying costs to copy");
       return;
@@ -500,12 +513,14 @@ export function CostsTab({ shipment }: CostsTabProps) {
             </thead>
             <tbody>
               {buyRows.map((r, rowIndex) => {
-                const locked = buyLocked(r);
+                const truckingTag = truckingTagOf(r.id);
+                const locked = !!truckingTag || buyLocked(r);
                 const fld = lockedField(locked);
                 return (
                 <tr
                   key={r.id}
-                  className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
+                  inert={!!truckingTag}
+                  className={`hover:bg-slate-50/60 ${truckingTag ? "bg-indigo-50/40" : locked ? "cursor-pointer" : ""}`}
                   onDoubleClick={() => unlock(r.id)}
                   onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLElement).blur(); lock(r.id); } }}
                 >
@@ -529,6 +544,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                       defaultValue={r.description}
                       onBlur={(e) => e.target.value !== r.description && updateBuy.mutate({ id: r.id, description: e.target.value })}
                     />
+                    {truckingTag && <div className="px-[7px] text-[10.5px] font-semibold text-indigo-600" title="Kept by Trucking — change it there">{truckingTag}</div>}
                   </td>
                   <td className={CELL}>
                     <input
@@ -605,6 +621,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     )}
                   </td>
                   <td className={`${CELL} text-center whitespace-nowrap`}>
+                    {!truckingTag && (<>
                     <Tooltip title="Duplicate row">
                       <button
                         onClick={guarded("Could not duplicate the row", () => duplicateBuy(r, rowIndex))}
@@ -625,6 +642,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                         <DeleteOutlined />
                       </button>
                     </Tooltip>
+                    </>)}
                   </td>
                 </tr>
                 );
@@ -701,12 +719,14 @@ export function CostsTab({ shipment }: CostsTabProps) {
             </thead>
             <tbody>
               {sellRows.map((r, rowIndex) => {
-                const locked = sellLocked(r);
+                const truckingTag = truckingTagOf(r.id);
+                const locked = !!truckingTag || sellLocked(r);
                 const fld = lockedField(locked);
                 return (
                 <tr
                   key={r.id}
-                  className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
+                  inert={!!truckingTag}
+                  className={`hover:bg-slate-50/60 ${truckingTag ? "bg-indigo-50/40" : locked ? "cursor-pointer" : ""}`}
                   onDoubleClick={() => unlock(r.id)}
                   onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLElement).blur(); lock(r.id); } }}
                 >
@@ -730,6 +750,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                       defaultValue={r.description}
                       onBlur={(e) => e.target.value !== r.description && updateSell.mutate({ id: r.id, description: e.target.value })}
                     />
+                    {truckingTag && <div className="px-[7px] text-[10.5px] font-semibold text-indigo-600" title="Kept by Trucking — change it there">{truckingTag}</div>}
                   </td>
                   <td className={CELL}>
                     <input
@@ -774,6 +795,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     />
                   </td>
                   <td className={`${CELL} text-center whitespace-nowrap`}>
+                    {!truckingTag && (<>
                     <Tooltip title="Duplicate row">
                       <button
                         onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex))}
@@ -794,6 +816,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                         <DeleteOutlined />
                       </button>
                     </Tooltip>
+                    </>)}
                   </td>
                 </tr>
                 );

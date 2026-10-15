@@ -36,7 +36,7 @@ interface ShipmentPickerProps {
 // Picks one shipment out of all the company has. The server looks for what is typed - in the job
 // number, the parties and the ports, as on the Shipments page - so an old shipment can be found
 // too; the list itself holds the newest that match and says when there are more.
-function ShipmentPicker({ value, onChange }: ShipmentPickerProps) {
+export function ShipmentPicker({ value, onChange }: ShipmentPickerProps) {
   const [typed, setTyped] = useState("");
   // The request waits until typing pauses.
   const search = useDebounced(typed, 300);

@@ -44,6 +44,10 @@ export const TERMS = {
   draftVersion: "Draft version",
   override: "Override",
   marginApproval: "Margin floor approval",
+  stamp: "Stamp",
+  pickupPin: "Pick-up PIN",
+  recordedOnly: "Recorded only",
+  haulierLink: "Haulier link",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -178,5 +182,28 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     meaning:
       "A manager's approval, with a reason, of a road quote whose margin is below the margin floor. Without it the quote cannot be marked Ready to send or sent. It covers the approved margin or a better one; a worse margin needs a new approval.",
     replaces: "schválení marže, výjimka z minimální marže",
+  },
+  {
+    term: TERMS.stamp,
+    meaning:
+      "A step of a consignment recorded with its time and who did it: Confirmed, Picked up, Delivered, POD received. Each is stamped once, in order, now or up to 7 days back; a manager may void one with a reason, and the history keeps both.",
+    replaces: "potvrzení kroku, odpis",
+  },
+  {
+    term: TERMS.pickupPin,
+    meaning:
+      "The code the driver gives at pick-up, made in Shipments (Warehouse → Pick-up) and shown there only once. To print it on a transport order it is typed into the Print / Send dialog; it is printed and never stored or logged (the history says only \"PIN printed\").",
+    replaces: "PIN pro vyzvednutí, výdejní kód",
+  },
+  {
+    term: TERMS.recordedOnly,
+    meaning: "E-mail sending is off in this app: \"Mark as sent\" records that the transport order went out and downloads its PDF; nothing is e-mailed — the user sends it to the haulier.",
+    replaces: "jen zaznamenáno, odesláno ručně",
+  },
+  {
+    term: TERMS.haulierLink,
+    meaning:
+      "The link printed on a sent transport order. Without signing in, the haulier opens the order (no customer prices, only the agreed price), confirms or rejects it once and uploads the POD. It is valid 30 days after the planned pick-up; sending the order again renews it.",
+    replaces: "odkaz pro dopravce",
   },
 ];

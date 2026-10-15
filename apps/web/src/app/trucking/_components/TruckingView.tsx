@@ -5,12 +5,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Drawer } from "antd";
 import { useHauliers, useTariffs } from "@/hooks/useTrucking";
 import { TRUCKING_TABS, type TruckingTab } from "../_lib/tabs";
+import { TruckingConsignmentsTab } from "./TruckingConsignmentsTab";
 import { TruckingEmptyTab } from "./TruckingEmptyTab";
 import { TruckingHauliersTab } from "./TruckingHauliersTab";
 import { TruckingRateCalculatorTab } from "./TruckingRateCalculatorTab";
 import { TruckingReadme } from "./TruckingReadme";
 import { TruckingTabs } from "./TruckingTabs";
 import { TruckingTariffsTab } from "./TruckingTariffsTab";
+import { TruckingTripsTab } from "./TruckingTripsTab";
 
 const FIRST_TAB: TruckingTab = TRUCKING_TABS[0].key;
 
@@ -51,6 +53,8 @@ export const TruckingView = () => {
             onHelp={() => setHelpOpen(true)}
           />
         </div>
+        {activeTab.key === "consignments" && <TruckingConsignmentsTab />}
+        {activeTab.key === "trips" && <TruckingTripsTab />}
         {activeTab.key === "hauliers" && <TruckingHauliersTab />}
         {activeTab.key === "tariffs" && <TruckingTariffsTab />}
         {activeTab.key === "calculator" && <TruckingRateCalculatorTab />}

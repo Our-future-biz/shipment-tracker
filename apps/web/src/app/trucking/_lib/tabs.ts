@@ -22,11 +22,12 @@ export const TRUCKING_TABS = [
     label: "Consignments",
     purpose: `Every ${TERMS.consignment.toLowerCase()} we carry, from order to ${TERMS.pod}.`,
     holds: [
-      `${TERMS.ltl} and ${TERMS.ftl} consignments with pick-up and delivery address, ${TERMS.zone.toLowerCase()} and ${TERMS.serviceLevel.toLowerCase()}`,
-      `Pieces, weight, ${TERMS.palletPlaces.toLowerCase()}, ${TERMS.ldm} and ${TERMS.chargeableWeight.toLowerCase()}`,
-      `Status from pick-up to delivery, with ${TERMS.avizace}, ${TERMS.cmr} and ${TERMS.pod}`,
+      `${TERMS.ftl} consignments with pick-up and delivery address, ${TERMS.serviceLevel.toLowerCase()} and promised date (${TERMS.ltl} with Phase 5)`,
+      `Pieces, weight, ${TERMS.palletPlaces.toLowerCase()}, ${TERMS.ldm} and ${TERMS.chargeableWeight.toLowerCase()}, sell, buy and margin`,
+      `Status from booking to ${TERMS.pod}, with the ${TERMS.transportOrder.toLowerCase()}, ${TERMS.cmr} and ${TERMS.pod}`,
     ],
     phase: 4,
+    live: true,
   },
   {
     key: "planning",
@@ -49,6 +50,7 @@ export const TRUCKING_TABS = [
       `${TERMS.waitingTime} and extra costs, buy cost against what the trip earns`,
     ],
     phase: 4,
+    live: true,
   },
   {
     key: "hauliers",

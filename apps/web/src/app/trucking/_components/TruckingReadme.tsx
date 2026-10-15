@@ -43,6 +43,60 @@ export const TruckingReadme = () => (
       </p>
     </Part>
 
+    <Part title="A direct delivery (FTL), end to end">
+      <ol className="mt-0 mb-2.5 list-decimal pl-5 [&_li]:mb-1.5">
+        <li>
+          <b>Book the {TERMS.consignment.toLowerCase()}</b> — Consignments → <b>Create new</b>, from one of three sources: <b>From job no.</b> (the job&apos;s
+          customer and addresses), <b>From quote</b> (its road transport, customer and price; a won quote&apos;s job is used, else one is made) or{" "}
+          <b>New domestic order</b> (a Road job is created in Shipments for it). Every consignment belongs to a job. Pick-up and delivery are the
+          customer&apos;s sites or typed addresses; the price comes from the tariff, the quote or is agreed (with a reason). The sell price is stored with the
+          consignment, never priced again silently, and written to the job&apos;s selling costs. Its ref is <b>TCZ</b> + year + six digits.
+        </li>
+        <li>
+          <b>Margin</b> — sell minus buy. Below the {TERMS.marginFloor.toLowerCase()} the consignment can be saved, but the{" "}
+          {TERMS.transportOrder.toLowerCase()} waits for a manager&apos;s <b>{TERMS.marginApproval.toLowerCase()}</b> (Money card → Approve margin…).
+        </li>
+        <li>
+          <b>Plan trip</b> — the hauliers with a {TERMS.buyTariff.toLowerCase()} for the lane are offered, preferred lane (★) first, then cheapest; blocked
+          ones are listed apart with why. The first is suggested; choosing another, or another haulier at an agreed price, is logged. One FTL consignment
+          gets one {TERMS.trip.toLowerCase()} (ref <b>LCZ</b> + year + six digits); its buy price goes to the job&apos;s buying costs, and the planned pick-up,
+          promised delivery and tractor plate are written to the job.
+        </li>
+        <li>
+          <b>{TERMS.transportOrder}</b> — <b>Print…</b> downloads the PDF; <b>Send…</b> records the order as sent and downloads the PDF. E-mail is off in this
+          app, so it says <b>Mark as sent ({TERMS.recordedOnly.toLowerCase()})</b>: nothing is e-mailed, you send the PDF to the haulier. Refused while the
+          margin waits for approval or the haulier is blocked.
+        </li>
+        <li>
+          <b>The {TERMS.pickupPin} rule</b> — the PIN is made in Shipments and shown there only once (Shipments keeps only a hash). To have it on the order,
+          type it into the Print / Send dialog: it is printed on the PDF and <b>never stored or logged</b> — the history says only &quot;PIN printed&quot;.
+          Leave it empty to print none.
+        </li>
+        <li>
+          <b>The {TERMS.haulierLink.toLowerCase()}</b> — a sent order carries a link (valid 30 days after the planned pick-up; sending again renews it).
+          The haulier opens it on a phone without signing in, sees the order in Czech and English with only the agreed price, <b>confirms or rejects</b> it
+          once and later <b>uploads the {TERMS.pod}</b> (photo or PDF, receiver&apos;s name, delivery time). A confirmation by phone or e-mail is entered with{" "}
+          <b>Record confirmation…</b>.
+        </li>
+        <li>
+          <b>{TERMS.stamp}s</b> — Picked up, Delivered and POD received are stamped in order, now or up to 7 days back, each once (a second try says
+          &quot;Already stamped&quot;). Delivered writes the job&apos;s actual delivery date. A manager may void a stamp with a reason; the history keeps both.
+        </li>
+        <li>
+          <b>{TERMS.pod} → Billing</b> — the haulier&apos;s upload stamps Delivered and POD received by itself. A POD uploaded on the Documents tab offers to
+          stamp POD received; a manager may stamp it without a document. When every consignment of the job (cancelled ones aside) has its POD and nothing is
+          open, the job&apos;s Shipment Status becomes <b>Billing</b> and the consignments <b>Ready to bill</b>: the job is invoiced as one, with the POD date as
+          the date of the taxable supply.
+        </li>
+      </ol>
+      <p>
+        A manager can <b>cancel</b> a consignment (with a reason) until it is picked up — its Trucking cost lines leave the job — or cancel a trip, which
+        sends its consignment back to Booked. The Consignments tab tiles count open FTL consignments without a haulier and today&apos;s pick-ups and
+        deliveries; its chips show what needs attention, POD missing and ready to bill. The Trips tab lists every trip with its haulier, vehicle and
+        order.
+      </p>
+    </Part>
+
     <Part title="Hauliers">
       <p>
         A haulier is a company in the Customer Database with the <b>Haulier</b> role; the Hauliers tab lists every one of them. Its page in Trucking holds what we
@@ -213,15 +267,18 @@ export const TruckingReadme = () => (
           discount or its own list, and for a haulier lists its {TERMS.buyTariff.toLowerCase()}s.
         </li>
         <li>
-          <b>Shipments</b>: every consignment belongs to a shipment job; an order for a domestic-only customer gets its job created automatically. What Trucking learns (picked up, delivered) is written back to the shipment through an outbox,
-          as the user who recorded it, and retried when Shipments is briefly unavailable — the same way the Warehouse gate writes back today.
+          <b>Shipments</b>: every consignment belongs to a shipment job; an order for a domestic-only customer gets its job created automatically. What Trucking
+          learns is written back to the job through an outbox (retried when Shipments is briefly unavailable): the planned pick-up, promised delivery and
+          tractor plate when the trip is planned, the actual delivery date, and the step to <b>Billing</b> once every POD is in. The job&apos;s{" "}
+          <b>Trucking</b> tab shows its consignments (kept by Trucking — view only) and <b>Order trucking</b> books a new one on the job.
         </li>
         <li>
           <b>Sales</b>: the <b>Rate calculator</b> and the <b>{TERMS.sellTariff.toLowerCase()}s</b> price trucking in quotes (Price from tariff, Copy to
           quote), with the {TERMS.marginApproval.toLowerCase()} below the floor.
         </li>
         <li>
-          <b>Invoicing</b>: customers are invoiced at the {TERMS.sellTariff.toLowerCase()}; haulier invoices are checked against the{" "}
+          <b>Invoicing</b>: a consignment&apos;s sell price and its trip&apos;s buy price are lines of the job&apos;s Costs Breakdown, tagged{" "}
+          <b>From Trucking · TCZ…</b> and read-only there (they change in Trucking). Customers are invoiced at the {TERMS.sellTariff.toLowerCase()}; haulier invoices are checked against the{" "}
           {TERMS.buyTariff.toLowerCase()} and the {TERMS.transportOrder.toLowerCase()}; each month the <b>{TERMS.internalCharge.toLowerCase()}</b> bills Operations
           for the transport run for their shipments.
         </li>
