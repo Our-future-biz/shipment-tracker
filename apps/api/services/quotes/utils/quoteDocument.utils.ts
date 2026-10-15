@@ -6,7 +6,8 @@
  * Keys only the server writes: the reference, the lifecycle (status, dates, validity, owner,
  * history), what the lifecycle keeps aside, and the rates a sent quote is priced with (`fx`, the
  * ČNB rates stamped on sending; `rates`, what older quotes stored from the retired weekly
- * sheet). A save of the document never changes them.
+ * sheet), and what a pricing from the trucking tariffs recorded and a manager's approval of its
+ * margin (`roadPricing`, `marginApproval`). A save of the document never changes them.
  */
 export const PROTECTED_KEYS = [
   "reference",
@@ -25,6 +26,8 @@ export const PROTECTED_KEYS = [
   "timelineUnreadable",
   "fx",
   "rates",
+  "roadPricing",
+  "marginApproval",
 ] as const;
 
 export function isPlainObject(value: unknown): value is Record<string, unknown> {

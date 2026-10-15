@@ -25,6 +25,14 @@ export function canEditSalesSettings(role: string): boolean {
 }
 
 /**
+ * Whether the user may approve the margin of a road quote that is below the Trucking margin
+ * floor. Below the floor a quote is not sent until a manager has approved what it earns.
+ */
+export function canApproveMargin(role: string): boolean {
+  return canManageSales(role);
+}
+
+/**
  * How far a user may change the owner of a quote:
  * `any` - a manager: to anybody, or to nobody;
  * `own` - a plain user on their own quote: may hand it to anybody, or give it up;

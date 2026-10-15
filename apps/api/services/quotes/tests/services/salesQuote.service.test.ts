@@ -8,8 +8,9 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn() },
-  fx: { fxRatesOn: vi.fn() },
+  fx: { fxRatesOn: vi.fn(), fxResolve: vi.fn() },
   shipments: { _internalShipmentsNamingQuote: vi.fn() },
+  trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
 }));
 vi.mock("../../repositories/quoteAttachment.repository", () => ({ quoteAttachmentRepository: { deleteForQuote: vi.fn() } }));
 vi.mock("../../repositories/salesQuote.repository", () => ({
@@ -31,20 +32,25 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
 }));
 
 import log from "encore.dev/log";
-import { auth, fx, shipments } from "~encore/clients";
+import { auth, fx, shipments, trucking } from "~encore/clients";
 import type { Actor } from "../../../../lib/rbac";
 import { quoteAttachmentRepository } from "../../repositories/quoteAttachment.repository";
 import { salesQuoteRepository, type LifecycleWrite, type QuoteTransaction } from "../../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../../schemas/quote.schema";
+import type { PricedSide, RateLevelResult } from "../../../trucking/interfaces/interfaces";
+import type { QuoteRoadInput } from "../../interfaces/interfaces";
 import { salesQuoteService, type SalesQuoteListRequest } from "../../services/salesQuote.service";
 import { PROTECTED_KEYS } from "../../utils/quoteDocument.utils";
-import { columnsOf } from "../../utils/quoteLifecycle.utils";
+import { columnsOf, stateOf } from "../../utils/quoteLifecycle.utils";
 
 const repository = vi.mocked(salesQuoteRepository);
 const attachments = vi.mocked(quoteAttachmentRepository);
 const usersList = vi.mocked(auth.usersList);
 const fxRatesOn = vi.mocked(fx.fxRatesOn);
 const namingShipments = vi.mocked(shipments._internalShipmentsNamingQuote);
+const fxResolve = vi.mocked(fx.fxResolve);
+const truckingRate = vi.mocked(trucking.truckingRate);
+const marginFloor = vi.mocked(trucking._internalTruckingMarginFloor);
 
 // 10 October 2026, noon in Prague.
 const NOW = new Date("2026-10-10T10:00:00.000Z");
@@ -1091,7 +1097,7 @@ describe("delete", () => {
 
     // No fact of the Draft says it went out any more; the line by which it left Quoted does.
     expect(reopened).toMatchObject({ status: "draft", firstSentAt: null, sentAt: null, ownerUserId: U_MARTIN });
-    expect(reopened.permissions).toEqual({ canChangeOwner: "own", canDelete: false, deleteBlockedReason: managersOnly.message });
+    expect(reopened.permissions).toEqual({ canChangeOwner: "own", canDelete: false, deleteBlockedReason: managersOnly.message, canApproveMargin: false });
     repository.writeLifecycle.mockClear();
     await expect(salesQuoteService.delete(martin, REF)).rejects.toMatchObject(managersOnly);
     nothingDeleted();
@@ -1176,5 +1182,389 @@ describe("delete", () => {
     stored = null;
     await expect(salesQuoteService.delete(manager, REF)).rejects.toMatchObject({ code: "not_found", message: "Quote not found" });
     nothingDeleted();
+  });
+});
+
+// ---- road transport: pricing from the trucking tariffs, margin floor and approval ----------------
+
+const HAULIER_A = "5a1e0c1f-7d1b-4c51-8d7e-0a0000000001";
+const HAULIER_B = "5a1e0c1f-7d1b-4c51-8d7e-0a0000000002";
+const HAULIER_X = "5a1e0c1f-7d1b-4c51-8d7e-0a0000000003";
+const CUSTOMER = "946e01e8-a4ed-4aa7-932b-2c5d5e991c30";
+
+const ROAD: QuoteRoadInput = {
+  fromSiteId: null,
+  fromPostcode: "110 00",
+  toSiteId: null,
+  toPostcode: "602 00",
+  pickupDate: null,
+  pickupTime: null,
+  scope: "LTL",
+  pieces: 3,
+  palletPlaces: 3,
+  ldm: 1.2,
+  weightKg: 900,
+  cbm: 3,
+  extras: { adr: false, tailLift: false, avizace: false, timeWindow: false, b2c: false, nonStackable: false, waitingHours: 0, declaredValueCzk: null },
+};
+
+const side = (over: Partial<PricedSide> = {}): PricedSide => ({
+  tariffId: "tariff-standard",
+  tariffName: "Standard",
+  tariffVersionId: "version-standard-3",
+  versionNo: 3,
+  ownerCustomerId: null,
+  ownerName: null,
+  currency: "CZK",
+  zoneCode: "3",
+  zoneLabel: "Zone 3",
+  bandLabel: "1 001 – 1 500 kg",
+  chargeable: { basis: "KG", quantity: 1250, explanation: "1 250 kg" },
+  lines: [
+    { code: "FREIGHT", label: "Freight 1 001 – 1 500 kg, zone 3", qty: 1, unit: "shipment", unitPrice: 4000, amount: 4000 },
+    { code: "FUEL", label: "Fuel surcharge 6.25 %", qty: 4000, unit: "base", unitPrice: 0.0625, amount: 250 },
+  ],
+  total: 4250,
+  totalCzk: 4250,
+  fx: null,
+  preferred: false,
+  ...over,
+});
+
+const haulierSide = (customerId: string, name: string, amount: number, preferred: boolean): PricedSide =>
+  side({
+    tariffId: `tariff-${name}`,
+    tariffName: `${name} buy`,
+    tariffVersionId: `version-${name}`,
+    versionNo: 1,
+    ownerCustomerId: customerId,
+    ownerName: name,
+    lines: [{ code: "FREIGHT", label: "Freight zone 3", qty: 1, unit: "shipment", unitPrice: amount, amount }],
+    total: amount,
+    totalCzk: amount,
+    preferred,
+  });
+
+const levelResult = (over: Partial<RateLevelResult> = {}): RateLevelResult => ({
+  serviceLevel: "D1",
+  label: "+1 day",
+  promisedDate: "2026-10-12",
+  promisedTime: null,
+  promiseNote: "Assumes gate-in on the pick-up day",
+  sell: side(),
+  // As the engine sorts them: preferred first, then cheapest.
+  buy: [haulierSide(HAULIER_A, "Alfa Trans", 3500, true), haulierSide(HAULIER_B, "Beta Cargo", 3200, false)],
+  excluded: [{ customerId: HAULIER_X, name: "Xeno Logistik", issues: [{ code: "blocked", severity: "block", message: "Blocked by Trucking" }] }],
+  internal: null,
+  marginCzk: 750,
+  marginPercent: 17.65,
+  belowFloor: false,
+  ...over,
+});
+
+const manual = (amount: number, over: Record<string, unknown> = {}) => ({ type: "Customs clearance", description: "Export", currency: "CZK", amount, ...over });
+const oldTrucking = (amount: number) => ({ type: "Road freight", description: "old", currency: "CZK", amount, tariffRef: "trucking:version-old:D2" });
+
+/** A Road quote of Martin's with these lines. */
+const roadQuote = (selling: unknown[], buying: unknown[], over: Record<string, unknown> = {}, row: Partial<SalesQuoteRecord> = {}) =>
+  quote({
+    customerId: CUSTOMER,
+    data: { reference: REF, quoteStatus: "draft", salesOwner: "Martin Koubek", timeline: [], serviceType: "Road", sellingLines: selling, buyingLines: buying, ...over },
+    ...row,
+  });
+
+const APPROVAL = { byUserId: U_MANAGER, byName: "Marie Manager", at: SENT.toISOString(), reason: "Key account", marginCzk: 400, marginPercent: 4 };
+
+describe("road transport", () => {
+  beforeEach(() => {
+    marginFloor.mockResolvedValue({ percent: 8, minAmountCzk: 300 });
+    fxResolve.mockResolvedValue({ currency: "EUR", date: "2026-10-10", rate: 25, fixingDate: "2026-10-09", carried: false, provisional: false, missing: false, roePct: 100, reason: "" });
+    truckingRate.mockResolvedValue({ request: {} as never, ratedAt: NOW.toISOString(), results: [levelResult()] });
+    // The row after a write, document keys and all, as the statement leaves it.
+    repository.writeLifecycle.mockImplementation(async (_tx, row, write) => {
+      const data = { ...(row.data as Record<string, unknown>), ...write.document };
+      for (const key of write.drop ?? []) delete data[key];
+      return { ...row, ...columnsOf(write.state), data, dataVersion: row.dataVersion + (write.document ? 1 : 0) };
+    });
+  });
+
+  const price = (over: Partial<Parameters<typeof salesQuoteService.roadPrice>[2]> = {}, actor = martin) =>
+    salesQuoteService.roadPrice(actor, REF, { road: ROAD, serviceLevel: "D1", haulierCustomerId: null, expectedDataVersion: 3, ...over });
+
+  describe("roadPrice", () => {
+    it("rates the one level for the quote's customer with buy prices, picking up today when no date is given", async () => {
+      stored = roadQuote([], []);
+      await price();
+      expect(truckingRate).toHaveBeenCalledWith({
+        fromPostcode: "110 00",
+        toPostcode: "602 00",
+        pickupDate: "2026-10-10",
+        pickupTime: null,
+        scope: "LTL",
+        pieces: 3,
+        palletPlaces: 3,
+        ldm: 1.2,
+        weightKg: 900,
+        cbm: 3,
+        extras: ROAD.extras,
+        customerId: CUSTOMER,
+        serviceLevels: ["D1"],
+        includeBuy: true,
+        includeInternal: false,
+      });
+      await price({ road: { ...ROAD, pickupDate: "2026-10-20", pickupTime: "14:00" } });
+      expect(truckingRate).toHaveBeenLastCalledWith(expect.objectContaining({ pickupDate: "2026-10-20", pickupTime: "14:00" }));
+    });
+
+    it("replaces only the trucking lines, where the first of them stood, and keeps every manual line", async () => {
+      stored = roadQuote([manual(500), oldTrucking(3000), oldTrucking(100)], [oldTrucking(2000), manual(400, { supplier: "Celní" })]);
+      const { quote: item, result } = await price();
+      expect(result).toEqual(levelResult());
+      const { document, state } = written();
+      const tariffRef = "trucking:version-standard-3:D1";
+      expect(document!.sellingLines).toEqual([
+        manual(500),
+        { type: "Road freight", chargeCode: "road_freight", description: "Freight 1 001 – 1 500 kg, zone 3", currency: "CZK", amount: 4000, qty: 1, unit: "shipment", unitPrice: 4000, tariffRef },
+        { type: "Road freight", chargeCode: "road_freight", description: "Fuel surcharge 6.25 %", currency: "CZK", amount: 250, qty: 4000, unit: "base", unitPrice: 0.0625, tariffRef },
+      ]);
+      expect(document!.buyingLines).toEqual([
+        {
+          type: "Road freight",
+          chargeCode: "road_freight",
+          description: "Freight zone 3",
+          supplier: "Alfa Trans",
+          supplierCustomerId: HAULIER_A,
+          currency: "CZK",
+          amount: 3500,
+          qty: 1,
+          unit: "shipment",
+          unitPrice: 3500,
+          tariffRef: "trucking:version-Alfa Trans:D1",
+        },
+        manual(400, { supplier: "Celní" }),
+      ]);
+      expect(document!.road).toEqual(ROAD);
+      // The status and the rest of the lifecycle stay as they are.
+      expect(state).toEqual(stateOf(stored!));
+      expect(item).toMatchObject({ dataVersion: 4, roadMargin: { sellingCzk: 4750, buyingCzk: 3900, marginCzk: 850 } });
+    });
+
+    it("records the pricing and a history line, and puts the new lines first when there were none", async () => {
+      stored = roadQuote([manual(500)], []);
+      await price();
+      const { document, entries } = written();
+      expect(document!.roadPricing).toEqual({
+        ratedAt: NOW.toISOString(),
+        serviceLevel: "D1",
+        serviceLabel: "+1 day",
+        promisedDate: "2026-10-12",
+        promisedTime: null,
+        promiseNote: "Assumes gate-in on the pick-up day",
+        sell: { tariffId: "tariff-standard", tariffName: "Standard", tariffVersionId: "version-standard-3", versionNo: 3, currency: "CZK", total: 4250, totalCzk: 4250 },
+        buy: {
+          haulierCustomerId: HAULIER_A,
+          haulierName: "Alfa Trans",
+          tariffVersionId: "version-Alfa Trans",
+          versionNo: 1,
+          currency: "CZK",
+          total: 3500,
+          totalCzk: 3500,
+          preferred: true,
+        },
+      });
+      expect((document!.sellingLines as unknown[]).at(-1)).toEqual(manual(500));
+      expect(entries).toEqual([
+        { kind: "road_price", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN, comment: "Priced from tariff: Standard v3, +1 day, 4 250 CZK" },
+      ]);
+    });
+
+    it("buys from the haulier named, when it is a candidate", async () => {
+      stored = roadQuote([], []);
+      await price({ haulierCustomerId: HAULIER_B });
+      const { document } = written();
+      expect(document!.buyingLines).toEqual([expect.objectContaining({ supplier: "Beta Cargo", supplierCustomerId: HAULIER_B, amount: 3200 })]);
+      expect(document!.roadPricing).toMatchObject({ buy: { haulierCustomerId: HAULIER_B, preferred: false } });
+    });
+
+    it("refuses an excluded haulier with its issues, and one that is no candidate, writing nothing", async () => {
+      stored = roadQuote([], []);
+      await expect(price({ haulierCustomerId: HAULIER_X })).rejects.toMatchObject({
+        code: "invalid_argument",
+        message: "Xeno Logistik cannot be used: Blocked by Trucking",
+      });
+      await expect(price({ haulierCustomerId: "5a1e0c1f-7d1b-4c51-8d7e-0a00000000ff" })).rejects.toMatchObject({ code: "invalid_argument" });
+      expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    });
+
+    it("writes no buying lines when no haulier has a price: the old trucking ones go, the manual ones stay", async () => {
+      truckingRate.mockResolvedValue({ request: {} as never, ratedAt: NOW.toISOString(), results: [levelResult({ buy: [], excluded: [] })] });
+      stored = roadQuote([], [oldTrucking(2000), manual(400)]);
+      await price();
+      const { document } = written();
+      expect(document!.buyingLines).toEqual([manual(400)]);
+      expect(document!.roadPricing).toMatchObject({ buy: null });
+    });
+
+    it("refuses a sell price the tariffs cannot give, in the engine's words", async () => {
+      truckingRate.mockResolvedValue({
+        request: {} as never,
+        ratedAt: NOW.toISOString(),
+        results: [levelResult({ sell: { reason: "No zone for postcode 790 01 in Standard sell list" } })],
+      });
+      stored = roadQuote([], []);
+      await expect(price()).rejects.toMatchObject({ code: "invalid_argument", message: "No zone for postcode 790 01 in Standard sell list" });
+      expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    });
+
+    it("refuses a level Trucking does not have", async () => {
+      truckingRate.mockResolvedValue({ request: {} as never, ratedAt: NOW.toISOString(), results: [] });
+      stored = roadQuote([], []);
+      await expect(price({ serviceLevel: "EXP_FIXED" })).rejects.toMatchObject({ code: "invalid_argument" });
+    });
+
+    it("is a conflict when the document is no longer the version the caller saw - also when it changed while the price was worked out", async () => {
+      stored = roadQuote([], []);
+      await expect(price({ expectedDataVersion: 2 })).rejects.toMatchObject({ code: "aborted" });
+      expect(truckingRate).not.toHaveBeenCalled();
+      repository.loadSales.mockResolvedValueOnce(stored);
+      stored = roadQuote([], [], {}, { dataVersion: 4 });
+      await expect(price()).rejects.toMatchObject({ code: "aborted" });
+      expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    });
+
+    it("refuses a won or lost quote before anything is rated", async () => {
+      for (const status of ["won", "lost"]) {
+        stored = roadQuote([], [], {}, { status, decidedAt: SENT });
+        await expect(price()).rejects.toMatchObject({ code: "failed_precondition", message: "A won or lost quote cannot be priced again" });
+      }
+      expect(truckingRate).not.toHaveBeenCalled();
+    });
+
+    it("is not found for a quote that is no sales quote", async () => {
+      stored = null;
+      await expect(price()).rejects.toMatchObject({ code: "not_found" });
+    });
+
+    it("drops a margin approval given before: it approved another price", async () => {
+      stored = roadQuote([], [], { marginApproval: APPROVAL });
+      const { quote: item } = await price();
+      expect(written().drop).toEqual(["marginApproval"]);
+      expect(item.data).not.toHaveProperty("marginApproval");
+      expect(item.roadMargin).toMatchObject({ approval: null });
+    });
+  });
+
+  describe("roadMargin on a read", () => {
+    it("is handed out for a Road quote, and nothing is asked for any other", async () => {
+      stored = roadQuote([manual(10000)], [manual(9600)]);
+      expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({
+        marginCzk: 400,
+        marginPercent: 4,
+        belowFloor: true,
+        needsApproval: true,
+        problem: null,
+      });
+      expect(marginFloor).toHaveBeenCalledTimes(1);
+      marginFloor.mockClear();
+      stored = quote();
+      expect((await salesQuoteService.get(martin, REF)).roadMargin).toBeNull();
+      expect(marginFloor).not.toHaveBeenCalled();
+    });
+
+    it("asks today's ČNB rate for a currency the quote stored none for, and names a rate that is missing", async () => {
+      stored = roadQuote([manual(400, { currency: "EUR" })], [manual(9000)]);
+      expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({ sellingCzk: 10000, marginCzk: 1000 });
+      expect(fxResolve).toHaveBeenCalledWith({ currency: "EUR", date: "2026-10-10" });
+      fxResolve.mockRejectedValue(new Error("fx is unreachable"));
+      expect((await salesQuoteService.get(martin, REF)).roadMargin).toMatchObject({ marginCzk: null, problem: "No ČNB rate for EUR on 2026-10-10" });
+    });
+
+    it("tells whether the user may approve a margin", async () => {
+      expect((await salesQuoteService.get(manager, REF)).permissions.canApproveMargin).toBe(true);
+      expect((await salesQuoteService.get(martin, REF)).permissions.canApproveMargin).toBe(false);
+    });
+  });
+
+  describe("approveMargin", () => {
+    it("lets only a manager approve", async () => {
+      stored = roadQuote([manual(10000)], [manual(9600)]);
+      await expect(salesQuoteService.approveMargin(martin, REF, "Key account", 3)).rejects.toMatchObject({ code: "permission_denied" });
+      expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    });
+
+    it("stores the margin as it is now with who approved it and why, and a history line", async () => {
+      stored = roadQuote([manual(10000)], [manual(9600)]);
+      const item = await salesQuoteService.approveMargin(manager, REF, "  Key account  ", 3);
+      const { document, entries, state } = written();
+      expect(document).toEqual({
+        marginApproval: { byUserId: U_MANAGER, byName: "Marie Manager", at: NOW.toISOString(), reason: "Key account", marginCzk: 400, marginPercent: 4 },
+      });
+      expect(state).toEqual(stateOf(stored!));
+      expect(entries).toEqual([
+        { kind: "margin_approval", at: NOW.toISOString(), user: "Marie Manager", userId: U_MANAGER, comment: "Margin approved: 400 CZK (4 %) - Key account" },
+      ]);
+      expect(item.roadMargin).toMatchObject({ belowFloor: true, approvalValid: true, needsApproval: false });
+    });
+
+    it("refuses a margin above the floor, a quote without a road margin, and one that cannot be worked out", async () => {
+      stored = roadQuote([manual(10000)], [manual(5000)]);
+      await expect(salesQuoteService.approveMargin(manager, REF, "Key account", 3)).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: "The margin is above the floor; nothing to approve",
+      });
+      stored = quote();
+      await expect(salesQuoteService.approveMargin(manager, REF, "Key account", 3)).rejects.toMatchObject({ code: "failed_precondition" });
+      fxResolve.mockResolvedValue({ currency: "EUR", date: "2026-10-10", rate: null, fixingDate: null, carried: false, provisional: false, missing: true, roePct: 100, reason: "" });
+      stored = roadQuote([manual(400, { currency: "EUR" })], [manual(9000)]);
+      await expect(salesQuoteService.approveMargin(manager, REF, "Key account", 3)).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: "The margin cannot be worked out: No ČNB rate for EUR on 2026-10-10",
+      });
+      expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    });
+
+    it("is a conflict when the document is no longer the version the manager saw, and refuses a reason too short", async () => {
+      stored = roadQuote([manual(10000)], [manual(9600)]);
+      await expect(salesQuoteService.approveMargin(manager, REF, "Key account", 2)).rejects.toMatchObject({ code: "aborted" });
+      await expect(salesQuoteService.approveMargin(manager, REF, " ok ", 3)).rejects.toMatchObject({ code: "invalid_argument" });
+      expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("the margin gate", () => {
+    const BLOCKED = "The margin of 400 CZK (4 %) is below the floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.";
+
+    it("refuses Ready to send and Quoted while the margin needs approval, writing nothing", async () => {
+      stored = roadQuote([manual(10000)], [manual(9600)]);
+      for (const to of ["ready_to_send", "quoted"]) {
+        await expect(salesQuoteService.transition(martin, REF, { to })).rejects.toMatchObject({ code: "failed_precondition", message: BLOCKED });
+      }
+      expect(repository.writeLifecycle).not.toHaveBeenCalled();
+    });
+
+    it("lets the quote go while an approval covers the margin", async () => {
+      stored = roadQuote([manual(10000)], [manual(9600)], { marginApproval: APPROVAL });
+      await expect(salesQuoteService.transition(martin, REF, { to: "ready_to_send" })).resolves.toMatchObject({ changed: true });
+    });
+
+    it("blocks again when the margin got worse after it was approved", async () => {
+      stored = roadQuote([manual(10000)], [manual(9700)], { marginApproval: APPROVAL });
+      await expect(salesQuoteService.transition(martin, REF, { to: "quoted" })).rejects.toMatchObject({
+        code: "failed_precondition",
+        message: "The margin of 300 CZK (3 %) is below the floor of 8 % / 300 CZK. A manager must approve it before the quote is sent.",
+      });
+    });
+
+    it("lets a margin above the floor go without any approval", async () => {
+      stored = roadQuote([manual(10000)], [manual(5000)]);
+      await expect(salesQuoteService.transition(martin, REF, { to: "quoted" })).resolves.toMatchObject({ changed: true });
+    });
+
+    it("never blocks another change of status, nor a save", async () => {
+      stored = roadQuote([manual(10000)], [manual(9600)]);
+      await expect(salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Pricing: Price too high" })).resolves.toMatchObject({ changed: true });
+      repository.saveDocument.mockResolvedValue(stored);
+      await expect(salesQuoteService.save(martin, REF, { serviceType: "Road" }, 3)).resolves.toMatchObject({ roadMargin: { needsApproval: true } });
+    });
   });
 });

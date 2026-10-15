@@ -1,5 +1,6 @@
 import { businessDay } from "../../../lib/businessDate";
-import { ownerChangeRight, quoteDeletePermission } from "../../../lib/salesPolicy";
+import { canApproveMargin, ownerChangeRight, quoteDeletePermission } from "../../../lib/salesPolicy";
+import { roadMargin, type MarginContext } from "../lib/roadMargin";
 import type { SalesQuoteItem } from "../interfaces/interfaces";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { isPlainObject } from "./quoteDocument.utils";
@@ -10,14 +11,16 @@ const iso = (at: Date | null) => at?.toISOString() ?? null;
 /**
  * THE ONE MAPPER from a stored sales quote to what the API hands out. Everything that depends on
  * the moment or on who asks is worked out here, from the rules: whether the quote counts as
- * expired, what it may be set to, whether a follow-up is due, and what this user may do with it.
- * `userNames` are the display names of the company's users by id.
+ * expired, what it may be set to, whether a follow-up is due, its road margin, and what this user
+ * may do with it. `userNames` are the display names of the company's users by id; `margins` is
+ * what a road margin is judged with - left out when the rule applies to none of the quotes read.
  */
 export function toItem(
   row: SalesQuoteRecord,
   userNames: Map<string, string>,
   actor: { userID: string; role: string },
   now: Date,
+  margins?: MarginContext,
 ): SalesQuoteItem {
   const state = stateOf(row);
   const today = businessDay(now);
@@ -50,10 +53,12 @@ export function toItem(
     ownerLabel: state.ownerLabel,
     shipmentId: state.shipmentId,
     shipmentJobNumber: state.shipmentJobNumber,
+    roadMargin: margins ? roadMargin(row.data, margins) : null,
     permissions: {
       canChangeOwner: ownerChangeRight(actor, state),
       canDelete: deletion.allowed,
       ...(deletion.allowed ? {} : { deleteBlockedReason: deletion.reason }),
+      canApproveMargin: canApproveMargin(actor.role),
     },
   };
 }

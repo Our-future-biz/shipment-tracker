@@ -87,7 +87,7 @@ export function columnsOf(state: LifecycleState): Omit<LifecycleState, "createdA
  * kinds existed and is a status entry; only status entries carry a status.
  */
 export interface TimelineEntry {
-  kind?: "status" | "validity" | "owner" | "follow_up" | "shipment" | "deleted";
+  kind?: "status" | "validity" | "owner" | "follow_up" | "shipment" | "deleted" | "road_price" | "margin_approval";
   at: string;
   /** Display name of who did it; absent when it could not be resolved. */
   user?: string;
@@ -412,6 +412,15 @@ export function applyFollowUp(
  */
 export function deletionEntry(ctx: LifecycleContext): TimelineEntry {
   return entryBy("deleted", ctx);
+}
+
+/**
+ * The history line of a quote priced from the trucking tariffs, or of a margin below the floor a
+ * manager approved. `comment` is the whole sentence ("Priced from tariff: Standard v3, +1 day,
+ * 4 250 CZK"). Neither changes the status.
+ */
+export function pricingEntry(kind: "road_price" | "margin_approval", comment: string, ctx: LifecycleContext): TimelineEntry {
+  return { ...entryBy(kind, ctx), comment };
 }
 
 /** A live shipment that names a quote in its Sales Number. */

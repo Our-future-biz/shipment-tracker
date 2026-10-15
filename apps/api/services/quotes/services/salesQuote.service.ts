@@ -1,18 +1,29 @@
 import { APIError } from "encore.dev/api";
-import { auth, fx, shipments } from "~encore/clients";
+import { auth, fx, shipments, trucking } from "~encore/clients";
 import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import type { PaginatedResponse } from "../../../lib/db/interface";
 import type { Actor } from "../../../lib/rbac";
-import { canSetOwner, quoteDeletePermission } from "../../../lib/salesPolicy";
+import { canApproveMargin, canSetOwner, quoteDeletePermission } from "../../../lib/salesPolicy";
 import { baseReference, formatReference, nextSequence, nextVariant, salesPrefix } from "../../../lib/salesReference";
 import { isUuid } from "../../../lib/uuid";
-import type { CustomerOpenQuote, CustomerQuoteFacts, QuoteShipmentsItem, QuoteShipmentsResult, SalesQuoteItem } from "../interfaces/interfaces";
+import type { RateLevelResult, ServiceLevelCode } from "../../trucking/interfaces/interfaces";
+import type {
+  CustomerOpenQuote,
+  CustomerQuoteFacts,
+  QuoteMarginApproval,
+  QuoteRoadInput,
+  QuoteShipmentsItem,
+  QuoteShipmentsResult,
+  SalesQuoteItem,
+} from "../interfaces/interfaces";
 import { quoteAttachmentRepository } from "../repositories/quoteAttachment.repository";
 import { salesQuoteRepository, type NewSalesQuote, type SalesQuoteFilter, type SalesQuotePage } from "../repositories/salesQuote.repository";
 import type { SalesQuoteRecord } from "../schemas/quote.schema";
 import { matchOwnerLabel } from "../utils/ownerMatch.utils";
 import { carryKeys, isPlainObject, newDocument } from "../utils/quoteDocument.utils";
 import { fxWriteFor, mayStampFx, type StoredFx } from "../lib/quoteFx";
+import { currenciesToResolve, formatMargin, marginGateMessage, roadMargin, roadMarginApplies, type MarginContext } from "../lib/roadMargin";
+import { choosePricing, pricedComment, rateRequestOf, replaceTruckingLines, roadPricingOf, truckingLines } from "../lib/roadPricing";
 import {
   LifecycleError,
   isShownStatus,
@@ -28,6 +39,7 @@ import {
   followUpDueBefore,
   mirrorOf,
   newQuote,
+  pricingEntry,
   stateOf,
   wasEverSent,
   type LifecycleContext,
@@ -77,7 +89,22 @@ export interface SalesQuoteListRequest {
   hasShipment?: boolean;
 }
 
+/** A pricing of a quote from the trucking tariffs as the API takes it. */
+export interface RoadPriceRequest {
+  road: QuoteRoadInput;
+  serviceLevel: ServiceLevelCode;
+  /** The haulier to buy from; null = the engine's first candidate (preferred, then cheapest). */
+  haulierCustomerId: string | null;
+  expectedDataVersion: number;
+}
+
 const DEFAULT_LIMIT = 50;
+// The statuses a quote is sent with: a margin below the floor must be approved before them.
+const MARGIN_GATED_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
+// A won or lost quote is decided: it is not priced again.
+const DECIDED_STATUSES: readonly string[] = ["won", "lost"];
+const MIN_APPROVAL_REASON = 3;
+const MAX_APPROVAL_REASON = 500;
 const MAX_LIMIT = 200;
 // How many quotes one call of the shipments service may bring in step with their shipments.
 const MAX_SHIPMENT_SYNC_ITEMS = 200;
@@ -192,6 +219,28 @@ async function todaysFx(): Promise<StoredFx> {
   };
 }
 
+// What the road margins of these quotes are judged with: the Trucking margin floor and today's ČNB
+// rates of the currencies a quote has no stored rate for. Undefined - and nothing is asked - when
+// the margin rule applies to none of them. A rate the fx service cannot give is missing: the
+// margin then says so instead of the read failing. Read before any row lock (see todaysFx).
+async function marginsFor(rows: { data: unknown }[], at: Date): Promise<MarginContext | undefined> {
+  const applying = rows.filter((row) => roadMarginApplies(row.data));
+  if (!applying.length) return undefined;
+  const today = businessDay(at);
+  const currencies = [...new Set(applying.flatMap((row) => currenciesToResolve(row.data)))];
+  const [floor, rates] = await Promise.all([
+    trucking._internalTruckingMarginFloor(),
+    Promise.all(
+      currencies.map((currency) =>
+        /^[A-Z]{3}$/.test(currency)
+          ? fx.fxResolve({ currency, date: today }).then((r) => r.rate, () => null)
+          : Promise.resolve(null),
+      ),
+    ),
+  ]);
+  return { floor, today, rates: Object.fromEntries(currencies.map((currency, i) => [currency, rates[i] ?? null])) };
+}
+
 class SalesQuoteService {
   // What every read of sales quotes starts with: quotes written by code from before the server
   // owned the lifecycle get their columns, and owner texts nobody compared with the users yet
@@ -211,7 +260,7 @@ class SalesQuoteService {
       await ownerBackfillService.matchOwners(actor.companyID);
       stored = (await salesQuoteRepository.loadSales(actor.companyID, quote.quoteNumber)) ?? quote;
     }
-    return toItem(stored, names, actor, at);
+    return toItem(stored, names, actor, at, await marginsFor([stored], at));
   }
 
   // The sales quotes of the company: one page of a filtered, sorted list, or - with afterId -
@@ -227,10 +276,10 @@ class SalesQuoteService {
       today: businessDay(at),
       dueBefore: followUpDueBefore(at),
     });
-    const names = await userNames();
+    const [names, margins] = await Promise.all([userNames(), marginsFor(rows, at)]);
     return {
       pagination: { total, offset: page.offset, limit: page.limit },
-      data: rows.map((row) => toItem(row, names, actor, at)),
+      data: rows.map((row) => toItem(row, names, actor, at, margins)),
     };
   }
 
@@ -253,7 +302,7 @@ class SalesQuoteService {
       (existing) => formatReference(prefix, nextSequence(prefix, existing)),
       newRow(contextOf(actor, at, names), fields),
     );
-    return toItem(quote, names, actor, at);
+    return toItem(quote, names, actor, at, await marginsFor([quote], at));
   }
 
   // A variant of an existing quote: its reference with the next free -2, -3, ... The content is
@@ -271,7 +320,7 @@ class SalesQuoteService {
       (existing) => nextVariant(base, existing),
       newRow(contextOf(actor, at, names), fields),
     );
-    return toItem(quote, names, actor, at);
+    return toItem(quote, names, actor, at, await marginsFor([quote], at));
   }
 
   // A save of the document by the Sales editor. Written only while the document is still the
@@ -305,6 +354,8 @@ class SalesQuoteService {
     const ctx = contextOf(actor, at, names);
     // Only a status the quote may be sent with can need them; read before the lock (see todaysFx).
     const today = mayStampFx(request.to) ? await todaysFx() : undefined;
+    // So is what a road margin is judged with, for the statuses a margin below the floor blocks.
+    const margins = MARGIN_GATED_STATUSES.includes(request.to) ? await this.marginsOf(actor.companyID, quoteNumber, at) : undefined;
     const result = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
       if (request.expectedDataVersion !== undefined && request.expectedDataVersion !== quote.dataVersion) throw conflict();
       const state = stateOf(quote);
@@ -313,6 +364,9 @@ class SalesQuoteService {
         return applyTransition(state, request, ctx);
       });
       if (!change.changed) return { quote, changed: false };
+      // A margin below the Trucking floor goes out only with a manager's approval that covers it.
+      const margin = margins ? roadMargin(quote.data, margins) : null;
+      if (margin?.needsApproval) throw APIError.failedPrecondition(marginGateMessage(margin));
       // The customer is given totals worked out with the ČNB rates and ROE % of the moment it is
       // sent: they are stored then and never change; back in a draft status they are dropped
       // (see lib/quoteFx). That writes the document, hence a new version of it - and only then.
@@ -326,6 +380,97 @@ class SalesQuoteService {
     });
     if (!result) throw notFound();
     return { quote: await this.item(result.quote, names, actor, at), changed: result.changed };
+  }
+
+  // What the road margin of a quote is judged with, read from the quote as it is before any lock.
+  // The quote may change before it is locked; a currency it then needs and was not read counts as
+  // a missing rate, never as converted at 1.
+  private async marginsOf(companyId: string, quoteNumber: string, at: Date): Promise<MarginContext | undefined> {
+    const quote = await salesQuoteRepository.loadSales(companyId, quoteNumber);
+    return quote ? marginsFor([quote], at) : undefined;
+  }
+
+  // Prices the road transport of a quote from the trucking tariffs: the customer's sell price (or
+  // the Standard list's) and the chosen haulier's buy price on one service level. The quote's
+  // trucking lines are replaced by the new ones - every other line stays - and a margin approval
+  // given before no longer holds. Rated before the lock: the trucking service is not called while
+  // the row is held.
+  async roadPrice(actor: Actor, quoteNumber: string, request: RoadPriceRequest): Promise<{ quote: SalesQuoteItem; result: RateLevelResult }> {
+    const stored = await salesQuoteRepository.loadSales(actor.companyID, quoteNumber);
+    if (!stored) throw notFound();
+    const expectPriceable = (quote: SalesQuoteRecord) => {
+      if (quote.dataVersion !== request.expectedDataVersion) throw conflict();
+      if (DECIDED_STATUSES.includes(quote.status)) throw APIError.failedPrecondition("A won or lost quote cannot be priced again");
+    };
+    expectPriceable(stored);
+
+    const at = new Date();
+    const rated = await trucking.truckingRate(rateRequestOf(request.road, request.serviceLevel, stored.customerId, businessDay(at)));
+    const result = rated.results.find((r) => r.serviceLevel === request.serviceLevel);
+    if (!result) throw APIError.invalidArgument(`The service level ${request.serviceLevel} is not set up in Trucking`);
+    const choice = choosePricing(result, request.haulierCustomerId);
+    if (!choice.ok) throw APIError.invalidArgument(choice.reason);
+    const { sell, buy } = choice;
+    const roadPricing = roadPricingOf(result, sell, buy, rated.ratedAt);
+    const sellLines = truckingLines(sell, result.serviceLevel);
+    const buyLines = buy ? truckingLines(buy, result.serviceLevel, { name: buy.ownerName ?? "", customerId: buy.ownerCustomerId ?? "" }) : [];
+
+    const names = await userNames();
+    const ctx = contextOf(actor, at, names);
+    const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
+      expectPriceable(quote);
+      const data = isPlainObject(quote.data) ? quote.data : {};
+      return salesQuoteRepository.writeLifecycle(tx, quote, {
+        state: stateOf(quote),
+        entries: [pricingEntry("road_price", pricedComment(roadPricing), ctx)],
+        document: {
+          road: request.road,
+          roadPricing,
+          sellingLines: replaceTruckingLines(data.sellingLines, sellLines),
+          buyingLines: replaceTruckingLines(data.buyingLines, buyLines),
+        },
+        drop: ["marginApproval"],
+      });
+    });
+    if (!written) throw notFound();
+    return { quote: await this.item(written, names, actor, at), result };
+  }
+
+  // A manager approves the road margin of a quote that is below the Trucking floor: the margin as
+  // it is now is stored with the approval, which covers it and any better one.
+  async approveMargin(actor: Actor, quoteNumber: string, reason: string, expectedDataVersion: number): Promise<SalesQuoteItem> {
+    if (!canApproveMargin(actor.role)) throw APIError.permissionDenied("only a manager can approve a margin below the floor");
+    const why = reason.trim();
+    if (why.length < MIN_APPROVAL_REASON || why.length > MAX_APPROVAL_REASON) {
+      throw APIError.invalidArgument(`The reason must be ${MIN_APPROVAL_REASON} to ${MAX_APPROVAL_REASON} characters`);
+    }
+    const at = new Date();
+    const [margins, names] = await Promise.all([this.marginsOf(actor.companyID, quoteNumber, at), userNames()]);
+    const ctx = contextOf(actor, at, names);
+    const written = await salesQuoteRepository.withLockedQuote(actor.companyID, quoteNumber, async (quote, tx) => {
+      if (quote.dataVersion !== expectedDataVersion) throw conflict();
+      const margin = margins ? roadMargin(quote.data, margins) : null;
+      if (!margin) throw APIError.failedPrecondition("This quote has no road margin to approve");
+      if (!margin.belowFloor) throw APIError.failedPrecondition("The margin is above the floor; nothing to approve");
+      // An unknown margin cannot be approved: the approval would cover nothing it could be compared with.
+      if (margin.marginCzk === null) throw APIError.failedPrecondition(`The margin cannot be worked out: ${margin.problem}`);
+      const approval: QuoteMarginApproval = {
+        byUserId: actor.userID,
+        byName: ctx.userName,
+        at: at.toISOString(),
+        reason: why,
+        marginCzk: margin.marginCzk,
+        marginPercent: margin.marginPercent,
+      };
+      const comment = `Margin approved: ${formatMargin(margin.marginCzk, margin.marginPercent)} - ${why}`;
+      return salesQuoteRepository.writeLifecycle(tx, quote, {
+        state: stateOf(quote),
+        entries: [pricingEntry("margin_approval", comment, ctx)],
+        document: { marginApproval: approval },
+      });
+    });
+    if (!written) throw notFound();
+    return this.item(written, names, actor, at);
   }
 
   // A new "Valid until" date, or none.
