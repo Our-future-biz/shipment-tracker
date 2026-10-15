@@ -51,10 +51,15 @@ export const DROPDOWN_OPTIONS: Record<string, string[]> = {
     "Pre-Alert Sent [EXP]",
     "Billing [EXP]",
     "Billed [EXP]",
+    "---",
+    "Booking Confirmation Pending [DOM]",
+    "All Done - Waiting To Be Shipped [DOM]",
+    "Billing [DOM]",
+    "Billed [DOM]",
     CANCELLED_STATUS,
   ],
   "Load Type": [...LOAD_TYPES],
-  "Trade Direction": ["Import", "Export"],
+  "Trade Direction": ["Import", "Export", "Domestic"],
   "Freight Mode": ["Air Freight", "Sea Freight", "Rail Freight", "Road Freight"],
   "Service Type": ["Direct", "In-Direct/Nominated"],
   "Incoterm Origin": INCOTERMS,
@@ -658,11 +663,11 @@ export function getStatusBadgeStyle(status: string): React.CSSProperties {
   };
 }
 
-// The Shipment Status choices for a Trade Direction: its own [IMP] / [EXP] steps plus
+// The Shipment Status choices for a Trade Direction: its own [IMP] / [EXP] / [DOM] steps plus
 // Cancelled Shipment; every status while the direction is not set yet.
 export function getFilteredStatusOptions(tradeDirection: string | null | undefined): string[] {
   const allOpts = DROPDOWN_OPTIONS["Shipment Status"]!;
-  const tag = tradeDirection === "Import" ? "[IMP]" : tradeDirection === "Export" ? "[EXP]" : null;
+  const tag = tradeDirection === "Import" ? "[IMP]" : tradeDirection === "Export" ? "[EXP]" : tradeDirection === "Domestic" ? "[DOM]" : null;
   if (!tag) return allOpts;
   return allOpts.filter((o) => o.includes(tag) || o === CANCELLED_STATUS);
 }

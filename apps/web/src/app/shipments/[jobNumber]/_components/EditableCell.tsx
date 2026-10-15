@@ -79,10 +79,10 @@ export function EditableCell({
   const tradeDirection = useContext(TradeDirectionContext);
   const options = allowedOptions ?? (fieldKey === "status" ? getFilteredStatusOptions(tradeDirection) : col?.options) ?? [];
   const original = value ?? "";
-  // Statuses read without [IMP]/[EXP] once the list holds one direction only; with both
-  // (no Trade Direction yet) the suffix is what tells the two "Billing"s apart.
+  // Statuses read without [IMP]/[EXP]/[DOM] once the list holds one direction only; with several
+  // (no Trade Direction yet) the suffix is what tells the "Billing"s apart.
   const statusLabels =
-    fieldKey === "status" && !(options.some((o) => o.endsWith("[IMP]")) && options.some((o) => o.endsWith("[EXP]")));
+    fieldKey === "status" && ["[IMP]", "[EXP]", "[DOM]"].filter((t) => options.some((o) => o.endsWith(t))).length <= 1;
 
   const startEditing = () => {
     cancelledRef.current = false;

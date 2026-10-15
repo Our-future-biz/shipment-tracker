@@ -81,10 +81,10 @@ export const CANCELLED_STATUS = "Cancelled Shipment";
 const SHARED_STEPS = ["Booking Confirmation Pending", "All Done - Waiting To Be Shipped", "Billing", "Billed"];
 
 export function statusForDirection(status: string | null | undefined, tradeDirection: string | null | undefined): string | undefined {
-  const tag = eq(tradeDirection, "Import") ? "IMP" : eq(tradeDirection, "Export") ? "EXP" : null;
+  const tag = eq(tradeDirection, "Import") ? "IMP" : eq(tradeDirection, "Export") ? "EXP" : eq(tradeDirection, "Domestic") ? "DOM" : null;
   if (!tag) return undefined;
-  const other = tag === "IMP" ? "EXP" : "IMP";
-  const match = (status ?? "").trim().match(new RegExp(`^(.*) \\[${other}\\]$`));
+  const others = ["IMP", "EXP", "DOM"].filter((t) => t !== tag).join("|");
+  const match = (status ?? "").trim().match(new RegExp(`^(.*) \\[(?:${others})\\]$`));
   if (!match) return undefined;
   const step = match[1]!.trim();
   return `${SHARED_STEPS.includes(step) ? step : SHARED_STEPS[0]} [${tag}]`;

@@ -38,7 +38,7 @@ const VAT_OPTIONS = (["Z69", "S21", "RC", "OUT"] as const satisfies readonly int
 }));
 
 /** Operations release a job for billing by setting its Shipment Status to Billing (either direction). */
-const isBillingStatus = (status: string | null | undefined) => /^Billing \[(IMP|EXP)\]$/.test((status ?? "").trim());
+const isBillingStatus = (status: string | null | undefined) => /^Billing \[(IMP|EXP|DOM)\]$/.test((status ?? "").trim());
 
 /** §28 ZDPH: a tax document must be issued within 15 days of the DUZP. */
 const MAX_DAYS_AFTER_DUZP = 15;

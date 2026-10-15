@@ -4,7 +4,7 @@ import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { DEADLINE_PERIODS, deadlinePeriod } from "../lib/deadlinePeriod";
 import type { DashboardKpis, DeadlineItem, DeadlinePeriod, ShipmentDashboard } from "../interfaces/interfaces";
 
-const BILLED_STATUSES = new Set(["Billed [IMP]", "Billed [EXP]"]);
+const BILLED_STATUSES = new Set(["Billed [IMP]", "Billed [EXP]", "Billed [DOM]"]);
 
 const KPI_STATUS_MAP: Record<string, keyof DashboardKpis> = {
   "Delivery Date Pending From Customer [IMP]": "waitingUnload",
@@ -12,6 +12,7 @@ const KPI_STATUS_MAP: Record<string, keyof DashboardKpis> = {
   "Booked For Further Transport [IMP]": "sailedOrdered",
   "All Done - Waiting To Be Shipped [IMP]": "waitingDeparture",
   "All Done - Waiting To Be Shipped [EXP]": "waitingDeparture",
+  "All Done - Waiting To Be Shipped [DOM]": "waitingDeparture",
   "Booking Confirmation Pending [EXP]": "missingSailing",
 };
 

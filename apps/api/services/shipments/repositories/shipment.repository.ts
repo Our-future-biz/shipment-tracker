@@ -160,7 +160,7 @@ export interface ShipmentListFilters {
 // be invoiced (stored with its direction); Invoicing Status is Invoiced / Not Invoiced.
 type InvoicingFilterId = "billing" | "not-invoiced" | "invoiced";
 const INVOICING_PREDICATES: Record<InvoicingFilterId, ReturnType<typeof sql>> = {
-  billing: sql`${shipmentTable.status} IN ('Billing [IMP]', 'Billing [EXP]')`,
+  billing: sql`${shipmentTable.status} IN ('Billing [IMP]', 'Billing [EXP]', 'Billing [DOM]')`,
   "not-invoiced": sql`${shipmentTable.invoicingStatus} IS DISTINCT FROM 'Invoiced' AND ${NOT_CANCELLED}`,
   invoiced: sql`${shipmentTable.invoicingStatus} = 'Invoiced'`,
 };

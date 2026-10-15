@@ -14,5 +14,5 @@ export function statusTagColor(status: string): string {
 // Statuses are stored with their direction ("Billing [IMP]"); the direction is already on the
 // shipment, so the app shows them without it ("Billing").
 export function statusLabel(status: string | null | undefined): string {
-  return (status ?? "").replace(/\s*\[(IMP|EXP)\]$/, "");
+  return (status ?? "").replace(/\s*\[(IMP|EXP|DOM)\]$/, "");
 }

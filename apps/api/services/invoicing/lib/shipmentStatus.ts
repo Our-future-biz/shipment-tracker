@@ -16,7 +16,7 @@ export interface StatusPatch {
 }
 
 const swap = (status: string, from: string, to: string): string | undefined => {
-  const m = new RegExp(`^${from} (\\[(?:IMP|EXP)\\])$`).exec(status.trim());
+  const m = new RegExp(`^${from} (\\[(?:IMP|EXP|DOM)\\])$`).exec(status.trim());
   return m ? `${to} ${m[1]}` : undefined;
 };
 

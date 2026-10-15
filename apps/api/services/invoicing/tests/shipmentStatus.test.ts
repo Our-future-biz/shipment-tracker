@@ -42,3 +42,10 @@ describe("isBillingStatus", () => {
     expect(isBillingStatus(null)).toBe(false);
   });
 });
+
+describe("a domestic road job", () => {
+  it("moves Billing [DOM] to Billed [DOM] on issue and back on a credit note", () => {
+    expect(statusesAfterIssue({ status: "Billing [DOM]", invoicingStatus: "Not Invoiced" }).status).toBe("Billed [DOM]");
+    expect(statusesAfterCredit({ status: "Billed [DOM]", invoicingStatus: "Invoiced" }, 0).status).toBe("Billing [DOM]");
+  });
+});

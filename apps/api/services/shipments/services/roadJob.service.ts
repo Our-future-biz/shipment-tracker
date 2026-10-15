@@ -21,6 +21,8 @@ class RoadJobService {
       shipper: input.shipper,
       consignee: input.consignee,
       freightMode: "Road Freight",
+      tradeDirection: "Domestic",
+      status: "Booking Confirmation Pending [DOM]",
       loadType: "Full Load",
       department: "Road Department",
       serviceName: "Domestic",
