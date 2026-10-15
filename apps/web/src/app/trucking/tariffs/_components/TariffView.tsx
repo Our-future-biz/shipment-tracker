@@ -18,7 +18,12 @@ import { TruckingField } from "../../_components/TruckingField";
 import { TariffActivateDialog } from "./TariffActivateDialog";
 import { TariffVersionsTable } from "./TariffVersionsTable";
 
-type TariffDraft = Required<Pick<TariffUpdate, "name" | "discountPercent" | "zoneBy">>;
+/** What the header form edits; the discount may be empty while typing (the save checks it). */
+interface TariffDraft {
+  name: string;
+  discountPercent: number | null;
+  zoneBy: NonNullable<TariffUpdate["zoneBy"]>;
+}
 
 const draftOf = (t: TariffDetail): TariffDraft => ({ name: t.name, discountPercent: t.discountPercent, zoneBy: t.zoneBy });
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
@@ -89,7 +94,7 @@ export const TariffView = ({ tariffId }: TariffViewProps) => {
   const handleSave = async () => {
     try {
       const req: TariffUpdate = { name: draft.name.trim(), zoneBy: draft.zoneBy };
-      if (isDiscount) req.discountPercent = draft.discountPercent;
+      if (isDiscount && draft.discountPercent != null) req.discountPercent = draft.discountPercent;
       const res = await save(req);
       setDraft(draftOf(res.tariff));
       toast.success("Tariff saved");
