@@ -84,7 +84,8 @@ describe("toItem", () => {
       ownerLabel: "Martin Koubek",
       shipmentId: null,
       shipmentJobNumber: null,
-      permissions: { canChangeOwner: "own", canDelete: true },
+      roadMargin: null,
+      permissions: { canChangeOwner: "own", canDelete: true, canApproveMargin: false },
     });
   });
 
@@ -183,6 +184,7 @@ describe("toItem", () => {
         expect(permissions({ ownerUserId: "user-2", status: "quoted", sentAt: SENT, firstSentAt: SENT }, { userID: "user-9", role })).toEqual({
           canChangeOwner: "any",
           canDelete: true,
+          canApproveMargin: true,
         });
       }
     });
@@ -194,10 +196,10 @@ describe("toItem", () => {
     });
 
     it("lets a plain user delete their own Draft that was never sent - and says why not for anything else", () => {
-      expect(permissions({ ownerUserId: "user-1" }, martin)).toEqual({ canChangeOwner: "own", canDelete: true });
+      expect(permissions({ ownerUserId: "user-1" }, martin)).toEqual({ canChangeOwner: "own", canDelete: true, canApproveMargin: false });
       // A colleague's Draft, and one that belongs to no user until it is taken.
-      expect(permissions({ ownerUserId: "user-2" }, martin)).toEqual({ canChangeOwner: "none", canDelete: false, deleteBlockedReason: MANAGERS_ONLY });
-      expect(permissions({ ownerLabel: "Petr" }, martin)).toEqual({ canChangeOwner: "claim", canDelete: false, deleteBlockedReason: MANAGERS_ONLY });
+      expect(permissions({ ownerUserId: "user-2" }, martin)).toEqual({ canChangeOwner: "none", canDelete: false, deleteBlockedReason: MANAGERS_ONLY, canApproveMargin: false });
+      expect(permissions({ ownerLabel: "Petr" }, martin)).toEqual({ canChangeOwner: "claim", canDelete: false, deleteBlockedReason: MANAGERS_ONLY, canApproveMargin: false });
       // Their own quote that is with the customer, and one that was and is a Draft again.
       expect(permissions({ ownerUserId: "user-1", status: "quoted", sentAt: SENT, firstSentAt: SENT }, martin)).toMatchObject({
         canDelete: false,
@@ -217,7 +219,7 @@ describe("toItem", () => {
       const at = SENT.toISOString();
       // Set to Quoted in bulk before sendings were dated, then Lost, then a Draft again.
       const reopened = history({ kind: "status", status: "lost", from: "quoted", at }, { kind: "status", status: "draft", at });
-      expect(permissions(reopened, martin)).toEqual({ canChangeOwner: "own", canDelete: false, deleteBlockedReason: MANAGERS_ONLY });
+      expect(permissions(reopened, martin)).toEqual({ canChangeOwner: "own", canDelete: false, deleteBlockedReason: MANAGERS_ONLY, canApproveMargin: false });
       expect(permissions(reopened, manager).canDelete).toBe(true);
       // A Draft whose history shows no sending - also one a shipment had made Won for a while.
       const neverSent = history(
@@ -225,7 +227,7 @@ describe("toItem", () => {
         { kind: "status", status: "won", from: "draft", shipmentId: SHIPMENT.shipmentId, jobNumber: "CZ2610001", at },
         { kind: "status", status: "draft", shipmentId: SHIPMENT.shipmentId, jobNumber: "CZ2610001", at },
       );
-      expect(permissions(neverSent, martin)).toEqual({ canChangeOwner: "own", canDelete: true });
+      expect(permissions(neverSent, martin)).toEqual({ canChangeOwner: "own", canDelete: true, canApproveMargin: false });
       // A document that is no object has no history to read.
       expect(permissions({ ownerUserId: "user-1", data: [] }, martin).canDelete).toBe(true);
     });
@@ -236,6 +238,7 @@ describe("toItem", () => {
         canChangeOwner: "any",
         canDelete: false,
         deleteBlockedReason: BLOCKED_BY_SHIPMENT,
+        canApproveMargin: true,
       });
     });
 

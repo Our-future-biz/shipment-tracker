@@ -223,9 +223,12 @@ export interface LifecycleWrite {
   entries: TimelineEntry[];
   /**
    * Document keys the action stores besides the lifecycle - the rates taken when a quote is
-   * sent, or null when they are dropped. Writing them makes a new version of the document.
+   * sent (or null when they are dropped), the lines and pricing a quote is priced with from the
+   * trucking tariffs, a margin approval. Writing them makes a new version of the document.
    */
-  document?: { fx: StoredFx | null };
+  document?: { fx?: StoredFx | null } & Record<string, unknown>;
+  /** Document keys the action removes (a margin approval a new pricing makes void). Only together with `document`. */
+  drop?: string[];
   /** Set by the action that deletes the quote: who deletes it, and when. */
   deleted?: { by: string; at: Date };
 }
@@ -346,7 +349,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
         ...(write.deleted ? { deletedAt: write.deleted.at, deletedBy: write.deleted.by } : {}),
         updatedAt: now,
         dataVersion: sql`${quoteTable.dataVersion} + ${write.document ? 1 : 0}`,
-        data: sql`((CASE WHEN jsonb_typeof(${quoteTable.data}) = 'object' THEN ${quoteTable.data} ELSE '{}'::jsonb END) - ${textArray(mirror.remove)})
+        data: sql`((CASE WHEN jsonb_typeof(${quoteTable.data}) = 'object' THEN ${quoteTable.data} ELSE '{}'::jsonb END) - ${textArray([...mirror.remove, ...(write.drop ?? [])])})
           || coalesce(${JSON.stringify(set)}::jsonb, '{}'::jsonb)
           || jsonb_build_object('timeline', (CASE WHEN jsonb_typeof(${quoteTable.data}->'timeline') = 'array' THEN ${quoteTable.data}->'timeline' ELSE '[]'::jsonb END)
             || coalesce(${JSON.stringify(write.entries)}::jsonb, '[]'::jsonb))`,

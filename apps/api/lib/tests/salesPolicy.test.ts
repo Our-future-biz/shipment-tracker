@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SALES_MANAGE_ROLES, canEditSalesSettings, canManageSales, canSetOwner, ownerChangeRight, quoteDeletePermission } from "../salesPolicy";
+import { SALES_MANAGE_ROLES, canApproveMargin, canEditSalesSettings, canManageSales, canSetOwner, ownerChangeRight, quoteDeletePermission } from "../salesPolicy";
 
 const ME = "user-me";
 const COLLEAGUE = "user-colleague";
@@ -34,6 +34,16 @@ describe("canEditSalesSettings", () => {
     }
     expect(canEditSalesSettings("manager")).toBe(true);
     expect(canEditSalesSettings("user")).toBe(false);
+  });
+});
+
+describe("canApproveMargin", () => {
+  it("lets exactly the roles that manage Sales approve a margin below the floor", () => {
+    for (const role of ["superadmin", "admin", "manager", "user", "", "Admin", "owner"]) {
+      expect(canApproveMargin(role), role).toBe(canManageSales(role));
+    }
+    expect(canApproveMargin("manager")).toBe(true);
+    expect(canApproveMargin("user")).toBe(false);
   });
 });
 
