@@ -1,24 +1,21 @@
-import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { auth, shipments } from "~encore/clients";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
 import type { OutboxKind, ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
 import type { GateShipmentUpdateState } from "../interfaces/gate.interfaces";
+import { OUTBOX_MAX_ATTEMPTS, outboxErrorCode } from "../../../lib/outbox/outboxRetry";
+import { deliverOutboxRow, runOutboxDelivery, type OutboxHandlers } from "../../../lib/outbox/outboxDelivery";
+import { sendShipmentUpdateAs } from "../../../lib/outbox/shipmentUpdateAs";
 
 // Delivery of the shipment updates the gate stamps owe (the outbox). Each row is sent as the
-// user who stamped — Encore passes that identity on the internal call (`authData`), so Shipments
-// checks it exactly as for the user's own request; nothing goes through the public gateway.
-// Rows are sent right after the stamp; what fails is retried by the warehouse-shipment-outbox
-// cron (and the local timer, see startOutboxTimer) with a growing wait.
+// user who stamped (sendShipmentUpdateAs). Rows are sent right after the stamp; what fails is
+// retried by the warehouse-shipment-outbox cron (and the local timer, see startOutboxTimer) with
+// a growing wait. The retry rules and the delivery loop are shared (lib/outbox); what a gate
+// stamp records about its delivery is here.
 
 /** Attempts after which a row stops retrying and is reported as failed. */
-export const MAX_ATTEMPTS = 15;
-const BATCH = 20;
+export const MAX_ATTEMPTS = OUTBOX_MAX_ATTEMPTS;
 const TICK_MS = 60_000;
-// Errors that a retry cannot fix: the shipment is gone, the update is refused, or the user may
-// no longer change it.
-const PERMANENT = new Set(["not_found", "invalid_argument", "permission_denied", "unauthenticated", "failed_precondition"]);
 
 export const OUTBOX_WHAT: Record<OutboxKind, string> = {
   received: "warehouse received date",
@@ -26,15 +23,10 @@ export const OUTBOX_WHAT: Record<OutboxKind, string> = {
   plate: "plate number",
 };
 
-/** Minutes to wait before the next try after `attempts` tries: 2, 4, 8 … up to an hour. */
-export const retryDelayMinutes = (attempts: number) => Math.min(2 ** Math.max(1, attempts), 60);
-
-const errCode = (err: unknown) => (err instanceof APIError ? String(err.code) : String((err as { code?: unknown })?.code ?? ""));
-
 // What users see of a failed delivery (stored as last_error and in the gate history): our own
 // wording by error code, never the upstream text, which is logged instead.
 export function outboxErrorText(err: unknown): string {
-  switch (errCode(err)) {
+  switch (outboxErrorCode(err)) {
     case "not_found":
       return "The shipment no longer exists in Shipments";
     case "permission_denied":
@@ -51,62 +43,50 @@ export function outboxErrorText(err: unknown): string {
   }
 }
 
-// The stamping user as they are now: a role changed (or the user removed) since the stamp counts,
-// not the role stored with the row. Null when the user is gone.
-async function actingRoleNow(row: ShipmentOutboxRecord): Promise<string | null> {
-  const authData = { userID: row.actingUserId, companyID: row.companyId, role: row.actingRole };
-  const { users } = await auth.userLookup({ ids: [row.actingUserId] }, { authData });
-  return users.find((u) => u.id === row.actingUserId)?.role ?? null;
-}
+const what = (row: ShipmentOutboxRecord) => OUTBOX_WHAT[row.kind] ?? row.kind;
 
-async function deliver(row: ShipmentOutboxRecord): Promise<"sent" | "retry" | "failed"> {
-  const what = OUTBOX_WHAT[row.kind] ?? row.kind;
-  try {
-    const role = await actingRoleNow(row);
-    if (!role) throw APIError.permissionDenied("the stamping user no longer exists");
-    await shipments.shipmentUpdate(
-      { shipmentId: row.shipmentId, ...row.payload },
-      { authData: { userID: row.actingUserId, companyID: row.companyId, role } },
-    );
-  } catch (err) {
-    const error = outboxErrorText(err);
-    if (PERMANENT.has(errCode(err)) || row.attempts >= MAX_ATTEMPTS) {
-      await shipmentOutboxRepository.markFailed(row.id, row.attempts, error);
-      await gateMovementRepository.appendEvents(row.movementId, row.companyId, [
-        { kind: "shipmentUpdateFailed", label: `Shipment not updated: ${what}`, at: new Date().toISOString(), by: "Shipments", detail: error },
-      ]);
-      log.error(err, "warehouse: shipment update from the gate failed for good", { outboxId: row.id, movementId: row.movementId, shipmentId: row.shipmentId, error });
-      return "failed";
-    }
-    await shipmentOutboxRepository.markRetry(row.id, row.attempts, error, new Date(Date.now() + retryDelayMinutes(row.attempts) * 60_000));
+// How a gate stamp's row is sent and settled: failures and deliveries land in the record's
+// gate history.
+const handlers: OutboxHandlers<ShipmentOutboxRecord> = {
+  send: sendShipmentUpdateAs,
+  errorText: outboxErrorText,
+  async onFailed(row, error, err) {
+    await shipmentOutboxRepository.markFailed(row.id, row.attempts, error);
+    await gateMovementRepository.appendEvents(row.movementId, row.companyId, [
+      { kind: "shipmentUpdateFailed", label: `Shipment not updated: ${what(row)}`, at: new Date().toISOString(), by: "Shipments", detail: error },
+    ]);
+    log.error(err, "warehouse: shipment update from the gate failed for good", { outboxId: row.id, movementId: row.movementId, shipmentId: row.shipmentId, error });
+  },
+  async onRetry(row, error, nextAttemptAt, err) {
+    await shipmentOutboxRepository.markRetry(row.id, row.attempts, error, nextAttemptAt);
     log.warn("warehouse: shipment update from the gate will be retried", {
       outboxId: row.id,
       movementId: row.movementId,
       attempts: row.attempts,
       error: err instanceof Error ? err.message : String(err),
     });
-    return "retry";
-  }
-  const was = await shipmentOutboxRepository.markSent(row.id, row.attempts);
-  // null: another run took the row again (this call outlived its claim) and reports it.
-  if (was === "pending") {
-    await gateMovementRepository.appendEvents(row.movementId, row.companyId, [
-      { kind: "shipmentUpdated", label: `Shipment updated: ${what}`, at: new Date().toISOString(), by: "Shipments" },
-    ]);
-  } else if (was === "cancelled") {
-    // The stamp was voided while this update was on its way: the shipment got it anyway.
-    await gateMovementRepository.appendEvents(row.movementId, row.companyId, [
-      {
-        kind: "shipmentMayNeedCorrecting",
-        label: "Shipment may need correcting",
-        at: new Date().toISOString(),
-        by: "Shipments",
-        detail: `its ${what} was set just before the stamp was voided and is not changed back — correct it in Shipments if needed`,
-      },
-    ]);
-  }
-  return "sent";
-}
+  },
+  async onSent(row) {
+    const was = await shipmentOutboxRepository.markSent(row.id, row.attempts);
+    // null: another run took the row again (this call outlived its claim) and reports it.
+    if (was === "pending") {
+      await gateMovementRepository.appendEvents(row.movementId, row.companyId, [
+        { kind: "shipmentUpdated", label: `Shipment updated: ${what(row)}`, at: new Date().toISOString(), by: "Shipments" },
+      ]);
+    } else if (was === "cancelled") {
+      // The stamp was voided while this update was on its way: the shipment got it anyway.
+      await gateMovementRepository.appendEvents(row.movementId, row.companyId, [
+        {
+          kind: "shipmentMayNeedCorrecting",
+          label: "Shipment may need correcting",
+          at: new Date().toISOString(),
+          by: "Shipments",
+          detail: `its ${what(row)} was set just before the stamp was voided and is not changed back — correct it in Shipments if needed`,
+        },
+      ]);
+    }
+  },
+};
 
 /**
  * Sends what is due, oldest first (one shipment's updates in order). With a movement id, only
@@ -115,20 +95,11 @@ async function deliver(row: ShipmentOutboxRecord): Promise<"sent" | "retry" | "f
  */
 export async function deliverDue(only?: string | { shipmentIds: string[] }): Promise<{ sent: number; retry: number; failed: number }> {
   const filter = typeof only === "string" ? { movementId: only } : (only ?? {});
-  const out = { sent: 0, retry: 0, failed: 0 };
-  try {
-    // A few rounds: a delivered row can make the next update of the same shipment due.
-    for (let round = 0; round < 5; round++) {
-      const rows = await shipmentOutboxRepository.claimDue(BATCH, filter);
-      if (!rows.length) break;
-      const sentBefore = out.sent;
-      for (const row of rows) out[await deliver(row)]++;
-      if (out.sent === sentBefore && rows.length < BATCH) break;
-    }
-  } catch (err) {
-    log.error(err, "warehouse: shipment update delivery run failed");
-  }
-  return out;
+  return runOutboxDelivery({
+    claim: (limit) => shipmentOutboxRepository.claimDue(limit, filter),
+    deliver: (row) => deliverOutboxRow(row, handlers),
+    onError: (err) => log.error(err, "warehouse: shipment update delivery run failed"),
+  });
 }
 
 /** What a record still owes its shipment, for the gate job; null when nothing is open. */
@@ -139,7 +110,7 @@ export function shipmentUpdateState(rows: ShipmentOutboxRecord[]): GateShipmentU
   const last = shown.at(-1)!;
   return {
     state: pending.length ? "pending" : "failed",
-    what: [...new Set(shown.map((r) => OUTBOX_WHAT[r.kind] ?? r.kind))],
+    what: [...new Set(shown.map(what))],
     attempts: Math.max(...shown.map((r) => r.attempts)),
     lastError: last.lastError,
     nextAttemptAt: pending.length ? new Date(Math.min(...pending.map((r) => r.nextAttemptAt.getTime()))).toISOString() : null,

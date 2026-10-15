@@ -22,6 +22,7 @@ import {
   SwapOutlined,
   BankOutlined,
   CalendarOutlined,
+  CarOutlined,
 } from "@ant-design/icons";
 import { useSalesPermissions } from "@/hooks/useSalesPermissions";
 import { useSidebarState } from "@/hooks/useSidebarState";
@@ -57,6 +58,7 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/customs", label: "Customs", icon: <SafetyCertificateOutlined /> },
   // Gate Log is a tab of the Warehouse page.
   { path: "/warehouse", label: "Warehouse", icon: <InboxOutlined /> },
+  { path: "/trucking", label: "Trucking", icon: <CarOutlined /> },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
   {

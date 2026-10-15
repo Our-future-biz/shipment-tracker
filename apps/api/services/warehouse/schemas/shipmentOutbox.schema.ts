@@ -1,11 +1,12 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, integer, jsonb, timestamp, index, foreignKey, check } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, jsonb, index, foreignKey, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { outboxColumns, outboxStatusCheck } from "../../../lib/outbox/outbox.columns";
 import { gateMovementTable } from "./gateMovement.schema";
 
 /** What a gate stamp writes to its shipment: the received or released date, or a plate added later. */
 export type OutboxKind = "received" | "released" | "plate";
-export type OutboxStatus = "pending" | "sent" | "failed" | "cancelled";
+export type { OutboxStatus } from "../../../lib/outbox/outbox.columns";
 
 // One shipment update owed by a gate stamp. It is written in the same transaction as the stamp
 // and delivered afterwards (straight away, then by the warehouse-shipment-outbox cron with
@@ -24,14 +25,8 @@ export const shipmentOutboxTable = pgTable(
     stamp: text("stamp").notNull().default(""),
     // Exactly the ShipmentUpdate fields to send (besides shipmentId).
     payload: jsonb("payload").$type<Record<string, string>>().notNull(),
-    actingUserId: text("acting_user_id").notNull(),
-    actingRole: text("acting_role").notNull(),
-    status: text("status").$type<OutboxStatus>().notNull().default("pending"),
-    attempts: integer("attempts").notNull().default(0),
-    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
-    lockedUntil: timestamp("locked_until", { withTimezone: true }),
-    lastError: text("last_error").notNull().default(""),
-    sentAt: timestamp("sent_at", { withTimezone: true }),
+    // Acting user, status, attempts, next try, claim and last error (shared with other outboxes).
+    ...outboxColumns,
   },
   (table) => [
     ...defaultTableIndexes("warehouse_shipment_outbox", table),
@@ -42,7 +37,7 @@ export const shipmentOutboxTable = pgTable(
     foreignKey({ name: "wh_outbox_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
     index("wh_outbox_movement_idx").on(table.movementId),
     check("wh_outbox_kind_check", sql`${table.kind} IN ('received', 'released', 'plate')`),
-    check("wh_outbox_status_check", sql`${table.status} IN ('pending', 'sent', 'failed', 'cancelled')`),
+    outboxStatusCheck("wh_outbox_status_check", table),
   ],
 );
 
