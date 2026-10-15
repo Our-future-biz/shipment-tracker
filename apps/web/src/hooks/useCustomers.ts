@@ -13,12 +13,15 @@ export interface CustomerQueryParams {
   status?: interfaces.CustomerStatus;
   label?: interfaces.CustomerLabel;
   country?: string;
+  /** Only companies with this role (e.g. hauliers). */
+  role?: interfaces.CustomerRole;
 }
 
 // Query keys that hold one customer's record and its lists (see the useCustomer* hooks).
 const CUSTOMER_RECORD_KEYS = [
   "customer",
   "customer-contacts",
+  "customer-sites",
   "customer-notes",
   "customer-documents",
   "customer-invoices",
@@ -35,19 +38,19 @@ export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true 
   const queryClient = useQueryClient();
 
   const search = params.search?.trim() || undefined;
-  const { status, label, country } = params;
+  const { status, label, country, role } = params;
 
   // Filters are applied server-side (scoped to the company) so they cover the whole
   // customer database rather than only the rows already loaded in the browser.
   const query = useQuery({
-    queryKey: ["customers", search ?? "", status ?? "", label ?? "", country ?? ""],
-    queryFn: () => api.customers.customerList({ search, status, label, country }),
+    queryKey: ["customers", search ?? "", status ?? "", label ?? "", country ?? "", role ?? ""],
+    queryFn: () => api.customers.customerList({ search, status, label, country, role }),
     placeholderData: (prev) => prev,
     enabled,
   });
 
   const createMutation = useMutation({
-    mutationFn: (ico: string) => api.customers.customerCreate({ ico }),
+    mutationFn: (params: controllers.CustomerCreateRequest) => api.customers.customerCreate(params),
     // Not awaited: creating a customer must not wait for the whole list to download again.
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["customers"] });

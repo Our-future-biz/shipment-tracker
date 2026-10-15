@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { pgTable, text, integer, numeric, date, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
-import type { CustomerLabel, CustomerStatus } from "../interfaces/interfaces";
+import type { CustomerLabel, CustomerRole, CustomerStatus } from "../interfaces/interfaces";
 
 export const customerTable = pgTable(
   "customer",
@@ -33,6 +33,8 @@ export const customerTable = pgTable(
     paymentTerms: text("payment_terms").notNull().default(""),
     freightPaymentTerms: text("freight_payment_terms").notNull().default(""),
     dutyPaymentTerms: text("duty_payment_terms").notNull().default(""),
+    // What the company is to us; a haulier is a trucking subcontractor. Existing rows become customers.
+    roles: text("roles").array().$type<CustomerRole[]>().notNull().default(sql`'{customer}'::text[]`),
 
     // — Logo + website (logo stored as base64 data URL in Postgres) —
     companyWebsite: text("company_website").notNull().default(""),
@@ -61,6 +63,11 @@ export const customerTable = pgTable(
     check(
       "customer_label_check",
       sql`${table.label} IN ('KEY ACCOUNT', 'STANDARD', 'TARGET CUSTOMER', 'PROSPECT', 'RISK')`,
+    ),
+    // At least one role, and only known ones.
+    check(
+      "customer_roles_check",
+      sql`cardinality(${table.roles}) > 0 AND ${table.roles} <@ ARRAY['customer', 'haulier']::text[]`,
     ),
   ],
 );

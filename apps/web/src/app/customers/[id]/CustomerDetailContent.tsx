@@ -10,6 +10,7 @@ import { useCustomerListHref } from "../_lib/customerListHref";
 import { CustomerHeader } from "./_components/CustomerHeader";
 import { OverviewTab } from "./_tabs/OverviewTab";
 import { ContactsTab } from "./_tabs/ContactsTab";
+import { SitesTab } from "./_tabs/SitesTab";
 import { ShipmentsTab } from "./_tabs/ShipmentsTab";
 import { QuotesTab } from "./_tabs/QuotesTab";
 import { FinanceTab } from "./_tabs/FinanceTab";
@@ -83,6 +84,7 @@ export function CustomerDetailContent() {
       <div className="p-6">
         {activeTab === "overview" && <OverviewTab customerId={id} onSelectTab={handleSelectTab} />}
         {activeTab === "contacts" && <ContactsTab customerId={id} />}
+        {activeTab === "sites" && <SitesTab customerId={id} />}
         {activeTab === "shipments" && <ShipmentsTab customerId={id} />}
         {activeTab === "quotes" && <QuotesTab customerId={id} />}
         {activeTab === "finance" && <FinanceTab customerId={id} onSelectTab={handleSelectTab} />}

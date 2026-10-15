@@ -8,7 +8,7 @@ import type { CustomerItem } from "@/hooks/useCustomers";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { useToast } from "@/lib/toast";
 import { CURRENCIES } from "@/lib/enums";
-import { CUSTOMER_LABELS, CUSTOMER_STATUSES, PAYMENT_TERMS } from "../../_lib/constants";
+import { CUSTOMER_LABELS, CUSTOMER_ROLE_OPTIONS, CUSTOMER_STATUSES, PAYMENT_TERMS } from "../../_lib/constants";
 import { CustomerInfoRow } from "./CustomerInfoRow";
 import { EditableText } from "./EditableText";
 
@@ -91,9 +91,30 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
     save(patch);
   };
 
+  // A company is always a customer, a haulier or both, so the last role cannot be removed.
+  const handleRolesChange = (roles: interfaces.CustomerRole[]) => {
+    if (roles.length === 0) {
+      toast.error("A company needs at least one role");
+      return;
+    }
+    save({ roles });
+  };
+
   return (
     <SectionCard title="CRM">
       <div>
+        <CustomerInfoRow label="Roles" narrow>
+          <div className={SELECT_WRAPPER_CLASS}>
+            <Select
+              {...SELECT_PROPS}
+              mode="multiple"
+              aria-label="Roles"
+              value={shown.roles}
+              options={CUSTOMER_ROLE_OPTIONS}
+              onChange={handleRolesChange}
+            />
+          </div>
+        </CustomerInfoRow>
         <CustomerInfoRow label="Status" narrow>
           <div className={SELECT_WRAPPER_CLASS}>
             <Select
