@@ -8292,7 +8292,21 @@ export namespace interfaces {
         tripRef: string | null
         haulierName: string | null
         sellCzk: number | null
+        /**
+         * The haulier cost the Reports use: real where an approved haulier invoice covers it, else the estimate
+         */
         buyCzk: number | null
+
+        /**
+         * Every priced part of the buy is the real cost of an approved haulier invoice (false = estimate)
+         */
+        buyReal: boolean
+
+        /**
+         * The approved haulier invoices the real parts of the buy come from
+         */
+        buyInvoiceNumbers: string[]
+
         marginCzk: number | null
         marginPercent: number | null
         belowFloor: boolean
@@ -8354,7 +8368,21 @@ export namespace interfaces {
         tripRef: string | null
         haulierName: string | null
         sellCzk: number | null
+        /**
+         * The haulier cost the Reports use: real where an approved haulier invoice covers it, else the estimate
+         */
         buyCzk: number | null
+
+        /**
+         * Every priced part of the buy is the real cost of an approved haulier invoice (false = estimate)
+         */
+        buyReal: boolean
+
+        /**
+         * The approved haulier invoices the real parts of the buy come from
+         */
+        buyInvoiceNumbers: string[]
+
         marginCzk: number | null
         marginPercent: number | null
         belowFloor: boolean
@@ -9966,9 +9994,14 @@ export namespace interfaces {
         haulierCustomerId: string
         name: string
         /**
-         * Trips (and partner deliveries) that carried the period's delivered consignments
+         * Trips that carried the period's delivered consignments
          */
         trips: number
+
+        /**
+         * Partner deliveries (legs without a trip) of the period's delivered consignments
+         */
+        partnerLegs: number
 
         /**
          * Delivered consignments the haulier carried (any leg)

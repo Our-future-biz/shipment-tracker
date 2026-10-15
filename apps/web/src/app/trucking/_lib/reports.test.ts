@@ -49,6 +49,7 @@ const haulier = (name: string, status: interfaces.HaulierStatus, trips: number):
   haulierCustomerId: name,
   name,
   trips,
+  partnerLegs: 0,
   consignments: trips,
   onTimePercent: null,
   firstAttemptPercent: null,

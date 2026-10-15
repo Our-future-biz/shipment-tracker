@@ -5,7 +5,7 @@ import { Tooltip } from "antd";
 import type { ConsignmentDetail, TripDetail } from "@/hooks/useTruckingConsignments";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { btnInline } from "@/app/warehouse/gate-log/_components/job/fields";
-import { marginBlocks, marginText, type ActionState } from "../../_lib/consignments";
+import { buyLabel, marginBlocks, marginText, type ActionState } from "../../_lib/consignments";
 import { promisedText } from "../../_lib/planning";
 import { TERMS } from "../../_lib/glossary";
 import { formatPsc } from "../../_lib/hauliers";
@@ -108,7 +108,7 @@ export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onA
           ) : (
             <Line k="Sell" v={c.sell ? `${formatMoney(c.sell.total, c.sell.currency)}${c.sell.currency !== "CZK" ? ` (${formatMoney(c.sell.totalCzk, "CZK")})` : ""}` : "Not priced"} />
           )}
-          <Line k="Buy" v={c.buyCzk != null ? formatMoney(c.buyCzk, "CZK") : ltl ? "With the trips' shares" : "With the trip"} />
+          <Line k={buyLabel(c)} v={c.buyCzk != null ? formatMoney(c.buyCzk, "CZK") : ltl ? "With the trips' shares" : "With the trip"} />
           <Line k="Margin" v={marginText(c)} tone={marginBlocks(c) ? "text-red-600" : c.belowFloor ? "text-amber-700" : "text-emerald-700"} />
         </div>
         {c.belowFloor && (

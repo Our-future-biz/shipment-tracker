@@ -173,6 +173,24 @@ export function marginText(c: Pick<ConsignmentListItem, "marginCzk" | "marginPer
   return c.marginPercent == null ? formatMoney(c.marginCzk, "CZK") : `${formatMoney(c.marginCzk, "CZK")} · ${formatPercent(c.marginPercent)}`;
 }
 
+type BuyFacts = Pick<ConsignmentListItem, "buyCzk" | "buyReal" | "buyInvoiceNumbers">;
+
+/** Where the buy comes from, as the Reports count it: "real" (approved haulier invoices), "partly real" or "estimate"; "" without a buy. */
+export function buySource(c: BuyFacts): "real" | "partly real" | "estimate" | "" {
+  if (c.buyCzk == null) return "";
+  if (c.buyReal) return "real";
+  return c.buyInvoiceNumbers.length ? "partly real" : "estimate";
+}
+
+/** "Buy (real, invoice TEST-PINV-001)" · "Buy (partly real, invoices A, B)" · "Buy (estimate)" · "Buy" without a buy. */
+export function buyLabel(c: BuyFacts): string {
+  const source = buySource(c);
+  if (!source) return "Buy";
+  if (source === "estimate") return "Buy (estimate)";
+  const n = c.buyInvoiceNumbers;
+  return `Buy (${source}, ${n.length > 1 ? "invoices" : "invoice"} ${n.join(", ")})`;
+}
+
 /** Whether the margin stops the transport order: below the floor and not approved by a manager. */
 export const marginBlocks = (c: Pick<ConsignmentListItem, "belowFloor" | "marginApproved">) => c.belowFloor && !c.marginApproved;
 

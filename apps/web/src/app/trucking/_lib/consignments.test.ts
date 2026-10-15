@@ -7,6 +7,8 @@ import {
   attentionSummary,
   consignmentActions,
   consignmentLifecycle,
+  buyLabel,
+  buySource,
   marginText,
   nextStep,
   stampKindsFor,
@@ -136,6 +138,19 @@ describe("texts", () => {
     expect(marginText({ marginCzk: null, marginPercent: null })).toBe("—");
     expect(marginText({ marginCzk: 1250, marginPercent: 12.5 })).toMatch(/^1.250 CZK · 12\.5 %$/);
     expect(routeText({ pickupPostcode: "11000", pickupCity: "Praha", deliveryPostcode: "60200", deliveryCity: "Brno" }, formatPsc)).toBe("110 00 Praha → 602 00 Brno");
+  });
+});
+
+describe("buy: real or estimate", () => {
+  it("labels the buy the way the Reports count it", () => {
+    const real = { buyCzk: 13337.5, buyReal: true, buyInvoiceNumbers: ["TEST-PINV-001"] };
+    expect([buySource(real), buyLabel(real)]).toEqual(["real", "Buy (real, invoice TEST-PINV-001)"]);
+    const partly = { buyCzk: 3700, buyReal: false, buyInvoiceNumbers: ["A", "B"] };
+    expect([buySource(partly), buyLabel(partly)]).toEqual(["partly real", "Buy (partly real, invoices A, B)"]);
+    const estimate = { buyCzk: 16087.5, buyReal: false, buyInvoiceNumbers: [] };
+    expect([buySource(estimate), buyLabel(estimate)]).toEqual(["estimate", "Buy (estimate)"]);
+    const none = { buyCzk: null, buyReal: false, buyInvoiceNumbers: [] };
+    expect([buySource(none), buyLabel(none)]).toEqual(["", "Buy"]);
   });
 });
 

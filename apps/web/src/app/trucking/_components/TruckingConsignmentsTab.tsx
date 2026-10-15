@@ -10,7 +10,7 @@ import { Badge } from "@/app/warehouse/gate-log/_lib/gate";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { useConsignments, type ConsignmentListItem, type ConsignmentStatus } from "@/hooks/useTruckingConsignments";
 import { formatDate } from "@/lib/date";
-import { CONSIGNMENT_CHIPS, CONSIGNMENT_STATUS_CHIP, CONSIGNMENT_TILES, attentionSummary, consignmentHref, marginBlocks, marginText, tripHref } from "../_lib/consignments";
+import { CONSIGNMENT_CHIPS, CONSIGNMENT_STATUS_CHIP, CONSIGNMENT_TILES, attentionSummary, buyLabel, buySource, consignmentHref, marginBlocks, marginText, tripHref } from "../_lib/consignments";
 import { formatPsc } from "../_lib/hauliers";
 import { formatMoney, formatQty } from "../_lib/tariffs";
 import { ConsignmentCreateModal } from "./ConsignmentCreateModal";
@@ -126,14 +126,36 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
   },
   { key: "haulier", title: "Haulier", text: (c) => c.haulierName ?? "", render: (_, c) => c.haulierName || dash },
   { key: "sell", title: "Sell CZK", text: (c) => formatMoney(c.sellCzk, "CZK"), sorter: (a, b) => byNumber(a.sellCzk, b.sellCzk) },
-  { key: "buy", title: "Buy CZK", text: (c) => formatMoney(c.buyCzk, "CZK"), sorter: (a, b) => byNumber(a.buyCzk, b.buyCzk) },
+  {
+    key: "buy",
+    title: "Buy CZK",
+    text: (c) => formatMoney(c.buyCzk, "CZK"),
+    sorter: (a, b) => byNumber(a.buyCzk, b.buyCzk),
+    render: (_, c) =>
+      c.buyCzk == null ? (
+        dash
+      ) : (
+        <Tooltip title={buyLabel(c)}>
+          <span>
+            {formatMoney(c.buyCzk, "CZK")} <span className={`text-[11px] ${c.buyReal ? "text-emerald-700" : "text-slate-400"}`}>{buySource(c)}</span>
+          </span>
+        </Tooltip>
+      ),
+  },
   {
     key: "margin",
     title: "Margin",
     text: (c) => marginText(c),
     sorter: (a, b) => byNumber(a.marginCzk, b.marginCzk),
     render: (_, c) => (
-      <Tooltip title={c.belowFloor ? (c.marginApproved ? "Below the margin floor — approved by a manager" : "Below the margin floor — needs a manager's approval") : undefined}>
+      <Tooltip
+        title={[
+          c.belowFloor ? (c.marginApproved ? "Below the margin floor — approved by a manager" : "Below the margin floor — needs a manager's approval") : "",
+          c.marginCzk != null && buySource(c) ? `With the ${buySource(c)} buy` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ") || undefined}
+      >
         <span className={marginBlocks(c) ? "font-semibold text-red-600" : c.belowFloor ? "text-amber-700" : undefined}>{marginText(c)}</span>
       </Tooltip>
     ),

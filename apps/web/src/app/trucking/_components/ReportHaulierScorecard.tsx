@@ -27,6 +27,7 @@ const COLUMNS: AppGridColumn<HaulierScore>[] = [
   },
   { key: "status", title: "Status", text: (h) => haulierStatusLabel(h.status), filterOptions: STATUS_LABELS, render: (_, h) => <HaulierStatusChip status={h.status} /> },
   { key: "trips", title: "Trips", align: "right", text: (h) => String(h.trips), sorter: (a, b) => a.trips - b.trips },
+  { key: "partnerLegs", title: "Partner deliveries", align: "right", text: (h) => String(h.partnerLegs), sorter: (a, b) => a.partnerLegs - b.partnerLegs },
   { key: "consignments", title: "Consignments", align: "right", text: (h) => String(h.consignments), sorter: (a, b) => a.consignments - b.consignments },
   { key: "onTime", title: "On time", align: "right", text: (h) => formatPercent(h.onTimePercent), sorter: (a, b) => byNullable(a.onTimePercent, b.onTimePercent) },
   {
