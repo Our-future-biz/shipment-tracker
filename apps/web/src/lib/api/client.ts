@@ -11785,6 +11785,15 @@ export namespace interfaces {
         transportOrder: TransportOrderState | null
         version: number
         consignmentRefs: string[]
+        /**
+         * Against the vehicle type's capacity (FTL: its consignment's load)
+         */
+        fill: TripFill
+
+        /**
+         * LTL only, never blocking; [] for FTL
+         */
+        warnings: string[]
     }
 
     export type TripPriceInput = {

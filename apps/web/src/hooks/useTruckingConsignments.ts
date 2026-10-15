@@ -45,7 +45,8 @@ export type TripFill = TripDetail["fill"];
 export type TripStampKind = keyof TripDetail["stamps"];
 export type TripPrice = Parameters<typeof api.trucking.truckingTripReprice>[1]["price"];
 export type PlanningBoardRequest = Parameters<typeof api.trucking.truckingPlanningBoard>[0];
-export type LtlTripKind = PlanningBoardRequest["kind"];
+/** The kinds the planning board shows (the API's type also names FTL, which is never planned there). */
+export type LtlTripKind = Exclude<PlanningBoardRequest["kind"], "FTL">;
 export type PlanningBoard = Awaited<ReturnType<typeof api.trucking.truckingPlanningBoard>>;
 export type PlanningLeg = PlanningBoard["unplanned"][number];
 export type PlanningTrip = PlanningBoard["trips"][number];

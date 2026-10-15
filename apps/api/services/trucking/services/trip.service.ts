@@ -99,17 +99,27 @@ class TripService {
 
   async list(actor: Actor, q: { status?: TripStatus; search?: string }): Promise<TripListItem[]> {
     const trips = await tripRepository.list(actor.companyID, { status: q.status });
+    const settings = await settingsService.get(actor.companyID);
     const [consignments, assessments, loads] = await Promise.all([
       consignmentRepository.findByTrips(actor.companyID, trips.filter((t) => t.kind === "FTL").map((t) => t.id)),
       this.haulierAssessments(actor.companyID, trips.map((t) => t.haulierCustomerId)),
-      ltlTrips.loads(actor.companyID, trips.filter((t) => t.kind !== "FTL")),
+      ltlTrips.loads(actor.companyID, trips.filter((t) => t.kind !== "FTL"), settings),
     ]);
     const ofTrip = new Map<string, { id: string; ref: string }[]>();
+    const loadOf = new Map<string, Pick<TripLoadView, "fill" | "warnings">>();
     for (const c of consignments) ofTrip.set(c.tripId!, [...(ofTrip.get(c.tripId!) ?? []), { id: c.id, ref: c.ref }]);
-    for (const [tripId, view] of loads) ofTrip.set(tripId, view.consignments);
+    for (const [tripId, view] of loads) {
+      ofTrip.set(tripId, view.consignments);
+      loadOf.set(tripId, view);
+    }
+    // An FTL trip's fill is its consignment's load against the vehicle type, as on the trip page.
+    const ftlLoad = (t: TruckingTripRecord): Pick<TripLoadView, "fill" | "warnings"> => {
+      const capacity = capacityOf(settings.vehicleTypes.find((v) => v.code === t.vehicleTypeCode) ?? null);
+      return { fill: tripFill(consignments.filter((c) => c.tripId === t.id).map((c) => c.load), capacity), warnings: [] };
+    };
     const search = (q.search ?? "").trim().toLowerCase();
     return trips
-      .map((t) => tripListItem(t, ofTrip.get(t.id) ?? [], assessments.get(t.haulierCustomerId)!, null))
+      .map((t) => tripListItem(t, ofTrip.get(t.id) ?? [], assessments.get(t.haulierCustomerId)!, null, loadOf.get(t.id) ?? ftlLoad(t)))
       .filter((t) => !search || [t.ref, t.haulierName, t.tractorPlate, t.trailerPlate, t.driverName, ...t.consignmentRefs].some((v) => v.toLowerCase().includes(search)));
   }
 

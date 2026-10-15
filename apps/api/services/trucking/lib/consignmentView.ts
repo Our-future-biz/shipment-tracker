@@ -191,7 +191,13 @@ export interface HaulierAssessment {
   issues: HaulierIssue[];
 }
 
-export function tripListItem(t: TruckingTripRecord, consignments: { id: string; ref: string }[], haulier: HaulierAssessment, link: TruckingHaulierLinkRecord | null): TripListItem {
+export function tripListItem(
+  t: TruckingTripRecord,
+  consignments: { id: string; ref: string }[],
+  haulier: HaulierAssessment,
+  link: TruckingHaulierLinkRecord | null,
+  load: Pick<TripLoadView, "fill" | "warnings">,
+): TripListItem {
   return {
     id: t.id,
     ref: t.ref,
@@ -212,6 +218,8 @@ export function tripListItem(t: TruckingTripRecord, consignments: { id: string; 
     transportOrder: transportOrderState(t, link),
     version: t.version,
     consignmentRefs: consignments.map((c) => c.ref),
+    fill: load.fill,
+    warnings: load.warnings,
   };
 }
 
@@ -233,7 +241,7 @@ export function tripDetail(
   events: TruckingEventItem[],
   load: TripLoadView,
 ): TripDetail {
-  const { consignmentRefs: _refs, ...item } = tripListItem(t, consignments, haulier, link);
+  const { consignmentRefs: _refs, ...item } = tripListItem(t, consignments, haulier, link, load);
   void _refs;
   return {
     ...item,

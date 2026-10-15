@@ -29,7 +29,8 @@ interface PartnerLegModalProps {
 export const PartnerLegModal = ({ c, leg, onClose, onSave }: PartnerLegModalProps) => {
   const { hauliers } = useHauliers();
   const [haulierId, setHaulierId] = useState<string | null>(leg.haulierCustomerId ?? c.partnerHaulierCustomerId);
-  const [depot, setDepot] = useState<string | null>(null);
+  // A partner already set with no depot collects at our warehouse.
+  const [depot, setDepot] = useState<string | null>(leg.depotSiteId ?? (leg.haulierCustomerId ? AT_HUB : null));
   const [price, setPrice] = useState<PriceForm>(() =>
     leg.buy?.source === "MANUAL" ? { source: "MANUAL", total: leg.buy.total, currency: leg.buy.currency, reason: leg.buy.overrideReason ?? "" } : emptyPriceForm(),
   );

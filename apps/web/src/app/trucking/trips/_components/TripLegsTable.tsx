@@ -18,9 +18,9 @@ interface TripLegsTableProps {
 // The legs an LTL trip carries, in stop order, with what each weighs and its share of the trip's
 // buy price (split by the haulier's cost-split basis, exact to the cent).
 export const TripLegsTable = ({ trip }: TripLegsTableProps) => {
-  const byId = new Map(trip.legs.map((l) => [l.id, l]));
+  const byId = new Map(trip.legs.map((l) => [l.legId, l]));
   // The stop order names every leg; one it misses (an older answer) goes last.
-  const legs = [...trip.stopOrder.map((id) => byId.get(id)).filter((l) => !!l), ...trip.legs.filter((l) => !trip.stopOrder.includes(l.id))];
+  const legs = [...trip.stopOrder.map((id) => byId.get(id)).filter((l) => !!l), ...trip.legs.filter((l) => !trip.stopOrder.includes(l.legId))];
   const sum = (pick: (l: (typeof legs)[number]) => number) => formatQty(legs.reduce((s, l) => s + pick(l), 0));
 
   if (!legs.length) return <p className="m-0 text-[13px] text-slate-500">No {TERMS.leg.toLowerCase()}s on this trip — add them on the Planning tab.</p>;
@@ -44,7 +44,7 @@ export const TripLegsTable = ({ trip }: TripLegsTableProps) => {
         </thead>
         <tbody>
           {legs.map((l, i) => (
-            <tr key={l.id} className="border-b border-slate-100 last:border-b-0">
+            <tr key={l.legId} className="border-b border-slate-100 last:border-b-0">
               <td className={`${td} tabular-nums text-slate-500`}>{i + 1}</td>
               <td className={td}>
                 <Link href={consignmentHref(l.consignmentId)} className="font-mono font-semibold text-indigo-600 hover:underline">

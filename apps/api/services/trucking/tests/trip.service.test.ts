@@ -117,6 +117,14 @@ describe("FTL trip: haulier and buy price", () => {
     expect(eventsOf("trip_created")[0]!.payload).toMatchObject({ facts: { changedFromSuggestion: false } });
   });
 
+  it("lists an FTL trip with its consignment's fill and no warnings", async () => {
+    const c = await booked();
+    const { trip } = await tripService.createFtl(user, { consignmentId: c.id, haulierCustomerId: null, vehicleTypeCode: "tautliner_136", price: { source: "TARIFF" } });
+    const [item] = await tripService.list(user, {});
+    expect(item).toMatchObject({ id: trip.id, consignmentRefs: [c.ref], fill: trip.fill, warnings: [] });
+    expect(item!.fill.kgPercent).not.toBeNull();
+  });
+
   it("owes the job the planned dates and the buy lines (outbox rows written with the plan)", async () => {
     const c = await booked();
     const { trip } = await tripService.createFtl(user, { consignmentId: c.id, haulierCustomerId: null, vehicleTypeCode: null, price: { source: "TARIFF" } });
