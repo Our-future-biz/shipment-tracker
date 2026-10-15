@@ -29,6 +29,8 @@ const H1 = "00000000-0000-0000-0000-0000000000a1";
 const H2 = "00000000-0000-0000-0000-0000000000a2";
 const H3 = "00000000-0000-0000-0000-0000000000a3";
 const GONE = "00000000-0000-0000-0000-0000000000a9";
+const CUST2 = "00000000-0000-0000-0000-0000000000c2";
+const NOBODY = "00000000-0000-0000-0000-0000000000c3";
 
 const tariff = (id: string, over: object = {}) => ({
   id,
@@ -190,6 +192,47 @@ describe("rate calculator", () => {
     expect(isPriced(d1.sell) && d1.sell).toMatchObject({ tariffId: "cust", tariffName: "Acme LTL", ownerName: "Acme s.r.o.", tariffVersionId: "v-std", total: 2700 });
     expect(isPriced(d1.sell) && d1.sell.lines.at(-1)).toMatchObject({ code: "DISCOUNT", label: "Customer discount −10 %", amount: -300 });
     expect(d1).toMatchObject({ marginCzk: 1200, marginPercent: 44.44, belowFloor: false });
+  });
+
+  describe("Standard list as the fallback", () => {
+    const withMatrix = () => tariffs.list.mockResolvedValue([
+      tariff("std", { side: "SELL", name: "Standard LTL" }),
+      tariff("cust", { side: "SELL", mode: "DISCOUNT", ownerCustomerId: CUST, name: "Acme LTL", discountPercent: 10 }),
+      tariff("m", { side: "SELL", ownerCustomerId: CUST2, name: "Beta LTL" }),
+    ]);
+
+    it("uses the customer's own MATRIX tariff when it has a valid version", async () => {
+      withMatrix();
+      tariffs.bindingOn.mockResolvedValue([version("std", 10), version("m", 8)]);
+      const [d1] = (await rateService.rate(C, request({ customerId: CUST2, includeBuy: false }))).results;
+      expect(d1.sell).toMatchObject({ tariffId: "m", tariffName: "Beta LTL", total: 2400 });
+    });
+
+    it("prices on the Standard list, named so, when the customer's MATRIX has no valid version", async () => {
+      withMatrix();
+      tariffs.bindingOn.mockResolvedValue([version("std", 10)]);
+      const [d1] = (await rateService.rate(C, request({ customerId: CUST2, includeBuy: false }))).results;
+      expect(d1.sell).toMatchObject({ tariffId: "std", tariffName: "Standard (customer list not valid on 15 Oct 2026)", total: 3000 });
+    });
+
+    it("prices a customer without a tariff of its own on the Standard list", async () => {
+      const [d1] = (await rateService.rate(C, request({ customerId: NOBODY, includeBuy: false }))).results;
+      expect(d1.sell).toMatchObject({ tariffId: "std", tariffName: "Standard LTL", total: 3000 });
+    });
+
+    it("keeps a DISCOUNT as the Standard price minus the discount", async () => {
+      const [d1] = (await rateService.rate(C, request({ customerId: CUST, includeBuy: false }))).results;
+      expect(d1.sell).toMatchObject({ tariffName: "Acme LTL", total: 2700 });
+    });
+
+    it("is unpriced, naming both, when neither the customer's list nor the Standard list is valid", async () => {
+      withMatrix();
+      tariffs.bindingOn.mockResolvedValue([]);
+      const [m] = (await rateService.rate(C, request({ customerId: CUST2, includeBuy: false }))).results;
+      expect(m.sell).toEqual({ reason: "Neither Beta LTL nor the Standard LTL sell list has a version valid on 15 Oct 2026" });
+      const [d] = (await rateService.rate(C, request({ customerId: CUST, includeBuy: false }))).results;
+      expect(d.sell).toEqual({ reason: "Neither Acme LTL nor the Standard LTL sell list has a version valid on 15 Oct 2026" });
+    });
   });
 
   it("flags a margin below the floor", async () => {

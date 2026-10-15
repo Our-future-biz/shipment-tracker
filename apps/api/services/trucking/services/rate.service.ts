@@ -94,17 +94,24 @@ class RateService {
       return rateOnVersion(ratingTariff(t, names), { id: v.id, versionNo: v.versionNo, input: v.input }, level, shipment, fuel, fxRate);
     };
 
+    // The customer's own tariff when it has a version valid on the pickup date; else the Standard
+    // list (the fallback), named so in tariffName when a customer tariff exists but is not valid.
+    const standardValid = !!standard && versionOf.has(standard.id);
+    const neither = (customerTariff: TruckingTariffRecord) =>
+      unpriced(`Neither ${customerTariff.name} nor the Standard ${req.scope} sell list has a version valid on ${formatDay(day)}`);
     const sellOn = (level: ServiceLevelSetting["code"]): PricedSide | Unpriced => {
       if (own?.mode === "DISCOUNT") {
-        if (!standard) return unpriced(`No Standard ${req.scope} sell list for ${own.name} to discount`);
+        if (!standard || !standardValid) return neither(own);
         const base = priceOn(standard, level);
-        const v = versionOf.get(standard.id);
-        if (!isPriced(base) || !v) return base;
-        return applyDiscount(base, ratingTariff(own, names), own.discountPercent ?? 0, v.input.rounding.moneyStep);
+        if (!isPriced(base)) return base;
+        return applyDiscount(base, ratingTariff(own, names), own.discountPercent ?? 0, versionOf.get(standard.id)!.input.rounding.moneyStep);
       }
-      const sell = own ?? standard;
-      if (!sell) return unpriced(`No Standard ${req.scope} sell list`);
-      return priceOn(sell, level);
+      if (own && versionOf.has(own.id)) return priceOn(own, level);
+      if (!standard) return own ? neither(own) : unpriced(`No Standard ${req.scope} sell list`);
+      if (own && !standardValid) return neither(own);
+      const base = priceOn(standard, level);
+      if (own && isPriced(base)) return { ...base, tariffName: `Standard (customer list not valid on ${formatDay(day)})` };
+      return base;
     };
 
     const levels = req.serviceLevels
