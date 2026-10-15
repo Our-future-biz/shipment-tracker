@@ -118,7 +118,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
           <span className={`h-2 w-2 rounded-full ${style.dot}`} />
         </span>
         <span className="flex-1 min-w-0 [overflow-wrap:anywhere]">
-          <span className="sr-only">{style.label}</span> <span className="font-semibold text-slate-800">{item.title}</span>
+          <span className="sr-only">{style.label}</span> <span className="font-semibold text-red-600">{item.title}</span>
           {item.detail && <span className="text-slate-600"> {item.detail}</span>}
         </span>
         {item.meta && <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums text-slate-800">{item.meta}</span>}
