@@ -26,6 +26,7 @@ const repo = vi.hoisted(() => ({
   invoiceDifferences: vi.fn(),
   internalGroups: vi.fn(),
 }));
+vi.mock("../repositories/portal.repository", () => ({ portalRepository: { revokeSessionsOfHaulier: vi.fn(async () => undefined) } }));
 vi.mock("../repositories/reports.repository", () => ({ reportsRepository: repo }));
 const gaps = vi.hoisted(() => ({ lastIn: vi.fn() }));
 vi.mock("../repositories/rateGap.repository", () => ({ rateGapRepository: gaps }));

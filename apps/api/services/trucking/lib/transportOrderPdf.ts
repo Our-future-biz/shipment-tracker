@@ -1,6 +1,6 @@
 import type { TransportOrderDoc } from "./documentTypes";
 import { formatDate, label, titleLines, type LabelKey } from "./docFormat";
-import { drawCells, drawDocHeader, drawLoad, drawOrderEnd, drawParties, drawPin, drawRows, issuedLine, orderFooter, stopRows, Writer } from "./docPdf";
+import { drawCells, drawDocHeader, drawLoad, drawOrderEnd, drawParties, drawPin, drawPinNote, drawRows, issuedLine, orderFooter, stopRows, Writer } from "./docPdf";
 
 /**
  * The transport order (přepravní příkaz) we send to the haulier for one trip: parties, loading
@@ -29,6 +29,7 @@ export async function buildTransportOrderPdf(doc: TransportOrderDoc): Promise<Ui
 
   // ── Pick-up PIN (printed only, never logged) ──
   if (doc.pickupPin) drawPin(w, L("pickupPin"), L("pinHint"), doc.pickupPin);
+  else if (doc.pinAsGiven) drawPinNote(w, L("pickupPin"), L("pinAsGiven"));
 
   // ── Loading and unloading places ──
   drawRows(w, L("loadingPlace"), stopRows(doc.pickup, L), L);

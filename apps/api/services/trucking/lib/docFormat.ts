@@ -52,6 +52,7 @@ const LABELS = {
     "Řidič sdělí tento PIN na místě nakládky. Nesdělujte jej nikomu dalšímu.",
     "The driver gives this PIN at the loading place. Do not share it with anyone else.",
   ],
+  pinAsGiven: ["PIN pro nakládku sdělí dispečer.", "Pick-up PIN as given by the dispatcher."],
   pod: ["Potvrzení a doklad o doručení (POD)", "Confirmation and proof of delivery (POD)"],
   podHint: ["Potvrďte příkaz a nahrajte POD na adrese:", "Confirm the order and upload the POD at:"],
   terms: ["Podmínky", "Terms and conditions"],

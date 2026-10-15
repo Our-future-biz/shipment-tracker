@@ -60,6 +60,16 @@ class TripRepository {
     return db.select().from(t).where(and(...clauses)).orderBy(desc(t.plannedPickupDate), desc(t.createdAt)).limit(MAX_LIST);
   }
 
+  /** A haulier's trips whose transport order was sent and that are not cancelled (the haulier portal), newest first. */
+  async forHaulier(companyId: string, haulierCustomerId: string): Promise<TruckingTripRecord[]> {
+    return db
+      .select()
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.haulierCustomerId, haulierCustomerId), isNull(t.deletedAt), isNull(t.cancelledAt), isNotNull(t.orderSentAt)))
+      .orderBy(desc(t.plannedPickupDate), desc(t.createdAt))
+      .limit(MAX_LIST);
+  }
+
   /** The trip row locked FOR UPDATE until the caller's transaction ends (its legs are about to change). */
   async lock(tx: Tx, companyId: string, id: string): Promise<TruckingTripRecord | null> {
     const [row] = await tx.select().from(t).where(and(eq(t.companyId, companyId), eq(t.id, id), isNull(t.deletedAt))).for("update");

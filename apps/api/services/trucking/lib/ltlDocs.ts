@@ -197,6 +197,8 @@ export interface LtlTransportOrderInput extends Omit<ManifestInput, "capacity" |
   issuedAt: Date;
   paymentDays: number;
   pickupPin: string | null;
+  /** No PIN: the order says the dispatcher gives it (the haulier portal's copy) */
+  pinAsGiven?: boolean;
   podLink: string | null;
 }
 
@@ -222,6 +224,7 @@ export function ltlTransportOrderDoc(i: LtlTransportOrderInput): LtlTransportOrd
     vehicle: i.vehicle,
     consignment: { ref: refs.join(", "), jobNumber: jobs.join(", "), pickup: ends.from, delivery: ends.to ?? ends.from, load: loads[0] ?? emptyLoad },
     pickupPin: i.pickupPin,
+    pinAsGiven: i.pinAsGiven,
     podLink: i.podLink,
   });
   const stops: TransportOrderStop[] = i.legs.map((l) => {

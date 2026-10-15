@@ -20,6 +20,7 @@ export class APIError extends Error {
   static permissionDenied = (message: string) => new APIError("permission_denied", message);
   static alreadyExists = (message: string) => new APIError("already_exists", message);
   static unavailable = (message: string) => new APIError("unavailable", message);
+  static unauthenticated = (message: string) => new APIError("unauthenticated", message);
 
   withDetails(details: Record<string, unknown>) {
     return new APIError(this.code, this.message, details);

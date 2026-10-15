@@ -1,5 +1,5 @@
 import { APIError } from "encore.dev/api";
-import { inTx } from "../db/db";
+import { inTx, type Tx } from "../db/db";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
 import { truckingDocumentRepository } from "../repositories/truckingDocument.repository";
@@ -7,6 +7,7 @@ import { appendEvent } from "../repositories/event.repository";
 import type { TruckingConsignmentRecord, TruckingHaulierLinkRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
 import type { PublicTransportOrder, Stop } from "../interfaces/interfaces";
 import { consignmentStatus, stampTime, tripStatus } from "../lib/consignmentRules";
+import { ltlTripStatus } from "../lib/ltlRules";
 import { factsOf } from "../lib/consignmentView";
 import { hashToken, looksLikeToken, tokenMatches } from "../lib/haulierToken";
 import { checkUpload } from "../lib/truckingFiles";
@@ -32,7 +33,7 @@ interface Opened {
 const publicStop = ({ id: _id, siteId: _siteId, ...s }: Stop): PublicTransportOrder["pickup"] => s;
 
 /** Updates the haulier causes are sent to the job as the user who sent the transport order. */
-const senderOf = (trip: TruckingTripRecord) => ({ userID: trip.orderSentByUserId ?? "", role: trip.orderSentByRole ?? "", companyID: trip.companyId });
+export const senderOf = (trip: TruckingTripRecord) => ({ userID: trip.orderSentByUserId ?? "", role: trip.orderSentByRole ?? "", companyID: trip.companyId });
 
 export function publicOrder(o: Opened, podUploaded: boolean): PublicTransportOrder {
   const { trip, c, link } = o;
@@ -50,6 +51,52 @@ export function publicOrder(o: Opened, podUploaded: boolean): PublicTransportOrd
     podUploaded,
     linkExpiresAt: link.expiresAt.toISOString(),
   };
+}
+
+/**
+ * The haulier's answer to a transport order, once (a second answer is refused): the trip
+ * confirmed (with an FTL trip's consignment) or rejected with the reason, and the event. `via`
+ * says where it came from: the order's link or the haulier portal (both stored as LINK).
+ */
+export async function recordAnswer(
+  tx: Tx,
+  trip: TruckingTripRecord,
+  c: TruckingConsignmentRecord | null,
+  action: "CONFIRM" | "REJECT",
+  who: string,
+  reason: string,
+  via: "LINK" | "PORTAL",
+): Promise<void> {
+  const companyId = trip.companyId;
+  const now = new Date();
+  const confirmedStatus = trip.kind === "FTL" ? tripStatus({ ...trip, confirmedAt: now }, c) : ltlTripStatus({ ...trip, confirmedAt: now });
+  const values =
+    action === "CONFIRM" ? { confirmedAt: now, confirmedVia: "LINK" as const, confirmedBy: who, status: confirmedStatus } : { rejectedAt: now, rejectReason: reason };
+  const row = await tripRepository.update(tx, companyId, trip.id, values, { live: true, sent: true, unanswered: true });
+  if (!row) throw APIError.failedPrecondition("This transport order was already answered");
+  if (action === "CONFIRM" && trip.kind === "FTL" && c && !c.confirmedAt) {
+    await consignmentRepository.update(
+      tx,
+      companyId,
+      c.id,
+      { confirmedAt: now, confirmedBy: who, status: consignmentStatus({ ...factsOf(c, row), confirmedAt: now }) },
+      { stampEmpty: "confirmed", tripId: trip.id },
+    );
+  }
+  await appendEvent(tx, companyId, {
+    kind: action === "CONFIRM" ? "transport_order_confirmed" : "transport_order_rejected",
+    tripId: trip.id,
+    consignmentId: c?.id ?? null,
+    customerId: trip.haulierCustomerId,
+    byUserId: null,
+    byName: who,
+    payload: {
+      changes: {},
+      ...(reason ? { reason } : {}),
+      summary: action === "CONFIRM" ? `Transport order ${trip.ref} confirmed by the haulier` : `Transport order ${trip.ref} rejected by the haulier: ${reason}`,
+      facts: { via },
+    },
+  });
 }
 
 const name = (v: unknown, what: string, min: number, max: number): string => {
@@ -86,39 +133,7 @@ class PublicOrderService {
     const who = `${name(input.name, "Give your name", 2, MAX_NAME)} (haulier)`;
     const reason = action === "REJECT" ? name(input.reason, "Give the reason for rejecting", 3, MAX_REASON) : "";
     if (trip.confirmedAt || trip.rejectedAt) throw APIError.failedPrecondition("This transport order was already answered");
-    const companyId = trip.companyId;
-    const now = new Date();
-    await inTx(async (tx) => {
-      const values =
-        action === "CONFIRM"
-          ? { confirmedAt: now, confirmedVia: "LINK" as const, confirmedBy: who, status: tripStatus({ ...trip, confirmedAt: now }, c) }
-          : { rejectedAt: now, rejectReason: reason };
-      const row = await tripRepository.update(tx, companyId, trip.id, values, { live: true, sent: true, unanswered: true });
-      if (!row) throw APIError.failedPrecondition("This transport order was already answered");
-      if (action === "CONFIRM" && !c.confirmedAt) {
-        await consignmentRepository.update(
-          tx,
-          companyId,
-          c.id,
-          { confirmedAt: now, confirmedBy: who, status: consignmentStatus({ ...factsOf(c, row), confirmedAt: now }) },
-          { stampEmpty: "confirmed", tripId: trip.id },
-        );
-      }
-      await appendEvent(tx, companyId, {
-        kind: action === "CONFIRM" ? "transport_order_confirmed" : "transport_order_rejected",
-        tripId: trip.id,
-        consignmentId: c.id,
-        customerId: trip.haulierCustomerId,
-        byUserId: null,
-        byName: who,
-        payload: {
-          changes: {},
-          ...(reason ? { reason } : {}),
-          summary: action === "CONFIRM" ? `Transport order ${trip.ref} confirmed by the haulier` : `Transport order ${trip.ref} rejected by the haulier: ${reason}`,
-          facts: { via: "LINK" },
-        },
-      });
-    });
+    await inTx((tx) => recordAnswer(tx, trip, c, action, who, reason, "LINK"));
     return this.get(token);
   }
 

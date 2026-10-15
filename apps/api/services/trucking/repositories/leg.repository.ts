@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, ne, type SQL } from "drizzle-orm";
 import { db, type Tx } from "../db/db";
 import { truckingGateEventTable, truckingLegTable, type NewTruckingLegRecord, type TruckingLegRecord } from "../schemas/truckingConsignment.schema";
 import type { LegKind, LegStatus } from "../interfaces/interfaces";
@@ -65,6 +65,16 @@ class LegRepository {
       .from(l)
       .where(and(...live(companyId), eq(l.kind, kind), eq(l.status, "OPEN"), isNull(l.tripId)))
       .orderBy(asc(l.createdAt))
+      .limit(MAX_OPEN);
+  }
+
+  /** A partner's deliveries: live delivery legs on no trip given to the haulier (priced or done), at most 2000. */
+  async partnerFor(companyId: string, haulierCustomerId: string): Promise<TruckingLegRecord[]> {
+    return db
+      .select()
+      .from(l)
+      .where(and(...live(companyId), eq(l.kind, "DELIVERY"), isNull(l.tripId), eq(l.haulierCustomerId, haulierCustomerId), ne(l.status, "OPEN")))
+      .orderBy(desc(l.createdAt))
       .limit(MAX_OPEN);
   }
 

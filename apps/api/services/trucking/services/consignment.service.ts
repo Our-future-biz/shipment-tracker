@@ -803,23 +803,41 @@ class ConsignmentService {
    * past time within 7 days is allowed.
    */
   async stamp(actor: Actor, id: string, kind: StampKind, at: string | null): Promise<ConsignmentDetail> {
+    await this.stampChecked(actor, id, kind, at, { by: await userName(actor.userID), source: "USER", manager: isManager(actor.role) });
+    return this.get(actor, id);
+  }
+
+  /**
+   * Sets one stamp with every check of `stamp` (the lifecycle order, the trip's transport order,
+   * an LTL consignment's legs and gate-in, the time), as `who`: a user, or the haulier through the
+   * portal (source HAULIER, never a manager). Delivers what the job is owed.
+   */
+  async stampChecked(
+    actor: Pick<Actor, "userID" | "role" | "companyID">,
+    id: string,
+    kind: StampKind,
+    at: string | null,
+    who: { by: string; source: "USER" | "HAULIER"; manager: boolean },
+  ): Promise<void> {
     if (!STAMP_KINDS.includes(kind)) throw bad("Unknown stamp");
     const { c, trip } = await this.load(actor.companyID, id);
     const facts = factsOf(c, trip);
     if (facts[STAMP_COLUMNS[kind].at]) throw APIError.alreadyExists("Already stamped");
-    const hasPod = kind === "podReceived" ? await truckingDocumentRepository.hasPod(actor.companyID, id) : false;
-    const opts = { hasPod, manager: isManager(actor.role) };
-    const refusal =
-      c.scope === "LTL"
-        ? ltlStampRefusal(kind, c, await this.ltlContext(actor.companyID, [c.id]).then((x) => ltlFactsOf(c, x.legs, x.tripOf).legs), opts)
-        : stampRefusal(kind, facts, opts);
+    const refusal = await this.stampRefusalOf(c, trip, kind, who.manager);
     if (refusal) throw APIError.failedPrecondition(refusal);
     const time = stampTime(at, new Date());
     assertAfterEarlier(kind, facts, time);
-    const by = await userName(actor.userID);
-    await inTx((tx) => this.stampInTx(tx, actor, c, trip, kind, time, by, "USER"));
+    await inTx((tx) => this.stampInTx(tx, actor, c, trip, kind, time, who.by, who.source));
     await deliverDue(id);
-    return this.get(actor, id);
+  }
+
+  /** Why the stamp may not be set on the consignment now (FTL or LTL rules), or null. */
+  async stampRefusalOf(c: TruckingConsignmentRecord, trip: TruckingTripRecord | null, kind: StampKind, manager: boolean): Promise<string | null> {
+    const hasPod = kind === "podReceived" ? await truckingDocumentRepository.hasPod(c.companyId, c.id) : false;
+    const opts = { hasPod, manager };
+    return c.scope === "LTL"
+      ? ltlStampRefusal(kind, c, await this.ltlContext(c.companyId, [c.id]).then((x) => ltlFactsOf(c, x.legs, x.tripOf).legs), opts)
+      : stampRefusal(kind, factsOf(c, trip), opts);
   }
 
   /**

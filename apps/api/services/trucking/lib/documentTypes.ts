@@ -58,6 +58,7 @@ export interface TransportOrderDoc {
   agreedPrice: { total: number; currency: string; note: string } | null;
   paymentTerms: string; // "30 days after invoice with original POD"
   pickupPin: string | null; // printed only; never stored
+  pinAsGiven?: boolean; // no PIN printed: "Pick-up PIN as given by the dispatcher" (the haulier portal's copy)
   podLink: string | null; // URL for confirmation and POD upload
   terms: string[]; // numbered conditions printed at the end (SSL terms reference, liability, ADR, …)
 }

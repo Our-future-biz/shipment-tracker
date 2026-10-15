@@ -1,6 +1,7 @@
 import { APIError } from "encore.dev/api";
 import { customers } from "~encore/clients";
 import { haulierRepository, type StoredProfile } from "../repositories/haulier.repository";
+import { portalRepository } from "../repositories/portal.repository";
 import type {
   HaulierDetail,
   HaulierIssue,
@@ -23,6 +24,9 @@ import {
 import { isManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { settingsService } from "./settings.service";
+import type { Actor } from "../../../lib/rbac";
+
+type CallAs = Pick<Actor, "userID" | "companyID" | "role">;
 
 export const HAULIER_CONFLICT = "The haulier was changed by someone else. Reload and try again.";
 const MAX_REASON = 500;
@@ -103,9 +107,9 @@ const editable = (p: HaulierProfile): Omit<HaulierProfileInput, "preferredLanes"
 
 class HaulierService {
   /** The company in the Customer Database, if it is a live haulier there. */
-  private async company(customerId: string): Promise<HaulierCompanyItem> {
+  private async company(customerId: string, as?: CallAs): Promise<HaulierCompanyItem> {
     if (!isUuid(customerId)) throw APIError.notFound("Haulier not found");
-    const { hauliers } = await customers._internalHaulierList({ ids: [customerId] });
+    const { hauliers } = await customers._internalHaulierList({ ids: [customerId] }, as ? { authData: as } : undefined);
     const company = hauliers.find((h) => h.id === customerId);
     if (!company) throw APIError.notFound("Haulier not found");
     return company;
@@ -153,8 +157,9 @@ class HaulierService {
       .sort((a, b) => a.companyName.localeCompare(b.companyName, "cs"));
   }
 
-  async get(companyId: string, customerId: string): Promise<HaulierDetail> {
-    const company = await this.company(customerId);
+  /** `as`: who the Customer Database is asked as when the request has no app user (the haulier portal). */
+  async get(companyId: string, customerId: string, as?: CallAs): Promise<HaulierDetail> {
+    const company = await this.company(customerId, as);
     return this.detail(company, await haulierRepository.find(companyId, customerId));
   }
 
@@ -231,6 +236,8 @@ class HaulierService {
       },
     });
     if (!saved) throw APIError.aborted(HAULIER_CONFLICT);
+    // A blocked haulier's portal users are logged out (and refused until the block is lifted).
+    if (blocked) await portalRepository.revokeSessionsOfHaulier(companyId, customerId);
     return this.get(companyId, customerId);
   }
 }

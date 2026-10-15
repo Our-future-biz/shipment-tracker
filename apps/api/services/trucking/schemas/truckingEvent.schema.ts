@@ -58,7 +58,16 @@ export type TruckingEventKind =
   | "exception_photo_added"
   | "internal_charged"
   | "internal_reversed"
-  | "internal_month_closed";
+  | "internal_month_closed"
+  // Haulier portal (customerId = the haulier; facts.portalUserId)
+  | "portal_user_created"
+  | "portal_user_reset"
+  | "portal_user_disabled"
+  | "portal_user_enabled"
+  | "portal_password_set"
+  | "portal_login"
+  | "portal_login_failed"
+  | "portal_logout";
 
 /** One changed field: what it was and what it became. */
 export interface TruckingFieldChange {

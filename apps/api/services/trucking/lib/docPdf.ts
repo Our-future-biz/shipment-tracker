@@ -265,6 +265,18 @@ export function drawPin(w: Writer, title: string, hint: string, pin: string) {
   w.y = top - h - 12;
 }
 
+/** The PIN box without a PIN: only the note where the PIN comes from. */
+export function drawPinNote(w: Writer, title: string, note: string) {
+  const lines = w.wrap(note, 9, FULL - 24);
+  const h = 26 + lines.length * 11;
+  w.ensure(h);
+  const top = w.y;
+  w.box(M, top, FULL, h, { fill: TINT, border: ACCENT, borderWidth: 1.5 });
+  w.text(title.toUpperCase(), M + 12, top - 16, 9, { bold: true, color: ACCENT });
+  lines.forEach((l, i) => w.text(l, M + 12, top - 30 - i * 11, 9, { color: DARK }));
+  w.y = top - h - 12;
+}
+
 /** A tinted section title bar across the content width; starts a new page first when the bar and `next` points do not fit. */
 export function sectionTitle(w: Writer, title: string, next: number) {
   w.ensure(22 + next);
