@@ -1308,8 +1308,8 @@ export namespace quotes {
         }
 
         /**
-         * A manager approves the margin of a quote below the margin floor, with a reason. Stores the
-         * current margin as the approved one. Refused when the margin is above the floor.
+         * A manager approves a road margin below the Trucking floor: the current margin is stored with
+         * the approval, and the quote may be sent while its margin stays the same or better.
          */
         public async salesQuoteMarginApprove(quoteNumber: string, params: controllers.SalesQuoteMarginApproveRequest): Promise<controllers.SalesQuoteMarginApproveResponse> {
             // Now make the actual call to the API
@@ -1324,9 +1324,8 @@ export namespace quotes {
         }
 
         /**
-         * Prices the road transport of a quote from the trucking tariffs at one service level and
-         * haulier: writes road, roadPricing and the trucking lines (other lines untouched) and clears
-         * the margin approval.
+         * Prices a quote's road transport from the trucking tariffs: replaces its trucking lines (other
+         * lines stay), records the pricing and voids an earlier margin approval.
          */
         public async salesQuoteRoadPrice(quoteNumber: string, params: controllers.SalesQuoteRoadPriceRequest): Promise<controllers.SalesQuoteRoadPriceResponse> {
             // Now make the actual call to the API
@@ -5143,11 +5142,10 @@ export namespace controllers {
     }
 
     export interface SalesQuoteMarginApproveRequest {
-        /**
-         * Why the margin is accepted (3-500 characters).
-         */
         reason: string
-
+        /**
+         * The dataVersion the caller's copy is based on. No longer current: conflict (HTTP 409).
+         */
         expectedDataVersion: number
     }
 
@@ -5171,18 +5169,28 @@ export namespace controllers {
     }
 
     export interface SalesQuoteRoadPriceRequest {
+        /**
+         * The road transport as entered; stored on the quote as `road`.
+         */
         road: interfaces.QuoteRoadInput
+
         serviceLevel: interfaces.ServiceLevelCode
         /**
-         * null = the engine's first buy candidate (preferred, then cheapest).
+         * The haulier to buy from; null = the first candidate (preferred lane, then cheapest).
          */
         haulierCustomerId: string | null
 
+        /**
+         * The dataVersion the caller's copy is based on. No longer current: conflict (HTTP 409).
+         */
         expectedDataVersion: number
     }
 
     export interface SalesQuoteRoadPriceResponse {
         quote: interfaces.SalesQuoteItem
+        /**
+         * The rating of the chosen level the quote was priced with.
+         */
         result: interfaces.RateLevelResult
     }
 
@@ -9138,31 +9146,35 @@ export namespace interfaces {
     }
 
     /**
-     * A manager's approval of a margin below the floor: the margin that was approved.
+     * A manager's approval of a margin below the floor (data.marginApproval; the server's key).
      */
     export interface QuoteMarginApproval {
         byUserId: string
         byName: string
         at: string
         reason: string
+        /**
+         * The margin that was approved.
+         */
         marginCzk: number
+
         marginPercent: number | null
     }
 
     /**
-     * What the Road transport card of a quote prices.
+     * The road transport of a quote as the Sales editor enters it (data.road; the editor's key).
      */
     export interface QuoteRoadInput {
-        fromSiteId: string | null
         /**
-         * CZ PSČ as typed ("110 00"); server normalises
+         * CZ PSČ as typed ("110 00"); the server normalises it for pricing.
          */
-        fromPostcode: string
+        fromSiteId: string | null
 
+        fromPostcode: string
         toSiteId: string | null
         toPostcode: string
         /**
-         * null date = "today" when pricing
+         * null date = "today" when pricing.
          */
         pickupDate: string | null
 
@@ -9382,6 +9394,42 @@ export namespace interfaces {
         reason: string
     }
 
+    /**
+     * The margin of a road quote against the Trucking margin floor. Amounts in CZK.
+     */
+    export interface RoadMargin {
+        sellingCzk: number
+        buyingCzk: number
+        /**
+         * null when a line could not be converted to CZK (see problem).
+         */
+        marginCzk: number | null
+
+        /**
+         * null when nothing is sold.
+         */
+        marginPercent: number | null
+
+        floorPercent: number
+        floorMinCzk: number
+        belowFloor: boolean
+        approval: QuoteMarginApproval | null
+        /**
+         * The approval covers the margin as it is now: it is the same or better than the one approved.
+         */
+        approvalValid: boolean
+
+        /**
+         * belowFloor && !approvalValid: the quote is not sent until a manager approves.
+         */
+        needsApproval: boolean
+
+        /**
+         * Why the margin cannot be worked out, e.g. "No ČNB rate for EUR on 2026-10-15".
+         */
+        problem: string | null
+    }
+
     export interface RoeChange {
         id: string
         effectiveFrom: string
@@ -9490,6 +9538,13 @@ export namespace interfaces {
         shipmentId: string | null
         shipmentJobNumber: string | null
         /**
+         * What the quote earns on road transport and whether that is enough: worked out on every read
+         * for a quote whose serviceType is "Road" or that has a line priced from a trucking tariff;
+         * null for any other quote.
+         */
+        roadMargin: RoadMargin | null
+
+        /**
          * What the signed-in user may do with this quote.
          */
         permissions: {
@@ -9510,34 +9565,10 @@ export namespace interfaces {
             deleteBlockedReason?: string
 
             /**
-             * Whether the user may approve a margin below the floor (manager roles).
+             * Whether the user may approve a margin below the Trucking margin floor (a manager).
              */
             canApproveMargin: boolean
         }
-
-        /**
-         * The margin of a road quote against the margin floor; null when the rule does not apply.
-         */
-        roadMargin: {
-            sellingCzk: number
-            buyingCzk: number
-            marginCzk: number | null
-            marginPercent: number | null
-            floorPercent: number
-            floorMinCzk: number
-            belowFloor: boolean
-            approval: QuoteMarginApproval | null
-            approvalValid: boolean
-            /**
-             * belowFloor && !approvalValid
-             */
-            needsApproval: boolean
-
-            /**
-             * e.g. "No ČNB rate for EUR on 2026-10-15"
-             */
-            problem: string | null
-        } | null
     }
 
     /**
