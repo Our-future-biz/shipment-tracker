@@ -1888,6 +1888,11 @@ export namespace shipments {
     }
 }
 
+/**
+ * Trucking: road transport by subcontracted hauliers. Phase 1 holds the trucking settings
+ * (service levels, vehicle types, chargeable-weight factors, margin floor, transport-order texts)
+ * and each haulier's trucking profile (insurance, licence, VAT checks, block, preferred lanes).
+ */
 export namespace trucking {
 
     export class ServiceClient {
@@ -1904,31 +1909,30 @@ export namespace trucking {
             this.truckingSettingsUpdate = this.truckingSettingsUpdate.bind(this)
         }
 
-        public async truckingHaulierBlock(customerId: string, params: {
-    reason: string
-}): Promise<{
-    haulier: interfaces.HaulierDetail
-}> {
+        /**
+         * Blocks a haulier (manager): it cannot be put on a trip until unblocked.
+         */
+        public async truckingHaulierBlock(customerId: string, params: controllers.TruckingHaulierBlockRequest): Promise<interfaces.TruckingHaulierResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/hauliers/${encodeURIComponent(customerId)}/block`, JSON.stringify(params))
-            return await resp.json() as {
-    haulier: interfaces.HaulierDetail
-}
+            return await resp.json() as interfaces.TruckingHaulierResponse
         }
 
-        public async truckingHaulierGet(customerId: string): Promise<{
-    haulier: interfaces.HaulierDetail
-}> {
+        /**
+         * One haulier with its trucking profile (the defaults, version 0, when none is saved yet).
+         * 404 when the customer is not a haulier.
+         */
+        public async truckingHaulierGet(customerId: string): Promise<interfaces.TruckingHaulierResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/hauliers/${encodeURIComponent(customerId)}`)
-            return await resp.json() as {
-    haulier: interfaces.HaulierDetail
-}
+            return await resp.json() as interfaces.TruckingHaulierResponse
         }
 
-        public async truckingHaulierList(params: controllers.TruckingHaulierListRequest): Promise<{
-    hauliers: interfaces.HaulierListItem[]
-}> {
+        /**
+         * Every company of the Customer Database with the role "haulier", with its trucking status and
+         * issues (a haulier without a profile is listed as blocked: no insurance and licence on file).
+         */
+        public async truckingHaulierList(params: controllers.TruckingHaulierListRequest): Promise<controllers.TruckingHaulierListResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 search: params.search,
@@ -1937,51 +1941,42 @@ export namespace trucking {
 
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/hauliers`, undefined, {query})
-            return await resp.json() as {
-    hauliers: interfaces.HaulierListItem[]
-}
+            return await resp.json() as controllers.TruckingHaulierListResponse
         }
 
-        public async truckingHaulierUnblock(customerId: string, params: {
-    reason: string
-}): Promise<{
-    haulier: interfaces.HaulierDetail
-}> {
+        /**
+         * Lifts the block (manager), with the reason.
+         */
+        public async truckingHaulierUnblock(customerId: string, params: controllers.TruckingHaulierBlockRequest): Promise<interfaces.TruckingHaulierResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/hauliers/${encodeURIComponent(customerId)}/unblock`, JSON.stringify(params))
-            return await resp.json() as {
-    haulier: interfaces.HaulierDetail
-}
+            return await resp.json() as interfaces.TruckingHaulierResponse
         }
 
-        public async truckingHaulierUpdate(customerId: string, params: controllers.TruckingHaulierUpdateRequest): Promise<{
-    haulier: interfaces.HaulierDetail
-}> {
+        /**
+         * Saves a haulier's trucking profile (any user). The block is changed only by block / unblock.
+         */
+        public async truckingHaulierUpdate(customerId: string, params: controllers.TruckingHaulierUpdateRequest): Promise<interfaces.TruckingHaulierResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/trucking/hauliers/${encodeURIComponent(customerId)}`, JSON.stringify(params))
-            return await resp.json() as {
-    haulier: interfaces.HaulierDetail
-}
+            return await resp.json() as interfaces.TruckingHaulierResponse
         }
 
-        public async truckingSettingsGet(): Promise<{
-    settings: interfaces.TruckingSettings
-}> {
+        /**
+         * Trucking settings: service levels, vehicle types, chargeable-weight factors, margin floor and
+         * the transport-order e-mail texts. Everyone signed in may read them (the defaults, version 0,
+         * until a manager saves); only a manager changes them.
+         */
+        public async truckingSettingsGet(): Promise<controllers.TruckingSettingsResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/settings`)
-            return await resp.json() as {
-    settings: interfaces.TruckingSettings
-}
+            return await resp.json() as controllers.TruckingSettingsResponse
         }
 
-        public async truckingSettingsUpdate(params: controllers.TruckingSettingsUpdateRequest): Promise<{
-    settings: interfaces.TruckingSettings
-}> {
+        public async truckingSettingsUpdate(params: controllers.TruckingSettingsUpdateRequest): Promise<controllers.TruckingSettingsResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/trucking/settings`, JSON.stringify(params))
-            return await resp.json() as {
-    settings: interfaces.TruckingSettings
-}
+            return await resp.json() as controllers.TruckingSettingsResponse
         }
     }
 }
@@ -5770,47 +5765,102 @@ export namespace controllers {
         terms: interfaces.TermsConditionItem
     }
 
+    export interface TruckingHaulierBlockRequest {
+        /**
+         * Why (3 to 500 characters)
+         */
+        reason: string
+    }
+
+    export interface TruckingHaulierBlockRequest {
+        /**
+         * Why (3 to 500 characters)
+         */
+        reason: string
+    }
+
     export interface TruckingHaulierListRequest {
         status?: interfaces.HaulierStatus
+        /**
+         * Part of the company name, IČO or city
+         */
         search?: string
+    }
+
+    export interface TruckingHaulierListResponse {
+        hauliers: interfaces.HaulierListItem[]
     }
 
     export interface TruckingHaulierUpdateRequest {
         insurer: string
         insurancePolicyNo: string
         insuranceLimit: number | null
+        /**
+         * "CZK" | "EUR"
+         */
         insuranceCurrency: string
+
+        /**
+         * YYYY-MM-DD
+         */
         insuranceValidTo: string | null
+
         licenceNo: string
+        /**
+         * YYYY-MM-DD; ignored when licenceUnlimited
+         */
         licenceValidTo: string | null
+
         licenceUnlimited: boolean
         adrCapable: boolean
+        /**
+         * Vehicle type codes of the trucking settings
+         */
         vehicleTypes: string[]
+
         paymentDays: number
+        /**
+         * "CZK" | "EUR"
+         */
         currency: string
+
         vatUnreliable: boolean
         bankAccountPublished: boolean
+        /**
+         * YYYY-MM-DD
+         */
         vatCheckedAt: string | null
+
         costSplitBasis: interfaces.CostSplitBasis
         notes: string
-        preferredLanes: {
-            id?: string
-            originPostcodeFrom: string
-            originPostcodeTo: string
-            destPostcodeFrom: string
-            destPostcodeTo: string
-            serviceKind: interfaces.LaneServiceKind
-            note: string
-        }[]
+        /**
+         * The whole list; lanes without id are new, lanes left out are removed.
+         */
+        preferredLanes: interfaces.PreferredLaneInput[]
+
+        /**
+         * The version read (0 when none is saved yet); a save on top of a newer one is refused with 409.
+         */
         version: number
     }
 
+    export interface TruckingSettingsResponse {
+        settings: interfaces.TruckingSettings
+    }
+
     export interface TruckingSettingsUpdateRequest {
+        /**
+         * All 8 service levels
+         */
         serviceLevels: interfaces.ServiceLevelSetting[]
+
         vehicleTypes: interfaces.VehicleTypeSetting[]
         factors: interfaces.ChargeableFactors
         marginFloor: interfaces.MarginFloor
         transportOrder: interfaces.TransportOrderTexts
+        /**
+         * The version read (0 when none is saved yet); a save on top of a newer one is refused with 409.
+         */
         version: number
     }
 
@@ -6411,8 +6461,19 @@ export namespace interfaces {
     }
 
     export interface ChargeableFactors {
+        /**
+         * Default 1750
+         */
         kgPerLdm: number
+
+        /**
+         * Default 250
+         */
         kgPerCbm: number
+
+        /**
+         * Default 400
+         */
         kgPerPalletPlace: number
     }
 
@@ -7632,14 +7693,25 @@ export namespace interfaces {
         ico: string
         dic: string
         city: string
+        /**
+         * Defaults when none is saved yet (version 0)
+         */
         profile: HaulierProfile
+
         status: HaulierStatus
         issues: HaulierIssue[]
     }
 
     export interface HaulierIssue {
         code: HaulierIssueCode
+        /**
+         * block = cannot be put on a trip
+         */
         severity: "block" | "warn"
+
+        /**
+         * Plain English, e.g. "Carrier liability insurance expired on 30 Sep 2026"
+         */
         message: string
     }
 
@@ -7647,7 +7719,11 @@ export namespace interfaces {
 
     export interface HaulierListItem {
         customerId: string
+        /**
+         * From the Customer Database
+         */
         companyName: string
+
         ico: string
         city: string
         hasProfile: boolean
@@ -7664,24 +7740,80 @@ export namespace interfaces {
         customerId: string
         insurer: string
         insurancePolicyNo: string
+        /**
+         * Carrier liability limit
+         */
         insuranceLimit: number | null
+
+        /**
+         * "CZK" | "EUR"
+         */
         insuranceCurrency: string
+
+        /**
+         * YYYY-MM-DD
+         */
         insuranceValidTo: string | null
+
+        /**
+         * Road transport licence (koncese)
+         */
         licenceNo: string
+
+        /**
+         * YYYY-MM-DD; ignored when licenceUnlimited
+         */
         licenceValidTo: string | null
+
+        /**
+         * A CZ koncese is usually issued without an end date
+         */
         licenceUnlimited: boolean
+
         adrCapable: boolean
+        /**
+         * VehicleTypeSetting.code values
+         */
         vehicleTypes: string[]
+
+        /**
+         * >= 0, default 30
+         */
         paymentDays: number
+
+        /**
+         * "CZK" | "EUR"
+         */
         currency: string
+
+        /**
+         * Nespolehlivý plátce DPH (manual for now)
+         */
         vatUnreliable: boolean
+
+        /**
+         * Account published in the VAT register (manual for now)
+         */
         bankAccountPublished: boolean
+
+        /**
+         * YYYY-MM-DD of the last manual check; older than 30 days gives vat_check_due (warn)
+         */
         vatCheckedAt: string | null
+
+        /**
+         * Default chargeable_weight
+         */
         costSplitBasis: CostSplitBasis
+
         blocked: boolean
         blockReason: string
         blockedAt: string | null
+        /**
+         * Display name
+         */
         blockedBy: string | null
+
         notes: string
         preferredLanes: PreferredLane[]
         version: number
@@ -8106,7 +8238,14 @@ export namespace interfaces {
     export type LaneServiceKind = "ANY" | "LTL" | "FTL" | "LINEHAUL"
 
     export interface MarginFloor {
+        /**
+         * 0..100, default 8
+         */
         percent: number
+
+        /**
+         * >= 0, default 300
+         */
         minAmountCzk: number
     }
 
@@ -8417,6 +8556,23 @@ export namespace interfaces {
 
     export interface PreferredLane {
         id: string
+        /**
+         * 5-digit CZ PSČ, normalised; from <= to
+         */
+        originPostcodeFrom: string
+
+        originPostcodeTo: string
+        destPostcodeFrom: string
+        destPostcodeTo: string
+        serviceKind: LaneServiceKind
+        note: string
+    }
+
+    /**
+     * A preferred lane as sent in a profile save; a lane without id is a new one.
+     */
+    export interface PreferredLaneInput {
+        id?: string
         originPostcodeFrom: string
         originPostcodeTo: string
         destPostcodeFrom: string
@@ -8745,9 +8901,21 @@ export namespace interfaces {
 
     export interface ServiceLevelSetting {
         code: ServiceLevelCode
+        /**
+         * "+1 day", "Express by 10:00"…
+         */
         label: string
+
+        /**
+         * D1..D4 = 1..4; EXP_SAMEDAY = 0; EXP_1000/EXP_1200 = 1; EXP_FIXED = 0 (date agreed per order)
+         */
         workingDays: number
+
+        /**
+         * "HH:MM" Europe/Prague, order cut-off for that level
+         */
         cutoff: string
+
         active: boolean
     }
 
@@ -9298,18 +9466,33 @@ export namespace interfaces {
     }
 
     export interface TransportOrderTexts {
+        /**
+         * May contain {orderRef}, {haulier}, {date}
+         */
         emailSubject: string
+
         emailBody: string
     }
 
+    export interface TruckingHaulierResponse {
+        haulier: HaulierDetail
+    }
+
     export interface TruckingSettings {
+        /**
+         * Always all 8 codes, in the order of ServiceLevelCode
+         */
         serviceLevels: ServiceLevelSetting[]
+
         vehicleTypes: VehicleTypeSetting[]
         factors: ChargeableFactors
         marginFloor: MarginFloor
         transportOrder: TransportOrderTexts
         version: number
         updatedAt: string | null
+        /**
+         * Display name
+         */
         updatedBy: string | null
     }
 
@@ -9319,11 +9502,31 @@ export namespace interfaces {
     export type VatCode = SellingVatCode | "NP"
 
     export interface VehicleTypeSetting {
+        /**
+         * Stable key, a-z0-9_ (e.g. "tautliner_136")
+         */
         code: string
+
+        /**
+         * "Tautliner 13.6 m"
+         */
         label: string
+
+        /**
+         * > 0, at most 15.4 (mega trailers / road trains)
+         */
         capacityLdm: number
+
+        /**
+         * > 0
+         */
         capacityKg: number
+
+        /**
+         * Whole number >= 0
+         */
         palletPlaces: number
+
         tailLift: boolean
         active: boolean
     }
