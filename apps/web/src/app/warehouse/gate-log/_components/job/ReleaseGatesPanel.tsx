@@ -11,6 +11,7 @@ import { Badge, isManager, type Tone } from "../../_lib/gate";
 import { PICKUP_PIN_GATE, waitingGates } from "../../_lib/steps";
 import { btnDanger, btnDefault, Section } from "./fields";
 import { EXCEPTION_GATE } from "./ExceptionsPanel";
+import { customsDue, movementCustomsClock } from "@/app/warehouse/_lib/customsClock";
 
 const isEmptyReturn = (g: string) => /empty return/i.test(g);
 
@@ -59,6 +60,9 @@ export function ReleaseGatesPanel({
   const isCustoms = (g: string) => /^customs$/i.test(g);
   const isPickupPin = (g: string) => g === PICKUP_PIN_GATE;
   const isException = (g: string) => g === EXCEPTION_GATE;
+  // Goods under customs control: days in temporary storage and the 90-day deadline, on the
+  // Customs line (display only — the stored gate keeps its own note).
+  const customs = movementCustomsClock(m);
   const toggle = (gate: string, ok: boolean) => {
     setBusyGate(gate);
     setReleaseGate(gate, ok).finally(() => setBusyGate(null));
@@ -100,6 +104,14 @@ export function ReleaseGatesPanel({
                 {isPickupPin(x.g) ? " · set by the PIN check at the gate" : ""}
                 {isException(x.g) ? (x.s === "OK" ? " · follows the exceptions" : " · resolve the exception to clear") : ""}
               </div>
+              {isCustoms(x.g) && customs.state !== "none" && (
+                <div
+                  className={`text-[11px] break-words ${customs.state === "overdue" ? "text-red-600 font-semibold" : customsDue(customs) ? "text-amber-600 font-semibold" : "text-slate-500"}`}
+                  title="Customs deadline: goods in temporary storage must get a customs procedure within 90 days of the receipt (UCC art. 149). The WH release discharges the bonded register entry."
+                >
+                  Customs deadline: {customs.note}
+                </div>
+              )}
             </div>
           </li>
         ))}

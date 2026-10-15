@@ -23,6 +23,8 @@ import { FloorPinCheck } from "./FloorPinCheck";
 import { FloorReadiness } from "./FloorReadiness";
 import { FloorReweigh } from "./FloorReweigh";
 import { LifecycleChip } from "@/app/warehouse/_components/LifecycleStrip";
+import { CustomsDeadlineChip } from "@/app/warehouse/_lib/customsDeadline";
+import { movementCustomsClock } from "@/app/warehouse/_lib/customsClock";
 import { TALLY_LABEL } from "@/app/warehouse/_lib/containerPlan";
 
 const VIEWS = ["main", "survey", "damage", "photos", "pin", "release", "reweigh"] as const;
@@ -159,6 +161,7 @@ export function FloorPosition({ id }: { id: string }) {
               {m.status}
             </Badge>
             <LifecycleChip l={m.lifecycle} />
+            <CustomsDeadlineChip clock={movementCustomsClock(m)} empty="" />
           </div>
         </div>
         <div className="mt-1 text-[15px] text-slate-800">{m.customer || "—"}</div>

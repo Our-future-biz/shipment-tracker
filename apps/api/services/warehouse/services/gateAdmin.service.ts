@@ -11,6 +11,7 @@ import { deliverDue } from "./shipmentOutbox.service";
 import { isManager, userName } from "./users";
 import { houseContexts, isExportContainer, lockHouse, releaseHousesForArchive } from "./houses";
 import type { Tx } from "../repositories/warehouseSection.repository";
+import { syncStockForMovement } from "./warehouseStockSync";
 
 // Manager actions on gate records — voiding a wrong stamp, archiving a stamped record and
 // restoring an archived one — and removing a position with its gate records. Every one needs a
@@ -174,6 +175,8 @@ class GateAdminService {
         tx,
       );
       if (!row) throw APIError.aborted("The record changed meanwhile — reload and try again");
+      // Stock on Hand / Bonded Register follow the gate record (a voided receipt voids the line).
+      await syncStockForMovement(tx, companyId, id, { by, why: `${STAMP_LABEL[kind]} voided: ${why}` });
     });
     return {
       movement: await gateMovementService.get(id, companyId),
@@ -189,7 +192,9 @@ class GateAdminService {
     const by = await userName(userId);
     const row = await db.transaction(async (tx) => {
       await releaseHousesForArchive(tx, [id], companyId, by, `the position was archived: ${why}`);
-      return gateMovementRepository.archive(id, companyId, by, why, { kind: "archived", label: "Archived", at: new Date().toISOString(), by, detail: why }, undefined, tx);
+      const archived = await gateMovementRepository.archive(id, companyId, by, why, { kind: "archived", label: "Archived", at: new Date().toISOString(), by, detail: why }, undefined, tx);
+      if (archived) await syncStockForMovement(tx, companyId, id, { by, why: `position archived: ${why}` });
+      return archived;
     });
     if (!row) throw APIError.notFound("Gate movement not found");
     return gateMovementService.get(id, companyId);
@@ -230,6 +235,9 @@ class GateAdminService {
           detail: why,
         });
       }
+      // Stock lines closed by the archive open again (each restored gate record).
+      const restoredIds = task?.deletedAt ? (await gateMovementRepository.liveForTaskLocked(tx, task.id, companyId)).map((r) => r.id) : [];
+      for (const rid of new Set([id, ...restoredIds])) await syncStockForMovement(tx, companyId, rid, { by, why: `restored: ${why}` });
     });
     return gateMovementService.get(id, companyId);
   }
@@ -264,6 +272,7 @@ class GateAdminService {
         by,
         detail: archiveReason,
       });
+      for (const r of rows) await syncStockForMovement(tx, companyId, r.id, { by, why: `position removed: ${archiveReason}` });
     });
   }
 

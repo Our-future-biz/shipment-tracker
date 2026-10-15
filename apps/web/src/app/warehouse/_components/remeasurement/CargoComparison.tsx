@@ -37,6 +37,7 @@ export function CargoComparison({
   informing,
   onInform,
   onMarkRemeasurementSent,
+  remeasurementEmailed = false,
   applyRemeasured,
   applying,
 }: {
@@ -50,6 +51,8 @@ export function CargoComparison({
   informing: boolean;
   onInform: () => void;
   onMarkRemeasurementSent: () => void;
+  /** The remeasurement is e-mailed (on in Warehouse settings): the button sends it. */
+  remeasurementEmailed?: boolean;
   applyRemeasured: (sectionVersion: number) => Promise<unknown>;
   applying: boolean;
 }) {
@@ -194,12 +197,12 @@ export function CargoComparison({
             showIcon
             message={
               <span className="text-xs">
-                The chargeable W/M changed with the remeasurement ({nf(wm(reference), 2)} → {nf(wm(savedRemeasured), 2)}). Mark the remeasurement as sent once it went out.
+                The chargeable W/M changed with the remeasurement ({nf(wm(reference), 2)} → {nf(wm(savedRemeasured), 2)}). {remeasurementEmailed ? "Send the remeasurement to the supplier." : "Mark the remeasurement as sent once it went out."}
               </span>
             }
             action={
               <Button size="small" onClick={onMarkRemeasurementSent}>
-                Mark remeasurement as sent
+                {remeasurementEmailed ? "Send remeasurement" : "Mark remeasurement as sent"}
               </Button>
             }
           />

@@ -1,4 +1,5 @@
 import type { interfaces } from "@/lib/api/client";
+import { customsDue, movementCustomsClock, type CustomsClockFields } from "./customsClock";
 
 // The warehouse as an exception worklist: Prague dates, "expected today", the quick-filter chips
 // of Positions and the scan / type box of the Gate Log. Pure helpers (tested in worklist.test.ts).
@@ -86,13 +87,23 @@ const PRAGUE_TIME = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague"
 
 // ─── Positions quick filters ───────────────────────────────────
 
-export type ChipId = "attention" | "expectedToday" | "inWarehouse" | "expiring" | "chargeable" | "onHold" | "releasedToday";
+export type ChipId = "attention" | "expectedToday" | "inWarehouse" | "expiring" | "chargeable" | "customsDeadline" | "onHold" | "releasedToday";
 
 type ChipFields = Pick<
   Movement,
   "status" | "gateIn" | "gateOut" | "impRelease" | "visit" | "eta" | "slot" | "subPositions" | "dockSlots" | "needsAttention" | "openExceptions" | "overridden" | "shipmentUpdate" | "storage"
 > &
-  Partial<Pick<Movement, "leftAt">>;
+  Partial<Pick<Movement, "leftAt" | "customsMode" | "customsStatus" | "operationType" | "lifecycle">>;
+
+/** Under customs control in the warehouse with 10 days or fewer to the 90-day deadline, or overdue. */
+export const customsDeadlineDue = (m: ChipFields, today: string) =>
+  !!m.lifecycle &&
+  customsDue(
+    movementCustomsClock(
+      { customsMode: m.customsMode ?? "", customsStatus: m.customsStatus ?? "", operationType: m.operationType ?? "", lifecycle: m.lifecycle } satisfies CustomsClockFields,
+      today,
+    ),
+  );
 
 // An inbound (příjem) gate-out is the delivering truck leaving: the cargo stays In Warehouse.
 // Only an outbound (výdej) gate-out means the cargo has gone.
@@ -132,6 +143,13 @@ export const CHIPS: { id: ChipId; label: string; hint: string; danger?: boolean;
     match: (m) => inWarehouse(m) && m.storage.state === "Expiring",
   },
   { id: "chargeable", label: "Chargeable", hint: "Still in the warehouse and past its free days — storage is being charged", match: (m) => inWarehouse(m) && m.storage.chargeableDays > 0 },
+  {
+    id: "customsDeadline",
+    label: "Customs deadline ≤ 10 days",
+    hint: "Under customs control (T1 / temporary storage) with 10 days or fewer to the 90-day deadline from the receipt, or overdue (UCC art. 149)",
+    danger: true,
+    match: (m, today) => customsDeadlineDue(m, today),
+  },
   {
     id: "onHold",
     label: "On hold",

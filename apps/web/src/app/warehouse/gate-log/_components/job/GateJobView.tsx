@@ -15,6 +15,8 @@ import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { positionRemeasurementHref } from "@/app/warehouse/_components/remeasurementLinks";
 import { freeTimeText, storageHint } from "@/app/warehouse/_lib/storageText";
+import { CustomsDeadlineChip } from "@/app/warehouse/_lib/customsDeadline";
+import { movementCustomsClock } from "@/app/warehouse/_lib/customsClock";
 import { dockSlotText } from "@/app/warehouse/_lib/worklist";
 import { errorMessage, hasAnyStamp, hasSurvey, isManager, nf, requiredSurveyPhase, surveyTargets } from "../../_lib/gate";
 import { gateSteps, isOutbound, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, type GateStep } from "../../_lib/steps";
@@ -92,6 +94,12 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
           )}
         </div>
         <div className="mt-1.5 text-[15px] font-bold leading-snug text-slate-900 break-words">{m.customsStatus || "Not set"}</div>
+        {/* Under customs control: days since the receipt and the 90-day deadline (UCC art. 149). */}
+        {movementCustomsClock(m).state !== "none" && (
+          <div className="mt-1">
+            <CustomsDeadlineChip clock={movementCustomsClock(m)} empty="" />
+          </div>
+        )}
         {/* A linked record follows its shipment's customs status until the cargo is released. */}
         {m.shipmentId && !m.impRelease && (
           <div className="mt-0.5 text-[11px] text-slate-500">

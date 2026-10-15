@@ -27,6 +27,7 @@ import { reweighRepository } from "../repositories/reweigh.repository";
 import type { WarehouseReweighRecord } from "../schemas/warehouseReweigh.schema";
 import { needsReweigh, REWEIGH_FIRST, reweighOkSql } from "./reweigh";
 import { positionLifecycle } from "./lifecycle";
+import { syncStockForMovement, syncStockForMovements } from "./warehouseStockSync";
 import { houseBlocksRelease, houseContexts, houseReleaseOkSql, isExportContainer, lockHouse, positionContainer, releaseHousesForArchive, tallyRequired, type HouseCtx } from "./houses";
 import {
   isLinkedOutbound,
@@ -426,6 +427,7 @@ class GateMovementService {
     if (opts.follow && !opts.archived) {
       const changed = await followCustoms(movements, companyId, { maxAgeMs: FOLLOW_ON_LIST_MS, limit: FOLLOW_LIST_LIMIT });
       movements = movements.map((m) => withStored(m, changed.get(m.id)));
+      await this.stockAfterFollow(companyId, [...changed.keys()]);
     }
     const ids = movements.map((m) => m.id);
     const containers = await containerRepository.listForMovements(ids, companyId);
@@ -450,6 +452,17 @@ class GateMovementService {
         { house: houses.get(m.id), reweighs: reweighs.filter((r) => r.movementId === m.id) },
       ),
     );
+  }
+
+  // A customs status read from the shipment can open or discharge the position's bonded entry
+  // (Stock / Bonded register). Logged, never fails the read: "Build stock from gate records" repairs.
+  private async stockAfterFollow(companyId: string, ids: string[]) {
+    if (!ids.length) return;
+    try {
+      await syncStockForMovements(companyId, ids, { by: "Shipments", why: "customs status from the shipment" });
+    } catch (err) {
+      log.warn("warehouse: stock sync after the customs follow failed", { error: String(err) });
+    }
   }
 
   // Linked outbound rows made before the Pick-up PIN line existed get it on read (no migration).
@@ -478,6 +491,7 @@ class GateMovementService {
       if (opts.follow) {
         const changed = await followCustoms([m], companyId, { maxAgeMs: FOLLOW_ON_GET_MS, limit: 1, force: opts.force });
         m = withStored(m, changed.get(m.id));
+        await this.stockAfterFollow(companyId, [...changed.keys()]);
       }
     } else {
       m = await gateMovementRepository.findByIdAny(id, companyId);
@@ -596,8 +610,15 @@ class GateMovementService {
   }
 
   async create(companyId: string, userId: string, input: GateMovementInput & { walkIn?: boolean }) {
-    const row = await gateMovementRepository.create(await this.buildRecord(companyId, userId, input));
-    return this.get(row.id, companyId);
+    const record = await this.buildRecord(companyId, userId, input);
+    const id = await db.transaction(async (tx) => {
+      const row = await gateMovementRepository.create(record, tx);
+      // A record saved as already received (an outbound record with a typed received date and no
+      // container tally) gets its stock line and bonded entry now; otherwise this does nothing.
+      await syncStockForMovement(tx, companyId, row.id, { by: record.updatedBy ?? "", why: "gate record created" });
+      return row.id;
+    });
+    return this.get(id, companyId);
   }
 
   async update(id: string, companyId: string, userId: string, input: GateMovementInput, role = "user") {
@@ -670,6 +691,9 @@ class GateMovementService {
       await gateMovementRepository.update(id, companyId, patch, tx);
       if (customsChanged) await gateMovementRepository.conditionalUpdate(id, companyId, { releaseGates: setCustomsLineSql(customsLine(input.customsStatus!)) }, undefined, undefined, tx);
       if (clockEvents.length) await gateMovementRepository.appendEvents(id, companyId, clockEvents, tx);
+      // Figures, customs mode / status, the received date or the operation type may change the
+      // stock line and the bonded entry (in this transaction, after the row is updated and locked).
+      await syncStockForMovement(tx, companyId, id, { by: patch.updatedBy ?? "", why: "gate record changed" });
       if (plateLater) {
         await shipmentOutboxRepository.enqueue(tx, [
           outboxRow(m, "plate", m.impRelease ? "impRelease" : "gateOut", { plateNumber: patch.plate!.trim() }, userId, role),
@@ -731,7 +755,7 @@ class GateMovementService {
         .where(sql`${warehouseSectionTable.id} = ${section.id} AND ${warehouseSectionTable.version} = ${sectionVersion} AND ${warehouseSectionTable.deletedAt} IS NULL`)
         .for("share");
       if (!same) throw APIError.aborted("The remeasured lines changed meanwhile — reload and try again");
-      return gateMovementRepository.conditionalUpdate(
+      const updated = await gateMovementRepository.conditionalUpdate(
         id,
         companyId,
         { colli: totals.pieces, weightKg: totals.weightKg, measureCbm: totals.cbm, updatedBy: by },
@@ -739,6 +763,8 @@ class GateMovementService {
         sql`${t.impRelease} IS NULL`,
         tx,
       );
+      if (updated) await syncStockForMovement(tx, companyId, id, { by, why: "gate figures from the remeasurement" });
+      return updated;
     });
     if (!row) throw APIError.failedPrecondition("The cargo was released meanwhile — the gate figures stay as released");
     return this.get(id, companyId);
@@ -847,6 +873,8 @@ class GateMovementService {
           tx,
         );
         if (!archived) throw notDeleted;
+        // Outbound cargo received by its typed date only has no stamp: its stock line closes here.
+        await syncStockForMovement(tx, companyId, id, { by, why: "position deleted" });
         return archived;
       });
     } catch (err) {
@@ -980,6 +1008,9 @@ class GateMovementService {
         }
       }
       await shipmentOutboxRepository.enqueue(tx, owed);
+      // The receipt opens the stock line (and bonded entry), the WH release closes them — in this
+      // transaction, so a stamp and its stock line never drift apart (a replay changes nothing).
+      await syncStockForMovement(tx, companyId, id, { by, at, why: STAMP_LABEL[kind] });
       return { row, owed };
     });
     if (!row) {

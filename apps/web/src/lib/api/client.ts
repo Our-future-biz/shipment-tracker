@@ -1781,12 +1781,15 @@ export namespace warehouse {
             this.warehouseEquipmentList = this.warehouseEquipmentList.bind(this)
             this.warehouseEquipmentUpdate = this.warehouseEquipmentUpdate.bind(this)
             this.warehouseImport = this.warehouseImport.bind(this)
+            this.warehouseKpis = this.warehouseKpis.bind(this)
             this.warehouseList = this.warehouseList.bind(this)
             this.warehousePositionCreate = this.warehousePositionCreate.bind(this)
             this.warehousePositionMarkSent = this.warehousePositionMarkSent.bind(this)
             this.warehousePositionRemove = this.warehousePositionRemove.bind(this)
             this.warehousePositionSectionGet = this.warehousePositionSectionGet.bind(this)
             this.warehousePositionSectionPatch = this.warehousePositionSectionPatch.bind(this)
+            this.warehousePositionSendToSupplier = this.warehousePositionSendToSupplier.bind(this)
+            this.warehousePositionSupplierEmails = this.warehousePositionSupplierEmails.bind(this)
             this.warehouseReportSummary = this.warehouseReportSummary.bind(this)
             this.warehouseSavedReportCreate = this.warehouseSavedReportCreate.bind(this)
             this.warehouseSavedReportDelete = this.warehouseSavedReportDelete.bind(this)
@@ -1796,6 +1799,8 @@ export namespace warehouse {
             this.warehouseSectionPatch = this.warehouseSectionPatch.bind(this)
             this.warehouseSectionSummary = this.warehouseSectionSummary.bind(this)
             this.warehouseSectionUpsert = this.warehouseSectionUpsert.bind(this)
+            this.warehouseSettingsGet = this.warehouseSettingsGet.bind(this)
+            this.warehouseSettingsUpdate = this.warehouseSettingsUpdate.bind(this)
             this.warehouseStaffCreate = this.warehouseStaffCreate.bind(this)
             this.warehouseStaffDelete = this.warehouseStaffDelete.bind(this)
             this.warehouseStaffList = this.warehouseStaffList.bind(this)
@@ -1806,6 +1811,7 @@ export namespace warehouse {
             this.warehouseStockLineUpdate = this.warehouseStockLineUpdate.bind(this)
             this.warehouseStockMovementCreate = this.warehouseStockMovementCreate.bind(this)
             this.warehouseStockMovementList = this.warehouseStockMovementList.bind(this)
+            this.warehouseStockSync = this.warehouseStockSync.bind(this)
             this.warehouseUpdate = this.warehouseUpdate.bind(this)
             this.warehouseZoneCreate = this.warehouseZoneCreate.bind(this)
             this.warehouseZoneDelete = this.warehouseZoneDelete.bind(this)
@@ -2397,6 +2403,26 @@ export namespace warehouse {
             return await resp.json() as controllers.WarehouseImportResponse
         }
 
+        /**
+         * Reports tab: KPIs from the gate stamps for a period, each with how it is measured; figures
+         * that cannot be measured are null with the reason. Any logged-in user of the company.
+         */
+        public async warehouseKpis(params: controllers.WarehouseKpisRequest): Promise<{
+    report: interfaces.WarehouseKpiReport
+}> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                from: params.from,
+                to:   params.to,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-kpis`, undefined, {query})
+            return await resp.json() as {
+    report: interfaces.WarehouseKpiReport
+}
+        }
+
         public async warehouseList(params: controllers.WarehouseListRequest): Promise<controllers.WarehouseListResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
@@ -2466,6 +2492,25 @@ export namespace warehouse {
             const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-positions/${encodeURIComponent(taskId)}/sections/${encodeURIComponent(section)}`, JSON.stringify(params))
             return await resp.json() as {
     section: interfaces.WarehouseSectionItem
+}
+        }
+
+        public async warehousePositionSendToSupplier(taskId: string, params: controllers.SendToSupplierRequest): Promise<controllers.SendToSupplierResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions/${encodeURIComponent(taskId)}/send-to-supplier`, JSON.stringify(params))
+            return await resp.json() as controllers.SendToSupplierResponse
+        }
+
+        /**
+         * The latest supplier e-mail attempts of a position, newest first (sent, failed, still sending).
+         */
+        public async warehousePositionSupplierEmails(taskId: string): Promise<{
+    emails: interfaces.SupplierEmailItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-positions/${encodeURIComponent(taskId)}/supplier-emails`)
+            return await resp.json() as {
+    emails: interfaces.SupplierEmailItem[]
 }
         }
 
@@ -2552,6 +2597,30 @@ export namespace warehouse {
             return await resp.json() as controllers.WarehouseSectionUpsertResponse
         }
 
+        public async warehouseSettingsGet(): Promise<{
+    settings: interfaces.WarehouseSettingsItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-settings`)
+            return await resp.json() as {
+    settings: interfaces.WarehouseSettingsItem
+}
+        }
+
+        /**
+         * Saves the settings (manager only). Addresses are checked, trimmed, lower-cased and
+         * de-duplicated; each change is logged ("Supplier e-mail VGM: To a@x → a@x, b@y").
+         */
+        public async warehouseSettingsUpdate(params: controllers.WarehouseSettingsUpdateRequest): Promise<{
+    settings: interfaces.WarehouseSettingsItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-settings`, JSON.stringify(params))
+            return await resp.json() as {
+    settings: interfaces.WarehouseSettingsItem
+}
+        }
+
         public async warehouseStaffCreate(params: interfaces.WarehouseStaffInput): Promise<controllers.StaffResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-staff`, JSON.stringify(params))
@@ -2600,6 +2669,9 @@ export namespace warehouse {
 }
         }
 
+        /**
+         * Every line, open and closed (Picked / Voided, `closed` true): the screen filters what is on hand.
+         */
         public async warehouseStockLineList(): Promise<{
     lines: interfaces.WarehouseStockLineItem[]
 }> {
@@ -2637,6 +2709,20 @@ export namespace warehouse {
             const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-stock-movements`)
             return await resp.json() as {
     movements: interfaces.WarehouseStockMovementItem[]
+}
+        }
+
+        /**
+         * "Build stock from gate records" (manager): runs the gate sync on every live gate record —
+         * the first build after the migration, and the repair tool. `dryRun` only counts.
+         */
+        public async warehouseStockSync(params: interfaces.WarehouseStockSyncRequest): Promise<{
+    result: interfaces.WarehouseStockSyncResult
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-stock/sync`, JSON.stringify(params))
+            return await resp.json() as {
+    result: interfaces.WarehouseStockSyncResult
 }
         }
 
@@ -2898,6 +2984,11 @@ export namespace controllers {
     }
 
     export interface BondedUpdateRequest {
+        /**
+         * Position picker (gate record id); "" / null = not linked.
+         */
+        movementId?: string | null
+
         mrn?: string
         job?: string
         consignee?: string
@@ -2908,6 +2999,7 @@ export namespace controllers {
         customsValue?: string
         discharge?: string
         balance?: number
+        dischargeRef?: string
     }
 
     export interface BranchCreateRequest {
@@ -4251,6 +4343,38 @@ export namespace controllers {
         distribution?: string
     }
 
+    export interface SendToSupplierRequest {
+        /**
+         * vgm | survey | remeasurement
+         */
+        what: string
+
+        note?: string
+        /**
+         * A UUID made once per send: a double click or a replay sends once. Not needed for a preview.
+         */
+        clientRequestId?: string
+
+        /**
+         * Only return what would be e-mailed (nothing is sent or recorded).
+         */
+        previewOnly?: boolean
+    }
+
+    export interface SendToSupplierResponse {
+        /**
+         * The saved Shipment Details (null for a preview).
+         */
+        section: interfaces.WarehouseSectionItem | null
+
+        /**
+         * The attempt that was sent (null for a preview).
+         */
+        email: interfaces.SupplierEmailItem | null
+
+        preview: interfaces.SupplierEmailPreview | null
+    }
+
     export interface SetIssuedInvoiceNumberRequest {
         issuedInvoiceNumber: string
     }
@@ -4728,6 +4852,11 @@ export namespace controllers {
     }
 
     export interface StockLineUpdateRequest {
+        /**
+         * Position picker (gate record id); "" / null = not linked (then `job` is typed).
+         */
+        movementId?: string | null
+
         job?: string
         customer?: string
         shipper?: string
@@ -4984,6 +5113,18 @@ export namespace controllers {
         results: interfaces.WarehouseImportResult[]
     }
 
+    export interface WarehouseKpisRequest {
+        /**
+         * YYYY-MM-DD (Prague), first day included; default 6 days before `to`.
+         */
+        from?: string
+
+        /**
+         * YYYY-MM-DD (Prague), last day included; default today. At most 366 days.
+         */
+        to?: string
+    }
+
     export interface WarehouseListRequest {
         shipmentId?: string
     }
@@ -5064,6 +5205,24 @@ export namespace controllers {
 
     export interface WarehouseSectionUpsertResponse {
         section: interfaces.WarehouseSectionItem
+    }
+
+    export interface WarehouseSettingsUpdateRequest {
+        /**
+         * The version read (0 when none is saved yet); a save on top of a newer one is refused.
+         */
+        expectedVersion: number
+
+        /**
+         * Message types to change; the ones left out stay as stored.
+         */
+        supplierEmail?: {
+            vgm?: interfaces.SupplierRecipientsItem
+            survey?: interfaces.SupplierRecipientsItem
+            remeasurement?: interfaces.SupplierRecipientsItem
+        }
+
+        docks?: interfaces.DockSettingsItem
     }
 
     export interface WarehouseUpdateRequest {
@@ -5524,6 +5683,20 @@ export namespace interfaces {
         rate: number
         fixingDate: string
         carried: boolean
+    }
+
+    export interface DockSettingsItem {
+        docks: string[]
+        /**
+         * "HH:MM", Prague time
+         */
+        opensAt: string
+
+        closesAt: string
+        /**
+         * ISO weekdays: 1 = Monday … 7 = Sunday
+         */
+        workingDays: number[]
     }
 
     export interface DocumentItem {
@@ -6531,6 +6704,47 @@ export namespace interfaces {
         }[]
     }
 
+    /**
+     * The docks and opening hours dock utilisation is measured against.
+     */
+    export interface KpiDockSettings {
+        docks: string[]
+        /**
+         * HH:MM (Prague)
+         */
+        opensAt: string
+
+        closesAt: string
+        /**
+         * ISO weekdays, 1 = Monday … 7 = Sunday.
+         */
+        workingDays: number[]
+    }
+
+    /**
+     * In and out of one day (≤ 31 days) or one ISO week.
+     */
+    export interface KpiThroughputBucket {
+        /**
+         * YYYY-MM-DD (day) or the Monday of the week.
+         */
+        key: string
+
+        /**
+         * "15.10." or "W42".
+         */
+        label: string
+
+        inPositions: number
+        inPieces: number
+        inKg: number
+        inCbm: number
+        outPositions: number
+        outPieces: number
+        outKg: number
+        outCbm: number
+    }
+
     export interface LaneFill {
         lane: string
         containers: number
@@ -6817,6 +7031,12 @@ export namespace interfaces {
         vatCode: string | null
 
         sortOrder: number
+    }
+
+    export interface SettingsEventItem {
+        at: string
+        by: string
+        label: string
     }
 
     /**
@@ -7116,6 +7336,44 @@ export namespace interfaces {
     }
 
     /**
+     * Days under customs control and the EU temporary-storage deadline (display only).
+     */
+    export interface StockCustomsClock {
+        /**
+         * "" (not under customs control) | Temporary storage | Transit T1 | Customs warehouse
+         */
+        regime: string
+
+        /**
+         * none | not_started | ok | warning (≤ 10 days left) | overdue | stopped
+         */
+        state: string
+
+        /**
+         * YYYY-MM-DD (Prague)
+         */
+        startDate: string
+
+        stopDate: string
+        /**
+         * Receipt day = day 1.
+         */
+        daysUnderControl: number
+
+        /**
+         * YYYY-MM-DD: receipt day + 90 (UCC art. 149); "" for a customs warehouse.
+         */
+        deadline: string
+
+        /**
+         * Negative = overdue; null without a deadline.
+         */
+        daysLeft: number | null
+
+        note: string
+    }
+
+    /**
      * Cargo in the warehouse now, from the one storage calculation (gate records).
      */
     export interface StorageSummary {
@@ -7134,6 +7392,66 @@ export namespace interfaces {
          * Estimated storage charge to date of the chargeable records, CZK.
          */
         estimatedCzk: number
+    }
+
+    export interface SupplierEmailAttachmentItem {
+        fileId: string
+        fileName: string
+        size: number
+        /**
+         * attached | linked (download link in the text) | listed (named only)
+         */
+        how: string
+    }
+
+    /**
+     * One attempt to e-mail a VGM / survey / remeasurement.
+     */
+    export interface SupplierEmailItem {
+        id: string
+        kind: string
+        to: string[]
+        cc: string[]
+        subject: string
+        attachments: SupplierEmailAttachmentItem[]
+        note: string
+        /**
+         * sending | sent | failed | unknown (a "sending" attempt that never finished)
+         */
+        status: string
+
+        error: string
+        requestedBy: string
+        createdAt: string
+        sentAt: string | null
+    }
+
+    /**
+     * What "Send" would e-mail (previewOnly), so the user sees it before sending.
+     */
+    export interface SupplierEmailPreview {
+        kind: string
+        to: string[]
+        cc: string[]
+        subject: string
+        text: string
+        attachments: SupplierEmailAttachmentItem[]
+    }
+
+    export interface SupplierEmailSettingsItem {
+        vgm: SupplierRecipientsItem
+        survey: SupplierRecipientsItem
+        remeasurement: SupplierRecipientsItem
+    }
+
+    export interface SupplierRecipientsItem {
+        /**
+         * E-mail this type when it is sent; off = "Mark as sent" records it only.
+         */
+        enabled: boolean
+
+        to: string[]
+        cc: string[]
     }
 
     export interface SyncResult {
@@ -7212,6 +7530,11 @@ export namespace interfaces {
     }
 
     export interface WarehouseBondedEntryInput {
+        /**
+         * Position picker (gate record id); "" / null = not linked.
+         */
+        movementId?: string | null
+
         mrn?: string
         job?: string
         consignee?: string
@@ -7222,6 +7545,7 @@ export namespace interfaces {
         customsValue?: string
         discharge?: string
         balance?: number
+        dischargeRef?: string
     }
 
     export interface WarehouseBondedEntryItem {
@@ -7241,10 +7565,44 @@ export namespace interfaces {
         discharge: string
         balance: number
         /**
-         * In stock | Discharged (balance 0)
+         * In stock | Discharged (balance 0) | Voided (receipt voided / position archived)
          */
         status: string
 
+        /**
+         * auto (opened at the receipt, discharged when it leaves) | manual
+         */
+        source: string
+
+        movementId: string | null
+        taskId: string | null
+        positionRef: string
+        jobNumber: string
+        positionArchived: boolean
+        /**
+         * Temporary storage | Transit T1 | Customs warehouse ("" on old manual entries).
+         */
+        regime: string
+
+        /**
+         * ISO
+         */
+        enteredAt: string | null
+
+        dischargedAt: string | null
+        dischargeRef: string
+        /**
+         * YYYY-MM-DD; "" without a 90-day limit.
+         */
+        deadline: string
+
+        voidedReason: string
+        /**
+         * An entry without an MRN (still to be recorded).
+         */
+        mrnMissing: boolean
+
+        customsClock: StockCustomsClock
         createdAt: string
         updatedAt: string
     }
@@ -7666,6 +8024,107 @@ export namespace interfaces {
         reason: string
     }
 
+    export interface WarehouseKpi {
+        /**
+         * dwell · gateToReceipt · receiptToRelease · throughput · dockUtilisation · onTime · reweighVariance · exceptionRate · outboxHealth
+         */
+        key: string
+
+        label: string
+        /**
+         * null when it cannot be measured in this period (see `notMeasured`).
+         */
+        value: number | null
+
+        /**
+         * days · hours · % · positions · per 100 positions · updates
+         */
+        unit: string
+
+        /**
+         * How many records the value is built from.
+         */
+        n: number
+
+        /**
+         * "How it is measured": start → stop, the population and the rule.
+         */
+        measured: string
+
+        /**
+         * Why the value is null (or what is left out); "" when nothing is missing.
+         */
+        notMeasured: string
+
+        breakdown: WarehouseKpiPart[]
+    }
+
+    /**
+     * One extra figure of a KPI (per direction, per dock, per type, P90 …).
+     */
+    export interface WarehouseKpiPart {
+        label: string
+        /**
+         * null = not measured (no data).
+         */
+        value: number | null
+
+        unit: string
+        /**
+         * How many records the figure is built from.
+         */
+        n: number
+    }
+
+    export interface WarehouseKpiReport {
+        period: {
+            /**
+             * YYYY-MM-DD (Prague), both days included.
+             */
+            from: string
+
+            to: string
+            days: number
+            /**
+             * Throughput buckets: day (≤ 31 days) or ISO week.
+             */
+            bucket: string
+        }
+        /**
+         * ISO
+         */
+        generatedAt: string
+
+        kpis: WarehouseKpi[]
+        throughput: KpiThroughputBucket[]
+        /**
+         * Customers by volume received in the period.
+         */
+        topCustomers: TopCustomer[]
+
+        /**
+         * This month and the three before it (not filtered by the period).
+         */
+        monthly: MonthlySummary[]
+
+        /**
+         * Export containers that went out in the period, by discharge port.
+         */
+        lanes: LaneFill[]
+
+        /**
+         * Cargo in the warehouse now.
+         */
+        storage: StorageSummary
+
+        /**
+         * Shipment updates the gate still owes, now.
+         */
+        shipmentUpdates: ShipmentUpdateHealth
+
+        docks: KpiDockSettings
+    }
+
     export interface WarehouseReportSummary {
         throughput: ThroughputWeek[]
         topCustomers: TopCustomer[]
@@ -7749,6 +8208,32 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    export interface WarehouseSettingsItem {
+        supplierEmail: SupplierEmailSettingsItem
+        docks: DockSettingsItem
+        /**
+         * 0 = nothing saved yet (the defaults are shown). Send it back as expectedVersion.
+         */
+        version: number
+
+        updatedAt: string | null
+        updatedBy: string
+        /**
+         * Change log, newest first (the latest 50).
+         */
+        events: SettingsEventItem[]
+
+        /**
+         * The caller may change the settings (manager, admin).
+         */
+        canEdit: boolean
+
+        /**
+         * The server has a Resend key — without it nothing can be e-mailed.
+         */
+        emailConfigured: boolean
+    }
+
     export interface WarehouseStaffInput {
         name?: string
         role?: string
@@ -7769,6 +8254,11 @@ export namespace interfaces {
     }
 
     export interface WarehouseStockLineInput {
+        /**
+         * Position picker (gate record id); "" / null = not linked (then `job` is typed).
+         */
+        movementId?: string | null
+
         job?: string
         customer?: string
         shipper?: string
@@ -7809,17 +8299,61 @@ export namespace interfaces {
 
         freeDays: number
         /**
-         * Free circulation | T1 bonded | Export cleared
+         * Free circulation | T1 bonded | Temporary storage | Customs warehouse | Export cleared
          */
         customs: string
 
         /**
-         * Available | Allocated | On hold | Picked
+         * Available | Allocated | On hold | Picked (left) | Voided (receipt voided / position archived)
          */
         status: string
 
         consol: string
         marks: string
+        /**
+         * auto (follows the gate record) | manual (typed by hand)
+         */
+        source: string
+
+        /**
+         * The gate record (position) it belongs to; null = not linked.
+         */
+        movementId: string | null
+
+        taskId: string | null
+        /**
+         * WCZ ref of the linked position ("" when not linked).
+         */
+        positionRef: string
+
+        /**
+         * Job no. of the linked position.
+         */
+        jobNumber: string
+
+        /**
+         * The linked position is archived.
+         */
+        positionArchived: boolean
+
+        /**
+         * Not on hand any more (Picked / Voided).
+         */
+        closed: boolean
+
+        /**
+         * ISO; when it left or was voided.
+         */
+        closedAt: string | null
+
+        closedReason: string
+        /**
+         * ISO receipt stamp (auto lines).
+         */
+        receivedInstant: string | null
+
+        customsRegime: string
+        customsClock: StockCustomsClock
         /**
          * Calendar days in the warehouse (Prague dates); the receipt day is day 1.
          */
@@ -7882,7 +8416,40 @@ export namespace interfaces {
         toLocation: string
         userName: string
         reference: string
+        /**
+         * auto (written by the gate) | manual
+         */
+        source: string
+
+        movementId: string | null
         createdAt: string
+    }
+
+    export interface WarehouseStockSyncRequest {
+        /**
+         * Only count what would change.
+         */
+        dryRun?: boolean
+    }
+
+    export interface WarehouseStockSyncResult {
+        dryRun: boolean
+        /**
+         * Live gate records looked at.
+         */
+        positions: number
+
+        linesCreated: number
+        linesClosed: number
+        linesVoided: number
+        linesReopened: number
+        bondedOpened: number
+        bondedDischarged: number
+        bondedVoided: number
+        /**
+         * WCZ refs that already have a manual line linked (no automatic line made — check them).
+         */
+        manualLineExists: string[]
     }
 
     export interface WarehouseTaskItem {

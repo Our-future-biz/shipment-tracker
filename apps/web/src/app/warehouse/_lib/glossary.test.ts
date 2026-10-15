@@ -72,3 +72,25 @@ describe("containers, the tally, stuffing and the re-weigh", () => {
     expect(free).toMatch(/gate-out of the export container/);
   });
 });
+
+describe("glossary — stock, KPIs and supplier e-mail", () => {
+  it("explains the customs deadline, the bonded register and manual lines", () => {
+    expect(GLOSSARY.find((g) => g.term === TERMS.customsDeadline)?.meaning).toMatch(/90 days/);
+    expect(GLOSSARY.find((g) => g.term === TERMS.customsDeadline)?.meaning).toMatch(/UCC art\. 149/);
+    expect(GLOSSARY.find((g) => g.term === TERMS.customsWarehouse)?.meaning).toMatch(/no 90-day limit/);
+    expect(GLOSSARY.find((g) => g.term === TERMS.bondedRegister)?.meaning).toMatch(/discharged/);
+    expect(GLOSSARY.find((g) => g.term === TERMS.manualLine)?.meaning).toMatch(/picker/);
+  });
+
+  it("states where each KPI starts and stops", () => {
+    expect(GLOSSARY.find((g) => g.term === TERMS.dwellTime)?.meaning).toMatch(/WH release/);
+    expect(GLOSSARY.find((g) => g.term === TERMS.gateToReceipt)?.meaning).toMatch(/tally tick/);
+    expect(GLOSSARY.find((g) => g.term === TERMS.reweighVarianceRate)?.meaning).toMatch(/5 %/);
+  });
+
+  it("explains Warehouse settings and recorded-only sends", () => {
+    expect(GLOSSARY.find((g) => g.term === TERMS.warehouseSettings)?.meaning).toMatch(/only a manager/);
+    expect(GLOSSARY.find((g) => g.term === TERMS.supplierEmail)?.meaning).toMatch(/Retry/);
+    expect(GLOSSARY.find((g) => g.term === TERMS.recordedOnly)?.meaning).toMatch(/nothing is e-mailed/);
+  });
+});

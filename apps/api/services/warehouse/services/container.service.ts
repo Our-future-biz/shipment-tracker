@@ -31,6 +31,7 @@ import { acceptRecordedAt, checkRequestId, offlineDetail, pgCode, pragueHhmm } f
 import { pragueDate } from "./storage";
 import { deliverDue } from "./shipmentOutbox.service";
 import { isManager, userName } from "./users";
+import { syncStockForMovement } from "./warehouseStockSync";
 
 // One container, many positions (houses): the stuffing plan of an export container and the
 // stripping tally of an import container, with the container's own stamps. Every action runs in
@@ -520,6 +521,8 @@ class ContainerService {
         tx,
       );
       if (!row) continue;
+      // The stock line closes (Load) and a bonded entry is discharged, in this transaction.
+      await syncStockForMovement(tx, companyId, m.id, { by, at, why: `left in container ${c.number}` });
       left.push(ref(m));
       if (m.shipmentId) {
         owed.push(outboxRow(m, "released", CONTAINER_GATE_OUT_STAMP, { warehouseReleasedDate: date, ...(c.plate ? { plateNumber: c.plate } : {}) }, userId, role));
@@ -601,6 +604,8 @@ class ContainerService {
         stuffed ? sql`${cp.stuffedAt} IS NULL` : sql`${cp.stuffedAt} IS NOT NULL`,
       );
       if (!row) throw APIError.aborted("The house changed meanwhile — reload and try again");
+      // Stuffed: the stock line is Allocated to the container; un-stuffed: Available again.
+      await syncStockForMovement(tx, companyId, m.id, { by, at, why: stuffed ? `stuffed in container ${c.number}` : `un-stuffed from container ${c.number}` });
       const detail = opts.recordedAt ? { detail: offlineDetail(at, now) } : {};
       const label = stuffed ? `Stuffed in container ${c.number}` : `Un-stuffed — back out of container ${c.number}`;
       await this.log(
@@ -729,6 +734,8 @@ class ContainerService {
         sql`${cp.tallyOutcome} = ''`,
       );
       if (!updated) throw APIError.aborted("The house changed meanwhile — reload and try again");
+      // Ticked received: the stock line opens with the counted pieces and the tally location.
+      if (outcome === "received") await syncStockForMovement(tx, companyId, m.id, { by, at, why: `stripping tally of container ${c.number}` });
       const containerEvents: GateEvent[] = [];
       if (!c.strippingStartedAt) {
         await containerRepository.conditionalUpdate(tx, id, companyId, { strippingStartedAt: at }, [], sql`${ct.strippingStartedAt} IS NULL`);
@@ -829,6 +836,8 @@ class ContainerService {
         tickedBy: "",
         clientRequestId: null,
       });
+      // A voided tick-off voids the stock line (and bonded entry); a new tick opens the same rows.
+      await syncStockForMovement(tx, companyId, m.id, { by, why: `tally voided: ${why}` });
       await this.log(tx, c, companyId, [{ kind: "tallyVoided", label: `Tally voided: ${ref(m)}`, at, by, detail: `${why} · was ${was}` }]);
     });
     return { container: await this.detail(id, companyId), notice };
@@ -894,6 +903,8 @@ class ContainerService {
             tx,
           );
           if (!row) throw APIError.aborted("A position changed meanwhile — reload and try again");
+          // Back in the warehouse: the stock line (and bonded entry) open again.
+          await syncStockForMovement(tx, companyId, m.id, { by, why: `gate-out of container ${c.number} voided: ${why}` });
         }
         if (mayNeedCorrecting) {
           notice = "Shipments already updated from this gate-out are not changed back — check their warehouse released date in Shipments.";

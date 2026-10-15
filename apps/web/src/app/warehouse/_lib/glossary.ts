@@ -45,6 +45,23 @@ export const TERMS = {
   lifecycle: "Lifecycle",
   capacity: "Capacity / fill",
   house: "House",
+  customsDeadline: "Customs deadline",
+  temporaryStorage: "Temporary storage",
+  customsWarehouse: "Customs warehouse",
+  bondedRegister: "Bonded register",
+  manualLine: "Manual line",
+  autoLine: "Auto",
+  buildStock: "Build stock from gate records",
+  dwellTime: "Dwell time",
+  gateToReceipt: "Gate-to-receipt time",
+  receiptToRelease: "Receipt-to-release time",
+  dockUtilisation: "Dock utilisation",
+  onTimeVsSlot: "On time vs dock slot",
+  reweighVarianceRate: "Re-weigh variance rate",
+  exceptionRate: "Exception rate",
+  warehouseSettings: "Warehouse settings",
+  supplierEmail: "Supplier e-mail",
+  recordedOnly: "Recorded only",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -166,6 +183,50 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: "W/M",
     meaning: "Weight or measure — the larger of the volume in cbm and the weight in tonnes; storage is charged on it.",
+  },
+  {
+    term: TERMS.customsDeadline,
+    meaning:
+      "Goods in temporary storage (customs mode T1 or RDT, not cleared) must get a customs procedure within 90 days of the receipt in the warehouse (UCC art. 149). Counted in Prague days, receipt day = day 1; amber with 10 days left or fewer, red when overdue.",
+  },
+  { term: TERMS.temporaryStorage, meaning: "Non-Union goods held under customs supervision after arrival until a procedure is chosen; at most 90 days." },
+  { term: TERMS.customsWarehouse, meaning: "Procedure 71: cargo stored under customs control (operation type Cargo storage (bonded)); no 90-day limit." },
+  {
+    term: TERMS.bondedRegister,
+    meaning: "The entry / discharge record of goods under customs control: opened automatically at the receipt, discharged when the position leaves or customs clears it.",
+  },
+  {
+    term: TERMS.manualLine,
+    meaning: "A stock line or bonded entry typed by hand for odd cases, linked to a position with the picker; automatic lines follow the gate record.",
+  },
+  {
+    term: TERMS.autoLine,
+    meaning: "Follows the gate record: opened at the WH receipt or stripping tally, closed (Picked) when the position leaves, Voided when the receipt is voided.",
+  },
+  { term: TERMS.buildStock, meaning: "Manager action: creates or closes the automatic lines from the gate records; shows the counts first." },
+  {
+    term: TERMS.dwellTime,
+    meaning:
+      "Days from the receipt (WH receipt inbound; stripping tally tick outbound, or the typed received date without a container tally) to leaving (WH release, or the gate-out of the export container it was stuffed in).",
+  },
+  { term: TERMS.gateToReceipt, meaning: "Hours from arrival to receipt: inbound truck gate-in → WH receipt; outbound its container's gate-in → tally tick." },
+  { term: TERMS.receiptToRelease, meaning: "Days from the receipt to the WH release stamp." },
+  { term: TERMS.dockUtilisation, meaning: "Booked dock-slot minutes inside opening hours ÷ docks × opening minutes × working days (Warehouse settings)." },
+  { term: TERMS.onTimeVsSlot, meaning: "Arrival (inbound) or WH release (outbound) no later than the end of its booked slot; early counts as on time." },
+  { term: TERMS.reweighVarianceRate, meaning: "Share of positions whose latest re-weigh is more than 5 % off the declared weight." },
+  { term: TERMS.exceptionRate, meaning: "Damage / short / over exceptions per 100 positions received in the period." },
+  {
+    term: TERMS.warehouseSettings,
+    meaning: "Who gets the supplier e-mails (VGM, Survey, Remeasurement: To, Cc, on/off) and the docks with opening hours. Everyone can see them; only a manager changes them.",
+  },
+  {
+    term: TERMS.supplierEmail,
+    meaning:
+      "Send VGM / Send survey / Send remeasurement e-mails the warehouse's record to the recipients in Warehouse settings. It is recorded as sent only once the e-mail went out; a failed send shows the reason and Retry.",
+  },
+  {
+    term: TERMS.recordedOnly,
+    meaning: "Mark as sent records that it went out outside the app; nothing is e-mailed. Set recipients in Warehouse settings to e-mail it.",
   },
 ];
 

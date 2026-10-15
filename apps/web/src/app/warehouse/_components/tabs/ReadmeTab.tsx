@@ -206,6 +206,35 @@ export function ReadmeTab() {
         </p>
       </Part>
 
+      <Part title="Stock, bonded register and the customs deadline">
+        <p>
+          <b>Stock on Hand</b> follows the gate: a line opens automatically (<b>{TERMS.autoLine}</b>) when a position is received — the {TERMS.receipt} stamp
+          inbound, the {TERMS.tickOff} at the stripping tally outbound — and closes (Picked) when it leaves with the {TERMS.whRelease} or in a stuffed container at
+          its gate-out. A voided receipt marks the line Voided; a new receipt opens the same line again. Location, status, consol and marks can still be changed.
+        </p>
+        <p>
+          Cargo under customs control (customs mode T1 or RDT, or operation Cargo storage (bonded), and not &ldquo;Customs Cleared/Released&rdquo;) gets a{" "}
+          <b>{TERMS.bondedRegister}</b> entry at the receipt; it is discharged when the position leaves or customs clears it. The <b>{TERMS.customsDeadline}</b> chip
+          counts the days in {TERMS.temporaryStorage.toLowerCase()} and the 90-day deadline: amber with 10 days left or fewer, red when overdue.
+        </p>
+        <p>
+          A <b>{TERMS.manualLine}</b> is still possible for odd cases; it is marked Manual and linked to a position with the picker. A manager can press{" "}
+          <b>{TERMS.buildStock}</b> to create the lines for cargo already in the warehouse (it shows the counts first).
+        </p>
+      </Part>
+
+      <Part title="Reports and supplier e-mails">
+        <p>
+          The Reports figures come from the stamps. Every KPI says where it starts and stops (&ldquo;How it is measured&rdquo;); &ldquo;Not measured&rdquo; means
+          there is no data for it in the period — no figure is invented.
+        </p>
+        <p>
+          <b>{TERMS.supplierEmail}</b>: when a message type (VGM, Survey, Remeasurement) is on and has recipients in <b>{TERMS.warehouseSettings}</b>, Send VGM /
+          Send survey / Send remeasurement e-mails it and records it as sent only once it went out; a failed send shows the reason and Retry. Otherwise{" "}
+          <b>Mark as sent</b> stays ({TERMS.recordedOnly.toLowerCase()} — nothing is e-mailed).
+        </p>
+      </Part>
+
       <Part title="Delete, archive and restore">
         <ul>
           <li>Anyone can delete a gate record that has no stamps. It is archived, not erased.</li>

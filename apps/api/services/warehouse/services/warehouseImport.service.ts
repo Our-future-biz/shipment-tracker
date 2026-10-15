@@ -12,6 +12,7 @@ import { DEFAULT_CHECKLIST, defaultReleaseGates, gateMovementService, normalizeL
 import { PICKUP_PIN_GATE } from "./pickupPin";
 import { EXCEPTION_GATE } from "./osd";
 import { isManager, userName } from "./users";
+import { syncStockForMovement } from "./warehouseStockSync";
 
 // Bringing shipments into the warehouse. Each shipment becomes a position (WCZ reference) and
 // its gate record in ONE transaction, so there is never a position without its gate record or
@@ -246,6 +247,8 @@ class WarehouseImportService {
     const { task, movementId } = await db.transaction(async (tx) => {
       const { task } = await warehouseTaskRepository.createInTx(tx, companyId, null);
       const row = await gateMovementRepository.create({ ...record, gateRef: task.taskId, warehouseTaskId: task.id }, tx);
+      // Nothing to do unless the new record already counts as received (e.g. a typed received date).
+      await syncStockForMovement(tx, companyId, row.id, { by: record.updatedBy ?? "", why: "position created" });
       return { task, movementId: row.id };
     });
     return { task, movement: await gateMovementService.get(movementId, companyId) };
@@ -317,23 +320,30 @@ class WarehouseImportService {
 
     const by = await userName(userId);
     const t = gateMovementTable;
-    const row = await gateMovementRepository.conditionalUpdate(
-      id,
-      companyId,
-      { ...changes, shipmentCheckedAt: now, ...(names.length ? { updatedBy: by } : {}) },
-      [
-        {
-          kind: "refreshedFromShipment",
-          label: names.length ? `Refreshed from shipment: ${names.join(", ")}` : "Refreshed from shipment: no changes",
-          at: now.toISOString(),
-          by,
-          ...(details.length || differs.length
-            ? { detail: [...details, ...differs.map((d) => `kept (differs from shipment) — ${d}`)].join("; ").slice(0, 2000) }
-            : {}),
-        },
-      ],
-      sql`date_trunc('milliseconds', ${t.updatedAt}) = ${m.updatedAt.toISOString()}::timestamptz`,
-    );
+    // The update and the stock sync in one transaction: a new customs status, customs mode,
+    // operation type or cargo figures move the stock line and bonded entry with the record.
+    const row = await db.transaction(async (tx) => {
+      const updated = await gateMovementRepository.conditionalUpdate(
+        id,
+        companyId,
+        { ...changes, shipmentCheckedAt: now, ...(names.length ? { updatedBy: by } : {}) },
+        [
+          {
+            kind: "refreshedFromShipment",
+            label: names.length ? `Refreshed from shipment: ${names.join(", ")}` : "Refreshed from shipment: no changes",
+            at: now.toISOString(),
+            by,
+            ...(details.length || differs.length
+              ? { detail: [...details, ...differs.map((d) => `kept (differs from shipment) — ${d}`)].join("; ").slice(0, 2000) }
+              : {}),
+          },
+        ],
+        sql`date_trunc('milliseconds', ${t.updatedAt}) = ${m.updatedAt.toISOString()}::timestamptz`,
+        tx,
+      );
+      if (updated) await syncStockForMovement(tx, companyId, id, { by, why: "refreshed from shipment" });
+      return updated;
+    });
     if (!row) throw APIError.aborted("The record changed meanwhile — refresh again");
     return { movement: await gateMovementService.get(id, companyId), changed: names, differs };
   }

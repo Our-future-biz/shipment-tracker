@@ -21,6 +21,9 @@ import { CargoComparison } from "../remeasurement/CargoComparison";
 import { RemeasureLines } from "../remeasurement/RemeasureLines";
 import { SaveBar } from "../remeasurement/SaveBar";
 import { MarkSentModal, NotesAndSent, SENT_LABEL } from "../remeasurement/NotesAndSent";
+import { SendToSupplierModal } from "../remeasurement/SendToSupplierModal";
+import { lastFailedAttempt, useSupplierEmails } from "../remeasurement/useSupplierEmail";
+import { emailedTo, useWarehouseSettings, type SupplierKind } from "../../settings/_lib/useWarehouseSettings";
 import { ExceptionsBlock } from "../remeasurement/ExceptionsBlock";
 import { ReleaseReadiness } from "../remeasurement/ReleaseReadiness";
 import { Worklist } from "../remeasurement/Worklist";
@@ -81,6 +84,12 @@ function PositionPart({ task, onBack }: { task: interfaces.WarehouseTaskItem; on
   const draft = useJobDraft(section.data);
   useUnsavedGuard(draft.count > 0);
   const [markWhat, setMarkWhat] = useState<SentWhat | null>(null);
+  // Supplier e-mail: a type that is on in Warehouse settings is sent; the others are recorded only.
+  const [sendWhat, setSendWhat] = useState<SupplierKind | null>(null);
+  const { settings } = useWarehouseSettings();
+  const { emails } = useSupplierEmails(task.id);
+  const recipients = { vgm: emailedTo(settings, "vgm"), survey: emailedTo(settings, "survey"), remeasurement: emailedTo(settings, "remeasurement") };
+  const failed = { vgm: lastFailedAttempt(emails, "vgm"), survey: lastFailedAttempt(emails, "survey"), remeasurement: lastFailedAttempt(emails, "remeasurement") };
 
   const saved = linesTotals(parseLines(section.data.remeasure_rows));
   const savedRemeasured = saved.pieces || saved.kg || saved.cbm ? saved : null;
@@ -136,7 +145,8 @@ function PositionPart({ task, onBack }: { task: interfaces.WarehouseTaskItem; on
         sectionVersion={section.version}
         informing={section.isMarking}
         onInform={() => setMarkWhat("inform_operations")}
-        onMarkRemeasurementSent={() => setMarkWhat("remeasurement")}
+        onMarkRemeasurementSent={() => (recipients.remeasurement ? setSendWhat("remeasurement") : setMarkWhat("remeasurement"))}
+        remeasurementEmailed={!!recipients.remeasurement}
         applying={applyRemeasured.isPending}
         applyRemeasured={(version) =>
           applyRemeasured
@@ -150,7 +160,7 @@ function PositionPart({ task, onBack }: { task: interfaces.WarehouseTaskItem; on
       />
 
       <RemeasureLines draft={draft} />
-      <NotesAndSent draft={draft} data={section.data} onMark={setMarkWhat} m={m} />
+      <NotesAndSent draft={draft} data={section.data} onMark={setMarkWhat} onSend={setSendWhat} emailedTo={recipients} failed={failed} m={m} />
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-5 items-start">
         <ExceptionsBlock m={m} />
@@ -159,6 +169,7 @@ function PositionPart({ task, onBack }: { task: interfaces.WarehouseTaskItem; on
 
       <SaveBar count={draft.count} saving={section.isSaving} blocked={blocked} onSave={save} onDiscard={draft.discard} />
       <MarkSentModal what={markWhat} saving={section.isMarking} onClose={() => setMarkWhat(null)} onSubmit={mark} m={m} />
+      <SendToSupplierModal taskId={task.id} what={sendWhat} onClose={() => setSendWhat(null)} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
+import { requireRole } from "../../../lib/rbac";
 import { warehouseStockService as svc } from "../services/warehouseStock.service";
 import type {
   WarehouseBondedEntryInput,
@@ -8,6 +9,8 @@ import type {
   WarehouseStockLineItem,
   WarehouseStockMovementInput,
   WarehouseStockMovementItem,
+  WarehouseStockSyncRequest,
+  WarehouseStockSyncResult,
   WarehouseZoneInput,
   WarehouseZoneItem,
 } from "../interfaces/stock.interfaces";
@@ -23,9 +26,20 @@ interface StockLineUpdateRequest extends WarehouseStockLineInput {
   id: string;
 }
 
+// Every line, open and closed (Picked / Voided, `closed` true): the screen filters what is on hand.
 export const warehouseStockLineList = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-stock" },
   async (): Promise<{ lines: WarehouseStockLineItem[] }> => ({ lines: await svc.listStockLines(company()) }),
+);
+
+// "Build stock from gate records" (manager): runs the gate sync on every live gate record —
+// the first build after the migration, and the repair tool. `dryRun` only counts.
+export const warehouseStockSync = api(
+  { expose: true, auth: true, method: "POST", path: "/warehouse-stock/sync" },
+  async ({ dryRun }: WarehouseStockSyncRequest): Promise<{ result: WarehouseStockSyncResult }> => {
+    const { companyID, userID } = requireRole("superadmin", "admin", "manager");
+    return { result: await svc.syncFromGate(companyID, userID, !!dryRun) };
+  },
 );
 
 export const warehouseStockLineCreate = api(

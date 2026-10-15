@@ -8,6 +8,7 @@ import { userName } from "./users";
 import { reweighRepository } from "../repositories/reweigh.repository";
 import { kgText, needsReweigh } from "./reweigh";
 import type { WarehouseSectionRecord } from "../schemas/warehouseSection.schema";
+import type { Tx } from "../repositories/warehouseSection.repository";
 import type { WarehouseSectionItem, WarehouseSectionSummaryItem } from "../interfaces/interfaces";
 
 export { formatWarehouseRef, warehouseRefYear } from "./warehouseRef";
@@ -77,6 +78,16 @@ const SECTION_LABELS: Record<string, string> = { job: "Shipment Details", custom
 /** What "Mark as sent" records (the field is `<kind>_sent`). */
 export const SENT_KINDS = ["vgm", "survey", "remeasurement", "inform_operations"] as const;
 const MAX_SENT_NOTE = 2_000;
+
+/** How the supplier e-mail records a send (see markSent). */
+export interface MarkSentOptions {
+  /** Extra fields of the sent value and its history entry (recipients, attachments, e-mail id). */
+  entry?: Record<string, string>;
+  /** History text instead of the field label, e.g. "VGM e-mailed to a@x.cz (3 photos)". */
+  logLabel?: string;
+  /** Runs in the same transaction, after the section is marked and the History line added. */
+  after?: (tx: Tx) => Promise<void>;
+}
 
 function checkChanges(section: string, changes: SectionKeyChange[]) {
   if (!(KEYED_SECTIONS as readonly string[]).includes(section)) {
@@ -204,8 +215,10 @@ class WarehouseService {
 
   // "Mark as sent" for a position: VGM, survey or remeasurement sent outside the app, or
   // operations informed. A resend is allowed: the field shows the latest and every send stays in
-  // its history (`<field>_history`), logged on the position's gate records.
-  async markSent(taskId: string, what: string, note: string, companyId: string, userId: string) {
+  // its history (`<field>_history`), logged on the position's gate records. The supplier e-mail
+  // (emailSupplier.service) records its sends through here too, with `opts`: the recipients and
+  // attachments in the entry, its own History text and its attempt settled in the same transaction.
+  async markSent(taskId: string, what: string, note: string, companyId: string, userId: string, opts: MarkSentOptions = {}) {
     if (!(SENT_KINDS as readonly string[]).includes(what)) throw APIError.invalidArgument(`What was sent must be one of: ${SENT_KINDS.join(", ")}`);
     const text = (note ?? "").trim();
     if (text.length > MAX_SENT_NOTE) throw APIError.invalidArgument(`The note is too long (at most ${MAX_SENT_NOTE} characters)`);
@@ -231,22 +244,25 @@ class WarehouseService {
       }
     }
     // Operations informed keeps the plain time Shipments shows; the others keep time and note.
-    const value = what === "inform_operations" ? at : JSON.stringify({ timestamp: at, note: text, by, ...weighed });
-    const label = FIELD_LABELS[key] ?? key;
+    const extra = opts.entry ?? {};
+    const value = what === "inform_operations" ? at : JSON.stringify({ timestamp: at, note: text, by, ...weighed, ...extra });
+    const label = opts.logLabel ?? FIELD_LABELS[key] ?? key;
     return warehouseSectionRepository.markSent(
       { kind: "task", taskId: task.id, shipmentId: task.shipmentId },
       "job",
       companyId,
       key,
       value,
-      { at, note: text, by, ...weighed },
-      (tx) =>
-        gateMovementRepository.appendEventsForTask(
+      { at, note: text, by, ...weighed, ...extra },
+      async (tx) => {
+        await gateMovementRepository.appendEventsForTask(
           task.id,
           companyId,
           [{ kind: "sectionSent", label: `Shipment Details: ${label}${vgmNote ? ` (${vgmNote})` : ""}`, at, by, ...(text ? { detail: text } : {}) }],
           tx,
-        ),
+        );
+        await opts.after?.(tx);
+      },
     );
   }
 

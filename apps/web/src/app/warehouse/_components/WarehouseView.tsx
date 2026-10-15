@@ -23,6 +23,8 @@ import { PrintLabelsModal } from "../gate-log/_components/PrintLabelsModal";
 import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOfVisit, releaseGatesText } from "../_lib/glossary";
 import { CHIPS, CHIP_IDS, exceptionText, isOnHold, pragueToday, type ChipId } from "../_lib/worklist";
 import { freeTimeSort, freeTimeText, freeTimeTone, storageHint } from "../_lib/storageText";
+import { customsChipText, customsClockSort, movementCustomsClock } from "../_lib/customsClock";
+import { CustomsDeadlineChip } from "../_lib/customsDeadline";
 import { confirmLeave } from "../_lib/useUnsavedGuard";
 import { ContainersTab } from "./tabs/ContainersTab";
 import { StockTab } from "./tabs/StockTab";
@@ -31,6 +33,7 @@ import { ReportsTab } from "./tabs/ReportsTab";
 import { ReadmeTab } from "./tabs/ReadmeTab";
 import { ImportOutcomeTag, ShipmentImportPicker, type ImportMode } from "./ShipmentImportPicker";
 import { RemeasurementTab } from "./tabs/RemeasurementTab";
+import { SettingsLink } from "../settings/_components/SettingsLink";
 import { positionRemeasurementHref } from "./remeasurementLinks";
 import { reportBulk, runBulk } from "./tabs/shared";
 import { LifecycleChip } from "./LifecycleStrip";
@@ -187,6 +190,16 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
     sorter: byNum((m) => m.storage.estimatedCzk),
     render: (_, r) => (r.m?.storage.estimatedCzk ? <span className="text-red-600 tabular-nums">{nf(r.m.storage.estimatedCzk)}</span> : dim("")),
   },
+  // Goods under customs control (T1 / temporary storage / customs warehouse): days since the receipt
+  // and the 90-day deadline (UCC art. 149); amber with 10 days left or fewer, red overdue.
+  {
+    key: "customsDeadline",
+    title: "Customs deadline",
+    width: 140,
+    text: (r) => (r.m ? customsChipText(movementCustomsClock(r.m)) : ""),
+    sorter: (a, b) => (a.m ? customsClockSort(movementCustomsClock(a.m)) : Number.MAX_SAFE_INTEGER) - (b.m ? customsClockSort(movementCustomsClock(b.m)) : Number.MAX_SAFE_INTEGER),
+    render: (_, r) => (r.m ? <CustomsDeadlineChip clock={movementCustomsClock(r.m)} empty="" /> : dim("")),
+  },
   {
     key: "release",
     title: TERMS.releaseGates,
@@ -295,6 +308,7 @@ function ModuleTabs({
                 <MobileOutlined /> Floor mode
               </Link>
             </Tooltip>
+            <SettingsLink />
             <Tooltip title="Read me — how the Warehouse module works">
               <Button type="text" shape="circle" aria-label="Help" icon={<QuestionCircleOutlined />} onClick={onHelp} />
             </Tooltip>
@@ -519,7 +533,7 @@ export const WarehouseView = () => {
   const moduleTabs = (
     <ModuleTabs
       active={activeTab}
-      counts={{ positions: tasks.length, gatelog: movements.length, stock: stockLines.length }}
+      counts={{ positions: tasks.length, gatelog: movements.length, stock: stockLines.filter((l) => !l.closed).length }}
       onChange={setTab}
       onHelp={() => setHelpOpen(true)}
     />

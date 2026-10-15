@@ -22,12 +22,16 @@ import type { interfaces } from "@/lib/api/client";
 import { CONTAINER_TYPES } from "@/app/warehouse/gate-log/_lib/gate";
 import { TERMS, directionOfVisit } from "@/app/warehouse/_lib/glossary";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
+import { useWarehouseSettings } from "@/app/warehouse/settings/_lib/useWarehouseSettings";
 import { Card, ExpiryTag, Kpi, RecordFormModal, StatusTag, SubTabs, daysUntil, dim, type FieldDef } from "./shared";
 
 type Sub = "schedule" | "yard" | "resources";
 
-const DOCKS = ["Dock 1", "Dock 2", "Dock 3", "Dock 4"];
-const HOURS = ["06", "07", "08", "09", "10", "11", "12", "13", "14", "15", "16", "17", "18"];
+// Used until Warehouse settings load (the same defaults as the server). The grid then shows the
+// docks and opening hours set there, which the dock-utilisation KPI also measures against.
+const DEFAULT_DOCKS = ["Dock 1", "Dock 2", "Dock 3", "Dock 4"];
+const DEFAULT_OPENS = "06:00";
+const DEFAULT_CLOSES = "19:00";
 const SLOT_STATUSES = ["Booked", "In progress", "Completed", "Overdue", "Cancelled"];
 const SLOT_COLORS: Record<string, string> = { Completed: "green", "In progress": "orange", Booked: "default", Overdue: "red", Cancelled: "default" };
 const SLOT_CELL: Record<string, string> = {
@@ -80,12 +84,26 @@ export function DockYardTab() {
 // ---------- Dock schedule ----------
 
 const DURATIONS = [30, 60, 90, 120];
-const HOUR_MIN = Number(HOURS[0]) * 60;
-const HOUR_MAX = (Number(HOURS[HOURS.length - 1]) + 1) * 60;
 const toMin = (hhmm: string) => {
   const [h, m] = hhmm.split(":").map(Number);
   return Number.isFinite(h) && Number.isFinite(m) ? h! * 60 + m! : NaN;
 };
+
+type HourGrid = { hours: string[]; min: number; max: number };
+
+/** The whole hours from opening to closing ("06:00"–"19:00" → 06 … 18). */
+function hourGrid(opensAt: string, closesAt: string): HourGrid {
+  let open = toMin(opensAt);
+  let close = toMin(closesAt);
+  if (!Number.isFinite(open) || !Number.isFinite(close) || close <= open) {
+    open = toMin(DEFAULT_OPENS);
+    close = toMin(DEFAULT_CLOSES);
+  }
+  const first = Math.floor(open / 60);
+  const last = Math.max(first, Math.ceil(close / 60) - 1);
+  const hours = Array.from({ length: last - first + 1 }, (_, i) => pad(first + i));
+  return { hours, min: first * 60, max: (last + 1) * 60 };
+}
 
 type Placed = { slot: DockSlot; col: number; span: number; lane: number };
 
@@ -94,7 +112,7 @@ type Placed = { slot: DockSlot; col: number; span: number; lane: number };
  * runs into, in lanes so slots sharing an hour (e.g. 08:00–08:30 and 08:30–09:00) sit one under
  * the other. Cancelled slots free the door and are left off the grid (they stay in the list).
  */
-function placeSlots(slots: DockSlot[]): { placed: Placed[]; lanes: number } {
+function placeSlots(slots: DockSlot[], { min: HOUR_MIN, max: HOUR_MAX }: HourGrid): { placed: Placed[]; lanes: number } {
   const placed: Placed[] = [];
   const laneEnds: number[] = [];
   for (const slot of [...slots].sort((a, b) => a.time.localeCompare(b.time))) {
@@ -128,8 +146,18 @@ function DockSchedule() {
   const [date, setDate] = useState(localDate(new Date()));
   const [editing, setEditing] = useState<{ slot?: DockSlot; preset?: Partial<interfaces.WarehouseDockSlotInput> } | null>(null);
   const daySlots = useMemo(() => items.filter((s) => s.date === date).sort((a, b) => a.time.localeCompare(b.time)), [items, date]);
-  // The four doors, and any other door name used on this day.
-  const docks = useMemo(() => [...DOCKS, ...[...new Set(daySlots.map((s) => s.dock))].filter((d) => d && !DOCKS.includes(d)).sort()], [daySlots]);
+  // The docks and hours from Warehouse settings, and any other door name used on this day.
+  const { settings } = useWarehouseSettings();
+  const setDocks = settings?.docks.docks.length ? settings.docks.docks : DEFAULT_DOCKS;
+  const grid = useMemo(
+    () => hourGrid(settings?.docks.opensAt ?? DEFAULT_OPENS, settings?.docks.closesAt ?? DEFAULT_CLOSES),
+    [settings?.docks.opensAt, settings?.docks.closesAt],
+  );
+  const HOURS = grid.hours;
+  const docks = useMemo(
+    () => [...setDocks, ...[...new Set(daySlots.map((s) => s.dock))].filter((d) => d && !setDocks.includes(d)).sort()],
+    [daySlots, setDocks],
+  );
   const byId = useMemo(() => new Map(movements.map((m) => [m.id, m])), [movements]);
 
   const presetFor = (m: GateMovement, extra: Partial<interfaces.WarehouseDockSlotInput> = {}): Partial<interfaces.WarehouseDockSlotInput> => ({
@@ -252,7 +280,7 @@ function DockSchedule() {
               ))}
             </div>
             {docks.map((dock) => {
-              const { placed, lanes } = placeSlots(daySlots.filter((s) => s.dock === dock && s.status !== "Cancelled"));
+              const { placed, lanes } = placeSlots(daySlots.filter((s) => s.dock === dock && s.status !== "Cancelled"), grid);
               return (
                 <div
                   key={dock}
