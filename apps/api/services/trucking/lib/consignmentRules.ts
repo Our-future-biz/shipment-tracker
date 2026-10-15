@@ -322,12 +322,12 @@ export function attentionReasons(c: AttentionFacts, today: string, now: Date): s
   if (c.cancelledAt) return [];
   const reasons: string[] = [];
   const soon = c.pickupDate <= addDays(today, 1);
-  if (!c.tripId && soon) reasons.push("Pick-up within 24 h and no trip");
-  if (c.tripId && !c.orderSentAt && soon) reasons.push("Pick-up within 24 h and the transport order is not sent");
+  if (c.status === "BOOKED" && soon) reasons.push("Pick-up within 24 h and no trip");
+  if (c.status === "PLANNED" && soon) reasons.push("Pick-up within 24 h and the transport order is not sent");
   if (c.tripRejectedAt && !c.confirmedAt) reasons.push("The haulier rejected the transport order");
   if (c.belowFloor && !c.marginApproved) reasons.push("Margin below the floor: needs a manager's approval");
   if (c.marginCzk !== null && c.marginCzk < 0) reasons.push("Negative margin");
-  if (c.tripId && c.orderSentAt && !c.pickedUpAt && c.pickupDate < today) reasons.push("Pick-up date passed and no pick-up stamped");
+  if ((c.status === "ORDERED" || c.status === "CONFIRMED") && c.pickupDate < today) reasons.push("Pick-up date passed and no pick-up stamped");
   if (c.deliveredAt && !c.podReceivedAt && now.getTime() - c.deliveredAt.getTime() > POD_OVERDUE_DAYS * 86_400_000) {
     reasons.push(`POD missing for more than ${POD_OVERDUE_DAYS} days`);
   }
