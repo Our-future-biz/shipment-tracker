@@ -1,7 +1,6 @@
 "use client";
 
 import type { ComponentProps } from "react";
-import dayjs from "dayjs";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
@@ -10,93 +9,50 @@ import { useCustomerQuotes } from "@/hooks/useCustomerQuotes";
 import { useCustomerShipments } from "@/hooks/useCustomerShipments";
 import type { ShipmentItem } from "@/hooks/useCustomerShipments";
 import { useCustomer } from "@/hooks/useCustomers";
-import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
-import { formatDate } from "@/lib/date";
-import type { ExchangeRates } from "@/lib/exchangeRates";
 import { isActiveStatus } from "@/lib/enums";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { ATTENTION_RULES } from "../../_lib/customerAttention";
 import { daysSince, relativeDayLabel } from "../../_lib/customerDates";
 import { useLatestRates, type Rates } from "@/lib/fx";
-import type { LivePricing } from "@/app/sales/_lib/salesQuote";
 import { summarizeInvoices } from "../../_lib/customerInvoices";
 import { fmtMoney } from "../../_lib/customerMoney";
-import { quoteBucket, sellingByCurrency } from "../../_lib/customerQuotes";
+import { quoteBucket } from "../../_lib/customerQuotes";
 import { EMPTY_CELL } from "../../_lib/customerTable";
 import { CustomerKpiTile } from "./CustomerKpiTile";
 
-// What one tile shows; the label and the tab it opens are fixed in the markup below.
-type TileContent = Pick<ComponentProps<typeof CustomerKpiTile>, "value" | "tone" | "hint" | "hintTone">;
-
-const DAY_KEY = "YYYY-MM-DD";
-
-// A non-breaking space: an empty hint that still takes up its line, so a tile is the same height with
-// or without a hint and the row neither jumps when the data arrives nor sits uneven while it loads.
-const BLANK_HINT = "\u00a0";
+// What one tile shows: its figure only; the label and the tab it opens are fixed in the markup below.
+type TileContent = Pick<ComponentProps<typeof CustomerKpiTile>, "value" | "tone">;
 
 // Stands in for a tile's figure while its data is on the way or could not be loaded, so a tile never
 // shows "0" or "Never" for something that is simply not known yet.
 function placeholderTile(isLoading: boolean, isError: boolean): TileContent | null {
-  if (isLoading) return { value: "…", hint: BLANK_HINT };
-  if (isError) return { value: EMPTY_CELL, hint: BLANK_HINT };
+  if (isLoading) return { value: "…" };
+  if (isError) return { value: EMPTY_CELL };
   return null;
 }
 
-// The soonest arrival that is today or later. Arrivals are compared as calendar days on the viewer's
-// clock, the same reading of the date that formatDate displays.
-function nextArrival(shipments: ShipmentItem[]): string | null {
-  const today = dayjs().format(DAY_KEY);
-  let next: { day: string; eta: string } | null = null;
-  for (const { estimatedArrival } of shipments) {
-    if (!estimatedArrival) continue;
-    const arrival = dayjs(estimatedArrival);
-    if (!arrival.isValid()) continue;
-    const day = arrival.format(DAY_KEY);
-    if (day >= today && (!next || day < next.day)) next = { day, eta: estimatedArrival };
-  }
-  return next ? next.eta : null;
-}
+const activeShipmentsTile = (shipments: ShipmentItem[]): TileContent => ({
+  value: shipments.filter((shipment) => isActiveStatus(shipment.status)).length,
+});
 
-function activeShipmentsTile(shipments: ShipmentItem[]): TileContent {
-  const active = shipments.filter((shipment) => isActiveStatus(shipment.status));
-  if (active.length === 0) return { value: 0, hint: "None in progress" };
-  const eta = nextArrival(active);
-  return { value: active.length, hint: eta ? `Next ETA ${formatDate(eta)}` : "No upcoming arrival" };
-}
+const openQuotesTile = (quotes: SalesQuote[]): TileContent => ({
+  value: quotes.filter((quote) => quoteBucket(quote) === "open").length,
+});
 
-function openQuotesTile(quotes: SalesQuote[], sheet: ExchangeRates, live: LivePricing): TileContent {
-  const open = quotes.filter((quote) => quoteBucket(quote) === "open");
-  if (open.length === 0) return { value: 0, hint: "None open" };
-  const selling = sellingByCurrency(open, sheet, live);
-  if (selling.incomplete) {
-    // Lines without an exchange rate are not in the sum. Said first, where a narrow tile cannot
-    // cut it off; the tooltip adds why.
-    const hint = ["Incomplete", selling.text].filter(Boolean).join(" · ");
-    return {
-      value: open.length,
-      hint: <span title={`${hint} - without the lines that cannot be converted`}>{hint}</span>,
-      hintTone: "amber",
-    };
-  }
-  // Several currencies can outgrow the tile, so the full figure is also the tooltip.
-  return { value: open.length, hint: selling.text ? <span title={selling.text}>{selling.text}</span> : "No value yet" };
-}
-
+// Red when part of what is owed is past due.
 function outstandingTile(invoices: InvoiceItem[], currency: string, rates: Rates): TileContent {
   const { outstanding, overdueAmount } = summarizeInvoices(invoices, { currency, rates });
-  const value = fmtMoney(outstanding, currency);
-  if (overdueAmount > 0) return { value, hint: `${fmtMoney(overdueAmount, currency)} overdue`, hintTone: "red" };
-  return { value, hint: "Nothing overdue" };
+  return { value: fmtMoney(outstanding, currency), tone: overdueAmount > 0 ? "red" : undefined };
 }
 
+// Amber when nothing was ever logged, or the last contact is older than the "no contact" limit.
 function lastContactTile(notes: NoteItem[]): TileContent {
   // The API returns notes newest first.
   const lastNote = notes[0];
-  if (!lastNote) return { value: "Never", hint: "No interaction logged", tone: "amber" };
+  if (!lastNote) return { value: "Never", tone: "amber" };
   const days = daysSince(lastNote.createdAt);
   return {
     value: days === null ? EMPTY_CELL : relativeDayLabel(days),
-    hint: [lastNote.type, lastNote.author].filter(Boolean).join(" · "),
     tone: days !== null && days > ATTENTION_RULES.noContactDays ? "amber" : undefined,
   };
 }
@@ -106,20 +62,18 @@ interface CustomerSnapshotTilesProps {
   onSelectTab: (key: string) => void;
 }
 
-// Where the customer stands right now, one tile per tab, each opening that tab.
+// Where the customer stands right now: one figure per tile, each tile opening its tab.
 export function CustomerSnapshotTiles({ customerId, onSelectTab }: CustomerSnapshotTilesProps) {
   const { customer, isLoading: customerLoading } = useCustomer(customerId);
   const { shipments, isLoading: shipmentsLoading, isError: shipmentsError } = useCustomerShipments(customerId);
   const { quotes, isLoading: quotesLoading, isError: quotesError } = useCustomerQuotes(customerId);
   const { invoices, isLoading: invoicesLoading, isError: invoicesError } = useCustomerInvoices(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
-  // The value of the open quotes needs today's ČNB rates as well: Sales converts with them.
-  const exchange = useCurrentExchangeRates();
   // The outstanding invoices are summed in the customer's currency at today's rates.
   const { rates } = useLatestRates();
 
   const shipmentsTile = placeholderTile(shipmentsLoading, shipmentsError) ?? activeShipmentsTile(shipments);
-  const quotesTile = placeholderTile(quotesLoading || exchange.isLoading, quotesError) ?? openQuotesTile(quotes, exchange.rates, exchange);
+  const quotesTile = placeholderTile(quotesLoading, quotesError) ?? openQuotesTile(quotes);
   // The amounts are in the customer's currency, so this tile needs the customer as well as the invoices.
   const financeTile =
     placeholderTile(customerLoading || invoicesLoading, invoicesError || !customer) ?? outstandingTile(invoices, customer!.currency, rates);
