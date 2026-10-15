@@ -23,6 +23,11 @@ const authFetcher: typeof fetch = (input, init) => {
 
 export const api = new Client(API_BASE, { fetcher: authFetcher });
 
+// The client of the public pages (the haulier's transport-order link): it sends no session, so a
+// signed-in user's token never travels with a request a link opened, and the endpoints answer the
+// same for everyone (`auth: false` endpoints are plain methods of the generated client).
+export const publicApi = new Client(API_BASE);
+
 // The same client, except that its requests outlive the page (fetch keepalive), so a save on its
 // way when the tab closes still arrives. Browsers take such a request only with a small body -
 // 64 KiB for all of a page's together - and refuse a bigger one outright.

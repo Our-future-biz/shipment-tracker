@@ -15,6 +15,7 @@ import { tariffHref } from "@/app/trucking/_components/TruckingTariffsTab";
 import { isTruckingManager } from "@/app/trucking/_lib/roles";
 import { SCOPE_LABELS, modeLabel, tariffListStatus, validityLabel, versionLabel } from "@/app/trucking/_lib/tariffs";
 import { haulierBuyTariffs, priceListsUsed } from "../../_lib/customerTrucking";
+import { CustomerConsignmentsCard } from "./CustomerConsignmentsCard";
 
 const LINK = "font-semibold text-indigo-600 hover:underline";
 
@@ -42,7 +43,7 @@ const TariffLine = ({ tariff, note }: { tariff: TariffListItem; note?: string })
 };
 
 // What trucking means for this company: the price list its consignments are priced with, for a
-// haulier its buy tariffs, and (Phase 4) its consignments. The tariffs themselves are kept in Trucking.
+// haulier its buy tariffs, and its consignments. The tariffs themselves are kept in Trucking.
 export function TruckingTab({ customerId }: { customerId: string }) {
   const router = useRouter();
   const { user } = useAuth();
@@ -113,9 +114,7 @@ export function TruckingTab({ customerId }: { customerId: string }) {
         </SectionCard>
       )}
 
-      <SectionCard title="Consignments">
-        <div className="text-[13px] text-slate-500">Consignments arrive with Phase 4.</div>
-      </SectionCard>
+      <CustomerConsignmentsCard customerId={customerId} companyName={customer?.companyName ?? ""} />
 
       {preset && (
         <TariffCreateModal

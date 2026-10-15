@@ -5,6 +5,7 @@ import { ErrCode, isAPIError } from "@/lib/api/client";
 
 export const CONFLICT_TEXT = "Settings were changed by someone else. Reload and try again.";
 export const HAULIER_CONFLICT_TEXT = "This haulier was changed by someone else. Reload and try again.";
+export const TRIP_CONFLICT_TEXT = "This trip was changed by someone else. Reload and try again.";
 
 export function isVersionConflict(err: unknown): boolean {
   if (!isAPIError(err)) return false;

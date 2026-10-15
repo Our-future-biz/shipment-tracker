@@ -45,6 +45,7 @@ import { CargoDetailsTab } from "./tabs/CargoDetailsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
 import { ShipmentWarehouseTab } from "./tabs/WarehouseTab";
+import { ShipmentTruckingTab } from "./tabs/TruckingTab";
 import { CustomsTab } from "./tabs/CustomsTab";
 import { EditableCell, TradeDirectionContext } from "./_components/EditableCell";
 import { FadeText } from "@/components/FadeText";
@@ -71,6 +72,7 @@ const TABS = [
   { key: "customs", label: "Customs" },
   { key: "documents", label: "Documents" },
   { key: "warehouse", label: "Warehouse" },
+  { key: "trucking", label: "Trucking" },
   { key: "tracking", label: "Tracking" },
   { key: "claim", label: "Claim" },
 ];
@@ -1587,6 +1589,8 @@ export function ShipmentDetailContent() {
         {activeTab === "documents" && <DocumentsTab shipment={shipment} />}
 
         {activeTab === "warehouse" && <ShipmentWarehouseTab shipment={shipment} />}
+
+        {activeTab === "trucking" && <ShipmentTruckingTab shipment={shipment} />}
 
         {activeTab === "tracking" && <TrackingTab shipment={shipment} />}
 

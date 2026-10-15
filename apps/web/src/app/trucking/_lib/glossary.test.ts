@@ -27,6 +27,13 @@ describe("trucking glossary", () => {
     expect(meaning(TERMS.marginApproval)).toMatch(/a worse margin needs a new approval/);
   });
 
+  it("states the pick-up PIN rule, recorded-only sending and the haulier link", () => {
+    const meaning = (term: string) => GLOSSARY.find((g) => g.term === term)?.meaning;
+    expect(meaning(TERMS.pickupPin)).toMatch(/printed and never stored or logged/);
+    expect(meaning(TERMS.recordedOnly)).toMatch(/nothing is e-mailed/);
+    expect(meaning(TERMS.haulierLink)).toMatch(/without signing in/i);
+  });
+
   it("states the service levels and where their clock starts", () => {
     const meaning = GLOSSARY.find((g) => g.term === TERMS.serviceLevel)?.meaning;
     expect(meaning).toMatch(/\+1 … \+4/);
@@ -50,6 +57,6 @@ describe("trucking tabs", () => {
   });
 
   it("mark the built ones live", () => {
-    expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["hauliers", "tariffs", "calculator"]);
+    expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["consignments", "trips", "hauliers", "tariffs", "calculator"]);
   });
 });

@@ -8,6 +8,10 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { useEffect, useState } from "react";
 
 const PUBLIC_PATHS = ["/login"];
+// Pages anyone with the link opens, signed in or not, without the app around them and without a
+// redirect: the haulier's transport-order page (/haulier/order/<token>). They call only the API's
+// public endpoints, without the session.
+const OPEN_PATHS = ["/haulier/"];
 // Signed-in pages shown full screen, without the sidebar and top bar (the warehouse phone floor mode).
 const FULL_SCREEN_PATHS = ["/warehouse/floor"];
 
@@ -22,9 +26,10 @@ export const AppShell = ({ children }: AppShellProps) => {
   const [hasRedirected, setHasRedirected] = useState(false);
 
   const isPublicPath = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  const isOpenPath = OPEN_PATHS.some((p) => pathname.startsWith(p));
 
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading || isOpenPath) return;
 
     if (!user && !isPublicPath && !hasRedirected) {
       // Not authenticated on a protected page → go to login
@@ -34,12 +39,15 @@ export const AppShell = ({ children }: AppShellProps) => {
       // Authenticated on login page → go to dashboard
       router.replace("/dashboard");
     }
-  }, [user, isLoading, isPublicPath, hasRedirected, router]);
+  }, [user, isLoading, isPublicPath, isOpenPath, hasRedirected, router]);
 
   // Reset redirect flag when pathname changes
   useEffect(() => {
     setHasRedirected(false);
   }, [pathname]);
+
+  // Open paths: the page alone, whoever opens it (no sign-in wait, no app chrome)
+  if (isOpenPath) return <>{children}</>;
 
   // Public paths: render content directly (login page)
   if (isPublicPath) {

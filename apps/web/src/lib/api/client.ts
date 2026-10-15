@@ -1922,6 +1922,21 @@ export namespace trucking {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.publicTransportOrderGet = this.publicTransportOrderGet.bind(this)
+            this.publicTransportOrderPod = this.publicTransportOrderPod.bind(this)
+            this.publicTransportOrderRespond = this.publicTransportOrderRespond.bind(this)
+            this.truckingCmrPdf = this.truckingCmrPdf.bind(this)
+            this.truckingConsignmentApproveMargin = this.truckingConsignmentApproveMargin.bind(this)
+            this.truckingConsignmentCancel = this.truckingConsignmentCancel.bind(this)
+            this.truckingConsignmentCreate = this.truckingConsignmentCreate.bind(this)
+            this.truckingConsignmentGet = this.truckingConsignmentGet.bind(this)
+            this.truckingConsignmentList = this.truckingConsignmentList.bind(this)
+            this.truckingConsignmentStamp = this.truckingConsignmentStamp.bind(this)
+            this.truckingConsignmentUpdate = this.truckingConsignmentUpdate.bind(this)
+            this.truckingConsignmentVoidStamp = this.truckingConsignmentVoidStamp.bind(this)
+            this.truckingDocumentContent = this.truckingDocumentContent.bind(this)
+            this.truckingDocumentList = this.truckingDocumentList.bind(this)
+            this.truckingDocumentUpload = this.truckingDocumentUpload.bind(this)
             this.truckingFuelIndexList = this.truckingFuelIndexList.bind(this)
             this.truckingFuelIndexSet = this.truckingFuelIndexSet.bind(this)
             this.truckingHaulierBlock = this.truckingHaulierBlock.bind(this)
@@ -1945,6 +1960,162 @@ export namespace trucking {
             this.truckingTariffVersionGet = this.truckingTariffVersionGet.bind(this)
             this.truckingTariffVersionSource = this.truckingTariffVersionSource.bind(this)
             this.truckingTariffVersionTestLane = this.truckingTariffVersionTestLane.bind(this)
+            this.truckingTransportOrderConfirm = this.truckingTransportOrderConfirm.bind(this)
+            this.truckingTransportOrderPdf = this.truckingTransportOrderPdf.bind(this)
+            this.truckingTransportOrderSend = this.truckingTransportOrderSend.bind(this)
+            this.truckingTripCancel = this.truckingTripCancel.bind(this)
+            this.truckingTripCreateFtl = this.truckingTripCreateFtl.bind(this)
+            this.truckingTripGet = this.truckingTripGet.bind(this)
+            this.truckingTripList = this.truckingTripList.bind(this)
+            this.truckingTripUpdate = this.truckingTripUpdate.bind(this)
+        }
+
+        /**
+         * The transport order as the haulier sees it through the link in the order (no customer prices).
+         * Public: the token is the key; an unknown or expired one is "This link is no longer valid".
+         */
+        public async publicTransportOrderGet(token: string): Promise<controllers.PublicTransportOrderResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/public/transport-orders/${encodeURIComponent(token)}`)
+            return await resp.json() as controllers.PublicTransportOrderResponse
+        }
+
+        /**
+         * The haulier uploads the proof of delivery (photo or PDF, 10 MB): stamps delivered (if not yet)
+         * and POD received, with the source HAULIER. Public.
+         */
+        public async publicTransportOrderPod(token: string, params: controllers.PublicTransportOrderPodRequest): Promise<controllers.PublicTransportOrderResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/public/transport-orders/${encodeURIComponent(token)}/pod`, JSON.stringify(params))
+            return await resp.json() as controllers.PublicTransportOrderResponse
+        }
+
+        /**
+         * The haulier confirms or rejects the order, once. Public.
+         */
+        public async publicTransportOrderRespond(token: string, params: controllers.PublicTransportOrderRespondRequest): Promise<controllers.PublicTransportOrderResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/public/transport-orders/${encodeURIComponent(token)}/respond`, JSON.stringify(params))
+            return await resp.json() as controllers.PublicTransportOrderResponse
+        }
+
+        /**
+         * The CMR of a consignment as a PDF.
+         */
+        public async truckingCmrPdf(id: string): Promise<controllers.TruckingFileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/${encodeURIComponent(id)}/cmr`)
+            return await resp.json() as controllers.TruckingFileResponse
+        }
+
+        /**
+         * A manager approves a margin below the floor, with the reason (only when belowFloor).
+         */
+        public async truckingConsignmentApproveMargin(id: string, params: controllers.TruckingReasonRequest): Promise<controllers.TruckingConsignmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/${encodeURIComponent(id)}/margin-approval`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingConsignmentResponse
+        }
+
+        /**
+         * Cancels a consignment (manager, with the reason); refused after the pick-up. Its Trucking cost
+         * lines are removed from the job.
+         */
+        public async truckingConsignmentCancel(id: string, params: controllers.TruckingReasonRequest): Promise<controllers.TruckingConsignmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/${encodeURIComponent(id)}/cancel`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingConsignmentResponse
+        }
+
+        /**
+         * Books a consignment on a job (shipmentId null = a job is created for a domestic-only order),
+         * priced from the tariff, the quote or by hand.
+         */
+        public async truckingConsignmentCreate(params: controllers.TruckingConsignmentCreateRequest): Promise<controllers.TruckingConsignmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingConsignmentResponse
+        }
+
+        /**
+         * One consignment with its stops, load, price, stamps and history.
+         */
+        public async truckingConsignmentGet(id: string): Promise<controllers.TruckingConsignmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/consignments/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.TruckingConsignmentResponse
+        }
+
+        /**
+         * The consignments, filtered by status, view, search or job, with the counts of the tiles and chips.
+         */
+        public async truckingConsignmentList(params: controllers.TruckingConsignmentListRequest): Promise<controllers.TruckingConsignmentListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                search:     params.search,
+                shipmentId: params.shipmentId,
+                status:     params.status === undefined ? undefined : String(params.status),
+                view:       params.view === undefined ? undefined : String(params.view),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/consignments`, undefined, {query})
+            return await resp.json() as controllers.TruckingConsignmentListResponse
+        }
+
+        /**
+         * Stamps confirmed, picked up, delivered or POD received (null = now; a past time within 7 days).
+         * A second stamp is refused with "Already stamped".
+         */
+        public async truckingConsignmentStamp(id: string, kind: interfaces.StampKind, params: controllers.TruckingStampRequest): Promise<controllers.TruckingConsignmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/${encodeURIComponent(id)}/stamps/${encodeURIComponent(kind)}`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingConsignmentResponse
+        }
+
+        /**
+         * Saves a consignment (refused after the pick-up except notes and references); stale version → 409.
+         */
+        public async truckingConsignmentUpdate(id: string, params: controllers.TruckingConsignmentUpdateRequest): Promise<controllers.TruckingConsignmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/trucking/consignments/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingConsignmentResponse
+        }
+
+        /**
+         * A manager voids a stamp, with the reason; the event is kept.
+         */
+        public async truckingConsignmentVoidStamp(id: string, kind: interfaces.StampKind, params: controllers.TruckingReasonRequest): Promise<controllers.TruckingConsignmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/${encodeURIComponent(id)}/stamps/${encodeURIComponent(kind)}/void`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingConsignmentResponse
+        }
+
+        /**
+         * One document of a consignment, as a file.
+         */
+        public async truckingDocumentContent(docId: string): Promise<controllers.TruckingFileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/documents/${encodeURIComponent(docId)}`)
+            return await resp.json() as controllers.TruckingFileResponse
+        }
+
+        /**
+         * The documents of a consignment (POD, CMR, delivery notes), from users and the haulier.
+         */
+        public async truckingDocumentList(id: string): Promise<controllers.TruckingDocumentListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/consignments/${encodeURIComponent(id)}/documents`)
+            return await resp.json() as controllers.TruckingDocumentListResponse
+        }
+
+        /**
+         * Uploads a document (10 MB, type sniffed). A POD does not stamp POD received by itself.
+         */
+        public async truckingDocumentUpload(id: string, params: controllers.TruckingDocumentUploadRequest): Promise<controllers.TruckingDocumentListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/${encodeURIComponent(id)}/documents`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingDocumentListResponse
         }
 
         /**
@@ -2181,6 +2352,85 @@ export namespace trucking {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/tariff-versions/${encodeURIComponent(id)}/test-lane`, JSON.stringify(params))
             return await resp.json() as controllers.TruckingTariffVersionTestLaneResponse
+        }
+
+        /**
+         * Records a confirmation the haulier gave by phone or e-mail (confirmedVia USER).
+         */
+        public async truckingTransportOrderConfirm(id: string, params: controllers.TruckingTransportOrderConfirmRequest): Promise<controllers.TruckingTripResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/${encodeURIComponent(id)}/transport-order/confirm`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTripResponse
+        }
+
+        /**
+         * The transport order as a PDF; the PIN is printed only, never stored or logged.
+         */
+        public async truckingTransportOrderPdf(id: string, params: controllers.TruckingTransportOrderPdfRequest): Promise<controllers.TruckingFileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/${encodeURIComponent(id)}/transport-order/pdf`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingFileResponse
+        }
+
+        /**
+         * Sends the transport order (recorded only while e-mail is disabled) and returns its PDF; creates
+         * or renews the haulier link. Trip and consignment become ORDERED.
+         */
+        public async truckingTransportOrderSend(id: string, params: controllers.TruckingTransportOrderSendRequest): Promise<controllers.TruckingTransportOrderSendResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/${encodeURIComponent(id)}/transport-order/send`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTransportOrderSendResponse
+        }
+
+        /**
+         * Cancels a trip (manager, with the reason); its consignment goes back to BOOKED.
+         */
+        public async truckingTripCancel(id: string, params: controllers.TruckingReasonRequest): Promise<controllers.TruckingTripResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/${encodeURIComponent(id)}/cancel`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTripResponse
+        }
+
+        /**
+         * Plans an FTL consignment on a trip of its own with a haulier (null = the engine's first candidate).
+         */
+        public async truckingTripCreateFtl(params: controllers.TruckingTripCreateFtlRequest): Promise<controllers.TruckingTripCreateFtlResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/ftl`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTripCreateFtlResponse
+        }
+
+        /**
+         * One trip with its haulier, vehicle, buy price, transport order and history.
+         */
+        public async truckingTripGet(id: string): Promise<controllers.TruckingTripResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/trips/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.TruckingTripResponse
+        }
+
+        /**
+         * The trips, filtered by status or search.
+         */
+        public async truckingTripList(params: controllers.TruckingTripListRequest): Promise<controllers.TruckingTripListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                search: params.search,
+                status: params.status === undefined ? undefined : String(params.status),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/trips`, undefined, {query})
+            return await resp.json() as controllers.TruckingTripListResponse
+        }
+
+        /**
+         * Saves the vehicle and driver of a trip (plates upper-case without spaces); stale version → 409.
+         */
+        public async truckingTripUpdate(id: string, params: controllers.TruckingTripUpdateRequest): Promise<controllers.TruckingTripResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/trucking/trips/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTripResponse
         }
     }
 }
@@ -4906,6 +5156,27 @@ export namespace controllers {
         preview: interfaces.InvoicePreviewItem
     }
 
+    export interface PublicTransportOrderPodRequest {
+        fileName: string
+        fileBase64: string
+        /**
+         * ISO time; null = now
+         */
+        deliveredAt: string | null
+
+        receiverName: string
+    }
+
+    export interface PublicTransportOrderRespondRequest {
+        action: "CONFIRM" | "REJECT"
+        name: string
+        reason: string
+    }
+
+    export interface PublicTransportOrderResponse {
+        order: interfaces.PublicTransportOrder
+    }
+
     export interface QueueRequest {
         /**
          * Default to_bill
@@ -6007,6 +6278,80 @@ export namespace controllers {
         terms: interfaces.TermsConditionItem
     }
 
+    export interface TruckingConsignmentCreateRequest {
+        /**
+         * null = a Road job is created for a domestic-only order
+         */
+        shipmentId: string | null
+
+        customerId: string
+        quoteNumber: string | null
+        serviceLevel: interfaces.ServiceLevelCode
+        /**
+         * YYYY-MM-DD
+         */
+        pickupDate: string
+
+        /**
+         * "HH:MM" Prague; null = before the cut-off
+         */
+        pickupTime: string | null
+
+        pickup: interfaces.StopInput
+        delivery: interfaces.StopInput
+        load: interfaces.LoadInput
+        price: interfaces.ConsignmentPriceInput
+    }
+
+    export interface TruckingConsignmentListRequest {
+        status?: interfaces.ConsignmentStatus
+        view?: interfaces.ConsignmentView
+        search?: string
+        shipmentId?: string
+    }
+
+    export interface TruckingConsignmentListResponse {
+        consignments: interfaces.ConsignmentListItem[]
+        counts: {
+            attention: number
+            pickupToday: number
+            deliveryToday: number
+            podMissing: number
+            readyToBill: number
+            openFtlWithoutHaulier: number
+        }
+    }
+
+    export interface TruckingConsignmentResponse {
+        consignment: interfaces.ConsignmentDetail
+    }
+
+    export interface TruckingConsignmentUpdateRequest {
+        quoteNumber: string | null
+        serviceLevel: interfaces.ServiceLevelCode
+        pickupDate: string
+        pickupTime: string | null
+        pickup: interfaces.StopInput
+        delivery: interfaces.StopInput
+        load: interfaces.LoadInput
+        price: interfaces.ConsignmentPriceInput
+        version: number
+        /**
+         * Price again from the source (tariff or quote); false keeps the stored price
+         */
+        reprice: boolean
+    }
+
+    export interface TruckingDocumentListResponse {
+        documents: interfaces.TruckingDocumentItem[]
+    }
+
+    export interface TruckingDocumentUploadRequest {
+        kind: interfaces.TruckingDocumentKind
+        fileName: string
+        fileBase64: string
+    }
+
     export interface TruckingFileResponse {
         file: interfaces.FileDownload
     }
@@ -6126,6 +6471,85 @@ export namespace controllers {
         /**
          * The version read (0 when none is saved yet); a save on top of a newer one is refused with 409.
          */
+        version: number
+    }
+
+    export interface TruckingReasonRequest {
+        reason: string
+    }
+
+    export interface TruckingStampRequest {
+        /**
+         * null = now; a past time within 7 days is allowed
+         */
+        at: string | null
+    }
+
+    export interface TruckingTransportOrderConfirmRequest {
+        note: string
+    }
+
+    export interface TruckingTransportOrderPdfRequest {
+        /**
+         * Printed on the PDF only; never stored or logged
+         */
+        pickupPin: string | null
+
+        language: interfaces.TransportOrderLanguage
+    }
+
+    export interface TruckingTransportOrderSendRequest {
+        pickupPin: string | null
+        language: interfaces.TransportOrderLanguage
+        to: string[]
+        note: string
+    }
+
+    export interface TruckingTransportOrderSendResponse {
+        trip: interfaces.TripDetail
+        /**
+         * true while e-mail is disabled: recorded as sent, nothing was e-mailed
+         */
+        recordedOnly: boolean
+
+        file: interfaces.FileDownload
+    }
+
+    export interface TruckingTripCreateFtlRequest {
+        consignmentId: string
+        /**
+         * null = the engine's first candidate (preferred, then cheapest)
+         */
+        haulierCustomerId: string | null
+
+        vehicleTypeCode: string | null
+        price: interfaces.TripPriceInput
+    }
+
+    export interface TruckingTripCreateFtlResponse {
+        trip: interfaces.TripDetail
+        consignment: interfaces.ConsignmentDetail
+    }
+
+    export interface TruckingTripListRequest {
+        status?: interfaces.TripStatus
+        search?: string
+    }
+
+    export interface TruckingTripListResponse {
+        trips: interfaces.TripListItem[]
+    }
+
+    export interface TruckingTripResponse {
+        trip: interfaces.TripDetail
+    }
+
+    export interface TruckingTripUpdateRequest {
+        vehicleTypeCode: string | null
+        tractorPlate: string
+        trailerPlate: string
+        driverName: string
+        driverPhone: string
         version: number
     }
 
@@ -8334,6 +8758,10 @@ export namespace interfaces {
         haulierId: string | null
 
         sortOrder: number
+        /**
+         * "trucking:consignment:<id>" (sell) / "trucking:trip:<id>" (buy): kept by Trucking, read-only here
+         */
+        sourceTruckingRef: string | null
     }
 
     /**
@@ -9591,6 +10019,10 @@ export namespace interfaces {
         vatCode: SellingVatCode | null
 
         sortOrder: number
+        /**
+         * "trucking:consignment:<id>" (sell) / "trucking:trip:<id>" (buy): kept by Trucking, read-only here
+         */
+        sourceTruckingRef: string | null
     }
 
     /**
@@ -10448,6 +10880,309 @@ export namespace interfaces {
          * Share of this month's received volume, 0–100.
          */
         share: number
+    }
+
+    export interface ConsignmentDetail extends ConsignmentListItem {
+        pickup: Stop
+        delivery: Stop
+        load: LoadInput
+        sell: PriceSnapshot | null
+        quoteNumber: string | null
+        stamps: { [key: string]: {
+            at: string
+            by: string
+        } | null }
+        marginApproval: {
+            byName: string
+            at: string
+            reason: string
+            marginCzk: number
+        } | null
+
+        version: number
+        /**
+         * Newest first
+         */
+        events: TruckingEventItem[]
+
+        permissions: {
+            canCancel: boolean
+            canApproveMargin: boolean
+            canVoidStamp: boolean
+        }
+    }
+
+    export interface ConsignmentListItem {
+        id: string
+        /**
+         * TCZ + year + 6 digits
+         */
+        ref: string
+
+        shipmentId: string
+        jobNumber: string
+        customerId: string
+        customerName: string
+        /**
+         * LTL arrives in Phase 5
+         */
+        scope: "FTL"
+
+        serviceLevel: ServiceLevelCode | null
+        status: ConsignmentStatus
+        pickupDate: string
+        pickupPostcode: string
+        pickupCity: string
+        deliveryPostcode: string
+        deliveryCity: string
+        promisedDate: string | null
+        palletPlaces: number
+        ldm: number
+        weightKg: number
+        chargeableKg: number | null
+        adr: boolean
+        tripId: string | null
+        tripRef: string | null
+        haulierName: string | null
+        sellCzk: number | null
+        buyCzk: number | null
+        marginCzk: number | null
+        marginPercent: number | null
+        belowFloor: boolean
+        marginApproved: boolean
+        podReceivedAt: string | null
+        /**
+         * Plain-English reasons, e.g. "Pick-up within 24 h and no trip"
+         */
+        needsAttention: string[]
+
+        createdAt: string
+    }
+
+    export type ConsignmentPriceInput = {
+        source: "TARIFF"
+    } | {
+        source: "QUOTE"
+    } | {
+        source: "MANUAL"
+        total: number
+        currency: "CZK" | "EUR"
+        reason: string
+    }
+
+    export type ConsignmentStatus = "BOOKED" | "PLANNED" | "ORDERED" | "CONFIRMED" | "PICKED_UP" | "DELIVERED" | "POD_RECEIVED" | "READY_TO_BILL" | "CANCELLED"
+
+    export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill"
+
+    export interface LoadInput {
+        pieces: number
+        palletPlaces: number
+        ldm: number
+        weightKg: number
+        cbm: number
+        adr: boolean
+        adrUn: string
+        adrClass: string
+        adrPackingGroup: "" | "I" | "II" | "III"
+        nonStackable: boolean
+        tailLift: boolean
+        b2c: boolean
+        description: string
+    }
+
+    /**
+     * What was priced; never recomputed silently.
+     */
+    export interface PriceSnapshot {
+        source: "TARIFF" | "QUOTE" | "MANUAL"
+        tariffId: string | null
+        tariffVersionId: string | null
+        versionNo: number | null
+        tariffName: string
+        serviceLevel: ServiceLevelCode | null
+        currency: "CZK" | "EUR"
+        total: number
+        totalCzk: number
+        lines: PriceLine[]
+        ratedAt: string
+        overrideReason: string | null
+    }
+
+    /**
+     * What the haulier sees via the link: no prices of the customer.
+     */
+    export interface PublicTransportOrder {
+        orderNumber: string
+        haulierName: string
+        ourCompany: string
+        plannedPickupDate: string
+        pickup: PublicStop
+        delivery: PublicStop
+        load: LoadInput
+        /**
+         * The BUY price only
+         */
+        agreedPrice: {
+            total: number
+            currency: string
+        } | null
+
+        status: "AWAITING_CONFIRMATION" | "CONFIRMED" | "REJECTED" | "DELIVERED"
+        podUploaded: boolean
+        linkExpiresAt: string
+    }
+
+    export interface PublicStop {
+        kind: "PICKUP" | "DELIVERY"
+        name: string
+        street: string
+        postcode: string
+        city: string
+        country: string
+        windowFrom: string | null
+        windowTo: string | null
+        contactName: string
+        contactPhone: string
+        avizaceRequired: boolean
+        reference: string
+        notes: string
+        actualArrival: string | null
+        actualDeparture: string | null
+    }
+
+    export type StampKind = "confirmed" | "pickedUp" | "delivered" | "podReceived"
+
+    export interface Stop extends StopInput {
+        id: string
+        kind: "PICKUP" | "DELIVERY"
+        actualArrival: string | null
+        actualDeparture: string | null
+    }
+
+    export interface StopInput {
+        siteId: string | null
+        name: string
+        street: string
+        /**
+         * CZ PSČ normalised
+         */
+        postcode: string
+
+        city: string
+        country: string
+        /**
+         * ISO datetime (Prague), optional
+         */
+        windowFrom: string | null
+
+        windowTo: string | null
+        contactName: string
+        contactPhone: string
+        avizaceRequired: boolean
+        reference: string
+        notes: string
+    }
+
+    export type TransportOrderLanguage = "cs" | "en" | "both"
+
+    export interface TripDetail {
+        id: string
+        /**
+         * LCZ + year + 6 digits
+         */
+        ref: string
+
+        kind: "FTL"
+        status: TripStatus
+        haulierCustomerId: string
+        haulierName: string
+        haulierStatus: HaulierStatus
+        haulierIssues: HaulierIssue[]
+        vehicleTypeCode: string | null
+        tractorPlate: string
+        trailerPlate: string
+        driverName: string
+        driverPhone: string
+        plannedPickupDate: string
+        consignmentIds: string[]
+        /**
+         * Haulier tariff or agreed price (source MANUAL + reason)
+         */
+        buy: PriceSnapshot | null
+
+        /**
+         * From the rate engine at assignment, for audit
+         */
+        buyCandidates: PricedSide[]
+
+        transportOrder: TripTransportOrder | null
+        version: number
+        events: TruckingEventItem[]
+    }
+
+    export interface TripListItem {
+        id: string
+        ref: string
+        kind: "FTL"
+        status: TripStatus
+        haulierCustomerId: string
+        haulierName: string
+        haulierStatus: HaulierStatus
+        haulierIssues: HaulierIssue[]
+        vehicleTypeCode: string | null
+        tractorPlate: string
+        trailerPlate: string
+        driverName: string
+        driverPhone: string
+        plannedPickupDate: string
+        consignmentIds: string[]
+        buy: PriceSnapshot | null
+        transportOrder: TripTransportOrder | null
+        version: number
+        consignmentRefs: string[]
+    }
+
+    export type TripPriceInput = {
+        source: "TARIFF"
+    } | {
+        source: "MANUAL"
+        total: number
+        currency: "CZK" | "EUR"
+        reason: string
+    }
+
+    export type TripStatus = "DRAFT" | "ORDERED" | "CONFIRMED" | "IN_TRANSIT" | "DONE" | "CANCELLED"
+
+    export interface TripTransportOrder {
+        number: string
+        sentAt: string | null
+        sentBy: string | null
+        recordedOnly: boolean
+        confirmedAt: string | null
+        confirmedVia: "LINK" | "USER" | null
+        rejectedAt: string | null
+        rejectReason: string | null
+        pinPrinted: boolean
+        podLinkExpiresAt: string | null
+    }
+
+    export interface TruckingDocumentItem {
+        id: string
+        kind: TruckingDocumentKind
+        fileName: string
+        uploadedAt: string
+        uploadedBy: string
+        source: "USER" | "HAULIER"
+    }
+
+    export type TruckingDocumentKind = "POD" | "CMR" | "DELIVERY_NOTE" | "OTHER"
+
+    export interface TruckingEventItem {
+        id: string
+        kind: string
+        at: string
+        by: string
+        summary: string
     }
 
     export interface TransportOrderTexts {
