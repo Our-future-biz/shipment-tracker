@@ -7,7 +7,9 @@ import { useHauliers, useTariffs } from "@/hooks/useTrucking";
 import { TRUCKING_TABS, type TruckingTab } from "../_lib/tabs";
 import { TruckingConsignmentsTab } from "./TruckingConsignmentsTab";
 import { TruckingEmptyTab } from "./TruckingEmptyTab";
+import { TruckingHaulierInvoicesTab } from "./TruckingHaulierInvoicesTab";
 import { TruckingHauliersTab } from "./TruckingHauliersTab";
+import { TruckingInternalBillingTab } from "./TruckingInternalBillingTab";
 import { TruckingPlanningTab } from "./TruckingPlanningTab";
 import { TruckingRateCalculatorTab } from "./TruckingRateCalculatorTab";
 import { TruckingReadme } from "./TruckingReadme";
@@ -31,8 +33,9 @@ export const TruckingView = () => {
 
   const handleTabChange = (tab: TruckingTab) => {
     const params = new URLSearchParams(searchParams.toString());
-    // A tab's own filters (?status=, ?view=, ?side=, ?kind=) do not follow the user into another tab.
+    // A tab's own filters (?status=, ?view=, ?side=, ?kind=, ?month=) do not follow the user into another tab.
     params.delete("status");
+    params.delete("month");
     params.delete("view");
     params.delete("side");
     params.delete("kind");
@@ -58,6 +61,8 @@ export const TruckingView = () => {
         {activeTab.key === "consignments" && <TruckingConsignmentsTab />}
         {activeTab.key === "planning" && <TruckingPlanningTab />}
         {activeTab.key === "trips" && <TruckingTripsTab />}
+        {activeTab.key === "haulierInvoices" && <TruckingHaulierInvoicesTab />}
+        {activeTab.key === "internalBilling" && <TruckingInternalBillingTab />}
         {activeTab.key === "hauliers" && <TruckingHauliersTab />}
         {activeTab.key === "tariffs" && <TruckingTariffsTab />}
         {activeTab.key === "calculator" && <TruckingRateCalculatorTab />}

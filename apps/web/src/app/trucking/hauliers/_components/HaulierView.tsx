@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dayjs from "dayjs";
 import { Alert, Button, DatePicker, Input, InputNumber, Select, Spin, Switch } from "antd";
@@ -19,6 +19,7 @@ import { HAULIER_CONFLICT_TEXT, isVersionConflict } from "../../_lib/saveConflic
 import { HaulierIssueList } from "../../_components/HaulierIssueList";
 import { HaulierStatusChip } from "../../_components/HaulierStatusChip";
 import { TruckingField } from "../../_components/TruckingField";
+import { HaulierBankAccounts } from "./HaulierBankAccounts";
 import { HaulierBlockDialog } from "./HaulierBlockDialog";
 import { HaulierLanesTable } from "./HaulierLanesTable";
 
@@ -41,6 +42,8 @@ const draftOf = (h: HaulierDetail): ProfileDraft => {
     currency: p.currency,
     vatUnreliable: p.vatUnreliable,
     bankAccountPublished: p.bankAccountPublished,
+    // Profiles saved before Phase 6 have no list yet.
+    bankAccounts: [...(p.bankAccounts ?? [])],
     vatCheckedAt: p.vatCheckedAt,
     costSplitBasis: p.costSplitBasis,
     notes: p.notes,
@@ -91,6 +94,12 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
     setSeen(haulier);
     if (!draft || !seen || same(draft, draftOf(seen))) setDraft(draftOf(haulier));
   }
+
+  // A link to the VAT register card (from a blocked haulier invoice) lands there once the page is drawn.
+  const loaded = !!haulier;
+  useEffect(() => {
+    if (loaded && window.location.hash === "#vat-register") document.getElementById("vat-register")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [loaded]);
 
   const dirty = !!draft && !!haulier && !same(draft, draftOf(haulier));
   useUnsavedGuard(dirty, "trucking-haulier");
@@ -262,26 +271,32 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
             </div>
           </SectionCard>
 
-          <SectionCard title="VAT register">
-            <div className="flex flex-col gap-3">
-              <div className="flex items-center gap-2">
-                <Switch size="small" checked={draft.vatUnreliable} aria-label={TERMS.unreliableVatPayer} onChange={(on) => set("vatUnreliable", on)} />
-                <span className={`text-[13px] ${draft.vatUnreliable ? "font-semibold text-red-700" : "text-slate-700"}`}>{TERMS.unreliableVatPayer}</span>
-                {draft.vatUnreliable && <span className="text-[11px] text-red-600">— blocks the haulier</span>}
+          <div id="vat-register" className="scroll-mt-4">
+            <SectionCard title="VAT register">
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2">
+                  <Switch size="small" checked={draft.vatUnreliable} aria-label={TERMS.unreliableVatPayer} onChange={(on) => set("vatUnreliable", on)} />
+                  <span className={`text-[13px] ${draft.vatUnreliable ? "font-semibold text-red-700" : "text-slate-700"}`}>{TERMS.unreliableVatPayer}</span>
+                  {draft.vatUnreliable && <span className="text-[11px] text-red-600">— blocks the haulier</span>}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch size="small" checked={draft.bankAccountPublished} aria-label="Bank account published" onChange={(on) => set("bankAccountPublished", on)} />
+                  <span className="text-[13px] text-slate-700">Bank account published in the VAT register</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-[13px] text-slate-700">
+                  <span>Last checked: {draft.vatCheckedAt ? formatDate(draft.vatCheckedAt) : "never"}</span>
+                  <Button size="small" onClick={() => set("vatCheckedAt", businessToday())} disabled={draft.vatCheckedAt === businessToday()}>
+                    Mark checked today
+                  </Button>
+                </div>
+                <HaulierBankAccounts accounts={draft.bankAccounts} onChange={(v) => set("bankAccounts", v)} />
+                <p className="m-0 text-[11px] text-slate-400">
+                  Checked by hand in the VAT register for now; a check older than 30 days shows a warning. A haulier invoice is blocked while the haulier is an unreliable VAT
+                  payer, its account is not published, or the invoice&apos;s account is not one listed here.
+                </p>
               </div>
-              <div className="flex items-center gap-2">
-                <Switch size="small" checked={draft.bankAccountPublished} aria-label="Bank account published" onChange={(on) => set("bankAccountPublished", on)} />
-                <span className="text-[13px] text-slate-700">Bank account published in the VAT register</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 text-[13px] text-slate-700">
-                <span>Last checked: {draft.vatCheckedAt ? formatDate(draft.vatCheckedAt) : "never"}</span>
-                <Button size="small" onClick={() => set("vatCheckedAt", businessToday())} disabled={draft.vatCheckedAt === businessToday()}>
-                  Mark checked today
-                </Button>
-              </div>
-              <p className="m-0 text-[11px] text-slate-400">Checked by hand in the VAT register for now; a check older than 30 days shows a warning.</p>
-            </div>
-          </SectionCard>
+            </SectionCard>
+          </div>
 
           <SectionCard title="Capabilities and terms">
             <div className="grid grid-cols-2 gap-3">

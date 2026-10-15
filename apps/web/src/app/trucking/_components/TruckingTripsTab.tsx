@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { useTrips, type TripListItem, type TripStatus } from "@/hooks/useTruckingConsignments";
+import { useAvizacePending } from "@/hooks/useTruckingControl";
+import { avizaceWarning } from "../_lib/avizace";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { TRIP_STATUS_CHIP, tripHref } from "../_lib/consignments";
 import { HAULIER_STATUS_CHIP } from "../_lib/hauliers";
@@ -29,7 +31,17 @@ const orderText = (t: TripListItem) => {
 type Capacity = Parameters<typeof TripFillBars>[0]["capacity"];
 const KIND_LABELS = Object.values(TRIP_KIND_LABEL);
 
-const buildColumns = (vehicleLabel: (code: string | null) => string, capacityOf: (code: string | null) => Capacity): AppGridColumn<TripListItem>[] => [
+/** The server's warnings and, for a trip delivering to consignees, the avizace still missing. */
+const warningsOf = (t: TripListItem, pending: ReadonlyMap<string, string>) => {
+  const avizace = avizaceWarning(t, pending);
+  return avizace ? [...t.warnings, avizace] : t.warnings;
+};
+
+const buildColumns = (
+  vehicleLabel: (code: string | null) => string,
+  capacityOf: (code: string | null) => Capacity,
+  pending: ReadonlyMap<string, string>,
+): AppGridColumn<TripListItem>[] => [
   {
     key: "ref",
     title: "Trip",
@@ -78,11 +90,12 @@ const buildColumns = (vehicleLabel: (code: string | null) => string, capacityOf:
   {
     key: "warnings",
     title: "Warnings",
-    text: (t) => t.warnings.join("; "),
+    text: (t) => warningsOf(t, pending).join("; "),
     render: (_, t) => {
-      const summary = warningSummary(t.warnings);
+      const warnings = warningsOf(t, pending);
+      const summary = warningSummary(warnings);
       return summary ? (
-        <Tooltip title={t.warnings.length > 1 ? t.warnings.join(" · ") : undefined}>
+        <Tooltip title={warnings.length > 1 ? warnings.join(" · ") : undefined}>
           <span className="text-[12.5px] text-amber-700">{summary}</span>
         </Tooltip>
       ) : (
@@ -108,14 +121,16 @@ export const TruckingTripsTab = () => {
   const router = useRouter();
   const { trips, isLoading, isError } = useTrips();
   const { settings } = useTruckingSettings();
+  const pending = useAvizacePending();
   const columns = useMemo(() => {
     const types = settings?.vehicleTypes ?? [];
     const labels = new Map(types.map((v) => [v.code, v.label]));
     return buildColumns(
       (code) => (code ? (labels.get(code) ?? code) : ""),
       (code) => vehicleCapacity(types, code),
+      pending,
     );
-  }, [settings]);
+  }, [settings, pending]);
 
   return (
     <AppGrid<TripListItem>

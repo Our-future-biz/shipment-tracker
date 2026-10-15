@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button, Tooltip } from "antd";
 import { PlusOutlined, TagsOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
+import { Badge } from "@/app/warehouse/gate-log/_lib/gate";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { useConsignments, type ConsignmentListItem, type ConsignmentStatus } from "@/hooks/useTruckingConsignments";
 import { formatDate } from "@/lib/date";
@@ -74,6 +75,27 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
     ),
   },
   { key: "customer", title: "Customer", text: (c) => c.customerName, sorter: (a, b) => byText(a.customerName, b.customerName) },
+  {
+    key: "internal",
+    title: "Billing",
+    text: (c) => (c.internal ? "Internal" : "Customer"),
+    filterOptions: ["Customer", "Internal"],
+    render: (_, c) => (c.internal ? <Badge tone="i">Internal</Badge> : <span className="text-slate-500">Customer</span>),
+  },
+  {
+    key: "avizace",
+    title: "Avizace",
+    text: (c) => (c.avizaceNeeded ? (c.avizaceDone ? "Recorded" : "Needed") : ""),
+    filterOptions: ["Needed", "Recorded"],
+    render: (_, c) => (c.avizaceNeeded ? <Badge tone={c.avizaceDone ? "g" : "a"}>{c.avizaceDone ? "Recorded" : "Needed"}</Badge> : dash),
+  },
+  {
+    key: "exceptions",
+    title: "Open exceptions",
+    text: (c) => (c.openExceptions ? String(c.openExceptions) : ""),
+    sorter: (a, b) => a.openExceptions - b.openExceptions,
+    render: (_, c) => (c.openExceptions ? <span className="font-semibold text-red-600">{c.openExceptions}</span> : dash),
+  },
   { key: "level", title: "Service level", text: (c) => levelLabel(c.serviceLevel) },
   { key: "pickupDate", title: "Pick-up", text: (c) => formatDate(c.pickupDate), sorter: (a, b) => byText(a.pickupDate, b.pickupDate) },
   { key: "from", title: "From", text: (c) => place(c.pickupPostcode, c.pickupCity), sorter: (a, b) => byText(a.pickupPostcode, b.pickupPostcode) },

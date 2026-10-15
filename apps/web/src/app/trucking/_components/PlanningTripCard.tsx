@@ -26,6 +26,8 @@ export type TripCardAction = "print" | "send" | "manifest" | "labels";
 interface PlanningTripCardProps {
   trip: PlanningTrip;
   vehicleLabel: string;
+  /** Consignments of a delivery run still waiting for their avizace (shown, never blocking). */
+  avizaceWarning: string | null;
   /** A leg from the list is being dragged: the card takes it. */
   legDragging: boolean;
   busy: boolean;
@@ -38,12 +40,13 @@ interface PlanningTripCardProps {
 // A trip of the day on the board: haulier and vehicle, the fill as two bars (LDM and kg), its
 // stops in order (drag to reorder, or the arrows), the buy price and the warnings (shown, never
 // blocking). A leg dropped on it goes on the trip.
-export const PlanningTripCard = ({ trip, vehicleLabel, legDragging, busy, onDropLeg, onReorder, onRemove, onAction }: PlanningTripCardProps) => {
+export const PlanningTripCard = ({ trip, vehicleLabel, avizaceWarning, legDragging, busy, onDropLeg, onReorder, onRemove, onAction }: PlanningTripCardProps) => {
   const [draggingStop, setDraggingStop] = useState<string | null>(null);
   const [over, setOver] = useState(false);
   const order = trip.stops.map((s) => s.legId);
   const locked = trip.status === "IN_TRANSIT" || trip.status === "DONE" || trip.status === "CANCELLED";
   const takesLegs = legDragging && !locked;
+  const warnings = avizaceWarning ? [...trip.warnings, avizaceWarning] : trip.warnings;
 
   const reorder = (next: string[]) => orderChanged(order, next) && onReorder(trip, next);
 
@@ -103,9 +106,9 @@ export const PlanningTripCard = ({ trip, vehicleLabel, legDragging, busy, onDrop
         <span className="ml-auto font-semibold text-slate-700">{trip.buyTotalCzk != null ? formatMoney(trip.buyTotalCzk, "CZK") : "Not priced"}</span>
       </div>
 
-      {trip.warnings.length > 0 && (
+      {warnings.length > 0 && (
         <ul className="m-0 list-none rounded-md bg-amber-50 px-2.5 py-1.5 text-[11.5px] text-amber-800" aria-label="Warnings">
-          {trip.warnings.map((w) => (
+          {warnings.map((w) => (
             <li key={w} className="flex gap-1.5">
               <WarningOutlined className="mt-[3px]" aria-hidden />
               {w}

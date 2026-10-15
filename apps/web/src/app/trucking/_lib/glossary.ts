@@ -53,6 +53,13 @@ export const TERMS = {
   partnerNetwork: "Partner network",
   manifest: "Manifest",
   fill: "Fill",
+  avizaceRecord: "Avizace record",
+  exceptionDecision: "Exception decision",
+  haulierInvoice: "Haulier invoice",
+  exactMatch: "Exact match",
+  vatBankAccountCheck: "VAT bank-account check",
+  internalStatement: "Internal statement",
+  monthClose: "Month close",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -101,7 +108,8 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   { term: TERMS.internalTariff, meaning: "The prices Trucking charges Operations for transport it runs for their shipments.", replaces: "interní ceník" },
   {
     term: TERMS.internalCharge,
-    meaning: "What Trucking bills Operations for the month: every consignment it carried for their shipments, priced from the internal tariff.",
+    meaning:
+      "What Trucking charges another department for one consignment it carried for their job, priced from the internal tariff and counted in the month of delivery (Prague). No customer selling line and no haulier cost go to such a job — only this one internal line. Unpriced (no valid internal tariff) it stays at 0 as \"Not priced\" until fixed.",
     replaces: "interní přefakturace",
   },
   { term: TERMS.avizace, meaning: "Agreeing the delivery time with the consignee before the delivery run (by phone, e-mail or their booking portal).", replaces: "avízo, avizování" },
@@ -238,5 +246,44 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     meaning:
       "How full a trip's truck is: its loading metres (LDM) and weight against the capacity of its vehicle type. The fuller of the two sets the colour — amber from 90 %, red over 100 %. Over capacity is a warning, never a block.",
     replaces: "vytížení, naložení vozu",
+  },
+  {
+    term: TERMS.avizaceRecord,
+    meaning:
+      "How the delivery was agreed with the consignee: channel (phone, e-mail, SMS, other), who was reached, the agreed window and a note, with who recorded it and when. The app prepares the text to copy (Czech and English, never the Pick-up PIN) and sends nothing. Needed for B2C and for stops that ask for it; until recorded, the delivery run or FTL trip shows a warning — never a block.",
+    replaces: "záznam avizace, avízo",
+  },
+  {
+    term: TERMS.exceptionDecision,
+    meaning:
+      "Who bears a delivery exception (failed delivery, damage, shortage, waiting time …): charge the customer (a selling line on the job, or the internal charge), claim from the haulier (taken off its expected cost) or absorb it. Charging, claiming or absorbing a cost above 0 is a manager's call; absorbing at no cost anyone may decide. An open exception keeps its consignment from Ready to bill until it is decided and closed.",
+    replaces: "rozhodnutí o reklamaci, škodní událost",
+  },
+  {
+    term: TERMS.haulierInvoice,
+    meaning: "The invoice a haulier sends us, entered with its lines: which trips and partner deliveries it bills and at what amount, against what each should cost (its buy price minus our claims).",
+    replaces: "přijatá faktura dopravce",
+  },
+  {
+    term: TERMS.exactMatch,
+    meaning: "The only tolerance for haulier invoices: every line and the net total equal the expected cost to the cent. Then it is approved by itself; any difference waits for a manager's approval with a reason, or is rejected.",
+    replaces: "přesná shoda",
+  },
+  {
+    term: TERMS.vatBankAccountCheck,
+    meaning:
+      "Before paying a haulier: it must not be an unreliable VAT payer, its bank account must be published in the VAT register, and the invoice's account must be one of its published accounts (kept by hand on the haulier page). Otherwise we are liable for its VAT (ručení za DPH), so the invoice is blocked for everyone — a manager cannot override it.",
+    replaces: "kontrola zveřejněného účtu, ručení za DPH",
+  },
+  {
+    term: TERMS.internalStatement,
+    meaning: "The monthly statement of internal charges to one department, numbered ICZ + year + four digits, without VAT and never in customer aging. Made when the month is closed, as a PDF in Czech and English.",
+    replaces: "interní vyúčtování",
+  },
+  {
+    term: TERMS.monthClose,
+    meaning:
+      "A manager closes a finished month of internal charges once every charge is priced: one internal statement per department is made and the jobs' internal lines get its number. A closed month never changes; a later correction goes into the next open month as an adjustment.",
+    replaces: "uzávěrka měsíce",
   },
 ];

@@ -32,11 +32,13 @@ interface ConsignmentStatusCardsProps {
   levelLabel: string;
   approveMargin: ActionState;
   onApproveMargin: () => void;
+  /** An internal consignment's charge in its month of delivery; null until delivered and priced. */
+  internalPrice: { amount: number; notPriced: boolean } | null;
 }
 
 // Three cards under the header: Route (stops, dates, promise), Load (what is carried) and Money
-// (sell, buy, margin against the floor and its approval).
-export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onApproveMargin }: ConsignmentStatusCardsProps) => {
+// (sell — or, for an internal consignment, its internal price —, buy, margin against the floor and its approval).
+export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onApproveMargin, internalPrice }: ConsignmentStatusCardsProps) => {
   const l = c.load;
   const promised = promisedText(c);
   const ltl = c.scope === "LTL";
@@ -93,7 +95,19 @@ export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onA
       <div className={card}>
         <div className={cardLabel}>Money</div>
         <div className="mt-1.5 flex flex-col gap-0.5">
-          <Line k="Sell" v={c.sell ? `${formatMoney(c.sell.total, c.sell.currency)}${c.sell.currency !== "CZK" ? ` (${formatMoney(c.sell.totalCzk, "CZK")})` : ""}` : "Not priced"} />
+          {c.internal ? (
+            <Line
+              k="Internal price"
+              v={
+                internalPrice
+                  ? `${formatMoney(internalPrice.amount, "CZK")}${internalPrice.notPriced ? " · Not priced" : ""}`
+                  : `Priced from the ${TERMS.internalTariff.toLowerCase()} on delivery`
+              }
+              tone={internalPrice?.notPriced ? "text-red-600" : ""}
+            />
+          ) : (
+            <Line k="Sell" v={c.sell ? `${formatMoney(c.sell.total, c.sell.currency)}${c.sell.currency !== "CZK" ? ` (${formatMoney(c.sell.totalCzk, "CZK")})` : ""}` : "Not priced"} />
+          )}
           <Line k="Buy" v={c.buyCzk != null ? formatMoney(c.buyCzk, "CZK") : ltl ? "With the trips' shares" : "With the trip"} />
           <Line k="Margin" v={marginText(c)} tone={marginBlocks(c) ? "text-red-600" : c.belowFloor ? "text-amber-700" : "text-emerald-700"} />
         </div>

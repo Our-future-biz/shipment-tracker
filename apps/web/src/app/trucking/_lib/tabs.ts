@@ -54,6 +54,29 @@ export const TRUCKING_TABS = [
     live: true,
   },
   {
+    key: "haulierInvoices",
+    label: "Haulier invoices",
+    purpose: `What the ${TERMS.haulier.toLowerCase()}s bill us, matched line by line against their trips and partner deliveries.`,
+    holds: [
+      `Each ${TERMS.haulierInvoice.toLowerCase()} with its lines, the expected cost and the difference — ${TERMS.exactMatch.toLowerCase()} or a manager's approval`,
+      `The ${TERMS.vatBankAccountCheck}: an invoice is blocked while the haulier or its bank account fails it`,
+      "On approval the real cost goes to the jobs",
+    ],
+    phase: 6,
+    live: true,
+  },
+  {
+    key: "internalBilling",
+    label: "Internal billing",
+    purpose: `What Trucking charges the other departments for transport it runs for their jobs, month by month.`,
+    holds: [
+      `${TERMS.internalCharge}s per month and department, priced from the ${TERMS.internalTariff.toLowerCase()}`,
+      `The ${TERMS.monthClose.toLowerCase()} into one ${TERMS.internalStatement.toLowerCase()} per department (PDF), and the Excel export`,
+    ],
+    phase: 6,
+    live: true,
+  },
+  {
     key: "hauliers",
     label: "Hauliers",
     purpose: `The ${TERMS.haulier.toLowerCase()}s we hire, and what they can carry.`,
@@ -97,7 +120,6 @@ export const TRUCKING_TABS = [
     holds: [
       `On-time delivery against the ${TERMS.serviceLevel.toLowerCase()}`,
       "Margin per trip, customer and haulier",
-      `The monthly ${TERMS.internalCharge.toLowerCase()} to Operations`,
     ],
     phase: 7,
   },

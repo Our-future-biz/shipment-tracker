@@ -1925,6 +1925,8 @@ export namespace trucking {
             this.publicTransportOrderGet = this.publicTransportOrderGet.bind(this)
             this.publicTransportOrderPod = this.publicTransportOrderPod.bind(this)
             this.publicTransportOrderRespond = this.publicTransportOrderRespond.bind(this)
+            this.truckingAvizaceRecord = this.truckingAvizaceRecord.bind(this)
+            this.truckingAvizaceTemplate = this.truckingAvizaceTemplate.bind(this)
             this.truckingCmrPdf = this.truckingCmrPdf.bind(this)
             this.truckingConsignmentApproveMargin = this.truckingConsignmentApproveMargin.bind(this)
             this.truckingConsignmentCancel = this.truckingConsignmentCancel.bind(this)
@@ -1937,13 +1939,31 @@ export namespace trucking {
             this.truckingDocumentContent = this.truckingDocumentContent.bind(this)
             this.truckingDocumentList = this.truckingDocumentList.bind(this)
             this.truckingDocumentUpload = this.truckingDocumentUpload.bind(this)
+            this.truckingExceptionClose = this.truckingExceptionClose.bind(this)
+            this.truckingExceptionCreate = this.truckingExceptionCreate.bind(this)
+            this.truckingExceptionDecide = this.truckingExceptionDecide.bind(this)
+            this.truckingExceptionList = this.truckingExceptionList.bind(this)
+            this.truckingExceptionPhoto = this.truckingExceptionPhoto.bind(this)
             this.truckingFuelIndexList = this.truckingFuelIndexList.bind(this)
             this.truckingFuelIndexSet = this.truckingFuelIndexSet.bind(this)
             this.truckingHaulierBlock = this.truckingHaulierBlock.bind(this)
             this.truckingHaulierGet = this.truckingHaulierGet.bind(this)
+            this.truckingHaulierInvoiceApprove = this.truckingHaulierInvoiceApprove.bind(this)
+            this.truckingHaulierInvoiceCandidates = this.truckingHaulierInvoiceCandidates.bind(this)
+            this.truckingHaulierInvoiceCreate = this.truckingHaulierInvoiceCreate.bind(this)
+            this.truckingHaulierInvoiceFile = this.truckingHaulierInvoiceFile.bind(this)
+            this.truckingHaulierInvoiceGet = this.truckingHaulierInvoiceGet.bind(this)
+            this.truckingHaulierInvoiceList = this.truckingHaulierInvoiceList.bind(this)
+            this.truckingHaulierInvoiceReject = this.truckingHaulierInvoiceReject.bind(this)
+            this.truckingHaulierInvoiceUpdate = this.truckingHaulierInvoiceUpdate.bind(this)
             this.truckingHaulierList = this.truckingHaulierList.bind(this)
             this.truckingHaulierUnblock = this.truckingHaulierUnblock.bind(this)
             this.truckingHaulierUpdate = this.truckingHaulierUpdate.bind(this)
+            this.truckingInternalCharges = this.truckingInternalCharges.bind(this)
+            this.truckingInternalMonthClose = this.truckingInternalMonthClose.bind(this)
+            this.truckingInternalMonthExport = this.truckingInternalMonthExport.bind(this)
+            this.truckingInternalMonthList = this.truckingInternalMonthList.bind(this)
+            this.truckingInternalStatementPdf = this.truckingInternalStatementPdf.bind(this)
             this.truckingLabelsPdf = this.truckingLabelsPdf.bind(this)
             this.truckingLegPartner = this.truckingLegPartner.bind(this)
             this.truckingManifestPdf = this.truckingManifestPdf.bind(this)
@@ -2000,6 +2020,24 @@ export namespace trucking {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/public/transport-orders/${encodeURIComponent(token)}/respond`, JSON.stringify(params))
             return await resp.json() as controllers.PublicTransportOrderResponse
+        }
+
+        /**
+         * Records how the delivery was agreed with the consignee (avizace); never sends anything.
+         */
+        public async truckingAvizaceRecord(id: string, params: controllers.TruckingAvizaceRecordRequest): Promise<controllers.TruckingConsignmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/${encodeURIComponent(id)}/avizace`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingConsignmentResponse
+        }
+
+        /**
+         * The avizace text (cs + en) to copy; it never holds the Pick-up PIN.
+         */
+        public async truckingAvizaceTemplate(id: string): Promise<controllers.TruckingAvizaceTemplateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/consignments/${encodeURIComponent(id)}/avizace/template`)
+            return await resp.json() as controllers.TruckingAvizaceTemplateResponse
         }
 
         /**
@@ -2111,6 +2149,55 @@ export namespace trucking {
         }
 
         /**
+         * Closes a decided exception.
+         */
+        public async truckingExceptionClose(id: string, params: controllers.TruckingExceptionCloseRequest): Promise<controllers.TruckingExceptionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/exceptions/${encodeURIComponent(id)}/close`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingExceptionResponse
+        }
+
+        /**
+         * Raises a delivery exception on a consignment (any user).
+         */
+        public async truckingExceptionCreate(id: string, params: controllers.TruckingExceptionCreateRequest): Promise<controllers.TruckingExceptionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/${encodeURIComponent(id)}/exceptions`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingExceptionResponse
+        }
+
+        /**
+         * Decides who bears an exception (a manager for CHARGE_CUSTOMER / CLAIM_HAULIER / ABSORB above 0).
+         */
+        public async truckingExceptionDecide(id: string, params: controllers.TruckingExceptionDecideRequest): Promise<controllers.TruckingExceptionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/exceptions/${encodeURIComponent(id)}/decide`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingExceptionResponse
+        }
+
+        public async truckingExceptionList(params: controllers.TruckingExceptionListRequest): Promise<controllers.TruckingExceptionListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                consignmentId: params.consignmentId,
+                kind:          params.kind === undefined ? undefined : String(params.kind),
+                open:          params.open === undefined ? undefined : String(params.open),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/exceptions`, undefined, {query})
+            return await resp.json() as controllers.TruckingExceptionListResponse
+        }
+
+        /**
+         * Adds a photo (or PDF) to an exception; at most 10 MB.
+         */
+        public async truckingExceptionPhoto(id: string, params: controllers.TruckingExceptionPhotoRequest): Promise<controllers.TruckingExceptionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/exceptions/${encodeURIComponent(id)}/photos`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingExceptionResponse
+        }
+
+        /**
          * The fuel surcharge % per month, read by tariff surcharges with the calc FUEL_INDEX.
          */
         public async truckingFuelIndexList(): Promise<controllers.TruckingFuelIndexResponse> {
@@ -2147,6 +2234,71 @@ export namespace trucking {
             return await resp.json() as interfaces.TruckingHaulierResponse
         }
 
+        public async truckingHaulierInvoiceApprove(id: string, params: controllers.TruckingHaulierInvoiceReasonRequest): Promise<controllers.TruckingHaulierInvoiceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices/${encodeURIComponent(id)}/approve`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingHaulierInvoiceResponse
+        }
+
+        /**
+         * Delivered / done trips and partner legs of a haulier not yet on an approved invoice.
+         */
+        public async truckingHaulierInvoiceCandidates(params: controllers.TruckingHaulierInvoiceCandidatesRequest): Promise<controllers.TruckingHaulierInvoiceCandidatesResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                haulierCustomerId: params.haulierCustomerId,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/haulier-invoices/candidates`, undefined, {query})
+            return await resp.json() as controllers.TruckingHaulierInvoiceCandidatesResponse
+        }
+
+        public async truckingHaulierInvoiceCreate(params: controllers.TruckingHaulierInvoiceCreateRequest): Promise<controllers.TruckingHaulierInvoiceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingHaulierInvoiceResponse
+        }
+
+        public async truckingHaulierInvoiceFile(id: string): Promise<controllers.TruckingFileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/haulier-invoices/${encodeURIComponent(id)}/file`)
+            return await resp.json() as controllers.TruckingFileResponse
+        }
+
+        public async truckingHaulierInvoiceGet(id: string): Promise<controllers.TruckingHaulierInvoiceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/haulier-invoices/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.TruckingHaulierInvoiceResponse
+        }
+
+        public async truckingHaulierInvoiceList(params: controllers.TruckingHaulierInvoiceListRequest): Promise<controllers.TruckingHaulierInvoiceListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                haulierCustomerId: params.haulierCustomerId,
+                status:            params.status === undefined ? undefined : String(params.status),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/haulier-invoices`, undefined, {query})
+            return await resp.json() as controllers.TruckingHaulierInvoiceListResponse
+        }
+
+        public async truckingHaulierInvoiceReject(id: string, params: controllers.TruckingHaulierInvoiceReasonRequest): Promise<controllers.TruckingHaulierInvoiceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices/${encodeURIComponent(id)}/reject`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingHaulierInvoiceResponse
+        }
+
+        /**
+         * DRAFT / NEEDS_APPROVAL only.
+         */
+        public async truckingHaulierInvoiceUpdate(id: string, params: controllers.TruckingHaulierInvoiceUpdateRequest): Promise<controllers.TruckingHaulierInvoiceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/trucking/haulier-invoices/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingHaulierInvoiceResponse
+        }
+
         /**
          * Every company of the Customer Database with the role "haulier", with its trucking status and
          * issues (a haulier without a profile is listed as blocked: no insurance and licence on file).
@@ -2179,6 +2331,42 @@ export namespace trucking {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/trucking/hauliers/${encodeURIComponent(customerId)}`, JSON.stringify(params))
             return await resp.json() as interfaces.TruckingHaulierResponse
+        }
+
+        public async truckingInternalCharges(month: string): Promise<controllers.TruckingInternalChargesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/internal/months/${encodeURIComponent(month)}/charges`)
+            return await resp.json() as controllers.TruckingInternalChargesResponse
+        }
+
+        /**
+         * Closes a month (manager): one internal statement per receiving department.
+         */
+        public async truckingInternalMonthClose(month: string): Promise<controllers.TruckingInternalMonthResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/internal/months/${encodeURIComponent(month)}/close`)
+            return await resp.json() as controllers.TruckingInternalMonthResponse
+        }
+
+        public async truckingInternalMonthExport(month: string): Promise<controllers.TruckingFileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/internal/months/${encodeURIComponent(month)}/export`)
+            return await resp.json() as controllers.TruckingFileResponse
+        }
+
+        /**
+         * The current month and 12 back.
+         */
+        public async truckingInternalMonthList(): Promise<controllers.TruckingInternalMonthListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/internal/months`)
+            return await resp.json() as controllers.TruckingInternalMonthListResponse
+        }
+
+        public async truckingInternalStatementPdf(number: string): Promise<controllers.TruckingFileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/internal/statements/${encodeURIComponent(number)}/pdf`)
+            return await resp.json() as controllers.TruckingFileResponse
         }
 
         /**
@@ -6397,6 +6585,26 @@ export namespace controllers {
         partnerHaulierCustomerId?: string | null
     }
 
+    export interface TruckingAvizaceRecordRequest {
+        channel: interfaces.AvizaceChannel
+        /**
+         * Who was reached: name, phone or e-mail
+         */
+        contact: string
+
+        /**
+         * The agreed delivery window (ISO), when one was agreed
+         */
+        agreedFrom: string | null
+
+        agreedTo: string | null
+        note: string
+    }
+
+    export interface TruckingAvizaceTemplateResponse {
+        template: interfaces.AvizaceTemplate
+    }
+
     export interface TruckingConsignmentListRequest {
         status?: interfaces.ConsignmentStatus
         view?: interfaces.ConsignmentView
@@ -6510,6 +6718,56 @@ export namespace controllers {
         document: interfaces.TruckingDocumentItem
     }
 
+    export interface TruckingExceptionCloseRequest {
+        note: string
+    }
+
+    export interface TruckingExceptionCreateRequest {
+        kind: interfaces.ExceptionKind
+        /**
+         * FAILED_DELIVERY only
+         */
+        failedReason: interfaces.FailedReason | null
+
+        cause: interfaces.ExceptionCause
+        description: string
+        pieces: number | null
+        waitingMinutes: number | null
+        amount: number | null
+        currency: "CZK" | "EUR"
+        legId: string | null
+    }
+
+    export interface TruckingExceptionDecideRequest {
+        decision: interfaces.ExceptionDecision
+        cause: interfaces.ExceptionCause
+        amount: number | null
+        currency: "CZK" | "EUR"
+        reason: string
+    }
+
+    export interface TruckingExceptionListRequest {
+        open?: boolean
+        kind?: interfaces.ExceptionKind
+        consignmentId?: string
+    }
+
+    export interface TruckingExceptionListResponse {
+        exceptions: interfaces.DeliveryExceptionListItem[]
+    }
+
+    export interface TruckingExceptionPhotoRequest {
+        fileName: string
+        /**
+         * At most 10 MB; a photo or a PDF (the type is taken from the bytes)
+         */
+        fileBase64: string
+    }
+
+    export interface TruckingExceptionResponse {
+        exception: interfaces.DeliveryException
+    }
+
     export interface TruckingFileResponse {
         file: interfaces.FileDownload
     }
@@ -6553,6 +6811,79 @@ export namespace controllers {
          * Why (3 to 500 characters)
          */
         reason: string
+    }
+
+    export interface TruckingHaulierInvoiceCandidatesRequest {
+        haulierCustomerId: string
+    }
+
+    export interface TruckingHaulierInvoiceCandidatesResponse {
+        targets: interfaces.HaulierInvoiceCandidate[]
+    }
+
+    export interface TruckingHaulierInvoiceCreateRequest {
+        haulierCustomerId: string
+        invoiceNumber: string
+        /**
+         * YYYY-MM-DD
+         */
+        issueDate: string
+
+        dueDate: string | null
+        /**
+         * Datum uskutečnění zdanitelného plnění (YYYY-MM-DD)
+         */
+        duzp: string | null
+
+        currency: "CZK" | "EUR"
+        totalNet: number
+        vatAmount: number
+        totalGross: number
+        /**
+         * "123456789/0800", "19-123456789/0800" or an IBAN
+         */
+        bankAccount: string
+
+        fileName?: string
+        fileBase64?: string
+        lines: interfaces.HaulierInvoiceLineInput[]
+    }
+
+    export interface TruckingHaulierInvoiceListRequest {
+        status?: interfaces.HaulierInvoiceStatus
+        haulierCustomerId?: string
+    }
+
+    export interface TruckingHaulierInvoiceListResponse {
+        invoices: interfaces.HaulierInvoice[]
+    }
+
+    export interface TruckingHaulierInvoiceReasonRequest {
+        reason: string
+    }
+
+    export interface TruckingHaulierInvoiceResponse {
+        invoice: interfaces.HaulierInvoice
+    }
+
+    export interface TruckingHaulierInvoiceUpdateRequest {
+        haulierCustomerId: string
+        invoiceNumber: string
+        issueDate: string
+        dueDate: string | null
+        duzp: string | null
+        currency: "CZK" | "EUR"
+        totalNet: number
+        vatAmount: number
+        totalGross: number
+        bankAccount: string
+        fileName?: string
+        fileBase64?: string
+        lines: interfaces.HaulierInvoiceLineInput[]
+        /**
+         * The version read
+         */
+        version: number
     }
 
     export interface TruckingHaulierListRequest {
@@ -6603,6 +6934,11 @@ export namespace controllers {
         vatUnreliable: boolean
         bankAccountPublished: boolean
         /**
+         * The accounts published in the VAT register (entered and checked by hand for now)
+         */
+        bankAccounts: string[]
+
+        /**
          * YYYY-MM-DD
          */
         vatCheckedAt: string | null
@@ -6618,6 +6954,18 @@ export namespace controllers {
          * The version read (0 when none is saved yet); a save on top of a newer one is refused with 409.
          */
         version: number
+    }
+
+    export interface TruckingInternalChargesResponse {
+        charges: interfaces.InternalCharge[]
+    }
+
+    export interface TruckingInternalMonthListResponse {
+        months: interfaces.InternalMonth[]
+    }
+
+    export interface TruckingInternalMonthResponse {
+        month: interfaces.InternalMonth
     }
 
     export interface TruckingLabelsPdfRequest {
@@ -6669,6 +7017,11 @@ export namespace controllers {
          * Our warehouse (all empty = not set); left out = the saved one stays
          */
         hub?: interfaces.HubAddress
+
+        /**
+         * Free time before waiting time is charged, minutes; left out = the saved one stays
+         */
+        waitingFreeMinutes?: interfaces.WaitingFreeMinutes
 
         /**
          * The version read (0 when none is saved yet); a save on top of a newer one is refused with 409.
@@ -7520,6 +7873,28 @@ export namespace interfaces {
         currency: string
     }
 
+    export type AvizaceChannel = "PHONE" | "EMAIL" | "SMS" | "OTHER"
+
+    export interface AvizaceRecord {
+        at: string
+        by: string
+        channel: AvizaceChannel
+        contact: string
+        agreedFrom: string | null
+        agreedTo: string | null
+        note: string
+    }
+
+    export interface AvizaceTemplate {
+        cs: string
+        en: string
+        subject: string
+        /**
+         * The delivery stop's contact phone / e-mail as stored
+         */
+        to: string
+    }
+
     export interface ChargeableFactors {
         /**
          * Default 1750
@@ -7642,6 +8017,8 @@ export namespace interfaces {
     }
 
     export interface ConsignmentCounts {
+        avizacePending: number
+        openExceptions: number
         attention: number
         pickupToday: number
         deliveryToday: number
@@ -7651,6 +8028,19 @@ export namespace interfaces {
     }
 
     export interface ConsignmentDetail {
+        avizace: AvizaceRecord | null
+        avizaceNeeded: boolean
+        exceptions: DeliveryException[]
+        /**
+         * Warehouse OSD exceptions of the consignment's shipment, read-only
+         */
+        warehouseExceptions: WarehouseExceptionMirror[]
+
+        /**
+         * The job is owned by another department: billed internally, not to the customer
+         */
+        internal: boolean
+
         /**
          * LTL: the customer brings the goods to our warehouse (no pick-up leg)
          */
@@ -7760,6 +8150,10 @@ export namespace interfaces {
     }
 
     export interface ConsignmentListItem {
+        avizaceNeeded: boolean
+        avizaceDone: boolean
+        openExceptions: number
+        internal: boolean
         id: string
         /**
          * "TCZ2026000001"
@@ -7817,7 +8211,7 @@ export namespace interfaces {
 
     export type ConsignmentStatus = "BOOKED" | "PLANNED" | "ORDERED" | "CONFIRMED" | "PICKED_UP" | "AT_HUB" | "ON_LINEHAUL" | "OUT_FOR_DELIVERY" | "DELIVERED" | "POD_RECEIVED" | "READY_TO_BILL" | "CANCELLED"
 
-    export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill"
+    export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill" | "avizacePending" | "openExceptions"
 
     export interface ContactItem {
         id: string
@@ -8101,6 +8495,49 @@ export namespace interfaces {
     }
 
     export type Deadline = "overdue" | "today" | "tomorrow" | "later"
+
+    export interface DeliveryException {
+        id: string
+        consignmentId: string
+        legId: string | null
+        kind: ExceptionKind
+        failedReason: FailedReason | null
+        cause: ExceptionCause
+        decision: ExceptionDecision
+        amount: number | null
+        currency: "CZK" | "EUR"
+        description: string
+        pieces: number | null
+        waitingMinutes: number | null
+        /**
+         * When raised from / linked to a Warehouse OSD exception
+         */
+        warehouseExceptionId: string | null
+
+        createdAt: string
+        createdBy: string
+        decidedAt: string | null
+        decidedBy: string | null
+        closedAt: string | null
+        photos: {
+            id: string
+            fileName: string
+        }[]
+    }
+
+    export type DeliveryExceptionListItem = DeliveryException & {
+        consignmentRef: string
+        customerName: string
+        jobNumber: string
+    }
+
+    export type ExceptionCause = "CUSTOMER" | "HAULIER" | "US" | "UNKNOWN"
+
+    export type ExceptionDecision = "CHARGE_CUSTOMER" | "CLAIM_HAULIER" | "ABSORB" | "PENDING"
+
+    export type ExceptionKind = "FAILED_DELIVERY" | "DAMAGE" | "SHORTAGE" | "OVERAGE" | "WAITING_TIME" | "REDELIVERY" | "OTHER"
+
+    export type FailedReason = "CLOSED" | "ABSENT" | "REFUSED" | "WRONG_ADDRESS" | "REFUSED_DAMAGED" | "NO_AVIZACE" | "OTHER"
 
     export interface DeadlineGroup {
         period: DeadlinePeriod
@@ -8987,6 +9424,81 @@ export namespace interfaces {
         createdAt: string
     }
 
+    export interface HaulierInvoice {
+        id: string
+        haulierCustomerId: string
+        haulierName: string
+        invoiceNumber: string
+        issueDate: string
+        dueDate: string | null
+        duzp: string | null
+        currency: "CZK" | "EUR"
+        totalNet: number
+        vatAmount: number
+        totalGross: number
+        /**
+         * As on the invoice, normalised "123456789/0800" or IBAN
+         */
+        bankAccount: string
+
+        /**
+         * Against the haulier profile (manual list for now)
+         */
+        bankAccountCheck: {
+            published: boolean | null
+            checkedAt: string | null
+            note: string
+        }
+        lines: HaulierInvoiceLine[]
+        difference: number
+        status: HaulierInvoiceStatus
+        blockReasons: string[]
+        approval: {
+            byName: string
+            at: string
+            reason: string
+        } | null
+        fileName: string | null
+        createdAt: string
+        createdBy: string
+        version: number
+    }
+
+    export interface HaulierInvoiceCandidate {
+        kind: "TRIP" | "PARTNER_LEG"
+        id: string
+        ref: string
+        date: string
+        expected: number
+        claimed: number
+        currency: "CZK" | "EUR"
+        alreadyInvoiced: boolean
+    }
+
+    export interface HaulierInvoiceLine {
+        id: string
+        target: {
+            kind: "TRIP" | "PARTNER_LEG"
+            id: string
+            ref: string
+        }
+        expected: number
+        claimed: number
+        invoiced: number
+        difference: number
+        currency: "CZK" | "EUR"
+        note: string
+    }
+
+    export interface HaulierInvoiceLineInput {
+        targetKind: "TRIP" | "PARTNER_LEG"
+        targetId: string
+        invoiced: number
+        note: string
+    }
+
+    export type HaulierInvoiceStatus = "DRAFT" | "MATCHED" | "NEEDS_APPROVAL" | "APPROVED" | "BLOCKED" | "REJECTED"
+
     export interface HaulierDetail {
         customerId: string
         companyName: string
@@ -9095,6 +9607,11 @@ export namespace interfaces {
          * Account published in the VAT register (manual for now)
          */
         bankAccountPublished: boolean
+
+        /**
+         * The accounts published in the VAT register, entered and checked by hand for now
+         */
+        bankAccounts: string[]
 
         /**
          * YYYY-MM-DD of the last manual check; older than 30 days gives vat_check_due (warn)
@@ -9623,6 +10140,51 @@ export namespace interfaces {
         tailLift: boolean
         b2c: boolean
         description: string
+    }
+
+    export interface InternalCharge {
+        id: string
+        /**
+         * "2026-10"
+         */
+        month: string
+
+        consignmentId: string
+        consignmentRef: string
+        shipmentId: string
+        jobNumber: string
+        department: string
+        deliveredAt: string
+        serviceLevel: string | null
+        chargeableKg: number | null
+        tariffVersionId: string | null
+        amount: number
+        currency: "CZK"
+        kind: "CHARGE" | "EXCEPTION" | "ADJUSTMENT"
+        description: string
+        createdAt: string
+    }
+
+    export interface InternalMonth {
+        month: string
+        status: "OPEN" | "CLOSED"
+        closedAt: string | null
+        closedBy: string | null
+        totals: {
+            department: string
+            count: number
+            amount: number
+        }[]
+        statementNumbers: string[]
+    }
+
+    export interface InternalStatement {
+        number: string
+        month: string
+        department: string
+        issuedAt: string
+        amount: number
+        lineCount: number
     }
 
     export type LtlTripKind = "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN"
@@ -11841,6 +12403,11 @@ export namespace interfaces {
         marginFloor: MarginFloor
         transportOrder: TransportOrderTexts
         hub: HubAddress
+        /**
+         * Free time before waiting time is charged (default LTL 30, FTL 120)
+         */
+        waitingFreeMinutes: WaitingFreeMinutes
+
         version: number
         updatedAt: string | null
         /**
@@ -11854,6 +12421,24 @@ export namespace interfaces {
          * e.g. "No zone for postcode 790 01 in Standard sell list"
          */
         reason: string
+    }
+
+    /**
+     * Free time before waiting time is charged, minutes, per consignment scope
+     */
+    export interface WaitingFreeMinutes {
+        LTL: number
+        FTL: number
+    }
+
+    export interface WarehouseExceptionMirror {
+        id: string
+        shipmentId: string
+        kind: string
+        pieces: number | null
+        note: string
+        status: string
+        createdAt: string
     }
 
     export interface ValidationFinding {
