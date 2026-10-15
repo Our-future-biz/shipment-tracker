@@ -46,6 +46,8 @@ interface CustomerFiltersPopoverProps {
   onSaveTemplate: (name: string, filters: ColFilter[]) => Promise<void>;
   onDeleteTemplate: (id: string) => void;
   isSaving: boolean;
+  /** With no filters set, the panel offers one row on this column, ready for a value. */
+  defaultColumn?: string;
 }
 
 // The "Filters" button of the Customer Database list and its "Filter by column" panel: rows of column + value,
@@ -58,6 +60,7 @@ export function CustomerFiltersPopover({
   onSaveTemplate,
   onDeleteTemplate,
   isSaving,
+  defaultColumn,
 }: CustomerFiltersPopoverProps) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
@@ -77,9 +80,12 @@ export function CustomerFiltersPopover({
     (t) => t.filters.length > 0 && signature(t.filters) === signature(filters),
   );
 
+  // The rows shown: the filters, or with none the one row on the default column, which becomes a filter once edited.
+  const rows: ColFilter[] =
+    filters.length === 0 && defaultColumn ? [{ key: defaultColumn, value: "" }] : filters;
   const update = (i: number, patch: Partial<ColFilter>) =>
-    onChange(filters.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
-  const remove = (i: number) => onChange(filters.filter((_, idx) => idx !== i));
+    onChange(rows.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
+  const remove = (i: number) => onChange(rows.filter((_, idx) => idx !== i));
 
   const openTemplateName = () => {
     setTemplateName(activeTemplate?.name ?? "");
@@ -162,13 +168,13 @@ export function CustomerFiltersPopover({
                 Clear all
               </button>
             </div>
-            {filters.length === 0 ? (
+            {rows.length === 0 ? (
               <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-lg">
                 No filters yet — add one to narrow the list.
               </div>
             ) : (
               <div className="flex flex-col gap-2">
-                {filters.map((f, i) => {
+                {rows.map((f, i) => {
                   const options = columnByKey.get(f.key)?.options;
                   return (
                     <div key={i} className="flex items-center gap-1.5">
@@ -197,6 +203,8 @@ export function CustomerFiltersPopover({
                           />
                         ) : (
                           <Input
+                            // The default row is there to be typed into straight away.
+                            autoFocus={filters.length === 0}
                             placeholder="Enter value"
                             value={f.value}
                             onChange={(e) => update(i, { value: e.target.value })}
@@ -218,7 +226,7 @@ export function CustomerFiltersPopover({
               </div>
             )}
             <button
-              onClick={() => onChange([...filters, { key: "", value: "" }])}
+              onClick={() => onChange([...rows, { key: "", value: "" }])}
               className="mt-2.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-dashed border-slate-300 text-xs font-medium text-slate-500 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/40 bg-transparent cursor-pointer transition-colors"
             >
               <PlusOutlined className="text-[10px]" /> Add filter

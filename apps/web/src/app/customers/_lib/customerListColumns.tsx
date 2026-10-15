@@ -177,17 +177,19 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
 
 export const CUSTOMER_COLUMN_MAP = new Map(CUSTOMER_LIST_COLUMNS.map((c) => [c.key, c]));
 
-/** The columns a new user sees: the ones the list always had. */
+/** The columns a user sees until they choose their own (as Martin laid the list out on 2026-10-15). */
 export const DEFAULT_CUSTOMER_COLUMNS = [
   NAME_COLUMN_KEY,
-  "ico",
   "country",
-  "salesOwner",
-  "label",
   "status",
-  "totalRevenue",
-  "margin",
+  "label",
+  "salesOwner",
+  "city",
+  "totalShipments",
   "lastActivityDate",
+  "paymentTerms",
+  "totalProfit",
+  "createdAt",
 ];
 
 /** A stored column list as the list uses it: known keys only, each once, the name first. */

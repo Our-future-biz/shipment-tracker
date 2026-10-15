@@ -4,11 +4,21 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import type { ChangeEvent } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Input, Select } from "antd";
+import { Input, Select, Tooltip } from "antd";
 import type { TableProps } from "antd";
-import { PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import { EditOutlined, PlusOutlined, SearchOutlined } from "@ant-design/icons";
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, arrayMove, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import type { ColumnsType } from "antd/es/table";
 import { DataTable } from "@/components/DataTable";
+import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { PillTabs } from "@/components/SectionCard";
 import { useCustomers, type CustomerItem } from "@/hooks/useCustomers";
 import { useCustomerListPref } from "@/hooks/useCustomerListPref";
@@ -28,9 +38,18 @@ import {
 } from "../_lib/customerListColumns";
 import { AddCustomerModal } from "./AddCustomerModal";
 import { CustomerColumnPicker, type ColumnTemplate } from "./CustomerColumnPicker";
-import { CustomerFiltersPopover, matchesColumnFilters, activeColumnFilters, type ColFilter, type FilterTemplate } from "./CustomerFiltersPopover";
+import {
+  CustomerFiltersPopover,
+  matchesColumnFilters,
+  activeColumnFilters,
+  type ColFilter,
+  type FilterTemplate,
+} from "./CustomerFiltersPopover";
 
-const STATUS_PILLS = [{ key: "all", label: "All" }, ...CUSTOMER_STATUSES.map((status) => ({ key: status, label: status }))];
+const STATUS_PILLS = [
+  { key: "all", label: "All" },
+  ...CUSTOMER_STATUSES.map((status) => ({ key: status, label: status })),
+];
 
 const ACCOUNT_TYPE_OPTIONS = CUSTOMER_LABELS.map((label) => ({ value: label, label }));
 
@@ -51,20 +70,35 @@ const COMPARE: Record<SortKey, (a: CustomerItem, b: CustomerItem) => number> = {
   // Names come from the Czech registry, so they are ordered the Czech way (Č after C, CH after H).
   name: (a, b) => a.companyName.localeCompare(b.companyName, "cs", { sensitivity: "base" }),
   revenue: (a, b) => a.totalRevenue - b.totalRevenue,
-  margin: (a, b) => marginPct(a.totalRevenue, a.totalProfit) - marginPct(b.totalRevenue, b.totalProfit),
+  margin: (a, b) =>
+    marginPct(a.totalRevenue, a.totalProfit) - marginPct(b.totalRevenue, b.totalProfit),
   activity: (a, b) => (a.lastActivityDate || "").localeCompare(b.lastActivityDate || ""),
 };
 
 // The columns a "Filter by column" row can be set on: every column of the list, with its values to pick where it has a fixed set.
-const FILTER_COLUMNS = CUSTOMER_LIST_COLUMNS.map((c) => ({ key: c.key, title: c.title, options: c.options }));
+const FILTER_COLUMNS = CUSTOMER_LIST_COLUMNS.map((c) => ({
+  key: c.key,
+  title: c.title,
+  options: c.options,
+}));
 
-const isStringList = (v: unknown): v is string[] => Array.isArray(v) && v.every((k) => typeof k === "string");
+const isStringList = (v: unknown): v is string[] =>
+  Array.isArray(v) && v.every((k) => typeof k === "string");
 const isFilterList = (v: unknown): v is ColFilter[] =>
-  Array.isArray(v) && v.every((f) => !!f && typeof f === "object" && typeof f.key === "string" && typeof f.value === "string");
+  Array.isArray(v) &&
+  v.every(
+    (f) => !!f && typeof f === "object" && typeof f.key === "string" && typeof f.value === "string",
+  );
 const isFilterTemplates = (v: unknown): v is FilterTemplate[] =>
-  Array.isArray(v) && v.every((t) => !!t && typeof t.id === "string" && typeof t.name === "string" && isFilterList(t.filters));
+  Array.isArray(v) &&
+  v.every(
+    (t) => !!t && typeof t.id === "string" && typeof t.name === "string" && isFilterList(t.filters),
+  );
 const isColumnTemplates = (v: unknown): v is ColumnTemplate[] =>
-  Array.isArray(v) && v.every((t) => !!t && typeof t.id === "string" && typeof t.name === "string" && isStringList(t.columns));
+  Array.isArray(v) &&
+  v.every(
+    (t) => !!t && typeof t.id === "string" && typeof t.name === "string" && isStringList(t.columns),
+  );
 
 const NO_FILTER_TEMPLATES: FilterTemplate[] = [];
 const NO_COLUMN_TEMPLATES: ColumnTemplate[] = [];
@@ -87,7 +121,10 @@ export function CustomersView() {
   const urlQuery = searchParams.get("q") ?? "";
   const rawStatus = searchParams.get("status");
   const rawType = searchParams.get("type");
-  const legacy = rawStatus === null && rawType === null ? LEGACY_TAB_FILTERS[searchParams.get("tab") ?? ""] : undefined;
+  const legacy =
+    rawStatus === null && rawType === null
+      ? LEGACY_TAB_FILTERS[searchParams.get("tab") ?? ""]
+      : undefined;
   const status = CUSTOMER_STATUSES.find((s) => s === (rawStatus ?? legacy?.status)) ?? "";
   const accountType = CUSTOMER_LABELS.find((l) => l === (rawType ?? legacy?.type)) ?? "";
   const rawSort = searchParams.get("sort") ?? "";
@@ -111,38 +148,63 @@ export function CustomersView() {
   }, [urlQuery]);
   const debouncedSearch = useDebounced(urlQuery, 300).trim();
 
-  const { customers, isFetching, isError, createCustomer, createManualCustomer, isCreating } = useCustomers({
-    search: debouncedSearch,
-    status: status || undefined,
-    label: accountType || undefined,
-  });
+  const { customers, isFetching, isError, createCustomer, createManualCustomer, isCreating } =
+    useCustomers({
+      search: debouncedSearch,
+      status: status || undefined,
+      label: accountType || undefined,
+    });
 
-  // "Filter by column" filters, kept in the URL as ?f.<column>=<value> like the rest of the list's state.
-  // They narrow the customers the server returned for the search and the two filters above.
-  const filters = useMemo(() => {
+  // "Filter by column" filters. The rows live here as typed (so a space between two words survives the typing)
+  // and are copied to the URL as ?f.<column>=<value>, like the rest of the list's state, so they are still there
+  // after opening a customer and coming back. They narrow the customers the server returned.
+  const urlFilters = useMemo(() => {
     const out: ColFilter[] = [];
     searchParams.forEach((value, key) => {
       if (key.startsWith("f.")) out.push({ key: key.slice(2), value });
     });
     return out;
   }, [searchParams]);
-  // Rows being set up (no column or no value yet) live here until they filter anything.
-  const [draftFilters, setDraftFilters] = useState<ColFilter[] | null>(null);
-  const shownFilters = draftFilters ?? filters;
-  const activeFilters = useMemo(() => activeColumnFilters(filters), [filters]);
+  const [shownFilters, setShownFilters] = useState<ColFilter[]>(urlFilters);
+  // The ?f. part this list last wrote; only a change from elsewhere (Back, a link) replaces the rows.
+  const writtenFilters = useRef(JSON.stringify(activeColumnFilters(urlFilters)));
+  useEffect(() => {
+    const fromUrl = JSON.stringify(activeColumnFilters(urlFilters));
+    if (fromUrl === writtenFilters.current) return;
+    writtenFilters.current = fromUrl;
+    setShownFilters(urlFilters);
+  }, [urlFilters]);
+  const activeFilters = useMemo(() => activeColumnFilters(shownFilters), [shownFilters]);
 
   // The user's own set-up of this list, kept in the customers service (not shared with the shipment grids).
-  const columnPref = useCustomerListPref<string[]>("columns", DEFAULT_CUSTOMER_COLUMNS, isStringList);
-  const filterTemplates = useCustomerListPref("filter-templates", NO_FILTER_TEMPLATES, isFilterTemplates);
-  const columnTemplates = useCustomerListPref("column-templates", NO_COLUMN_TEMPLATES, isColumnTemplates);
-  const visibleColumns = useMemo(() => normalizeCustomerColumns(columnPref.value), [columnPref.value]);
+  const columnPref = useCustomerListPref<string[]>(
+    "columns",
+    DEFAULT_CUSTOMER_COLUMNS,
+    isStringList,
+  );
+  const filterTemplates = useCustomerListPref(
+    "filter-templates",
+    NO_FILTER_TEMPLATES,
+    isFilterTemplates,
+  );
+  const columnTemplates = useCustomerListPref(
+    "column-templates",
+    NO_COLUMN_TEMPLATES,
+    isColumnTemplates,
+  );
+  const visibleColumns = useMemo(
+    () => normalizeCustomerColumns(columnPref.value),
+    [columnPref.value],
+  );
 
   // The table shows one page at a time, so sorting has to happen here, over all rows, and
   // not in the table's own column sorters (they would only reorder the visible page).
   const rows = useMemo(() => {
     // After a failed request the rows still in memory may be out of date; the error is shown instead.
     if (isError) return [];
-    const kept = activeFilters.length ? customers.filter((c) => matchesColumnFilters(c, activeFilters, customerCellText)) : customers;
+    const kept = activeFilters.length
+      ? customers.filter((c) => matchesColumnFilters(c, activeFilters, customerCellText))
+      : customers;
     if (!sortKey) return kept;
     const direction = sortDirection === "ascend" ? 1 : -1;
     return [...kept].sort((a, b) => direction * COMPARE[sortKey](a, b));
@@ -155,7 +217,13 @@ export function CustomersView() {
   if (isError) emptyText = "Could not load customers.";
 
   const replaceParams = (patch: Partial<Record<ListParam, string>>) => {
-    const next: Record<ListParam, string> = { q: search, status, type: accountType, sort: sortKey ? rawSort : "", ...patch };
+    const next: Record<ListParam, string> = {
+      q: search,
+      status,
+      type: accountType,
+      sort: sortKey ? rawSort : "",
+      ...patch,
+    };
     const params = new URLSearchParams(searchParams.toString());
     // A legacy ?tab= is already part of status / type above, so it is replaced by them.
     params.delete("tab");
@@ -177,20 +245,28 @@ export function CustomersView() {
 
   const handleAccountTypeChange = (value?: string) => replaceParams({ type: value ?? "" });
 
-  const handleTableChange: NonNullable<TableProps<CustomerItem>["onChange"]> = (_pagination, _filters, sorter) => {
+  const handleTableChange: NonNullable<TableProps<CustomerItem>["onChange"]> = (
+    _pagination,
+    _filters,
+    sorter,
+  ) => {
     const active = Array.isArray(sorter) ? sorter[0] : sorter;
     const key = SORT_KEYS.find((k) => k === active?.columnKey);
-    replaceParams({ sort: key && active?.order ? `${active.order === "descend" ? "-" : ""}${key}` : "" });
+    replaceParams({
+      sort: key && active?.order ? `${active.order === "descend" ? "-" : ""}${key}` : "",
+    });
   };
 
-  // A change of the filter rows: the ones that filter go to the URL, the rest stays as a draft.
+  // A change of the filter rows: shown at once, and the ones that filter copied to the URL.
   const handleFiltersChange = (next: ColFilter[]) => {
+    setShownFilters(next);
+    const active = activeColumnFilters(next);
+    writtenFilters.current = JSON.stringify(active);
     const params = new URLSearchParams(searchParams.toString());
     Array.from(params.keys()).forEach((k) => {
       if (k.startsWith("f.")) params.delete(k);
     });
-    activeColumnFilters(next).forEach((f) => params.set(`f.${f.key}`, f.value.trim()));
-    setDraftFilters(next.length === activeColumnFilters(next).length ? null : next);
+    active.forEach((f) => params.set(`f.${f.key}`, f.value));
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
@@ -208,11 +284,26 @@ export function CustomersView() {
   };
 
   const handleSaveColumnTemplate = async (name: string) => {
-    await columnTemplates.save(upsertByName(columnTemplates.value, { name, columns: visibleColumns }));
+    await columnTemplates.save(
+      upsertByName(columnTemplates.value, { name, columns: visibleColumns }),
+    );
   };
 
   const handleDeleteColumnTemplate = (id: string) => {
     void columnTemplates.save(columnTemplates.value.filter((t) => t.id !== id));
+  };
+
+  // Reordering the columns: the pencil turns it on, and the column headers can then be dragged.
+  const [reordering, setReordering] = useState(false);
+  // A drag starts after a few pixels, so a plain click on a header still sorts.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
+  const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const from = visibleColumns.indexOf(String(active.id));
+    const to = visibleColumns.indexOf(String(over.id));
+    // The customer's name stays first: nothing moves before it.
+    if (from === -1 || to <= 0) return;
+    handleColumnsChange(arrayMove(visibleColumns, from, to));
   };
 
   const handleAddOpen = () => setAddOpen(true);
@@ -226,7 +317,8 @@ export function CustomersView() {
 
   // Sorting is done above, so the column only shows the arrows and reports the click.
   const sortColumn = (key: SortKey, firstClick: SortDirection) => {
-    const sortDirections: SortDirection[] = firstClick === "ascend" ? ["ascend", "descend"] : ["descend", "ascend"];
+    const sortDirections: SortDirection[] =
+      firstClick === "ascend" ? ["ascend", "descend"] : ["descend", "ascend"];
     return { key, sorter: true, sortOrder: sortKey === key ? sortDirection : null, sortDirections };
   };
 
@@ -244,12 +336,18 @@ export function CustomersView() {
             // eslint-disable-next-line @next/next/no-img-element
             <img src={record.logoData} alt="" className="w-full h-full object-contain" />
           ) : (
-            <span className="text-[11px] font-semibold text-slate-400">{name.slice(0, 2).toUpperCase()}</span>
+            <span className="text-[11px] font-semibold text-slate-400">
+              {name.slice(0, 2).toUpperCase()}
+            </span>
           )}
         </div>
         {/* The row opens the same page on click; without stopping the event here a
             Ctrl/Cmd-click would open a new tab and also navigate this one. */}
-        <Link href={`/customers/${record.id}`} onClick={(e) => e.stopPropagation()} className="font-medium text-indigo-600 hover:underline">
+        <Link
+          href={`/customers/${record.id}`}
+          onClick={(e) => e.stopPropagation()}
+          className="font-medium text-indigo-600 hover:underline"
+        >
           {name || record.ico}
         </Link>
       </div>
@@ -264,6 +362,10 @@ export function CustomersView() {
       title: col.title,
       width: col.width,
       align: col.align,
+      // While reordering, the header carries the column's id and can be dragged (DraggableHeaderCell).
+      ...(reordering
+        ? { onHeaderCell: () => ({ id: key }) as React.HTMLAttributes<HTMLTableCellElement> }
+        : {}),
       ...(col.sort ? sortColumn(col.sort.key, col.sort.firstClick) : {}),
       render: (_: unknown, record: CustomerItem) => col.render(record),
     };
@@ -320,6 +422,7 @@ export function CustomersView() {
               onSaveTemplate={handleSaveFilterTemplate}
               onDeleteTemplate={handleDeleteFilterTemplate}
               isSaving={filterTemplates.isSaving}
+              defaultColumn={NAME_COLUMN_KEY}
             />
             <CustomerColumnPicker
               visible={visibleColumns}
@@ -328,23 +431,50 @@ export function CustomersView() {
               onSaveTemplate={handleSaveColumnTemplate}
               onDeleteTemplate={handleDeleteColumnTemplate}
             />
+            <Tooltip title={reordering ? "Done reordering" : "Reorder columns"}>
+              <button
+                type="button"
+                aria-label="Reorder columns"
+                aria-pressed={reordering}
+                onClick={() => setReordering((on) => !on)}
+                className={`flex items-center justify-center shrink-0 rounded-lg border w-8 h-8 p-0 transition-colors cursor-pointer ${
+                  reordering
+                    ? "border-indigo-500 bg-indigo-50 text-indigo-600"
+                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                <EditOutlined />
+              </button>
+            </Tooltip>
           </div>
         </div>
 
-        <DataTable<CustomerItem>
-          dataSource={rows}
-          columns={columns}
-          rowKey="id"
-          loading={isFetching}
-          scroll={{ x: "max-content" }}
-          resetKey={`${debouncedSearch}|${status}|${accountType}|${sortKey ?? ""}|${sortDirection}|${JSON.stringify(activeFilters)}`}
-          locale={{ emptyText }}
-          onChange={handleTableChange}
-          onRow={(record) => ({
-            onClick: () => router.push(`/customers/${record.id}`),
-            className: "cursor-pointer",
-          })}
-        />
+        {reordering && (
+          <div className="-mt-2 rounded-lg bg-indigo-50 px-4 py-2 text-[13px] text-indigo-700">
+            Drag the column headers to change their order. Customer stays first. Click the pencil
+            again when you are done.
+          </div>
+        )}
+
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={visibleColumns} strategy={horizontalListSortingStrategy}>
+            <DataTable<CustomerItem>
+              components={reordering ? { header: { cell: DraggableHeaderCell } } : undefined}
+              dataSource={rows}
+              columns={columns}
+              rowKey="id"
+              loading={isFetching}
+              scroll={{ x: "max-content" }}
+              resetKey={`${debouncedSearch}|${status}|${accountType}|${sortKey ?? ""}|${sortDirection}|${JSON.stringify(activeFilters)}`}
+              locale={{ emptyText }}
+              onChange={handleTableChange}
+              onRow={(record) => ({
+                onClick: () => router.push(`/customers/${record.id}`),
+                className: "cursor-pointer",
+              })}
+            />
+          </SortableContext>
+        </DndContext>
 
         <AddCustomerModal
           open={addOpen}
