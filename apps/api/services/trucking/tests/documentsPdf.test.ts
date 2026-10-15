@@ -88,6 +88,29 @@ describe("transport order PDF", () => {
   });
 });
 
+describe("transport order signatures", () => {
+  /** Text of the last page (pdf-parse ends every page with "-- n of N --"). */
+  const lastPage = (text: string) => text.split(/--\s*\d+\s+of\s+\d+\s*--/).filter((p) => p.trim()).at(-1) ?? "";
+
+  it("never stand alone: the last terms move to the signatures' page under a continued title", async () => {
+    const bytes = await buildTransportOrderPdf(sampleTransportOrder);
+    const last = squash(lastPage(await textOf(bytes)));
+    expect(last).toContain("PODMÍNKY/TERMSANDCONDITIONS(POKRAČOVÁNÍ/CONTINUED)");
+    expect(last).toContain("Podmínka9:");
+    expect(last).toContain("Podmínka8:");
+    expect(last).toContain("ZAZASÍLATELE/FORTHEFORWARDER");
+    expect(last).toContain("Podpisarazítko/Signatureandstamp");
+  });
+
+  it("keeps an order with two short terms on as few pages as before", async () => {
+    const bytes = await buildTransportOrderPdf({ ...sampleTransportOrder, terms: ["Dle VOP.", "Platba do 30 dní."] });
+    expect(await pageCount(bytes)).toBe(2);
+    const last = squash(lastPage(await textOf(bytes)));
+    expect(last).toContain("Platbado30dní.");
+    expect(last).toContain("ZADOPRAVCE/FORTHEHAULIER");
+  });
+});
+
 describe("consignment note PDF", () => {
   it("prints the numbered boxes with the consignment's data on one page", async () => {
     const bytes = await buildCmrPdf(sampleCmr);

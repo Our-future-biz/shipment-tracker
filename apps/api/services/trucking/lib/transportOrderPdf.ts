@@ -14,6 +14,7 @@ const FULL = RIGHT - M;
 const LABEL_W = 132; // label column of the field rows
 const VALUE_X = M + 8 + LABEL_W + 10;
 const VALUE_W = RIGHT - 8 - VALUE_X;
+const SIGNATURE_COL_W = (FULL - 40) / 2;
 
 interface Row {
   label: string;
@@ -100,12 +101,20 @@ export async function buildTransportOrderPdf(doc: TransportOrderDoc): Promise<Ui
     w.y -= 14;
   }
 
-  // ── Numbered terms ──
+  // ── Numbered terms; the last two stay on the page of the signatures ──
+  const signatures = layoutSignatures(w, [L("forForwarder"), doc.ourCompany.name], [L("forHaulier"), doc.haulier.name]);
   if (doc.terms.length) {
-    sectionTitle(w, L("terms"), 24);
-    doc.terms.forEach((term, i) => {
+    const terms = doc.terms.map((term) => w.wrap(term, 8, FULL - 34));
+    const keepFrom = Math.max(0, terms.length - 2);
+    const keepNeed = terms.slice(keepFrom).reduce((h, lines) => h + lines.length * 11 + 3, 0) + 12 + signatures.height;
+    sectionTitle(w, L("terms"), keepFrom === 0 ? keepNeed : 24);
+    terms.forEach((lines, i) => {
+      if (i === keepFrom && i > 0 && w.room < keepNeed) {
+        w.newPage();
+        sectionTitle(w, `${L("terms")} (${L("continued")})`, 0);
+      }
       w.text(`${i + 1}.`, M + 8, w.y - 10, 8, { bold: true, color: MUTED });
-      for (const l of w.wrap(term, 8, FULL - 34)) {
+      for (const l of lines) {
         if (w.ensure(11)) w.y -= 4;
         w.text(l, M + 26, w.y - 10, 8);
         w.y -= 11;
@@ -116,7 +125,7 @@ export async function buildTransportOrderPdf(doc: TransportOrderDoc): Promise<Ui
   }
 
   // ── Signatures ──
-  drawSignatures(w, [L("forForwarder"), doc.ourCompany.name], [L("forHaulier"), doc.haulier.name], L);
+  drawSignatures(w, signatures, L);
 
   const c = doc.ourCompany;
   return w.finish([
@@ -282,11 +291,17 @@ function drawLoad(w: Writer, load: DocLoad, L: (key: LabelKey) => string, lang: 
   }
 }
 
-function drawSignatures(w: Writer, left: [string, string], right: [string, string], L: (key: LabelKey) => string) {
-  const colW = (FULL - 40) / 2;
+/** The two signature blocks wrapped, with the height they need. */
+function layoutSignatures(w: Writer, left: [string, string], right: [string, string]) {
+  const colW = SIGNATURE_COL_W;
   const blocks = [left, right].map(([title, name]) => ({ title: w.wrap(title.toUpperCase(), 7.5, colW, true), name: w.wrap(name, 9, colW, true) }));
   const head = Math.max(...blocks.map((b) => b.title.length * 10 + b.name.length * 12));
-  w.ensure(head + 80);
+  return { blocks, head, height: head + 80 };
+}
+
+function drawSignatures(w: Writer, { blocks, head, height }: ReturnType<typeof layoutSignatures>, L: (key: LabelKey) => string) {
+  const colW = SIGNATURE_COL_W;
+  w.ensure(height);
   const top = w.y;
   blocks.forEach((b, i) => {
     const x = M + i * (colW + 40);
@@ -304,5 +319,5 @@ function drawSignatures(w: Writer, left: [string, string], right: [string, strin
     w.text(L("signatureStamp"), x, lineY - 11, 7.5, { color: MUTED });
     w.text(`${L("date")}:`, x, lineY - 23, 7.5, { color: MUTED });
   });
-  w.y = top - head - 80;
+  w.y = top - height;
 }
