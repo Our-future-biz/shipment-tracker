@@ -1,0 +1,44 @@
+import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
+import { haulierService } from "../services/haulier.service";
+import type { CostSplitBasis, TruckingHaulierResponse, PreferredLaneInput } from "../interfaces/interfaces";
+
+interface TruckingHaulierUpdateRequest {
+  customerId: string;
+  insurer: string;
+  insurancePolicyNo: string;
+  insuranceLimit: number | null;
+  /** "CZK" | "EUR" */
+  insuranceCurrency: string;
+  /** YYYY-MM-DD */
+  insuranceValidTo: string | null;
+  licenceNo: string;
+  /** YYYY-MM-DD; ignored when licenceUnlimited */
+  licenceValidTo: string | null;
+  licenceUnlimited: boolean;
+  adrCapable: boolean;
+  /** Vehicle type codes of the trucking settings */
+  vehicleTypes: string[];
+  paymentDays: number;
+  /** "CZK" | "EUR" */
+  currency: string;
+  vatUnreliable: boolean;
+  bankAccountPublished: boolean;
+  /** YYYY-MM-DD */
+  vatCheckedAt: string | null;
+  costSplitBasis: CostSplitBasis;
+  notes: string;
+  /** The whole list; lanes without id are new, lanes left out are removed. */
+  preferredLanes: PreferredLaneInput[];
+  /** The version read (0 when none is saved yet); a save on top of a newer one is refused with 409. */
+  version: number;
+}
+
+// Saves a haulier's trucking profile (any user). The block is changed only by block / unblock.
+export const truckingHaulierUpdate = api(
+  { expose: true, auth: true, method: "PUT", path: "/trucking/hauliers/:customerId" },
+  async ({ customerId, version, ...input }: TruckingHaulierUpdateRequest): Promise<TruckingHaulierResponse> => {
+    const { userID, companyID } = getAuthData()!;
+    return { haulier: await haulierService.update(companyID, userID, customerId, input, version) };
+  },
+);
