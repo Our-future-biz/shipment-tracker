@@ -185,3 +185,29 @@ describe("block and unblock", () => {
     expect(repo.save.mock.calls[0][2]).toBe(0);
   });
 });
+
+describe("published bank accounts (Phase 6)", () => {
+  it("saves the list normalised, as one change; a save without the list keeps it", async () => {
+    repo.find.mockResolvedValue({ profile: record({ bankAccounts: ["19-2000145399/0800"] }), lanes: [] });
+    repo.save.mockResolvedValue(record({ version: 5 }));
+    await haulierService.update(C, U, H, input({ bankAccounts: ["CZ65 0800 0000 1920 0014 5399", "de89 3704 0044 0532 0130 00"] }), 4);
+    const [, , , values, , event] = repo.save.mock.calls[0];
+    expect(values.bankAccounts).toEqual(["19-2000145399/0800", "DE89370400440532013000"]);
+    expect(Object.keys(event.payload.changes)).toEqual(["bankAccounts"]);
+
+    repo.save.mockClear();
+    await haulierService.update(C, U, H, input({ notes: "x" }), 4);
+    expect(repo.save.mock.calls[0][3].bankAccounts).toEqual(["19-2000145399/0800"]);
+  });
+
+  it("refuses an account that is neither a Czech account nor an IBAN", async () => {
+    repo.find.mockResolvedValue({ profile: record(), lanes: [] });
+    await expect(haulierService.update(C, U, H, input({ bankAccounts: ["123/45"] }), 4)).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repo.save).not.toHaveBeenCalled();
+  });
+
+  it("shows the accounts on the profile", async () => {
+    repo.find.mockResolvedValue({ profile: record({ bankAccounts: ["19-2000145399/0800"] }), lanes: [] });
+    expect((await haulierService.get(C, H)).profile.bankAccounts).toEqual(["19-2000145399/0800"]);
+  });
+});

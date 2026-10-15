@@ -4,6 +4,7 @@ import { truckingOutboxRepository } from "../repositories/truckingOutbox.reposit
 import { appendEvent } from "../repositories/event.repository";
 import type { TruckingOutboxKind, TruckingOutboxRecord } from "../schemas/truckingOutbox.schema";
 import type { CostsPayload } from "../lib/truckingLinks";
+import type { RealCostsPayload } from "../lib/haulierInvoiceReal";
 import { cancelExpected, expectArrival, expectDeparture, type CancelExpectedInput, type ExpectArrivalInput, type ExpectDepartureInput } from "../lib/warehouseLink";
 import { outboxErrorCode } from "../../../lib/outbox/outboxRetry";
 import { deliverOutboxRow, runOutboxDelivery, type OutboxHandlers } from "../../../lib/outbox/outboxDelivery";
@@ -28,6 +29,7 @@ export const OUTBOX_WHAT: Record<TruckingOutboxKind, string> = {
   expect_arrival: "expected arrival at our warehouse",
   expect_departure: "expected departure from our warehouse",
   cancel_expected: "trip withdrawn from our warehouse",
+  real_costs: "real haulier cost in Costs Breakdown",
 };
 
 // What users see of a failed delivery (stored as last_error and in the history): our own
@@ -74,6 +76,11 @@ export async function sendRow(row: TruckingOutboxRecord): Promise<void> {
     await shipments._internalShipmentMarkBilling({ shipmentId: row.shipmentId }, { authData });
     return;
   }
+  if (row.kind === "real_costs") {
+    const real = row.payload as unknown as RealCostsPayload;
+    await invoicing._internalInvoicingTruckingReal({ shipmentId: row.shipmentId, ...real }, { authData });
+    return;
+  }
   const costs = row.payload as unknown as CostsPayload;
   await invoicing._internalInvoicingTruckingLines({ shipmentId: row.shipmentId, ...costs }, { authData });
 }
@@ -86,7 +93,7 @@ const handlers: OutboxHandlers<TruckingOutboxRecord> = {
   async onFailed(row, error, err) {
     await truckingOutboxRepository.markFailed(row.id, row.attempts, error);
     await appendEvent(db, row.companyId, {
-      kind: row.kind === "costs" ? "costs_update_failed" : "shipment_update_failed",
+      kind: row.kind === "costs" || row.kind === "real_costs" ? "costs_update_failed" : "shipment_update_failed",
       consignmentId: row.consignmentId,
       byUserId: null,
       byName: "Trucking",

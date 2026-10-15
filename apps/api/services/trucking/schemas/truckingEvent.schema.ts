@@ -44,7 +44,12 @@ export type TruckingEventKind =
   | "gate_out"
   | "gate_voided"
   | "manifest_printed"
-  | "labels_printed";
+  | "labels_printed"
+  // Phase 6 B: haulier invoices (customerId = the haulier; facts.invoiceId)
+  | "haulier_invoice_entered"
+  | "haulier_invoice_updated"
+  | "haulier_invoice_approved"
+  | "haulier_invoice_rejected";
 
 /** One changed field: what it was and what it became. */
 export interface TruckingFieldChange {

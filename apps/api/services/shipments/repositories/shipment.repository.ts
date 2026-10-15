@@ -336,6 +336,7 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
         freightMode: shipmentTable.freightMode,
         pickupDate: shipmentTable.pickupDate,
         plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
+        department: shipmentTable.department,
       })
       .from(shipmentTable)
       .where(and(eq(shipmentTable.companyId, companyId), inArray(shipmentTable.id, ids), isNull(shipmentTable.deletedAt)));

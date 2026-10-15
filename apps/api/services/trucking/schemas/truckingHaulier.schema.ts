@@ -29,6 +29,8 @@ export const truckingHaulierProfileTable = pgTable(
     vatUnreliable: boolean("vat_unreliable").notNull().default(false),
     bankAccountPublished: boolean("bank_account_published").notNull().default(false),
     vatCheckedAt: date("vat_checked_at", { mode: "string" }),
+    /** Phase 6: the accounts published in the VAT register (normalised, lib/bankAccount.ts), entered and checked manually for now */
+    bankAccounts: jsonb("bank_accounts").$type<string[]>().notNull().default([]),
     costSplitBasis: text("cost_split_basis").$type<CostSplitBasis>().notNull().default("chargeable_weight"),
     blocked: boolean("blocked").notNull().default(false),
     blockReason: text("block_reason").notNull().default(""),

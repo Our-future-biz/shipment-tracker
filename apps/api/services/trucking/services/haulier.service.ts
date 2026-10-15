@@ -53,6 +53,7 @@ export const toProfile = ({ profile: r, lanes }: StoredProfile): HaulierProfile 
   vatUnreliable: r.vatUnreliable,
   bankAccountPublished: r.bankAccountPublished,
   vatCheckedAt: r.vatCheckedAt,
+  bankAccounts: r.bankAccounts ?? [],
   costSplitBasis: r.costSplitBasis,
   blocked: r.blocked,
   blockReason: r.blockReason,
@@ -95,6 +96,7 @@ const editable = (p: HaulierProfile): Omit<HaulierProfileInput, "preferredLanes"
   vatUnreliable: p.vatUnreliable,
   bankAccountPublished: p.bankAccountPublished,
   vatCheckedAt: p.vatCheckedAt,
+  bankAccounts: p.bankAccounts,
   costSplitBasis: p.costSplitBasis,
   notes: p.notes,
 });
@@ -167,9 +169,11 @@ class HaulierService {
   async update(companyId: string, userId: string, customerId: string, input: HaulierProfileInput, version: number): Promise<HaulierDetail> {
     if (!Number.isInteger(version) || version < 0) throw APIError.invalidArgument("version must be the version you read (0 when none is saved yet)");
     const company = await this.company(customerId);
-    const next = cleanProfileInput(input, await settingsService.vehicleCodes(companyId), today());
     const stored = await haulierRepository.find(companyId, customerId);
     const cur = stored ? toProfile(stored) : defaultProfile(customerId);
+    // A save that leaves the published bank accounts out (an older page) keeps them as saved.
+    const withAccounts = { ...input, bankAccounts: input.bankAccounts ?? cur.bankAccounts };
+    const next = cleanProfileInput(withAccounts, await settingsService.vehicleCodes(companyId), today());
     if (cur.version !== version) throw APIError.aborted(HAULIER_CONFLICT);
     const changes = profileChanges(cur, next);
     if (stored && !Object.keys(changes).length) return this.detail(company, stored);

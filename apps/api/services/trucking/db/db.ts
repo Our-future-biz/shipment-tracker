@@ -8,6 +8,7 @@ import * as truckingTariffSchema from "../schemas/truckingTariff.schema";
 import * as truckingFuelIndexSchema from "../schemas/truckingFuelIndex.schema";
 import * as truckingConsignmentSchema from "../schemas/truckingConsignment.schema";
 import * as truckingOutboxSchema from "../schemas/truckingOutbox.schema";
+import * as haulierInvoiceSchema from "../schemas/haulierInvoice.schema";
 
 const { Pool } = pg;
 
@@ -28,6 +29,7 @@ export const db = drizzle(pool, {
     ...truckingFuelIndexSchema,
     ...truckingConsignmentSchema,
     ...truckingOutboxSchema,
+    ...haulierInvoiceSchema,
   },
 });
 
