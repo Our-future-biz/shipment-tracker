@@ -8,7 +8,7 @@ import { useWarehouse } from "@/hooks/useWarehouse";
 import { useGateLog, type GateMovement } from "@/hooks/useGateLog";
 import { useWarehouseSectionSummary } from "@/hooks/useWarehouseSection";
 import type { interfaces } from "@/lib/api/client";
-import { TERMS, directionOfVisit, releaseGatesText } from "../../_lib/glossary";
+import { TERMS, directionOf, releaseGatesText } from "../../_lib/glossary";
 import { inWarehouse } from "../../_lib/worklist";
 import { freeTimeSort, freeTimeText, freeTimeTone } from "../../_lib/storageText";
 import { Badge } from "../../gate-log/_lib/gate";
@@ -61,7 +61,7 @@ export function Worklist() {
     },
     { key: "jobNumber", title: TERMS.jobNo, width: 150, text: (r) => r.m.jobNumber, render: (_, r) => <span className="font-mono text-slate-600">{r.m.jobNumber || "—"}</span> },
     { key: "customer", title: "Customer", width: 200, text: (r) => r.m.customer, render: (_, r) => <span className="text-slate-600">{r.m.customer || "—"}</span> },
-    { key: "direction", title: TERMS.direction, width: 110, text: (r) => directionOfVisit(r.m.visit) },
+    { key: "direction", title: TERMS.direction, width: 110, text: (r) => directionOf(r.m) },
     {
       key: "waiting",
       title: "Waiting for",

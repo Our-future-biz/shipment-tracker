@@ -258,10 +258,9 @@ describe("warehouse-gate-stamped is published after commit", () => {
       userId: user,
     });
     expect(await eventsOf(gateMovementId)).toEqual([expect.objectContaining({ status: "sent" })]);
-    // A gate-out of the delivering truck: gateOut.
+    // An inbound gate-out of its own is the delivering truck leaving: the cargo stays, nothing is told.
     await gateMovementService.stamp(gateMovementId, c, user, "gateOut");
-    expect(publish).toHaveBeenCalledTimes(2);
-    expect(publish.mock.calls[1]![0]).toMatchObject({ kind: "gateOut", stampKind: "gateOut" });
+    expect(publish).toHaveBeenCalledTimes(1);
   });
 
   it("publishes nothing when the stamp rolls back", async () => {

@@ -192,7 +192,7 @@ export const gateMovementTable = pgTable(
     index("warehouse_gate_movement_task_idx").on(table.warehouseTaskId),
     foreignKey({ name: "wh_gate_movement_task_fk", columns: [table.warehouseTaskId], foreignColumns: [warehouseTaskTable.id] }).onDelete("restrict"),
     check("wh_gate_movement_visit_check", sql`${table.visit} IN ('příjem', 'výdej')`),
-    check("wh_gate_movement_handling_check", sql`${table.handling} IN ('Import', 'Export')`),
+    check("wh_gate_movement_handling_check", sql`${table.handling} IN ('Import', 'Export', 'Domestic')`),
     check("wh_gate_movement_operation_type_check", sql`${table.operationType} IN ('LCL consolidation', 'FCL stuffing', 'FCL stripping', 'FCL transload (cross-stuff)', 'Cargo storage', 'Cargo storage (bonded)', 'Container yard storage')`),
     check("wh_gate_movement_customs_mode_check", sql`${table.customsMode} IN ('SCP', 'JSD', 'T1', 'T2L', 'ATA Carnet', 'RDT', 'C-Goods')`),
     check("wh_gate_movement_customs_status_check", sql`${table.customsStatus} IN ('Waiting For Commercial Paperwork', 'Paperwork Verification Pending', 'Paperwork Verified', 'Under Customs Clearance', 'Customs Cleared/Released')`),

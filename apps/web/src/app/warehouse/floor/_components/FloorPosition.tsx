@@ -7,7 +7,7 @@ import { useGateLog, useGateMovement, type GateMovement, type GateStampKind, use
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
-import { TERMS, directionOfVisit } from "@/app/warehouse/_lib/glossary";
+import { TERMS, directionOf } from "@/app/warehouse/_lib/glossary";
 import { dockSlotText, exceptionText, isOnHold } from "@/app/warehouse/_lib/worklist";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { Badge, CUSTOMS_STATUS_TONE, STATUS_TONE, errorMessage, hasSurvey, hhmm, nf, requiredSurveyPhase, surveyTargets } from "@/app/warehouse/gate-log/_lib/gate";
@@ -171,7 +171,7 @@ export function FloorPosition({ id }: { id: string }) {
             </span>
           )}
           <Badge tone={out ? "i" : "b"} className="!text-[12px]">
-            {directionOfVisit(m.visit)}
+            {directionOf(m)}
           </Badge>
           <Badge tone={CUSTOMS_STATUS_TONE[m.customsStatus] ?? ""} className="!text-[12px]">
             {m.customsStatus || "Customs not set"}

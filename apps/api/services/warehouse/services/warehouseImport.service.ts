@@ -17,7 +17,7 @@ import type {
   WarehouseImportResult,
 } from "../interfaces/gate.interfaces";
 import { CUSTOMS_MODES, CUSTOMS_STATUSES, customsLine, isCustomsStatus } from "./customs";
-import { DEFAULT_CHECKLIST, defaultReleaseGates, gateMovementService, normalizeLegs } from "./gateMovement.service";
+import { DEFAULT_CHECKLIST, defaultReleaseGates, gateMovementService, isDomestic, normalizeLegs, visitOfHandling } from "./gateMovement.service";
 import { PICKUP_PIN_GATE } from "./pickupPin";
 import { EXCEPTION_GATE } from "./osd";
 import { isManager, userName } from "./users";
@@ -39,8 +39,12 @@ const PARALLEL_FETCHES = 4;
 /*
  * How a shipment maps to the gate record (also on the warehouse Read me tab):
  *
- *   handling        Export when the trade direction says export, else Import.
- *   visit           Import cargo leaves through the gate (výdej), export cargo arrives (příjem).
+ *   handling        Export when the trade direction says export, Domestic when it says domestic,
+ *                   else Import.
+ *   visit           Import cargo leaves through the gate (výdej), export and domestic cargo
+ *                   arrive (příjem; domestic leaves again through the WH release).
+ *   domestic        LCL consolidation (cross-dock through our hub), customs mode SCP, release
+ *                   gates without any customs line, no pick-up PIN.
  *   operation type  Full Load by sea or rail, or with a container number → FCL stripping (Import)
  *                   or FCL stuffing (Export); Consolidation → LCL consolidation; Project
  *                   Shipment, or Full Load by road or air without a container → Cargo storage;
@@ -61,7 +65,13 @@ export function gateFieldsFromShipment(s: ShipmentMappingInput): {
   customsMode: GateCustomsMode;
   customsStatus: GateCustomsStatus;
 } {
-  const handling: GateHandling = /export/i.test(s.tradeDirection ?? "") ? "Export" : "Import";
+  const direction = s.tradeDirection ?? "";
+  // Domestic (road jobs Trucking makes): in at our hub, out again; no customs, no pick-up PIN.
+  if (/domestic/i.test(direction)) {
+    const customsStatus = isCustomsStatus(s.customsStatus) ? s.customsStatus : CUSTOMS_STATUSES[0]!;
+    return { handling: "Domestic", visit: "příjem", operationType: "LCL consolidation", customsMode: "SCP", customsStatus };
+  }
+  const handling: GateHandling = /export/i.test(direction) ? "Export" : "Import";
   const load = (s.loadType ?? "").trim();
   const box = /sea|rail/i.test(s.freightMode ?? "") || !!(s.containerNumber ?? "").trim();
   let operationType: GateOperationType = "LCL consolidation";
@@ -256,7 +266,7 @@ class WarehouseImportService {
   // "Create new": a position of its own (WCZ reference, no shipment) and its gate record in one
   // transaction. The record is checked and filled in before the reference is taken.
   async createPosition(companyId: string, userId: string, input: GateMovementInput) {
-    const handling = input.handling === "Export" ? "Export" : "Import";
+    const handling: GateHandling = input.handling === "Export" || input.handling === "Domestic" ? input.handling : "Import";
     const record = await gateMovementService.buildRecord(companyId, userId, {
       ...input,
       gateRef: "(new position)",
@@ -265,8 +275,8 @@ class WarehouseImportService {
       // A job's customs status is kept only when the gate knows it; otherwise the gate default applies.
       customsStatus: isCustomsStatus(input.customsStatus) ? input.customsStatus : undefined,
       handling,
-      // Import cargo leaves through the gate, export cargo arrives — as for shipment positions.
-      visit: handling === "Import" ? "výdej" : "příjem",
+      // Import cargo leaves through the gate, export and domestic cargo arrive — as for shipment positions.
+      visit: visitOfHandling(handling),
     });
     const { task, movementId } = await db.transaction(async (tx) => {
       const { task } = await warehouseTaskRepository.createInTx(tx, companyId, null);
@@ -337,7 +347,7 @@ class WarehouseImportService {
         if (hold) gates.push(hold);
       }
     }
-    if (customsStatus !== m.customsStatus) {
+    if (customsStatus !== m.customsStatus && !isDomestic(m.handling)) {
       gates = gates.some((g) => g.g === "Customs") ? gates.map((g) => (g.g === "Customs" ? customsLine(customsStatus) : g)) : [...gates, customsLine(customsStatus)];
     }
     if (gates !== m.releaseGates) changes.releaseGates = gates;

@@ -1,0 +1,2 @@
+ALTER TABLE "warehouse_gate_movement" DROP CONSTRAINT "wh_gate_movement_handling_check";--> statement-breakpoint
+ALTER TABLE "warehouse_gate_movement" ADD CONSTRAINT "wh_gate_movement_handling_check" CHECK ("warehouse_gate_movement"."handling" IN ('Import', 'Export', 'Domestic'));

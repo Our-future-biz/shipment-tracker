@@ -20,7 +20,7 @@ import { useGateLog, type GateMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
 import type { interfaces } from "@/lib/api/client";
 import { CONTAINER_TYPES } from "@/app/warehouse/gate-log/_lib/gate";
-import { TERMS, directionOfVisit } from "@/app/warehouse/_lib/glossary";
+import { TERMS, directionOf } from "@/app/warehouse/_lib/glossary";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { useWarehouseSettings } from "@/hooks/useWarehouseSettings";
 import { Card, ExpiryTag, Kpi, RecordFormModal, StatusTag, SubTabs, daysUntil, dim, type FieldDef } from "./shared";
@@ -129,7 +129,7 @@ function placeSlots(slots: DockSlot[], { min: HOUR_MIN, max: HOUR_MAX }: HourGri
 
 const slotDirection = (m: GateMovement) => (m.visit === "výdej" ? "OUT" : "IN");
 const positionLabel = (m: Pick<GateMovement, "positionRef" | "gateRef" | "customer" | "visit">) =>
-  `${m.positionRef || m.gateRef} · ${m.customer || "—"} · ${directionOfVisit(m.visit)}`;
+  `${m.positionRef || m.gateRef} · ${m.customer || "—"} · ${directionOf(m)}`;
 
 type SlotForm = Omit<interfaces.WarehouseDockSlotInput, "durationMin"> & { durationMin?: string };
 

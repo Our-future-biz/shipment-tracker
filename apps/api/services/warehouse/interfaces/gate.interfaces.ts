@@ -477,7 +477,8 @@ export interface WarehouseImportResult {
  */
 /** Gate visit: příjem (cargo comes in) | výdej (cargo goes out). */
 export type GateVisit = "příjem" | "výdej";
-export type GateHandling = "Import" | "Export";
+/** Import = outbound (výdej), Export = inbound (příjem), Domestic = in at the hub, then out (no customs). */
+export type GateHandling = "Import" | "Export" | "Domestic";
 export type GateOperationType =
   | "LCL consolidation"
   | "FCL stuffing"

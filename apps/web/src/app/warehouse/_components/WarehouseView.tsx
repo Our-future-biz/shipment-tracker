@@ -19,7 +19,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { asGateCustomsStatus, Badge, CUSTOMS_STATUSES, errorMessage, hasAnyStamp, isFcl, isLcl, isManager, nf } from "../gate-log/_lib/gate";
 import { GateLogView } from "../gate-log/_components/GateLogView";
 import { PrintLabelsModal } from "../gate-log/_components/PrintLabelsModal";
-import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOfVisit, releaseGatesText } from "../_lib/glossary";
+import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOf, releaseGatesText } from "../_lib/glossary";
 import { CHIPS, CHIP_IDS, exceptionText, isOnHold, pragueToday, type ChipId } from "../_lib/worklist";
 import { freeTimeSort, freeTimeText, freeTimeTone, storageHint } from "../_lib/storageText";
 import { customsChipText, customsClockSort, movementCustomsClock } from "../_lib/customsClock";
@@ -99,9 +99,9 @@ const POSITION_COLUMNS: AppGridColumn<PositionRow>[] = [
     key: "handling",
     title: TERMS.direction,
     width: 120,
-    text: (r) => (r.m ? directionOfVisit(r.m.visit) : ""),
+    text: (r) => (r.m ? directionOf(r.m) : ""),
     filterOptions: [...DIRECTIONS],
-    render: (_, r) => dim(r.m ? directionOfVisit(r.m.visit) : ""),
+    render: (_, r) => dim(r.m ? directionOf(r.m) : ""),
   },
   textCol("freightMode", "Freight Mode", 130),
   textCol("loadType", "Load Type", 140),
@@ -719,7 +719,7 @@ const fromShipment = (sh: ShipmentItem): Partial<NewPositionValues> => ({
   customer: sh.customer || undefined,
   customerRef: sh.customerReference || undefined,
   customerContact: sh.customerPic || undefined,
-  handling: sh.tradeDirection === "Export" ? "Export" : "Import",
+  handling: sh.tradeDirection === "Export" ? "Export" : sh.tradeDirection === "Domestic" ? "Domestic" : "Import",
   freightMode: sh.freightMode || undefined,
   loadType: sh.loadType || undefined,
   commodity: sh.cargoDescription || undefined,

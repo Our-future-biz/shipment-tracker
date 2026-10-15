@@ -8397,7 +8397,10 @@ export namespace interfaces {
         createdAt: string
     }
 
-    export type GateHandling = "Import" | "Export"
+    /**
+     * Import = outbound (výdej), Export = inbound (příjem), Domestic = in at the hub, then out (no customs).
+     */
+    export type GateHandling = "Import" | "Export" | "Domestic"
 
     /**
      * One step of the position's lifecycle.

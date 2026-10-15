@@ -197,7 +197,12 @@ class GateAdminService {
           userId,
           stampKind: kind,
           at: now,
-          voided: { gateIn: cleared.includes("gateIn"), gateOut: cleared.includes("gateOut") },
+          // Only what was told: an inbound arrival, and a departure (the WH release with its
+          // gate-out, or an outbound gate-out).
+          voided: {
+            gateIn: cleared.includes("gateIn") && m.visit !== "výdej",
+            gateOut: cleared.includes("gateOut") && (kind === "impRelease" || m.visit === "výdej"),
+          },
         },
         role,
       );

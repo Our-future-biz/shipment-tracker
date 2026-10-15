@@ -5,7 +5,7 @@ import Link from "next/link";
 import { CameraOutlined } from "@ant-design/icons";
 import { useGateLog } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
-import { directionOfVisit } from "@/app/warehouse/_lib/glossary";
+import { directionOf } from "@/app/warehouse/_lib/glossary";
 import { expectedBecause, expectedSortKey, isExpectedToday, pragueToday } from "@/app/warehouse/_lib/worklist";
 import { useScanOpen } from "@/app/warehouse/_lib/useWedgeScanner";
 import { ScanBox } from "@/app/warehouse/gate-log/_components/ScanBox";
@@ -99,7 +99,7 @@ export function FloorHome() {
                 <Link href={`/warehouse/floor/${m.id}`} className="flex min-h-[56px] min-w-0 flex-col justify-center px-4 py-2 active:bg-slate-50">
                   <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
                     <span className="font-mono text-[15px] font-bold text-indigo-600">{m.positionRef || m.gateRef}</span>
-                    <Badge tone={VISIT_TONE[m.visit] ?? ""}>{directionOfVisit(m.visit)}</Badge>
+                    <Badge tone={VISIT_TONE[m.visit] ?? ""}>{directionOf(m)}</Badge>
                     <span className="ml-auto min-w-0 max-w-full truncate text-[13px] font-semibold text-slate-600">{expectedBecause(m, today)}</span>
                   </span>
                   <span className="truncate text-[14px] text-slate-700">

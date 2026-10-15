@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation";
 import { Modal } from "antd";
 import type { GateMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
-import { directionOfVisit } from "@/app/warehouse/_lib/glossary";
+import { directionOf } from "@/app/warehouse/_lib/glossary";
 import { scanHref } from "@/app/warehouse/_lib/scanner";
 import { useScanOpen, useWedgeScanner } from "@/app/warehouse/_lib/useWedgeScanner";
 
@@ -42,7 +42,7 @@ export function WarehouseScanListener() {
             >
               <span className="font-mono font-bold text-indigo-600">{m.positionRef || m.gateRef}</span>
               <span className="text-slate-700">{m.customer || "—"}</span>
-              <span className="ml-auto text-xs text-slate-500">{directionOfVisit(m.visit)}</span>
+              <span className="ml-auto text-xs text-slate-500">{directionOf(m)}</span>
             </Link>
           </li>
         ))}
