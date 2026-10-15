@@ -20,7 +20,8 @@ export type ConsignmentUpdate = Parameters<typeof api.trucking.truckingConsignme
 export type ConsignmentPrice = ConsignmentCreate["price"];
 export type StopInput = ConsignmentCreate["pickup"];
 export type LoadInput = ConsignmentCreate["load"];
-export type StampKind = Parameters<typeof api.trucking.truckingConsignmentStamp>[1];
+// The stamp a path names: the client types a path part as plain text, the stamps say which exist.
+export type StampKind = keyof ConsignmentDetail["stamps"];
 export type PriceSnapshot = NonNullable<ConsignmentDetail["sell"]>;
 export type TruckingEvent = ConsignmentDetail["events"][number];
 export type TripDetail = Awaited<ReturnType<typeof api.trucking.truckingTripGet>>["trip"];
