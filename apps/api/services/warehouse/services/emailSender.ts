@@ -1,16 +1,18 @@
-import { secret } from "encore.dev/config";
 import log from "encore.dev/log";
 
 // Outgoing supplier e-mail of the warehouse (VGM, survey, remeasurement), through Resend — the
-// same provider, key and sender address as apps/api/lib/email.ts, which is left as it is. This
-// copy adds what supplier e-mails need: Cc, reply-to, attachments and an idempotency key (a
-// retried request is not sent twice by the provider).
+// same provider and sender address as apps/api/lib/email.ts. This copy adds what supplier
+// e-mails need: Cc, reply-to, attachments and an idempotency key (a retried request is not sent
+// twice by the provider).
 //
-// Sending is OFF until a key is set: `encore secret set --type local RESEND_API_KEY` (or
-// RESEND_API_KEY: "re_…" in apps/api/.secrets.local.cue). Without a key nothing is sent and the
-// caller gets a clear reason back — nothing throws. The sender (EMAIL_FROM env var) must be on a
+// Sending is OFF, like lib/email.ts (owner decision, 14 Oct 2026): there is no e-mail provider
+// account yet, and Encore refuses to deploy while a declared secret has no value, so no
+// RESEND_API_KEY secret is declared here either. Nothing is sent and the caller gets a clear
+// reason back — nothing throws and nothing is marked as sent.
+// To turn it on (together with lib/email.ts): declare `secret("RESEND_API_KEY")` from
+// "encore.dev/config", set it per environment (`encore secret set --type prod,dev
+// RESEND_API_KEY`) and return it from apiKey(). The sender (EMAIL_FROM env var) must be on a
 // domain verified in Resend, otherwise Resend refuses every message (403).
-const resendApiKey = secret("RESEND_API_KEY");
 const DEFAULT_FROM = "Shipment Tracker <onboarding@resend.dev>";
 const TIMEOUT_MS = 20_000;
 
@@ -43,13 +45,8 @@ export interface SupplierMailResult {
   timedOut?: boolean;
 }
 
-function apiKey(): string {
-  try {
-    return resendApiKey() ?? "";
-  } catch {
-    return ""; // secret not defined in this environment
-  }
-}
+// No key while sending is off (see above).
+const apiKey = (): string => "";
 
 /** The server can e-mail (a Resend key is set). */
 export const emailConfigured = () => !!apiKey();
@@ -62,9 +59,17 @@ export async function sendSupplierMail(msg: SupplierMail): Promise<SupplierMailR
   if (!to.length) return { sent: false, error: "No recipients", providerId: "" };
   const key = apiKey();
   if (!key) {
-    log.warn("warehouse supplier e-mail not sent: no RESEND_API_KEY set", { subject: msg.subject, to: to.length });
+    log.warn("warehouse supplier e-mail not sent: sending is off (no RESEND_API_KEY)", { subject: msg.subject, to: to.length });
     return { sent: false, error: NO_KEY_TEXT, providerId: "" };
   }
+  return sendWithKey(key, { ...msg, to, cc });
+}
+
+/** The Resend call itself, with a key (used once sending is turned on; tested on its own). */
+export async function sendWithKey(key: string, msg: SupplierMail): Promise<SupplierMailResult> {
+  const to = clean(msg.to);
+  const cc = clean(msg.cc).filter((a) => !to.includes(a));
+  if (!to.length) return { sent: false, error: "No recipients", providerId: "" };
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",

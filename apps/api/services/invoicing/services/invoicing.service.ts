@@ -1,26 +1,147 @@
+import { APIError, ErrCode } from "encore.dev/api";
+import { quotes } from "~encore/clients";
+import { iso } from "../../../lib/db/serialize";
+import { assertShipmentExists } from "../../../lib/shipmentRefs";
+import { definedOnly, toDecimal } from "../lib/amounts";
 import { invoiceCostRepository } from "../repositories/invoiceCost.repository";
 import { additionalChargeRepository } from "../repositories/additionalCharge.repository";
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
 import { billingOverrideRepository } from "../repositories/billingOverride.repository";
 import { generatedInvoiceRepository } from "../repositories/generatedInvoice.repository";
 import { sellingCostRepository } from "../repositories/sellingCost.repository";
+import { customsInvoiceLineRepository, customsInvoiceRepository } from "../repositories/customsInvoice.repository";
+import { quoteCostImportRepository } from "../repositories/quoteCostImport.repository";
+import { quoteLinesToCostRows } from "../utils/quoteCostImport.utils";
+import type { InvoiceCostRecord, NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
+import type { InvoiceSellingCostRecord, NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
+import type {
+  InvoiceAdditionalChargeRecord,
+  NewInvoiceAdditionalChargeRecord,
+} from "../schemas/invoiceAdditionalCharge.schema";
+import type { BillingSettingsRecord } from "../schemas/billingSettings.schema";
+import type { BillingOverrideRecord } from "../schemas/billingOverride.schema";
+import type { GeneratedInvoiceRecord } from "../schemas/generatedInvoice.schema";
+import type {
+  AdditionalChargeInput,
+  AdditionalChargeItem,
+  BillingOverrideItem,
+  BillingSettingsInput,
+  BillingSettingsItem,
+  BuyingCostInput,
+  CategoryCostInput,
+  GeneratedInvoiceItem,
+  InvoiceCostItem,
+  InvoicingData,
+  SellingCostInput,
+  SellingCostItem,
+  QuoteImportResult,
+  QuoteImportTarget,
+} from "../interfaces/interfaces";
 
-// Numeric columns (est/real amounts) reject "" in Postgres — coerce blanks to null
-// so amounts can be cleared instead of erroring or sticking to a stale value.
-function sanitizeAmounts<T extends Record<string, unknown>>(data: T): T {
-  const out = { ...data } as Record<string, unknown>;
-  for (const key of ["estAmount", "realAmount", "estQty", "realQty", "qty", "amount"]) {
-    if (out[key] === "") out[key] = null;
-  }
-  // undefined klice by pri spreadu prepsaly vychozi hodnoty na undefined
-  for (const key of Object.keys(out)) {
-    if (out[key] === undefined) delete out[key];
-  }
-  return out as T;
+// ── Rows → API items ──
+
+const toCostItem = (r: InvoiceCostRecord): InvoiceCostItem => ({
+  id: r.id,
+  shipmentId: r.shipmentId,
+  category: r.category,
+  description: r.description,
+  estQty: r.estQty,
+  estAmount: r.estAmount,
+  estCurrency: r.estCurrency,
+  realQty: r.realQty,
+  realAmount: r.realAmount,
+  realCurrency: r.realCurrency,
+  invoiceNumber: r.invoiceNumber,
+  received: r.received,
+  vendor: r.vendor,
+  sortOrder: r.sortOrder,
+});
+
+const toSellingItem = (r: InvoiceSellingCostRecord): SellingCostItem => ({
+  id: r.id,
+  shipmentId: r.shipmentId,
+  category: r.category,
+  description: r.description,
+  customer: r.customer,
+  qty: r.qty,
+  amount: r.amount,
+  currency: r.currency,
+  invoice: r.invoice,
+  sourceBuyId: r.sourceBuyId,
+  vatCode: r.vatCode,
+  sortOrder: r.sortOrder,
+});
+
+const toChargeItem = (r: InvoiceAdditionalChargeRecord): AdditionalChargeItem => ({
+  id: r.id,
+  shipmentId: r.shipmentId,
+  invoiceNumber: r.invoiceNumber,
+  vendor: r.vendor,
+  description: r.description,
+  estAmount: r.estAmount,
+  estCurrency: r.estCurrency,
+  realAmount: r.realAmount,
+  realCurrency: r.realCurrency,
+  sortOrder: r.sortOrder,
+});
+
+const toBillingSettingsItem = (r: BillingSettingsRecord): BillingSettingsItem => ({
+  id: r.id,
+  shipmentId: r.shipmentId,
+  billingCurrency: r.billingCurrency,
+  roe: r.roe,
+  quoteRef: r.quoteRef,
+});
+
+const toOverrideItem = (r: BillingOverrideRecord): BillingOverrideItem => ({
+  id: r.id,
+  shipmentId: r.shipmentId,
+  rowKey: r.rowKey,
+  billingAmount: r.billingAmount,
+});
+
+const toInvoiceItem = (r: GeneratedInvoiceRecord): GeneratedInvoiceItem => ({
+  id: r.id,
+  shipmentId: r.shipmentId,
+  invoiceNumber: r.invoiceNumber,
+  invoiceType: r.invoiceType,
+  billingCurrency: r.billingCurrency,
+  totalAmount: r.totalAmount,
+  createdAt: iso(r.createdAt),
+});
+
+// ── Inputs → column values (amounts checked, undefined fields left out) ──
+
+export function buyingChanges(input: BuyingCostInput): Partial<NewInvoiceCostRecord> {
+  return definedOnly({
+    ...input,
+    estQty: toDecimal(input.estQty, "estQty"),
+    estAmount: toDecimal(input.estAmount, "estAmount"),
+    realQty: toDecimal(input.realQty, "realQty"),
+    realAmount: toDecimal(input.realAmount, "realAmount"),
+  });
+}
+
+export function sellingChanges(input: SellingCostInput): Partial<NewInvoiceSellingCostRecord> {
+  return definedOnly({
+    ...input,
+    qty: toDecimal(input.qty, "qty"),
+    amount: toDecimal(input.amount, "amount"),
+    // "" goes back to the default by trade direction
+    vatCode: input.vatCode === undefined ? undefined : input.vatCode || null,
+  });
+}
+
+export function chargeChanges(input: AdditionalChargeInput): Partial<NewInvoiceAdditionalChargeRecord> {
+  return definedOnly({
+    ...input,
+    estAmount: toDecimal(input.estAmount, "estAmount"),
+    realAmount: toDecimal(input.realAmount, "realAmount"),
+  });
 }
 
 class InvoicingService {
-  async getInvoicingData(shipmentId: string, companyId: string) {
+  async getInvoicingData(shipmentId: string, companyId: string): Promise<InvoicingData> {
     const [costs, sellingCosts, additionalCharges, billingSettings, billingOverrides, generatedInvoices] = await Promise.all([
       invoiceCostRepository.listByShipmentId(shipmentId, companyId),
       sellingCostRepository.listByShipmentId(shipmentId, companyId),
@@ -29,57 +150,144 @@ class InvoicingService {
       billingOverrideRepository.listByShipmentId(shipmentId, companyId),
       generatedInvoiceRepository.listByShipmentId(shipmentId, companyId),
     ]);
-    return { costs, sellingCosts, additionalCharges, billingSettings, billingOverrides, generatedInvoices };
+    return {
+      costs: costs.map(toCostItem),
+      sellingCosts: sellingCosts.map(toSellingItem),
+      additionalCharges: additionalCharges.map(toChargeItem),
+      billingSettings: billingSettings ? toBillingSettingsItem(billingSettings) : null,
+      billingOverrides: billingOverrides.map(toOverrideItem),
+      generatedInvoices: generatedInvoices.map(toInvoiceItem),
+    };
   }
 
-  // ── Buying costs jako volne radky (Costs Breakdown) ──
-  async addBuyingCost(shipmentId: string, companyId: string, data: Record<string, unknown>) {
-    return invoiceCostRepository.create({ companyId, shipmentId, category: "", ...sanitizeAmounts(data) } as never);
+  // ── Buying costs: free lines of the Costs Breakdown ──
+  async addBuyingCost(shipmentId: string, companyId: string, input: BuyingCostInput): Promise<InvoiceCostItem> {
+    const values = { shipmentId, category: "", ...buyingChanges(input) };
+    await assertShipmentExists(shipmentId);
+    return toCostItem(await invoiceCostRepository.createForCompany(companyId, values));
   }
 
-  async updateBuyingCost(id: string, companyId: string, shipmentId: string, data: Record<string, unknown>) {
-    return invoiceCostRepository.updateById(id, companyId, shipmentId, sanitizeAmounts(data));
+  async updateBuyingCost(id: string, companyId: string, shipmentId: string, input: BuyingCostInput): Promise<InvoiceCostItem> {
+    const row = await invoiceCostRepository.updateLine(id, companyId, shipmentId, buyingChanges(input));
+    if (!row) throw APIError.notFound("Buying cost not found");
+    return toCostItem(row);
   }
 
-  async deleteBuyingCost(id: string, companyId: string, shipmentId: string) {
-    return invoiceCostRepository.deleteById(id, companyId, shipmentId);
+  async deleteBuyingCost(id: string, companyId: string, shipmentId: string): Promise<void> {
+    if (!(await invoiceCostRepository.softDeleteLine(id, companyId, shipmentId))) throw APIError.notFound("Buying cost not found");
+  }
+
+  /** The older per-category buying cost: one line per category, created on first write. */
+  async upsertCost(shipmentId: string, companyId: string, category: string, input: CategoryCostInput): Promise<InvoiceCostItem> {
+    const changes = buyingChanges(input);
+    const existing = await invoiceCostRepository.findByCategory(shipmentId, companyId, category);
+    if (existing) {
+      const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, changes);
+      if (!row) throw APIError.notFound("Buying cost not found");
+      return toCostItem(row);
+    }
+    await assertShipmentExists(shipmentId);
+    return toCostItem(await invoiceCostRepository.createForCompany(companyId, { shipmentId, category, ...changes }));
   }
 
   // ── Selling costs ──
-  async addSellingCost(shipmentId: string, companyId: string, data: Record<string, unknown>) {
-    return sellingCostRepository.create({ companyId, shipmentId, ...sanitizeAmounts(data) } as never);
+  async addSellingCost(shipmentId: string, companyId: string, input: SellingCostInput): Promise<SellingCostItem> {
+    const values = { shipmentId, ...sellingChanges(input) };
+    await assertShipmentExists(shipmentId);
+    return toSellingItem(await sellingCostRepository.createForCompany(companyId, values));
   }
 
-  async updateSellingCost(id: string, companyId: string, shipmentId: string, data: Record<string, unknown>) {
-    return sellingCostRepository.update(id, companyId, shipmentId, sanitizeAmounts(data));
+  async updateSellingCost(id: string, companyId: string, shipmentId: string, input: SellingCostInput): Promise<SellingCostItem> {
+    const row = await sellingCostRepository.updateLine(id, companyId, shipmentId, sellingChanges(input));
+    if (!row) throw APIError.notFound("Selling cost not found");
+    return toSellingItem(row);
   }
 
-  async deleteSellingCost(id: string, companyId: string, shipmentId: string) {
-    return sellingCostRepository.delete(id, companyId, shipmentId);
+  async deleteSellingCost(id: string, companyId: string, shipmentId: string): Promise<void> {
+    if (!(await sellingCostRepository.softDeleteLine(id, companyId, shipmentId))) throw APIError.notFound("Selling cost not found");
   }
 
-  async upsertCost(shipmentId: string, companyId: string, category: string, data: Record<string, string>) {
-    return invoiceCostRepository.upsert(shipmentId, companyId, category, sanitizeAmounts(data));
+  // ── Copy from a sales quote ──
+  // Copies the cost lines of a sales quote into a shipment's Costs Breakdown, one row per line.
+  // The lines are read from the quote as it is stored - under the whole reference, variant
+  // suffix included: QCZ...-2 is another quote than QCZ... - and never from what a browser holds.
+  // A quote is copied to a side once; `force` copies it again. Copied selling rows are new rows,
+  // so the invoice guard (rows already on an issued invoice) applies to them as to any other.
+  async importQuote(
+    shipmentId: string,
+    companyId: string,
+    quoteNumber: string,
+    target: QuoteImportTarget,
+    force: boolean,
+  ): Promise<QuoteImportResult> {
+    await assertShipmentExists(shipmentId);
+    let quote;
+    try {
+      ({ quote } = await quotes.salesQuoteGet({ quoteNumber }));
+    } catch (err) {
+      if (err instanceof APIError && err.code === ErrCode.NotFound) throw APIError.notFound(`quote ${quoteNumber} not found`);
+      throw err;
+    }
+    const rows = quoteLinesToCostRows(quote.data);
+    const copied = await quoteCostImportRepository.copy(
+      companyId,
+      shipmentId,
+      quote.quoteNumber,
+      { buying: target === "sell" ? undefined : rows.buying, selling: target === "buy" ? undefined : rows.selling },
+      force,
+    );
+    if (!copied) throw APIError.failedPrecondition(`costs from ${quote.quoteNumber} were already copied to this shipment`);
+    return copied;
   }
 
-  async addAdditionalCharge(shipmentId: string, companyId: string, data: Record<string, unknown>) {
-    return additionalChargeRepository.create({ companyId, shipmentId, ...sanitizeAmounts(data) } as never);
+  // ── Additional charges ──
+  async addAdditionalCharge(shipmentId: string, companyId: string, input: AdditionalChargeInput): Promise<AdditionalChargeItem> {
+    const values = { shipmentId, ...chargeChanges(input) };
+    await assertShipmentExists(shipmentId);
+    return toChargeItem(await additionalChargeRepository.createForCompany(companyId, values));
   }
 
-  async updateAdditionalCharge(id: string, companyId: string, data: Record<string, unknown>) {
-    return additionalChargeRepository.update(id, companyId, sanitizeAmounts(data));
+  async updateAdditionalCharge(id: string, companyId: string, shipmentId: string, input: AdditionalChargeInput): Promise<AdditionalChargeItem> {
+    const row = await additionalChargeRepository.updateForCompany(id, companyId, chargeChanges(input));
+    if (!row || row.shipmentId !== shipmentId) throw APIError.notFound("Charge not found");
+    return toChargeItem(row);
   }
 
-  async deleteAdditionalCharge(id: string, companyId: string) {
-    return additionalChargeRepository.delete(id, companyId);
+  async deleteAdditionalCharge(id: string, companyId: string, shipmentId: string): Promise<void> {
+    const charge = await additionalChargeRepository.getByIdForCompany(id, companyId);
+    if (!charge || charge.shipmentId !== shipmentId) throw APIError.notFound("Charge not found");
+    await additionalChargeRepository.softDeleteForCompany(id, companyId);
   }
 
-  async upsertBillingSettings(shipmentId: string, companyId: string, data: { billingCurrency?: string; roe?: string; quoteRef?: string }) {
-    return billingSettingsRepository.upsert(shipmentId, companyId, data);
+  // ── Billing ──
+  async upsertBillingSettings(shipmentId: string, companyId: string, input: BillingSettingsInput): Promise<BillingSettingsItem> {
+    const roe = toDecimal(input.roe, "roe", 6);
+    if (roe === null) throw APIError.invalidArgument("roe can't be cleared");
+    const data = definedOnly({ ...input, roe });
+    if (!(await billingSettingsRepository.getByShipmentId(shipmentId, companyId))) await assertShipmentExists(shipmentId);
+    return toBillingSettingsItem(await billingSettingsRepository.upsert(shipmentId, companyId, data));
   }
 
-  async upsertBillingOverride(shipmentId: string, companyId: string, rowKey: string, billingAmount: string) {
-    return billingOverrideRepository.upsert(shipmentId, companyId, rowKey, billingAmount === "" ? null : billingAmount);
+  async upsertBillingOverride(shipmentId: string, companyId: string, rowKey: string, billingAmount: string): Promise<BillingOverrideItem> {
+    const amount = toDecimal(billingAmount, "billingAmount") ?? null;
+    await assertShipmentExists(shipmentId);
+    return toOverrideItem(await billingOverrideRepository.upsert(shipmentId, companyId, rowKey, amount));
+  }
+
+  /**
+   * A deleted shipment's costs, charges, billing and customs lines are retired with it.
+   * Generated invoices stay: an issued invoice number is a legal record.
+   */
+  async retireShipment(shipmentId: string, companyId: string): Promise<void> {
+    await Promise.all([
+      invoiceCostRepository.softDeleteForShipment(shipmentId, companyId),
+      sellingCostRepository.softDeleteForShipment(shipmentId, companyId),
+      additionalChargeRepository.softDeleteForShipment(shipmentId, companyId),
+      billingSettingsRepository.softDeleteForShipment(shipmentId, companyId),
+      billingOverrideRepository.softDeleteForShipment(shipmentId, companyId),
+      customsInvoiceLineRepository.softDeleteForShipment(shipmentId, companyId),
+      customsInvoiceRepository.softDeleteForShipment(shipmentId, companyId),
+    ]);
   }
 }
 

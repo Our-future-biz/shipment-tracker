@@ -13,8 +13,8 @@ export const warehouseSectionTable = pgTable(
     ...defaultTableColumns,
     ...tenantColumns,
     taskId: uuid("task_id"),
-    shipmentId: text("shipment_id"),
-    section: text("section").notNull(), // "job" | "customs" | "pickup" | "invoicing"
+    shipmentId: uuid("shipment_id"),
+    section: text("section").notNull(), // WarehouseSection: "job" | "customs" | "pickup" | "invoicing"
     data: jsonb("data"),
     // Bumped by every save, so a client can tell the section changed since it was read.
     version: integer("version").notNull().default(0),

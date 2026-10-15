@@ -1,0 +1,1 @@
+ALTER TABLE "shipment" ADD COLUMN "created_from_quote" boolean DEFAULT false NOT NULL;

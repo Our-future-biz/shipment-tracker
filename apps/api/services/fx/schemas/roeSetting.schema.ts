@@ -1,4 +1,5 @@
-import { pgTable, text, date, numeric, uuid, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, date, numeric, uuid, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 // The company ROE %, as a history: every change is a new row and rows are never edited.
@@ -18,6 +19,7 @@ export const roeSettingTable = pgTable(
     ...defaultTableIndexes("roe_setting", table),
     tenantIndex("roe_setting", table),
     index("roe_setting_company_effective_idx").on(table.companyId, table.effectiveFrom),
+    check("roe_setting_pct_check", sql`${table.pct} BETWEEN 80 AND 120`),
   ],
 );
 

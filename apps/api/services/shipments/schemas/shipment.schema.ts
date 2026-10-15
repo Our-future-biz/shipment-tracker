@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, numeric, date, uuid, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, date, uuid, boolean, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { masterJobTable } from "./masterJob.schema";
+import type { CustomsPriority, CustomsReceivedOverride } from "../interfaces/interfaces";
 
 export const shipmentTable = pgTable(
   "shipment",
@@ -47,7 +49,7 @@ export const shipmentTable = pgTable(
     commercialInvoiceValue: numeric("commercial_invoice_value", { precision: 14, scale: 2 }),
     status: text("status").notNull().default("active"),
     customsStatus: text("customs_status").notNull().default(""),
-    masterJobId: uuid("master_job_id"),
+    masterJobId: uuid("master_job_id").references(() => masterJobTable.id, { onDelete: "set null" }),
 
     // — Meta —
     shipmentsDate: date("shipments_date", { mode: "string" }),
@@ -122,7 +124,7 @@ export const shipmentTable = pgTable(
     bookingConfirmation: text("booking_confirmation").notNull().default(""),
     customsProcedure: text("customs_procedure").notNull().default(""),
     /** How soon customs has to clear the shipment: Standard | Urgent. */
-    customsPriority: text("customs_priority").notNull().default("Standard"),
+    customsPriority: text("customs_priority").$type<CustomsPriority>().notNull().default("Standard"),
     /** When an Urgent shipment has to be cleared, local wall time "YYYY-MM-DD HH:mm"; "" for Standard. */
     customsDeadline: text("customs_deadline").notNull().default(""),
     /** Movement Reference Number issued by customs. */
@@ -131,8 +133,8 @@ export const shipmentTable = pgTable(
      * Customs "received" flags. Empty = follow the shipment's documents
      * automatically; "yes"/"no" = set manually by a customs officer.
      */
-    csRecvInvoice: text("cs_recv_invoice").notNull().default(""),
-    csRecvPacking: text("cs_recv_packing").notNull().default(""),
+    csRecvInvoice: text("cs_recv_invoice").$type<CustomsReceivedOverride>().notNull().default(""),
+    csRecvPacking: text("cs_recv_packing").$type<CustomsReceivedOverride>().notNull().default(""),
     equipmentDelivery: text("equipment_delivery").notNull().default(""),
     releaseReference: text("release_reference").notNull().default(""),
     releaseDepot: text("release_depot").notNull().default(""),
@@ -169,6 +171,9 @@ export const shipmentTable = pgTable(
 
     // — Quote —
     salesNumber: text("sales_number").notNull().default(""),
+    // Set only by the server when the shipment is created from the quote in salesNumber: the one
+    // fact that lets a later retry mark that quote Won (shipmentQuoteLink, markWon).
+    createdFromQuote: boolean("created_from_quote").notNull().default(false),
     // Money as exact numeric rather than text. Drizzle's default string mode keeps the
     // API type a string (matching the rest of the money handling) while letting Postgres
     // SUM/compare these properly.
@@ -195,6 +200,10 @@ export const shipmentTable = pgTable(
       .where(sql`deleted_at IS NULL`),
     index("shipment_customer_id_idx").on(table.customerId),
     index("shipment_status_idx").on(table.status),
+    index("shipment_master_job_id_idx").on(table.masterJobId),
+    check("shipment_customs_priority_check", sql`${table.customsPriority} IN ('Standard', 'Urgent')`),
+    check("shipment_cs_recv_invoice_check", sql`${table.csRecvInvoice} IN ('', 'yes', 'no')`),
+    check("shipment_cs_recv_packing_check", sql`${table.csRecvPacking} IN ('', 'yes', 'no')`),
   ],
 );
 

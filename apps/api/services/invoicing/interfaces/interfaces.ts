@@ -2,6 +2,7 @@ export interface InvoiceCostItem {
   id: string;
   shipmentId: string;
   category: string;
+  description: string;
   estQty: string | null;
   estAmount: string | null;
   estCurrency: string;
@@ -14,11 +15,12 @@ export interface InvoiceCostItem {
   sortOrder: number;
 }
 
-/** Selling costs z Costs Breakdownu (mockup: #sellTable) */
+/** Selling cost line of the Costs Breakdown (mockup: #sellTable) */
 export interface SellingCostItem {
   id: string;
   shipmentId: string;
   category: string;
+  description: string;
   customer: string;
   qty: string | null;
   amount: string | null;
@@ -26,7 +28,7 @@ export interface SellingCostItem {
   invoice: boolean;
   sourceBuyId: string | null;
   /** VAT code on the invoice; null = default by trade direction */
-  vatCode: string | null;
+  vatCode: SellingVatCode | null;
   sortOrder: number;
 }
 
@@ -68,7 +70,7 @@ export interface GeneratedInvoiceItem {
   createdAt: string;
 }
 
-/** Kurzovni listek s tydenni platnosti (stranka Exchange) */
+/** Weekly exchange rates (Exchange page); CZK per 1 unit */
 export interface ExchangeRateItem {
   id: string;
   week: string;
@@ -77,6 +79,116 @@ export interface ExchangeRateItem {
   rateEur: string | null;
   rateUsd: string | null;
   note: string;
+}
+
+/** Everything the Costs / Invoicing views of one shipment show */
+export interface InvoicingData {
+  costs: InvoiceCostItem[];
+  sellingCosts: SellingCostItem[];
+  additionalCharges: AdditionalChargeItem[];
+  billingSettings: BillingSettingsItem | null;
+  billingOverrides: BillingOverrideItem[];
+  generatedInvoices: GeneratedInvoiceItem[];
+}
+
+/** A generated invoice lists the cost lines ("breakdown") or only the total ("total"). */
+export type InvoiceType = "breakdown" | "total";
+
+// Write inputs. Amounts are decimal strings ("1250.50"); "" clears an amount.
+
+export interface BuyingCostInput {
+  category?: string;
+  /** what is charged, in words (from the quote) */
+  description?: string;
+  vendor?: string;
+  estQty?: string;
+  estAmount?: string;
+  estCurrency?: string;
+  realQty?: string;
+  realAmount?: string;
+  realCurrency?: string;
+  invoiceNumber?: string;
+  received?: boolean;
+  sortOrder?: number;
+}
+
+/** The older per-category buying cost (one row per category of a shipment). */
+export interface CategoryCostInput {
+  estAmount?: string;
+  estCurrency?: string;
+  realAmount?: string;
+  realCurrency?: string;
+  invoiceNumber?: string;
+  vendor?: string;
+}
+
+/** VAT code a selling line can be set to; "NP" is only ever derived, never chosen. */
+export type SellingVatCode = "S21" | "Z69" | "RC" | "OUT";
+
+/** VAT code of an invoice line: the ones a line can be set to, or NP (issuer not a VAT payer). */
+export type VatCode = SellingVatCode | "NP";
+
+/** A tax document is an invoice or a credit note that reverses one. */
+export type InvoiceDocKind = "invoice" | "credit_note";
+
+/** issued; an invoice reversed by a credit note becomes credited */
+export type InvoiceDocStatus = "issued" | "credited";
+
+/** Views of the Invoicing queue: to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status) */
+export type QueueView = "to_bill" | "not_invoiced" | "invoiced";
+
+/** Where a shipment stands with its ticked selling rows */
+export type BillingState = "to_bill" | "partly_invoiced" | "invoiced" | "none";
+
+export interface SellingCostInput {
+  category?: string;
+  /** what is charged, in words (from the quote); the printed line text is `customer` ("Invoice text") */
+  description?: string;
+  customer?: string;
+  qty?: string;
+  amount?: string;
+  currency?: string;
+  invoice?: boolean;
+  sourceBuyId?: string;
+  sortOrder?: number;
+  /** VAT code on the invoice; "" = default by trade direction */
+  vatCode?: SellingVatCode | "";
+}
+
+export interface AdditionalChargeInput {
+  invoiceNumber?: string;
+  vendor?: string;
+  description?: string;
+  estAmount?: string;
+  estCurrency?: string;
+  realAmount?: string;
+  realCurrency?: string;
+  sortOrder?: number;
+}
+
+export interface BillingSettingsInput {
+  billingCurrency?: string;
+  /** rate of exchange, decimal string */
+  roe?: string;
+  quoteRef?: string;
+}
+
+export interface ExchangeRateInput {
+  /** ISO week, e.g. "2026-W36" */
+  week: string;
+  /** yyyy-mm-dd, Monday of the week */
+  validFrom: string;
+  /** yyyy-mm-dd, Sunday of the week */
+  validTo: string;
+  rateEur?: string;
+  rateUsd?: string;
+  note?: string;
+}
+
+export interface ExchangeRatePatch {
+  rateEur?: string;
+  rateUsd?: string;
+  note?: string;
 }
 
 /** Line of the Invoicing tab in Customs */
@@ -138,13 +250,13 @@ export interface InvoiceDocLineItem {
   unitCurrency: string;
   /** Line total in the invoice currency */
   net: string;
-  vatCode: string;
+  vatCode: VatCode;
   vatRate: string;
   sourceSellingCostId: string | null;
 }
 
 export interface InvoiceVatSummaryItem {
-  vatCode: string;
+  vatCode: VatCode;
   vatRate: number;
   base: number;
   vat: number;
@@ -167,10 +279,8 @@ export interface InvoicePartyItem {
 export interface InvoiceDocItem {
   id: string;
   shipmentId: string;
-  /** invoice | credit_note */
-  kind: string;
-  /** issued | credited */
-  status: string;
+  kind: InvoiceDocKind;
+  status: InvoiceDocStatus;
   number: string;
   correctsInvoiceId: string | null;
   creditReason: string;
@@ -242,8 +352,8 @@ export interface BillingQueueItem {
   shipmentStatus: string;
   /** Invoiced | Not Invoiced */
   invoicingStatus: string;
-  /** From the selling lines: to_bill | partly_invoiced | invoiced | none (no selling lines ticked) */
-  billingState: string;
+  /** From the selling lines; none = no selling lines ticked */
+  billingState: BillingState;
   billingCurrency: string;
   /** Ticked selling rows not on an open invoice, at today's rates (an estimate until issued) */
   amountToBill: number;
@@ -258,4 +368,54 @@ export interface BillingQueueCounts {
   toBill: number;
   notInvoiced: number;
   invoiced: number;
+}
+
+/** One job in the job-profit report (CZK at the month's fixed ČNB average) */
+export interface JobProfitRow {
+  shipmentId: string;
+  jobNumber: string;
+  customer: string;
+  freightMode: string;
+  status: string;
+  direction: "import" | "export";
+  basis: "ata" | "atd" | "eta" | "etd";
+  date: string;
+  month: string;
+  provisional: boolean; // dated by ETA / ETD, not yet by the tax date
+  revenueCzk: number;
+  costCzk: number;
+  profitCzk: number;
+  unconverted: string[]; // currencies left out (no average for that month)
+}
+
+/** A month of the job-profit report */
+export interface MonthSummary {
+  month: string;
+  jobs: number;
+  revenueCzk: number;
+  costCzk: number;
+  profitCzk: number;
+  /** The month's average is final (month ended); else provisional */
+  final: boolean;
+  /** EUR and USD averages, for reference */
+  averages: { currency: string; average: number }[];
+}
+
+/** Job revenue, cost and profit in CZK per month (Shipment Reports) */
+export interface JobProfitReport {
+  from: string;
+  to: string;
+  rows: JobProfitRow[];
+  months: MonthSummary[];
+  /** Jobs with neither ATA/ATD nor ETA/ETD — not in any period */
+  undated: number;
+}
+
+/** Which side of the Costs Breakdown gets a quote's lines. */
+export type QuoteImportTarget = "buy" | "sell" | "both";
+
+/** How many rows a copy from a quote added to each side. */
+export interface QuoteImportResult {
+  buying: number;
+  selling: number;
 }

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, integer, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantIndex } from "../../../lib/db/defaults";
 import { companyTable } from "./company.schema";
 import { locationTable } from "./location.schema";
@@ -38,6 +38,7 @@ export const branchTable = pgTable(
   (table) => [
     ...defaultTableIndexes("branch", table),
     tenantIndex("branch", table),
+    index("branch_location_id_idx").on(table.locationId),
     uniqueIndex("branch_company_name_unique")
       .on(table.companyId, sql`lower(${table.name})`)
       .where(sql`deleted_at IS NULL`),

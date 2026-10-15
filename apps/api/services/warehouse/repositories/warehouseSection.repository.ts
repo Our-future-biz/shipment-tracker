@@ -35,13 +35,13 @@ const adoptableRow = (companyId: string, shipmentId: string, section: string) =>
   );
 
 class WarehouseSectionRepository {
-  async findByTask(taskId: string, section: string, companyId: string, tx: Tx | typeof db = db) {
+  async findByTask(taskId: string, section: string, companyId: string, tx: Tx | typeof db = db): Promise<WarehouseSectionRecord | null> {
     const [row] = await tx.select().from(s).where(and(live(companyId, section), eq(s.taskId, taskId)));
     return row ?? null;
   }
 
   // The row of a shipment that no live position owns (see adoptableRow), newest first.
-  async findAdoptable(shipmentId: string, section: string, companyId: string, tx: Tx | typeof db = db) {
+  async findAdoptable(shipmentId: string, section: string, companyId: string, tx: Tx | typeof db = db): Promise<WarehouseSectionRecord | null> {
     const [row] = await tx
       .select()
       .from(s)
@@ -53,7 +53,7 @@ class WarehouseSectionRepository {
 
   // A position takes over its shipment's section row on its first write (idempotent: nothing
   // happens once the position has a row of its own). Returns the position's row, or null.
-  async adoptLegacy(tx: Tx, companyId: string, taskId: string, shipmentId: string, section: string) {
+  async adoptLegacy(tx: Tx, companyId: string, taskId: string, shipmentId: string, section: string): Promise<WarehouseSectionRecord | null> {
     const own = await this.findByTask(taskId, section, companyId, tx);
     if (own) return own;
     const old = await this.findAdoptable(shipmentId, section, companyId, tx);
@@ -65,13 +65,15 @@ class WarehouseSectionRepository {
   // The migration 0015 backfill: every live non-pick-up row of a shipment that has a live
   // position, and no position yet, gets the position's id. Safe to run again. A copy of the
   // UPDATE in 0015_section_per_task_exceptions.sql — keep the two the same
-  // (tests/sectionPerTask.test.ts runs the migration's own statement).
-  async backfillTaskIds(tx: Tx | typeof db = db) {
+  // (tests/sectionPerTask.test.ts runs the migration's own statement). 0015 compares the ids as
+  // text (it runs before 0019 makes shipment_id a uuid, and after main's 0003 did); here both
+  // columns are uuid.
+  async backfillTaskIds(tx: Tx | typeof db = db): Promise<number> {
     const res = await tx.execute(sql`
       UPDATE ${s} SET task_id = t.id, updated_at = now()
       FROM ${warehouseTaskTable} t
       WHERE t.company_id = ${s.companyId} AND t.deleted_at IS NULL AND t.shipment_id IS NOT NULL
-        AND t.shipment_id::text = ${s.shipmentId} AND ${s.section} <> ${PICKUP_SECTION}
+        AND t.shipment_id = ${s.shipmentId} AND ${s.section} <> ${PICKUP_SECTION}
         AND ${s.taskId} IS NULL AND ${s.deletedAt} IS NULL`);
     return res.rowCount ?? 0;
   }
@@ -86,7 +88,7 @@ class WarehouseSectionRepository {
 
   // The owner's row, made when missing (`onCreate` runs then, inside the transaction, and may
   // throw to refuse it). A position first takes over its shipment's row.
-  private async ownRow(tx: Tx, companyId: string, owner: SectionOwner, section: string, onCreate?: () => Promise<void>) {
+  private async ownRow(tx: Tx, companyId: string, owner: SectionOwner, section: string, onCreate?: () => Promise<void>): Promise<WarehouseSectionRecord> {
     let row =
       owner.kind === "task"
         ? owner.shipmentId
@@ -146,7 +148,7 @@ class WarehouseSectionRepository {
     value: string,
     entry: Record<string, string>,
     after?: (tx: Tx, row: WarehouseSectionRecord) => Promise<void>,
-  ) {
+  ): Promise<WarehouseSectionRecord> {
     return db.transaction(async (tx) => {
       await this.lockOwner(tx, companyId, owner, section);
       const cur = await this.ownRow(tx, companyId, owner, section);
@@ -185,12 +187,12 @@ class WarehouseSectionRepository {
     });
   }
 
-  async findPickup(shipmentId: string, companyId: string, tx: Tx | typeof db = db) {
+  async findPickup(shipmentId: string, companyId: string, tx: Tx | typeof db = db): Promise<WarehouseSectionRecord | null> {
     const [row] = await tx.select().from(s).where(pickupRow(shipmentId, companyId));
     return row ?? null;
   }
 
-  async findPickupForShipments(shipmentIds: string[], companyId: string) {
+  async findPickupForShipments(shipmentIds: string[], companyId: string): Promise<WarehouseSectionRecord[]> {
     if (!shipmentIds.length) return [];
     return db
       .select()
@@ -200,7 +202,7 @@ class WarehouseSectionRepository {
 
   // Saves only the haulier / plate / driver rows. The PIN fields are the server's: the rows key
   // is replaced inside the stored data and everything else is kept as it is in the database.
-  async upsertPickupRows(shipmentId: string, companyId: string, rows: PickupRow[]) {
+  async upsertPickupRows(shipmentId: string, companyId: string, rows: PickupRow[]): Promise<WarehouseSectionRecord> {
     const rowsText = JSON.stringify(rows);
     return this.withPickupLock(shipmentId, companyId, async (tx) => {
       const [updated] = await tx
@@ -275,6 +277,18 @@ class WarehouseSectionRepository {
       )
       .returning({ pin: sql<string>`${s.data}->>'pin'`, pinId: sql<string>`COALESCE(${s.data}->>'pinId', '')`, pinTries: sql<number>`${triesSql}` });
     return row ? { pin: row.pin, pinId: row.pinId, pinTries: Number(row.pinTries) } : null;
+  }
+
+  // A shipment deleted in Shipments, with no warehouse position left: its pick-up row and the
+  // section rows no position owns (task_id null) are retired. Rows of removed positions stay with
+  // them (archived), so restoring a position brings its sections back.
+  async softDeleteForShipment(shipmentId: string, companyId: string): Promise<number> {
+    const rows = await db
+      .update(s)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), isNull(s.taskId), isNull(s.deletedAt)))
+      .returning({ id: s.id });
+    return rows.length;
   }
 
   // A matching PIN gives its try back — only to the same PIN (a renewed PIN starts at 0 anyway).

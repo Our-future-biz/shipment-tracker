@@ -14,7 +14,6 @@ interface LogoFetchResponse {
 export const logoFetch = api(
   { expose: true, auth: true, method: "POST", path: "/customers/:id/logo/fetch" },
   async (req: LogoFetchRequest): Promise<LogoFetchResponse> => {
-    const customer = await customerService.fetchLogo(req.id, getAuthData()!.companyID);
-    return { customer: customer as unknown as CustomerItem };
+    return { customer: await customerService.fetchLogo(req.id, getAuthData()!.companyID) };
   },
 );

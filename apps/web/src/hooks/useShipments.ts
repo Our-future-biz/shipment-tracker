@@ -1,14 +1,18 @@
 "use client";
 
 import { useState, useMemo, useCallback } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { App } from "antd";
+import { invalidateQuoteLists } from "./useSalesQuotes";
 import { NEEDS_ATTENTION_KEY } from "./useShipmentsNeedingAttention";
 import { api } from "@/lib/api";
 import { COLUMNS, COLUMN_MAP, getComputedValue, COMPUTED_COLUMNS } from "@/lib/columnConfig";
 import type { interfaces, controllers } from "@/lib/api/client";
 
 export type ShipmentItem = interfaces.ShipmentItem;
+
+// What is cached under ["shipments"]: pages of the list, and a shipment read on its own (useShipment).
+type CachedShipments = { data?: ShipmentItem[]; shipment?: ShipmentItem };
 
 // Get the display value for a column from a shipment record
 export function getFieldValue(shipment: ShipmentItem, key: string): string {
@@ -67,6 +71,24 @@ export interface ShipmentQueryParams {
 // Fields that trigger automation when changed
 const AUTOMATION_FIELDS = new Set(["department", "status", "holidayCover"]);
 
+/** Views computed from shipments (needs-attention list, tiles) — stale after any status change. */
+/** Mutation key of every shipment write, so a reader can wait for writes of shipments only. */
+export const SHIPMENT_WRITE_KEY = ["shipment-write"] as const;
+
+export function invalidateShipmentDerivedViews(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
+  queryClient.invalidateQueries({ queryKey: ["shipment-tile-counts"] });
+}
+
+/** Customer pages that show a customer's shipments and their rollups. */
+export function invalidateShipmentCustomerViews(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: ["customer"] });
+  queryClient.invalidateQueries({ queryKey: ["customer-shipments"] });
+  // Only marked stale: the shipment page keeps the customers list mounted (CustomerLinkField)
+  // and it must not be downloaded again on every cell edit.
+  queryClient.invalidateQueries({ queryKey: ["customers"], refetchType: "none" });
+}
+
 export const useShipments = (params: ShipmentQueryParams = {}) => {
   const queryClient = useQueryClient();
   const { message } = App.useApp();
@@ -89,17 +111,13 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
   // Shipment writes recompute the linked customer's rollups server-side and change the rows of
   // the customer page, so its caches must not keep serving the old copy.
   // Any shipment write can also move it onto or off the Needs Attention cards and tiles.
-  const invalidateDerivedViews = () => {
-    queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
-    queryClient.invalidateQueries({ queryKey: ["shipment-tile-counts"] });
-  };
+  const invalidateDerivedViews = () => invalidateShipmentDerivedViews(queryClient);
+  const invalidateCustomerViews = () => invalidateShipmentCustomerViews(queryClient);
 
-  const invalidateCustomerViews = () => {
-    queryClient.invalidateQueries({ queryKey: ["customer"] });
-    queryClient.invalidateQueries({ queryKey: ["customer-shipments"] });
-    // Only marked stale: the shipment page keeps the customers list mounted (CustomerLinkField)
-    // and it must not be downloaded again on every cell edit.
-    queryClient.invalidateQueries({ queryKey: ["customers"], refetchType: "none" });
+  // A sales quote remembers the shipment that carries its number, and may become Won by it: a
+  // shipment created, deleted or given another Sales Number changes what Sales shows of its quote.
+  const invalidateQuoteViews = () => {
+    invalidateQuoteLists(queryClient);
   };
 
   const createMutation = useMutation({
@@ -107,44 +125,47 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     onSuccess: () => {
       invalidateCustomerViews();
       invalidateDerivedViews();
+      invalidateQuoteViews();
       return queryClient.invalidateQueries({ queryKey: ["shipments"] });
     },
   });
 
   const updateMutation = useMutation({
+    mutationKey: SHIPMENT_WRITE_KEY,
     mutationFn: ({ id, data }: { id: string; data: controllers.ShipmentUpdateRequest }) =>
       api.shipments.shipmentUpdate(id, data),
     // Optimistic update for snappy inline editing. The query key now carries the active
-    // search/status, so patch every cached shipments page rather than one fixed key.
+    // search/status, so patch every cached shipments page rather than one fixed key - and the
+    // shipment read on its own, which is what the page of a shipment outside the list shows.
+    // The rollback below restores every one of them.
     onMutate: async ({ id, data }) => {
       await queryClient.cancelQueries({ queryKey: ["shipments"] });
-      const prev = queryClient.getQueriesData<{ data: ShipmentItem[] }>({ queryKey: ["shipments"] });
-      queryClient.setQueriesData<{ data: ShipmentItem[] }>({ queryKey: ["shipments"] }, (old) => {
-        // Other queries under ["shipments"] (a single shipment, a count) have no row list to patch.
-        if (!old?.data) return old;
-        return {
-          ...old,
-          data: old.data.map((s) => {
-            if (s.id !== id) return s;
-            // Merge update request into shipment using Object.assign for type safety
-            const updated: ShipmentItem = { ...s };
-            Object.assign(updated, data);
-            // Mirrors the server rule: a HUB with no CFS makes the HUB the CFS.
-            if (updated.hub?.trim() && !updated.cfs?.trim()) updated.cfs = updated.hub.trim();
-            return updated;
-          }),
-        };
+      const prev = queryClient.getQueriesData<CachedShipments>({ queryKey: ["shipments"] });
+      const patched = (s: ShipmentItem): ShipmentItem => {
+        if (s.id !== id) return s;
+        // Merge update request into shipment using Object.assign for type safety
+        const updated: ShipmentItem = { ...s };
+        Object.assign(updated, data);
+        // Mirrors the server rule: a HUB with no CFS makes the HUB the CFS.
+        if (updated.hub?.trim() && !updated.cfs?.trim()) updated.cfs = updated.hub.trim();
+        return updated;
+      };
+      queryClient.setQueriesData<CachedShipments>({ queryKey: ["shipments"] }, (old) => {
+        if (old?.shipment) return { ...old, shipment: patched(old.shipment) };
+        if (old?.data) return { ...old, data: old.data.map(patched) };
+        return old;
       });
       return { prev };
     },
     onError: (_err, _vars, ctx) => {
       ctx?.prev?.forEach(([key, value]) => queryClient.setQueryData(key, value));
     },
-    onSettled: () => {
+    onSettled: (_data, _err, { data }) => {
       queryClient.invalidateQueries({ queryKey: ["shipments"] });
       // An edited date can put the shipment on, or take it off, the Needs Attention list.
       invalidateDerivedViews();
       invalidateCustomerViews();
+      if (data.salesNumber !== undefined) invalidateQuoteViews();
     },
   });
 
@@ -153,6 +174,7 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     onSuccess: () => {
       invalidateCustomerViews();
       invalidateDerivedViews();
+      invalidateQuoteViews();
       return queryClient.invalidateQueries({ queryKey: ["shipments"] });
     },
   });
@@ -170,14 +192,15 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
 
   const shipments: ShipmentItem[] = useMemo(() => query.data?.data ?? [], [query.data]);
 
-  // Update a single field (handles API field vs extra field routing)
+  // Update a single field (handles API field vs extra field routing). `loaded` is the shipment as
+  // its page shows it, for one that is not among the rows of this list (useShipment).
   const updateField = useCallback(
-    (shipmentId: string, fieldKey: string, value: string) => {
+    (shipmentId: string, fieldKey: string, value: string, loaded?: ShipmentItem) => {
       const col = COLUMN_MAP.get(fieldKey);
       if (!col) return;
 
       // Get old value for automation comparison
-      const shipment = shipments.find((s) => s.id === shipmentId);
+      const shipment = loaded ?? shipments.find((s) => s.id === shipmentId);
       const oldValue = shipment ? getFieldValue(shipment, fieldKey) : "";
 
       if (col.apiField) {
@@ -206,7 +229,11 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
 
   return {
     shipments,
+    // How many shipments the search and filters find in all - the list above holds the newest of them.
+    total: query.data?.pagination.total ?? 0,
     isLoading: query.isLoading,
+    // The last request failed; rows read earlier may still be listed.
+    isError: query.isError,
     createShipment: createMutation.mutateAsync,
     updateShipment: updateMutation.mutateAsync,
     updateField,

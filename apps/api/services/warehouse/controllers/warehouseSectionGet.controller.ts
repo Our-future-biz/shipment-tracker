@@ -5,6 +5,7 @@ import type { WarehouseSectionItem } from "../interfaces/interfaces";
 
 interface WarehouseSectionGetRequest {
   shipmentId: string;
+  /** "job" | "customs" | "pickup" | "invoicing" */
   section: string;
 }
 
@@ -15,10 +16,8 @@ interface WarehouseSectionGetResponse {
 export const warehouseSectionGet = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse/sections/:shipmentId/:section" },
   async (req: WarehouseSectionGetRequest): Promise<WarehouseSectionGetResponse> => {
+    // An unknown section is refused (toSection); a shipment id that is not a uuid has none.
     const row = await warehouseService.getSection(req.shipmentId, req.section, getAuthData()!.companyID);
-    if (!row) return { section: null };
-    return {
-      section: sectionItem(row),
-    };
+    return { section: row ? sectionItem(row) : null };
   },
 );

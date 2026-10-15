@@ -1,3 +1,10 @@
+/** Customs priority of a shipment. */
+export type CustomsPriority = "Standard" | "Urgent";
+/** Manual override of a Customs "received" tick: "" follows the uploads. */
+export type CustomsReceivedOverride = "" | "yes" | "no";
+/** Customs review of a document: "" while pending. */
+export type AttachmentCustomsStatus = "" | "approved" | "declined";
+
 export interface ContainerLine {
   // Stable row id. Present on reads; clients echo it back on updates so cargo
   // lines keep pointing at the same container. Absent on brand-new rows.
@@ -155,15 +162,14 @@ export interface ShipmentItem {
   approvedBy: string;
   bookingConfirmation: string;
   customsProcedure: string;
-  /** Standard | Urgent. */
-  customsPriority: string;
+  customsPriority: CustomsPriority;
   /** Deadline of an Urgent shipment, "YYYY-MM-DD HH:mm"; "" for Standard. */
   customsDeadline: string;
   /** Customs Movement Reference Number. */
   mrn: string;
-  /** Manual override of the Customs "received" ticks: "" | "yes" | "no". */
-  csRecvInvoice: string;
-  csRecvPacking: string;
+  /** Manual override of the Customs "received" ticks. */
+  csRecvInvoice: CustomsReceivedOverride;
+  csRecvPacking: CustomsReceivedOverride;
   /** Business document types present on the shipment (Invoice, Packing list, …). */
   documentTypes: string[];
   equipmentDelivery: string;
@@ -298,6 +304,13 @@ export interface MasterJobContainerLine {
   shipmentIds: string[];
 }
 
+/** A master job with its containers and house shipments. */
+export interface MasterJobDetail {
+  masterJob: MasterJobItem;
+  containers: MasterJobContainerLine[];
+  shipments: MasterJobShipmentItem[];
+}
+
 /** A house shipment as listed on its master job. */
 export interface MasterJobShipmentItem {
   id: string;
@@ -328,6 +341,8 @@ export interface CommentAttachment {
   fileName: string;
   fileSize: number;
   fileType: string;
+  /** Where to open the file: an API path with a short-lived token (append "&download=1" to save it). */
+  contentUrl: string;
 }
 
 export interface CommentItem {
@@ -392,12 +407,12 @@ export interface AttachmentItem {
   fileName: string;
   fileSize: number;
   fileType: string;
-  storageKey: string;
+  /** Where to open the file: an API path with a short-lived token (append "&download=1" to save it). */
+  contentUrl: string;
   createdAt: string;
   /** Business document type (Invoice, Packing list, …); "" until classified. */
   documentType: string;
-  /** Customs review: "" (pending) | approved | declined. */
-  customsStatus: string;
+  customsStatus: AttachmentCustomsStatus;
   customsNote: string;
   customsReviewedAt: string | null;
   /** Display name of the uploader; "Unknown" when it cannot be resolved. */
@@ -406,14 +421,48 @@ export interface AttachmentItem {
   customsReviewedByName: string;
 }
 
-export interface AuditItem {
+/** A shipment date on the dashboard's deadline list. */
+export interface DeadlineItem {
   id: string;
-  shipmentId: string;
-  userId: string;
+  jobNumber: string;
+  shipper: string;
+  consignee: string;
+  status: string;
+  /** ETD | ETA | Closing | CRD | Pickup */
   field: string;
-  oldValue: string | null;
-  newValue: string | null;
-  changedAt: string;
+  date: string;
+}
+
+export type DeadlinePeriod = "OVERDUE" | "TODAY" | "THIS_WEEK" | "NEXT_WEEK" | "LATER";
+
+export interface DeadlineGroup {
+  period: DeadlinePeriod;
+  items: DeadlineItem[];
+}
+
+export interface DashboardKpis {
+  totalActive: number;
+  waitingUnload: number;
+  sailedNotOrdered: number;
+  sailedOrdered: number;
+  waitingDeparture: number;
+  missingSailing: number;
+}
+
+/** The operations dashboard: status KPIs and upcoming shipment dates. */
+export interface ShipmentDashboard {
+  kpis: DashboardKpis;
+  deadlines: DeadlineGroup[];
+}
+
+/** Counts behind the Shipments overview tiles, over the whole company dataset. */
+export interface ShipmentTileCounts {
+  active: number;
+  attention: number;
+  import: number;
+  export: number;
+  week: number;
+  nextWeek: number;
 }
 
 /** One date a shipment has to be ready for, falling within the next two days. */
@@ -437,4 +486,69 @@ export interface ShipmentDueItem {
   status: string;
   /** The dates that are due in that window, soonest first. */
   deadlines: ShipmentDeadline[];
+}
+
+/** What the sales quote a Sales Number names made of its shipments, as the quotes service answers. */
+export interface QuoteSyncResult {
+  quoteNumber: string;
+  /** False when the reference is not a live sales quote: nothing was linked. */
+  found: boolean;
+  /** The shipment the quote is linked to now: the oldest live one that names it. */
+  shipmentId: string | null;
+  shipmentJobNumber: string | null;
+  /** The status the quote shows now. */
+  status: string | null;
+  /** This call made the quote Won. */
+  becameWon: boolean;
+  /** The status the quote returned to because its last shipment is gone. */
+  revertedTo: string | null;
+  /** Why the shipment did not make the quote Won. */
+  note: string | null;
+}
+
+/** How telling the quote went when a shipment was created from it. */
+export interface QuoteLinkOutcome {
+  /** The quote knows the shipment. */
+  linked: boolean;
+  becameWon: boolean;
+  /** The status the quote shows now; null when it could not be told. */
+  quoteStatus: string | null;
+  /** Why the quote did not become Won although it was told. */
+  note?: string;
+  /** Why the quote could not be told; POST /shipments/:shipmentId/quote-link tries again. */
+  error?: string;
+}
+
+/** How copying the quote's cost lines went when a shipment was created from it. */
+export interface CostImportOutcome {
+  buying: number;
+  selling: number;
+  /** Why nothing was copied; "Copy from quote" on the Costs tab does it later. */
+  error?: string;
+}
+
+/** What comparing the quotes' links with the shipments did. */
+export interface QuoteLinksSyncResult {
+  /** Quotes that got a link, or another one. */
+  linked: number;
+  /** Quotes whose link was taken away. */
+  unlinked: number;
+  /** References whose quote already had the right link. */
+  unchanged: number;
+  /** References that name no live sales quote. */
+  quoteNotFound: number;
+  /** References the run did not get to: it stops at a limit, and the next run goes on. */
+  remaining: number;
+}
+
+/** What the company's shipments say about one customer, for the pipeline of the sales service. */
+export interface CustomerShipmentFacts {
+  customerId: string;
+  /** When the customer's first shipment was created in the app - the oldest live one - and which it is. */
+  firstShipmentAt: string;
+  firstShipmentId: string;
+  firstJobNumber: string;
+  /** When the newest one was created. */
+  lastShipmentAt: string;
+  shipmentCount: number;
 }

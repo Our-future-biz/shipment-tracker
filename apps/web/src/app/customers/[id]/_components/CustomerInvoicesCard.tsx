@@ -11,7 +11,7 @@ import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
 import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { INVOICE_STATUS_COLORS } from "../../_lib/constants";
-import { daysOverdue, effectiveStatus, isPaid } from "../../_lib/customerInvoices";
+import { daysOverdue, effectiveStatus, isSettled } from "../../_lib/customerInvoices";
 import { fmtMoney } from "../../_lib/customerMoney";
 import { CustomerCountChip } from "./CustomerCountChip";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
@@ -93,7 +93,7 @@ export function CustomerInvoicesCard({ customerId, currency }: CustomerInvoicesC
       width: 150,
       render: (_: unknown, invoice) => (
         <div className="flex justify-end gap-1">
-          {!isPaid(invoice) && (
+          {!isSettled(invoice) && (
             <Button
               type="text"
               size="small"

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Button, Tooltip } from "antd";
 import { ArrowDownOutlined, ArrowUpOutlined, EditOutlined } from "@ant-design/icons";
 import { formatDate } from "@/lib/date";
-import { CARD, fmtPct, fmtRate, type FxOverview } from "./fxShared";
+import { CARD, fmtPct, fmtRate, type FxOverview, fmtAverage } from "./fxShared";
 import { RoeDialog } from "./RoeDialog";
 
 function Change({ rate, previous, previousDate }: { rate: number | null; previous: number | null; previousDate: string | null }) {
@@ -68,7 +68,7 @@ export function OverviewCards({ data, isAdmin }: { data: FxOverview; isAdmin: bo
           </div>
         ))}
         {data.scheduledRoe && (
-          <div className="text-[12px] text-[#95620B] mt-2">
+          <div className="text-[12px] text-warn mt-2">
             Changes to {fmtPct(data.scheduledRoe.pct)} on {formatDate(data.scheduledRoe.effectiveFrom)}
           </div>
         )}
@@ -83,7 +83,7 @@ export function OverviewCards({ data, isAdmin }: { data: FxOverview; isAdmin: bo
         {data.monthAverages.map((a) => (
           <div key={a.currency} className="flex items-baseline justify-between py-1">
             <span className="text-[14px] font-semibold text-slate-600">{a.currency}</span>
-            <span className="text-[22px] font-bold text-slate-900 tabular-nums">{fmtRate(a.average)}</span>
+            <span className="text-[22px] font-bold text-slate-900 tabular-nums">{fmtAverage(a)}</span>
           </div>
         ))}
         <div className="text-[12px] text-slate-400 mt-1">Used by reports; fixed when the month ends.</div>

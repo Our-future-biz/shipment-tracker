@@ -1,45 +1,66 @@
+import { APIError } from "encore.dev/api";
 import { customerInvoiceRepository } from "../repositories/customerInvoice.repository";
-import { customerRepository } from "../repositories/customer.repository";
+import type { NewCustomerInvoiceRecord } from "../schemas/customerInvoice.schema";
+import type { InvoiceItem, InvoiceStatus } from "../interfaces/interfaces";
+import { dateInput } from "../lib/dates";
+import { toInvoiceItem } from "../lib/mappers";
+import { customerService } from "./customer.service";
 
-interface InvoiceInput {
+export interface InvoiceInput {
   invoiceNumber: string;
   amount?: number;
   currency?: string;
   dueDate?: string;
-  status?: string;
+  status?: InvoiceStatus;
   issuedAt?: string;
 }
 
 class InvoiceService {
-  async listByCustomer(customerId: string, companyId: string) {
-    return customerInvoiceRepository.findByCustomer(customerId, companyId);
+  async listByCustomer(customerId: string, companyId: string): Promise<InvoiceItem[]> {
+    return (await customerInvoiceRepository.findByCustomer(customerId, companyId)).map(toInvoiceItem);
   }
 
-  async create(companyId: string, customerId: string, input: InvoiceInput) {
-    // An invoice entered by hand is in the customer's currency (the one its credit limit is in);
-    // Invoicing always sends the currency of the issued invoice.
-    const currency = input.currency || (await customerRepository.getByIdForCompany(customerId, companyId))?.currency || "CZK";
-    return customerInvoiceRepository.createForCompany(companyId, {
+  async create(companyId: string, customerId: string, input: InvoiceInput): Promise<InvoiceItem> {
+    const customer = await customerService.requireLive(customerId, companyId);
+    const values: Omit<NewCustomerInvoiceRecord, "companyId"> = {
       customerId,
       invoiceNumber: input.invoiceNumber,
       amount: input.amount ?? 0,
-      currency,
-      dueDate: input.dueDate ?? "",
+      // An invoice entered by hand is in the customer's currency (the one its credit limit is
+      // in); Invoicing always sends the currency of the issued invoice.
+      currency: (input.currency || customer.currency || "CZK").toUpperCase(),
+      dueDate: dateInput(input.dueDate, "dueDate") ?? null,
       status: input.status ?? "Open",
-      issuedAt: input.issuedAt ?? "",
-    } as never);
+      issuedAt: dateInput(input.issuedAt, "issuedAt") ?? null,
+    };
+    const row = await customerInvoiceRepository.createForCompany(companyId, values);
+    return toInvoiceItem(row);
   }
 
-  async update(id: string, companyId: string, input: Partial<InvoiceInput>) {
-    const patch: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(input)) {
-      if (value !== undefined) patch[key] = value;
-    }
-    return customerInvoiceRepository.updateForCompany(id, companyId, patch as never);
+  async update(id: string, companyId: string, input: Partial<InvoiceInput>): Promise<InvoiceItem> {
+    const patch: Partial<NewCustomerInvoiceRecord> = {};
+    if (input.invoiceNumber !== undefined) patch.invoiceNumber = input.invoiceNumber;
+    if (input.amount !== undefined) patch.amount = input.amount;
+    if (input.status !== undefined) patch.status = input.status;
+    const dueDate = dateInput(input.dueDate, "dueDate");
+    if (dueDate !== undefined) patch.dueDate = dueDate;
+    const issuedAt = dateInput(input.issuedAt, "issuedAt");
+    if (issuedAt !== undefined) patch.issuedAt = issuedAt;
+    const row = await customerInvoiceRepository.updateForCompany(id, companyId, patch);
+    if (!row) throw APIError.notFound("Invoice not found");
+    return toInvoiceItem(row);
   }
 
-  async softDelete(id: string, companyId: string) {
-    return customerInvoiceRepository.softDeleteForCompany(id, companyId);
+  /**
+   * An invoice reversed by a credit note: the invoice and the credit note both stop counting
+   * as owed (aging / credit) — they cancel each other out.
+   */
+  async markCredited(companyId: string, invoiceNumbers: string[]): Promise<number> {
+    return customerInvoiceRepository.setStatusByNumbers(companyId, invoiceNumbers, "Credited");
+  }
+
+  async softDelete(id: string, companyId: string): Promise<void> {
+    if (!(await customerInvoiceRepository.softDeleteForCompany(id, companyId))) throw APIError.notFound("Invoice not found");
   }
 }
 

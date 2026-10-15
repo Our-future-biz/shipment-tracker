@@ -1,4 +1,5 @@
 import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
 import type { AresResult } from "../interfaces/interfaces";
 
 const ARES_BASE = "https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty";
@@ -54,10 +55,10 @@ function formatPostalCode(psc: number | string | undefined): string {
   return digits.length === 5 ? `${digits.slice(0, 3)} ${digits.slice(3)}` : digits;
 }
 
-/** Parses the main ARES record. Pure, so it is unit-tested with a real response. */
 /** ARES names sometimes carry repeated spaces ("VIENNA INTERNATIONAL   a.s."). */
 const clean = (v: string | undefined) => (v ?? "").replace(/\s+/g, " ").trim();
 
+/** Parses the main ARES record. Pure, so it is unit-tested with a real response. */
 export function parseAres(json: AresResponse, ico: string): AresResult {
   const adresa = json.sidlo ?? {};
   const orientacni = adresa.cisloOrientacni ? `${adresa.cisloOrientacni}${adresa.cisloOrientacniPismeno ?? ""}` : "";
@@ -114,7 +115,8 @@ async function lookupRegisterEntry(ico: string): Promise<string> {
   try {
     const res = await fetchJson(`${ARES_VR}/${ico}`, 5000);
     return res.ok ? registerEntryFrom((await res.json()) as AresVrResponse) : "";
-  } catch {
+  } catch (err) {
+    log.warn("ARES register lookup failed", { ico, error: err instanceof Error ? err.message : String(err) });
     return "";
   }
 }
@@ -129,7 +131,8 @@ class AresService {
     let res: Response;
     try {
       res = await fetchJson(`${ARES_BASE}/${ico}`, 8000);
-    } catch {
+    } catch (err) {
+      log.warn("ARES lookup failed", { ico, error: err instanceof Error ? err.message : String(err) });
       throw APIError.unavailable("ARES registry unavailable");
     }
 
@@ -137,13 +140,15 @@ class AresService {
       throw APIError.notFound("Company not found in ARES registry");
     }
     if (!res.ok) {
-      throw APIError.unavailable(`ARES registry error (HTTP ${res.status})`);
+      log.warn("ARES returned an error", { ico, status: res.status });
+      throw APIError.unavailable("ARES registry is not answering, try again later");
     }
 
     let json: AresResponse;
     try {
       json = (await res.json()) as AresResponse;
-    } catch {
+    } catch (err) {
+      log.error(err, "ARES response is not JSON", { ico });
       throw APIError.internal("Failed to parse ARES response");
     }
 

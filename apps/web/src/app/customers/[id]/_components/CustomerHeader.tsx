@@ -2,11 +2,11 @@
 
 import { useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Dropdown } from "antd";
 import type { MenuProps } from "antd";
-import { ArrowLeftOutlined, DownOutlined } from "@ant-design/icons";
+import { DownOutlined } from "@ant-design/icons";
+import { BackLink } from "@/components/BackLink";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useCustomer } from "@/hooks/useCustomers";
 import type { CustomerItem } from "@/hooks/useCustomers";
@@ -20,9 +20,13 @@ import { CustomerKpiTile, profitTone } from "./CustomerKpiTile";
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
+interface CustomerHeaderProps {
+  customer: CustomerItem;
+}
+
 // Top of the customer detail: who the customer is, the four totals (the only place they
 // are shown) and the record-level actions.
-export function CustomerHeader({ customer }: { customer: CustomerItem }) {
+export function CustomerHeader({ customer }: CustomerHeaderProps) {
   const router = useRouter();
   const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -89,10 +93,7 @@ export function CustomerHeader({ customer }: { customer: CustomerItem }) {
 
   return (
     <>
-      <Link href={listHref} className="inline-flex items-center gap-1.5 text-[13px] text-indigo-500 hover:text-indigo-600 mb-2">
-        <ArrowLeftOutlined className="text-[11px]" />
-        Customer Database
-      </Link>
+      <BackLink href={listHref} className="mb-2">Customer Database</BackLink>
 
       <div className="flex items-center justify-between gap-4 mb-2">
         <div className="flex items-center gap-3 min-w-0">

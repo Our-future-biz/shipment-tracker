@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
+import { partyUpdate } from "@/app/shipments/_lib/parties";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Table, Input, Select, Drawer, Tooltip, Popover, Pagination, Badge, AutoComplete, Modal, Button, Checkbox } from "antd";
@@ -19,9 +21,7 @@ import {
   SortableContext,
   arrayMove,
   horizontalListSortingStrategy,
-  useSortable,
 } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { getFieldValue, buildRowData, useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -40,30 +40,9 @@ import { CommercialInvoicesModal } from "./CommercialInvoicesModal";
 import { ChatPanel } from "./ChatPanel";
 import { EditableCell } from "@/app/shipments/[jobNumber]/_components/EditableCell";
 import { CustomerCell } from "./CustomerCell";
-import type { controllers } from "@/lib/api/client";
 import { statusLabel } from "@/lib/shipmentStatus";
-
-// Draggable table header cell — id comes from each column's onHeaderCell().
-type HeaderCellProps = React.ThHTMLAttributes<HTMLTableCellElement> & { id?: string };
-
-const DraggableHeaderCell = ({ id, style, ...rest }: HeaderCellProps) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: id ?? "",
-  });
-
-  if (!id) return <th style={style} {...rest} />;
-
-  const thStyle: React.CSSProperties = {
-    ...style,
-    transform: CSS.Translate.toString(transform),
-    transition,
-    cursor: "grab",
-    userSelect: "none",
-    ...(isDragging ? { position: "relative", zIndex: 2, background: "#eef2ff" } : {}),
-  };
-
-  return <th ref={setNodeRef} style={thStyle} {...rest} {...attributes} {...listeners} />;
-};
+import { downloadCsv } from "@/lib/csv";
+import { businessToday } from "@/lib/date";
 
 // --- Props ---
 
@@ -72,7 +51,6 @@ export interface ShipmentsTableProps {
   isLoading: boolean;
   /** Left out, there is no New Shipment button. */
   onCreateClick?: () => void;
-  onDelete?: (shipment: ShipmentItem) => void;
   /** Opens the Master Job dialog; the rows ticked in the table come pre-selected. Left out, there is no button. */
   onAddMasterJob?: (selectedShipmentIds: string[]) => void;
   /**
@@ -130,26 +108,15 @@ function cellText(shipment: ShipmentItem, key: string): string {
 }
 
 // Export the given shipments to a CSV of the currently visible columns (respects
-// the column view + order). Mirrors the sales quote-history export.
+// the column view + order).
 function exportShipmentsCsv(rows: ShipmentItem[], visibleKeys: string[]): void {
   const cols = visibleKeys
     .map((k) => COLUMN_MAP.get(k))
     .filter((c): c is NonNullable<typeof c> => !!c && c.type !== "popup");
   const headers = cols.map((c) => c.title);
   const body = rows.map((s) => cols.map((c) => cellText(s, c.key)));
-  const csv = [headers, ...body]
-    .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-    .join("\n");
-  // Prepend a BOM so Excel reads the UTF-8 diacritics correctly.
-  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `shipments-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  // The shared writer: same encoding, and cells that would run as a spreadsheet formula are escaped.
+  downloadCsv(`shipments-${businessToday()}.csv`, [headers, ...body]);
 }
 
 const MAX_RECENT_SEARCHES = 5;
@@ -158,8 +125,6 @@ export const ShipmentsTable = ({
   shipments,
   isLoading,
   onCreateClick,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  onDelete,
   onAddMasterJob,
   view,
   selectionActions,
@@ -349,9 +314,8 @@ export const ShipmentsTable = ({
       const qs = params.toString();
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     }
-    // Mount-only: restoring is what happens when the page is entered.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // Runs once (the `restored` guard): restoring is what happens when the page is entered.
+  }, [searchParams, storageKey, router, pathname]);
 
   const applyFilters = (next: ColFilter[]) => {
     setFilters(next);
@@ -477,8 +441,9 @@ export const ShipmentsTable = ({
           return (
             <span
               onClick={() => router.push(detailHref.replace(":id", record.id))}
-              className="font-mono font-bold hover:underline cursor-pointer"
-              style={{ color: cellStyle?.color ?? "#6366f1", fontWeight: cellStyle?.fontWeight ?? 700 }}
+              className={`font-mono hover:underline cursor-pointer ${cellStyle?.color ? "" : "text-indigo-500"} ${cellStyle?.fontWeight ? "" : "font-bold"}`}
+              // Conditional formatting rules set these per row; without one the classes apply.
+              style={{ color: cellStyle?.color, fontWeight: cellStyle?.fontWeight }}
             >
               {record.jobNumber || "\u2014"}
             </span>
@@ -534,11 +499,7 @@ export const ShipmentsTable = ({
               customerId={record[idKey]}
               textStyle={textStyle}
               onChange={(name, id) =>
-                updateShipment({
-                  id: record.id,
-                  // Computed keys can't be inferred as the request shape.
-                  data: { [nameKey]: name, [idKey]: id } as controllers.ShipmentUpdateRequest,
-                })
+                updateShipment({ id: record.id, data: partyUpdate(nameKey, name, id) })
               }
             />
           );
@@ -602,7 +563,7 @@ export const ShipmentsTable = ({
       width: 30,
       fixed: "right",
       // Paddings tuned so both icons sit centred with 10px left, between and right.
-      onCell: () => ({ style: { paddingLeft: 6, paddingRight: 2 } }),
+      onCell: () => ({ className: "!pl-1.5 !pr-0.5" }),
       render: (_: unknown, record: ShipmentItem) => (
         <Tooltip title="Documents">
           <button
@@ -624,7 +585,7 @@ export const ShipmentsTable = ({
       fixed: "right",
       // The unread badge hangs over the right edge of this narrow cell; the raised z-index
       // keeps it above the opaque fixed cell of the warning triangle next to it.
-      onCell: () => ({ style: { paddingLeft: 0, paddingRight: 2, zIndex: 3 } }),
+      onCell: () => ({ className: "!pl-0 !pr-0.5 !z-[3]" }),
       render: (_: unknown, record: ShipmentItem) => {
         const unread = unreadBy.get(record.id) ?? 0;
         return (
@@ -649,7 +610,7 @@ export const ShipmentsTable = ({
       title: "",
       width: 28,
       fixed: "right",
-      onCell: () => ({ style: { paddingLeft: 0, paddingRight: 6 } }),
+      onCell: () => ({ className: "!pl-0 !pr-1.5" }),
       render: (_: unknown, record: ShipmentItem) => {
         const { level, reason, readyStatus } = getShipmentUrgency(buildRowData(record));
         const tone = level === "critical" ? "text-red-500" : level === "warning" ? "text-orange-500" : "text-yellow-400";

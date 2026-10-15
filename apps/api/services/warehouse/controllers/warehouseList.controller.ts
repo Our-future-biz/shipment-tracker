@@ -18,6 +18,6 @@ export const warehouseList = api(
     const tasks = req.shipmentId
       ? await warehouseService.listByShipmentId(req.shipmentId, companyId)
       : await warehouseService.listAll(companyId);
-    return { tasks: tasks as unknown as WarehouseTaskItem[] };
+    return { tasks };
   },
 );

@@ -1,10 +1,11 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { termsService } from "../services/terms.service";
 import type { TermsConditionItem } from "../interfaces/interfaces";
 
 interface TermsCreateRequest {
-  name: string;
+  name: string & MinLen<1> & MaxLen<200>;
 }
 
 interface TermsCreateResponse {
@@ -14,10 +15,6 @@ interface TermsCreateResponse {
 export const termsCreate = api(
   { expose: true, auth: true, method: "POST", path: "/terms-conditions" },
   async (req: TermsCreateRequest): Promise<TermsCreateResponse> => {
-    if (!req.name) {
-      throw APIError.invalidArgument("name is required");
-    }
-    const terms = await termsService.create(getAuthData()!.companyID, req.name);
-    return { terms: terms as unknown as TermsConditionItem };
+    return { terms: await termsService.create(getAuthData()!, req.name) };
   },
 );

@@ -134,6 +134,13 @@
       "when": 1792035266891,
       "tag": "0018_stock_kpi_supplier_email",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792039558547,
+      "tag": "0019_typed_shipment_and_due_date",
+      "breakpoints": true
     }
   ]
 }

@@ -1,33 +1,37 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
-import { Table, Spin } from "antd";
+import { useMemo } from "react";
+import { Alert, Table, Spin } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { useSalesQuotes } from "@/hooks/useSalesQuotes";
-import { computeTotals, fmt } from "@/app/sales/_lib/salesQuote";
-import { useQuoteFx } from "@/app/sales/_lib/useQuoteFx";
-import { toCzkAt, usePeriodAverages } from "@/app/sales/_lib/usePeriodAverages";
-import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
+import { useAllSalesQuotes } from "@/hooks/useAllSalesQuotes";
+import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
+import { computeTotals, fmtByCurrency, newestFirst, type CurrencyAmount, type QuoteTotals, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
+import { toCzkAt, usePeriodAverages } from "@/app/sales/_lib/usePeriodAverages";
+import { ExchangeRatesError } from "./ExchangeRatesError";
+import { QuotesLoadError } from "./QuotesLoadError";
+import { QuotesLoading } from "./QuotesLoading";
 
 interface Kpi {
   label: string;
   value: string;
 }
 
+// Money in the rows below is in CZK: each quote's figures converted at the ČNB average of the month
+// it was sent (or created, if never sent) - fixed rates, no ROE %. Kept as formatted text.
 interface ServiceRow {
   serviceType: string;
   quotes: number;
   won: number;
-  selling: number;
-  profit: number;
+  selling: string;
+  profit: string;
   avgMargin: number;
 }
 
 interface StatusRow {
   status: string;
   count: number;
-  selling: number;
+  selling: string;
 }
 
 interface OwnerRow {
@@ -35,121 +39,145 @@ interface OwnerRow {
   quotes: number;
   won: number;
   lost: number;
-  selling: number;
+  selling: string;
   avgMargin: number;
   conversion: number;
+}
+
+// A quote with its totals, which are in the quote's own currency, and those in CZK (null when the
+// month's ČNB average for its currency is not known).
+interface PricedQuote extends SalesQuote {
+  totals: QuoteTotals;
+  czk: { selling: number; profit: number } | null;
 }
 
 // The month whose ČNB average converts a quote: when it was sent, or created if never sent.
 const monthOf = (q: SalesQuote) => (q.data.sentAt || q.createdAt || "").slice(0, 7);
 
-export function SalesReportTab() {
-  const { salesQuotes, isLoading } = useSalesQuotes();
-  const liveFx = useQuoteFx();
+// The quotes of one table row, added up.
+interface Group {
+  quotes: number;
+  won: number;
+  lost: number;
+  selling: CurrencyAmount[];
+  profit: CurrencyAmount[];
+  marginSum: number;
+}
 
-  // Quotes are in their own currencies; the report adds them up in CZK at the fixed ČNB
-  // average of the month each quote was sent (or created, if never sent) — no ROE %.
-  const avg = usePeriodAverages(salesQuotes.map((q) => Number(monthOf(q).slice(0, 4))).filter(Boolean));
-  const czk = useMemo(() => {
-    const out = new Map<string, { selling: number; profit: number; missing: boolean }>();
-    for (const q of salesQuotes) {
-      const t = computeTotals(q.data, liveFx);
-      const cur = q.data.currency || "EUR";
-      const selling = toCzkAt(t.selling, cur, monthOf(q), avg);
-      const profit = toCzkAt(t.profit, cur, monthOf(q), avg);
-      out.set(q.quoteNumber, { selling: selling ?? 0, profit: profit ?? 0, missing: selling == null || profit == null });
+// A margin is a percentage within one quote, so averaging it over quotes mixes no currencies. A
+// quote without selling counts as 0, as it always has in this report.
+const marginOf = (q: PricedQuote) => q.totals.margin ?? 0;
+
+function groupQuotes(priced: PricedQuote[], keyOf: (q: PricedQuote) => string): [string, Group][] {
+  const groups = new Map<string, Group>();
+  for (const q of priced) {
+    const key = keyOf(q);
+    const group = groups.get(key) ?? { quotes: 0, won: 0, lost: 0, selling: [], profit: [], marginSum: 0 };
+    group.quotes += 1;
+    if (q.status === "won") group.won += 1;
+    if (q.status === "lost") group.lost += 1;
+    if (q.czk) {
+      group.selling.push(["CZK", q.czk.selling]);
+      group.profit.push(["CZK", q.czk.profit]);
     }
-    return out;
-  }, [salesQuotes, liveFx, avg]);
-  const czkOf = useCallback((q: SalesQuote) => czk.get(q.quoteNumber) ?? { selling: 0, profit: 0, missing: true }, [czk]);
-  const missingCount = [...czk.values()].filter((c) => c.missing).length;
+    group.marginSum += marginOf(q);
+    groups.set(key, group);
+  }
+  return [...groups];
+}
+
+// A table cell with a sum per currency; a dash when the row has nothing to add up.
+const money = (v: string) => v || "—";
+
+export function SalesReportTab() {
+  // The report is over every quote of the company: they are loaded completely before anything is
+  // added up, and the rows below keep the order of a list that is newest first.
+  const { quotes, isLoading, progress, isError, reload } = useAllSalesQuotes();
+  const exchange = useCurrentExchangeRates();
+  const avg = usePeriodAverages(quotes.map((q) => Number(monthOf(q).slice(0, 4))).filter(Boolean));
+
+  const priced = useMemo<PricedQuote[]>(
+    () =>
+      [...quotes].sort(newestFirst).map((q) => {
+        const totals = computeTotals(q.data, exchange.rates, exchange);
+        const month = monthOf(q);
+        const selling = toCzkAt(totals.selling, totals.currency, month, avg);
+        const profit = toCzkAt(totals.profit, totals.currency, month, avg);
+        return { ...q, totals, czk: selling === null || profit === null ? null : { selling, profit } };
+      }),
+    [quotes, exchange, avg],
+  );
+
+  // Their figures leave lines out; the report says so instead of passing partial sums for whole ones.
+  const incomplete = priced.filter((q) => q.totals.missingRates.length > 0);
+  // Quotes whose month has no ČNB average for their currency are not in the CZK sums.
+  const unconvertible = priced.filter((q) => q.czk === null);
 
   const kpis = useMemo<Kpi[]>(() => {
-    const total = salesQuotes.length;
-    const won = salesQuotes.filter((q) => q.data.quoteStatus === "won");
-    const lost = salesQuotes.filter((q) => q.data.quoteStatus === "lost");
-    const wonRevenue = won.reduce((sum, q) => sum + czkOf(q).selling, 0);
-    const avgMargin = total
-      ? Math.round(salesQuotes.reduce((sum, q) => sum + computeTotals(q.data, liveFx).margin, 0) / total)
-      : 0;
+    const total = priced.length;
+    const won = priced.filter((q) => q.status === "won");
+    const lost = priced.filter((q) => q.status === "lost");
+    const wonRevenue = fmtByCurrency(won.flatMap((q): CurrencyAmount[] => (q.czk ? [["CZK", q.czk.selling]] : [])));
+    const avgMargin = total ? Math.round(priced.reduce((sum, q) => sum + marginOf(q), 0) / total) : 0;
     const decided = won.length + lost.length;
     const conversion = decided ? Math.round((won.length / decided) * 100) : 0;
     return [
       { label: "Total Quotes", value: String(total) },
       { label: "Won", value: String(won.length) },
       { label: "Lost", value: String(lost.length) },
-      { label: "Revenue (Won)", value: fmt(wonRevenue, "CZK") },
+      { label: "Revenue (Won)", value: wonRevenue || "—" },
       { label: "Avg Margin", value: `${avgMargin}%` },
       { label: "Conversion", value: `${conversion}%` },
     ];
-  }, [salesQuotes, liveFx, czkOf]);
+  }, [priced]);
 
-  const serviceRows = useMemo<ServiceRow[]>(() => {
-    const groups = new Map<string, ServiceRow>();
-    for (const q of salesQuotes) {
-      const key = q.data.serviceType || "Unspecified";
-      const totals = computeTotals(q.data, liveFx);
-      const row =
-        groups.get(key) ??
-        { serviceType: key, quotes: 0, won: 0, selling: 0, profit: 0, avgMargin: 0 };
-      row.quotes += 1;
-      if (q.data.quoteStatus === "won") row.won += 1;
-      row.selling += czkOf(q).selling;
-      row.profit += czkOf(q).profit;
-      row.avgMargin += totals.margin;
-      groups.set(key, row);
-    }
-    return [...groups.values()].map((r) => ({
-      ...r,
-      avgMargin: r.quotes ? Math.round(r.avgMargin / r.quotes) : 0,
-    }));
-  }, [salesQuotes, liveFx, czkOf]);
+  const serviceRows = useMemo<ServiceRow[]>(
+    () =>
+      groupQuotes(priced, (q) => q.data.serviceType || "Unspecified").map(([serviceType, g]) => ({
+        serviceType,
+        quotes: g.quotes,
+        won: g.won,
+        selling: fmtByCurrency(g.selling),
+        profit: fmtByCurrency(g.profit),
+        avgMargin: Math.round(g.marginSum / g.quotes),
+      })),
+    [priced],
+  );
 
-  const statusRows = useMemo<StatusRow[]>(() => {
-    const groups = new Map<string, StatusRow>();
-    for (const q of salesQuotes) {
-      const key = q.data.quoteStatus || "unspecified";
-      const row = groups.get(key) ?? { status: key, count: 0, selling: 0 };
-      row.count += 1;
-      row.selling += czkOf(q).selling;
-      groups.set(key, row);
-    }
-    return [...groups.values()];
-  }, [salesQuotes, czkOf]);
+  // By the status that is shown: a quote whose validity has passed counts as Expired, not as Quoted.
+  const statusRows = useMemo<StatusRow[]>(
+    () =>
+      groupQuotes(priced, (q) => q.status).map(([status, g]) => ({
+        status,
+        count: g.quotes,
+        selling: fmtByCurrency(g.selling),
+      })),
+    [priced],
+  );
 
-  const ownerRows = useMemo<OwnerRow[]>(() => {
-    const groups = new Map<string, OwnerRow & { marginSum: number }>();
-    for (const q of salesQuotes) {
-      const key = q.data.salesOwner || "Unassigned";
-      const totals = computeTotals(q.data, liveFx);
-      const row = groups.get(key) ?? { owner: key, quotes: 0, won: 0, lost: 0, selling: 0, avgMargin: 0, conversion: 0, marginSum: 0 };
-      row.quotes += 1;
-      if (q.data.quoteStatus === "won") row.won += 1;
-      if (q.data.quoteStatus === "lost") row.lost += 1;
-      row.selling += czkOf(q).selling;
-      row.marginSum += totals.margin;
-      groups.set(key, row);
-    }
-    return [...groups.values()].map((r) => {
-      const decided = r.won + r.lost;
-      return {
-        owner: r.owner,
-        quotes: r.quotes,
-        won: r.won,
-        lost: r.lost,
-        selling: r.selling,
-        avgMargin: r.quotes ? Math.round(r.marginSum / r.quotes) : 0,
-        conversion: decided ? Math.round((r.won / decided) * 100) : 0,
-      };
-    });
-  }, [salesQuotes, liveFx, czkOf]);
+  const ownerRows = useMemo<OwnerRow[]>(
+    () =>
+      groupQuotes(priced, (q) => q.ownerName || "Unassigned").map(([owner, g]) => {
+        const decided = g.won + g.lost;
+        return {
+          owner,
+          quotes: g.quotes,
+          won: g.won,
+          lost: g.lost,
+          selling: fmtByCurrency(g.selling),
+          avgMargin: Math.round(g.marginSum / g.quotes),
+          conversion: decided ? Math.round((g.won / decided) * 100) : 0,
+        };
+      }),
+    [priced],
+  );
 
   const ownerColumns: ColumnsType<OwnerRow> = [
     { title: "Sales Owner", dataIndex: "owner", render: (v: string) => <span className="font-medium text-slate-700">{v}</span> },
     { title: "Quotes", dataIndex: "quotes" },
     { title: "Won", dataIndex: "won" },
     { title: "Lost", dataIndex: "lost" },
-    { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: (v: number) => fmt(v, "CZK") },
+    { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: money },
     { title: "Avg Margin", dataIndex: "avgMargin", align: "right", render: (v: number) => `${v}%` },
     { title: "Conversion", dataIndex: "conversion", align: "right", render: (v: number) => `${v}%` },
   ];
@@ -162,8 +190,8 @@ export function SalesReportTab() {
     },
     { title: "Quotes", dataIndex: "quotes" },
     { title: "Won", dataIndex: "won" },
-    { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: (v: number) => fmt(v, "CZK") },
-    { title: "Profit", dataIndex: "profit", align: "right", render: (v: number) => fmt(v, "CZK") },
+    { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: money },
+    { title: "Profit", dataIndex: "profit", align: "right", render: money },
     { title: "Avg Margin", dataIndex: "avgMargin", align: "right", render: (v: number) => `${v}%` },
   ];
 
@@ -175,20 +203,22 @@ export function SalesReportTab() {
         const def = QUOTE_STATUS_MAP[v];
         return (
           <span className="text-slate-700">
-            <span
-              className="inline-block w-2 h-2 rounded-full mr-1.5"
-              style={{ backgroundColor: def?.color.text }}
-            />
+<span className={`inline-block w-2 h-2 rounded-full mr-1.5 ${def?.tone.dot ?? ""}`} />
             {def?.label ?? v}
           </span>
         );
       },
     },
     { title: "Count", dataIndex: "count" },
-    { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: (v: number) => fmt(v, "CZK") },
+    { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: money },
   ];
 
-  if (isLoading) {
+  // Figures over the quotes that happened to load would be too small, and zeros would be a lie.
+  if (isError) return <QuotesLoadError onRetry={() => reload()} />;
+  if (isLoading) return <QuotesLoading progress={progress} />;
+
+  // Drafts are priced at today's ČNB rates and the sums use the monthly averages: both must be in.
+  if (exchange.isLoading || avg.loading) {
     return (
       <div className="flex items-center justify-center py-16">
         <Spin />
@@ -198,10 +228,27 @@ export function SalesReportTab() {
 
   return (
     <div className="space-y-4">
-      <div className="text-[12.5px] text-slate-500">
-        Amounts in CZK at the ČNB average of the month each quote was sent (or created) — fixing days, no ROE %.
-        {missingCount > 0 && ` ${missingCount} quote${missingCount === 1 ? " has" : "s have"} no average for its currency yet and count as 0.`}
-      </div>
+      {/* What the figures cover: the quotes that were really loaded - all of them, or the report would not be shown. */}
+      <div className="text-xs text-slate-500">All {quotes.length.toLocaleString("en-US")} quotes</div>
+      <div className="text-xs text-slate-500">Amounts in CZK at the ČNB average of the month each quote was sent (or created).</div>
+      {/* Rates that could not be read leave the same lines out, but nothing is missing. */}
+      <ExchangeRatesError exchange={exchange} />
+      {!exchange.isError && incomplete.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message="Lines in a currency ČNB does not publish are not in the figures below"
+          description={`Quotes: ${incomplete.map((q) => q.quoteNumber).join(", ")}.`}
+        />
+      )}
+      {unconvertible.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          message="Quotes without a ČNB monthly average for their currency are not in the CZK sums"
+          description={`Quotes: ${unconvertible.map((q) => q.quoteNumber).join(", ")}.`}
+        />
+      )}
       <div className="grid grid-cols-6 gap-3 mb-4">
         {kpis.map((k) => (
           <div key={k.label} className="bg-white border border-slate-200 rounded-xl px-3 py-2.5">

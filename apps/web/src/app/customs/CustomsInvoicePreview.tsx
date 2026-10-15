@@ -1,12 +1,10 @@
 "use client";
 
 import { Modal, Button } from "antd";
+import { escapeHtml } from "@/lib/html";
 import { type ShipmentItem } from "@/hooks/useShipments";
 
 import { type CustomsInvoiceLine, fmt, totalsByCurrency } from "./_lib/customsInvoice";
-
-const esc = (s: unknown) =>
-  String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] ?? c));
 
 
 // Who the invoice is for: the customer, or the principal party when there is none.
@@ -21,9 +19,9 @@ function printCustomsInvoice(shipment: ShipmentItem, issuedNumber: string, lines
   const rows = lines
     .map(
       (l) => `<tr>
-        <td>${esc(l.category) || "—"}</td>
-        <td>${esc(l.currency)}</td>
-        <td style="text-align:right">${esc(fmt(l.value))}</td>
+        <td>${escapeHtml(l.category) || "—"}</td>
+        <td>${escapeHtml(l.currency)}</td>
+        <td style="text-align:right">${escapeHtml(fmt(l.value))}</td>
       </tr>`,
     )
     .join("");
@@ -31,12 +29,12 @@ function printCustomsInvoice(shipment: ShipmentItem, issuedNumber: string, lines
     .map(
       ([cur, sum], i) => `<tr class="totals">
         <td colspan="2">${i === 0 ? "Total" : ""}</td>
-        <td style="text-align:right">${esc(cur)} ${esc(fmt(sum))}</td>
+        <td style="text-align:right">${escapeHtml(cur)} ${escapeHtml(fmt(sum))}</td>
       </tr>`,
     )
     .join("");
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(issuedNumber || shipment.jobNumber)}</title>
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(issuedNumber || shipment.jobNumber)}</title>
   <style>
     * { font-family: Arial, Helvetica, sans-serif; box-sizing: border-box; }
     body { margin: 0; padding: 32px; color: #1e293b; }
@@ -56,29 +54,29 @@ function printCustomsInvoice(shipment: ShipmentItem, issuedNumber: string, lines
     <div class="header">
       <div>
         <h1>Customs Invoice</h1>
-        <div class="ref">${esc(issuedNumber) || "—"}</div>
+        <div class="ref">${escapeHtml(issuedNumber) || "—"}</div>
       </div>
       <div class="right">
-        <div>Issued ${esc(issueDate)}</div>
-        <div class="meta">Job ${esc(shipment.jobNumber)}</div>
+        <div>Issued ${escapeHtml(issueDate)}</div>
+        <div class="meta">Job ${escapeHtml(shipment.jobNumber)}</div>
       </div>
     </div>
 
     <h2>Bill to</h2>
     <div class="grid">
-      <div><span>Customer</span>${esc(billTo(shipment)) || "—"}</div>
-      <div><span>Customer reference</span>${esc(shipment.customerReference) || "—"}</div>
+      <div><span>Customer</span>${escapeHtml(billTo(shipment)) || "—"}</div>
+      <div><span>Customer reference</span>${escapeHtml(shipment.customerReference) || "—"}</div>
     </div>
 
     <h2>Shipment</h2>
     <div class="grid">
-      <div><span>Internal reference</span>${esc(shipment.jobNumber)}</div>
-      <div><span>Direction</span>${esc(shipment.tradeDirection) || "—"}</div>
-      <div><span>POL → POD</span>${esc(route(shipment))}</div>
-      <div><span>Customs procedure</span>${esc(shipment.customsProcedure) || "—"}</div>
-      <div><span>MRN number</span>${esc(shipment.mrn) || "—"}</div>
-      <div><span>Container number</span>${esc(shipment.containerNumber) || "—"}</div>
-      <div><span>House BoL number</span>${esc(shipment.houseBolNumber) || "—"}</div>
+      <div><span>Internal reference</span>${escapeHtml(shipment.jobNumber)}</div>
+      <div><span>Direction</span>${escapeHtml(shipment.tradeDirection) || "—"}</div>
+      <div><span>POL → POD</span>${escapeHtml(route(shipment))}</div>
+      <div><span>Customs procedure</span>${escapeHtml(shipment.customsProcedure) || "—"}</div>
+      <div><span>MRN number</span>${escapeHtml(shipment.mrn) || "—"}</div>
+      <div><span>Container number</span>${escapeHtml(shipment.containerNumber) || "—"}</div>
+      <div><span>House BoL number</span>${escapeHtml(shipment.houseBolNumber) || "—"}</div>
     </div>
 
     <h2>Charges</h2>

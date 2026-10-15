@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("encore.dev/log", () => ({ default: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
+vi.mock("encore.dev", () => ({ appMeta: () => ({ environment: { cloud: "local" } }) }));
 vi.mock("../repositories/cnbRate.repository", () => ({
   cnbRateRepository: { latestValidDate: vi.fn(async () => state.latest) },
 }));

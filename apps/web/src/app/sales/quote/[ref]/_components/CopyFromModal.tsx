@@ -1,152 +1,118 @@
 "use client";
 
-import { useState, useMemo } from "react";
-import { Modal, Select, Checkbox, Button } from "antd";
+import { useState, useMemo, type ReactNode } from "react";
+import { Select, Checkbox, Button, Form } from "antd";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
-import { useSalesQuotes } from "@/hooks/useSalesQuotes";
-import { useShipments } from "@/hooks/useShipments";
-
-type SectionKey =
-  | "customer"
-  | "shipment"
-  | "routing"
-  | "cargo"
-  | "pricing"
-  | "terms";
-
-interface Section {
-  key: SectionKey;
-  label: string;
-}
-
-const SECTIONS: Section[] = [
-  { key: "customer", label: "Customer" },
-  { key: "shipment", label: "Shipment details" },
-  { key: "routing", label: "Routing" },
-  { key: "cargo", label: "Cargo" },
-  { key: "pricing", label: "Pricing" },
-  { key: "terms", label: "Shipping terms" },
-];
-
-// Fields that belong to each section of a SalesQuoteData record.
-const SECTION_FIELDS: Record<SectionKey, (keyof SalesQuoteData)[]> = {
-  customer: [
-    "customerName",
-    "customerId",
-    "customerContact",
-    "customerEmail",
-    "customerPhone",
-    "customerLabel",
-    "salesOwner",
-  ],
-  shipment: ["direction", "serviceType", "incoterm", "readyDate"],
-  routing: ["origin", "destination", "pickup", "delivery"],
-  cargo: ["commodity", "stackable", "dangerous", "packages", "weight", "cbm"],
-  pricing: ["buyingLines", "sellingLines", "currency"],
-  terms: ["shippingTerms", "shippingIncludes", "shippingExcludes"],
-};
+import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
+import { useQuoteCustomerFields } from "@/hooks/useQuoteCustomerFields";
+import { SECTIONS, hasSection, pickCarried, pickSections, type SectionKey } from "@/app/sales/_lib/quoteSections";
+import { QuotePicker } from "@/app/sales/_components/QuotePicker";
+import { SalesDialog } from "@/app/sales/_components/SalesDialog";
+import { shipmentToQuoteData } from "@/app/shipments/_components/quoteToShipment";
+import { useDebounced } from "@/hooks/useDebounced";
+import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 
 // Sections that can be sourced from a shipment (shipments carry no pricing/terms).
-const SHIPMENT_SECTIONS: Section[] = SECTIONS.filter(
-  (s) => s.key !== "pricing" && s.key !== "terms",
+const SHIPMENT_SECTIONS = SECTIONS.filter((s) => s.key !== "pricing" && s.key !== "terms");
+
+// A shipment in one line of plain text: what a row of the list says in full when it is too long
+// to fit, as its tooltip.
+const shipmentText = (shipment: ShipmentItem) => `${shipment.jobNumber} — ${shipment.customer}`;
+
+// A shipment as the picker shows it, in its list and in its box: the job number as the app prints
+// references, then whose shipment it is.
+const shipmentLabel = (shipment: ShipmentItem) => (
+  <>
+    <span className="font-mono font-semibold">{shipment.jobNumber}</span>
+    {shipment.customer && <span className="ml-2">{shipment.customer}</span>}
+  </>
 );
 
-function serviceTypeFromFreightMode(mode: string): string | undefined {
-  switch (mode.toUpperCase()) {
-    case "AIR":
-      return "Air";
-    case "SEA":
-      return "Sea FCL";
-    case "ROAD":
-      return "Road";
-    case "RAIL":
-      return "Rail";
-    default:
-      return undefined;
-  }
+interface ShipmentPickerProps {
+  value: ShipmentItem | null;
+  onChange: (shipment: ShipmentItem | null) => void;
 }
 
-// Pick only the fields of the checked sections from a source SalesQuoteData.
-function pickSections(
-  source: Partial<SalesQuoteData>,
-  checked: SectionKey[],
-): Partial<SalesQuoteData> {
-  const patch: Partial<SalesQuoteData> = {};
-  for (const section of checked) {
-    for (const field of SECTION_FIELDS[section]) {
-      const value = source[field];
-      if (value === undefined) continue;
-      // Assign field-by-field; each key maps to its own value type in SalesQuoteData.
-      (patch as Record<string, unknown>)[field] = value;
-    }
-  }
-  return patch;
+// Picks one shipment out of all the company has. The server looks for what is typed - in the job
+// number, the parties and the ports, as on the Shipments page - so an old shipment can be found
+// too; the list itself holds the newest that match and says when there are more.
+function ShipmentPicker({ value, onChange }: ShipmentPickerProps) {
+  const [typed, setTyped] = useState("");
+  // The request waits until typing pauses.
+  const search = useDebounced(typed, 300);
+  const { shipments, total, isLoading, isError } = useShipments({ search });
+
+  let emptyText = "No shipments match";
+  if (isLoading) emptyText = "Searching…";
+  if (isError) emptyText = "Could not load shipments";
+
+  return (
+    <Select
+      showSearch
+      allowClear
+      labelInValue
+      className="w-full"
+      placeholder="Search by job number, customer or port…"
+      // The server has already searched, also in fields the label does not show.
+      filterOption={false}
+      onSearch={setTyped}
+      // The box empties itself when the list closes; the search has to go with it.
+      onOpenChange={(open) => !open && setTyped("")}
+      loading={isLoading}
+      value={value ? { value: value.id, label: shipmentLabel(value) } : undefined}
+      onChange={(picked?: { value: string; label: ReactNode }) => onChange(shipments.find((shipment) => shipment.id === picked?.value) ?? null)}
+      options={shipments.map((shipment) => ({ value: shipment.id, label: shipmentLabel(shipment), title: shipmentText(shipment) }))}
+      notFoundContent={emptyText}
+      popupRender={(menu) => (
+        <>
+          {menu}
+          {total > shipments.length && (
+            <div className="border-t border-slate-100 px-3 py-1.5 text-xs text-slate-400">
+              Showing the newest {shipments.length} of {total.toLocaleString("en-US")} - type to find another.
+            </div>
+          )}
+        </>
+      )}
+    />
+  );
 }
 
-export function CopyFromModal({
-  open,
-  mode,
-  currentRef,
-  onClose,
-  onApply,
-}: {
+interface CopyFromModalProps {
   open: boolean;
   mode: "quote" | "shipment";
   currentRef: string;
   onClose: () => void;
   onApply: (patch: Partial<SalesQuoteData>) => void;
-}) {
-  const { salesQuotes } = useSalesQuotes();
-  const { shipments } = useShipments();
+}
 
-  const [sourceRef, setSourceRef] = useState<string | undefined>(undefined);
-  const [checked, setChecked] = useState<SectionKey[]>(
-    SECTIONS.map((s) => s.key),
-  );
+export function CopyFromModal({ open, mode, currentRef, onClose, onApply }: CopyFromModalProps) {
+  // What a shipment carries of its customer, completed from the Customer Database where linked.
+  const { withCustomerRecord } = useQuoteCustomerFields();
+  // What is copied from: the quote or the shipment picked, whole, as the picker found it.
+  const [sourceQuote, setSourceQuote] = useState<SalesQuote | null>(null);
+  const [sourceShipment, setSourceShipment] = useState<ShipmentItem | null>(null);
+  // The sections the user took the tick off. Every other section on offer is copied.
+  const [unticked, setUnticked] = useState<SectionKey[]>([]);
+  // The shipment's customer is being read from the Customer Database.
+  const [copying, setCopying] = useState(false);
 
-  const availableSections = mode === "quote" ? SECTIONS : SHIPMENT_SECTIONS;
+  const fromShipment = mode === "shipment";
+  const sections = fromShipment ? SHIPMENT_SECTIONS : SECTIONS;
 
-  const quoteOptions = useMemo(
-    () =>
-      salesQuotes
-        .filter((q) => q.quoteNumber !== currentRef)
-        .map((q) => ({
-          value: q.quoteNumber,
-          label: `${q.quoteNumber} — ${q.data.customerName ?? ""}`,
-        })),
-    [salesQuotes, currentRef],
-  );
+  // The picked shipment as the fields of a quote: only what it carries.
+  const carried = useMemo(() => (sourceShipment ? shipmentToQuoteData(sourceShipment) : null), [sourceShipment]);
 
-  const shipmentOptions = useMemo(
-    () =>
-      shipments.map((s) => ({
-        value: s.jobNumber,
-        label: `${s.jobNumber} — ${s.customer}`,
-      })),
-    [shipments],
-  );
-
-  // The source data mapped into a Partial<SalesQuoteData>, or null when nothing picked.
-  const sourceData = useMemo<Partial<SalesQuoteData> | null>(() => {
-    if (!sourceRef) return null;
-    if (mode === "quote") {
-      const quote = salesQuotes.find((q) => q.quoteNumber === sourceRef);
-      return quote ? quote.data : null;
-    }
-    const shipment = shipments.find((s) => s.jobNumber === sourceRef);
-    if (!shipment) return null;
-    return {
-      customerName: shipment.customer,
-      origin: shipment.pol,
-      destination: shipment.pod,
-      direction: shipment.tradeDirection === "IMPORT" ? "Import" : "Export",
-      serviceType: serviceTypeFromFreightMode(shipment.freightMode),
-    };
-  }, [sourceRef, mode, salesQuotes, shipments]);
+  // A section the picked shipment has nothing for is not on offer. A quote is copied section by
+  // section as it is, so all of its sections are.
+  const offered = sections.filter((section) => !carried || hasSection(carried, section.key)).map((section) => section.key);
+  const ticked = offered.filter((key) => !unticked.includes(key));
+  const hasSource = fromShipment ? !!carried : !!sourceQuote;
 
   const reset = () => {
-    setSourceRef(undefined);
-    setChecked(SECTIONS.map((s) => s.key));
+    setSourceQuote(null);
+    setSourceShipment(null);
+    setUnticked([]);
+    setCopying(false);
   };
 
   const handleClose = () => {
@@ -154,75 +120,82 @@ export function CopyFromModal({
     onClose();
   };
 
-  const handleCopy = () => {
-    if (!sourceData) return;
-    // Only apply checked sections that make sense for the current mode.
-    const applicable = checked.filter((c) =>
-      availableSections.some((s) => s.key === c),
-    );
-    const patch = pickSections(sourceData, applicable);
-    onApply(patch);
+  // A tick put on or taken off. What was decided about a section that is not on offer just now
+  // is kept for the next shipment picked.
+  const handleTick = (values: SectionKey[]) =>
+    setUnticked(SECTIONS.map((s) => s.key).filter((key) => (offered.includes(key) ? !values.includes(key) : unticked.includes(key))));
+
+  const handleCopy = async () => {
+    if (fromShipment) {
+      if (!carried) return;
+      // The customer is read from the Customer Database first, and the dialog waits for it.
+      setCopying(true);
+      const source = ticked.includes("customer") ? await withCustomerRecord(carried) : carried;
+      onApply(pickCarried(source, ticked));
+    } else {
+      if (!sourceQuote) return;
+      onApply(pickSections(sourceQuote.data, ticked));
+    }
     reset();
     onClose();
   };
 
   return (
-    <Modal
+    <SalesDialog
       open={open}
-      width={640}
-      onCancel={handleClose}
-      title={
-        mode === "quote" ? "Copy from another quote" : "Copy from a shipment"
-      }
+      onClose={handleClose}
+      // The copy is on its way into the quote: closing would not stop it.
+      busy={copying}
+      title={fromShipment ? "Copy from a shipment" : "Copy from another quote"}
       footer={
-        <div className="flex justify-end gap-2">
-          <Button onClick={handleClose}>Cancel</Button>
-          <Button type="primary" disabled={!sourceData} onClick={handleCopy}>
+        <>
+          <Button onClick={handleClose} disabled={copying}>
+            Cancel
+          </Button>
+          {/* Nothing to copy until there is a source and a section of it. */}
+          <Button type="primary" loading={copying} disabled={!hasSource || ticked.length === 0} onClick={handleCopy}>
             Copy selected
           </Button>
-        </div>
+        </>
       }
     >
-      <div className="flex flex-col gap-4 py-2">
-        <div className="flex flex-col gap-1">
-          <span className="text-sm font-medium text-slate-700">
-            {mode === "quote" ? "Source quote" : "Source shipment"}
-          </span>
-          <Select
-            showSearch
-            className="w-full"
-            placeholder={
-              mode === "quote" ? "Select a quote" : "Select a shipment"
-            }
-            value={sourceRef}
-            onChange={(value: string) => setSourceRef(value)}
-            options={mode === "quote" ? quoteOptions : shipmentOptions}
-            optionFilterProp="label"
-          />
-          {mode === "shipment" && (
-            <span className="text-xs text-slate-500">
-              Pricing is not copied from shipments.
-            </span>
-          )}
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <span className="text-sm font-medium text-slate-700">
-            Sections to copy
-          </span>
-          <Checkbox.Group
-            value={checked}
-            onChange={(values) => setChecked(values as SectionKey[])}
-            className="flex flex-col gap-1"
-          >
-            {availableSections.map((section) => (
-              <Checkbox key={section.key} value={section.key}>
-                {section.label}
-              </Checkbox>
-            ))}
+      <Form layout="vertical" disabled={copying}>
+        {fromShipment ? (
+          <Form.Item label="Source shipment" extra="Pricing and shipping terms are not copied from shipments.">
+            <ShipmentPicker value={sourceShipment} onChange={setSourceShipment} />
+          </Form.Item>
+        ) : (
+          <Form.Item label="Source quote">
+            <QuotePicker value={sourceQuote} onChange={setSourceQuote} exclude={currentRef} />
+          </Form.Item>
+        )}
+        <Form.Item
+          label="Sections to copy"
+          className="!mb-0"
+          // A quote's section is taken whole. A shipment knows only part of a section, and what
+          // it does not know stays on the quote.
+          extra={
+            fromShipment
+              ? "Ticked sections replace what this quote holds now, except where the shipment has no value."
+              : "Ticked sections replace what this quote holds now."
+          }
+        >
+          <Checkbox.Group value={ticked} onChange={(values) => handleTick(values as SectionKey[])}>
+            <div className="flex flex-col gap-1">
+              {sections.map((section) => {
+                const empty = !offered.includes(section.key);
+                return (
+                  // A tick box told whether it is disabled no longer asks the form, so it is told both.
+                  <Checkbox key={section.key} value={section.key} disabled={empty || copying}>
+                    {section.label}
+                    {empty && <span className="text-slate-400"> - nothing on this shipment</span>}
+                  </Checkbox>
+                );
+              })}
+            </div>
           </Checkbox.Group>
-        </div>
-      </div>
-    </Modal>
+        </Form.Item>
+      </Form>
+    </SalesDialog>
   );
 }

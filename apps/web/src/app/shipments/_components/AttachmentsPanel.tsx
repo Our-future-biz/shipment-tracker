@@ -2,9 +2,10 @@
 
 import { Button, Upload } from "antd";
 import { CloseOutlined, DeleteOutlined, EyeOutlined, DownloadOutlined, FileOutlined, FilePdfOutlined, FileExcelOutlined, FileWordOutlined, InboxOutlined } from "@ant-design/icons";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { fileToBase64, attachmentContentUrl } from "@/lib/files";
+import { useMutation } from "@tanstack/react-query";
+import { api, apiFileUrl } from "@/lib/api";
+import { fileToBase64, formatFileSize } from "@/lib/files";
+import { useShipmentAttachments } from "@/hooks/useShipmentAttachments";
 
 interface AttachmentsPanelProps {
   shipmentId: string;
@@ -13,17 +14,20 @@ interface AttachmentsPanelProps {
   onClose: () => void;
 }
 
-export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: AttachmentsPanelProps) => {
-  const queryClient = useQueryClient();
+const fileIcon = (type: string, name: string) => {
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  if (type === "application/pdf" || ext === "pdf") return <FilePdfOutlined className="text-red-500" />;
+  if (ext === "xls" || ext === "xlsx") return <FileExcelOutlined className="text-green-500" />;
+  if (ext === "doc" || ext === "docx") return <FileWordOutlined className="text-blue-500" />;
+  return <FileOutlined className="text-slate-400" />;
+};
 
-  const { data } = useQuery({
-    queryKey: ["attachments", shipmentId],
-    queryFn: () => api.shipments.attachmentList(shipmentId),
-  });
+export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: AttachmentsPanelProps) => {
+  const { attachments: files, refresh } = useShipmentAttachments(shipmentId);
 
   const deleteAttachment = useMutation({
     mutationFn: (attachmentId: string) => api.shipments.attachmentDelete(shipmentId, attachmentId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["attachments", shipmentId] }),
+    onSuccess: refresh,
   });
 
   const uploadAttachment = useMutation({
@@ -36,48 +40,26 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
         contentBase64,
       });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["attachments", shipmentId] }),
+    onSuccess: refresh,
   });
 
-  const files = (data?.attachments ?? []) as Array<{ id: string; fileName: string; fileSize: number; fileType: string; createdAt: string }>;
-
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
-  const getFileIcon = (type: string, name: string) => {
-    const ext = name.split(".").pop()?.toLowerCase() || "";
-    if (type === "application/pdf" || ext === "pdf") return <FilePdfOutlined style={{ color: "#ef4444" }} />;
-    if (ext === "xls" || ext === "xlsx") return <FileExcelOutlined style={{ color: "#22c55e" }} />;
-    if (ext === "doc" || ext === "docx") return <FileWordOutlined style={{ color: "#3b82f6" }} />;
-    return <FileOutlined style={{ color: "#94a3b8" }} />;
-  };
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", borderLeft: "1px solid #e5e7eb", background: "#fff", width: 300 }}>
+    <div className="flex flex-col h-full w-[300px] border-l border-gray-200 bg-white">
       {/* Header */}
-      <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", borderBottom: "1px solid #e5e7eb" }}>
+      <div className="shrink-0 flex items-center justify-between px-3.5 py-2.5 border-b border-gray-200">
         <div>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "#374151" }}>Attachments</span>
-          <span style={{ fontSize: 11, color: "#94a3b8", marginLeft: 6 }}>{jobNumber}</span>
-          {files.length > 0 && <span style={{ fontSize: 10, color: "#94a3b8", marginLeft: 4 }}>({files.length})</span>}
+          <span className="text-xs font-semibold text-gray-700">Attachments</span>
+          <span className="text-[11px] text-slate-400 ml-1.5">{jobNumber}</span>
+          {files.length > 0 && <span className="text-[10px] text-slate-400 ml-1">({files.length})</span>}
         </div>
-        <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#94a3b8" }}>
-          <CloseOutlined style={{ fontSize: 12 }} />
-        </button>
+        <Button type="text" size="small" onClick={onClose} aria-label="Close" icon={<CloseOutlined className="text-xs text-slate-400" />} />
       </div>
 
       {/* Context */}
-      {context && (
-        <div style={{ padding: "6px 14px", fontSize: 11, color: "#6b7280", borderBottom: "1px solid #f1f5f9" }}>
-          {context}
-        </div>
-      )}
+      {context && <div className="px-3.5 py-1.5 text-[11px] text-gray-500 border-b border-slate-100">{context}</div>}
 
       {/* Drop zone */}
-      <div style={{ margin: "12px 14px" }}>
+      <div className="mx-3.5 my-3">
         <Upload.Dragger
           name="file"
           multiple
@@ -89,34 +71,36 @@ export const AttachmentsPanel = ({ shipmentId, jobNumber, context, onClose }: At
             });
           }}
         >
-          <p style={{ margin: 0 }}>
-            <InboxOutlined style={{ fontSize: 20, color: "#0d9488" }} />
+          <p className="m-0">
+            <InboxOutlined className="text-xl text-teal-600" />
           </p>
-          <p style={{ fontSize: 11, color: "#6b7280", marginTop: 4, marginBottom: 0 }}>
-            {uploadAttachment.isPending ? "Uploading…" : "Drop files or click"}
-          </p>
+          <p className="text-[11px] text-gray-500 mt-1 mb-0">{uploadAttachment.isPending ? "Uploading…" : "Drop files or click"}</p>
         </Upload.Dragger>
       </div>
 
       {/* File list */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "0 14px" }}>
-        {files.length === 0 && (
-          <p style={{ textAlign: "center", color: "#94a3b8", fontSize: 12, padding: 24 }}>No attachments yet</p>
-        )}
+      <div className="flex-1 overflow-y-auto px-3.5">
+        {files.length === 0 && <p className="text-center text-slate-400 text-xs p-6">No attachments yet</p>}
         {files.map((file) => (
-          <div key={file.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid #f8fafc" }}>
-            {getFileIcon(file.fileType, file.fileName)}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{file.fileName}</div>
-              <div style={{ fontSize: 10, color: "#94a3b8" }}>{formatSize(file.fileSize)}</div>
+          <div key={file.id} className="flex items-center gap-2 py-1.5 border-b border-slate-50">
+            {fileIcon(file.fileType, file.fileName)}
+            <div className="flex-1 min-w-0">
+              <div className="text-[11px] font-medium truncate">{file.fileName}</div>
+              <div className="text-[10px] text-slate-400">{formatFileSize(file.fileSize)}</div>
             </div>
-            <a href={attachmentContentUrl(shipmentId, file.id)} target="_blank" rel="noreferrer" title="View">
-              <Button type="text" size="small" icon={<EyeOutlined style={{ fontSize: 10 }} />} />
+            <a href={apiFileUrl(file.contentUrl)} target="_blank" rel="noreferrer" title="View">
+              <Button type="text" size="small" icon={<EyeOutlined className="text-[10px]" />} />
             </a>
-            <a href={attachmentContentUrl(shipmentId, file.id, true)} title="Download">
-              <Button type="text" size="small" icon={<DownloadOutlined style={{ fontSize: 10 }} />} />
+            <a href={apiFileUrl(file.contentUrl, true)} title="Download">
+              <Button type="text" size="small" icon={<DownloadOutlined className="text-[10px]" />} />
             </a>
-            <Button type="text" size="small" danger icon={<DeleteOutlined style={{ fontSize: 10 }} />} onClick={() => deleteAttachment.mutate(file.id)} />
+            <Button
+              type="text"
+              size="small"
+              danger
+              icon={<DeleteOutlined className="text-[10px]" />}
+              onClick={() => deleteAttachment.mutate(file.id)}
+            />
           </div>
         ))}
       </div>

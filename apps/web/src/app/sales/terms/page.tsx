@@ -1,10 +1,8 @@
-import { SalesShell } from "../_components/SalesShell";
-import { TermsTab } from "../_components/TermsTab";
+import { redirect } from "next/navigation";
+import { salesSettingsHref } from "../_lib/tabs";
 
-export default function SalesTermsPage() {
-  return (
-    <SalesShell title="Terms & Conditions">
-      <TermsTab />
-    </SalesShell>
-  );
+// The Terms & Conditions page became a tab of Sales Settings. This keeps its old links and
+// bookmarks working.
+export default function SalesTermsRedirectPage() {
+  redirect(salesSettingsHref("terms"));
 }

@@ -1,4 +1,5 @@
-import { pgTable, text, date, integer, numeric, uuid, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, date, integer, numeric, uuid, uniqueIndex, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes } from "../../../lib/db/defaults";
 
 // One ČNB fixing for one currency, stored exactly as published. Reference data shared by
@@ -21,6 +22,8 @@ export const cnbRateTable = pgTable(
     ...defaultTableIndexes("cnb_rate", table),
     uniqueIndex("cnb_rate_date_currency_unique").on(table.validDate, table.currency),
     index("cnb_rate_currency_date_idx").on(table.currency, table.validDate),
+    check("cnb_rate_amount_positive", sql`${table.amount} > 0`),
+    check("cnb_rate_rate_positive", sql`${table.rate} > 0`),
   ],
 );
 

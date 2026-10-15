@@ -1,4 +1,4 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { documentService } from "../services/document.service";
 
@@ -15,10 +15,6 @@ interface DocumentContentResponse {
 export const documentContent = api(
   { expose: true, auth: true, method: "GET", path: "/customer-documents/:id/content" },
   async (req: DocumentContentRequest): Promise<DocumentContentResponse> => {
-    const doc = await documentService.getFileData(req.id, getAuthData()!.companyID);
-    if (!doc) {
-      throw APIError.notFound("Document not found");
-    }
-    return { fileName: doc.fileName, fileType: doc.fileType, fileData: doc.fileData };
+    return documentService.getFile(req.id, getAuthData()!.companyID);
   },
 );

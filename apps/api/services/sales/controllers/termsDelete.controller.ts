@@ -13,7 +13,7 @@ interface TermsDeleteResponse {
 export const termsDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/terms-conditions/:id" },
   async (req: TermsDeleteRequest): Promise<TermsDeleteResponse> => {
-    await termsService.softDelete(req.id, getAuthData()!.companyID);
+    await termsService.softDelete(req.id, getAuthData()!);
     return { ok: true };
   },
 );

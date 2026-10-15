@@ -1,12 +1,20 @@
-// Maps a sales quote's data blob onto a new shipment: create-request fields,
+// Maps a sales quote's data blob onto a new shipment: create-request fields and
 // cargo lines (the quote's package lines become cargo_dimension rows, the
-// commodity becomes a cargo_item row), and the invoicing estimated-cost plan.
+// commodity becomes a cargo_item row). The quote's cost lines are not mapped
+// here: the server copies them into Costs Breakdown, one row per line, when it
+// creates the shipment from the quote.
+// The same mapping read the other way round is at the end: what a quote takes
+// from a shipment ("Copy from shipment").
 
-import type { SalesQuoteData, CostLine } from "@/app/sales/_lib/types";
+import { computeCargo, computeTotals, quoteCurrency } from "@/app/sales/_lib/salesQuote";
+import { DIRECTIONS, type PackageLine, type SalesQuoteData } from "@/app/sales/_lib/types";
 import type { controllers, interfaces } from "@/lib/api/client";
+import { num } from "@/lib/cargo";
+import type { ExchangeRates } from "@/lib/exchangeRates";
+import { fmtMoney } from "@/lib/money";
 
 const s = (v: unknown): string => (v == null || v === 0 ? "" : String(v));
-const isIsoDate = (v: string | undefined): v is string => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+const isIsoDate = (v: string | null | undefined): v is string => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
 
 // Quote package types differ slightly from the cargo dictionary ("Pallets" vs
 // "Pallet(s)"); map the known mismatch, keep everything else verbatim.
@@ -24,8 +32,12 @@ const LOAD_TYPE: Record<string, string> = {
   "Sea LCL": "Consolidation",
 };
 
-export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData): Partial<controllers.ShipmentCreateRequest> {
-  const out: Partial<controllers.ShipmentCreateRequest> = {};
+// `sheet` is the current Exchange sheet, which the quote's totals are converted with where the
+// quote stores no rate of its own.
+export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, sheet: ExchangeRates): Partial<controllers.ShipmentCreateRequest> {
+  // Created from the quote: the server makes it the shipment's Sales Number and its owner the
+  // Sales Person, links the quote and marks it Won, and copies its cost lines.
+  const out: Partial<controllers.ShipmentCreateRequest> = { fromQuoteNumber: quoteNumber };
   const set = (key: keyof controllers.ShipmentCreateRequest, value: string) => {
     if (value) (out as Record<string, string>)[key] = value;
   };
@@ -51,17 +63,16 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData):
   if (isIsoDate(data.readyDate)) set("cargoReadinessDate", data.readyDate);
 
   // Quote block
-  set("salesNumber", quoteNumber);
-  set("salesPerson", data.salesOwner ?? "");
   set("quoteValidity", data.validUntil ?? "");
   if (isIsoDate(data.validUntil)) {
     set("validityStatus", data.validUntil >= new Date().toISOString().slice(0, 10) ? "Ok" : "Check");
   }
-  const sum = (lines: CostLine[] | undefined) => (lines ?? []).reduce((t, l) => t + (Number(l.amount) || 0), 0);
-  const selling = sum(data.sellingLines);
-  const buying = sum(data.buyingLines);
-  if (selling) set("selling", selling.toFixed(2));
-  if (buying) set("buying", buying.toFixed(2));
+  // The shipment's own selling and buying are one figure each: the quote's totals, converted
+  // into the quote's currency. A total that leaves a line out for want of an exchange rate is
+  // not sent at all - amounts in different currencies are never added up as they stand.
+  const totals = computeTotals(data, sheet);
+  if (totals.selling && !totals.missingSellingRates.length) set("selling", totals.selling.toFixed(2));
+  if (totals.buying && !totals.missingBuyingRates.length) set("buying", totals.buying.toFixed(2));
 
   // Cargo: package lines → dimension rows; the commodity → one cargo item.
   const packages = data.packages ?? [];
@@ -91,7 +102,8 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData):
         packageType: packageType(packages[0]?.type),
         grossWeight: totalWeight ? totalWeight.toFixed(2) : "",
         commercialInvoiceValue: "",
-        currency: data.currency || "USD",
+        // A quote that stores no currency is in EUR, here as everywhere it is read.
+        currency: quoteCurrency(data),
       },
     ];
   }
@@ -106,77 +118,20 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData):
   return out;
 }
 
-// ── Invoicing estimated costs ──
-// The invoicing tab has one row per fixed category; quote cost lines aggregate
-// into them. A line whose currency differs from what its category already holds
-// can't be summed — it becomes an additional charge instead.
-
-const COST_CATEGORY: Record<string, string> = {
-  "Ocean freight": "freight",
-  "Air freight": "freight",
-  "Rail freight": "freight",
-  "Road freight": "freight",
-  Pickup: "collection",
-  Delivery: "collection",
-  "THC Origin": "locals",
-  "THC Destination": "locals",
-  Handling: "locals",
-  Storage: "locals",
-  Demurrage: "locals",
-  "Customs clearance": "customs",
-  Insurance: "insurance",
-};
-
-export interface QuoteCostPlan {
-  costs: { category: string; estAmount: string; estCurrency: string }[];
-  charges: { description: string; estAmount: string; estCurrency: string }[];
-}
-
-export function quoteCostPlan(data: SalesQuoteData): QuoteCostPlan {
-  const fallbackCurrency = data.currency || "CZK";
-  const byCategory = new Map<string, { currency: string; amount: number }>();
-  const charges: QuoteCostPlan["charges"] = [];
-
-  for (const line of data.buyingLines ?? []) {
-    const amount = Number(line.amount) || 0;
-    if (!amount) continue;
-    const category = COST_CATEGORY[line.type] ?? "others";
-    const currency = line.currency || fallbackCurrency;
-    const existing = byCategory.get(category);
-    if (!existing) {
-      byCategory.set(category, { currency, amount });
-    } else if (existing.currency === currency) {
-      existing.amount += amount;
-    } else {
-      charges.push({
-        description: line.description ? `${line.type} — ${line.description}` : line.type,
-        estAmount: amount.toFixed(2),
-        estCurrency: currency,
-      });
-    }
-  }
-
-  return {
-    costs: [...byCategory.entries()].map(([category, { currency, amount }]) => ({
-      category,
-      estAmount: amount.toFixed(2),
-      estCurrency: currency,
-    })),
-    charges,
-  };
-}
-
 // ── Preview shown in the wizard before creating ──
 
-export function quotePreview(data: SalesQuoteData): { label: string; value: string }[] {
-  const packages = data.packages ?? [];
-  const pieces = packages.reduce((t, p) => t + (Number(p.qty) || 0), 0);
-  const weight = packages.reduce((t, p) => t + (Number(p.qty) || 0) * (Number(p.weight) || 0), 0) || Number(data.weight) || 0;
-  const cbm =
-    packages.reduce((t, p) => t + ((Number(p.qty) || 0) * (Number(p.length) || 0) * (Number(p.width) || 0) * (Number(p.height) || 0)) / 1e6, 0) ||
-    Number(data.cbm) ||
-    0;
-  const selling = (data.sellingLines ?? []).reduce((t, l) => t + (Number(l.amount) || 0), 0);
+export function quotePreview(data: SalesQuoteData, sheet: ExchangeRates): { label: string; value: string }[] {
+  // The cargo as the quote's own screens and the printed quotation count it (computeCargo): the
+  // package lines added up, and the weight and volume stored for the whole shipment only while
+  // there are no lines. A stored total beside lines that carry no weight is on none of those
+  // screens and is not sent with the shipment above, so the preview does not show it either.
+  const { totalPackages: pieces, grossWeight: weight, cbm } = computeCargo(data);
+  // The selling lines converted into the quote's currency. Lines that cannot be converted are not
+  // in the figure, and it says so: a partial total must not pass for the price.
+  const totals = computeTotals(data, sheet);
+  const noRate = totals.missingSellingRates.join(", ");
+  const selling =
+    totals.selling || noRate ? `${fmtMoney(totals.selling, totals.currency)}${noRate ? ` - without the lines that need a ${noRate} rate` : ""}` : "";
 
   return [
     { label: "Customer", value: data.customerName ?? "" },
@@ -189,7 +144,96 @@ export function quotePreview(data: SalesQuoteData): { label: string; value: stri
     { label: "Packages", value: pieces ? String(pieces) : "" },
     { label: "Gross Weight", value: weight ? `${weight.toLocaleString("en-US", { maximumFractionDigits: 2 })} kg` : "" },
     { label: "Volume", value: cbm ? `${cbm.toLocaleString("en-US", { maximumFractionDigits: 3 })} m³` : "" },
-    { label: "Selling Total", value: selling ? `${selling.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${data.currency ?? ""}`.trim() : "" },
+    { label: "Selling Total", value: selling },
     { label: "Validity", value: data.validUntil ?? "" },
   ].filter((i) => i.value);
+}
+
+// ── The way back: what "Copy from shipment" gives a quote ──
+
+// A shipment's words are compared without regard to case: older shipments say "IMPORT" and "SEA".
+const word = (v: string | null | undefined): string => (v ?? "").trim().toLowerCase();
+
+// A freight mode by its one word: "Sea Freight", "SEA" and "sea" are all sea.
+const modeWord = (mode: string | null | undefined): string => word(mode).replace(/\s*freight$/, "");
+
+// FREIGHT_MODE and LOAD_TYPE read backwards. Sea is two freight modes of a quote, told apart by
+// the shipment's load type: a consolidation is LCL, and any other sea shipment the first of the
+// two in FREIGHT_MODE, a full container.
+function serviceTypeOf(freightMode: string, loadType: string): string | undefined {
+  const mode = modeWord(freightMode);
+  if (!mode) return undefined;
+  const services = Object.keys(FREIGHT_MODE).filter((service) => modeWord(FREIGHT_MODE[service]) === mode);
+  return services.find((service) => word(LOAD_TYPE[service]) === word(loadType)) ?? services[0];
+}
+
+// The cargo dictionary's "Pallet(s)" is the quote's "Pallets"; everything else is kept verbatim.
+const quotePackageType = (t: string): string => (t === "Pallet(s)" ? "Pallets" : t);
+
+// A shipment also says "overstowable" of cargo that other cargo may stand on.
+const STACKABLE: Record<string, boolean> = {
+  Stackable: true,
+  Overstowable: true,
+  "Non-stackable": false,
+  "Non-overstowable": false,
+};
+
+// A total as the shipment shows it, with thousands separators: "12,500" kg, "14.5" m³.
+const shownTotal = (v: string | null | undefined): number => Number((v ?? "").replace(/,/g, "")) || 0;
+
+// What a shipment carries of a quote's fields - quoteToCreateRequest the other way round. A field
+// the shipment has no value for is not in the result at all, so a copy from a shipment never
+// blanks what was typed on the quote. The customer comes as the shipment knows it: its name,
+// its link to the Customer Database and the contact person.
+export function shipmentToQuoteData(shipment: interfaces.ShipmentItem): SalesQuoteData {
+  const text = (v: string | null | undefined): string | undefined => v?.trim() || undefined;
+
+  const customerName = text(shipment.customer);
+  const customerId = shipment.customerId ?? undefined;
+
+  // Dimension rows → package lines. Their numbers are free text and are read the way the
+  // shipment's own totals read them; a row nobody filled in is no package.
+  const packages: PackageLine[] = (shipment.cargoDimensions ?? [])
+    .map((line) => ({
+      qty: num(line.pieces),
+      type: quotePackageType(line.packageType),
+      length: num(line.lengthCm) || undefined,
+      width: num(line.widthCm) || undefined,
+      height: num(line.heightCm) || undefined,
+      weight: num(line.weightPerPcKg) || undefined,
+      stackable: STACKABLE[line.stackable],
+    }))
+    .filter((p) => p.qty || p.length || p.width || p.height || p.weight);
+
+  // Weight and volume of the whole shipment: its totals - the containers' declared figures, else
+  // the cargo rows added up. A shipment without such rows has only the tons and CBM stored on it,
+  // which is where a quote without package lines puts its figures.
+  const weight = shownTotal(shipment.totalGrossWeightKg) || Math.round(Number(shipment.totalWeightTons) * 1e6) / 1e3 || 0;
+  const cbm = shownTotal(shipment.totalVolumeM3) || Number(shipment.totalVolumeCbm) || 0;
+
+  const carried: SalesQuoteData = {
+    customerName,
+    customerId,
+    // The contact person of a shipment that names no customer is left there: copied alone, it
+    // would stand under the name of the customer the quote already has.
+    customerContact: customerName || customerId ? text(shipment.customerPic) : undefined,
+
+    direction: DIRECTIONS.find((direction) => word(direction) === word(shipment.tradeDirection)),
+    serviceType: serviceTypeOf(shipment.freightMode, shipment.loadType),
+    incoterm: text(shipment.incotermOrigin),
+    readyDate: isIsoDate(shipment.cargoReadinessDate) ? shipment.cargoReadinessDate : undefined,
+
+    origin: text(shipment.pol),
+    destination: text(shipment.pod),
+    pickup: text(shipment.pickupAddress),
+    delivery: text(shipment.deliveryAddress),
+
+    // The commodity went into the first cargo item; a shipment from before cargo items has its
+    // description on itself.
+    commodity: text(shipment.cargoItems?.[0]?.cargoDescription) ?? text(shipment.cargoDescription),
+    packages: packages.length > 0 ? packages : undefined,
+    weight: weight || undefined,
+    cbm: cbm || undefined,
+  };
+  return Object.fromEntries(Object.entries(carried).filter(([, value]) => value !== undefined));
 }

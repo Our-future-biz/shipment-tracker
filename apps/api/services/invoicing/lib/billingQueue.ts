@@ -1,4 +1,4 @@
-import { round2 } from "./invoiceCalc";
+import { qtyOrOne, round2 } from "./invoiceCalc";
 
 /**
  * The "Ready to bill" queue: per shipment, which selling rows ticked for Invoice are not
@@ -76,7 +76,7 @@ export function buildBillingQueue(input: {
     let rowsToBill = 0;
     for (const r of rows) {
       if (invoicedRowIds.has(r.id)) continue;
-      const value = Number(r.amount ?? 0) * (Number(r.qty ?? 0) || 1);
+      const value = Number(r.amount ?? 0) * qtyOrOne(r.qty);
       if (!value) continue;
       rowsToBill += 1;
       const from = rateOf(r.currency, rates);

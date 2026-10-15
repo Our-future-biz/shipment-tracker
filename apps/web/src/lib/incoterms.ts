@@ -13,6 +13,9 @@ export const INCOTERM_NAMES: Record<string, string> = {
   DDP: "Delivered Duty Paid",
 };
 
+/** The codes, in the order of the rules (E, F, C, D groups); the one list for every picker. */
+export const INCOTERMS = Object.keys(INCOTERM_NAMES);
+
 /** "FOB – Free On Board"; an unknown code is shown as it is. */
 export function incotermLabel(code: string | null | undefined): string {
   const c = (code ?? "").trim();

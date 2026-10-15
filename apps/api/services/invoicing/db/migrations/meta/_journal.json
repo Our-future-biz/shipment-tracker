@@ -61,29 +61,50 @@
     {
       "idx": 8,
       "version": "7",
-      "when": 1791919381430,
-      "tag": "0008_invoice_profile",
+      "when": 1791993133548,
+      "tag": "0008_keys_dates_and_checks",
       "breakpoints": true
     },
     {
       "idx": 9,
       "version": "7",
-      "when": 1791920406890,
-      "tag": "0009_invoice",
+      "when": 1791919381430,
+      "tag": "0009_invoice_profile",
       "breakpoints": true
     },
     {
       "idx": 10,
       "version": "7",
-      "when": 1791920415956,
-      "tag": "0010_invoice_immutable",
+      "when": 1791920406890,
+      "tag": "0010_invoice",
       "breakpoints": true
     },
     {
       "idx": 11,
       "version": "7",
+      "when": 1791920415956,
+      "tag": "0011_invoice_immutable",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
       "when": 1791963321118,
-      "tag": "0011_invoice_cnb_rates",
+      "tag": "0012_invoice_cnb_rates",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791995908640,
+      "tag": "0013_invoice_constraints",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791915026000,
+      "tag": "0014_cost_line_description",
       "breakpoints": true
     }
   ]

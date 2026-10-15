@@ -41,14 +41,15 @@ export interface InvoiceFx {
 // An invoice without a currency was entered by hand in the customer's currency.
 const invoiceCurrency = (invoice: InvoiceItem, fx: InvoiceFx) => invoice.currency || fx.currency;
 
-export function isPaid(invoice: InvoiceItem): boolean {
-  return invoice.status === "Paid";
+/** Nothing more is owed: paid, or cancelled by a credit note. */
+export function isSettled(invoice: InvoiceItem): boolean {
+  return invoice.status === "Paid" || invoice.status === "Credited";
 }
 
 // Whole calendar days past the due date on the viewer's clock (the one the Due column is shown in);
 // 0 when paid, not yet due, or the date is missing/unreadable.
 export function daysOverdue(invoice: InvoiceItem, now = Date.now()): number {
-  if (isPaid(invoice) || !ISO_DATE.test(invoice.dueDate)) return 0;
+  if (isSettled(invoice) || !ISO_DATE.test(invoice.dueDate)) return 0;
   const due = dayjs(invoice.dueDate.slice(0, 10));
   if (!due.isValid()) return 0;
   // Rounded, not truncated: across a DST change two local midnights are 23 or 25 hours apart.
@@ -56,11 +57,11 @@ export function daysOverdue(invoice: InvoiceItem, now = Date.now()): number {
 }
 
 export function isOverdue(invoice: InvoiceItem, now = Date.now()): boolean {
-  return !isPaid(invoice) && (invoice.status === "Overdue" || daysOverdue(invoice, now) > 0);
+  return !isSettled(invoice) && (invoice.status === "Overdue" || daysOverdue(invoice, now) > 0);
 }
 
 // The status to display: an unpaid invoice past its due date reads "Overdue" even if nobody re-labelled it.
-export function effectiveStatus(invoice: InvoiceItem, now = Date.now()): string {
+export function effectiveStatus(invoice: InvoiceItem, now = Date.now()): InvoiceItem["status"] {
   return isOverdue(invoice, now) ? "Overdue" : invoice.status;
 }
 
@@ -85,7 +86,7 @@ export function summarizeInvoices(invoices: InvoiceItem[], fx: InvoiceFx, now = 
   };
 
   for (const invoice of invoices) {
-    if (isPaid(invoice)) continue;
+    if (isSettled(invoice)) continue;
     const currency = invoiceCurrency(invoice, fx);
     add(byCurrency, currency, invoice.amount ?? 0);
     const amount = convert(invoice.amount ?? 0, currency, fx.currency, fx.rates);

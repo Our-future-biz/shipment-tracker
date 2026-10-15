@@ -1,55 +1,126 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Modal, Select, Input, Dropdown } from "antd";
-import { DownOutlined } from "@ant-design/icons";
-import type { SalesQuoteData, TimelineEntry } from "../../../_lib/types";
+import { Alert, Button, Dropdown, Form, Input, Select } from "antd";
+import { CheckOutlined, DownOutlined, LockOutlined } from "@ant-design/icons";
+import dayjs from "dayjs";
+import { EMPTY_CELL } from "@/components/EmptyCell";
+import { KpiTile } from "@/components/KpiTile";
+import type { interfaces } from "@/lib/api/client";
+import { formatDate } from "@/lib/date";
+import type { QuoteStatus, SettableQuoteStatus } from "../../../_lib/types";
 import {
   QUOTE_STATUS_MAP,
-  FEEDBACK_SUBSTATUSES,
+  SETTABLE_QUOTE_STATUSES,
+  OPEN_QUOTE_STATUSES,
   LOST_REASONS,
   VALIDITY_OPTIONS,
-  winProbColor,
+  winProbClass,
 } from "../../../_lib/types";
-import { validityInfo, daysOpen, needsFollowUp } from "../../../_lib/salesQuote";
+import { asData, businessToday, statusLines, validUntilAfter } from "../../../_lib/salesQuote";
+import type { StatusChange } from "../../../_lib/statusChange";
+import { SalesDialog } from "../../../_components/SalesDialog";
+import { toolbarButtonClass } from "../../../_components/ToolbarButton";
+import { OwnerTile } from "./OwnerTile";
 
 interface Props {
-  data: SalesQuoteData;
-  onChange: (patch: Partial<SalesQuoteData>) => void;
+  // The quote as the server returned it. Its status, what it may be set to, its validity, its
+  // owner and its last contact are the server's - nothing here works them out again.
+  quote: interfaces.SalesQuoteItem;
+  // Asks the server for the change. Resolves with why it was refused - a sentence that finishes
+  // "QCZ… - …" - or with null once the quote is changed.
+  onChange: (change: StatusChange) => Promise<string | null>;
+  // Asks the server to record that the customer was contacted, with the note if one was left.
+  // Resolves like onChange.
+  // The owner is being changed: its control waits for the server's answer.
+  changingOwner: boolean;
+  // Asks the server for another owner, or for none.
+  onChangeOwner: (ownerUserId: string | null) => void;
 }
 
-// The main forward flow shown as a dot chain.
-const FLOW = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won"];
+// The main forward flow shown as a chain of steps.
+const FLOW: readonly QuoteStatus[] = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won"];
 
-const TIMELINE_LABELS: Record<string, string> = {
-  draft: "Draft created",
-  ready_to_send: "Marked ready to send",
-  quoted: "Quote sent to customer",
-  feedback: "Customer feedback received",
-  revised: "Quote revised",
-  won: "Won — closed",
-  lost: "Lost",
-  expired: "Expired",
-};
+// What "valid N days" starts at for a quote that was never sent with days.
+const DEFAULT_VALIDITY_DAYS = 15;
 
-export function LifecycleBar({ data, onChange }: Props) {
-  const current = data.quoteStatus ?? "draft";
+const anyOf = new Intl.ListFormat("en", { type: "disjunction" });
+
+// What stands under the validity date of a quote that is still in play: how long the date holds,
+// counted by the company's calendar day as the server judges expiry. The date of a quote that
+// was won or lost is a fact about it, not a deadline, and gets no note.
+function validityNote(validUntil: string | null, today: string): string {
+  if (validUntil === null) return "Set under Shipping terms";
+  const days = dayjs(validUntil).diff(dayjs(today), "day");
+  if (days < 0) return "Passed";
+  if (days === 0) return "Last day";
+  return days === 1 ? "1 day left" : `${days} days left`;
+}
+
+// The band under the quote's header: where the quote stands in its lifecycle and the way to move
+// it on, and under that the four facts the server keeps beside the document - validity, win
+// probability, owner and last contact. Each of them is changed at once by its own request, not
+// with the form below.
+export function LifecycleBar({ quote, onChange, changingOwner, onChangeOwner }: Props) {
+  const data = asData(quote.data);
+  // The status that counts: Expired for a Quoted or Feedback quote whose validity has passed.
+  const current = quote.effectiveStatus;
   const def = QUOTE_STATUS_MAP[current];
-  const winProb = data.winProbability ?? def?.winProbability ?? 0;
-  const validity = validityInfo(data);
-  const followUp = needsFollowUp(data);
-  const openDays = daysOpen(data) ?? 0;
+  const expired = current === "expired";
+  const currentIndex = FLOW.indexOf(current);
+  // The statuses the history shows the quote in: the one each status line names, and the one it
+  // says the quote left.
+  const history = statusLines(data);
+  const visited = new Set(history.flatMap((entry) => [entry.status, entry.from]));
+  // Whether the quote has a step of the chain behind it. Only steps it really took are ticked: a
+  // quote that went from Quoted straight to Won never was in Feedback or Revised, and one that
+  // was sent again after a revision still has both behind it.
+  const isDone = (key: string, i: number) => {
+    // Won is where the chain ends: a quote that got there has that step behind it as well. No
+    // other quote has - a Won in the history of a quote that is not Won was taken back when its
+    // shipment was removed, and a tick at the end of the chain would still say "won".
+    if (key === "won") return current === "won";
+    if (key === current) return false;
+    // A quote from before the history was kept has no status line to go by: every step left of
+    // where it stands counts.
+    if (!history.length) return i < currentIndex;
+    // Every quote starts as a Draft, and old quotes got no line for it.
+    return key === "draft" || visited.has(key);
+  };
+  // A quote that expired by its date is still stored as Quoted or Feedback, with that status's
+  // probability; what is shown goes with the status that is shown.
+  const winProb = (current === quote.status ? data.winProbability : undefined) ?? def?.winProbability ?? 0;
+  // What the server lets the quote be set to now, in its order.
+  const targets = quote.allowedTransitions.flatMap((key) => SETTABLE_QUOTE_STATUSES.find((status) => status === key) ?? []);
+  const targetLabels = targets.map((key) => QUOTE_STATUS_MAP[key]?.label ?? key);
+  // Expired because its validity date has passed - and so back in play once that date is moved.
+  // A quote the old bulk menu stored as Expired is not.
+  const expiredByDate = expired && quote.status !== "expired";
+  // The quote is with the customer: a contact with them can be recorded, and is due after three days.
 
-  const [target, setTarget] = useState<string | null>(null);
-  const [validityDays, setValidityDays] = useState<number>(data.validityDays ?? 14);
-  const [substatus, setSubstatus] = useState<string>(FEEDBACK_SUBSTATUSES[0]);
+  // Sending keeps a validity that still holds. Days are asked for exactly when the server would
+  // use them: the quote has no validity date, or the one it has is past - by the same calendar
+  // day the server goes by.
+  const today = businessToday();
+  const askValidityDays = quote.validUntil === null || quote.validUntil < today;
+
+  const [target, setTarget] = useState<SettableQuoteStatus | null>(null);
+  const [validityDays, setValidityDays] = useState<number>(DEFAULT_VALIDITY_DAYS);
   const [lostCategory, setLostCategory] = useState<string>(Object.keys(LOST_REASONS)[0] ?? "Pricing");
   const [lostReason, setLostReason] = useState<string>("");
   const [comment, setComment] = useState<string>("");
+  // The request is on its way: the dialog waits for the server's answer.
+  const [applying, setApplying] = useState(false);
+  // Why the server refused the change asked for in the open dialog.
+  const [refusal, setRefusal] = useState<string | null>(null);
+  // The "Followed up" dialog is open.
 
-  const openTransition = (next: string) => {
+  const openTransition = (next: SettableQuoteStatus) => {
     setTarget(next);
     setComment("");
+    setRefusal(null);
+    // A quote sent with days before is offered the same number again.
+    if (next === "quoted") setValidityDays(VALIDITY_OPTIONS.find((d) => d === data.validityDays) ?? DEFAULT_VALIDITY_DAYS);
     if (next === "lost") {
       const firstCat = Object.keys(LOST_REASONS)[0] ?? "Pricing";
       setLostCategory(firstCat);
@@ -57,193 +128,164 @@ export function LifecycleBar({ data, onChange }: Props) {
     }
   };
 
-  const applyTransition = () => {
+  // The dialog closes once the server has made the change; a refusal is shown in it, with the
+  // choices still there.
+  const applyTransition = async () => {
     if (!target) return;
-    const nextDef = QUOTE_STATUS_MAP[target];
-    const entry: TimelineEntry = {
+    setApplying(true);
+    setRefusal(null);
+    const refused = await onChange({
       status: target,
-      at: new Date().toISOString(),
-      user: "You",
-      comment: comment || undefined,
-    };
-    const patch: Partial<SalesQuoteData> = {
-      quoteStatus: target,
-      winProbability: nextDef?.winProbability ?? winProb,
-    };
-    if (target === "quoted") {
-      patch.validityDays = validityDays;
-      patch.sentAt = new Date().toISOString();
-    }
-    if (target === "feedback") {
-      patch.substatus = substatus;
-      entry.substatus = substatus;
-    }
-    if (target === "lost") {
-      patch.lostReason = `${lostCategory}: ${lostReason}`;
-      patch.lostComment = comment;
-      entry.lostReason = patch.lostReason;
-    }
-    patch.timeline = [...(data.timeline ?? []), entry];
-    onChange(patch);
-    setTarget(null);
+      comment,
+      validityDays: target === "quoted" && askValidityDays ? validityDays : undefined,
+      lostReason: target === "lost" ? `${lostCategory}: ${lostReason}` : undefined,
+    });
+    setApplying(false);
+    if (refused) setRefusal(refused);
+    else setTarget(null);
   };
 
-  const nextItems = (def?.next ?? []).map((k) => ({ key: k, label: QUOTE_STATUS_MAP[k]?.label ?? k }));
+  // The status the quote already has is not offered: there is nothing to say anew about it.
+  const nextItems = targets.flatMap((key, i) => (key === current ? [] : [{ key, label: targetLabels[i], onClick: () => openTransition(key) }]));
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl p-4">
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-400 uppercase tracking-wide">Status</span>
-          {def && (
-            <span className="rounded-xl text-[13px] font-semibold px-3 py-1" style={{ backgroundColor: def.color.bg, color: def.color.text }}>
-              {def.label}
+    <div className="bg-white border-b border-slate-200 px-6 py-3.5">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        {current === "lost" || expired ? (
+          // A quote that left the chain: one line says where it is and, for Expired, the ways out.
+          <div className="flex-[1_1_560px] min-w-0 flex items-center gap-2 text-[13px]">
+            <span className={`w-2 h-2 rounded-full shrink-0 ${def?.tone.dot ?? ""}`} />
+            <span className={`shrink-0 font-medium ${def?.tone.text ?? ""}`}>
+              {def?.label}
             </span>
-          )}
-          {data.substatus && current === "feedback" && <span className="text-xs text-slate-500">· {data.substatus}</span>}
-        </div>
+            {expired ? (
+              // The ways out of Expired, as the server allows them.
+              <span className="text-slate-500">
+                — {expiredByDate && `its validity ended on ${formatDate(quote.validUntil)}. `}
+                Change its status to {anyOf.format(targetLabels)}
+                {expiredByDate && ", or set a later Valid until under Shipping terms"}.
+              </span>
+            ) : (
+              <span className="text-slate-500">— quote is closed</span>
+            )}
+          </div>
+        ) : (
+          <ol aria-label="Quote lifecycle" className="flex-[1_1_560px] min-w-0 flex items-center m-0 p-0 list-none overflow-x-auto">
+            {FLOW.map((key, i) => {
+              const isCurrent = key === current;
+              const done = isDone(key, i);
+              const last = i === FLOW.length - 1;
+              const circle = done
+                ? "bg-indigo-500 text-white"
+                : isCurrent
+                  ? "bg-white border-2 border-indigo-500 text-indigo-500"
+                  : "bg-white border-2 border-slate-200 text-slate-400";
+              const label = isCurrent ? "font-semibold text-slate-800" : done ? "font-medium text-slate-600" : "text-slate-500";
+              return (
+                <li key={key} aria-current={isCurrent ? "step" : undefined} className={`flex items-center min-w-0 ${last ? "shrink-0" : "flex-auto"}`}>
+                  <span className={`shrink-0 flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-semibold ${circle}`}>
+                    {done ? <CheckOutlined /> : i + 1}
+                  </span>
+                  <span className={`ml-2 text-xs whitespace-nowrap ${label}`}>{QUOTE_STATUS_MAP[key]?.label}</span>
+                  {!last && <span aria-hidden className={`flex-1 min-w-3 h-0.5 mx-3 ${done ? "bg-indigo-500" : "bg-slate-200"}`} />}
+                </li>
+              );
+            })}
+          </ol>
+        )}
 
-        <Dropdown
-          menu={{ items: nextItems, onClick: ({ key }) => openTransition(key) }}
-          disabled={nextItems.length === 0}
-          trigger={["click"]}
-        >
-          <Button type="primary" disabled={nextItems.length === 0}>
-            Change status <DownOutlined />
-          </Button>
+        <Dropdown menu={{ items: nextItems }} disabled={nextItems.length === 0} trigger={["click"]}>
+          <button type="button" disabled={nextItems.length === 0} className={toolbarButtonClass()}>
+            Change status <DownOutlined className="text-[10px]" />
+          </button>
         </Dropdown>
       </div>
 
-      {/* Lifecycle flow bar */}
-      <div className="mt-4 flex items-center">
-        {current === "lost" || current === "expired" ? (
-          <div className="flex items-center gap-2 text-[13px]">
-            <span className="w-3 h-3 rounded-full" style={{ backgroundColor: def?.color.text ?? "#94a3b8" }} />
-            <span className="font-medium" style={{ color: def?.color.text }}>{def?.label}</span>
-            <span className="text-slate-400">— quote is closed</span>
-          </div>
-        ) : (
-          FLOW.map((k, i) => {
-            const idx = FLOW.indexOf(current);
-            const reached = idx >= 0 && i <= idx;
-            const isCurrent = k === current;
-            const c = QUOTE_STATUS_MAP[k];
-            return (
-              <div key={k} className={`flex items-center ${i < FLOW.length - 1 ? "flex-1" : ""}`}>
-                <div className="flex flex-col items-center shrink-0">
-                  <span
-                    className={`w-4 h-4 rounded-full border-2 ${isCurrent ? "ring-2 ring-offset-1" : ""}`}
-                    style={{
-                      backgroundColor: reached ? c?.color.text : "#fff",
-                      borderColor: reached ? c?.color.text : "#cbd5e1",
-                    }}
-                  />
-                  <span className={`text-[11px] mt-1.5 whitespace-nowrap ${isCurrent ? "font-semibold text-slate-700" : "text-slate-400"}`}>{c?.label}</span>
-                </div>
-                {i < FLOW.length - 1 && <span className={`flex-1 h-0.5 mx-2 mb-5 ${i < idx ? "bg-indigo-300" : "bg-slate-200"}`} />}
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {/* Validity + follow-up cards */}
-      {(validity.date || followUp) && (
-        <div className="mt-4 grid grid-cols-2 gap-3">
-          {validity.date && (
-            <div className={`rounded-xl px-3 py-2 border ${validity.expired ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-100"}`}>
-              <div className="text-[11px] text-slate-400 uppercase tracking-wide">Validity</div>
-              <div className={`text-sm font-semibold mt-0.5 ${validity.expired ? "text-red-600" : "text-slate-800"}`}>
-                {validity.expired ? `Expired (${validity.date})` : `Valid until ${validity.date}`}
+      <div className="mt-3.5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* Red only on a quote that is Expired: the date of a quote that was won, lost or is
+            being reworked is a fact about it, not an alarm. */}
+        <KpiTile
+          label="Valid until"
+          size="text"
+          tone={expired ? "red" : undefined}
+          value={quote.validUntil ? <span className="tabular-nums">{formatDate(quote.validUntil)}</span> : EMPTY_CELL}
+          hint={expired ? "Expired" : OPEN_QUOTE_STATUSES.includes(current) ? validityNote(quote.validUntil, today) : undefined}
+          hintTone={expired ? "red" : undefined}
+        />
+        <KpiTile
+          label="Win probability"
+          size="text"
+          value={<span className="tabular-nums">{winProb}%</span>}
+          hint={
+            <div className="h-4 flex items-center">
+              <div
+                role="progressbar"
+                aria-label="Win probability"
+                aria-valuenow={winProb}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden"
+              >
+                <div className={`h-full rounded-full transition-all ${winProbClass(winProb)}`} style={{ width: `${winProb}%` }} />
               </div>
             </div>
-          )}
-          {followUp && (
-            <div className="rounded-xl px-3 py-2 border bg-amber-50 border-amber-200">
-              <div className="text-[11px] text-amber-500 uppercase tracking-wide">Follow-up</div>
-              <div className="text-sm font-semibold mt-0.5 text-amber-700">
-                No customer feedback in {openDays} days — follow up
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Win probability bar */}
-      <div className="mt-4">
-        <div className="flex justify-between text-xs text-slate-400 mb-1">
-          <span>Win probability</span>
-          <span className="font-semibold" style={{ color: winProbColor(winProb) }}>
-            {winProb}%
-          </span>
-        </div>
-        <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-          <div className="h-full rounded-full transition-all" style={{ width: `${winProb}%`, backgroundColor: winProbColor(winProb) }} />
-        </div>
+          }
+        />
+        <OwnerTile quote={quote} changing={changingOwner} onChange={onChangeOwner} />
       </div>
 
-      {/* Timeline */}
-      {!!data.timeline?.length && (
-        <div className="mt-4">
-          <div className="text-xs font-semibold text-slate-500 mb-2">Timeline</div>
-          <div className="space-y-2">
-            {[...data.timeline].reverse().map((t, i) => {
-              const td = QUOTE_STATUS_MAP[t.status];
-              return (
-                <div key={i} className="flex items-start gap-2 text-[13px]">
-                  <span className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: td?.color.text ?? "#94a3b8" }} />
-                  <div>
-                    <span className="font-medium text-slate-700">{TIMELINE_LABELS[t.status] ?? td?.label ?? t.status}</span>
-                    {t.substatus && <span className="text-slate-500"> · {t.substatus}</span>}
-                    <span className="text-slate-400"> · {new Date(t.at).toLocaleString("en-GB")}</span>
-                    {t.lostReason && <div className="text-red-500 text-xs">{t.lostReason}</div>}
-                    {t.comment && <div className="text-slate-500 text-xs">{t.comment}</div>}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Transition modal */}
-      <Modal
+      {/* The dialog of a status change, in the frame of every Sales dialog. While the request is on
+          its way it can only be waited for; a refusal is shown in it, with the choices still there. */}
+      <SalesDialog
         open={!!target}
-        onCancel={() => setTarget(null)}
-        onOk={applyTransition}
-        okText="Confirm"
+        onClose={() => setTarget(null)}
+        busy={applying}
         title={target ? `Move to ${QUOTE_STATUS_MAP[target]?.label ?? target}` : ""}
-        destroyOnHidden
+        footer={
+          <>
+            <Button disabled={applying} onClick={() => setTarget(null)}>
+              Cancel
+            </Button>
+            <Button type="primary" loading={applying} onClick={applyTransition}>
+              Change status
+            </Button>
+          </>
+        }
       >
-        <div className="space-y-3 pt-2">
-          {target === "quoted" && (
-            <div>
-              <div className="text-xs text-slate-500 mb-1">Validity (days)</div>
-              <Select
-                className="w-full"
-                value={validityDays}
-                onChange={setValidityDays}
-                options={VALIDITY_OPTIONS.map((d) => ({ value: d, label: `${d} days` }))}
-              />
-            </div>
-          )}
-          {target === "feedback" && (
-            <div>
-              <div className="text-xs text-slate-500 mb-1">Feedback status</div>
-              <Select
-                className="w-full"
-                value={substatus}
-                onChange={setSubstatus}
-                options={FEEDBACK_SUBSTATUSES.map((s) => ({ value: s, label: s }))}
-              />
-            </div>
-          )}
+        {refusal && (
+          <div className="mb-4">
+            <Alert type="error" showIcon message={`${quote.quoteNumber} - ${refusal}`} />
+          </div>
+        )}
+        <Form layout="vertical" disabled={applying}>
+          {/* The quote has one validity date. Days are asked for only while it has none that
+              still holds, and what they come to is shown, so this dialog and Shipping terms never
+              say different things. */}
+          {target === "quoted" &&
+            (askValidityDays ? (
+              <Form.Item label="Validity (days)" extra={`Valid until ${formatDate(validUntilAfter(today, validityDays))}`}>
+                {quote.validUntil && <div className="text-xs text-red-600 mb-1">The previous validity {formatDate(quote.validUntil)} has passed.</div>}
+                <Select
+                  aria-label="Validity (days)"
+                  value={validityDays}
+                  onChange={setValidityDays}
+                  options={VALIDITY_OPTIONS.map((d) => ({ value: d, label: `${d} days` }))}
+                />
+              </Form.Item>
+            ) : (
+              // A validity that still holds is not this dialog's to change: shown locked, not as a field.
+              <Form.Item label="Validity" extra="To change it, set Valid until under Shipping terms before you confirm.">
+                <div className="flex items-center gap-2 h-9 px-3 rounded-lg bg-slate-100 text-[13px] text-slate-600">
+                  <span className="min-w-0 flex-1 truncate">Valid until {formatDate(quote.validUntil)}</span>
+                  <LockOutlined className="!text-slate-400" title="Set under Shipping terms" />
+                </div>
+              </Form.Item>
+            ))}
           {target === "lost" && (
             <>
-              <div>
-                <div className="text-xs text-slate-500 mb-1">Reason category</div>
+              <Form.Item label="Reason category">
                 <Select
-                  className="w-full"
+                  aria-label="Reason category"
                   value={lostCategory}
                   onChange={(c) => {
                     setLostCategory(c);
@@ -251,24 +293,22 @@ export function LifecycleBar({ data, onChange }: Props) {
                   }}
                   options={Object.keys(LOST_REASONS).map((c) => ({ value: c, label: c }))}
                 />
-              </div>
-              <div>
-                <div className="text-xs text-slate-500 mb-1">Reason</div>
+              </Form.Item>
+              <Form.Item label="Reason">
                 <Select
-                  className="w-full"
+                  aria-label="Reason"
                   value={lostReason}
                   onChange={setLostReason}
                   options={(LOST_REASONS[lostCategory] ?? []).map((r) => ({ value: r, label: r }))}
                 />
-              </div>
+              </Form.Item>
             </>
           )}
-          <div>
-            <div className="text-xs text-slate-500 mb-1">Comment (optional)</div>
-            <Input.TextArea rows={3} value={comment} onChange={(e) => setComment(e.target.value)} />
-          </div>
-        </div>
-      </Modal>
+          <Form.Item label="Comment (optional)" className="!mb-0">
+            <Input.TextArea aria-label="Comment (optional)" rows={3} value={comment} onChange={(e) => setComment(e.target.value)} />
+          </Form.Item>
+        </Form>
+      </SalesDialog>
     </div>
   );
 }

@@ -1,11 +1,12 @@
 "use client";
 
 import { Form, Input, Modal, Select } from "antd";
+import type { interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { NOTE_TYPES } from "../../_lib/constants";
 
 export interface CustomerNoteFormValues {
-  type: string;
+  type: interfaces.NoteType;
   author: string;
   content: string;
 }

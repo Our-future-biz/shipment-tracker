@@ -152,7 +152,7 @@ export function WarehouseSettingsView() {
             type="warning"
             showIcon
             message="E-mail sending is off on this server"
-            description="No Resend API key is set, so a send fails with a clear message and nothing is marked as sent. Recipients can be set already; ask the administrator to set the key."
+            description="E-mail sending is switched off for now (no e-mail provider is connected yet). A send fails with a clear message and nothing is marked as sent. Recipients can be set already."
           />
         )}
 

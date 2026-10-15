@@ -21,7 +21,7 @@ const sameOrAll = (column: PgColumn, own: string | null) => (own ? or(isNull(col
 
 class AnnouncementRepository extends TenantRepository<typeof announcementTable> {
   constructor() {
-    super(db as never, announcementTable, "announcement");
+    super(db, announcementTable, "announcement");
   }
 
   // Newest first, with the author and target names resolved for display, and when the

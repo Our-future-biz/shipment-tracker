@@ -1,19 +1,19 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { Spin } from "antd";
-import { api } from "@/lib/api";
+import { Alert, Spin } from "antd";
+import { useFxImportRuns } from "@/hooks/useFx";
 import { formatDate, formatDateTime } from "@/lib/date";
-import { CELL, FX_KEYS, TH } from "./fxShared";
+import type { interfaces } from "@/lib/api/client";
+import { CELL, TH } from "./fxShared";
 
-const STATUS: Record<string, string> = {
+const STATUS: Record<interfaces.ImportRunStatus, string> = {
   ok: "text-emerald-700",
   no_new_data: "text-slate-500",
   failed: "text-red-600 font-semibold",
   running: "text-indigo-600",
 };
 
-const STATUS_LABEL: Record<string, string> = {
+const STATUS_LABEL: Record<interfaces.ImportRunStatus, string> = {
   ok: "New rates stored",
   no_new_data: "Already current",
   failed: "Failed",
@@ -21,7 +21,8 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export function ImportLogTab() {
-  const { data, isLoading } = useQuery({ queryKey: FX_KEYS.runs, queryFn: () => api.fx.fxImportRuns({ limit: 50 }) });
+  const { data, isLoading, isError } = useFxImportRuns();
+  if (isError) return <Alert type="error" showIcon message="Could not load the import log." />;
   if (isLoading) return <div className="flex justify-center py-10"><Spin /></div>;
   const runs = data?.runs ?? [];
 
@@ -48,7 +49,7 @@ export function ImportLogTab() {
             <tr key={r.id}>
               <td className={`${CELL} whitespace-nowrap`}>{formatDateTime(r.startedAt)}</td>
               <td className={`${CELL} text-slate-600`}>{r.trigger}</td>
-              <td className={`${CELL} ${STATUS[r.status] ?? ""}`}>{STATUS_LABEL[r.status] ?? r.status}</td>
+              <td className={`${CELL} ${STATUS[r.status]}`}>{STATUS_LABEL[r.status]}</td>
               <td className={`${CELL} text-right tabular-nums`}>{r.rowsAdded}</td>
               <td className={CELL}>{formatDate(r.latestValidDate)}</td>
               <td className={`${CELL} text-[13px] text-red-600 max-w-[360px] truncate`} title={r.error}>{r.error}</td>

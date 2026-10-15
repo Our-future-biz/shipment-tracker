@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, jsonb, date, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const warehouseTaskTable = pgTable(
@@ -13,7 +13,7 @@ export const warehouseTaskTable = pgTable(
     priority: text("priority").notNull().default("Medium"),
     status: text("status").notNull().default("Pending"),
     assignee: text("assignee").notNull().default(""),
-    dueDate: text("due_date").notNull().default(""),
+    dueDate: date("due_date", { mode: "string" }),
     cargo: text("cargo").notNull().default(""),
     weight: text("weight").notNull().default(""),
     notes: text("notes").notNull().default(""),

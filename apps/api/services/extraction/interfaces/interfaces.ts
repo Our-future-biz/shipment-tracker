@@ -1,3 +1,5 @@
+import type { MinLen } from "encore.dev/validate";
+
 export interface ExtractionResult {
   extracted: Record<string, string>;
   fieldCount: number;
@@ -7,8 +9,8 @@ export interface ExtractionResult {
 
 /** One uploaded file of a pre-alert. */
 export interface PipelineFile {
-  fileBase64: string;
-  fileName: string;
+  fileBase64: string & MinLen<1>;
+  fileName: string & MinLen<1>;
 }
 
 export interface PrepareResult {

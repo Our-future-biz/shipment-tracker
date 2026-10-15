@@ -1,17 +1,18 @@
+import log from "encore.dev/log";
+
 export interface LogoResult {
   dataUrl: string; // base64 data URL, stored directly in Postgres
   sourceUrl: string;
   updatedAt: string;
 }
 
-function normalizeDomain(website: string): string {
-  return website
+export function normalizeDomain(website: string): string {
+  const host = website
     .trim()
     .replace(/^https?:\/\//i, "")
     .replace(/^www\./i, "")
-    .split("/")[0]
-    .split("?")[0]
-    .toLowerCase();
+    .split("/")[0] ?? "";
+  return (host.split("?")[0] ?? "").toLowerCase();
 }
 
 async function tryFetch(url: string, timeoutMs = 6000): Promise<{ data: Uint8Array; contentType: string } | null> {
@@ -25,7 +26,9 @@ async function tryFetch(url: string, timeoutMs = 6000): Promise<{ data: Uint8Arr
     if (buf.length < 100) return null; // too small, probably a placeholder
     const contentType = res.headers.get("content-type") ?? "image/png";
     return { data: buf, contentType };
-  } catch {
+  } catch (err) {
+    // One source failing is normal (the next is tried); logged so a broken source shows up.
+    log.debug("logo source failed", { url, error: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }

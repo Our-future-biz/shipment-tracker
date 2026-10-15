@@ -1,7 +1,8 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
+import type { MaxLen, MinLen } from "encore.dev/validate";
 import { requireRole } from "../../../lib/rbac";
-import { invoiceDocumentService, QUEUE_VIEWS, type QueueView } from "../services/invoiceDocument.service";
-import type { BillingQueueCounts, BillingQueueItem, InvoiceDocItem, InvoicePreviewItem } from "../interfaces/interfaces";
+import { invoiceDocumentService } from "../services/invoiceDocument.service";
+import type { BillingQueueCounts, BillingQueueItem, InvoiceDocItem, InvoicePreviewItem, QueueView } from "../interfaces/interfaces";
 
 /**
  * Tax documents of a shipment: preview (nothing stored), issue, list, detail and credit
@@ -33,9 +34,9 @@ interface IssueRequest {
   shipmentId: string;
   customerId?: string;
   duzp?: string;
-  note?: string;
+  note?: string & MaxLen<1000>;
   /** Sent again on retry / double click: returns the invoice already issued instead of a second one */
-  idempotencyKey?: string;
+  idempotencyKey?: string & MaxLen<200>;
 }
 
 interface InvoiceDocResponse {
@@ -81,8 +82,9 @@ export const invoiceDocGet = api(
 
 interface CreditRequest {
   invoiceId: string;
-  reason: string;
-  idempotencyKey?: string;
+  /** Why the invoice is reversed (printed on the credit note) */
+  reason: string & MinLen<1> & MaxLen<500>;
+  idempotencyKey?: string & MaxLen<200>;
 }
 
 export const invoiceDocCredit = api(
@@ -117,9 +119,9 @@ export const invoiceDocPdf = api(
 );
 
 interface QueueRequest {
-  /** to_bill (Shipment Status Billing) | not_invoiced | invoiced (Invoicing Status); default to_bill */
-  view?: string;
-  search?: string;
+  /** Default to_bill */
+  view?: QueueView;
+  search?: string & MaxLen<200>;
 }
 
 interface QueueResponse {
@@ -134,8 +136,6 @@ export const invoiceQueue = api(
   { expose: true, auth: true, method: "GET", path: "/invoicing/queue" },
   async (req: QueueRequest): Promise<QueueResponse> => {
     const actor = requireRole();
-    const view = (req.view || "to_bill") as QueueView;
-    if (!(view in QUEUE_VIEWS)) throw APIError.invalidArgument(`Unknown queue view: ${req.view}`);
-    return invoiceDocumentService.queue(actor.companyID, view, req.search);
+    return invoiceDocumentService.queue(actor.companyID, req.view ?? "to_bill", req.search);
   },
 );

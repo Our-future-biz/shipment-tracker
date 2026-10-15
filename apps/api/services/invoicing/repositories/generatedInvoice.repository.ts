@@ -1,15 +1,20 @@
-import { eq, and, asc } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { generatedInvoiceTable } from "../schemas/generatedInvoice.schema";
+import { generatedInvoiceTable as t, type GeneratedInvoiceRecord } from "../schemas/generatedInvoice.schema";
 
 /** Read-only: invoices made by the old generator before phase 3 (kept for history). */
-class GeneratedInvoiceRepository {
-  async listByShipmentId(shipmentId: string, companyId: string) {
-    return db
+class GeneratedInvoiceRepository extends TenantRepository<typeof t> {
+  constructor() {
+    super(db, t, "generated_invoice");
+  }
+
+  async listByShipmentId(shipmentId: string, companyId: string): Promise<GeneratedInvoiceRecord[]> {
+    return this.db
       .select()
-      .from(generatedInvoiceTable)
-      .where(and(eq(generatedInvoiceTable.companyId, companyId), eq(generatedInvoiceTable.shipmentId, shipmentId)))
-      .orderBy(asc(generatedInvoiceTable.createdAt));
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)))
+      .orderBy(asc(t.createdAt));
   }
 }
 

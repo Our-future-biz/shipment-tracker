@@ -1,36 +1,38 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { DatePicker, Input, Tooltip } from "antd";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, DatePicker, Input, Tooltip } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import dayjs from "dayjs";
-import { api } from "@/lib/api";
-import { formatDate } from "@/lib/date";
-import { fmt } from "@/app/sales/_lib/salesQuote";
+import { formatDate, todayIso } from "@/lib/date";
+import { useJobProfitReport } from "@/hooks/useJobProfitReport";
+import { fmtMoney } from "@/lib/money";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
+import type { interfaces } from "@/lib/api/client";
 
-type Report = Awaited<ReturnType<typeof api.invoicing.jobProfitReportGet>>;
+type Report = interfaces.JobProfitReport;
 type Row = Report["rows"][number];
 type Month = Report["months"][number];
 
-const czk = (v: number) => fmt(v, "CZK");
+const czk = (v: number) => fmtMoney(v, "CZK", true);
 const tone = (v: number) => (v >= 0 ? "text-green-600" : "text-red-600");
 
 // Job profit from Costs Breakdown, in CZK at each month's fixed ČNB average (mean of the
 // month's fixing days, without the ROE %). A job falls in the month of its ATA (import) /
 // ATD (export); until then of its ETA / ETD, marked provisional.
 export function ShipmentReportsTab() {
-  const thisMonth = dayjs().format("YYYY-MM");
-  const [range, setRange] = useState<[string, string]>([`${thisMonth.slice(0, 4)}-01`, thisMonth]);
+  // The default range (this year to this month) is read from the browser's clock after mount,
+  // so a page rendered on the server (possibly in another month) can't disagree with it.
+  const [range, setRange] = useState<[string, string] | null>(null);
   const [search, setSearch] = useState("");
+  useEffect(() => {
+    const thisMonth = todayIso().slice(0, 7);
+    setRange((r) => r ?? [`${thisMonth.slice(0, 4)}-01`, thisMonth]);
+  }, []);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["reports", "job-profit", range[0], range[1]],
-    queryFn: () => api.invoicing.jobProfitReportGet({ from: range[0], to: range[1] }),
-  });
+  const { data, isLoading, isError } = useJobProfitReport(range);
 
   const rows = useMemo<Row[]>(() => {
     const term = search.trim().toLowerCase();
@@ -73,7 +75,7 @@ export function ShipmentReportsTab() {
           </span>
           {r.provisional && (
             <Tooltip title="No ATA / ATD yet — placed by ETA / ETD and may move">
-              <span className="ml-1.5 text-[11px] font-semibold text-[#95620B] bg-[#FBEED2] rounded px-1.5 py-0.5">provisional</span>
+              <span className="ml-1.5 text-[11px] font-semibold text-warn bg-warn-soft rounded px-1.5 py-0.5">provisional</span>
             </Tooltip>
           )}
         </span>
@@ -90,7 +92,7 @@ export function ShipmentReportsTab() {
           {czk(v)}
           {r.unconverted.length > 0 && (
             <Tooltip title={`No ČNB average for ${r.unconverted.join(", ")} — left out`}>
-              <span className="ml-1 text-[#95620B]">*</span>
+              <span className="ml-1 text-warn">*</span>
             </Tooltip>
           )}
         </span>
@@ -110,7 +112,7 @@ export function ShipmentReportsTab() {
       render: (_: unknown, m) => (
         <span className="text-slate-500 text-[12.5px] whitespace-nowrap">
           {m.averages.map((a) => `${a.currency} ${a.average.toFixed(3)}`).join(" · ") || "—"}
-          {!m.final && <span className="ml-1.5 text-[11px] font-semibold text-[#95620B]">provisional</span>}
+          {!m.final && <span className="ml-1.5 text-[11px] font-semibold text-warn">provisional</span>}
         </span>
       ),
     },
@@ -138,7 +140,7 @@ export function ShipmentReportsTab() {
         <DatePicker.RangePicker
           picker="month"
           allowClear={false}
-          value={[dayjs(`${range[0]}-01`), dayjs(`${range[1]}-01`)]}
+          value={range ? [dayjs(`${range[0]}-01`), dayjs(`${range[1]}-01`)] : null}
           onChange={(v) => v && v[0] && v[1] && setRange([v[0].format("YYYY-MM"), v[1].format("YYYY-MM")])}
           format="MMM YYYY"
         />
@@ -157,8 +159,10 @@ export function ShipmentReportsTab() {
         </span>
       </div>
 
+      {isError && <Alert type="error" showIcon className="mb-4" message="Could not load the job profit report." />}
+
       {unconverted.length > 0 && (
-        <div className="text-[12.5px] text-[#6B4A0B] bg-[#FBEED2] border border-[#E5C27A] rounded-xl px-4 py-2.5 mb-4">
+        <div className="text-[12.5px] text-warn-ink bg-warn-soft border border-warn/40 rounded-xl px-4 py-2.5 mb-4">
           No ČNB average for {unconverted.join(", ")} — those amounts are left out (marked *).
         </div>
       )}
@@ -175,7 +179,7 @@ export function ShipmentReportsTab() {
         rowKey="shipmentId"
         loading={isLoading}
         scroll={{ x: "max-content" }}
-        resetKey={`${search}|${range.join("-")}`}
+        resetKey={`${search}|${range?.join("-") ?? ""}`}
       />
     </div>
   );

@@ -1,22 +1,12 @@
 import { APIError } from "encore.dev/api";
+import { assertShipmentExists } from "../../../lib/shipmentRefs";
+import { definedOnly, toDecimal } from "../lib/amounts";
 import { customsInvoiceLineRepository, customsInvoiceRepository } from "../repositories/customsInvoice.repository";
 import type { CustomsInvoiceLineRecord } from "../schemas/customsInvoice.schema";
 import type { CustomsInvoiceLineInput, CustomsInvoiceLineItem, CustomsInvoicingItem } from "../interfaces/interfaces";
 
 // Invoicing tab of a shipment opened in Customs: lines of Category, Currency and Value,
 // and one Issued Invoice Number for the whole shipment.
-
-// A value as stored: a plain decimal with at most 2 places (numeric(14,2)), or null when
-// cleared — Postgres rejects "" for a numeric column. Anything else is refused up front
-// instead of failing in the database.
-const DECIMAL = /^-?\d{1,12}(\.\d{1,2})?$/;
-function toValue(v: string | undefined): string | null | undefined {
-  if (v === undefined) return undefined;
-  const t = v.trim();
-  if (t === "") return null;
-  if (!DECIMAL.test(t)) throw APIError.invalidArgument(`"${t}" is not an amount (use e.g. 1250.50)`);
-  return t;
-}
 
 const toItem = (r: CustomsInvoiceLineRecord): CustomsInvoiceLineItem => ({
   id: r.id,
@@ -27,15 +17,15 @@ const toItem = (r: CustomsInvoiceLineRecord): CustomsInvoiceLineItem => ({
   sortOrder: r.sortOrder,
 });
 
-// The fields a write actually carries; undefined ones are left as they are.
+// The fields a write actually carries; undefined ones are left as they are. The value is a
+// decimal with at most 2 places, or null when cleared.
 function lineChanges(input: CustomsInvoiceLineInput) {
-  const changes = {
+  return definedOnly({
     category: input.category?.trim(),
     currency: input.currency?.trim().toUpperCase(),
-    value: toValue(input.value),
+    value: toDecimal(input.value, "value"),
     sortOrder: input.sortOrder,
-  };
-  return Object.fromEntries(Object.entries(changes).filter(([, v]) => v !== undefined)) as Partial<typeof changes>;
+  });
 }
 
 class CustomsInvoicingService {
@@ -48,7 +38,9 @@ class CustomsInvoicingService {
   }
 
   async addLine(shipmentId: string, companyId: string, input: CustomsInvoiceLineInput): Promise<CustomsInvoiceLineItem> {
-    const line = await customsInvoiceLineRepository.createForCompany(companyId, { shipmentId, ...lineChanges(input) });
+    const values = { shipmentId, ...lineChanges(input) };
+    await assertShipmentExists(shipmentId);
+    const line = await customsInvoiceLineRepository.createForCompany(companyId, values);
     return toItem(line);
   }
 
@@ -64,6 +56,7 @@ class CustomsInvoicingService {
   }
 
   async setIssuedInvoiceNumber(shipmentId: string, companyId: string, issuedInvoiceNumber: string): Promise<string> {
+    if (!(await customsInvoiceRepository.getInvoice(shipmentId, companyId))) await assertShipmentExists(shipmentId);
     const row = await customsInvoiceRepository.upsertInvoice(shipmentId, companyId, issuedInvoiceNumber.trim());
     return row.issuedInvoiceNumber;
   }

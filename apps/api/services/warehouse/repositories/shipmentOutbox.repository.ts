@@ -91,6 +91,15 @@ class ShipmentOutboxRepository {
     return before;
   }
 
+  // A shipment deleted in Shipments: everything still owed to it (pending or failed) is cancelled.
+  async cancelForShipment(tx: Tx, shipmentId: string, companyId: string, why: string) {
+    return tx
+      .update(o)
+      .set({ status: "cancelled", lockedUntil: null, lastError: why, updatedAt: new Date() })
+      .where(and(eq(o.companyId, companyId), eq(o.shipmentId, shipmentId), inArray(o.status, ["pending", "failed"]), isNull(o.deletedAt)))
+      .returning({ id: o.id });
+  }
+
   // Rows that have not reached the shipment yet (pending or failed) for the given records.
   async openForMovements(movementIds: string[], companyId: string) {
     if (!movementIds.length) return [];

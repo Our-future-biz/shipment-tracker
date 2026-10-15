@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, numeric, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, numeric, date, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import type { CustomerLabel, CustomerStatus } from "../interfaces/interfaces";
 
 export const customerTable = pgTable(
   "customer",
@@ -17,15 +18,15 @@ export const customerTable = pgTable(
     city: text("city").notNull().default(""),
     country: text("country").notNull().default("CZ"),
     companyStatus: text("company_status").notNull().default(""),
-    registrationDate: text("registration_date").notNull().default(""),
+    registrationDate: date("registration_date", { mode: "string" }),
     nace: text("nace").notNull().default(""),
     dataSource: text("data_source").notNull().default("ARES"),
     lastRegistryUpdate: text("last_registry_update").notNull().default(""),
 
     // — CRM data —
-    status: text("status").notNull().default("Prospect"), // Active / Inactive / Prospect
+    status: text("status").$type<CustomerStatus>().notNull().default("Prospect"),
     salesOwner: text("sales_owner").notNull().default(""),
-    label: text("label").notNull().default("STANDARD"), // KEY ACCOUNT / STANDARD / RISK / TARGET CUSTOMER / PROSPECT
+    label: text("label").$type<CustomerLabel>().notNull().default("STANDARD"),
     // Money as numeric (exact) rather than real (lossy float); mode:"number" keeps the API type a JS number.
     creditLimit: numeric("credit_limit", { precision: 14, scale: 2, mode: "number" }).notNull().default(0),
     currency: text("currency").notNull().default("EUR"),
@@ -43,7 +44,7 @@ export const customerTable = pgTable(
     totalRevenue: numeric("total_revenue", { precision: 14, scale: 2, mode: "number" }).notNull().default(0),
     totalProfit: numeric("total_profit", { precision: 14, scale: 2, mode: "number" }).notNull().default(0),
     totalShipments: integer("total_shipments").notNull().default(0),
-    lastActivityDate: text("last_activity_date").notNull().default(""),
+    lastActivityDate: date("last_activity_date", { mode: "string" }),
   },
   (table) => [
     ...defaultTableIndexes("customer", table),

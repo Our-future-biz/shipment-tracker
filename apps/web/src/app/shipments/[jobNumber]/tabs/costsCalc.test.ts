@@ -4,6 +4,7 @@ import { computeCosts, type BuyingRow, type SellingRow } from "./costsCalc";
 const buy = (over: Partial<BuyingRow>): BuyingRow => ({
   id: "b1",
   category: "Ocean freight",
+  description: "",
   vendor: "",
   estQty: "",
   estAmount: "",
@@ -19,6 +20,7 @@ const buy = (over: Partial<BuyingRow>): BuyingRow => ({
 const sell = (over: Partial<SellingRow>): SellingRow => ({
   id: "s1",
   category: "Ocean freight",
+  description: "",
   customer: "",
   qty: "",
   amount: "",

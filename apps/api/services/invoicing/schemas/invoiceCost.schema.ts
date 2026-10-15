@@ -8,6 +8,8 @@ export const invoiceCostTable = pgTable(
     ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
     category: text("category").notNull().default(""),
+    /** What the cost is for, in words - the category alone cannot tell two lines of one kind apart. */
+    description: text("description").notNull().default(""),
     /** Estimated buying costs (mockup: Qty | Est. Amount | Cur) */
     estQty: numeric("est_qty", { precision: 14, scale: 2 }),
     estAmount: numeric("est_amount", { precision: 14, scale: 2 }),
@@ -17,10 +19,12 @@ export const invoiceCostTable = pgTable(
     realAmount: numeric("real_amount", { precision: 14, scale: 2 }),
     realCurrency: text("real_currency").notNull().default("CZK"),
     invoiceNumber: text("invoice_number").notNull().default(""),
-    /** prijata faktura obdrzena */
+    /** the vendor's invoice has been received */
     received: boolean("received").notNull().default(false),
     vendor: text("vendor").notNull().default(""),
     sortOrder: integer("sort_order").notNull().default(0),
+    /** The sales quote the row was copied from; "" for a row entered by hand. Tells whether a quote was already copied. */
+    sourceQuoteNumber: text("source_quote_number").notNull().default(""),
   },
   (table) => [
     ...defaultTableIndexes("invoice_cost", table),

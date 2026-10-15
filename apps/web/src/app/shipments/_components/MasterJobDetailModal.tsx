@@ -1,23 +1,14 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { COST_CATEGORIES } from "@/app/invoicing/_lib/billing";
+import { CURRENCIES } from "@/lib/enums";
 import { Modal, Tabs, Input, InputNumber, Select, Button, Alert, message } from "antd";
 import { ArrowLeftOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { computeDimensionTotals } from "@/lib/columnConfig";
-
-const CURRENCIES = ["CZK", "USD", "EUR", "GBP", "CHF", "CNY", "JPY"];
-
-const COST_CATEGORIES = [
-  { key: "freight", label: "Freight" },
-  { key: "collection", label: "Collection/Delivery" },
-  { key: "locals", label: "Locals" },
-  { key: "others", label: "Others" },
-  { key: "insurance", label: "Insurance" },
-  { key: "customs", label: "Customs clearance" },
-];
 
 interface DerivedRow {
   shipment: ShipmentItem;

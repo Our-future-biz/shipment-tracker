@@ -21,6 +21,7 @@ import { CUSTOMS_CLEARED, CUSTOMS_STATUSES, customsLine, setCustomsLineSql } fro
 import { deliverDue, shipmentUpdateState } from "./shipmentOutbox.service";
 import { FOLLOW_LIST_LIMIT, FOLLOW_ON_GET_MS, FOLLOW_ON_LIST_MS, followCustoms } from "./shipmentFollow.service";
 import { userName } from "./users";
+import { isUuid } from "../../../lib/uuid";
 import { acceptRecordedAt, checkRequestId, latest, offlineDetail, pragueHhmm, type StampOutcome, type SurveyOutcome } from "./offline";
 import { dockSlotsOf } from "./dockSlots";
 import { reweighRepository } from "../repositories/reweigh.repository";
@@ -1267,6 +1268,8 @@ class GateMovementService {
   // Pending, logged. The PIN itself is never logged.
   async generatePickupPin(shipmentId: string, companyId: string, userId: string) {
     if (!shipmentId.trim()) throw APIError.invalidArgument("A shipment is required");
+    // Checked before it reaches SQL: Postgres answers a non-uuid in a uuid column with an error.
+    if (!isUuid(shipmentId)) throw APIError.invalidArgument("Not a shipment id");
     const at = new Date().toISOString();
     const by = await this.userName(userId);
     const res = await warehouseSectionRepository.setPickupPin(

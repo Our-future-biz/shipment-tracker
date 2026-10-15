@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useInvoicing } from "@/hooks/useInvoicing";
+import { useJobFxRates } from "@/hooks/useFx";
 import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import { computeCosts, type BuyingRow, type Rates, type SellingRow } from "./costsCalc";
 
@@ -16,14 +16,8 @@ import { computeCosts, type BuyingRow, type Rates, type SellingRow } from "./cos
 const CZK_ONLY: Rates = { CZK: 1 };
 
 export function useCostsData(shipment: ShipmentItem | undefined) {
-  // Same query key as the detail page, so the data is already in memory when a tab opens.
-  const { data } = useQuery({
-    queryKey: ["invoicing", shipment?.id],
-    queryFn: () => api.invoicing.invoicingGet(shipment!.id),
-    enabled: !!shipment,
-    placeholderData: (prev) => prev,
-    refetchOnMount: false,
-  });
+  // The one shared invoicing query, so the data is already in memory when a tab opens.
+  const { data } = useInvoicing(shipment?.id ?? null);
 
   const billingCur = data?.billingSettings?.billingCurrency || "CZK";
 
@@ -34,12 +28,7 @@ export function useCostsData(shipment: ShipmentItem | undefined) {
         String(getFieldValue(shipment, f) ?? ""),
       )
     : [];
-  const ratesQuery = useQuery({
-    queryKey: ["fx", "job", shipment?.id, ...dateKey],
-    queryFn: () => api.fx.fxJobRates(shipment!.id),
-    enabled: !!shipment,
-    placeholderData: (prev) => prev,
-  });
+  const ratesQuery = useJobFxRates(shipment?.id, dateKey);
   const fx = ratesQuery.data ?? null;
 
   const rates: Rates = useMemo(
@@ -52,6 +41,7 @@ export function useCostsData(shipment: ShipmentItem | undefined) {
       (data?.costs ?? []).map((c) => ({
         id: c.id,
         category: c.category ?? "",
+        description: c.description ?? "",
         vendor: c.vendor ?? "",
         estQty: c.estQty ?? "",
         estAmount: c.estAmount ?? "",
@@ -70,6 +60,7 @@ export function useCostsData(shipment: ShipmentItem | undefined) {
       (data?.sellingCosts ?? []).map((c) => ({
         id: c.id,
         category: c.category ?? "",
+        description: c.description ?? "",
         customer: c.customer ?? "",
         qty: c.qty ?? "",
         amount: c.amount ?? "",

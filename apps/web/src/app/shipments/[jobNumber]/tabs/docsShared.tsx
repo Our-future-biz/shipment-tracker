@@ -1,24 +1,14 @@
 "use client";
 
 import { CheckOutlined, CloseOutlined } from "@ant-design/icons";
+import { formatFileSize } from "@/lib/files";
+
+export { formatFileSize };
 
 /**
- * Sdilene prvky karty Documents - pouziva je zalozka Documents
- * i karta Documents v sekci Customs, aby vypadaly stejne.
- * Barvy odpovidaji promennym .docs2 z HTML mockupu:
- *   --ink #151B2B  --ink-2 #5A6478  --ink-3 #8B94A7  --label #4E5769
- *   --line #E4E7F0 --line-2 #D3D8E5 --surface-2 #FAFBFD
- *   --indigo #4457D6 --indigo-soft #E7EAFC --card-head #EDEFFC
- *   --value #C3392B --value-soft #FBE6E4
- *   --green #177245 --green-soft #E1F3E9
+ * Shared pieces of the Documents card, used by the Documents tab and by the Documents card in
+ * Customs so both look the same. Colours are the panel palette tokens in styles/globals.css.
  */
-
-/** fmtSize z mockupu */
-export function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 /** docPlural z mockupu */
 export function docPlural(n: number): string {
@@ -36,10 +26,10 @@ export function ExtBadge({ fileName }: { fileName: string }) {
         ? "img"
         : "other";
   const cls = {
-    pdf: "text-[#C3392B] border-[#C3392B] bg-[#FBE6E4]",
-    xls: "text-[#177245] border-[#177245] bg-[#E1F3E9]",
-    img: "text-[#4457D6] border-[#4457D6] bg-[#E7EAFC]",
-    other: "text-[#8B94A7] border-[#D3D8E5] bg-[#FAFBFD]",
+    pdf: "text-danger border-danger bg-danger-soft",
+    xls: "text-ok border-ok bg-ok-soft",
+    img: "text-accent border-accent bg-accent-soft",
+    other: "text-muted border-line-strong bg-surface",
   }[kind];
   return (
     <span className={`flex-none w-[30px] h-[36px] rounded-[5px] grid place-items-center text-[8.5px] font-extrabold tracking-[.02em] border ${cls}`}>
@@ -57,10 +47,10 @@ export function FileCell({ fileName, fileSize }: { fileName: string; fileSize: n
     <div className="flex items-center gap-3 min-w-0">
       <ExtBadge fileName={fileName} />
       <span className="min-w-0">
-        <span className="block text-[14px] leading-8 font-semibold text-[#4457D6] truncate" title={fileName}>
+        <span className="block text-[14px] leading-8 font-semibold text-accent truncate" title={fileName}>
           {fileName}
         </span>
-        <span className="block text-[12px] leading-4 text-[#8B94A7] font-medium tabular-nums">{formatFileSize(fileSize)}</span>
+        <span className="block text-[12px] leading-4 text-muted font-medium tabular-nums">{formatFileSize(fileSize)}</span>
       </span>
     </div>
   );
@@ -72,19 +62,19 @@ export function CustomsPill({ status }: { status: string }) {
     "inline-flex items-center gap-[5px] whitespace-nowrap text-[11.5px] font-extrabold tracking-[.04em] uppercase px-2 py-1 rounded-[6px] border";
   if (status === "approved")
     return (
-      <span className={`${base} text-[#177245] bg-[#E1F3E9] border-[#177245]`}>
+      <span className={`${base} text-ok bg-ok-soft border-ok`}>
         <CheckOutlined className="text-[12px]" />
         Approved
       </span>
     );
   if (status === "declined")
     return (
-      <span className={`${base} text-[#C3392B] bg-[#FBE6E4] border-[#C3392B]`}>
+      <span className={`${base} text-danger bg-danger-soft border-danger`}>
         <CloseOutlined className="text-[12px]" />
         Declined
       </span>
     );
   return (
-    <span className={`${base} text-[#8B94A7] bg-[#FAFBFD] border-[#D3D8E5]`}>Awaiting review</span>
+    <span className={`${base} text-muted bg-surface border-line-strong`}>Awaiting review</span>
   );
 }

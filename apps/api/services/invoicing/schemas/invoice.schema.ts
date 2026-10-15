@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, numeric, uuid, integer, jsonb, date, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, uuid, integer, jsonb, date, index, uniqueIndex, check, foreignKey } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import type { InvoiceDocKind, InvoiceDocStatus, VatCode } from "../interfaces/interfaces";
 
 /** Issuer details as they were when the invoice was issued. */
 export interface SupplierSnapshot {
@@ -48,7 +49,7 @@ export interface ShipmentSnapshot {
 }
 
 export interface VatSummarySnapshot {
-  vatCode: string;
+  vatCode: VatCode;
   vatRate: number;
   base: number;
   vat: number;
@@ -58,7 +59,7 @@ export interface VatSummarySnapshot {
 
 /**
  * An issued tax document (invoice or credit note). Never edited after issuing: a database
- * trigger (migration 0010) rejects changes to the legal content and any delete.
+ * trigger (migration 0011) rejects changes to the legal content and any delete.
  * Corrections are made with a credit note that points at the original.
  */
 export const invoiceTable = pgTable(
@@ -67,10 +68,9 @@ export const invoiceTable = pgTable(
     ...defaultTableColumns,
     ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
-    /** invoice | credit_note */
-    kind: text("kind").notNull().default("invoice"),
-    /** issued | credited (an invoice reversed by a credit note) */
-    status: text("status").notNull().default("issued"),
+    kind: text("kind").$type<InvoiceDocKind>().notNull().default("invoice"),
+    /** An invoice reversed by a credit note becomes credited */
+    status: text("status").$type<InvoiceDocStatus>().notNull().default("issued"),
     number: text("number").notNull(),
     /** For a credit note: the invoice it corrects */
     correctsInvoiceId: uuid("corrects_invoice_id"),
@@ -116,8 +116,12 @@ export const invoiceTable = pgTable(
     index("invoice_customer_id_idx").on(table.customerId),
     uniqueIndex("invoice_company_number_unique").on(table.companyId, table.number),
     uniqueIndex("invoice_company_idempotency_unique").on(table.companyId, table.idempotencyKey),
+    index("invoice_corrects_invoice_id_idx").on(table.correctsInvoiceId),
+    foreignKey({ columns: [table.correctsInvoiceId], foreignColumns: [table.id], name: "invoice_corrects_invoice_id_fk" }),
     check("invoice_kind_check", sql`${table.kind} IN ('invoice', 'credit_note')`),
     check("invoice_status_check", sql`${table.status} IN ('issued', 'credited')`),
+    // a credit note always names the invoice it reverses, and only a credit note does
+    check("invoice_credit_note_link_check", sql`(${table.kind} = 'credit_note') = (${table.correctsInvoiceId} IS NOT NULL)`),
   ],
 );
 
@@ -138,7 +142,7 @@ export const invoiceLineTable = pgTable(
     net: numeric("net", { precision: 14, scale: 2 }).notNull(),
     /** Invoice-currency units per 1 unit_currency used for this line (ČNB cross rate × ROE %); 1 when the same */
     fxRate: numeric("fx_rate", { precision: 14, scale: 6 }),
-    vatCode: text("vat_code").notNull(),
+    vatCode: text("vat_code").$type<VatCode>().notNull(),
     vatRate: numeric("vat_rate", { precision: 5, scale: 2 }).notNull(),
     sourceSellingCostId: uuid("source_selling_cost_id"),
   },
@@ -146,6 +150,7 @@ export const invoiceLineTable = pgTable(
     ...defaultTableIndexes("invoice_line", table),
     tenantIndex("invoice_line", table),
     index("invoice_line_invoice_id_idx").on(table.invoiceId),
+    check("invoice_line_vat_code_check", sql`${table.vatCode} IN ('S21', 'Z69', 'RC', 'OUT', 'NP')`),
   ],
 );
 

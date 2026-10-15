@@ -13,20 +13,28 @@ import {
   addDays,
   calculateInvoice,
   creditLines,
+  creditTotals,
   defaultDuzp,
   dueDays,
   isIsoDate,
-  summarise,
   type InvoiceCalc,
   type InvoiceLineCalc,
-  type VatCode,
 } from "../lib/invoiceCalc";
-import type { BillingQueueCounts, BillingQueueItem, InvoiceDocItem, InvoiceDocLineItem, InvoicePartyItem, InvoicePreviewItem } from "../interfaces/interfaces";
+import type {
+  BillingQueueCounts,
+  BillingQueueItem,
+  InvoiceDocItem,
+  InvoiceDocLineItem,
+  InvoicePartyItem,
+  InvoicePreviewItem,
+  QueueView,
+} from "../interfaces/interfaces";
 import { renderInvoicePdf, type InvoiceForPdf } from "../lib/invoicePdf";
 import { loadPdfFonts } from "../lib/pdfFonts";
 import { buildBillingQueue, type QueueEntry } from "../lib/billingQueue";
 import { statusesAfterCredit, statusesAfterIssue, type StatusPatch } from "../lib/shipmentStatus";
 import { invoiceBucket } from "../storage/invoiceBucket";
+import { isUniqueViolation } from "../../../lib/db/errors";
 
 /**
  * Issuing tax documents. Everything is computed on the server from stored data: the
@@ -68,6 +76,8 @@ async function ratesForDuzp(duzp: string, today: string) {
   let problem = "";
   if (duzp > today) problem = "DUZP is in the future — the ČNB rate for it is not known yet";
   else if (r.provisional) problem = "Today's ČNB rate is imported at 15:00 (ČNB publishes about 14:30) — issue the invoice after that";
+  // a fixing that should exist for the tax date was not imported: an older one would be the wrong tax rate
+  else if (r.missing) problem = "ČNB rates for the tax date have not been imported yet — run Sync now on the Exchange page";
   else if (!r.fixingDate) problem = "No ČNB rates are stored — check the Exchange page";
   return { rates, fixingDate: r.fixingDate, roePct: r.roePct, problem };
 }
@@ -129,10 +139,13 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
   const { shipment } = await shipments.shipmentGet({ shipmentId });
   const profileRow = await invoiceProfileRepository.getByCompany(companyId);
   const profile = profileRow ? normaliseProfile(profileRow) : null;
-  const [rows, settings] = await Promise.all([
+  const [allRows, settings, alreadyInvoiced] = await Promise.all([
     sellingCostRepository.listByShipmentId(shipmentId, companyId),
     billingSettingsRepository.getByShipmentId(shipmentId, companyId),
+    invoiceRepository.invoicedSellingRowIds(shipmentId, companyId),
   ]);
+  // A row on an issued, not credited invoice is billed already; after a credit note it is open again.
+  const rows = allRows.filter((r) => !alreadyInvoiced.has(r.id));
 
   const problems: string[] = [];
   const issueDate = pragueToday();
@@ -156,7 +169,8 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
         dic: c.dic,
         paymentTerms: c.paymentTerms,
       };
-    } catch {
+    } catch (err) {
+      log.warn("invoice customer lookup failed", { customerId, error: err instanceof Error ? err.message : String(err) });
       problems.push("The chosen customer was not found");
     }
   }
@@ -182,7 +196,9 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
     vatPayer: profile?.vatPayer ?? true,
   });
   if (calc.missingCurrencies.length) problems.push(`ČNB publishes no rate for ${calc.missingCurrencies.join(", ")}`);
-  if (calc.lines.length === 0) problems.push("Tick at least one selling row for Invoice");
+  if (calc.lines.length === 0) {
+    problems.push(alreadyInvoiced.size ? "Every ticked selling row is invoiced already" : "Tick at least one selling row for Invoice");
+  }
   else if (calc.gross <= 0) problems.push("The invoice total must be above zero");
 
   const dueDate = addDays(issueDate, dueDays(customer?.paymentTerms, profile?.defaultDueDays ?? 14));
@@ -232,8 +248,12 @@ const money = (calc: Pick<InvoiceCalc, "net" | "vat" | "gross" | "netCzk" | "vat
   grossCzk: calc.grossCzk.toFixed(2),
 });
 
-/** Adds the document to the customer's invoice list (aging / credit). Never blocks issuing. */
-async function postToCustomer(inv: InvoiceRecord) {
+/**
+ * Adds the document to the customer's invoice list (aging / credit). A credit note goes in as
+ * Credited and turns the invoice it reverses into Credited too: the two cancel out and
+ * neither counts as owed. Never blocks issuing.
+ */
+async function postToCustomer(inv: InvoiceRecord, corrects?: InvoiceRecord) {
   try {
     await customers.invoiceCreate({
       customerId: inv.customerId,
@@ -241,11 +261,49 @@ async function postToCustomer(inv: InvoiceRecord) {
       amount: Number(inv.gross),
       currency: inv.currency,
       dueDate: inv.dueDate,
-      status: "Open",
+      status: corrects ? "Credited" : "Open",
       issuedAt: inv.issueDate,
     });
+    if (corrects) await customers.invoiceMarkCredited({ invoiceNumbers: [corrects.number] });
   } catch (err) {
-    log.error(err, "could not add the invoice to the customer's invoice list", { number: inv.number });
+    log.error(err, "could not update the customer's invoice list", { number: inv.number });
+  }
+}
+
+/**
+ * The document a retried request (same idempotency key) already made. The key must have been
+ * used for the same kind of document on the same shipment / invoice; anything else means the
+ * key was reused by mistake, and returning that other document would be wrong.
+ */
+async function replayed(companyId: string, key: string, matches: (r: InvoiceRecord) => boolean): Promise<InvoiceDocItem | null> {
+  const existing = await invoiceRepository.getByIdempotencyKey(companyId, key);
+  if (!existing) return null;
+  if (!matches(existing)) throw APIError.alreadyExists("This request was already used for another document — reload and try again");
+  return toDocItem(existing, await invoiceRepository.getLines(existing.id, companyId));
+}
+
+/**
+ * Runs an issue; when a retry with the same key raced it and won, its document is returned
+ * instead of the unique-key error.
+ */
+async function issueOnce(
+  companyId: string,
+  key: string | null,
+  matches: (r: InvoiceRecord) => boolean,
+  issue: () => Promise<InvoiceDocItem>,
+): Promise<InvoiceDocItem> {
+  if (key) {
+    const earlier = await replayed(companyId, key, matches);
+    if (earlier) return earlier;
+  }
+  try {
+    return await issue();
+  } catch (err) {
+    if (key && isUniqueViolation(err)) {
+      const winner = await replayed(companyId, key, matches);
+      if (winner) return winner;
+    }
+    throw err;
   }
 }
 
@@ -256,7 +314,7 @@ export interface InvoicePdfFile {
 }
 
 async function pdfInput(inv: InvoiceRecord, lines: InvoiceLineRecord[], companyId: string): Promise<InvoiceForPdf> {
-  const corrected = inv.correctsInvoiceId ? await invoiceRepository.getById(inv.correctsInvoiceId, companyId) : null;
+  const corrected = inv.correctsInvoiceId ? await invoiceRepository.getByIdForCompany(inv.correctsInvoiceId, companyId) : null;
   return {
     kind: inv.kind,
     number: inv.number,
@@ -299,8 +357,8 @@ async function storePdf(inv: InvoiceRecord, lines: InvoiceLineRecord[], companyI
   const sha = createHash("sha256").update(bytes).digest("hex");
   if (await invoiceRepository.setPdfIfMissing(inv.id, companyId, key, sha)) return bytes;
 
-  await invoiceBucket.remove(key).catch(() => undefined);
-  const winner = await invoiceRepository.getById(inv.id, companyId);
+  await invoiceBucket.remove(key).catch((err) => log.warn("could not remove a duplicate invoice PDF upload", { key, error: String(err) }));
+  const winner = await invoiceRepository.getByIdForCompany(inv.id, companyId);
   return invoiceBucket.download(winner!.pdfKey);
 }
 
@@ -333,8 +391,7 @@ async function applyStatusPatch(shipmentId: string, patch: StatusPatch, number: 
 }
 
 /** Queue views and the shipments-list filter behind each. */
-export const QUEUE_VIEWS = { to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced" } as const;
-export type QueueView = keyof typeof QUEUE_VIEWS;
+export const QUEUE_VIEWS: Record<QueueView, string> = { to_bill: "billing", not_invoiced: "not-invoiced", invoiced: "invoiced" };
 
 /** How many shipments one queue view shows at most (shipments are fetched 200 per page). */
 const QUEUE_MAX = 1000;
@@ -366,56 +423,65 @@ class InvoiceDocumentService {
 
   async issue(shipmentId: string, companyId: string, userId: string, params: IssueParams): Promise<InvoiceDocItem> {
     const key = params.idempotencyKey?.trim() || null;
-    if (key) {
-      const existing = await invoiceRepository.getByIdempotencyKey(companyId, key);
-      if (existing) return toDocItem(existing, await invoiceRepository.getLines(existing.id, companyId));
-    }
+    const sameRequest = (r: InvoiceRecord) => r.kind === "invoice" && r.shipmentId === shipmentId;
+    return issueOnce(companyId, key, sameRequest, async () => {
+      const ctx = await loadContext(shipmentId, companyId, params);
+      if (ctx.problems.length) throw APIError.failedPrecondition(ctx.problems.join("; "));
 
-    const ctx = await loadContext(shipmentId, companyId, params);
-    if (ctx.problems.length) throw APIError.failedPrecondition(ctx.problems.join("; "));
-
-    const shipmentSnapshot: ShipmentSnapshot = {
-      jobNumber: ctx.shipment.jobNumber,
-      jobYear: jobYear(ctx.shipment.createdAt),
-      tradeDirection: ctx.shipment.tradeDirection,
-      shipper: ctx.shipment.shipper,
-      consignee: ctx.shipment.consignee,
-      bookingNumber: ctx.shipment.bookingNumber,
-      containerNumber: ctx.shipment.containerNumber,
-      personalReference: ctx.shipment.personalReference,
-    };
-    const { invoice, lines } = await invoiceRepository.issue(
-      invoiceSeriesPrefix("INV", shipmentSnapshot.jobYear, shipmentSnapshot.jobNumber),
-      {
-        companyId,
-        shipmentId,
-        kind: "invoice",
-        status: "issued",
-        customerId: ctx.customer!.customerId,
-        issueDate: ctx.issueDate,
-        duzp: ctx.duzp,
-        dueDate: ctx.dueDate,
-        currency: ctx.calc.currency,
-        fxRate: String(ctx.calc.fxRate),
-        fxWeek: "",
-        fxFixingDate: ctx.picked.fixingDate,
-        fxSource: "CNB",
-        roePct: String(ctx.picked.roePct),
-        ...money(ctx.calc),
-        vatSummary: ctx.calc.vatSummary,
-        supplier: supplierSnapshot(ctx.profile!, ctx.calc.currency),
-        customer: ctx.customer!,
-        shipment: shipmentSnapshot,
-        note: params.note?.trim() ?? "",
-        issuedBy: userId,
-        idempotencyKey: key,
-      },
-      lineRows(ctx.calc.lines),
-    );
-    await postToCustomer(invoice);
-    await applyStatusPatch(shipmentId, statusesAfterIssue(ctx.shipment), invoice.number);
-    const stored = await storePdfQuietly(invoice, lines, companyId);
-    return { ...toDocItem(invoice, lines), hasPdf: stored };
+      const shipmentSnapshot: ShipmentSnapshot = {
+        jobNumber: ctx.shipment.jobNumber,
+        jobYear: jobYear(ctx.shipment.createdAt),
+        tradeDirection: ctx.shipment.tradeDirection,
+        shipper: ctx.shipment.shipper,
+        consignee: ctx.shipment.consignee,
+        bookingNumber: ctx.shipment.bookingNumber,
+        containerNumber: ctx.shipment.containerNumber,
+        personalReference: ctx.shipment.personalReference,
+      };
+      const billed = ctx.calc.lines.map((l) => l.sourceSellingCostId);
+      const { invoice, lines } = await invoiceRepository.issue(
+        invoiceSeriesPrefix("INV", shipmentSnapshot.jobYear, shipmentSnapshot.jobNumber),
+        {
+          companyId,
+          shipmentId,
+          kind: "invoice",
+          status: "issued",
+          customerId: ctx.customer!.customerId,
+          issueDate: ctx.issueDate,
+          duzp: ctx.duzp,
+          dueDate: ctx.dueDate,
+          currency: ctx.calc.currency,
+          fxRate: String(ctx.calc.fxRate),
+          fxWeek: "",
+          fxFixingDate: ctx.picked.fixingDate,
+          fxSource: "CNB",
+          roePct: String(ctx.picked.roePct),
+          ...money(ctx.calc),
+          vatSummary: ctx.calc.vatSummary,
+          supplier: supplierSnapshot(ctx.profile!, ctx.calc.currency),
+          customer: ctx.customer!,
+          shipment: shipmentSnapshot,
+          note: params.note?.trim() ?? "",
+          issuedBy: userId,
+          idempotencyKey: key,
+        },
+        lineRows(ctx.calc.lines),
+        {
+          // Two invoices of one job share the series lock: whatever the other one billed while
+          // this one was being prepared is checked again here, so no row is billed twice.
+          beforeInsert: async (tx) => {
+            const taken = await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId, tx);
+            if (billed.some((id) => taken.has(id))) {
+              throw APIError.failedPrecondition("Some of these selling rows were invoiced a moment ago — reload and check the invoice");
+            }
+          },
+        },
+      );
+      await postToCustomer(invoice);
+      await applyStatusPatch(shipmentId, statusesAfterIssue(ctx.shipment), invoice.number);
+      const stored = await storePdfQuietly(invoice, lines, companyId);
+      return { ...toDocItem(invoice, lines), hasPdf: stored };
+    });
   }
 
   /**
@@ -424,86 +490,93 @@ class InvoiceDocumentService {
    */
   async credit(invoiceId: string, companyId: string, userId: string, reason: string, idempotencyKey?: string): Promise<InvoiceDocItem> {
     const key = idempotencyKey?.trim() || null;
-    if (key) {
-      const existing = await invoiceRepository.getByIdempotencyKey(companyId, key);
-      if (existing) return toDocItem(existing, await invoiceRepository.getLines(existing.id, companyId));
-    }
-    if (!reason.trim()) throw APIError.invalidArgument("Give the reason for the credit note");
+    const sameRequest = (r: InvoiceRecord) => r.kind === "credit_note" && r.correctsInvoiceId === invoiceId;
+    return issueOnce(companyId, key, sameRequest, async () => {
+      if (!reason.trim()) throw APIError.invalidArgument("Give the reason for the credit note");
 
-    const original = await invoiceRepository.getById(invoiceId, companyId);
-    if (!original) throw APIError.notFound("Invoice not found");
-    if (original.kind !== "invoice") throw APIError.failedPrecondition("A credit note cannot be credited");
-    if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
+      const original = await invoiceRepository.getByIdForCompany(invoiceId, companyId);
+      if (!original) throw APIError.notFound("Invoice not found");
+      if (original.kind !== "invoice") throw APIError.failedPrecondition("A credit note cannot be credited");
+      if (original.status !== "issued") throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
 
-    const originalLines = await invoiceRepository.getLines(original.id, companyId);
-    const calcLines: InvoiceLineCalc[] = creditLines(
-      originalLines.map((l) => ({
-        sourceSellingCostId: l.sourceSellingCostId ?? "",
-        description: l.description,
-        qty: Number(l.qty),
-        unitPrice: Number(l.unitPrice),
-        unitCurrency: l.unitCurrency,
-        net: Number(l.net),
-        vatCode: l.vatCode as VatCode,
-        vatRate: Number(l.vatRate),
-        fxRate: Number(l.fxRate ?? 1),
-      })),
-    );
-    // §42 ZDPH: a correction uses the rate of the original supply.
-    const totals = summarise(calcLines, Number(original.fxRate));
-    const issueDate = pragueToday();
+      const originalLines = await invoiceRepository.getLines(original.id, companyId);
+      const calcLines: InvoiceLineCalc[] = creditLines(
+        originalLines.map((l) => ({
+          sourceSellingCostId: l.sourceSellingCostId ?? "",
+          description: l.description,
+          qty: Number(l.qty),
+          unitPrice: Number(l.unitPrice),
+          unitCurrency: l.unitCurrency,
+          net: Number(l.net),
+          vatCode: l.vatCode,
+          vatRate: Number(l.vatRate),
+          fxRate: Number(l.fxRate ?? 1),
+        })),
+      );
+      // §42 ZDPH: a correction uses the rate of the original supply — and the credit note must
+      // cancel the invoice exactly, so its totals are the invoice's own, negated.
+      const totals = creditTotals(original);
+      const issueDate = pragueToday();
 
-    const { invoice, lines } = await invoiceRepository.issue(
-      // the credit note belongs to the same job and job year as the invoice it corrects
-      invoiceSeriesPrefix("CN", original.shipment.jobYear, original.shipment.jobNumber),
-      {
-        companyId,
-        shipmentId: original.shipmentId,
-        kind: "credit_note",
-        status: "issued",
-        correctsInvoiceId: original.id,
-        creditReason: reason.trim(),
-        customerId: original.customerId,
-        issueDate,
-        // DUZP of a credit note = the date it is issued (§42 ZDPH)
-        duzp: issueDate,
-        dueDate: issueDate,
-        currency: original.currency,
-        fxRate: original.fxRate,
-        fxWeek: original.fxWeek,
-        fxFixingDate: original.fxFixingDate,
-        fxSource: original.fxSource,
-        roePct: original.roePct,
-        ...money(totals),
-        vatSummary: totals.vatSummary,
-        supplier: original.supplier,
-        customer: original.customer,
-        shipment: original.shipment,
-        note: "",
-        issuedBy: userId,
-        idempotencyKey: key,
-      },
-      lineRows(calcLines).map((l) => ({ ...l, sourceSellingCostId: l.sourceSellingCostId || null })),
-      async (tx) => {
-        const ok = await invoiceRepository.markCredited(tx, original.id, companyId);
-        if (!ok) throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
-      },
-    );
-    await postToCustomer(invoice);
-    try {
-      const { shipment } = await shipments.shipmentGet({ shipmentId: original.shipmentId });
-      const openLeft = await invoiceRepository.countOpenInvoices(original.shipmentId, companyId);
-      await applyStatusPatch(original.shipmentId, statusesAfterCredit(shipment, openLeft), invoice.number);
-    } catch (err) {
-      log.error(err, "could not read the shipment after the credit note", { number: invoice.number });
-    }
-    const stored = await storePdfQuietly(invoice, lines, companyId);
-    return { ...toDocItem(invoice, lines), hasPdf: stored };
+      const { invoice, lines } = await invoiceRepository.issue(
+        // the credit note belongs to the same job and job year as the invoice it corrects
+        invoiceSeriesPrefix("CN", original.shipment.jobYear, original.shipment.jobNumber),
+        {
+          companyId,
+          shipmentId: original.shipmentId,
+          kind: "credit_note",
+          status: "issued",
+          correctsInvoiceId: original.id,
+          creditReason: reason.trim(),
+          customerId: original.customerId,
+          issueDate,
+          // DUZP of a credit note = the date it is issued (§42 ZDPH)
+          duzp: issueDate,
+          dueDate: issueDate,
+          currency: original.currency,
+          fxRate: original.fxRate,
+          fxWeek: original.fxWeek,
+          fxFixingDate: original.fxFixingDate,
+          fxSource: original.fxSource,
+          roePct: original.roePct,
+          ...money(totals),
+          vatSummary: totals.vatSummary,
+          supplier: original.supplier,
+          customer: original.customer,
+          shipment: original.shipment,
+          note: "",
+          issuedBy: userId,
+          idempotencyKey: key,
+        },
+        lineRows(calcLines).map((l) => ({ ...l, sourceSellingCostId: l.sourceSellingCostId || null })),
+        {
+          afterInsert: async (tx) => {
+            const ok = await invoiceRepository.markCredited(tx, original.id, companyId);
+            if (!ok) throw APIError.failedPrecondition(`Invoice ${original.number} has already been credited`);
+          },
+        },
+      );
+      await postToCustomer(invoice, original);
+      try {
+        const { shipment } = await shipments.shipmentGet({ shipmentId: original.shipmentId });
+        const openLeft = await invoiceRepository.countOpenInvoices(original.shipmentId, companyId);
+        await applyStatusPatch(original.shipmentId, statusesAfterCredit(shipment, openLeft), invoice.number);
+      } catch (err) {
+        log.error(err, "could not read the shipment after the credit note", { number: invoice.number });
+      }
+      const stored = await storePdfQuietly(invoice, lines, companyId);
+      return { ...toDocItem(invoice, lines), hasPdf: stored };
+    });
+  }
+
+  /** Issued, not credited invoices of a job (its tax date is final while there is one). */
+  async openInvoiceCount(shipmentId: string, companyId: string): Promise<number> {
+    return invoiceRepository.countOpenInvoices(shipmentId, companyId);
   }
 
   /** The official PDF: the stored copy, or made and stored now if issuing could not store it. */
   async pdf(id: string, companyId: string): Promise<InvoicePdfFile> {
-    const row = await invoiceRepository.getById(id, companyId);
+    const row = await invoiceRepository.getByIdForCompany(id, companyId);
     if (!row) throw APIError.notFound("Invoice not found");
     let bytes: Buffer | null = null;
     if (row.pdfKey) {
@@ -591,7 +664,7 @@ class InvoiceDocumentService {
   }
 
   async get(id: string, companyId: string): Promise<InvoiceDocItem> {
-    const row = await invoiceRepository.getById(id, companyId);
+    const row = await invoiceRepository.getByIdForCompany(id, companyId);
     if (!row) throw APIError.notFound("Invoice not found");
     return toDocItem(row, await invoiceRepository.getLines(row.id, companyId));
   }

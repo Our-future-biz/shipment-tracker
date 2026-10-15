@@ -30,10 +30,12 @@ export function nextSequence(existingNumbers: string[], seriesPrefix: string): n
   return max + 1;
 }
 
-/** Year of the job, from the date the job was created (ISO string). */
+/**
+ * Year of the job, from the date the job was created (ISO string), in Prague time: a job
+ * created at 00:30 on 1 January is that year's job, although it is still 31 December in UTC.
+ */
 export function jobYear(createdAt: string | Date): number {
   const d = createdAt instanceof Date ? createdAt : new Date(createdAt);
-  const year = d.getUTCFullYear();
-  if (!Number.isFinite(year)) throw new Error(`Invalid job date: ${String(createdAt)}`);
-  return year;
+  if (Number.isNaN(d.getTime())) throw new Error(`Invalid job date: ${String(createdAt)}`);
+  return Number(new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Prague", year: "numeric" }).format(d));
 }

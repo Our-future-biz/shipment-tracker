@@ -13,7 +13,7 @@ import { useStockLines } from "@/hooks/useWarehouseRecords";
 import { useToast } from "@/lib/toast";
 import { formatDate } from "@/lib/date";
 import { api } from "@/lib/api";
-import { isSalesQuote, toSalesQuote } from "@/app/sales/_lib/salesQuote";
+import { toSalesQuote } from "@/app/sales/_lib/salesQuote";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
@@ -804,10 +804,10 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
   });
   const { data: quoteData, isFetching: quotesLoading } = useQuery({
     queryKey: ["quotes", "warehouse-copy"],
-    queryFn: () => api.quotes.quoteList({ limit: 200, sortDirection: "desc" }),
+    queryFn: () => api.quotes.salesQuoteList({ limit: 200, sortDirection: "desc" }),
     enabled: open && source === "quote",
   });
-  const quotes = useMemo(() => (quoteData?.data ?? []).filter(isSalesQuote).map(toSalesQuote), [quoteData]);
+  const quotes = useMemo(() => (quoteData?.data ?? []).map(toSalesQuote), [quoteData]);
 
   useEffect(() => {
     if (!open) return;

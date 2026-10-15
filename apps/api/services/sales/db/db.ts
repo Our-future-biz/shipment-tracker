@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as termsConditionSchema from "../schemas/termsCondition.schema";
 import * as salesPreferenceSchema from "../schemas/salesPreference.schema";
+import * as followupTaskSchema from "../schemas/followupTask.schema";
 
 const { Pool } = pg;
 
@@ -18,5 +19,6 @@ export const db = drizzle(pool, {
   schema: {
     ...termsConditionSchema,
     ...salesPreferenceSchema,
+    ...followupTaskSchema,
   },
 });

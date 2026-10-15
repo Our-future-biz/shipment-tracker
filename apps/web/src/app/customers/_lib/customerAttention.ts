@@ -1,4 +1,5 @@
 import dayjs from "dayjs";
+import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import type { DocumentItem } from "@/hooks/useCustomerDocuments";
 import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
@@ -12,7 +13,7 @@ import { daysSince } from "./customerDates";
 import { daysOverdue, summarizeInvoices } from "./customerInvoices";
 import type { Rates } from "@/lib/fx";
 import { fmtMoney, roundCents } from "./customerMoney";
-import { quoteBucket, quoteHref, safeValidityInfo } from "./customerQuotes";
+import { quoteBucket } from "./customerQuotes";
 
 // What on a customer needs somebody's attention right now, for the "Needs attention" list of the Overview.
 // One pure function over data the page has already loaded, so the rules can be read and tested in one place.
@@ -79,11 +80,6 @@ function shipmentItems(
     }));
 }
 
-// The day a quote's validity ends ("YYYY-MM-DD"), or null when it is not known.
-function quoteValidityDate(quote: SalesQuote): string | null {
-  return safeValidityInfo(quote).date;
-}
-
 // Whole calendar days from today to a date on the viewer's clock — negative once the date has passed —
 // so a quote valid until today stays "today" until midnight. Null when the date is unreadable.
 function daysUntil(date: string, now: number): number | null {
@@ -100,12 +96,15 @@ function validityDetail(date: string, daysLeft: number): string {
   return `Valid for ${daysLeft} more days.`;
 }
 
-// Open quotes whose validity has ended or is about to, soonest first.
-function quoteItems(quotes: SalesQuote[], now: number): AttentionItem[] {
+// Quotes still in play whose validity has ended or is about to, soonest first. A quote that
+// expired while it was with the customer is among them: it waits for somebody to revise or close it.
+// The quote opens knowing it was opened from this customer, so its back link returns here.
+function quoteItems(quotes: SalesQuote[], customerId: string, now: number): AttentionItem[] {
   return quotes
     .flatMap((quote) => {
-      if (quoteBucket(quote) !== "open") return [];
-      const date = quoteValidityDate(quote);
+      const bucket = quoteBucket(quote);
+      if (bucket !== "open" && bucket !== "expired") return [];
+      const date = quote.validUntil;
       const daysLeft = date ? daysUntil(date, now) : null;
       if (!date || daysLeft === null || daysLeft > ATTENTION_RULES.quoteExpiryDays) return [];
       return [{ quote, date, daysLeft }];
@@ -116,7 +115,7 @@ function quoteItems(quotes: SalesQuote[], now: number): AttentionItem[] {
       severity: "warning",
       title: quote.quoteNumber,
       detail: validityDetail(date, daysLeft),
-      href: quoteHref(quote.quoteNumber),
+      href: quoteHref(quote.quoteNumber, { from: "customer", customerId }),
     }));
 }
 
@@ -203,7 +202,7 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
 
   // Warnings.
   items.push(...shipmentItems(dueWithin48h, customer.id, "warning", "48h"));
-  items.push(...quoteItems(quotes, now));
+  items.push(...quoteItems(quotes, customer.id, now));
 
   const typesOnFile = new Set(documents.map((document) => documentTypeKey(document.type)));
   const missingTypes = ATTENTION_RULES.requiredDocumentTypes.map(documentTypeKey).filter((type) => !typesOnFile.has(type));

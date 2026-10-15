@@ -1,6 +1,6 @@
 {
-  "id": "f584fdb2-e7b8-4c8a-a98a-e0778092e683",
-  "prevId": "e92f9e60-3fec-4c1e-9520-10e8d95101bc",
+  "id": "e92f9e60-3fec-4c1e-9520-10e8d95101bc",
+  "prevId": "14bc656d-45dd-45d0-900b-edff6eb3d38d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -72,9 +72,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "billing_override_deleted_at_idx": {
           "name": "billing_override_deleted_at_idx",
@@ -87,9 +87,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "billing_override_company_id_idx": {
           "name": "billing_override_company_id_idx",
@@ -102,9 +102,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "billing_override_shipment_id_idx": {
           "name": "billing_override_shipment_id_idx",
@@ -117,9 +117,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -206,9 +206,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "billing_settings_deleted_at_idx": {
           "name": "billing_settings_deleted_at_idx",
@@ -221,9 +221,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "billing_settings_company_id_idx": {
           "name": "billing_settings_company_id_idx",
@@ -236,9 +236,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "billing_settings_shipment_id_idx": {
           "name": "billing_settings_shipment_id_idx",
@@ -251,9 +251,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -261,10 +261,10 @@
       "uniqueConstraints": {
         "billing_settings_shipment_id_unique": {
           "name": "billing_settings_shipment_id_unique",
+          "nullsNotDistinct": false,
           "columns": [
             "shipment_id"
-          ],
-          "nullsNotDistinct": false
+          ]
         }
       },
       "policies": {},
@@ -354,9 +354,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customs_invoice_line_deleted_at_idx": {
           "name": "customs_invoice_line_deleted_at_idx",
@@ -369,9 +369,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customs_invoice_line_company_id_idx": {
           "name": "customs_invoice_line_company_id_idx",
@@ -384,9 +384,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customs_invoice_line_shipment_id_idx": {
           "name": "customs_invoice_line_shipment_id_idx",
@@ -399,9 +399,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -474,9 +474,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customs_invoice_deleted_at_idx": {
           "name": "customs_invoice_deleted_at_idx",
@@ -489,9 +489,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customs_invoice_company_id_idx": {
           "name": "customs_invoice_company_id_idx",
@@ -504,9 +504,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customs_invoice_shipment_id_idx": {
           "name": "customs_invoice_shipment_id_idx",
@@ -519,9 +519,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "customs_invoice_company_shipment_unique": {
           "name": "customs_invoice_company_shipment_unique",
@@ -540,9 +540,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -639,9 +639,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "exchange_rate_deleted_at_idx": {
           "name": "exchange_rate_deleted_at_idx",
@@ -654,9 +654,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "exchange_rate_company_id_idx": {
           "name": "exchange_rate_company_id_idx",
@@ -669,9 +669,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "exchange_rate_company_week_unique": {
           "name": "exchange_rate_company_week_unique",
@@ -690,9 +690,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "exchange_rate_valid_from_idx": {
           "name": "exchange_rate_valid_from_idx",
@@ -705,9 +705,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -797,9 +797,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "generated_invoice_deleted_at_idx": {
           "name": "generated_invoice_deleted_at_idx",
@@ -812,9 +812,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "generated_invoice_company_id_idx": {
           "name": "generated_invoice_company_id_idx",
@@ -827,9 +827,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "generated_invoice_shipment_id_idx": {
           "name": "generated_invoice_shipment_id_idx",
@@ -842,9 +842,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "generated_invoice_company_number_unique": {
           "name": "generated_invoice_company_number_unique",
@@ -863,9 +863,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -985,9 +985,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_line_deleted_at_idx": {
           "name": "invoice_line_deleted_at_idx",
@@ -1000,9 +1000,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_line_company_id_idx": {
           "name": "invoice_line_company_id_idx",
@@ -1015,9 +1015,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_line_invoice_id_idx": {
           "name": "invoice_line_invoice_id_idx",
@@ -1030,24 +1030,24 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {
         "invoice_line_invoice_id_invoice_id_fk": {
           "name": "invoice_line_invoice_id_invoice_id_fk",
           "tableFrom": "invoice_line",
+          "tableTo": "invoice",
           "columnsFrom": [
             "invoice_id"
           ],
-          "tableTo": "invoice",
           "columnsTo": [
             "id"
           ],
-          "onUpdate": "no action",
-          "onDelete": "no action"
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -1281,9 +1281,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_deleted_at_idx": {
           "name": "invoice_deleted_at_idx",
@@ -1296,9 +1296,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_company_id_idx": {
           "name": "invoice_company_id_idx",
@@ -1311,9 +1311,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_shipment_id_idx": {
           "name": "invoice_shipment_id_idx",
@@ -1326,9 +1326,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_customer_id_idx": {
           "name": "invoice_customer_id_idx",
@@ -1341,9 +1341,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_company_number_unique": {
           "name": "invoice_company_number_unique",
@@ -1362,9 +1362,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_company_idempotency_unique": {
           "name": "invoice_company_idempotency_unique",
@@ -1383,9 +1383,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1514,9 +1514,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_additional_charge_deleted_at_idx": {
           "name": "invoice_additional_charge_deleted_at_idx",
@@ -1529,9 +1529,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_additional_charge_company_id_idx": {
           "name": "invoice_additional_charge_company_id_idx",
@@ -1544,9 +1544,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_additional_charge_shipment_id_idx": {
           "name": "invoice_additional_charge_shipment_id_idx",
@@ -1559,9 +1559,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1700,9 +1700,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_cost_deleted_at_idx": {
           "name": "invoice_cost_deleted_at_idx",
@@ -1715,9 +1715,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_cost_company_id_idx": {
           "name": "invoice_cost_company_id_idx",
@@ -1730,9 +1730,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_cost_shipment_id_idx": {
           "name": "invoice_cost_shipment_id_idx",
@@ -1745,9 +1745,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -1919,9 +1919,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_profile_deleted_at_idx": {
           "name": "invoice_profile_deleted_at_idx",
@@ -1934,9 +1934,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_profile_company_id_idx": {
           "name": "invoice_profile_company_id_idx",
@@ -1949,9 +1949,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_profile_company_unique": {
           "name": "invoice_profile_company_unique",
@@ -1964,9 +1964,9 @@
             }
           ],
           "isUnique": true,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -2091,9 +2091,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_selling_cost_deleted_at_idx": {
           "name": "invoice_selling_cost_deleted_at_idx",
@@ -2106,9 +2106,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_selling_cost_company_id_idx": {
           "name": "invoice_selling_cost_company_id_idx",
@@ -2121,9 +2121,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         },
         "invoice_selling_cost_shipment_id_idx": {
           "name": "invoice_selling_cost_shipment_id_idx",
@@ -2136,9 +2136,9 @@
             }
           ],
           "isUnique": false,
-          "with": {},
+          "concurrently": false,
           "method": "btree",
-          "concurrently": false
+          "with": {}
         }
       },
       "foreignKeys": {},
@@ -2151,10 +2151,10 @@
   },
   "enums": {},
   "schemas": {},
-  "views": {},
   "sequences": {},
   "roles": {},
   "policies": {},
+  "views": {},
   "_meta": {
     "columns": {},
     "schemas": {},

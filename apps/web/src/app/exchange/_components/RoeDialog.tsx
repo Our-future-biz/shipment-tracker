@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Alert, DatePicker, Input, InputNumber, Modal, message } from "antd";
+import { useRef, useState } from "react";
+import { Alert, App, DatePicker, Input, InputNumber, Modal } from "antd";
 import dayjs from "dayjs";
-import { api } from "@/lib/api";
+import { useSetRoe } from "@/hooks/useFx";
+import { useToast } from "@/lib/toast";
 import { fmtPct, fmtRate, type FxOverview } from "./fxShared";
 
 interface Props {
@@ -15,37 +15,48 @@ interface Props {
 }
 
 export function RoeDialog({ current, rates, today, onClose }: Props) {
-  const queryClient = useQueryClient();
+  const toast = useToast();
+  const { modal } = App.useApp();
+  const setRoe = useSetRoe();
+  // One back-dated confirm at a time, however often Save is clicked.
+  const confirming = useRef(false);
   const [pct, setPct] = useState<number | null>(current);
   const [effectiveFrom, setEffectiveFrom] = useState(today);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const backdated = effectiveFrom < today;
 
-  const save = useMutation({
-    mutationFn: () => api.fx.fxRoeSet({ pct: pct ?? 0, effectiveFrom, note: note.trim() }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["fx"] });
-      message.success("ROE % saved");
-      onClose();
-    },
-    onError: (e: unknown) => setError(e instanceof Error ? e.message : "Could not save"),
-  });
+  const save = () =>
+    setRoe.mutate(
+      { pct: pct ?? 0, effectiveFrom, note: note.trim() },
+      {
+        onSuccess: () => {
+          toast.success("ROE % saved");
+          onClose();
+        },
+        onError: (e: unknown) => setError(e instanceof Error ? e.message : "Could not save"),
+      },
+    );
 
-  const submit = () => {
+  const handleSubmit = () => {
+    if (confirming.current || setRoe.isPending) return;
     setError("");
     if (pct == null || pct < 80 || pct > 120) return setError("Enter a % between 80 and 120.");
     if (!note.trim()) return setError("Add a note saying why the % changes.");
     if (backdated) {
-      Modal.confirm({
+      confirming.current = true;
+      modal.confirm({
         title: "Back-dated change",
         content: `The new % will count from ${dayjs(effectiveFrom).format("DD.MM.YYYY")}, a date in the past. Quotes and invoices already made keep their rates.`,
         okText: "Save anyway",
-        onOk: () => save.mutate(),
+        onOk: save,
+        afterClose: () => {
+          confirming.current = false;
+        },
       });
       return;
     }
-    save.mutate();
+    save();
   };
 
   return (
@@ -53,9 +64,9 @@ export function RoeDialog({ current, rates, today, onClose }: Props) {
       open
       title="Change the company ROE %"
       okText="Save"
-      onOk={submit}
+      onOk={handleSubmit}
       onCancel={onClose}
-      confirmLoading={save.isPending}
+      confirmLoading={setRoe.isPending}
       destroyOnHidden
     >
       <div className="flex flex-col gap-4 pt-2">
@@ -76,7 +87,7 @@ export function RoeDialog({ current, rates, today, onClose }: Props) {
               precision={3}
               decimalSeparator="."
               suffix="%"
-              style={{ width: "100%" }}
+              className="!w-full"
             />
           </label>
           <label className="flex flex-col gap-1 text-[13px] font-semibold text-slate-600">
@@ -86,7 +97,7 @@ export function RoeDialog({ current, rates, today, onClose }: Props) {
               onChange={(d) => d && setEffectiveFrom(d.format("YYYY-MM-DD"))}
               format="DD.MM.YYYY"
               allowClear={false}
-              style={{ width: "100%" }}
+              className="!w-full"
             />
           </label>
         </div>
@@ -105,7 +116,7 @@ export function RoeDialog({ current, rates, today, onClose }: Props) {
             </div>
           ))}
         </div>
-        {backdated && <div className="text-[12.5px] text-[#95620B]">This date is in the past — you will be asked to confirm.</div>}
+        {backdated && <div className="text-[12.5px] text-warn">This date is in the past — you will be asked to confirm.</div>}
         {error && <div className="text-[13px] text-red-600">{error}</div>}
       </div>
     </Modal>

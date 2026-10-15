@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Alert,
   Button,
@@ -22,15 +22,15 @@ import { DeleteOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@an
 import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
-import { fileToBase64 } from "@/lib/files";
+import { fileToBase64, formatFileSize } from "@/lib/files";
 import { FULL_LOAD } from "@/lib/enums";
 import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
-import { useQuotes } from "@/hooks/useQuotes";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
 import { FieldReviewTable } from "./FieldReviewTable";
+import { QuoteOpenButton, QuoteReview, QuoteTarget } from "./QuoteReading";
 import {
   baseCreatePayload,
   bookingExistingValue,
@@ -64,6 +64,7 @@ import {
   withContainerType,
   withPackageType,
 } from "../_lib/extraction";
+import { useQuoteReading } from "../_lib/useQuoteReading";
 
 type PipelineStep = "idle" | "classified" | "extracting" | "ready";
 
@@ -83,7 +84,7 @@ const DESTINATION_OPTIONS = [
 const DESTINATION_HINT: Record<Destination, string> = {
   shipment: "Extract shipping data (B/L, booking, waybill) into Shipments columns.",
   invoicing: "Extract cost data (invoice, debit note) — amount, vendor, invoice number.",
-  quote: "Extract shipping data into a Quote record.",
+  quote: "Read a customer's request (inquiry email, rate request, packing list) into a Sales quote: customer, route, cargo and readiness date. Prices are not read.",
   masterjob: "Extract multiple shipments from a pre-alert and create them under a Master Job (MCZ).",
   booking: "Read a carrier's booking confirmation into a new or an existing Master Job (MCZ); its details also reach the master job's shipments.",
   customs: "Read the MRN Number, Shipper, Consignee, Total Weight and Container Numbers from a customs declaration into one shipment.",
@@ -110,7 +111,7 @@ export function DocumentReadingWorkflow() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { shipments, createShipment, updateShipment, linkMasterJob } = useShipments();
-  const { quotes, updateQuote } = useQuotes();
+  const quoteReading = useQuoteReading();
 
   // Workflow
   const [destination, setDestination] = useState<Destination>("shipment");
@@ -127,13 +128,12 @@ export function DocumentReadingWorkflow() {
   const [preparedFiles, setPreparedFiles] = useState<{ fileName: string; pageCount: number }[]>([]);
   const [textInput, setTextInput] = useState("");
 
-  // Shipment / Quote review
+  // Shipment review
   const [fields, setFields] = useState<ExtractedField[]>([]);
   const [extractionMethod, setExtractionMethod] = useState("");
   const [shipmentMode, setShipmentMode] = useState<TargetMode>("existing");
   const [targetShipmentId, setTargetShipmentId] = useState("");
   const [committedJobNumber, setCommittedJobNumber] = useState("");
-  const [quoteNumber, setQuoteNumber] = useState("");
   // Booking confirmations go to a new master job or to an existing one (by MCZ).
   const [bookingMode, setBookingMode] = useState<TargetMode>("new");
   const [bookingMcz, setBookingMcz] = useState("");
@@ -181,10 +181,6 @@ export function DocumentReadingWorkflow() {
         .map((s) => ({ value: s.id, label: `${s.jobNumber} — ${s.shipper || s.consignee || ""}` })),
     [shipments],
   );
-  const quoteOptions = useMemo(
-    () => quotes.map((q) => ({ value: q.quoteNumber, label: q.quoteNumber })),
-    [quotes],
-  );
   const newShipmentPreview = useMemo(() => nextCzNumber(shipments), [shipments]);
   const { masterJobs } = useMasterJobs();
   const createMasterJob = useCreateMasterJob();
@@ -212,8 +208,7 @@ export function DocumentReadingWorkflow() {
       return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
     if (destination === "customs")
       return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
-    if (destination === "quote")
-      return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${quoteNumber}`;
+    if (destination === "quote") return quoteReading.doneTitle;
     if (shipmentMode === "new") return `New shipment ${committedJobNumber} created`;
     return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
   })();
@@ -253,10 +248,14 @@ export function DocumentReadingWorkflow() {
   const masterFilesSize = masterFiles.reduce((sum, f) => sum + f.size, 0);
   const masterFilesTooLarge = masterFilesSize > MASTER_FILES_MAX_BYTES;
 
+  // The same limit the API applies to pasted text (extractText.controller.ts).
+  const textMaxLength = destination === "quote" ? 6000 : 1500;
+
   const canExtract = (() => {
-    const hasInput = inputMode === "file" ? !!fileBase64 : textInput.trim().length >= 10;
+    const textLength = textInput.trim().length;
+    const hasInput = inputMode === "file" ? !!fileBase64 : textLength >= 10 && textLength <= textMaxLength;
     if (destination === "invoicing") return hasInput && !!invoiceTargetShipmentId;
-    if (destination === "quote") return hasInput && !!quoteNumber;
+    if (destination === "quote") return hasInput && quoteReading.ready;
     if (destination === "booking") return hasInput && (bookingMode === "new" || !!bookingMasterJob);
     if (destination === "customs") return hasInput && !!customsShipmentId;
     if (destination === "masterjob") return masterFiles.length > 0 && !masterFilesTooLarge && !!activeMcz;
@@ -331,15 +330,7 @@ export function DocumentReadingWorkflow() {
         setExtractionMethod(result.method);
         setStep("review");
       } else if (destination === "quote") {
-        const result =
-          inputMode === "file"
-            ? await api.extraction.extractQuote({ fileBase64, fileName })
-            : await api.extraction.extractText({ text: textInput.trim(), destination: "quote" });
-        const normalized = normalizeExtracted(result.extracted);
-        const quote = quotes.find((q) => q.quoteNumber === quoteNumber);
-        const existing = quote && quote.data && typeof quote.data === "object" ? (quote.data as Record<string, string>) : {};
-        setFields(buildFields(normalized, (label) => existing[label] || ""));
-        setExtractionMethod(result.method);
+        await quoteReading.read(inputMode === "file" ? { fileBase64, fileName } : { text: textInput.trim() });
         setStep("review");
       } else {
         // masterjob — Phase 1: prepare + classify. A new batch starts on the next free MCZ.
@@ -477,20 +468,6 @@ export function DocumentReadingWorkflow() {
     }
   };
 
-  // ─── Commit: quote ───────────────────────────────────────────────
-  const commitQuote = async () => {
-    const approved = fieldsToLabelValues(fields);
-    if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
-    try {
-      const quote = quotes.find((q) => q.quoteNumber === quoteNumber);
-      const existing = quote && quote.data && typeof quote.data === "object" ? (quote.data as Record<string, string>) : {};
-      await updateQuote({ quoteNumber, params: { data: { ...existing, ...approved } } });
-      setStep("committed");
-    } catch {
-      toast.error("Failed to save quote data.");
-    }
-  };
-
   // ─── Master job pipeline ─────────────────────────────────────────
   const loadMasterFields = (record: Record<string, string> | undefined) =>
     setMasterFields(record ? recordToFields(record) : []);
@@ -522,7 +499,8 @@ export function DocumentReadingWorkflow() {
     }
   };
 
-  const loadNextBatch = async () => {
+  // Reads the current session and batch, so the prefetch below always asks for the right one.
+  const loadNextBatch = useCallback(async () => {
     if (hblLoading || hblBatchIndex >= hblTotalBatches) return;
     setHblLoading(true);
     setError(null);
@@ -534,7 +512,7 @@ export function DocumentReadingWorkflow() {
       setError(err instanceof Error ? err.message : "Failed to load next batch.");
     }
     setHblLoading(false);
-  };
+  }, [hblLoading, hblBatchIndex, hblTotalBatches, pipelineSessionId]);
 
   const advanceMaster = () => {
     const nextIdx = masterIdx + 1;
@@ -557,10 +535,9 @@ export function DocumentReadingWorkflow() {
   useEffect(() => {
     if (pipelineStep !== "ready" || hblLoading || hblBatchIndex >= hblTotalBatches) return;
     if (masterShipments.length - masterIdx <= HBL_PREFETCH_AHEAD) {
-      loadNextBatch();
+      void loadNextBatch();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pipelineStep, hblLoading, hblBatchIndex, hblTotalBatches, masterShipments.length, masterIdx]);
+  }, [pipelineStep, hblLoading, hblBatchIndex, hblTotalBatches, masterShipments.length, masterIdx, loadNextBatch]);
 
   // Resolve a "waiting for next batch" pause once more shipments arrive (or finish).
   useEffect(() => {
@@ -648,7 +625,7 @@ export function DocumentReadingWorkflow() {
     setShipmentMode("existing");
     setTargetShipmentId("");
     setCommittedJobNumber("");
-    setQuoteNumber("");
+    quoteReading.reset();
     setCustomsShipmentId("");
     setBookingMode("new");
     setBookingMcz("");
@@ -764,20 +741,7 @@ export function DocumentReadingWorkflow() {
             </div>
           )}
 
-          {destination === "quote" && (
-            <div className="mb-4">
-              <div className="text-xs font-medium text-slate-500 mb-1.5">Quote Number (required)</div>
-              <Select
-                showSearch
-                className="w-full"
-                placeholder="Select quote…"
-                value={quoteNumber || undefined}
-                onChange={(v) => setQuoteNumber(v || "")}
-                options={quoteOptions}
-                filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-              />
-            </div>
-          )}
+          {destination === "quote" && <QuoteTarget reading={quoteReading} />}
 
           {destination === "booking" && (
             <div className="mb-4">
@@ -881,6 +845,8 @@ export function DocumentReadingWorkflow() {
               <p className="ant-upload-hint">
                 {destination === "invoicing"
                   ? "Invoice, Debit Note, Freight Bill, Customs Declaration…"
+                  : destination === "quote"
+                    ? "Inquiry email saved as PDF, rate request, packing list…"
                   : destination === "customs"
                     ? "Export / import declaration, transit document (T1), customs release…"
                     : destination === "masterjob"
@@ -896,7 +862,7 @@ export function DocumentReadingWorkflow() {
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               placeholder="Paste shipping data, email content, or any text with relevant details…"
-              maxLength={1500}
+              maxLength={textMaxLength}
               showCount
             />
           )}
@@ -909,7 +875,7 @@ export function DocumentReadingWorkflow() {
               className="mt-3"
               type="warning"
               showIcon
-              message={`The files add up to ${formatSize(masterFilesSize)}; at most ${formatSize(MASTER_FILES_MAX_BYTES)} can be read in one go. Remove some and read them as a second batch with "Add to existing".`}
+              message={`The files add up to ${formatFileSize(masterFilesSize)}; at most ${formatFileSize(MASTER_FILES_MAX_BYTES)} can be read in one go. Remove some and read them as a second batch with "Add to existing".`}
             />
           )}
 
@@ -938,8 +904,8 @@ export function DocumentReadingWorkflow() {
         </Card>
       )}
 
-      {/* ─── STEP: Review — shipment / quote ─── */}
-      {step === "review" && (destination === "shipment" || destination === "quote" || destination === "customs" || destination === "booking") && (
+      {/* ─── STEP: Review — shipment / customs / booking ─── */}
+      {step === "review" && (destination === "shipment" || destination === "customs" || destination === "booking") && (
         <Card>
           <div className="flex items-center justify-between mb-3">
             <Space size="small" wrap>
@@ -959,22 +925,12 @@ export function DocumentReadingWorkflow() {
             <Button
               type="primary"
               disabled={approvedCount === 0}
-              onClick={
-                destination === "quote"
-                  ? commitQuote
-                  : destination === "customs"
-                    ? commitCustoms
-                    : destination === "booking"
-                      ? handleCommitBooking
-                      : commitShipment
-              }
+              onClick={destination === "customs" ? commitCustoms : destination === "booking" ? handleCommitBooking : commitShipment}
               loading={destination === "booking" && bookingSaving}
             >
               Write {approvedCount} field{approvedCount !== 1 ? "s" : ""} to{" "}
               {destination === "booking"
                 ? bookingMasterJob?.mczNumber ?? bookingCreated?.mczNumber ?? `${newMcz} (new master job)`
-                : destination === "quote"
-                ? quoteNumber
                 : destination === "customs"
                   ? shipments.find((s) => s.id === customsShipmentId)?.jobNumber || "shipment"
                   : shipmentMode === "new"
@@ -983,6 +939,11 @@ export function DocumentReadingWorkflow() {
             </Button>
           </div>
         </Card>
+      )}
+
+      {/* ─── STEP: Review — quote ─── */}
+      {step === "review" && destination === "quote" && (
+        <QuoteReview reading={quoteReading} onBack={() => setStep("upload")} onWritten={() => setStep("committed")} />
       )}
 
       {/* ─── STEP: Review — invoicing ─── */}
@@ -1182,9 +1143,12 @@ export function DocumentReadingWorkflow() {
             title={successTitle}
             subTitle={successSubtitle}
             extra={
-              <Button type="primary" size="large" icon={<ReloadOutlined />} onClick={reset}>
-                New Extraction
-              </Button>
+              <Space>
+                <Button type="primary" size="large" icon={<ReloadOutlined />} onClick={reset}>
+                  New Extraction
+                </Button>
+                {destination === "quote" && quoteReading.written && <QuoteOpenButton quoteNumber={quoteReading.written.quoteNumber} />}
+              </Space>
             }
           />
         </Card>
@@ -1204,22 +1168,24 @@ interface MasterFile {
   base64: string;
 }
 
-const formatSize = (bytes: number) =>
-  bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} kB`;
+interface MasterFileListProps {
+  files: MasterFile[];
+  onRemove: (uid: string) => void;
+}
 
 // The files picked for one pre-alert, so it is clear exactly what will be read.
-function MasterFileList({ files, onRemove }: { files: MasterFile[]; onRemove: (uid: string) => void }) {
+function MasterFileList({ files, onRemove }: MasterFileListProps) {
   return (
     <div className="mt-3 border border-slate-200 rounded-lg">
       <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
-        Uploaded files ({files.length}) · {formatSize(files.reduce((sum, f) => sum + f.size, 0))}
+        Uploaded files ({files.length}) · {formatFileSize(files.reduce((sum, f) => sum + f.size, 0))}
       </div>
       <ul className="m-0 p-0 list-none">
         {files.map((f) => (
           <li key={f.uid} className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 last:border-b-0 text-xs">
             <FileOutlined className="text-indigo-400" />
             <span className="flex-1 min-w-0 truncate text-slate-800 font-medium">{f.name}</span>
-            <span className="shrink-0 text-slate-400">{formatSize(f.size)}</span>
+            <span className="shrink-0 text-slate-400">{formatFileSize(f.size)}</span>
             <Button
               size="small"
               type="text"

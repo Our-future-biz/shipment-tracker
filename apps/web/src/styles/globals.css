@@ -1,5 +1,38 @@
 @import "tailwindcss";
 
+/* The panel palette of the shipment detail tabs (documents, customs, costs). Use these
+   names (text-ink, bg-accent-soft, border-line, …) instead of raw hex values. Colors that
+   already match Tailwind's own (red-400, green-400, neutral-50) use those names instead. */
+@theme {
+  --color-ink: #151b2b;
+  --color-ink-strong: #10141f;
+  --color-ink-soft: #46506b;
+  --color-ink-muted: #4e5769;
+  --color-subtle: #5a6478;
+  --color-muted: #8b94a7;
+  --color-line: #e4e7f0;
+  --color-line-strong: #d3d8e5;
+  --color-line-soft: #d8dce6;
+  --color-line-dim: #c3c9d6;
+  --color-surface: #fafbfd;
+  --color-surface-2: #f4f5f9;
+  --color-surface-3: #f6f7fb;
+  --color-accent: #4457d6;
+  --color-accent-strong: #3f4dbf;
+  --color-accent-soft: #e7eafc;
+  --color-accent-softer: #edeffc;
+  --color-accent-faint: #f5f6fd;
+  --color-ok: #177245;
+  --color-ok-soft: #e1f3e9;
+  --color-ok-softer: #eaf6ee;
+  --color-warn: #95620b;
+  --color-warn-ink: #5a4a20;
+  --color-warn-soft: #fbeed2;
+  --color-warn-faint: #fbf6ef;
+  --color-danger: #c3392b;
+  --color-danger-soft: #fbe6e4;
+}
+
 /* Ant Design Table fixed columns need opaque background */
 .ant-table-cell-fix-left,
 .ant-table-cell-fix-right {

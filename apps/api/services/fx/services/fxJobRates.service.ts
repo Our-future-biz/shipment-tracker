@@ -1,35 +1,44 @@
-import { APIError } from "encore.dev/api";
+import { APIError, ErrCode } from "encore.dev/api";
 import { invoicing, shipments } from "~encore/clients";
 import { cnbRateRepository } from "../repositories/cnbRate.repository";
 import { jobRateRepository } from "../repositories/jobRate.repository";
 import type { LockedRates } from "../schemas/jobRate.schema";
-import { pragueToday } from "../lib/dates";
+import { expectedLatestFixing, pragueToday } from "../lib/dates";
 import { resolveFixing } from "../lib/rates";
 import { directionOf, planJobRates } from "../lib/jobRates";
 import type { JobRates } from "../interfaces/interfaces";
 
 /**
  * Whether the job has an issued (not credited) invoice, which makes its ATA/ATD — and so
- * its rate lock — final.
+ * its rate lock — final. The company comes from the caller's auth on the service call.
  */
-async function jobIsInvoiced(companyId: string, shipmentId: string): Promise<boolean> {
-  const { count } = await invoicing.openInvoiceCount({ shipmentId, companyId });
+async function jobIsInvoiced(shipmentId: string): Promise<boolean> {
+  const { count } = await invoicing.openInvoiceCount({ shipmentId });
   return count > 0;
 }
 
-// Every ČNB currency's rate for `date`, with whether all of them are final for it.
-async function ratesOn(date: string, today: string): Promise<{ rates: LockedRates; final: boolean }> {
+interface DateRates {
+  rates: LockedRates;
+  final: boolean; // every rate is ČNB's final one for the date
+  missing: boolean; // a fixing that should be stored isn't (import failed) — never lock on it
+}
+
+// Every ČNB currency's rate for `date`, with whether they can be locked.
+async function ratesOn(date: string): Promise<DateRates> {
+  const expected = expectedLatestFixing();
   const currencies = await cnbRateRepository.currencies();
   const rows = await cnbRateRepository.latestOnOrBefore(date, currencies);
   const rates: LockedRates = {};
   let final = rows.length > 0;
+  let missing = false;
   for (const row of rows) {
-    const res = resolveFixing([row], date, today);
+    const res = resolveFixing([row], date, expected);
     if (!res) continue;
     rates[row.currency] = { rate: res.rate, fixingDate: res.fixingDate };
-    if (res.provisional) final = false;
+    if (res.provisional || res.missing) final = false;
+    missing ||= res.missing;
   }
-  return { rates, final };
+  return { rates, final, missing };
 }
 
 function toList(rates: LockedRates): JobRates["rates"] {
@@ -43,18 +52,19 @@ export const fxJobRatesService = {
     let shipment;
     try {
       ({ shipment } = await shipments.shipmentGet({ shipmentId }));
-    } catch {
-      throw APIError.notFound("Shipment not found");
+    } catch (err) {
+      if (err instanceof APIError && err.code === ErrCode.NotFound) throw APIError.notFound("Shipment not found");
+      throw err;
     }
     const today = pragueToday();
     const { direction, assumed } = directionOf(shipment.tradeDirection ?? "");
     const lock = await jobRateRepository.get(companyId, shipmentId);
-    const invoiced = lock ? await jobIsInvoiced(companyId, shipmentId) : false;
+    const invoiced = lock ? await jobIsInvoiced(shipmentId) : false;
 
-    // Whether ČNB's fixing for a date is published and final (checked only when needed).
-    let checked: { date: string; result: Awaited<ReturnType<typeof ratesOn>> } | null = null;
-    const finalOn = async (date: string) => {
-      if (checked?.date !== date) checked = { date, result: await ratesOn(date, today) };
+    // ČNB's rates for a date and whether they are final (looked up once per date).
+    let checked: { date: string; result: DateRates } | null = null;
+    const finalOn = async (date: string): Promise<DateRates> => {
+      if (checked?.date !== date) checked = { date, result: await ratesOn(date) };
       return checked.result;
     };
     const actual = direction === "export" ? shipment.actualDeparture : shipment.actualArrival;
@@ -74,7 +84,7 @@ export const fxJobRatesService = {
       () => actualFinal,
     );
 
-    const base = { shipmentId, direction, directionAssumed: assumed };
+    const base = { shipmentId, direction, directionAssumed: assumed, ratesMissing: false };
     if (plan.action === "use_lock") {
       if (!lock) throw APIError.internal("Job rate lock missing"); // planJobRates only keeps an existing lock
       return {
@@ -100,9 +110,10 @@ export const fxJobRatesService = {
         rates: toList(row.rates),
       };
     }
-    const { rates } = await finalOn(plan.date);
+    const { rates, missing } = await finalOn(plan.date);
     return {
       ...base,
+      ratesMissing: missing,
       status: "provisional",
       basis: plan.basis,
       rateDate: plan.date,

@@ -39,7 +39,7 @@ export function occurrences(items: HolidayItem[]): Occurrence[] {
 // Holidays that touch the period from..to (yyyy-mm-dd, inclusive).
 export const overlaps = (o: { start: string; end: string }, from: string, to: string) => o.start <= to && o.end >= from;
 
-export const todayIso = () => dayjs().format("YYYY-MM-DD");
+export { todayIso } from "@/lib/date";
 
 // Monday..Sunday of the current week.
 export function thisWeek(): { from: string; to: string } {

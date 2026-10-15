@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
+import { SALES_PAGES } from "./_lib/tabs";
 
-export default function SalesPage() {
-  redirect("/sales/quotes");
+// "Sales" in the sidebar opens the Quotes list: that is where the work starts.
+export default function SalesRedirectPage() {
+  redirect(SALES_PAGES.quotes.path);
 }

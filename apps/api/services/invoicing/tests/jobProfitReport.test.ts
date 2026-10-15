@@ -63,3 +63,20 @@ describe("buildJobProfit", () => {
     expect(buildJobProfit([ship({})], [], [], AVG, "2026-01", "2026-12")).toEqual({ rows: [], undated: 1 });
   });
 });
+
+describe("buildJobProfit quantities", () => {
+  it("keeps a typed 0 and counts a real cost of 0 once it is filled in", () => {
+    const { rows } = buildJobProfit(
+      [ship({ actualArrival: "2026-10-12" })],
+      [{ shipmentId: "s1", estQty: null, estAmount: "500", estCurrency: "CZK", realQty: null, realAmount: "0", realCurrency: "CZK" }],
+      [
+        { shipmentId: "s1", qty: "0", amount: "1000", currency: "CZK", invoice: true },
+        { shipmentId: "s1", qty: null, amount: "300", currency: "CZK", invoice: true },
+      ],
+      AVG,
+      "2026-10",
+      "2026-10",
+    );
+    expect(rows[0]).toMatchObject({ revenueCzk: 300, costCzk: 0, profitCzk: 300 });
+  });
+});

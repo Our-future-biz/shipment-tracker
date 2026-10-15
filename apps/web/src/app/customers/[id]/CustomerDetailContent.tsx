@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button, Spin } from "antd";
+import { RecordTabs } from "@/components/RecordTabs";
 import { useCustomer } from "@/hooks/useCustomers";
 import { CUSTOMER_DETAIL_TABS, CUSTOMER_TAB_ALIASES } from "../_lib/constants";
 import { useCustomerListHref } from "../_lib/customerListHref";
@@ -76,26 +77,7 @@ export function CustomerDetailContent() {
       <div className="bg-white border-b border-slate-200 px-6 pt-4 pb-0">
         <CustomerHeader customer={customer} />
 
-        <nav aria-label="Customer sections" className="flex gap-0 mt-4 overflow-x-auto">
-          {CUSTOMER_DETAIL_TABS.map((tab) => {
-            const selected = activeTab === tab.key;
-            return (
-              <button
-                key={tab.key}
-                type="button"
-                aria-current={selected ? "page" : undefined}
-                onClick={() => handleSelectTab(tab.key)}
-                className={`px-4 py-2.5 text-sm whitespace-nowrap cursor-pointer bg-transparent border-0 border-b-2 transition-all duration-150 ${
-                  selected
-                    ? "font-semibold text-indigo-500 border-indigo-500"
-                    : "font-normal text-slate-400 border-transparent hover:text-slate-600"
-                }`}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </nav>
+        <RecordTabs label="Customer sections" tabs={CUSTOMER_DETAIL_TABS} active={activeTab} onChange={handleSelectTab} className="mt-4" />
       </div>
 
       <div className="p-6">

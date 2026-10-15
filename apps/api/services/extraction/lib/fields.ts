@@ -16,16 +16,15 @@ export const SHIPMENT_FIELDS = [
   "Commercial Invoice Value",
 ];
 
+// A customer's request for a quotation, read into a Sales quote. The labels are the ones the quote
+// page shows; the web maps them to the quote's keys (apps/web/src/app/documents/_lib/quoteReading.ts,
+// a test compares the two). No price, rate or currency is among them, so filterExtracted() drops
+// any the model returns.
 export const QUOTE_FIELDS = [
-  "Shipper", "Consignee", "Load Type", "Agent", "Agent's PIC",
-  "Incoterm Origin", "Incoterm Destination", "Cargo Origin", "Origin",
-  "POL", "POD", "Destination", "HS Code", "Cargo Description",
-  "Trade Direction", "Volume", "Weight", "Number of pieces",
-  "CNTR count [1]", "CNTR length [1]",
-  "CNTR count [2]", "CNTR length [2]",
-  "CNTR count [3]", "CNTR length [3]",
-  "CNTR count [4]", "CNTR length [4]",
-  "PCS",
+  "Customer", "Contact person", "Email", "Phone",
+  "Trade Direction", "Freight Mode", "Incoterm", "Cargo Readiness Date",
+  "Origin", "Pickup", "Destination", "Delivery",
+  "Cargo Description", "Gross weight (kg)", "Volume (cbm)",
 ];
 
 export const INVOICE_FIELDS = [
@@ -59,6 +58,19 @@ export function filterExtracted(
     }
   }
   return result;
+}
+
+// A reply that must be ONE JSON object (the fields of a single document). The object is read
+// first, so a "[3]" inside a value, or one value sent as a list, is not taken for the whole reply.
+export function parseJsonObjectFromResponse(text: string): Record<string, unknown> | null {
+  const objMatch = text.match(/\{[\s\S]*\}/);
+  if (!objMatch) return null;
+  try {
+    const parsed: unknown = JSON.parse(objMatch[0]);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function parseJsonFromResponse(text: string): unknown {

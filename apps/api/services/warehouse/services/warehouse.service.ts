@@ -1,15 +1,25 @@
-import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
 import { APIError } from "encore.dev/api";
-import { shipments } from "~encore/clients";
+import { iso } from "../../../lib/db/serialize";
+import { assertShipmentExists } from "../../../lib/shipmentRefs";
+import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import { MAX_PICKUP_ROWS, PICKUP_SECTION, pickupRowsFromInput } from "./pickupPin";
 import { userName } from "./users";
 import { reweighRepository } from "../repositories/reweigh.repository";
 import { kgText, needsReweigh } from "./reweigh";
+import { gateAdminService } from "./gateAdmin.service";
+import type { NewWarehouseTaskRecord, WarehouseTaskRecord } from "../schemas/warehouseTask.schema";
 import type { WarehouseSectionRecord } from "../schemas/warehouseSection.schema";
 import type { Tx } from "../repositories/warehouseSection.repository";
-import type { WarehouseSectionItem, WarehouseSectionSummaryItem } from "../interfaces/interfaces";
+import {
+  WAREHOUSE_SECTIONS,
+  type WarehouseSection,
+  type WarehouseSectionItem,
+  type WarehouseSectionSummaryItem,
+  type WarehouseTaskItem,
+  type WarehouseTaskPatch,
+} from "../interfaces/interfaces";
 
 export { formatWarehouseRef, warehouseRefYear } from "./warehouseRef";
 
@@ -90,8 +100,9 @@ export interface MarkSentOptions {
 }
 
 function checkChanges(section: string, changes: SectionKeyChange[]) {
-  if (!(KEYED_SECTIONS as readonly string[]).includes(section)) {
-    throw APIError.invalidArgument(`Section "${section}" is not saved field by field. Must be one of: ${KEYED_SECTIONS.join(", ")}`);
+  const known = toSection(section);
+  if (!(KEYED_SECTIONS as readonly string[]).includes(known)) {
+    throw APIError.invalidArgument(`The ${known} section is not saved field by field. Must be one of: ${KEYED_SECTIONS.join(", ")}`);
   }
   if (!Array.isArray(changes) || !changes.length || changes.length > MAX_KEYS_PER_SAVE) {
     throw APIError.invalidArgument(`Send 1 to ${MAX_KEYS_PER_SAVE} changed fields`);
@@ -127,17 +138,63 @@ function sentAt(v: string): string | null {
   return v;
 }
 
+/** A task row as the API returns it. */
+export const toTaskItem = (r: WarehouseTaskRecord): WarehouseTaskItem => ({
+  id: r.id,
+  taskId: r.taskId,
+  shipmentId: r.shipmentId,
+  type: r.type,
+  priority: r.priority,
+  status: r.status,
+  assignee: r.assignee,
+  dueDate: r.dueDate,
+  cargo: r.cargo,
+  weight: r.weight,
+  notes: r.notes,
+  data: r.data,
+  createdAt: iso(r.createdAt),
+  updatedAt: iso(r.updatedAt),
+});
+
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+// A path parameter can't be typed as a union in Encore, so the section is checked here.
+export function toSection(section: string): WarehouseSection {
+  const found = WAREHOUSE_SECTIONS.find((s) => s === section);
+  if (!found) throw APIError.invalidArgument(`Unknown section; use one of: ${WAREHOUSE_SECTIONS.join(", ")}`);
+  return found;
+}
+
+// The fields a task update carries, ready for the table; undefined ones are left as they are.
+export function taskChanges(patch: WarehouseTaskPatch): Partial<NewWarehouseTaskRecord> {
+  const { dueDate, ...rest } = patch;
+  const out: Partial<NewWarehouseTaskRecord> = Object.fromEntries(
+    Object.entries(rest).filter(([, v]) => v !== undefined),
+  );
+  if (dueDate !== undefined) {
+    const d = dueDate.trim();
+    if (d && !DATE.test(d)) throw APIError.invalidArgument("dueDate must be a date (yyyy-mm-dd)");
+    out.dueDate = d || null;
+  }
+  return out;
+}
+
 class WarehouseService {
-  async listAll(companyId: string) {
-    return warehouseTaskRepository.listAll(companyId);
+  async listAll(companyId: string): Promise<WarehouseTaskItem[]> {
+    return (await warehouseTaskRepository.listAll(companyId)).map(toTaskItem);
   }
 
-  async listByShipmentId(shipmentId: string, companyId: string) {
-    return warehouseTaskRepository.listByShipmentId(shipmentId, companyId);
+  async listByShipmentId(shipmentId: string, companyId: string): Promise<WarehouseTaskItem[]> {
+    // Not a shipment id: nothing (a uuid column can't be compared with it).
+    if (!UUID.test(shipmentId)) return [];
+    return (await warehouseTaskRepository.listByShipmentId(shipmentId, companyId)).map(toTaskItem);
   }
 
-  async update(id: string, companyId: string, data: Record<string, unknown>) {
-    return warehouseTaskRepository.update(id, companyId, data);
+  async update(id: string, companyId: string, patch: WarehouseTaskPatch): Promise<WarehouseTaskItem> {
+    const changes = taskChanges(patch);
+    const task = UUID.test(id) ? await warehouseTaskRepository.update(id, companyId, changes) : null;
+    if (!task) throw APIError.notFound("Warehouse task not found");
+    return toTaskItem(task);
   }
 
   // Warehouse sections. They belong to the warehouse position (task) — linked to a shipment or
@@ -146,15 +203,19 @@ class WarehouseService {
   // the shipment.
 
   /** A section by shipment id (the Shipments view): its position's row, else the shipment's own. */
-  async getSection(shipmentId: string, section: string, companyId: string) {
-    if (section === PICKUP_SECTION) return warehouseSectionRepository.findPickup(shipmentId, companyId);
-    const task = UUID.test(shipmentId) ? await warehouseTaskRepository.findLiveForShipment(companyId, shipmentId) : null;
-    const own = task ? await warehouseSectionRepository.findByTask(task.id, section, companyId) : null;
-    return own ?? warehouseSectionRepository.findAdoptable(shipmentId, section, companyId);
+  async getSection(shipmentId: string, section: string, companyId: string): Promise<WarehouseSectionRecord | null> {
+    const known = toSection(section);
+    // Not a shipment id: no section (a uuid column can't be compared with it).
+    if (!UUID.test(shipmentId)) return null;
+    if (known === PICKUP_SECTION) return warehouseSectionRepository.findPickup(shipmentId, companyId);
+    const task = await warehouseTaskRepository.findLiveForShipment(companyId, shipmentId);
+    const own = task ? await warehouseSectionRepository.findByTask(task.id, known, companyId) : null;
+    return own ?? warehouseSectionRepository.findAdoptable(shipmentId, known, companyId);
   }
 
   /** A section of a position; before its first save, the row its shipment had (taken over then). */
-  async getSectionByTask(taskId: string, section: string, companyId: string) {
+  async getSectionByTask(taskId: string, section: string, companyId: string): Promise<WarehouseSectionRecord | null> {
+    toSection(section);
     const task = await this.liveTask(taskId, companyId);
     if (section === PICKUP_SECTION) return task.shipmentId ? warehouseSectionRepository.findPickup(task.shipmentId, companyId) : null;
     const own = await warehouseSectionRepository.findByTask(task.id, section, companyId);
@@ -173,15 +234,17 @@ class WarehouseService {
   // read it — two people saving different fields both keep their change, and a stale save of
   // the same field is refused with what changed. By shipment id (Shipments): the shipment's live
   // position's section when it has one; else the shipment's own row, whose first save checks the
-  // shipment belongs to the caller's company (shipmentGet answers not_found otherwise).
+  // shipment belongs to the caller's company (assertShipmentExists answers not_found otherwise).
   async patchSection(shipmentId: string, section: string, companyId: string, changes: SectionKeyChange[], userId = "") {
     checkChanges(section, changes);
     if (!shipmentId.trim()) throw APIError.invalidArgument("A shipment is required");
-    const task = UUID.test(shipmentId) ? await warehouseTaskRepository.findLiveForShipment(companyId, shipmentId) : null;
+    if (!UUID.test(shipmentId)) throw APIError.invalidArgument("Not a shipment id");
+    const task = await warehouseTaskRepository.findLiveForShipment(companyId, shipmentId);
     if (task) return this.patchSectionByTask(task.id, section, companyId, changes, userId);
     const res = await warehouseSectionRepository.patchKeys({ kind: "shipment", shipmentId }, section, companyId, changes, {
+      // The shipment's first section row: the shipment must exist in the caller's company.
       onCreate: async () => {
-        await shipments.shipmentGet({ shipmentId });
+        await assertShipmentExists(shipmentId);
       },
       extra: savedExtras(changes),
     });
@@ -297,11 +360,26 @@ class WarehouseService {
   // and history are the server's (see gateMovementService.generatePickupPin) and stay as stored,
   // whatever the client sends.
   async upsertPickupRows(shipmentId: string, companyId: string, data: unknown) {
+    if (!UUID.test(shipmentId)) throw APIError.invalidArgument("Not a shipment id");
     const rows = pickupRowsFromInput(data);
     if (!rows) {
       throw APIError.invalidArgument(`Pick-up rows must be a list of up to ${MAX_PICKUP_ROWS} rows with haulier, license plate and driver as text`);
     }
+    // The shipment's first pick-up save: the shipment must exist in the caller's company.
+    if (!(await warehouseSectionRepository.findPickup(shipmentId, companyId))) await assertShipmentExists(shipmentId);
     return warehouseSectionRepository.upsertPickupRows(shipmentId, companyId, rows);
+  }
+
+  // A shipment deleted in Shipments (the shipmentDeleted subscription; runs as the system and is
+  // safe to run again). Handled cargo is kept: a position the gate never stamped is removed the
+  // normal way (its gate records archived, reason "Shipment deleted in Shipments"); a stamped one
+  // stays, with a "Shipment deleted" event on its gate records. What the gate still owed the
+  // shipment is cancelled. With no position left, the shipment's pick-up row and the section rows
+  // no position owns are retired too.
+  async retireShipment(shipmentId: string, companyId: string): Promise<void> {
+    if (!UUID.test(shipmentId)) return;
+    const { kept } = await gateAdminService.retireForDeletedShipment(shipmentId, companyId);
+    if (!kept.length) await warehouseSectionRepository.softDeleteForShipment(shipmentId, companyId);
   }
 }
 
@@ -316,7 +394,7 @@ export function sectionItem(row: WarehouseSectionRecord): WarehouseSectionItem {
     section: row.section,
     data: row.data,
     version: row.version,
-    createdAt: row.createdAt.toISOString(),
-    updatedAt: row.updatedAt.toISOString(),
+    createdAt: iso(row.createdAt),
+    updatedAt: iso(row.updatedAt),
   };
 }

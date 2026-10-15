@@ -1,6 +1,7 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { warehouseImportService } from "../services/warehouseImport.service";
+import { toTaskItem } from "../services/warehouse.service";
 import type { WarehouseTaskItem } from "../interfaces/interfaces";
 import type { GateMovementItem } from "../interfaces/gate.interfaces";
 
@@ -49,6 +50,6 @@ export const warehousePositionCreate = api(
   async (req: WarehousePositionCreateRequest): Promise<WarehousePositionCreateResponse> => {
     const { companyID, userID } = getAuthData()!;
     const { task, movement } = await warehouseImportService.createPosition(companyID, userID, req);
-    return { task: task as unknown as WarehouseTaskItem, movement };
+    return { task: toTaskItem(task), movement };
   },
 );

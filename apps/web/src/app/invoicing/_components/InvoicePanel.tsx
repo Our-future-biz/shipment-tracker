@@ -5,28 +5,37 @@ import Link from "next/link";
 import dayjs from "dayjs";
 import { Alert, Button, DatePicker, Input, Modal, Select, Tag, Tooltip } from "antd";
 import { FilePdfOutlined, RollbackOutlined, SendOutlined, WarningOutlined } from "@ant-design/icons";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { interfaces } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useShipments } from "@/hooks/useShipments";
 import { useCustomers } from "@/hooks/useCustomers";
 import { downloadInvoicePdf, useInvoiceDocs, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
 import { useToast } from "@/lib/toast";
+import { formatDate } from "@/lib/date";
+import { CURRENCIES } from "@/lib/enums";
+import { invoicingKey } from "@/hooks/useInvoicing";
 import { moneyCz, round2 } from "@/lib/money";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { useCostsData } from "@/app/shipments/[jobNumber]/tabs/useCostsData";
 
-/** Billing currencies offered (CZK is the base; ČNB rates exist for every currency). */
-const BILLING_CURRENCIES = ["CZK", "EUR", "USD"];
+/** Billing currencies offered: the ones the company invoices in, out of the app's currencies. */
+const BILLING_CURRENCIES = CURRENCIES.filter((c) => c === "CZK" || c === "EUR" || c === "USD");
 
-/** VAT codes a line can be switched to (NP is set automatically for a non-VAT-payer). */
-const VAT_OPTIONS = [
-  { value: "Z69", label: "0 % §69" },
-  { value: "S21", label: "21 %" },
-  { value: "RC", label: "Reverse charge" },
-  { value: "OUT", label: "Outside VAT" },
-];
-const VAT_LABEL: Record<string, string> = { ...Object.fromEntries(VAT_OPTIONS.map((o) => [o.value, o.label])), NP: "Not VAT payer" };
+/** What each VAT code means on the invoice; NP is set automatically for a non-VAT-payer. */
+const VAT_LABEL: Record<interfaces.VatCode, string> = {
+  Z69: "0 % §69",
+  S21: "21 %",
+  RC: "Reverse charge",
+  OUT: "Outside VAT",
+  NP: "Not VAT payer",
+};
+/** VAT codes a line can be switched to. */
+const VAT_OPTIONS = (["Z69", "S21", "RC", "OUT"] as const satisfies readonly interfaces.SellingVatCode[]).map((value) => ({
+  value,
+  label: VAT_LABEL[value],
+}));
 
 /** Operations release a job for billing by setting its Shipment Status to Billing (either direction). */
 const isBillingStatus = (status: string | null | undefined) => /^Billing \[(IMP|EXP)\]$/.test((status ?? "").trim());
@@ -36,10 +45,16 @@ const MAX_DAYS_AFTER_DUZP = 15;
 
 const TH = "text-[11.5px] font-bold tracking-[.04em] uppercase text-slate-500 px-2 py-2 border-b border-slate-200";
 const TD = "px-2 py-2 border-b border-slate-100 text-[13px] text-slate-700";
-const czDate = (iso: string) => (iso ? dayjs(iso).format("D.M.YYYY") : "—");
+const czDate = (iso: string) => formatDate(iso) || "—";
 const newKey = () => (typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
 
-const Card = ({ title, extra, children }: { title: string; extra?: React.ReactNode; children: React.ReactNode }) => (
+interface CardProps {
+  title: string;
+  extra?: React.ReactNode;
+  children: React.ReactNode;
+}
+
+const Card = ({ title, extra, children }: CardProps) => (
   <div className="border border-slate-200 rounded-lg p-3 min-w-0">
     <div className="flex items-center justify-between gap-2 mb-2">
       <span className="text-[11.5px] font-bold uppercase tracking-[.04em] text-slate-500">{title}</span>
@@ -55,7 +70,11 @@ const Card = ({ title, extra, children }: { title: string; extra?: React.ReactNo
  * ČNB rate valid on the DUZP, the customer and the issuer details. Issuing creates an
  * immutable tax document with a stored PDF; corrections go through a credit note.
  */
-export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
+interface InvoicePanelProps {
+  shipment: ShipmentItem;
+}
+
+export function InvoicePanel({ shipment }: InvoicePanelProps) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const { data, billingCur, totals } = useCostsData(shipment);
@@ -78,38 +97,39 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
     previewKey,
   });
 
-  const refreshCosts = () => queryClient.invalidateQueries({ queryKey: ["invoicing", shipment.id] });
+  const refreshCosts = () => queryClient.invalidateQueries({ queryKey: invoicingKey(shipment.id) });
 
-  const setBillingCurrency = async (currency: string) => {
-    try {
-      await api.invoicing.invoicingUpsertBillingSettings(shipment.id, { billingCurrency: currency });
-      await refreshCosts();
-    } catch {
-      toast.error("Failed to change the billing currency");
-    }
-  };
+  // Mutations, so a second change can't start while one is still saving.
+  const billingCurrency = useMutation({
+    mutationFn: (currency: string) => api.invoicing.invoicingUpsertBillingSettings(shipment.id, { billingCurrency: currency }),
+    onSuccess: refreshCosts,
+    onError: () => toast.error("Failed to change the billing currency"),
+  });
 
-  const setLineVat = async (sellingId: string | null, vatCode: string) => {
-    if (!sellingId) return;
-    try {
-      await api.invoicing.invoicingUpdateSellingCost(shipment.id, sellingId, { vatCode });
-      await refreshCosts();
-    } catch {
-      toast.error("Failed to change the VAT code");
-    }
+  const lineVat = useMutation({
+    mutationFn: ({ sellingId, vatCode }: { sellingId: string; vatCode: interfaces.SellingVatCode }) =>
+      api.invoicing.invoicingUpdateSellingCost(shipment.id, sellingId, { vatCode }),
+    onSuccess: refreshCosts,
+    onError: () => toast.error("Failed to change the VAT code"),
+  });
+
+  const linkCustomer = useMutation({
+    mutationFn: (id: string) => {
+      const c = customers.find((x) => x.id === id);
+      return updateShipment({ id: shipment.id, data: { customer: c?.companyName ?? "", customerId: id } }).then(() => c);
+    },
+    onSuccess: (c) => toast.success(`${c?.companyName ?? "Customer"} linked to ${shipment.jobNumber}`),
+    onError: () => toast.error("The customer is used for this invoice, but linking it to the shipment failed"),
+  });
+
+  const handleLineVat = (sellingId: string | null, vatCode: interfaces.SellingVatCode) => {
+    if (sellingId) lineVat.mutate({ sellingId, vatCode });
   };
 
   /** Picking a customer for a shipment that has none also links it, as on the shipment page. */
-  const pickCustomer = async (id: string) => {
+  const handlePickCustomer = (id: string) => {
     setCustomerId(id);
-    if (shipment.customerId) return;
-    const c = customers.find((x) => x.id === id);
-    try {
-      await updateShipment({ id: shipment.id, data: { customer: c?.companyName ?? "", customerId: id } });
-      toast.success(`${c?.companyName ?? "Customer"} linked to ${shipment.jobNumber}`);
-    } catch {
-      toast.error("The customer is used for this invoice, but linking it to the shipment failed");
-    }
+    if (!shipment.customerId) linkCustomer.mutate(id);
   };
 
   const download = async (doc: Pick<InvoiceDoc, "id" | "number">) => {
@@ -151,11 +171,13 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
 
   const p = preview;
   const foreign = !!p && p.currency !== "CZK";
-  // profit against buying costs, both in the invoice currency
+  // Profit against buying costs — only when both are in the same currency and the preview is
+  // current (while it reloads after a currency change it can still be in the old one).
   const cost = round2(totals.buyTotal);
-  const profit = p ? round2(p.net - cost) : 0;
-  const marginPct = p && p.net ? (profit / p.net) * 100 : null;
-  const profitTone = profit > 0 ? "text-[#177245]" : profit < 0 ? "text-[#C3392B]" : "text-slate-700";
+  const profitComparable = !!p && p.currency === billingCur && !previewLoading;
+  const profit = p && profitComparable ? round2(p.net - cost) : 0;
+  const marginPct = p && profitComparable && p.net ? (profit / p.net) * 100 : null;
+  const profitTone = profit > 0 ? "text-ok" : profit < 0 ? "text-danger" : "text-slate-700";
 
   // Issuing is allowed before the job reaches Billing (owner's decision), but it is flagged.
   const releasedForBilling = isBillingStatus(shipment.status);
@@ -185,7 +207,7 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
         <span>Invoice</span>
         <span className="ml-auto flex items-center gap-2 normal-case tracking-normal font-medium text-[12.5px] text-slate-600">
           Billing currency
-          <Select size="small" value={billingCur} onChange={setBillingCurrency} options={BILLING_CURRENCIES.map((c) => ({ value: c, label: c }))} className="w-[84px]" aria-label="Billing currency" />
+          <Select size="small" value={billingCur} onChange={(c) => billingCurrency.mutate(c)} loading={billingCurrency.isPending} disabled={billingCurrency.isPending} options={BILLING_CURRENCIES.map((c) => ({ value: c, label: c }))} className="w-[84px]" aria-label="Billing currency" />
         </span>
       </div>
 
@@ -202,7 +224,8 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
                 showSearch
                 placeholder={p?.customer ? "Change customer" : "Pick customer"}
                 value={null}
-                onChange={(v) => v && void pickCustomer(v)}
+                onChange={(v) => v && handlePickCustomer(v)}
+                disabled={linkCustomer.isPending}
                 options={customerOptions}
                 optionFilterProp="label"
                 className="w-[220px]"
@@ -286,10 +309,11 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
                       {l.vatCode === "NP" ? (
                         <span className="text-slate-500">{VAT_LABEL.NP}</span>
                       ) : (
-                        <Select
+                        <Select<interfaces.SellingVatCode>
                           size="small"
                           value={l.vatCode}
-                          onChange={(v) => void setLineVat(l.sourceSellingCostId, v)}
+                          onChange={(v) => handleLineVat(l.sourceSellingCostId, v)}
+                          disabled={lineVat.isPending}
                           options={VAT_OPTIONS}
                           className="w-[140px]"
                           aria-label={`VAT code of ${l.description}`}
@@ -315,7 +339,7 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
                 </div>
                 <div>
                   <div className="text-slate-500">Profit</div>
-                  <div className={`font-semibold tabular-nums ${profitTone}`}>{moneyCz(profit)} {p.currency}</div>
+                  <div className={`font-semibold tabular-nums ${profitTone}`}>{profitComparable ? `${moneyCz(profit)} ${p.currency}` : "—"}</div>
                 </div>
                 <div>
                   <div className="text-slate-500">Margin</div>
@@ -382,7 +406,7 @@ export function InvoicePanel({ shipment }: { shipment: ShipmentItem }) {
               />
             )}
             {warnings.map((x) => (
-              <div key={x} className="flex items-start gap-2 text-[13px] text-[#9A5B00] bg-[#FFF6E5] border border-[#F5D9A8] rounded-md px-3 py-2">
+              <div key={x} className="flex items-start gap-2 text-[13px] text-warn bg-warn-faint border border-warn-soft rounded-md px-3 py-2">
                 <WarningOutlined className="mt-[3px]" />
                 <span>{x}</span>
               </div>

@@ -1,7 +1,7 @@
 import { eq, ne, desc, isNull, and, sql } from "drizzle-orm";
 import { APIError } from "encore.dev/api";
 import { db } from "../db/db";
-import { warehouseTaskTable } from "../schemas/warehouseTask.schema";
+import { warehouseTaskTable, type NewWarehouseTaskRecord, type WarehouseTaskRecord } from "../schemas/warehouseTask.schema";
 import { warehouseRefCounterTable } from "../schemas/warehouseRefCounter.schema";
 import { formatWarehouseRef, MAX_REF_NUMBER, warehouseRefYear } from "../services/warehouseRef";
 import type { Tx } from "./warehouseSection.repository";
@@ -10,7 +10,7 @@ import type { Tx } from "./warehouseSection.repository";
 export const TRUCK_TYPE = "Truck";
 
 class WarehouseTaskRepository {
-  async listAll(companyId: string) {
+  async listAll(companyId: string): Promise<WarehouseTaskRecord[]> {
     return db
       .select()
       .from(warehouseTaskTable)
@@ -23,7 +23,7 @@ class WarehouseTaskRepository {
       .orderBy(desc(warehouseTaskTable.createdAt));
   }
 
-  async listByShipmentId(shipmentId: string, companyId: string) {
+  async listByShipmentId(shipmentId: string, companyId: string): Promise<WarehouseTaskRecord[]> {
     return db
       .select()
       .from(warehouseTaskTable)
@@ -61,7 +61,7 @@ class WarehouseTaskRepository {
   // The per-company advisory lock stops two adds of the same shipment both creating one.
   // With a shipment, returns its existing live task instead if it is already in the warehouse;
   // without one (null) the position stands on its own — no shipment job behind it.
-  async createInTx(tx: Tx, companyId: string, shipmentId: string | null, now = new Date()) {
+  async createInTx(tx: Tx, companyId: string, shipmentId: string | null, now = new Date()): Promise<{ task: WarehouseTaskRecord; created: boolean }> {
     await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`warehouse_ref:${companyId}`}))`);
     if (shipmentId) {
       const [existing] = await tx
@@ -80,11 +80,11 @@ class WarehouseTaskRepository {
   }
 
   // createInTx in a transaction of its own (a position without its gate row — tests and repairs).
-  async createForShipment(companyId: string, shipmentId: string | null, now = new Date()) {
+  async createForShipment(companyId: string, shipmentId: string | null, now = new Date()): Promise<{ task: WarehouseTaskRecord; created: boolean }> {
     return db.transaction((tx) => this.createInTx(tx, companyId, shipmentId, now));
   }
 
-  async findAny(id: string, companyId: string, tx: Tx | typeof db = db) {
+  async findAny(id: string, companyId: string, tx: Tx | typeof db = db): Promise<WarehouseTaskRecord | null> {
     const [row] = await tx
       .select()
       .from(warehouseTaskTable)
@@ -93,7 +93,7 @@ class WarehouseTaskRepository {
   }
 
   // Live task of a shipment, if any.
-  async findLiveForShipment(companyId: string, shipmentId: string, tx: Tx | typeof db = db) {
+  async findLiveForShipment(companyId: string, shipmentId: string, tx: Tx | typeof db = db): Promise<WarehouseTaskRecord | null> {
     const [row] = await tx
       .select()
       .from(warehouseTaskTable)
@@ -102,7 +102,7 @@ class WarehouseTaskRepository {
   }
 
   // Live task holding a reference, if any.
-  async findLiveByRef(companyId: string, taskId: string, tx: Tx | typeof db = db) {
+  async findLiveByRef(companyId: string, taskId: string, tx: Tx | typeof db = db): Promise<WarehouseTaskRecord | null> {
     const [row] = await tx
       .select()
       .from(warehouseTaskTable)
@@ -111,7 +111,7 @@ class WarehouseTaskRepository {
   }
 
   // Brings a removed task back (restore of its archived gate record).
-  async undelete(tx: Tx, id: string, companyId: string) {
+  async undelete(tx: Tx, id: string, companyId: string): Promise<WarehouseTaskRecord | null> {
     const [row] = await tx
       .update(warehouseTaskTable)
       .set({ deletedAt: null, updatedAt: new Date() })
@@ -120,16 +120,16 @@ class WarehouseTaskRepository {
     return row ?? null;
   }
 
-  async update(id: string, companyId: string, data: Record<string, unknown>) {
+  async update(id: string, companyId: string, data: Partial<NewWarehouseTaskRecord>): Promise<WarehouseTaskRecord | null> {
     const [row] = await db
       .update(warehouseTaskTable)
-      .set({ ...data, updatedAt: new Date() } as never)
+      .set({ ...data, updatedAt: new Date() })
       .where(and(eq(warehouseTaskTable.id, id), eq(warehouseTaskTable.companyId, companyId), isNull(warehouseTaskTable.deletedAt)))
       .returning();
     return row ?? null;
   }
 
-  async softDelete(id: string, companyId: string, tx: Tx | typeof db = db) {
+  async softDelete(id: string, companyId: string, tx: Tx | typeof db = db): Promise<WarehouseTaskRecord | null> {
     const [row] = await tx
       .update(warehouseTaskTable)
       .set({ deletedAt: new Date(), updatedAt: new Date() })

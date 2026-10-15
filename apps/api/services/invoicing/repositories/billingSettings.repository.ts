@@ -1,36 +1,45 @@
-import { eq, and } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { billingSettingsTable } from "../schemas/billingSettings.schema";
+import { billingSettingsTable as t, type BillingSettingsRecord, type NewBillingSettingsRecord } from "../schemas/billingSettings.schema";
 
-class BillingSettingsRepository {
-  async getByShipmentId(shipmentId: string, companyId: string) {
-    const [row] = await db
-      .select()
-      .from(billingSettingsTable)
-      .where(and(eq(billingSettingsTable.companyId, companyId), eq(billingSettingsTable.shipmentId, shipmentId)))
-      .limit(1);
-    return row ?? null;
+type BillingSettingsValues = Pick<Partial<NewBillingSettingsRecord>, "billingCurrency" | "roe" | "quoteRef">;
+
+class BillingSettingsRepository extends TenantRepository<typeof t> {
+  constructor() {
+    super(db, t, "billing_settings");
   }
 
-  async listByCompany(companyId: string) {
-    return db
-      .select({ shipmentId: billingSettingsTable.shipmentId, billingCurrency: billingSettingsTable.billingCurrency })
-      .from(billingSettingsTable)
-      .where(eq(billingSettingsTable.companyId, companyId));
+  async getByShipmentId(shipmentId: string, companyId: string): Promise<BillingSettingsRecord | null> {
+    return this.getByColumnForCompany(t.shipmentId, shipmentId, companyId);
   }
 
-  async upsert(shipmentId: string, companyId: string, data: Partial<{ billingCurrency: string; roe: string; quoteRef: string }>) {
-    const existing = await this.getByShipmentId(shipmentId, companyId);
-    if (existing) {
-      const [row] = await db
-        .update(billingSettingsTable)
-        .set({ ...data, updatedAt: new Date() })
-        .where(eq(billingSettingsTable.id, existing.id))
-        .returning();
-      return row!;
-    }
-    const [row] = await db.insert(billingSettingsTable).values({ companyId, shipmentId, ...data }).returning();
+  /** Billing currency of every live shipment setting in the company (for the billing queue). */
+  async listByCompany(companyId: string): Promise<{ shipmentId: string; billingCurrency: string }[]> {
+    return this.db
+      .select({ shipmentId: t.shipmentId, billingCurrency: t.billingCurrency })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt)));
+  }
+
+  // One statement on the (company, shipment) key, so two saves at once can't both insert.
+  async upsert(shipmentId: string, companyId: string, data: BillingSettingsValues): Promise<BillingSettingsRecord> {
+    const [row] = await this.db
+      .insert(t)
+      .values({ companyId, shipmentId, ...data })
+      .onConflictDoUpdate({
+        target: [t.companyId, t.shipmentId],
+        set: { ...data, updatedAt: new Date(), deletedAt: null },
+      })
+      .returning();
     return row!;
+  }
+
+  async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {
+    await this.db
+      .update(t)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)));
   }
 }
 

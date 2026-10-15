@@ -3,14 +3,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
+import { customerQuotesKeys } from "@/hooks/salesQueryKeys";
 
 export type CustomerItem = interfaces.CustomerItem;
 
 export interface CustomerQueryParams {
   /** Free-text search, executed server-side across company name, IČO, DIČ and city. */
   search?: string;
-  status?: string;
-  label?: string;
+  status?: interfaces.CustomerStatus;
+  label?: interfaces.CustomerLabel;
   country?: string;
 }
 
@@ -22,13 +23,15 @@ const CUSTOMER_RECORD_KEYS = [
   "customer-documents",
   "customer-invoices",
   "customer-shipments",
-  "customer-quotes",
+  customerQuotesKeys.all[0],
 ];
 
 // One shared empty list, so "nothing loaded" does not look like new data on every render.
 const NO_CUSTOMERS: CustomerItem[] = [];
 
-export const useCustomers = (params: CustomerQueryParams = {}) => {
+// With `enabled: false` nothing is asked: a picker that searches as its user types has no reason
+// to download the whole customer database before anything was typed.
+export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true } = {}) => {
   const queryClient = useQueryClient();
 
   const search = params.search?.trim() || undefined;
@@ -40,6 +43,7 @@ export const useCustomers = (params: CustomerQueryParams = {}) => {
     queryKey: ["customers", search ?? "", status ?? "", label ?? "", country ?? ""],
     queryFn: () => api.customers.customerList({ search, status, label, country }),
     placeholderData: (prev) => prev,
+    enabled,
   });
 
   const createMutation = useMutation({

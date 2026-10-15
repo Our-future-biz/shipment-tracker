@@ -1,4 +1,4 @@
-import { pgTable, text, numeric, uuid, index } from "drizzle-orm/pg-core";
+import { pgTable, text, numeric, uuid, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
 export const billingOverrideTable = pgTable(
@@ -14,6 +14,8 @@ export const billingOverrideTable = pgTable(
     ...defaultTableIndexes("billing_override", table),
     tenantIndex("billing_override", table),
     index("billing_override_shipment_id_idx").on(table.shipmentId),
+    // One override per billing row of a shipment (the upsert relies on it).
+    uniqueIndex("billing_override_company_shipment_row_unique").on(table.companyId, table.shipmentId, table.rowKey),
   ],
 );
 

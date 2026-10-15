@@ -1,4 +1,6 @@
 import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
+import { isAdminLevel } from "../../../lib/rbac";
 import { auth } from "~encore/clients";
 import { cnbRateRepository } from "../repositories/cnbRate.repository";
 import { cnbImportRunRepository } from "../repositories/cnbImportRun.repository";
@@ -8,21 +10,21 @@ import { addDays, expectedLatestFixing, isCzechHoliday, isIsoDate, isWeekend, la
 import { averageByCurrency, perUnit, periodsOfYear, resolveFixing, round } from "../lib/rates";
 import { openAlerts } from "./fxAlert.service";
 import type {
-  DailyRow, DayKind, FxOverview, ImportRunItem, PeriodAverage, RatesOnDate, ResolvedRate, RoeChange, RoeInfo, SyncStatus, TodayRate,
+  DailyRow, DayKind, FxAlertItem, FxOverview, ImportRunItem, PeriodAverage, RatesOnDate, ResolvedRate, RoeChange, RoeInfo, SyncStatus,
+  TodayRate,
 } from "../interfaces/interfaces";
 
 // The currencies the company trades in. Every ČNB currency is stored; these are shown first.
 export const MAIN_CURRENCIES = ["EUR", "USD"];
 export const DEFAULT_ROE_PCT = 100;
-const ROE_MIN = 80;
-const ROE_MAX = 120;
 
 // Display names by user id; a lookup failure must not fail the read.
 async function userNames(): Promise<Map<string, string>> {
   try {
     const { users } = await auth.usersList();
     return new Map(users.map((u) => [u.id, u.displayName || u.email || ""]));
-  } catch {
+  } catch (err) {
+    log.warn("fx: user names unavailable, showing changes without names", { error: err instanceof Error ? err.message : String(err) });
     return new Map();
   }
 }
@@ -107,7 +109,6 @@ export const fxRatesService = {
   },
 
   async daily(companyId: string, month: string, all: boolean): Promise<{ month: string; currencies: string[]; days: DailyRow[] }> {
-    if (!/^\d{4}-\d{2}$/.test(month)) throw APIError.invalidArgument("Month must be YYYY-MM");
     const first = `${month}-01`;
     const last = lastDayOfMonth(month);
     const today = pragueToday();
@@ -133,7 +134,7 @@ export const fxRatesService = {
       else kind = date <= expected ? "missing" : "pending";
 
       const dayRates = kind === "future" ? [] : currencies.flatMap((currency) => {
-        const res = resolveFixing(byCurrency.get(currency) ?? [], date, today);
+        const res = resolveFixing(byCurrency.get(currency) ?? [], date, expected);
         return res ? [{ currency, rate: res.rate, fixingDate: res.fixingDate, carried: res.carried }] : [];
       });
       days.push({ date, kind, fixingNo: fixingNoByDate.get(date) ?? null, roePct: pctOn(history, date), rates: dayRates });
@@ -142,7 +143,6 @@ export const fxRatesService = {
   },
 
   async averages(year: number, all: boolean): Promise<{ year: number; currencies: string[]; periods: PeriodAverage[] }> {
-    if (!Number.isInteger(year) || year < 2000 || year > 2100) throw APIError.invalidArgument("Invalid year");
     const today = pragueToday();
     const currencies = all ? await cnbRateRepository.currencies() : MAIN_CURRENCIES;
     const rows = await cnbRateRepository.between(`${year}-01-01`, `${year}-12-31`, currencies);
@@ -160,55 +160,72 @@ export const fxRatesService = {
     return history.map((h) => toChange(h, names, inForce, today));
   },
 
+  // Range (80–120) and format are checked by the endpoint's validators; what they can't express is here.
   async setRoe(companyId: string, userId: string, input: { pct: number; effectiveFrom: string; note: string }): Promise<RoeChange[]> {
-    const pct = Number(input.pct);
-    if (!Number.isFinite(pct) || pct < ROE_MIN || pct > ROE_MAX) {
-      throw APIError.invalidArgument(`The ROE % must be between ${ROE_MIN} and ${ROE_MAX}`);
-    }
+    const { pct } = input;
     if (round(pct, 3) !== pct) throw APIError.invalidArgument("Use at most 3 decimals");
-    if (!isIsoDate(input.effectiveFrom)) throw APIError.invalidArgument("Effective from must be a date (YYYY-MM-DD)");
+    if (!isIsoDate(input.effectiveFrom)) throw APIError.invalidArgument("Effective from must be a real date (YYYY-MM-DD)");
     const note = input.note.trim();
     if (!note) throw APIError.invalidArgument("Add a note saying why the % changes");
-    await roeSettingRepository.create({ companyId, pct: pct.toFixed(3), effectiveFrom: input.effectiveFrom, note, changedBy: userId });
+    // Backdating is allowed (the page asks the admin to confirm it): it changes the % that
+    // drafts and previews of past dates use, so it is logged.
+    const today = pragueToday();
+    if (input.effectiveFrom < today) {
+      log.warn("fx: ROE % backdated", { companyId, userId, pct, effectiveFrom: input.effectiveFrom, today });
+    }
+    await roeSettingRepository.createForCompany(companyId, { pct: pct.toFixed(3), effectiveFrom: input.effectiveFrom, note, changedBy: userId });
     return this.roeHistory(companyId);
   },
 
   // The ČNB rate for a calendar date, plus the ROE % in force that day (not applied — the
   // caller applies it to a converted amount, and only when it prices a sale).
   async resolve(companyId: string, currencyRaw: string, date: string): Promise<ResolvedRate> {
-    const currency = currencyRaw.trim().toUpperCase();
-    if (!/^[A-Z]{3}$/.test(currency)) throw APIError.invalidArgument("Currency must be a 3-letter code");
-    if (!isIsoDate(date)) throw APIError.invalidArgument("Date must be YYYY-MM-DD");
-    const today = pragueToday();
+    const currency = currencyRaw.toUpperCase();
+    if (!isIsoDate(date)) throw APIError.invalidArgument("Date must be a real date (YYYY-MM-DD)");
     const roe = await roeSettingRepository.inForce(companyId, date);
     const roePct = roe ? Number(roe.pct) : DEFAULT_ROE_PCT;
     if (currency === "CZK") {
-      return { currency, date, rate: 1, fixingDate: null, carried: false, provisional: false, roePct, reason: "" };
+      return { currency, date, rate: 1, fixingDate: null, carried: false, provisional: false, missing: false, roePct, reason: "" };
     }
     const [row] = await cnbRateRepository.latestOnOrBefore(date, [currency]);
-    const res = row ? resolveFixing([row], date, today) : null;
+    const res = row ? resolveFixing([row], date, expectedLatestFixing()) : null;
     if (!res) {
-      return { currency, date, rate: null, fixingDate: null, carried: false, provisional: false, roePct, reason: `No ČNB rate for ${currency} on or before ${date}` };
+      return {
+        currency, date, rate: null, fixingDate: null, carried: false, provisional: false, missing: false, roePct,
+        reason: `No ČNB rate for ${currency} on or before ${date}`,
+      };
     }
-    return { currency, date, rate: res.rate, fixingDate: res.fixingDate, carried: res.carried, provisional: res.provisional, roePct, reason: "" };
+    return {
+      currency, date, rate: res.rate, fixingDate: res.fixingDate, carried: res.carried, provisional: res.provisional,
+      missing: res.missing, roePct, reason: res.missing ? `The ČNB fixing after ${res.fixingDate} has not been imported` : "",
+    };
   },
 
-  async ratesOn(companyId: string, date: string): Promise<RatesOnDate> {
-    if (!isIsoDate(date)) throw APIError.invalidArgument("Date must be YYYY-MM-DD");
-    const today = pragueToday();
+  /** Every ČNB rate valid on `date` (today in Prague when left out) plus the ROE % in force. */
+  async ratesOn(companyId: string, dateArg?: string): Promise<RatesOnDate> {
+    const date = dateArg || pragueToday();
+    if (!isIsoDate(date)) throw APIError.invalidArgument("Date must be a real date (YYYY-MM-DD)");
+    const expected = expectedLatestFixing();
     const [currencies, roe] = await Promise.all([cnbRateRepository.currencies(), roeSettingRepository.inForce(companyId, date)]);
     const rows = await cnbRateRepository.latestOnOrBefore(date, currencies);
     const rates: RatesOnDate["rates"] = [];
     let fixingDate: string | null = null;
     let provisional = false;
+    let missing = false;
     for (const row of rows) {
-      const res = resolveFixing([row], date, today);
+      const res = resolveFixing([row], date, expected);
       if (!res) continue;
       rates.push({ currency: row.currency, rate: res.rate });
       if (!fixingDate || res.fixingDate > fixingDate) fixingDate = res.fixingDate;
       provisional ||= res.provisional;
+      missing ||= res.missing;
     }
-    return { date, fixingDate, provisional, roePct: roe ? Number(roe.pct) : DEFAULT_ROE_PCT, rates };
+    return { date, fixingDate, provisional, missing, roePct: roe ? Number(roe.pct) : DEFAULT_ROE_PCT, rates };
+  },
+
+  /** Open "ČNB rates missing" alerts — only admins see them (they act on them). */
+  async alertsFor(role: string): Promise<FxAlertItem[]> {
+    return isAdminLevel(role) ? openAlerts() : [];
   },
 
   async importRuns(limit: number): Promise<ImportRunItem[]> {

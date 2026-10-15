@@ -88,6 +88,12 @@ export function isFixingDay(date: string): boolean {
   return !isWeekend(date) && !isCzechHoliday(date);
 }
 
+export function nextFixingDay(date: string): string {
+  let d = addDays(date, 1);
+  while (!isFixingDay(d)) d = addDays(d, 1);
+  return d;
+}
+
 export function previousFixingDay(date: string): string {
   let d = addDays(date, -1);
   while (!isFixingDay(d)) d = addDays(d, -1);

@@ -5,7 +5,7 @@ import { contactTable } from "../schemas/contact.schema";
 
 class ContactRepository extends TenantRepository<typeof contactTable> {
   constructor() {
-    super(db as never, contactTable, "contact");
+    super(db, contactTable, "contact");
   }
 
   // Scoped by company as well as customer, so a guessed customerId from another

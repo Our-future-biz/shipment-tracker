@@ -13,10 +13,6 @@ export type Role = (typeof ROLES)[number];
 // Company-level roles a company admin can assign; superadmin is never assignable via the API.
 export const COMPANY_ROLES = ["admin", "manager", "user"] as const;
 
-export function isRole(value: string): value is Role {
-  return (ROLES as readonly string[]).includes(value);
-}
-
 export function isCompanyRole(value: string): boolean {
   return (COMPANY_ROLES as readonly string[]).includes(value);
 }

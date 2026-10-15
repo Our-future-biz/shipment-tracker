@@ -1,4 +1,4 @@
-import { APIError } from "encore.dev/api";
+import { APIError, ErrCode } from "encore.dev/api";
 import { sql } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
@@ -26,6 +26,11 @@ const STAMP_LABEL: Record<StampKind, string> = {
   expReceipt: "WH receipt",
 };
 const MANAGERS_ONLY = "Only a manager can do this";
+// A shipment deleted in Shipments (retireForDeletedShipment): who and why, as logged.
+export const SHIPMENT_DELETED_REASON = "Shipment deleted in Shipments";
+export const SHIPMENT_DELETED_EVENT = "shipmentDeleted";
+const SYSTEM_ACTOR = "System";
+const SYSTEM_ROLE = "system";
 const MAX_REASON = 500;
 const t = gateMovementTable;
 
@@ -245,10 +250,11 @@ class GateAdminService {
   // Removes a position from the warehouse with its gate records (archived, not erased), in one
   // transaction. A position whose gate record has a stamp is removed only by a manager with a
   // reason; any user may remove one the gate never stamped.
-  async removePosition(taskId: string, companyId: string, userId: string, role: string, reason?: string) {
+  // (`actor`: the name logged instead of the user's — the system's own removals.)
+  async removePosition(taskId: string, companyId: string, userId: string, role: string, reason?: string, actor?: string) {
     const task = await gateMovementRepository.findTask(taskId, companyId);
     if (!task) throw APIError.notFound("Warehouse position not found");
-    const by = await userName(userId);
+    const by = actor ?? (await userName(userId));
     const why = (reason ?? "").trim();
     await db.transaction(async (tx) => {
       // The containers' houses first (containers are locked before positions), then the records.
@@ -274,6 +280,44 @@ class GateAdminService {
       });
       for (const r of rows) await syncStockForMovement(tx, companyId, r.id, { by, why: `position removed: ${archiveReason}` });
     });
+  }
+
+  // A shipment deleted in Shipments (warehouseService.retireShipment; runs as the system, safe to
+  // run again). Each of its live positions the gate never stamped is removed through
+  // removePosition, its gate records archived with SHIPMENT_DELETED_REASON. A stamped one —
+  // cargo that was physically handled — is kept: the system is no manager, so removePosition
+  // refuses it, and its live gate records get one "Shipment deleted" event instead. The
+  // updates the gate still owes the deleted shipment (pending or failed) are cancelled.
+  // Both lists carry position ids (warehouse_task.id).
+  async retireForDeletedShipment(shipmentId: string, companyId: string): Promise<{ removed: string[]; kept: string[] }> {
+    const removed: string[] = [];
+    const kept: string[] = [];
+    for (const task of await warehouseTaskRepository.listByShipmentId(shipmentId, companyId)) {
+      try {
+        await this.removePosition(task.id, companyId, "", SYSTEM_ROLE, SHIPMENT_DELETED_REASON, SYSTEM_ACTOR);
+        removed.push(task.id);
+      } catch (err) {
+        // Stamped: kept. Gone meanwhile (a second delivery of the event): nothing to do.
+        if (err instanceof APIError && err.code === ErrCode.PermissionDenied) kept.push(task.id);
+        else if (!(err instanceof APIError && err.code === ErrCode.NotFound)) throw err;
+      }
+    }
+    await db.transaction(async (tx) => {
+      await shipmentOutboxRepository.cancelForShipment(tx, shipmentId, companyId, "shipment deleted in Shipments");
+      const at = new Date().toISOString();
+      for (const taskId of kept) {
+        for (const r of await gateMovementRepository.liveForTaskLocked(tx, taskId, companyId)) {
+          if (r.events.some((e) => e.kind === SHIPMENT_DELETED_EVENT)) continue;
+          await gateMovementRepository.appendEvents(
+            r.id,
+            companyId,
+            [{ kind: SHIPMENT_DELETED_EVENT, label: "Shipment deleted in Shipments — position kept (its gate record has stamps)", at, by: SYSTEM_ACTOR }],
+            tx,
+          );
+        }
+      }
+    });
+    return { removed, kept };
   }
 
   // "Retry now" for a shipment update the gate still owes: it is sent straight away; a failed

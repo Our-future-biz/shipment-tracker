@@ -1,31 +1,20 @@
-import { api, APIError } from "encore.dev/api";
+import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { invoicingService } from "../services/invoicing.service";
-import type { SellingCostItem } from "../interfaces/interfaces";
-import { isVatCode } from "../lib/invoiceCalc";
+import type { SellingCostInput, SellingCostItem, SellingVatCode } from "../interfaces/interfaces";
 
-interface AddSellingRequest {
+interface AddSellingRequest extends SellingCostInput {
   shipmentId: string;
-  category?: string;
-  customer?: string;
-  qty?: string;
-  amount?: string;
-  currency?: string;
-  invoice?: boolean;
-  sourceBuyId?: string;
-  sortOrder?: number;
 }
 
-interface AddSellingResponse {
+interface SellingResponse {
   sellingCost: SellingCostItem;
 }
 
 export const invoicingAddSellingCost = api(
   { expose: true, auth: true, method: "POST", path: "/invoicing/:shipmentId/selling" },
-  async (req: AddSellingRequest): Promise<AddSellingResponse> => {
-    const { shipmentId, ...data } = req;
-    const row = await invoicingService.addSellingCost(shipmentId, getAuthData()!.companyID, data);
-    return { sellingCost: row as unknown as SellingCostItem };
+  async ({ shipmentId, ...input }: AddSellingRequest): Promise<SellingResponse> => {
+    return { sellingCost: await invoicingService.addSellingCost(shipmentId, getAuthData()!.companyID, input) };
   },
 );
 
@@ -33,31 +22,22 @@ interface UpdateSellingRequest {
   shipmentId: string;
   sellingId: string;
   category?: string;
+  description?: string;
   customer?: string;
   qty?: string;
   amount?: string;
   currency?: string;
   invoice?: boolean;
+  /** position in the list (undo / re-insert keeps a line where it was) */
+  sortOrder?: number;
   /** VAT code on the invoice: S21 | Z69 | RC | OUT; "" = default by trade direction */
-  vatCode?: string;
-}
-
-interface UpdateSellingResponse {
-  sellingCost: SellingCostItem;
+  vatCode?: SellingVatCode | "";
 }
 
 export const invoicingUpdateSellingCost = api(
   { expose: true, auth: true, method: "PATCH", path: "/invoicing/:shipmentId/selling/:sellingId" },
-  async (req: UpdateSellingRequest): Promise<UpdateSellingResponse> => {
-    const { shipmentId, sellingId, vatCode, ...rest } = req;
-    const data: Record<string, unknown> = { ...rest };
-    if (vatCode !== undefined) {
-      if (vatCode !== "" && (!isVatCode(vatCode) || vatCode === "NP")) throw APIError.invalidArgument(`Unknown VAT code: ${vatCode}`);
-      data.vatCode = vatCode || null;
-    }
-    const row = await invoicingService.updateSellingCost(sellingId, getAuthData()!.companyID, shipmentId, data);
-    if (!row) throw APIError.notFound("Selling cost not found");
-    return { sellingCost: row as unknown as SellingCostItem };
+  async ({ shipmentId, sellingId, ...input }: UpdateSellingRequest): Promise<SellingResponse> => {
+    return { sellingCost: await invoicingService.updateSellingCost(sellingId, getAuthData()!.companyID, shipmentId, input) };
   },
 );
 
@@ -73,8 +53,7 @@ interface DeleteSellingResponse {
 export const invoicingDeleteSellingCost = api(
   { expose: true, auth: true, method: "DELETE", path: "/invoicing/:shipmentId/selling/:sellingId" },
   async (req: DeleteSellingRequest): Promise<DeleteSellingResponse> => {
-    const deleted = await invoicingService.deleteSellingCost(req.sellingId, getAuthData()!.companyID, req.shipmentId);
-    if (!deleted) throw APIError.notFound("Selling cost not found");
+    await invoicingService.deleteSellingCost(req.sellingId, getAuthData()!.companyID, req.shipmentId);
     return { ok: true };
   },
 );

@@ -1,0 +1,15 @@
+-- Dates were stored as text ("" for none). Kept: the yyyy-mm-dd prefix of a value that is a real
+-- calendar date; anything else ("", junk, 2026-02-31) becomes NULL instead of failing the cast.
+-- Nested CASE so the casts only run on values that already passed the pattern.
+ALTER TABLE "customer" ALTER COLUMN "registration_date" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "customer" ALTER COLUMN "registration_date" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "customer" ALTER COLUMN "registration_date" SET DATA TYPE date USING (CASE WHEN substring(trim("registration_date") from 1 for 10) ~ '^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$' THEN CASE WHEN substring(substring(trim("registration_date") from 1 for 10) from 9 for 2)::int <= extract(day from date_trunc('month', (substring(substring(trim("registration_date") from 1 for 10) from 1 for 7) || '-01')::date) + interval '1 month - 1 day')::int THEN substring(trim("registration_date") from 1 for 10)::date END END);--> statement-breakpoint
+ALTER TABLE "customer" ALTER COLUMN "last_activity_date" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "customer" ALTER COLUMN "last_activity_date" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "customer" ALTER COLUMN "last_activity_date" SET DATA TYPE date USING (CASE WHEN substring(trim("last_activity_date") from 1 for 10) ~ '^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$' THEN CASE WHEN substring(substring(trim("last_activity_date") from 1 for 10) from 9 for 2)::int <= extract(day from date_trunc('month', (substring(substring(trim("last_activity_date") from 1 for 10) from 1 for 7) || '-01')::date) + interval '1 month - 1 day')::int THEN substring(trim("last_activity_date") from 1 for 10)::date END END);--> statement-breakpoint
+ALTER TABLE "customer_invoice" ALTER COLUMN "due_date" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "customer_invoice" ALTER COLUMN "due_date" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "customer_invoice" ALTER COLUMN "due_date" SET DATA TYPE date USING (CASE WHEN substring(trim("due_date") from 1 for 10) ~ '^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$' THEN CASE WHEN substring(substring(trim("due_date") from 1 for 10) from 9 for 2)::int <= extract(day from date_trunc('month', (substring(substring(trim("due_date") from 1 for 10) from 1 for 7) || '-01')::date) + interval '1 month - 1 day')::int THEN substring(trim("due_date") from 1 for 10)::date END END);--> statement-breakpoint
+ALTER TABLE "customer_invoice" ALTER COLUMN "issued_at" DROP DEFAULT;--> statement-breakpoint
+ALTER TABLE "customer_invoice" ALTER COLUMN "issued_at" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "customer_invoice" ALTER COLUMN "issued_at" SET DATA TYPE date USING (CASE WHEN substring(trim("issued_at") from 1 for 10) ~ '^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$' THEN CASE WHEN substring(substring(trim("issued_at") from 1 for 10) from 9 for 2)::int <= extract(day from date_trunc('month', (substring(substring(trim("issued_at") from 1 for 10) from 1 for 7) || '-01')::date) + interval '1 month - 1 day')::int THEN substring(trim("issued_at") from 1 for 10)::date END END);

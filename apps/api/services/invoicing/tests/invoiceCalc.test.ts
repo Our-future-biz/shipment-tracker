@@ -3,6 +3,8 @@ import {
   addDays,
   calculateInvoice,
   creditLines,
+  creditTotals,
+  qtyOrOne,
   defaultDuzp,
   defaultVatCode,
   dueDays,
@@ -238,5 +240,44 @@ describe("credit notes", () => {
     const credit = summarise(lines, original.fxRate);
     expect(lines[0]).toMatchObject({ qty: -1, net: -1000 });
     expect(credit).toMatchObject({ net: -1000, vat: -210, gross: -1210, netCzk: -25000, vatCzk: -5250, grossCzk: -30250 });
+  });
+});
+
+describe("qtyOrOne", () => {
+  it("reads a blank quantity as 1 but keeps a typed 0", () => {
+    expect(qtyOrOne(null)).toBe(1);
+    expect(qtyOrOne("")).toBe(1);
+    expect(qtyOrOne("  ")).toBe(1);
+    expect(qtyOrOne("0")).toBe(0);
+    expect(qtyOrOne("0.00")).toBe(0);
+    expect(qtyOrOne("2.50")).toBe(2.5);
+  });
+
+  it("leaves a row with quantity 0 off the invoice instead of billing one unit", () => {
+    const calc = calculateInvoice({
+      rows: [
+        { id: "a", category: "Freight", qty: "0", amount: "100", currency: "CZK", invoice: true, vatCode: null },
+        { id: "b", category: "THC", qty: null, amount: "50", currency: "CZK", invoice: true, vatCode: null },
+      ],
+      currency: "CZK",
+      rates: { CZK: 1 },
+      tradeDirection: "Import",
+      vatPayer: true,
+    });
+    expect(calc.lines.map((l) => l.sourceSellingCostId)).toEqual(["b"]);
+    expect(calc.net).toBe(50);
+  });
+});
+
+describe("creditTotals", () => {
+  it("negates the invoice's own stored totals and VAT recap, so the credit note cancels it exactly", () => {
+    const t = creditTotals({
+      net: "1000.01", vat: "210.00", gross: "1210.01", netCzk: "25034.27", vatCzk: "5257.20", grossCzk: "30291.47",
+      vatSummary: [{ vatCode: "S21", vatRate: 21, base: 1000.01, vat: 210, baseCzk: 25034.27, vatCzk: 5257.2 }],
+    });
+    expect(t).toEqual({
+      net: -1000.01, vat: -210, gross: -1210.01, netCzk: -25034.27, vatCzk: -5257.2, grossCzk: -30291.47,
+      vatSummary: [{ vatCode: "S21", vatRate: 21, base: -1000.01, vat: -210, baseCzk: -25034.27, vatCzk: -5257.2 }],
+    });
   });
 });

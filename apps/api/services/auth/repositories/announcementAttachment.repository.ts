@@ -5,7 +5,7 @@ import { announcementAttachmentTable } from "../schemas/announcement.schema";
 
 class AnnouncementAttachmentRepository extends TenantRepository<typeof announcementAttachmentTable> {
   constructor() {
-    super(db as never, announcementAttachmentTable, "announcement_attachment");
+    super(db, announcementAttachmentTable, "announcement_attachment");
   }
 
   // The live attachments of the given posts, without the bytes — the noticeboard lists them per post.

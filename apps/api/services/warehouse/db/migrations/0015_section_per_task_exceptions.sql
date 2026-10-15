@@ -30,7 +30,7 @@ FROM "warehouse_task" t
 WHERE t."company_id" = s."company_id"
   AND t."deleted_at" IS NULL
   AND t."shipment_id" IS NOT NULL
-  AND t."shipment_id"::text = s."shipment_id"
+  AND t."shipment_id"::text = s."shipment_id"::text
   AND s."section" <> 'pickup'
   AND s."task_id" IS NULL
   AND s."deleted_at" IS NULL;--> statement-breakpoint

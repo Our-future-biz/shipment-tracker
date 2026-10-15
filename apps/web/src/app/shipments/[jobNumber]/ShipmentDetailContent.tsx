@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { partyUpdate, type PartyField } from "@/app/shipments/_lib/parties";
+import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Spin, Dropdown, message, Modal, Tag, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
 import dayjs from "dayjs";
@@ -22,6 +23,8 @@ import {
   EditOutlined,
   DollarOutlined,
 } from "@ant-design/icons";
+import { useShipment } from "@/hooks/useShipment";
+import { useInvoicing } from "@/hooks/useInvoicing";
 import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
@@ -29,6 +32,8 @@ import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { useShipmentTasks } from "@/hooks/useShipmentTasks";
 import { useCardFields } from "./useCardFields";
 import { useUsers } from "@/hooks/useUsers";
+import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
+import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { getTasksForDirection, getActiveStageFromTasks } from "./_components/taskDefinitions";
 import Link from "next/link";
 import { ClaimsTab } from "./tabs/ClaimsTab";
@@ -45,11 +50,11 @@ import { EditableCell, TradeDirectionContext } from "./_components/EditableCell"
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
+import { SalesQuoteLink } from "./_components/SalesQuoteLink";
 import type { controllers } from "@/lib/api/client";
 import { TasksPanel } from "./_components/TasksPanel";
 import { MasterJobDetailModal } from "../_components/MasterJobDetailModal";
 import { MasterJobDialog } from "../_components/MasterJobDialog";
-import { LinkedQuotePanel } from "../_components/LinkedQuotePanel";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
 import { NotesDrawer } from "../_components/NotesDrawer";
 import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
@@ -79,8 +84,12 @@ const SHIPMENT_STAGES = [
   "Delivered",
 ];
 
+interface ShipmentStepperProps {
+  shipment: ShipmentItem;
+}
+
 /* ── Stepper component (driven by completed tasks) ── */
-function ShipmentStepper({ shipment }: { shipment: ShipmentItem }) {
+function ShipmentStepper({ shipment }: ShipmentStepperProps) {
   const { byKey } = useShipmentTasks(shipment.id);
   const taskList = getTasksForDirection(shipment.tradeDirection);
   const activeIndex = getActiveStageFromTasks(taskList, (key) => !!byKey.get(key)?.completed);
@@ -137,9 +146,7 @@ function ShipmentStepper({ shipment }: { shipment: ShipmentItem }) {
 
 /* ── Shared UI pieces ── */
 
-function SectionHeader({
-  icon, title, cardId, allFields, shipment, onCommit, styleFor, renderField,
-}: {
+interface SectionHeaderProps {
   icon: React.ReactNode;
   title: string;
   /** Kdyz je zadano, hlavicka dostane "Show all" a tuzku pro vyber poli. */
@@ -151,7 +158,11 @@ function SectionHeader({
   /** Vlastni vykresleni pro pole, ktera nejsou obycejny FieldRow
    *  (Master Job s odkazem, Incoterm, propojeni zakazniku). */
   renderField?: Record<string, React.ReactNode>;
-}) {
+}
+
+function SectionHeader({
+  icon, title, cardId, allFields, shipment, onCommit, styleFor, renderField,
+}: SectionHeaderProps) {
   const [showAll, setShowAll] = useState(false);
   const [picking, setPicking] = useState(false);
   const { visibleKeys, toggleField, resetCard, isCustomised } = useCardFields();
@@ -197,9 +208,9 @@ function SectionHeader({
             {/* .sec-all z mockupu */}
             <button
               onClick={() => setShowAll(true)}
-              className="h-[26px] px-2.5 text-[11.5px] font-semibold rounded-md border border-[#d8dce6]
-                         bg-white text-slate-600 cursor-pointer hover:bg-[#f4f5f9] hover:text-[#46506b]
-                         hover:border-[#c3c9d6] transition-colors whitespace-nowrap"
+              className="h-[26px] px-2.5 text-[11.5px] font-semibold rounded-md border border-line-soft
+                         bg-white text-slate-600 cursor-pointer hover:bg-surface-2 hover:text-ink-soft
+                         hover:border-line-dim transition-colors whitespace-nowrap"
             >
               Show all ({allKeys.length})
             </button>
@@ -211,7 +222,7 @@ function SectionHeader({
                             transition-colors ${
                   isCustomised(cardId!)
                     ? "bg-indigo-500 border-indigo-500 text-white"
-                    : "border-[#d8dce6] bg-white text-slate-600 hover:bg-[#f4f5f9] hover:text-indigo-500 hover:border-[#c3c9d6]"
+                    : "border-line-soft bg-white text-slate-600 hover:bg-surface-2 hover:text-indigo-500 hover:border-line-dim"
                 }`}
               >
                 <EditOutlined className="text-[12px]" />
@@ -266,8 +277,8 @@ function SectionHeader({
               </span>
               <button
                 onClick={() => resetCard(cardId!)}
-                className="h-8 px-3 text-[12.5px] font-semibold rounded-md border border-[#d8dce6]
-                           bg-white text-slate-600 cursor-pointer hover:bg-[#f4f5f9]"
+                className="h-8 px-3 text-[12.5px] font-semibold rounded-md border border-line-soft
+                           bg-white text-slate-600 cursor-pointer hover:bg-surface-2"
               >
                 Show all fields
               </button>
@@ -314,6 +325,15 @@ function SectionHeader({
   );
 }
 
+interface FieldRowProps {
+  label: string;
+  value?: string | null;
+  fieldKey: string;
+  onCommit: CommitFn;
+  styleFor?: StyleFor;
+  labelW?: string;
+}
+
 function FieldRow({
   label,
   value,
@@ -321,14 +341,7 @@ function FieldRow({
   onCommit,
   styleFor,
   labelW = "w-[140px]",
-}: {
-  label: string;
-  value?: string | null;
-  fieldKey: string;
-  onCommit: CommitFn;
-  styleFor?: StyleFor;
-  labelW?: string;
-}) {
+}: FieldRowProps) {
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
@@ -345,6 +358,14 @@ function FieldRow({
   );
 }
 
+interface MemberRowProps {
+  label: string;
+  value?: string | null;
+  fieldKey: string;
+  onCommit: CommitFn;
+  labelW?: string;
+}
+
 // Row whose value is picked from the company's members (same list as the sales person).
 function MemberRow({
   label,
@@ -352,13 +373,7 @@ function MemberRow({
   fieldKey,
   onCommit,
   labelW = "w-[140px]",
-}: {
-  label: string;
-  value?: string | null;
-  fieldKey: string;
-  onCommit: CommitFn;
-  labelW?: string;
-}) {
+}: MemberRowProps) {
   const { users } = useUsers();
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0 items-center">
@@ -383,19 +398,21 @@ function MemberRow({
 // the Commercial Invoices dialog (the same one the Shipments table opens).
 const INVOICE_FIELDS = new Set(["commercialInvoice", "commercialInvoiceValue"]);
 
+interface InvoiceRowProps {
+  label: string;
+  fieldKey: string;
+  shipment: ShipmentItem;
+  styleFor?: StyleFor;
+  labelW?: string;
+}
+
 function InvoiceRow({
   label,
   fieldKey,
   shipment,
   styleFor,
   labelW = "w-[140px]",
-}: {
-  label: string;
-  fieldKey: string;
-  shipment: ShipmentItem;
-  styleFor?: StyleFor;
-  labelW?: string;
-}) {
+}: InvoiceRowProps) {
   const { updateShipment } = useShipments();
   const [open, setOpen] = useState(false);
   const value =
@@ -429,8 +446,14 @@ function InvoiceRow({
   );
 }
 
+interface RoRowProps {
+  label: string;
+  value?: string | null;
+  labelW?: string;
+}
+
 // Read-only horizontal row (label | value), matching FieldRow's look.
-function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: string | null; labelW?: string }) {
+function RoRow({ label, value, labelW = "w-[140px]" }: RoRowProps) {
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className={`${labelW} shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide`}>{label}</span>
@@ -443,6 +466,11 @@ function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: 
   );
 }
 
+interface FieldColumnsProps {
+  fields: FieldDef[];
+  renderRow: (field: FieldDef) => React.ReactNode;
+}
+
 /**
  * The two-column field grid shared by "Show all" and the field picker, so the
  * two modals lay out identically and only differ in how a row is rendered.
@@ -450,10 +478,7 @@ function RoRow({ label, value, labelW = "w-[140px]" }: { label: string; value?: 
 function FieldColumns({
   fields,
   renderRow,
-}: {
-  fields: FieldDef[];
-  renderRow: (field: FieldDef) => React.ReactNode;
-}) {
+}: FieldColumnsProps) {
   const half = Math.ceil(fields.length / 2);
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 max-h-[65vh] overflow-y-auto pr-1">
@@ -470,19 +495,7 @@ function FieldColumns({
 
 type FieldDef = { key: string; label: string; ro?: boolean };
 
-// A card of horizontal rows, optionally split into two columns.
-export function DetailCard({
-  icon,
-  title,
-  cardId,
-  columns,
-  shipment,
-  onCommit,
-  styleFor,
-  renderBefore,
-  renderAfter,
-  children,
-}: {
+interface DetailCardProps {
   icon: React.ReactNode;
   title: string;
   /** Kdyz je zadano, karta dostane "Show all" a tuzku pro vyber poli. */
@@ -495,7 +508,21 @@ export function DetailCard({
   renderBefore?: Record<string, React.ReactNode>;
   renderAfter?: Record<string, React.ReactNode>;
   children?: React.ReactNode;
-}) {
+}
+
+// A card of horizontal rows, optionally split into two columns.
+export function DetailCard({
+  icon,
+  title,
+  cardId,
+  columns,
+  shipment,
+  onCommit,
+  styleFor,
+  renderBefore,
+  renderAfter,
+  children,
+}: DetailCardProps) {
   const { visibleKeys } = useCardFields();
   const allFields = columns.flat();
   const shown = cardId
@@ -551,9 +578,14 @@ export function makeStyleFor(shipment: ShipmentItem): StyleFor {
   };
 }
 
+interface HouseBolReleaseRowProps {
+  releasedAt: string;
+  onRelease: () => void;
+}
+
 // House BoL release: a one-off action rather than an editable field. Until it is
 // released it shows the button; afterwards it shows who released it and when.
-function HouseBolReleaseRow({ releasedAt, onRelease }: { releasedAt: string; onRelease: () => void }) {
+function HouseBolReleaseRow({ releasedAt, onRelease }: HouseBolReleaseRowProps) {
   return (
     <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100 last:border-b-0">
       <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">
@@ -575,16 +607,18 @@ function HouseBolReleaseRow({ releasedAt, onRelease }: { releasedAt: string; onR
 }
 
 
+interface OpeningHoursRowProps {
+  from?: string | null;
+  to?: string | null;
+  onChange: (from: string, to: string) => void;
+}
+
 // Opening hours as a plain time range (from–to), no date, rendered as a card row.
 function OpeningHoursRow({
   from,
   to,
   onChange,
-}: {
-  from?: string | null;
-  to?: string | null;
-  onChange: (from: string, to: string) => void;
-}) {
+}: OpeningHoursRowProps) {
   const parse = (v?: string | null) => {
     if (!v) return null;
     const d = dayjs(`1970-01-01T${v}`);
@@ -723,17 +757,19 @@ const CARGO_COMMERCIAL_R: CargoField[] = [
   { key: "approvedBy", label: "Approved by" },
 ];
 
+interface CargoRowProps {
+  field: CargoField;
+  shipment: ShipmentItem;
+  onCommit: CommitFn;
+  styleFor?: StyleFor;
+}
+
 function CargoRow({
   field,
   shipment,
   onCommit,
   styleFor,
-}: {
-  field: CargoField;
-  shipment: ShipmentItem;
-  onCommit: CommitFn;
-  styleFor?: StyleFor;
-}) {
+}: CargoRowProps) {
   if (INVOICE_FIELDS.has(field.key)) {
     return <InvoiceRow label={field.label} fieldKey={field.key} shipment={shipment} styleFor={styleFor} labelW="w-[180px]" />;
   }
@@ -750,7 +786,7 @@ function CargoRow({
           className={`flex-1 min-w-0 ${
             value
               ? field.highlight
-                ? "text-slate-900 font-medium bg-[#eaf6ee] px-1.5 py-px rounded"
+                ? "text-slate-900 font-medium bg-ok-softer px-1.5 py-px rounded"
                 : "text-slate-900 font-medium"
               : "text-slate-300"
           }`}
@@ -772,7 +808,7 @@ function CargoRow({
         placeholder="—"
         displayClassName={
           field.highlight
-            ? "text-slate-900 font-medium bg-[#eaf6ee] px-1.5 py-px rounded"
+            ? "text-slate-900 font-medium bg-ok-softer px-1.5 py-px rounded"
             : "text-slate-900 font-medium"
         }
         emptyClassName="text-slate-300"
@@ -782,15 +818,17 @@ function CargoRow({
   );
 }
 
+interface CargoCommercialCardProps {
+  shipment: ShipmentItem;
+  onCommit: CommitFn;
+  styleFor?: StyleFor;
+}
+
 function CargoCommercialCard({
   shipment,
   onCommit,
   styleFor,
-}: {
-  shipment: ShipmentItem;
-  onCommit: CommitFn;
-  styleFor?: StyleFor;
-}) {
+}: CargoCommercialCardProps) {
   const { visibleKeys } = useCardFields();
   const cargoShown = new Set(
     visibleKeys("cargo", [...CARGO_COMMERCIAL_L, ...CARGO_COMMERCIAL_R].map((f) => f.key)),
@@ -820,8 +858,12 @@ function CargoCommercialCard({
   );
 }
 
+interface RouteLineProps {
+  segments: string[];
+}
+
 /* ── Route dots ── */
-function RouteLine({ segments }: { segments: string[] }) {
+function RouteLine({ segments }: RouteLineProps) {
   if (segments.length === 0) return null;
 
   return (
@@ -851,10 +893,9 @@ export function ShipmentDetailContent() {
   const { jobNumber } = useParams<{ jobNumber: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { shipments, isLoading, updateField, updateShipment, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipments();
+  const { shipments, isLoading: listLoading, updateField, updateShipment, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipments();
   const [masterJobOpen, setMasterJobOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
-  const [quotePanelOpen, setQuotePanelOpen] = useState(false);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -868,19 +909,18 @@ export function ShipmentDetailContent() {
   // container-number link.
   const [cargoFocusId, setCargoFocusId] = useState<string | null>(null);
 
-  const shipment = shipments.find((s) => s.id === jobNumber);
+  // From the loaded list when the shipment is among its rows, otherwise read on its own: a
+  // shipment opened by link need not be one of the newest.
+  const { shipment, isLoading, notFound, error, reload } = useShipment(jobNumber, { shipments, isLoading: listLoading });
 
-  // Fakturacni data se nactou uz pri otevreni zakazky, takze zalozka
-  // Costs Breakdown je pri prokliku ma hned k dispozici a nic nedonacita.
-  const { data: invoicingData } = useQuery({
-    queryKey: ["invoicing", shipment?.id],
-    queryFn: () => api.invoicing.invoicingGet(shipment!.id),
-    enabled: !!shipment,
-  });
-  const linkedQuote = invoicingData?.billingSettings?.quoteRef ?? "";
+  // The invoicing data loads with the shipment, so the Costs Breakdown tab has it at once.
+  const { data: invoicingData } = useInvoicing(shipment?.id ?? null);
+  // The quote the costs were copied from, as the billing settings remember it.
+  const costsQuoteRef = (invoicingData?.billingSettings?.quoteRef ?? "").trim();
 
   // Totals of the Costs Breakdown tab, shown on the Quote card.
   const costs = useCostsData(shipment);
+
 
   const TAB_KEYS = TABS.map((t) => t.key);
   const rawTab = searchParams.get("tab");
@@ -907,7 +947,17 @@ export function ShipmentDetailContent() {
   if (!shipment) {
     return (
       <div className="p-10 text-center text-slate-500">
-        Shipment not found.{" "}
+        {/* "Not found" is said only when the server said so; a request that failed is tried again. */}
+        {notFound ? (
+          "Shipment not found."
+        ) : (
+          <>
+            Could not load the shipment - {error}.{" "}
+            <Button size="small" onClick={() => reload()}>
+              Retry
+            </Button>
+          </>
+        )}{" "}
         <Link href="/shipments" className="text-indigo-500">
           Back to list
         </Link>
@@ -915,11 +965,12 @@ export function ShipmentDetailContent() {
     );
   }
 
-  const handleCommit: CommitFn = (fieldKey, value) => updateField(shipment.id, fieldKey, value);
+  // The shipment goes along: it need not be among the rows the list hook knows.
+  const handleCommit: CommitFn = (fieldKey, value) => updateField(shipment.id, fieldKey, value, shipment);
 
   // Update a party's name + its CRM customer link together.
-  const linkParty = (nameKey: string, idKey: string, name: string, customerId: string | null) => {
-    updateShipment({ id: shipment.id, data: { [nameKey]: name, [idKey]: customerId } as controllers.ShipmentUpdateRequest });
+  const linkParty = (party: PartyField, name: string, customerId: string | null) => {
+    updateShipment({ id: shipment.id, data: partyUpdate(party, name, customerId) });
   };
 
   // Persist a field that isn't part of the shipments table's column config.
@@ -928,6 +979,10 @@ export function ShipmentDetailContent() {
 
   const styleFor = makeStyleFor(shipment);
   const status = shipment.status ?? "";
+  // The quote the shipment was sold from is the one its Sales Number names, when that is the
+  // reference of a sales quote.
+  const salesNumber = (shipment.salesNumber ?? "").trim();
+  const salesQuoteRef = isSalesQuoteRef(salesNumber) ? salesNumber : null;
   const routeSegments = [shipment.pol, shipment.pod, shipment.destination].filter(Boolean);
 
   const handleCopy = () => {
@@ -1009,7 +1064,7 @@ export function ShipmentDetailContent() {
             <button
               type="button"
               onClick={() => router.push("/shipments")}
-              className="inline-flex items-center gap-2 h-10 px-4 mr-1.5 rounded-lg border border-[#d8dce6] bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-[#f4f5f9] hover:text-[#46506b] transition-colors"
+              className="inline-flex items-center gap-2 h-10 px-4 mr-1.5 rounded-lg border border-line-soft bg-white text-slate-900 text-[17px] font-bold cursor-pointer hover:bg-surface-2 hover:text-ink-soft transition-colors"
             >
               <ArrowLeftOutlined /> Shipments
             </button>
@@ -1042,15 +1097,23 @@ export function ShipmentDetailContent() {
               Invoice
             </Link>
 
-            {/* Linked Quote */}
-            {linkedQuote && (
-              <button
-                onClick={() => setQuotePanelOpen(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 cursor-pointer text-slate-600"
+            {/* The shipment's quote, shown once: the sales quote in its Sales Number, with a link
+                to its page. A shipment without one may still carry the reference its costs were
+                copied from (Costs tab > Copy from quote): that is named as what it is, and is not
+                made the shipment's quote. */}
+            {salesQuoteRef ? (
+              <SalesQuoteLink shipmentId={shipment.id} quoteNumber={salesQuoteRef} />
+            ) : isSalesQuoteRef(costsQuoteRef) ? (
+              <Link
+                href={quoteHref(costsQuoteRef)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 text-slate-600 whitespace-nowrap"
               >
                 <SplitCellsOutlined />
-                Linked Quote
-              </button>
+                Costs copied from {costsQuoteRef}
+              </Link>
+            ) : (
+              // Anything else is a reference of the old quotes module: it has no page to lead to.
+              costsQuoteRef && <span className="text-xs text-slate-500 whitespace-nowrap">Costs copied from {costsQuoteRef}</span>
             )}
 
             {/* Notes */}
@@ -1181,14 +1244,17 @@ export function ShipmentDetailContent() {
                       </div>
                     ),
                     customer: (
-                      <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", "customerId", n, id)} />
+                      <CustomerLinkField label="Customer" name={shipment.customer} customerId={shipment.customerId} onChange={(n, id) => linkParty("customer", n, id)} />
                     ),
                     shipper: (
-                      <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
+                      <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", n, id)} />
                     ),
                     consignee: (
-                      <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
+                      <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", n, id)} />
                     ),
+                    // Not a column of the Shipments grid, so getFieldValue knows no such key: read
+                    // from the shipment itself. It is changed in the Quote card below.
+                    salesPerson: <RoRow label="Sales Person" value={shipment.salesPerson} />,
                     incoterm: (
                       <div className="flex gap-2.5 py-1.5 text-xs border-b border-slate-100">
                         <span className="w-[140px] shrink-0 text-[11px] font-bold text-slate-500 uppercase tracking-wide">Incoterm Origin/Destination</span>
@@ -1253,7 +1319,7 @@ export function ShipmentDetailContent() {
 
                   const custom: Record<string, React.ReactNode> = {
                     shipper: (
-                      <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", "shipperId", n, id)} />
+                      <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", n, id)} />
                     ),
                     shipperContact: (
                       <PartyContactField label="Contact" fieldKey="shipperContact" value={shipment.shipperContact} customerId={shipment.shipperId} onCommit={commitDirect} />
@@ -1266,7 +1332,7 @@ export function ShipmentDetailContent() {
                       />
                     ),
                     consignee: (
-                      <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", "consigneeId", n, id)} />
+                      <CustomerLinkField label="Consignee" name={shipment.consignee} customerId={shipment.consigneeId} onChange={(n, id) => linkParty("consignee", n, id)} />
                     ),
                     consigneeContact: (
                       <PartyContactField label="Contact" fieldKey="consigneeContact" value={shipment.consigneeContact} customerId={shipment.consigneeId} onCommit={commitDirect} />
@@ -1535,14 +1601,6 @@ export function ShipmentDetailContent() {
         initialSelectedIds={[shipment.id]}
       />
 
-      {linkedQuote && (
-        <LinkedQuotePanel
-          quoteNumber={linkedQuote}
-          open={quotePanelOpen}
-          onClose={() => setQuotePanelOpen(false)}
-        />
-      )}
-
       <Drawer
         open={attachmentsOpen}
         onClose={() => setAttachmentsOpen(false)}
@@ -1562,7 +1620,7 @@ export function ShipmentDetailContent() {
         shipment={shipment}
         open={notesOpen}
         onClose={() => setNotesOpen(false)}
-        onSave={(value) => updateField(shipment.id, "freeComments", value)}
+        onSave={(value) => handleCommit("freeComments", value)}
       />
 
 

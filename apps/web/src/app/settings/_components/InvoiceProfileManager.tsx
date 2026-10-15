@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Button, Form, Input, InputNumber, Switch, Select, Tag } from "antd";
+import { useState } from "react";
+import { Button, Form, Input, InputNumber, Spin, Switch, Select, Tag } from "antd";
 import { PlusOutlined, DeleteOutlined, UploadOutlined, SearchOutlined } from "@ant-design/icons";
 import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
-import { useInvoiceProfile, type InvoiceProfileInput } from "@/hooks/useInvoiceProfile";
+import { useInvoiceProfile, type InvoiceProfile, type InvoiceProfileInput } from "@/hooks/useInvoiceProfile";
 
 const CURRENCIES = ["CZK", "EUR", "USD", "GBP", "CHF", "PLN"];
 
@@ -21,7 +21,12 @@ const readAsDataUrl = (file: File) =>
   });
 
 /** Section title inside the card. */
-const Group = ({ title, children }: { title: string; children: React.ReactNode }) => (
+interface GroupProps {
+  title: string;
+  children: React.ReactNode;
+}
+
+const Group = ({ title, children }: GroupProps) => (
   <fieldset className="border-0 p-0 m-0 mb-4">
     <legend className="text-[11.5px] font-bold uppercase tracking-[.04em] text-slate-500 mb-2">{title}</legend>
     {children}
@@ -34,20 +39,31 @@ const Group = ({ title, children }: { title: string; children: React.ReactNode }
  * change here only affects invoices issued afterwards.
  */
 export function InvoiceProfileManager() {
+  const { profile } = useInvoiceProfile();
+  // The form starts from the loaded profile (initialValues), so it mounts only once it is here;
+  // after a save it already holds what was saved.
+  if (!profile) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-2xl p-4 flex justify-center">
+        <Spin />
+      </div>
+    );
+  }
+  return <InvoiceProfileForm profile={profile} />;
+}
+
+interface InvoiceProfileFormProps {
+  profile: InvoiceProfile;
+}
+
+function InvoiceProfileForm({ profile }: InvoiceProfileFormProps) {
   const toast = useToast();
-  const { profile, isLoading, saveProfile, isSaving } = useInvoiceProfile();
+  const { saveProfile, isSaving } = useInvoiceProfile();
   const [form] = Form.useForm<InvoiceProfileInput>();
-  const [logo, setLogo] = useState("");
+  const [logo, setLogo] = useState(profile.logoData);
   const vatPayer = Form.useWatch("vatPayer", form);
   const icoValue = Form.useWatch("ico", form) ?? "";
   const [looking, setLooking] = useState(false);
-
-  useEffect(() => {
-    if (!profile) return;
-    // missingForIssue is computed by the server, not a form field
-    form.setFieldsValue({ ...profile, missingForIssue: undefined } as Partial<InvoiceProfileInput>);
-    setLogo(profile.logoData);
-  }, [profile, form]);
 
   const pickLogo = async (file: File | undefined) => {
     if (!file) return;
@@ -95,7 +111,9 @@ export function InvoiceProfileManager() {
   };
 
   const handleSave = async () => {
-    const values = await form.validateFields();
+    // a field that fails validation shows its own message; nothing to save then
+    const values = await form.validateFields().catch(() => null);
+    if (!values) return;
     try {
       await saveProfile({ ...values, logoData: logo, bankAccounts: values.bankAccounts ?? [] });
       toast.success("Invoicing details saved");
@@ -105,13 +123,13 @@ export function InvoiceProfileManager() {
     }
   };
 
-  const missing = profile?.missingForIssue ?? [];
+  const missing = profile.missingForIssue;
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-4">
       <div className="flex items-center justify-between gap-3 mb-1">
         <span className="text-sm font-semibold text-slate-800">Invoicing details</span>
-        {profile && (missing.length === 0
+        {(missing.length === 0
           ? <Tag color="green" bordered={false}>Ready for invoicing</Tag>
           : <Tag color="orange" bordered={false}>Missing: {missing.join(", ")}</Tag>)}
       </div>
@@ -119,7 +137,7 @@ export function InvoiceProfileManager() {
         Printed on every invoice as the issuer. Issued invoices keep their own copy, so changes apply to new invoices only.
       </p>
 
-      <Form form={form} layout="vertical" disabled={isLoading} requiredMark={false}>
+      <Form form={form} layout="vertical" requiredMark={false} initialValues={profile}>
         <Group title="Company">
           <Form.Item label="IČO" required={false} className="mb-3" extra="Look up fills the company from the Czech ARES registry.">
             <div className="flex gap-2 max-w-md">
