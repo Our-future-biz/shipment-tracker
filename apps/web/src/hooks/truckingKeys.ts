@@ -30,5 +30,7 @@ export const truckingKeys = {
   internal: () => [...truckingKeys.all, "internal"] as const,
   internalMonths: () => [...truckingKeys.internal(), "months"] as const,
   internalCharges: (month: string) => [...truckingKeys.internal(), "charges", month] as const,
+  reports: () => [...truckingKeys.all, "reports"] as const,
+  report: (from: string, to: string) => [...truckingKeys.reports(), from, to] as const,
   publicOrder: (token: string) => ["haulier-order", token] as const,
 };

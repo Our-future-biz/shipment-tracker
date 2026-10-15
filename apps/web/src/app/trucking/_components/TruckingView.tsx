@@ -13,6 +13,7 @@ import { TruckingInternalBillingTab } from "./TruckingInternalBillingTab";
 import { TruckingPlanningTab } from "./TruckingPlanningTab";
 import { TruckingRateCalculatorTab } from "./TruckingRateCalculatorTab";
 import { TruckingReadme } from "./TruckingReadme";
+import { TruckingReportsTab } from "./TruckingReportsTab";
 import { TruckingTabs } from "./TruckingTabs";
 import { TruckingTariffsTab } from "./TruckingTariffsTab";
 import { TruckingTripsTab } from "./TruckingTripsTab";
@@ -33,12 +34,15 @@ export const TruckingView = () => {
 
   const handleTabChange = (tab: TruckingTab) => {
     const params = new URLSearchParams(searchParams.toString());
-    // A tab's own filters (?status=, ?view=, ?side=, ?kind=, ?month=) do not follow the user into another tab.
+    // A tab's own filters (?status=, ?view=, ?side=, ?kind=, ?month=, the Reports ?period=, ?from=, ?to=) do not follow the user into another tab.
     params.delete("status");
     params.delete("month");
     params.delete("view");
     params.delete("side");
     params.delete("kind");
+    params.delete("period");
+    params.delete("from");
+    params.delete("to");
     if (tab === FIRST_TAB) params.delete("tab");
     else params.set("tab", tab);
     const qs = params.toString();
@@ -66,6 +70,7 @@ export const TruckingView = () => {
         {activeTab.key === "hauliers" && <TruckingHauliersTab />}
         {activeTab.key === "tariffs" && <TruckingTariffsTab />}
         {activeTab.key === "calculator" && <TruckingRateCalculatorTab />}
+        {activeTab.key === "reports" && <TruckingReportsTab />}
         {!("live" in activeTab && activeTab.live) && <TruckingEmptyTab tab={activeTab} />}
       </div>
       <Drawer title="Read me" width={760} open={helpOpen} onClose={() => setHelpOpen(false)}>

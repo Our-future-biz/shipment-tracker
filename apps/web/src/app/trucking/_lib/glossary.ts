@@ -60,6 +60,11 @@ export const TERMS = {
   vatBankAccountCheck: "VAT bank-account check",
   internalStatement: "Internal statement",
   monthClose: "Month close",
+  onTime: "On time",
+  firstAttempt: "First attempt",
+  daysToPod: "Days to POD",
+  coverageGap: "Coverage gap",
+  departmentResult: "Department result",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -244,7 +249,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: TERMS.fill,
     meaning:
-      "How full a trip's truck is: its loading metres (LDM) and weight against the capacity of its vehicle type. The fuller of the two sets the colour — amber from 90 %, red over 100 %. Over capacity is a warning, never a block.",
+      "How full a trip's truck is: its loading metres (LDM) and weight against the capacity of its vehicle type. The fuller of the two sets the colour — amber from 90 %, red over 100 %. Over capacity is a warning, never a block. In Reports, the line-haul fill is the average of the fuller of the two over the LTL line hauls and delivery runs that left in the period.",
     replaces: "vytížení, naložení vozu",
   },
   {
@@ -285,5 +290,34 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     meaning:
       "A manager closes a finished month of internal charges once every charge is priced: one internal statement per department is made and the jobs' internal lines get its number. A closed month never changes; a later correction goes into the next open month as an adjustment.",
     replaces: "uzávěrka měsíce",
+  },
+  {
+    term: TERMS.onTime,
+    meaning:
+      "A delivered consignment is on time when its delivered day (Prague) is on or before its promised date — for LTL the date counted from the gate-in, for FTL from the planned pick-up. A failed delivery caused by the customer is left out, and so is a consignment without a promised date (the report says how many).",
+    replaces: "včasné doručení, dodržení termínu",
+  },
+  {
+    term: TERMS.firstAttempt,
+    meaning: "A delivered consignment delivered at the first try: it has no failed-delivery exception. Shown as the share of all delivered consignments, with the failed reasons counted.",
+    replaces: "doručení na první pokus",
+  },
+  {
+    term: TERMS.daysToPod,
+    meaning:
+      "Working days from delivery to the POD received, on average over the period's delivered consignments (with the P90). Weekends and public holidays do not count. POD missing counts, as of now, the consignments delivered more than 2 working days ago without a POD.",
+    replaces: "doba dodání doručenky",
+  },
+  {
+    term: TERMS.coverageGap,
+    meaning:
+      "A lane someone asked a price for — in the rate calculator, a quote or a consignment — that no tariff could price (no zone, no band, no service level …). Each is counted with the last time it was asked, so the missing tariffs can be added. Test lanes are not counted.",
+    replaces: "chybějící ceník, nepokrytá trasa",
+  },
+  {
+    term: TERMS.departmentResult,
+    meaning:
+      "What the Trucking department earned in the period: the sell of Road consignments delivered, plus the internal charges to other departments, minus all haulier cost of the consignments delivered (Road and internal). In CZK.",
+    replaces: "hospodářský výsledek oddělení",
   },
 ];

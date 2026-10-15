@@ -116,12 +116,14 @@ export const TRUCKING_TABS = [
   {
     key: "reports",
     label: "Reports",
-    purpose: "How Trucking is doing, and what it bills.",
+    purpose: "How Trucking is doing, and what it earns.",
     holds: [
-      `On-time delivery against the ${TERMS.serviceLevel.toLowerCase()}`,
-      "Margin per trip, customer and haulier",
+      `${TERMS.onTime}, ${TERMS.firstAttempt.toLowerCase()}, ${TERMS.daysToPod}, ${TERMS.fill.toLowerCase()}, cost and margin for a period`,
+      "Margin by customer, lane and service level, and a scorecard per haulier",
+      `${TERMS.coverageGap}s and the ${TERMS.departmentResult.toLowerCase()}, with an Excel export`,
     ],
     phase: 7,
+    live: true,
   },
 ] as const satisfies readonly TruckingTabInfo[];
 

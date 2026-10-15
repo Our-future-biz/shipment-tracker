@@ -67,6 +67,18 @@ describe("Phase 6 terms", () => {
   });
 });
 
+describe("Phase 7 terms", () => {
+  it("explain the report measures", () => {
+    const meaning = (term: string) => GLOSSARY.find((g) => g.term === term)?.meaning;
+    expect(meaning(TERMS.onTime)).toMatch(/on or before its promised date/);
+    expect(meaning(TERMS.firstAttempt)).toMatch(/no failed-delivery exception/);
+    expect(meaning(TERMS.daysToPod)).toMatch(/Working days/);
+    expect(meaning(TERMS.fill)).toMatch(/line-haul fill/);
+    expect(meaning(TERMS.coverageGap)).toMatch(/no tariff could price/);
+    expect(meaning(TERMS.departmentResult)).toMatch(/minus all haulier cost/);
+  });
+});
+
 describe("trucking tabs", () => {
   it("follow the work and name the phase that brings each", () => {
     expect(TRUCKING_TABS.map((t) => `${t.label}:${t.phase}`)).toEqual([
@@ -83,6 +95,6 @@ describe("trucking tabs", () => {
   });
 
   it("mark the built ones live", () => {
-    expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["consignments", "planning", "trips", "haulierInvoices", "internalBilling", "hauliers", "tariffs", "calculator"]);
+    expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["consignments", "planning", "trips", "haulierInvoices", "internalBilling", "hauliers", "tariffs", "calculator", "reports"]);
   });
 });
