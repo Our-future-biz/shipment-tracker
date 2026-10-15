@@ -65,6 +65,9 @@ export const TERMS = {
   daysToPod: "Days to POD",
   coverageGap: "Coverage gap",
   departmentResult: "Department result",
+  haulierPortal: "Haulier portal",
+  portalUser: "Portal user",
+  invitationLink: "Invitation link",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -319,5 +322,23 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     meaning:
       "What the Trucking department earned in the period: the sell of Road consignments delivered, plus the internal charges to other departments, minus all haulier cost of the consignments delivered (Road and internal). In CZK.",
     replaces: "hospodářský výsledek oddělení",
+  },
+  {
+    term: TERMS.haulierPortal,
+    meaning:
+      "The haulier's own pages at /haulier/portal, outside the app: its staff sign in with their e-mail and password and see only the trips and partner deliveries given to their haulier (no customer prices, no other hauliers). They confirm or reject orders, stamp Loaded, Departed and Arrived, mark each stop delivered with its POD and download the transport order (without the PIN). Every action is in the history as the haulier's.",
+    replaces: "portál dopravce, dopravní portál",
+  },
+  {
+    term: TERMS.portalUser,
+    meaning:
+      "A person at a haulier who signs in to the haulier portal. Not an app user: a manager adds one on the haulier page and can reset its password or disable it (with a reason). Five wrong passwords lock it for 15 minutes; a blocked haulier's users cannot get in.",
+    replaces: "uživatel dopravce, přístup dopravce",
+  },
+  {
+    term: TERMS.invitationLink,
+    meaning:
+      "The one-time link a manager gets when adding a portal user or resetting its password, to send on by hand (e-mail sending is off). It is shown once and never again, works once and is valid 72 hours; the user sets a password of at least 12 characters with it.",
+    replaces: "pozvánka, odkaz pro nastavení hesla",
   },
 ];

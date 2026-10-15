@@ -11,12 +11,16 @@ import { Bi } from "./Bi";
 interface HaulierPodFormProps {
   busy: boolean;
   onUpload: (req: PublicPod) => Promise<unknown>;
+  /** What the file picker offers (default: photos and PDFs by type and extension). */
+  accept?: string;
+  /** Adds a "Take a photo" button that opens the phone's camera straight away. */
+  withCamera?: boolean;
 }
 
 const input = "w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-[16px] text-slate-900 focus:border-indigo-500 focus:outline-none";
 
 // The signed CMR or delivery note (photo or PDF, up to 10 MB) with who took the goods and when.
-export const HaulierPodForm = ({ busy, onUpload }: HaulierPodFormProps) => {
+export const HaulierPodForm = ({ busy, onUpload, accept = POD_ACCEPT, withCamera = false }: HaulierPodFormProps) => {
   const [file, setFile] = useState<File | null>(null);
   const [receiver, setReceiver] = useState("");
   const [deliveredAt, setDeliveredAt] = useState(() => toLocalInput(new Date()));
@@ -46,8 +50,14 @@ export const HaulierPodForm = ({ busy, onUpload }: HaulierPodFormProps) => {
         <span className="mb-1 block text-[13px] font-semibold text-slate-600">
           <Bi text={{ cs: "Soubor", en: "File" }} />
         </span>
-        <input type="file" accept={POD_ACCEPT} className="block w-full text-[15px]" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        <input type="file" accept={accept} className="block w-full text-[15px]" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
       </label>
+      {withCamera && (
+        <label className="mt-2 block cursor-pointer rounded-lg border border-indigo-300 bg-indigo-50 px-4 py-2.5 text-center text-[15px] font-semibold text-indigo-700">
+          <Bi text={{ cs: "Vyfotit doklad", en: "Take a photo" }} />
+          <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+        </label>
+      )}
       {file && (
         <p className={`mb-0 mt-1 text-[13px] ${fileProblem ? "text-red-600" : "text-slate-500"}`}>
           {file.name} · {formatFileSize(file.size)}

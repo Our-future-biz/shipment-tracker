@@ -1922,6 +1922,17 @@ export namespace trucking {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.portalLogin = this.portalLogin.bind(this)
+            this.portalLogout = this.portalLogout.bind(this)
+            this.portalMe = this.portalMe.bind(this)
+            this.portalOrderGet = this.portalOrderGet.bind(this)
+            this.portalOrderRespond = this.portalOrderRespond.bind(this)
+            this.portalOrderStamp = this.portalOrderStamp.bind(this)
+            this.portalOrders = this.portalOrders.bind(this)
+            this.portalPodUpload = this.portalPodUpload.bind(this)
+            this.portalSetPassword = this.portalSetPassword.bind(this)
+            this.portalStopDelivered = this.portalStopDelivered.bind(this)
+            this.portalTransportOrderPdf = this.portalTransportOrderPdf.bind(this)
             this.publicTransportOrderGet = this.publicTransportOrderGet.bind(this)
             this.publicTransportOrderPod = this.publicTransportOrderPod.bind(this)
             this.publicTransportOrderRespond = this.publicTransportOrderRespond.bind(this)
@@ -1968,6 +1979,11 @@ export namespace trucking {
             this.truckingLegPartner = this.truckingLegPartner.bind(this)
             this.truckingManifestPdf = this.truckingManifestPdf.bind(this)
             this.truckingPlanningBoard = this.truckingPlanningBoard.bind(this)
+            this.truckingPortalUserCreate = this.truckingPortalUserCreate.bind(this)
+            this.truckingPortalUserDisable = this.truckingPortalUserDisable.bind(this)
+            this.truckingPortalUserEnable = this.truckingPortalUserEnable.bind(this)
+            this.truckingPortalUserList = this.truckingPortalUserList.bind(this)
+            this.truckingPortalUserReset = this.truckingPortalUserReset.bind(this)
             this.truckingRate = this.truckingRate.bind(this)
             this.truckingReport = this.truckingReport.bind(this)
             this.truckingReportExport = this.truckingReportExport.bind(this)
@@ -1998,6 +2014,180 @@ export namespace trucking {
             this.truckingTripReprice = this.truckingTripReprice.bind(this)
             this.truckingTripStamp = this.truckingTripStamp.bind(this)
             this.truckingTripUpdate = this.truckingTripUpdate.bind(this)
+        }
+
+        /**
+         * Signs a portal user in (no session). A wrong e-mail, a wrong password and a locked account all answer the same.
+         */
+        public async portalLogin(params: controllers.PortalLoginRequest): Promise<controllers.PortalLoginResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/portal/login`, JSON.stringify(params))
+            return await resp.json() as controllers.PortalLoginResponse
+        }
+
+        /**
+         * Ends the portal session.
+         */
+        public async portalLogout(params: controllers.PortalSessionRequest): Promise<controllers.PortalOkResponse> {
+            // Convert our params into the objects we need for the request
+            const headers = makeRecord<string, string>({
+                "x-portal-session": params.session,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/portal/logout`, undefined, {headers})
+            return await resp.json() as controllers.PortalOkResponse
+        }
+
+        /**
+         * Who is signed in to the portal.
+         */
+        public async portalMe(params: controllers.PortalSessionRequest): Promise<controllers.PortalMeResponse> {
+            // Convert our params into the objects we need for the request
+            const headers = makeRecord<string, string>({
+                "x-portal-session": params.session,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/portal/me`, undefined, {headers})
+            return await resp.json() as controllers.PortalMeResponse
+        }
+
+        /**
+         * One order of the portal user's haulier (a trip or a partner delivery leg).
+         */
+        public async portalOrderGet(id: string, params: controllers.PortalSessionRequest): Promise<controllers.PortalOrderResponse> {
+            // Convert our params into the objects we need for the request
+            const headers = makeRecord<string, string>({
+                "x-portal-session": params.session,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/portal/orders/${encodeURIComponent(id)}`, undefined, {headers})
+            return await resp.json() as controllers.PortalOrderResponse
+        }
+
+        /**
+         * Confirm or reject the order, once (trips only).
+         */
+        public async portalOrderRespond(id: string, params: controllers.PortalOrderRespondRequest): Promise<controllers.PortalOrderResponse> {
+            // Convert our params into the objects we need for the request
+            const headers = makeRecord<string, string>({
+                "x-portal-session": params.session,
+            })
+
+            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
+            const body: Record<string, any> = {
+                action: params.action,
+                reason: params.reason,
+            }
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/portal/orders/${encodeURIComponent(id)}/respond`, JSON.stringify(body), {headers})
+            return await resp.json() as controllers.PortalOrderResponse
+        }
+
+        /**
+         * Loaded, departed or arrived, as the haulier.
+         */
+        public async portalOrderStamp(id: string, params: controllers.PortalOrderStampRequest): Promise<controllers.PortalOrderResponse> {
+            // Convert our params into the objects we need for the request
+            const headers = makeRecord<string, string>({
+                "x-portal-session": params.session,
+            })
+
+            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
+            const body: Record<string, any> = {
+                kind: params.kind,
+                at: params.at,
+            }
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/portal/orders/${encodeURIComponent(id)}/stamps`, JSON.stringify(body), {headers})
+            return await resp.json() as controllers.PortalOrderResponse
+        }
+
+        /**
+         * The orders of the portal user's haulier, open or done.
+         */
+        public async portalOrders(params: controllers.PortalOrdersRequest): Promise<controllers.PortalOrdersResponse> {
+            // Convert our params into the objects we need for the request
+            const headers = makeRecord<string, string>({
+                "x-portal-session": params.session,
+            })
+
+            const query = makeRecord<string, string | string[]>({
+                view: params.view === undefined ? undefined : String(params.view),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/portal/orders`, undefined, {headers, query})
+            return await resp.json() as controllers.PortalOrdersResponse
+        }
+
+        /**
+         * Uploads the POD of one stop (a photo or a PDF, at most 10 MB).
+         */
+        public async portalPodUpload(id: string, consignmentId: string, params: controllers.PortalPodUploadRequest): Promise<controllers.PortalOrderResponse> {
+            // Convert our params into the objects we need for the request
+            const headers = makeRecord<string, string>({
+                "x-portal-session": params.session,
+            })
+
+            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
+            const body: Record<string, any> = {
+                fileName: params.fileName,
+                fileBase64: params.fileBase64,
+                receiverName: params.receiverName,
+                deliveredAt: params.deliveredAt,
+            }
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/portal/orders/${encodeURIComponent(id)}/stops/${encodeURIComponent(consignmentId)}/pod`, JSON.stringify(body), {headers})
+            return await resp.json() as controllers.PortalOrderResponse
+        }
+
+        /**
+         * Sets the password from an invitation or reset link (no session); the link works once.
+         */
+        public async portalSetPassword(params: controllers.PortalSetPasswordRequest): Promise<controllers.PortalOkResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/portal/set-password`, JSON.stringify(params))
+            return await resp.json() as controllers.PortalOkResponse
+        }
+
+        /**
+         * Stamps one stop delivered.
+         */
+        public async portalStopDelivered(id: string, consignmentId: string, params: controllers.PortalStopDeliveredRequest): Promise<controllers.PortalOrderResponse> {
+            // Convert our params into the objects we need for the request
+            const headers = makeRecord<string, string>({
+                "x-portal-session": params.session,
+            })
+
+            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
+            const body: Record<string, any> = {
+                at: params.at,
+                receiverName: params.receiverName,
+            }
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/portal/orders/${encodeURIComponent(id)}/stops/${encodeURIComponent(consignmentId)}/delivered`, JSON.stringify(body), {headers})
+            return await resp.json() as controllers.PortalOrderResponse
+        }
+
+        /**
+         * The transport order PDF, made again without a pick-up PIN.
+         */
+        public async portalTransportOrderPdf(id: string, params: controllers.PortalSessionRequest): Promise<controllers.PortalFileResponse> {
+            // Convert our params into the objects we need for the request
+            const headers = makeRecord<string, string>({
+                "x-portal-session": params.session,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/portal/orders/${encodeURIComponent(id)}/transport-order`, undefined, {headers})
+            return await resp.json() as controllers.PortalFileResponse
         }
 
         public async publicTransportOrderGet(token: string): Promise<controllers.PublicTransportOrderResponse> {
@@ -2414,6 +2604,51 @@ export namespace trucking {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/planning`, undefined, {query})
             return await resp.json() as interfaces.PlanningBoard
+        }
+
+        /**
+         * Adds a portal user to the haulier and returns its one-time invitation link. Managers only.
+         */
+        public async truckingPortalUserCreate(customerId: string, params: controllers.TruckingPortalUserCreateRequest): Promise<controllers.TruckingPortalUserCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/hauliers/${encodeURIComponent(customerId)}/portal-users`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingPortalUserCreateResponse
+        }
+
+        /**
+         * Disables a portal user and ends its sessions. Managers only.
+         */
+        public async truckingPortalUserDisable(id: string, params: controllers.TruckingPortalUserDisableRequest): Promise<controllers.TruckingPortalUserResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/portal-users/${encodeURIComponent(id)}/disable`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingPortalUserResponse
+        }
+
+        /**
+         * Enables a disabled portal user again. Managers only.
+         */
+        public async truckingPortalUserEnable(id: string): Promise<controllers.TruckingPortalUserResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/portal-users/${encodeURIComponent(id)}/enable`)
+            return await resp.json() as controllers.TruckingPortalUserResponse
+        }
+
+        /**
+         * The haulier's portal users. Any user.
+         */
+        public async truckingPortalUserList(customerId: string): Promise<controllers.TruckingPortalUserListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/hauliers/${encodeURIComponent(customerId)}/portal-users`)
+            return await resp.json() as controllers.TruckingPortalUserListResponse
+        }
+
+        /**
+         * A one-time link to set a new password; ends the user's sessions. Managers only.
+         */
+        public async truckingPortalUserReset(id: string): Promise<controllers.TruckingPortalUserResetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/portal-users/${encodeURIComponent(id)}/reset`)
+            return await resp.json() as controllers.TruckingPortalUserResetResponse
         }
 
         /**
@@ -5506,6 +5741,95 @@ export namespace controllers {
         countryCode?: string
     }
 
+    export interface PortalFileResponse {
+        file: interfaces.FileDownload
+    }
+
+    export interface PortalLoginRequest {
+        email: string
+        password: string
+    }
+
+    export interface PortalLoginResponse {
+        /**
+         * The portal session token, sent back as the X-Portal-Session header
+         */
+        session: string
+
+        expiresAt: string
+        me: interfaces.PortalMe
+    }
+
+    export interface PortalMeResponse {
+        me: interfaces.PortalMe
+    }
+
+    export interface PortalOkResponse {
+        ok: true
+    }
+
+    export interface PortalOrderRespondRequest {
+        session: string
+        action: "CONFIRM" | "REJECT"
+        reason: string
+    }
+
+    export interface PortalOrderResponse {
+        order: interfaces.PortalOrder
+    }
+
+    export interface PortalOrderStampRequest {
+        session: string
+        kind: "LOADED" | "DEPARTED" | "ARRIVED"
+        /**
+         * null = now
+         */
+        at: string | null
+    }
+
+    export interface PortalOrdersRequest {
+        session: string
+        view?: "open" | "done"
+    }
+
+    export interface PortalOrdersResponse {
+        orders: interfaces.PortalOrderItem[]
+    }
+
+    export interface PortalPodUploadRequest {
+        session: string
+        fileName: string
+        /**
+         * A photo or a PDF, at most 10 MB
+         */
+        fileBase64: string
+
+        receiverName: string
+        /**
+         * null = now
+         */
+        deliveredAt: string | null
+    }
+
+    export interface PortalSessionRequest {
+        session: string
+    }
+
+    export interface PortalSetPasswordRequest {
+        token: string
+        password: string
+    }
+
+    export interface PortalStopDeliveredRequest {
+        session: string
+        /**
+         * null = now
+         */
+        at: string | null
+
+        receiverName: string
+    }
+
     export interface PositionMarkSentRequest {
         /**
          * vgm | survey | remeasurement | inform_operations
@@ -7102,6 +7426,43 @@ export namespace controllers {
         date: string
 
         kind: interfaces.LtlTripKind
+    }
+
+    export interface TruckingPortalUserCreateRequest {
+        email: string
+        name: string
+        phone: string
+    }
+
+    export interface TruckingPortalUserCreateResponse {
+        user: interfaces.PortalUserItem
+        /**
+         * Shown once
+         */
+        inviteLink: string
+
+        expiresAt: string
+    }
+
+    export interface TruckingPortalUserDisableRequest {
+        reason: string
+    }
+
+    export interface TruckingPortalUserListResponse {
+        users: interfaces.PortalUserItem[]
+    }
+
+    export interface TruckingPortalUserResetResponse {
+        /**
+         * Shown once
+         */
+        resetLink: string
+
+        expiresAt: string
+    }
+
+    export interface TruckingPortalUserResponse {
+        user: interfaces.PortalUserItem
     }
 
     export interface TruckingReportRequest {
@@ -11022,6 +11383,105 @@ export namespace interfaces {
         buyTotalCzk: number | null
         transportOrderSent: boolean
         version: number
+    }
+
+    export interface PortalMe {
+        userName: string
+        email: string
+        haulierName: string
+        ourCompany: string
+    }
+
+    export interface PortalOrder {
+        id: string
+        kind: "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN" | "PARTNER_DELIVERY"
+        ref: string
+        date: string
+        status: string
+        from: string
+        to: string
+        stops: PortalStop[]
+        palletPlaces: number
+        weightKg: number
+        agreedPrice: {
+            total: number
+            currency: string
+        } | null
+        needsAction: string | null
+        vehicleText: string
+        plates: string
+        driver: string
+        confirmation: {
+            status: "AWAITING" | "CONFIRMED" | "REJECTED"
+            at: string | null
+            by: string | null
+        }
+        stamps: {
+            loaded: string | null
+            departed: string | null
+            arrived: string | null
+        }
+        history: {
+            at: string
+            text: string
+        }[]
+    }
+
+    export interface PortalOrderItem {
+        id: string
+        kind: "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN" | "PARTNER_DELIVERY"
+        ref: string
+        date: string
+        status: string
+        from: string
+        to: string
+        stops: number
+        palletPlaces: number
+        weightKg: number
+        agreedPrice: {
+            total: number
+            currency: string
+        } | null
+        /**
+         * "Confirm the order", "Upload POD for 2 stops"…
+         */
+        needsAction: string | null
+    }
+
+    export interface PortalStop {
+        consignmentRef: string
+        consignmentId: string
+        kind: "PICKUP" | "DELIVERY"
+        name: string
+        street: string
+        postcode: string
+        city: string
+        windowText: string
+        contact: string
+        reference: string
+        notes: string
+        avizaceRequired: boolean
+        load: {
+            pieces: number
+            palletPlaces: number
+            ldm: number
+            weightKg: number
+            adr: string | null
+            tailLift: boolean
+        }
+        deliveredAt: string | null
+        podUploaded: boolean
+    }
+
+    export interface PortalUserItem {
+        id: string
+        haulierCustomerId: string
+        email: string
+        name: string
+        phone: string
+        status: "INVITED" | "ACTIVE" | "DISABLED" | "LOCKED"
+        lastLoginAt: string | null
+        createdAt: string
     }
 
     export interface PreferredLane {

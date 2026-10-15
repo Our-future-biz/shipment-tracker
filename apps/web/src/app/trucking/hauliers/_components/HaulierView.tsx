@@ -22,6 +22,7 @@ import { TruckingField } from "../../_components/TruckingField";
 import { HaulierBankAccounts } from "./HaulierBankAccounts";
 import { HaulierBlockDialog } from "./HaulierBlockDialog";
 import { HaulierLanesTable } from "./HaulierLanesTable";
+import { HaulierPortalUsers } from "./HaulierPortalUsers";
 
 type ProfileDraft = Omit<HaulierUpdate, "version" | "preferredLanes"> & { preferredLanes: LaneDraft[] };
 
@@ -78,7 +79,7 @@ interface HaulierViewProps {
 }
 
 // One haulier: who it is, why it can or cannot be put on a trip, and its Trucking profile. Anyone
-// fills in the profile; a manager blocks or unblocks. Saves carry the version read.
+// fills in the profile; a manager blocks or unblocks and manages its portal users. Saves carry the version read.
 export const HaulierView = ({ customerId }: HaulierViewProps) => {
   const toast = useToast();
   const { user } = useAuth();
@@ -350,6 +351,8 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
           {dirty && !problems.length && <span className="text-xs text-amber-700">unsaved changes</span>}
           {problems.length > 0 && <span className="text-xs text-red-600">{problems.join(" · ")}</span>}
         </div>
+
+        <HaulierPortalUsers customerId={customerId} canManage={canBlock} />
       </div>
 
       <HaulierBlockDialog

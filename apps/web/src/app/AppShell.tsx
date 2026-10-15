@@ -9,8 +9,9 @@ import { useEffect, useState } from "react";
 
 const PUBLIC_PATHS = ["/login"];
 // Pages anyone with the link opens, signed in or not, without the app around them and without a
-// redirect: the haulier's transport-order page (/haulier/order/<token>). They call only the API's
-// public endpoints, without the session.
+// redirect: the haulier's transport-order page (/haulier/order/<token>) and the haulier portal
+// (/haulier/portal/...). They call only the API's public endpoints, without the app session (the
+// portal sends its own portal session instead).
 const OPEN_PATHS = ["/haulier/"];
 // Signed-in pages shown full screen, without the sidebar and top bar (the warehouse phone floor mode).
 const FULL_SCREEN_PATHS = ["/warehouse/floor"];
