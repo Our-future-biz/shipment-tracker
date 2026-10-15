@@ -30,7 +30,7 @@ const place = (psc: string, city: string) => [psc ? formatPsc(psc) : "", city].f
 export const PlanningLegList = ({ groups, selected, onSelect, targets, onAdd, onDragStart, onDragEnd, busy }: PlanningLegListProps) => {
   const toggle = (id: string, on: boolean) => onSelect(on ? [...selected, id] : selected.filter((x) => x !== id));
   const toggleZone = (g: ZoneGroup, on: boolean) => {
-    const ids = g.legs.map((l) => l.id);
+    const ids = g.legs.map((l) => l.legId);
     onSelect(on ? [...new Set([...selected, ...ids])] : selected.filter((x) => !ids.includes(x)));
   };
 
@@ -39,8 +39,8 @@ export const PlanningLegList = ({ groups, selected, onSelect, targets, onAdd, on
   return (
     <div className="flex flex-col">
       {groups.map((g) => {
-        const all = g.legs.every((l) => selected.includes(l.id));
-        const some = !all && g.legs.some((l) => selected.includes(l.id));
+        const all = g.legs.every((l) => selected.includes(l.legId));
+        const some = !all && g.legs.some((l) => selected.includes(l.legId));
         return (
           <section key={g.zone} aria-label={`${TERMS.zone} ${g.zone}`} className="border-t border-slate-100 first:border-t-0">
             <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5">
@@ -56,18 +56,18 @@ export const PlanningLegList = ({ groups, selected, onSelect, targets, onAdd, on
                 const badge = DEADLINE_BADGE[leg.deadline];
                 return (
                   <li
-                    key={leg.id}
+                    key={leg.legId}
                     draggable={!busy}
                     onDragStart={(e) => {
                       e.dataTransfer.effectAllowed = "move";
-                      e.dataTransfer.setData("text/plain", leg.id);
-                      onDragStart(leg.id);
+                      e.dataTransfer.setData("text/plain", leg.legId);
+                      onDragStart(leg.legId);
                     }}
                     onDragEnd={onDragEnd}
                     className="flex items-start gap-2 border-t border-slate-100 px-3 py-1.5 text-xs"
                   >
                     <HolderOutlined className="mt-1 cursor-grab text-slate-300" aria-hidden />
-                    <Checkbox checked={selected.includes(leg.id)} onChange={(e) => toggle(leg.id, e.target.checked)} aria-label={`Select ${leg.consignmentRef}`} />
+                    <Checkbox checked={selected.includes(leg.legId)} onChange={(e) => toggle(leg.legId, e.target.checked)} aria-label={`Select ${leg.consignmentRef}`} />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="font-mono font-semibold text-slate-800">{leg.consignmentRef}</span>

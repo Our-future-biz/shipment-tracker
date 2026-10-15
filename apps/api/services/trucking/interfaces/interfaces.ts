@@ -775,6 +775,10 @@ export interface TripListItem {
   transportOrder: TransportOrderState | null;
   version: number;
   consignmentRefs: string[];
+  /** Against the vehicle type's capacity (FTL: its consignment's load) */
+  fill: TripFill;
+  /** LTL only, never blocking; [] for FTL */
+  warnings: string[];
 }
 
 /** What the haulier sees via the link: no prices of the customer. */

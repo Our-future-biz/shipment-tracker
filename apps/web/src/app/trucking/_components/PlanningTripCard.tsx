@@ -10,10 +10,16 @@ import { btnDefault } from "@/app/warehouse/gate-log/_components/job/fields";
 import { TRIP_STATUS_CHIP, tripHref } from "../_lib/consignments";
 import { TERMS } from "../_lib/glossary";
 import { formatPsc } from "../_lib/hauliers";
-import { DEADLINE_BADGE, dropStop, moveStop, orderChanged } from "../_lib/planning";
+import { DEADLINE_BADGE, dropStop, moveStop, orderChanged, stopDeadline } from "../_lib/planning";
 import { formatMoney, formatQty } from "../_lib/tariffs";
 import { TripFillBars } from "./TripFillBars";
 import { TruckingStatusChip } from "./TruckingStatusChip";
+
+// Overdue / today, against the trip's day; nothing when the stop is not due yet.
+const StopDeadlineBadge = ({ promisedDate, tripDate }: { promisedDate: string | null; tripDate: string }) => {
+  const due = stopDeadline(promisedDate, tripDate);
+  return due ? <Badge tone={DEADLINE_BADGE[due].tone}>{DEADLINE_BADGE[due].label}</Badge> : null;
+};
 
 export type TripCardAction = "print" | "send" | "manifest" | "labels";
 
@@ -35,7 +41,7 @@ interface PlanningTripCardProps {
 export const PlanningTripCard = ({ trip, vehicleLabel, legDragging, busy, onDropLeg, onReorder, onRemove, onAction }: PlanningTripCardProps) => {
   const [draggingStop, setDraggingStop] = useState<string | null>(null);
   const [over, setOver] = useState(false);
-  const order = trip.stops.map((s) => s.id);
+  const order = trip.stops.map((s) => s.legId);
   const locked = trip.status === "IN_TRANSIT" || trip.status === "DONE" || trip.status === "CANCELLED";
   const takesLegs = legDragging && !locked;
 
@@ -114,23 +120,23 @@ export const PlanningTripCard = ({ trip, vehicleLabel, legDragging, busy, onDrop
         <ol className="m-0 list-none p-0" aria-label={`Stops of ${trip.ref}`}>
           {trip.stops.map((s, i) => (
             <li
-              key={s.id}
+              key={s.legId}
               draggable={!locked && !busy}
               onDragStart={(e) => {
                 e.stopPropagation();
                 e.dataTransfer.effectAllowed = "move";
-                setDraggingStop(s.id);
+                setDraggingStop(s.legId);
               }}
               onDragOver={(e) => draggingStop && e.preventDefault()}
               onDrop={(e) => {
                 if (!draggingStop) return;
                 e.preventDefault();
                 e.stopPropagation();
-                reorder(dropStop(order, draggingStop, s.id));
+                reorder(dropStop(order, draggingStop, s.legId));
                 setDraggingStop(null);
               }}
               onDragEnd={() => setDraggingStop(null)}
-              className={`flex items-center gap-2 border-t border-slate-100 py-1 text-xs ${draggingStop === s.id ? "opacity-50" : ""}`}
+              className={`flex items-center gap-2 border-t border-slate-100 py-1 text-xs ${draggingStop === s.legId ? "opacity-50" : ""}`}
             >
               {!locked && <HolderOutlined className="cursor-grab text-slate-300" aria-hidden />}
               <span className="w-4 text-right tabular-nums text-slate-400">{i + 1}</span>
@@ -138,18 +144,18 @@ export const PlanningTripCard = ({ trip, vehicleLabel, legDragging, busy, onDrop
               <span className="min-w-0 flex-1 truncate text-slate-600">
                 {trip.kind === "PICKUP_RUN" ? `${formatPsc(s.fromPostcode)} ${s.fromCity}` : `${formatPsc(s.toPostcode)} ${s.toCity}`} · {s.customerName}
               </span>
-              {(s.deadline === "overdue" || s.deadline === "today") && <Badge tone={DEADLINE_BADGE[s.deadline].tone}>{DEADLINE_BADGE[s.deadline].label}</Badge>}
+              <StopDeadlineBadge promisedDate={s.promisedDate} tripDate={trip.date} />
               {s.adr && <Badge tone="a">{TERMS.adr}</Badge>}
               <span className="tabular-nums text-slate-500">{formatQty(s.weightKg)} kg</span>
               {!locked && (
                 <span className="inline-flex items-center gap-0.5">
-                  <button type="button" className={btnDefault} aria-label={`Move ${s.consignmentRef} up`} disabled={i === 0 || busy} onClick={() => reorder(moveStop(order, s.id, -1))}>
+                  <button type="button" className={btnDefault} aria-label={`Move ${s.consignmentRef} up`} disabled={i === 0 || busy} onClick={() => reorder(moveStop(order, s.legId, -1))}>
                     <ArrowUpOutlined />
                   </button>
-                  <button type="button" className={btnDefault} aria-label={`Move ${s.consignmentRef} down`} disabled={i === trip.stops.length - 1 || busy} onClick={() => reorder(moveStop(order, s.id, 1))}>
+                  <button type="button" className={btnDefault} aria-label={`Move ${s.consignmentRef} down`} disabled={i === trip.stops.length - 1 || busy} onClick={() => reorder(moveStop(order, s.legId, 1))}>
                     <ArrowDownOutlined />
                   </button>
-                  <button type="button" className={btnDefault} aria-label={`Take ${s.consignmentRef} off ${trip.ref}`} disabled={busy} onClick={() => onRemove(trip, s.id)}>
+                  <button type="button" className={btnDefault} aria-label={`Take ${s.consignmentRef} off ${trip.ref}`} disabled={busy} onClick={() => onRemove(trip, s.legId)}>
                     <CloseOutlined />
                   </button>
                 </span>

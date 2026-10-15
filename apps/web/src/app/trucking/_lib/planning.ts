@@ -39,6 +39,13 @@ export interface DeadlineBadge {
   rank: number;
 }
 
+/** A stop's deadline on a trip card: promised before the trip's day (overdue) or on it (today); null otherwise. */
+export function stopDeadline(promisedDate: string | null, tripDate: string): "overdue" | "today" | null {
+  if (!promisedDate) return null;
+  if (promisedDate < tripDate) return "overdue";
+  return promisedDate === tripDate ? "today" : null;
+}
+
 /** Overdue and today red, tomorrow amber, later plain. */
 export const DEADLINE_BADGE: Record<PlanningLeg["deadline"], DeadlineBadge> = {
   overdue: { label: "Overdue", tone: "r", rank: 0 },
@@ -184,6 +191,7 @@ export interface LegTimelineStep {
   detail: string;
   state: LegTimelineState;
   tripId: string | null;
+  tripRef: string | null;
   /** A time to show (the gate-in). */
   at: string | null;
 }
@@ -213,15 +221,16 @@ export function legTimeline(c: TimelineInput): LegTimelineStep[] {
     label: "Pick-up",
     detail: c.selfDelivered ? "Customer brings the goods to our warehouse" : pickup?.tripId ? TERMS.pickupRun : `${TERMS.pickupRun} — not planned`,
     tripId: pickup?.tripId ?? null,
+    tripRef: pickup?.tripRef ?? null,
     at: null,
   });
   done.push(c.selfDelivered ? atHub : pickup?.status === "DONE" || atHub);
 
-  steps.push({ key: "hub", label: "At our warehouse", detail: c.gateInAt ? "Gate-in confirmed by the warehouse" : "Waiting for the gate-in", tripId: null, at: c.gateInAt });
+  steps.push({ key: "hub", label: "At our warehouse", detail: c.gateInAt ? "Gate-in confirmed by the warehouse" : "Waiting for the gate-in", tripId: null, tripRef: null, at: c.gateInAt });
   done.push(atHub);
 
   if (linehaul) {
-    steps.push({ key: "linehaul", label: TERMS.lineHaul, detail: linehaul.toText ? `To ${linehaul.toText}` : TERMS.lineHaul, tripId: linehaul.tripId, at: null });
+    steps.push({ key: "linehaul", label: TERMS.lineHaul, detail: linehaul.toText ? `To ${linehaul.toText}` : TERMS.lineHaul, tripId: linehaul.tripId, tripRef: linehaul.tripRef, at: null });
     done.push(linehaul.status === "DONE" || delivered || c.status === "OUT_FOR_DELIVERY");
   }
 
@@ -231,6 +240,7 @@ export function legTimeline(c: TimelineInput): LegTimelineStep[] {
     label: "Delivery",
     detail: partner ? "Partner network" : delivery?.tripId ? TERMS.deliveryRun : `${TERMS.deliveryRun} — not planned`,
     tripId: partner ? null : (delivery?.tripId ?? null),
+    tripRef: partner ? null : (delivery?.tripRef ?? null),
     at: null,
   });
   done.push(delivery?.status === "DONE" || delivered);

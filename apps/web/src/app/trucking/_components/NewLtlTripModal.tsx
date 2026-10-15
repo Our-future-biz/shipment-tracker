@@ -67,7 +67,7 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
     if (!haulierId || !vehicle) return;
     setBusy(true);
     try {
-      await onCreate({ kind, date, haulierCustomerId: haulierId, vehicleTypeCode: vehicle, legIds: legs.map((l) => l.id), price: other ? priceInput(otherPrice) : { source: "TARIFF" } });
+      await onCreate({ kind, date, haulierCustomerId: haulierId, vehicleTypeCode: vehicle, legIds: legs.map((l) => l.legId), price: other ? priceInput(otherPrice) : { source: "TARIFF" } });
       onClose();
     } catch {
       // Reported by the caller.

@@ -16,6 +16,7 @@ import {
   priceInput,
   priceProblems,
   projectedFill,
+  stopDeadline,
   promisedText,
   tripFillPercent,
   tripFillTone,
@@ -24,33 +25,43 @@ import {
 } from "./planning";
 
 const leg = (id: string, extra: Partial<PlanningLeg> = {}): PlanningLeg => ({
-  id,
-  consignmentId: `c-${id}`,
-  seq: 1,
+  legId: id,
   kind: "DELIVERY",
+  status: "OPEN",
+  seq: 1,
+  consignmentId: `c-${id}`,
+  consignmentRef: `TCZ${id}`,
+  jobNumber: "R2026001",
+  customerName: "ACME",
   fromText: "Our warehouse",
   toText: "Brno",
-  tripId: null,
-  haulierCustomerId: null,
-  buy: null,
-  costShareCzk: null,
-  status: "OPEN",
-  consignmentRef: `TCZ${id}`,
-  customerName: "ACME",
   fromPostcode: "25301",
   fromCity: "Hostivice",
   toPostcode: "60200",
   toCity: "Brno",
   zoneLabel: "Zone 3",
+  serviceLevel: "D1",
+  pieces: 2,
   palletPlaces: 2,
   ldm: 0.8,
   weightKg: 500,
   chargeableKg: 600,
   adr: false,
   tailLift: false,
+  pickupDate: "2026-10-15",
   promisedDate: "2026-10-16",
+  promisedFinal: false,
   deadline: "later",
   ...extra,
+});
+
+describe("stopDeadline", () => {
+  it("flags a stop promised before or on the trip's day", () => {
+    expect(stopDeadline("2026-10-15", "2026-10-16")).toBe("overdue");
+    expect(stopDeadline("2026-10-16", "2026-10-16")).toBe("today");
+    expect(stopDeadline("2026-10-17", "2026-10-16")).toBeNull();
+    expect(stopDeadline(null, "2026-10-16")).toBeNull();
+  });
 });
 
 describe("deadline badges", () => {
@@ -72,7 +83,7 @@ describe("groupLegsByZone", () => {
       leg("5", { zoneLabel: "Zone 2", deadline: "tomorrow", promisedDate: "2026-10-15" }),
     ]);
     expect(groups.map((g) => g.zone)).toEqual(["Zone 2", "Zone 10", "No zone"]);
-    expect(groups[0]!.legs.map((l) => l.id)).toEqual(["4", "5", "3"]);
+    expect(groups[0]!.legs.map((l) => l.legId)).toEqual(["4", "5", "3"]);
     expect(groups[0]).toMatchObject({ palletPlaces: 6, ldm: 2.4, weightKg: 1500, deadline: "overdue" });
   });
 
@@ -140,14 +151,29 @@ describe("stop order", () => {
 });
 
 describe("legTimeline", () => {
-  const l = (kind: Leg["kind"], extra: Partial<Leg> = {}): Leg => ({ ...leg(kind, { kind }), ...extra }) as Leg;
+  const l = (kind: Leg["kind"], extra: Partial<Leg> = {}): Leg => ({
+    id: kind,
+    consignmentId: "c1",
+    seq: 1,
+    kind,
+    fromText: "",
+    toText: "",
+    tripId: null,
+    tripRef: null,
+    haulierCustomerId: null,
+    depotSiteId: null,
+    buy: null,
+    costShareCzk: null,
+    status: "OPEN",
+    ...extra,
+  });
   type Input = Parameters<typeof legTimeline>[0];
   const base: Input = { status: "PLANNED", legs: [], selfDelivered: false, lastMile: "OWN_RUN", gateInAt: null };
 
   it("runs pick-up → warehouse → delivery with trips, the first open step current", () => {
-    const steps = legTimeline({ ...base, legs: [l("PICKUP", { tripId: "t1", status: "PLANNED" }), l("DELIVERY")] });
+    const steps = legTimeline({ ...base, legs: [l("PICKUP", { tripId: "t1", tripRef: "LCZ1", status: "PLANNED" }), l("DELIVERY")] });
     expect(steps.map((s) => `${s.key}:${s.state}`)).toEqual(["pickup:current", "hub:waiting", "delivery:waiting"]);
-    expect(steps[0]).toMatchObject({ detail: "Pick-up run", tripId: "t1" });
+    expect(steps[0]).toMatchObject({ detail: "Pick-up run", tripId: "t1", tripRef: "LCZ1" });
     expect(steps[2]!.detail).toBe("Delivery run — not planned");
   });
 
@@ -228,7 +254,7 @@ describe("ltlTripRateRequest", () => {
 
 describe("ltlTripOrderActions", () => {
   type Input = Parameters<typeof ltlTripOrderActions>[0];
-  const t = (extra: Partial<Input> = {}): Input => ({ status: "DRAFT", haulierStatus: "ok", legs: [{ id: "l1" } as TripDetail["legs"][number]], transportOrder: null, ...extra });
+  const t = (extra: Partial<Input> = {}): Input => ({ status: "DRAFT", haulierStatus: "ok", legs: [{ legId: "l1" } as TripDetail["legs"][number]], transportOrder: null, ...extra });
 
   it("prints and sends a draft with legs, confirms once ordered", () => {
     expect(ltlTripOrderActions(t())).toEqual({

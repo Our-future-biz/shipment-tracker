@@ -45,7 +45,7 @@ export const TruckingPlanningTab = () => {
   const groups = useMemo(() => groupLegsByZone(unplanned), [unplanned]);
   const vehicleTypes = useMemo(() => settings?.vehicleTypes ?? [], [settings]);
   const vehicleLabel = (code: string | null) => (code ? (vehicleTypes.find((v) => v.code === code)?.label ?? code) : "No vehicle type");
-  const selectedLegs = unplanned.filter((l) => selected.includes(l.id));
+  const selectedLegs = unplanned.filter((l) => selected.includes(l.legId));
   const hub = settings?.hub ?? null;
   const hubSet = hubIsSet(hub);
 
@@ -90,13 +90,13 @@ export const TruckingPlanningTab = () => {
   };
 
   const handleAdd = (legId: string, trip: PlanningTrip) => {
-    const leg = unplanned.find((l) => l.id === legId);
+    const leg = unplanned.find((l) => l.legId === legId);
     if (!leg) return;
     setSelected((s) => s.filter((x) => x !== legId));
     void change(trip, { add: [legId], remove: [], stopOrder: null }, `${leg.consignmentRef} added to ${trip.ref}`);
   };
   const handleRemove = (trip: PlanningTrip, legId: string) => {
-    const ref = trip.stops.find((s) => s.id === legId)?.consignmentRef ?? "The leg";
+    const ref = trip.stops.find((s) => s.legId === legId)?.consignmentRef ?? "The leg";
     void change(trip, { add: [], remove: [legId], stopOrder: null }, `${ref} taken off ${trip.ref}`);
   };
   const handleReorder = (trip: PlanningTrip, stopOrder: string[]) => void change(trip, { add: [], remove: [], stopOrder }, `Stops of ${trip.ref} reordered`);
@@ -166,7 +166,7 @@ export const TruckingPlanningTab = () => {
                 selected={selected}
                 onSelect={setSelected}
                 targets={targets}
-                onAdd={(leg, trip) => handleAdd(leg.id, trip)}
+                onAdd={(leg, trip) => handleAdd(leg.legId, trip)}
                 onDragStart={setDraggingLeg}
                 onDragEnd={() => setDraggingLeg(null)}
                 busy={isAssigning}
