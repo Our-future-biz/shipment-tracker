@@ -5,7 +5,6 @@ import { CustomerAttentionCard } from "../_components/CustomerAttentionCard";
 import { CustomerCompanyAnalysisCard } from "../_components/CustomerCompanyAnalysisCard";
 import { CustomerCreditSummaryCard } from "../_components/CustomerCreditSummaryCard";
 import { CustomerCrmCard } from "../_components/CustomerCrmCard";
-import { CustomerLastInteractionCard } from "../_components/CustomerLastInteractionCard";
 import { CustomerMainContactCard } from "../_components/CustomerMainContactCard";
 import { CustomerRecentShipmentsCard } from "../_components/CustomerRecentShipmentsCard";
 import { CustomerRegistryCard } from "../_components/CustomerRegistryCard";
@@ -17,7 +16,7 @@ interface OverviewTabProps {
 }
 
 // The customer at a glance. Main column, most urgent first: what needs attention, the current state in
-// four figures, the latest shipments and interaction, then who the company is and its registry record. Side
+// four figures, the latest shipments, then who the company is and its registry record. Side
 // column: who to call, the credit position, and the CRM record. The all-time totals stay in the header and every
 // full list in its own tab; the cards here are summaries that lead there.
 export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
@@ -31,7 +30,6 @@ export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
         <CustomerAttentionCard customerId={customerId} onSelectTab={onSelectTab} />
         <CustomerSnapshotTiles customerId={customerId} onSelectTab={onSelectTab} />
         <CustomerRecentShipmentsCard customerId={customerId} onSelectTab={onSelectTab} />
-        <CustomerLastInteractionCard customerId={customerId} onSelectTab={onSelectTab} />
         <CustomerCompanyAnalysisCard customer={customer} />
         <CustomerRegistryCard customer={customer} />
       </div>
