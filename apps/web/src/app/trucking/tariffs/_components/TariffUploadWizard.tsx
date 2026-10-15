@@ -113,7 +113,7 @@ export const TariffUploadWizard = ({ tariffId }: TariffUploadWizardProps) => {
     }
     if (current === "read") return <TariffSheetReportTable sheets={result.sheets} />;
     if (current === "check") return <TariffFindingGroups findings={version.findings} />;
-    if (current === "compare") return <TariffDiffPanel versionId={version.id} currency={tariff.currency} levelLabel={levelLabel} />;
+    if (current === "compare") return <TariffDiffPanel versionId={version.id} currency={tariff.currency} side={tariff.side} levelLabel={levelLabel} />;
     if (current === "test") return <TariffTestLane tariff={tariff} version={version} />;
     return <TariffUploadActivateStep version={version} activating={isActivating} onActivate={handleActivate} onKeepDraft={handleKeepDraft} />;
   })();

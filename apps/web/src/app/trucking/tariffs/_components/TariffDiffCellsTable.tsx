@@ -2,28 +2,29 @@
 
 import { Table } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import type { DiffCell } from "@/hooks/useTrucking";
+import type { DiffCell, TariffSide } from "@/hooks/useTrucking";
 import { diffChangeText, diffTone, type DiffTone } from "../../_lib/tariffUpload";
 import { formatMoney } from "../../_lib/tariffs";
 
-// A rise is red, a fall green, new and removed cells neutral; the text says it too.
-export const DIFF_TONE_CLASS: Record<DiffTone, string> = {
-  up: "text-red-700",
-  down: "text-green-700",
-  added: "text-indigo-700",
-  removed: "text-slate-500",
-  same: "text-slate-500",
+// A change is red when it costs us (a higher buy price, a lower sell or internal price) and green
+// when it earns us; new cells indigo, removed ones grey. The text says it too.
+export const diffToneClass = (tone: DiffTone, side: TariffSide): string => {
+  if (tone === "added") return "text-indigo-700";
+  if (tone === "removed" || tone === "same") return "text-slate-500";
+  const costsUs = side === "BUY" ? tone === "up" : tone === "down";
+  return costsUs ? "text-red-700" : "text-green-700";
 };
 
 interface TariffDiffCellsTableProps {
   cells: DiffCell[];
   currency: string;
+  side: TariffSide;
   levelLabel: (code: string) => string;
 }
 
 // The prices that differ, one row per service level, zone and band: before, after and by how much,
 // largest change first (the server's order).
-export const TariffDiffCellsTable = ({ cells, currency, levelLabel }: TariffDiffCellsTableProps) => {
+export const TariffDiffCellsTable = ({ cells, currency, side, levelLabel }: TariffDiffCellsTableProps) => {
   const columns: ColumnsType<DiffCell> = [
     { key: "level", title: "Service level", render: (_, c) => levelLabel(c.serviceLevel) },
     { key: "zone", title: "Zone", render: (_, c) => <span className="font-semibold">{c.zoneCode}</span> },
@@ -44,7 +45,7 @@ export const TariffDiffCellsTable = ({ cells, currency, levelLabel }: TariffDiff
       key: "change",
       title: "Change",
       align: "right",
-      render: (_, c) => <span className={`tabular-nums whitespace-nowrap font-semibold ${DIFF_TONE_CLASS[diffTone(c)]}`}>{diffChangeText(c)}</span>,
+      render: (_, c) => <span className={`tabular-nums whitespace-nowrap font-semibold ${diffToneClass(diffTone(c), side)}`}>{diffChangeText(c)}</span>,
     },
   ];
 

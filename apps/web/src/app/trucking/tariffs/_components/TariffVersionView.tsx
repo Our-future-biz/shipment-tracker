@@ -165,7 +165,7 @@ export const TariffVersionView = ({ tariffId, versionId }: TariffVersionViewProp
         {comparable && (
           <div id="compare" className="scroll-mt-4">
             <SectionCard title="Compare with active">
-              <TariffDiffPanel versionId={version.id} currency={currency} levelLabel={levelLabel} />
+              <TariffDiffPanel versionId={version.id} currency={currency} side={tariff.side} levelLabel={levelLabel} />
             </SectionCard>
           </div>
         )}

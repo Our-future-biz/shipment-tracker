@@ -2,21 +2,22 @@
 
 import { Alert, Spin } from "antd";
 import { apiErrorMessage } from "@/lib/api";
-import { useTariffVersionDiff } from "@/hooks/useTrucking";
+import { useTariffVersionDiff, type TariffSide } from "@/hooks/useTrucking";
 import { DIFF_CELL_LIMIT, diffStructureLines, diffTiles, isSameAsAgainst } from "../../_lib/tariffUpload";
 import { validityLabel, versionLabel } from "../../_lib/tariffs";
-import { DIFF_TONE_CLASS, TariffDiffCellsTable } from "./TariffDiffCellsTable";
+import { TariffDiffCellsTable, diffToneClass } from "./TariffDiffCellsTable";
 
 interface TariffDiffPanelProps {
   versionId: string;
   currency: string;
+  side: TariffSide;
   levelLabel: (code: string) => string;
 }
 
 // What a version changes against the tariff's active one: counts and the size of the changes, new
 // or dropped zones, levels and surcharges, then every price that differs. Used by the upload wizard
 // and the version page.
-export const TariffDiffPanel = ({ versionId, currency, levelLabel }: TariffDiffPanelProps) => {
+export const TariffDiffPanel = ({ versionId, currency, side, levelLabel }: TariffDiffPanelProps) => {
   const { diff, isLoading, error } = useTariffVersionDiff(versionId);
 
   if (isLoading) {
@@ -48,7 +49,7 @@ export const TariffDiffPanel = ({ versionId, currency, levelLabel }: TariffDiffP
         {diffTiles(diff).map((t) => (
           <div key={t.label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
             <div className="text-[10.5px] font-semibold uppercase tracking-wide text-slate-500">{t.label}</div>
-            <div className={`text-lg font-bold tabular-nums ${t.tone === "same" ? "text-slate-800" : DIFF_TONE_CLASS[t.tone]}`}>{t.value}</div>
+            <div className={`text-lg font-bold tabular-nums ${t.tone === "same" ? "text-slate-800" : diffToneClass(t.tone, side)}`}>{t.value}</div>
           </div>
         ))}
       </div>
@@ -64,7 +65,7 @@ export const TariffDiffPanel = ({ versionId, currency, levelLabel }: TariffDiffP
 
       {diff.cells.length > 0 && (
         <div className="rounded-lg border border-slate-200 bg-white">
-          <TariffDiffCellsTable cells={diff.cells} currency={currency} levelLabel={levelLabel} />
+          <TariffDiffCellsTable cells={diff.cells} currency={currency} side={side} levelLabel={levelLabel} />
           {diff.cells.length >= DIFF_CELL_LIMIT && (
             <p className="m-0 px-3 py-2 text-[11px] text-slate-400">Only the {DIFF_CELL_LIMIT} largest changes are listed.</p>
           )}

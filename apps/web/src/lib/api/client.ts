@@ -2042,8 +2042,8 @@ export namespace trucking {
         }
 
         /**
-         * Reads an uploaded .xlsx price list into a new DRAFT version (manager), with what was read per
-         * sheet and the findings. A discount tariff has no file of its own.
+         * Reads a filled tariff file into a new DRAFT version (manager). The draft is saved even with
+         * errors; its findings name the sheet, row and column of each problem. The file is kept.
          */
         public async truckingTariffImport(id: string, params: controllers.TruckingTariffImportRequest): Promise<interfaces.TariffImportResult> {
             // Now make the actual call to the API
@@ -2067,8 +2067,8 @@ export namespace trucking {
         }
 
         /**
-         * The Excel template of a tariff: the chosen version (default: the active one) exported, or the
-         * empty template when it has none.
+         * The tariff as the standard Excel file to fill in: a version exported (default the active one),
+         * or the empty template when the tariff has none. Not logged.
          */
         public async truckingTariffTemplate(id: string, params: controllers.TruckingTariffTemplateRequest): Promise<controllers.TruckingFileResponse> {
             // Convert our params into the objects we need for the request
@@ -2111,7 +2111,8 @@ export namespace trucking {
         }
 
         /**
-         * What changed against another version (default: the tariff's active one), cell by cell.
+         * What a version changes against another version of the tariff (default the active one): price
+         * cells, zones, levels and surcharges.
          */
         public async truckingTariffVersionDiff(id: string, params: controllers.TruckingTariffVersionDiffRequest): Promise<controllers.TruckingTariffVersionDiffResponse> {
             // Convert our params into the objects we need for the request
@@ -2143,7 +2144,7 @@ export namespace trucking {
         }
 
         /**
-         * The file a version was uploaded from; 404 when it was created without one.
+         * The Excel file a version was imported from; 404 when it was entered without one.
          */
         public async truckingTariffVersionSource(id: string): Promise<controllers.TruckingFileResponse> {
             // Now make the actual call to the API
@@ -2152,12 +2153,12 @@ export namespace trucking {
         }
 
         /**
-         * Prices one lane with this version (any status) for each of its service levels.
+         * Prices a test shipment on this version (any status, drafts included) for each level it prices.
          */
-        public async truckingTariffVersionTestLane(id: string, params: interfaces.TestLaneRequest): Promise<controllers.TruckingTestLaneResponse> {
+        public async truckingTariffVersionTestLane(id: string, params: controllers.TruckingTariffVersionTestLaneRequest): Promise<controllers.TruckingTariffVersionTestLaneResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/tariff-versions/${encodeURIComponent(id)}/test-lane`, JSON.stringify(params))
-            return await resp.json() as controllers.TruckingTestLaneResponse
+            return await resp.json() as controllers.TruckingTariffVersionTestLaneResponse
         }
     }
 }
@@ -5946,6 +5947,10 @@ export namespace controllers {
         terms: interfaces.TermsConditionItem
     }
 
+    export interface TruckingFileResponse {
+        file: interfaces.FileDownload
+    }
+
     export interface TruckingFuelIndexResponse {
         /**
          * Newest first
@@ -6064,10 +6069,6 @@ export namespace controllers {
         version: number
     }
 
-    export interface TruckingFileResponse {
-        file: interfaces.FileDownload
-    }
-
     export interface TruckingTariffCreateRequest {
         side: interfaces.TariffSide
         scope: interfaces.TariffScope
@@ -6088,6 +6089,9 @@ export namespace controllers {
 
     export interface TruckingTariffImportRequest {
         fileName: string
+        /**
+         * The .xlsx file, base64; at most 5 MB
+         */
         fileBase64: string
     }
 
@@ -6114,7 +6118,7 @@ export namespace controllers {
 
     export interface TruckingTariffTemplateRequest {
         /**
-         * Default: the active version, else the empty template
+         * The version to export; default the active one, else the empty template
          */
         versionId?: string
     }
@@ -6142,7 +6146,7 @@ export namespace controllers {
 
     export interface TruckingTariffVersionDiffRequest {
         /**
-         * Default: the tariff's ACTIVE version
+         * Default: the tariff's version active today
          */
         againstVersionId?: string
     }
@@ -6159,7 +6163,23 @@ export namespace controllers {
         version: interfaces.TariffVersionDetail
     }
 
-    export interface TruckingTestLaneResponse {
+    export interface TruckingTariffVersionTestLaneRequest {
+        fromPostcode: string
+        toPostcode: string
+        /**
+         * YYYY-MM-DD
+         */
+        pickupDate: string
+
+        pieces: number
+        palletPlaces: number
+        ldm: number
+        weightKg: number
+        cbm: number
+        extras: interfaces.RateExtras
+    }
+
+    export interface TruckingTariffVersionTestLaneResponse {
         levels: interfaces.TestLaneLevel[]
     }
 
@@ -7190,6 +7210,26 @@ export namespace interfaces {
 
     export type DeadlinePeriod = "OVERDUE" | "TODAY" | "THIS_WEEK" | "NEXT_WEEK" | "LATER"
 
+    export interface DiffCell {
+        serviceLevel: ServiceLevelCode
+        zoneCode: string
+        /**
+         * "1 001–1 500 kg", "Minimum charge"
+         */
+        bandLabel: string
+
+        /**
+         * null = absent
+         */
+        before: number | null
+
+        after: number | null
+        /**
+         * null when before or after is absent (or before is 0)
+         */
+        changePercent: number | null
+    }
+
     export interface DockSettingsItem {
         docks: string[]
         /**
@@ -7202,26 +7242,6 @@ export namespace interfaces {
          * ISO weekdays: 1 = Monday … 7 = Sunday
          */
         workingDays: number[]
-    }
-
-    export interface DiffCell {
-        serviceLevel: ServiceLevelCode
-        zoneCode: string
-        /**
-         * Like "1 001 – 1 500 kg"
-         */
-        bandLabel: string
-
-        /**
-         * null = absent
-         */
-        before: number | null
-
-        after: number | null
-        /**
-         * null when before or after is absent
-         */
-        changePercent: number | null
     }
 
     export interface DocumentItem {
@@ -7256,6 +7276,12 @@ export namespace interfaces {
         fieldCount: number
         method: "text" | "vision"
         fileName: string
+    }
+
+    export interface FileDownload {
+        fileName: string
+        fileBase64: string
+        contentType: string
     }
 
     /**
@@ -7294,12 +7320,6 @@ export namespace interfaces {
 
         createdAt: string
         updatedAt: string
-    }
-
-    export interface FileDownload {
-        fileName: string
-        fileBase64: string
-        contentType: string
     }
 
     export interface FuelIndexMonth {
@@ -8206,13 +8226,6 @@ export namespace interfaces {
         regions: string
     }
 
-    export interface ImportSheetReport {
-        sheet: string
-        read: "used" | "ignored" | "missing"
-        rows: number
-        note: string
-    }
-
     export interface ImportRunItem {
         id: string
         startedAt: string
@@ -8228,6 +8241,13 @@ export namespace interfaces {
      * running → ok (new fixings stored) | no_new_data | failed
      */
     export type ImportRunStatus = "running" | "ok" | "no_new_data" | "failed"
+
+    export interface ImportSheetReport {
+        sheet: string
+        read: "used" | "ignored" | "missing"
+        rows: number
+        note: string
+    }
 
     export interface InvoiceCostItem {
         id: string
@@ -9994,7 +10014,7 @@ export namespace interfaces {
 
     export interface TariffImportResult {
         /**
-         * The new DRAFT; findings include parse problems with `where` = "Sheet D2, row 7, column F"
+         * The new DRAFT; its findings include the problems met reading the file ("Sheet D2, row 7, column F")
          */
         version: TariffVersionDetail
 
@@ -10110,12 +10130,11 @@ export namespace interfaces {
         serviceLevels: ServiceLevelCode[]
         zoneCount: number
         warningCount: number
+        errorCount: number
         /**
-         * The uploaded file's name; null when created without a file
+         * The uploaded file the version was imported from; null when it was entered without one
          */
         sourceFileName: string | null
-
-        errorCount: number
     }
 
     export interface TariffVersionDiff {
@@ -10136,12 +10155,12 @@ export namespace interfaces {
         levelsAdded: ServiceLevelCode[]
         levelsRemoved: ServiceLevelCode[]
         /**
-         * Plain English, e.g. "Fuel: 12 % → index"
+         * Plain English, e.g. "Fuel surcharge: 12 % → fuel index"
          */
         surchargeChanges: string[]
 
         /**
-         * Changed/added/removed only, largest |change| first, at most 500
+         * Changed, added and removed only; largest change first; at most 500
          */
         cells: DiffCell[]
 
@@ -10196,12 +10215,11 @@ export namespace interfaces {
         serviceLevels: ServiceLevelCode[]
         zoneCount: number
         warningCount: number
+        errorCount: number
         /**
-         * The uploaded file's name; null when created without a file
+         * The uploaded file the version was imported from; null when it was entered without one
          */
         sourceFileName: string | null
-
-        errorCount: number
     }
 
     /**
@@ -10224,24 +10242,6 @@ export namespace interfaces {
         completedById: string | null
     }
 
-    export interface TestLaneLevel {
-        serviceLevel: ServiceLevelCode
-        label: string
-        result: PricedSide | Unpriced
-    }
-
-    export interface TestLaneRequest {
-        fromPostcode: string
-        toPostcode: string
-        pickupDate: string
-        pieces: number
-        palletPlaces: number
-        ldm: number
-        weightKg: number
-        cbm: number
-        extras: RateExtras
-    }
-
     export interface TermsConditionItem {
         id: string
         name: string
@@ -10249,6 +10249,12 @@ export namespace interfaces {
         excludes: string
         createdAt: string
         updatedAt: string
+    }
+
+    export interface TestLaneLevel {
+        serviceLevel: ServiceLevelCode
+        label: string
+        result: PricedSide | Unpriced
     }
 
     export interface ThroughputWeek {
