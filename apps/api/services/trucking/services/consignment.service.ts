@@ -4,10 +4,11 @@ import { customers, holidays, quotes, shipments } from "~encore/clients";
 import { inTx, type Tx } from "../db/db";
 import { consignmentRepository, STAMP_COLUMNS, type ConsignmentValues } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
+import { legRepository } from "../repositories/leg.repository";
 import { truckingDocumentRepository } from "../repositories/truckingDocument.repository";
 import { truckingOutboxRepository, type TruckingOutboxInput } from "../repositories/truckingOutbox.repository";
 import { appendEvent, listEvents } from "../repositories/event.repository";
-import type { TruckingConsignmentRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
+import type { NewTruckingLegRecord, TruckingConsignmentRecord, TruckingLegRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
 import type { TruckingOutboxKind } from "../schemas/truckingOutbox.schema";
 import type {
   ConsignmentCounts,
@@ -16,6 +17,8 @@ import type {
   ConsignmentListItem,
   ConsignmentStatus,
   ConsignmentView,
+  HubAddress,
+  LegKind,
   PriceLine,
   PriceSnapshot,
   PricedSide,
@@ -24,6 +27,7 @@ import type {
   StampKind,
   Stop,
   StopInput,
+  TariffScope,
 } from "../interfaces/interfaces";
 import type { QuoteRoadPricing } from "../../quotes/interfaces/interfaces";
 import { addDays, businessDay } from "../../../lib/businessDate";
@@ -44,7 +48,9 @@ import {
   type ConsignmentFacts,
 } from "../lib/consignmentRules";
 import { detail, eventItem, factsOf, listItem, moneyOf } from "../lib/consignmentView";
-import { consignmentSourceRef, noCosts, sellCosts, tripSourceRef } from "../lib/truckingLinks";
+import { consignmentSourceRef, legSourceRef, noCosts, sellCosts, tripSourceRef } from "../lib/truckingLinks";
+import { cleanLtlChoice, hubPlace, LEG_SEQ, legEnds, legKindsFor, ltlPromise, ltlStampRefusal, ltlStatus, type LtlChoice } from "../lib/ltlRules";
+import { ltlFactsOf, ltlLegsOf } from "../lib/ltlView";
 import { isPriced, promise, roundToStep, showPostcode } from "../lib/rateEngine";
 import { formatDay } from "../lib/format";
 import { isManager } from "../lib/roles";
@@ -52,6 +58,7 @@ import { userName } from "../lib/users";
 import { eurRate, rateService } from "./rate.service";
 import { settingsService } from "./settings.service";
 import { deliverDue } from "./truckingOutbox.service";
+import { ltlTrips } from "./ltlTrips";
 
 // Consignments: create (with a Shipments job, made when there is none), price (tariff, quote or
 // an agreed price, never recomputed silently), edit, cancel, approve a low margin, and the stamps
@@ -122,15 +129,20 @@ export const routeText = (pickup: StopInput, delivery: StopInput) =>
 
 const money = (n: number, currency: string) => `${roundToStep(n, 0.01).toLocaleString("en-US").replace(/,/g, " ")} ${currency}`;
 
-/** The rate request of a consignment: FTL, one level, with buy prices. */
-export function rateRequestOf(f: Pick<ConsignmentFields, "pickupDate" | "pickupTime" | "pickup" | "delivery" | "load">, customerId: string | null, level: ServiceLevelCode | null): RateRequest {
+/** The rate request of a consignment: one level, with buy prices (FTL unless said otherwise). */
+export function rateRequestOf(
+  f: Pick<ConsignmentFields, "pickupDate" | "pickupTime" | "pickup" | "delivery" | "load">,
+  customerId: string | null,
+  level: ServiceLevelCode | null,
+  scope: TariffScope = "FTL",
+): RateRequest {
   const l = f.load;
   return {
     fromPostcode: f.pickup.postcode,
     toPostcode: f.delivery.postcode,
     pickupDate: f.pickupDate,
     pickupTime: f.pickupTime,
-    scope: "FTL",
+    scope,
     pieces: l.pieces,
     palletPlaces: l.palletPlaces,
     ldm: l.ldm,
@@ -196,6 +208,33 @@ export async function manualSnapshot(total: number, currency: "CZK" | "EUR", rea
 
 const bothCz = (f: Pick<ConsignmentFields, "pickup" | "delivery">) => f.pickup.country === "CZ" && f.delivery.country === "CZ";
 
+const scopeOf = (f: Pick<ConsignmentFields, "scope">): TariffScope => (f.scope === "LTL" ? "LTL" : "FTL");
+
+/** The legs of an LTL consignment as they are written (all OPEN; a partner's delivery names the partner). */
+export function newLegs(
+  companyId: string,
+  c: { id: string; pickup: StopInput; delivery: StopInput },
+  choice: LtlChoice,
+  hub: HubAddress,
+): NewTruckingLegRecord[] {
+  return legKindsFor(choice, true).map((kind: LegKind) => {
+    const { from, to } = legEnds(kind, c, hubPlace(hub), null);
+    return {
+      companyId,
+      consignmentId: c.id,
+      tripId: null,
+      seq: LEG_SEQ[kind],
+      kind,
+      status: "OPEN" as const,
+      fromText: from.text,
+      toText: to.text,
+      fromPostcode: from.postcode,
+      toPostcode: to.postcode,
+      haulierCustomerId: kind === "DELIVERY" && choice.lastMile === "PARTNER" ? choice.partnerHaulierCustomerId : null,
+    };
+  });
+}
+
 class ConsignmentService {
   // ---- reading -----------------------------------------------------------------------------------
 
@@ -207,23 +246,42 @@ class ConsignmentService {
     return { c, trip };
   }
 
+  /** The LTL legs of consignments and the trips they are on. */
+  async ltlContext(companyId: string, ids: string[], reader?: Tx): Promise<{ legs: TruckingLegRecord[]; tripOf: Map<string, TruckingTripRecord> }> {
+    const legs = (await legRepository.forConsignments(companyId, ids, reader)).filter((l) => l.kind !== "DIRECT");
+    const trips = await tripRepository.findMany(companyId, [...new Set(legs.map((l) => l.tripId).filter((x): x is string => !!x))], reader);
+    return { legs, tripOf: new Map(trips.map((t) => [t.id, t])) };
+  }
+
   async get(actor: Actor, id: string): Promise<ConsignmentDetail> {
     const { c, trip } = await this.load(actor.companyID, id);
-    const [settings, events] = await Promise.all([settingsService.get(actor.companyID), listEvents(actor.companyID, { consignmentId: c.id })]);
-    return detail(c, trip, settings.marginFloor, events.map(eventItem), isManager(actor.role), today(), new Date());
+    const [settings, events, ltl] = await Promise.all([
+      settingsService.get(actor.companyID),
+      listEvents(actor.companyID, { consignmentId: c.id }),
+      c.scope === "LTL" ? this.ltlContext(actor.companyID, [c.id]) : Promise.resolve(null),
+    ]);
+    const legs = ltl?.legs ?? [];
+    const tripRefs = new Map([...(ltl?.tripOf.values() ?? [])].map((t) => [t.id, t.ref]));
+    const shownTrip = ltl ? currentTrip(c.id, legs, ltl.tripOf) : trip;
+    return detail(c, shownTrip, settings.marginFloor, events.map(eventItem), isManager(actor.role), today(), new Date(), legs, tripRefs);
   }
 
   async list(actor: Actor, q: ConsignmentListQuery): Promise<{ consignments: ConsignmentListItem[]; counts: ConsignmentCounts }> {
     if (q.shipmentId && !isUuid(q.shipmentId)) return { consignments: [], counts: emptyCounts() };
     const rows = await consignmentRepository.list(actor.companyID, { status: q.status, shipmentId: q.shipmentId });
     const tripIds = [...new Set(rows.map((r) => r.tripId).filter((x): x is string => !!x))];
-    const [trips, settings] = await Promise.all([tripRepository.findMany(actor.companyID, tripIds), settingsService.get(actor.companyID)]);
-    const tripOf = new Map(trips.map((t) => [t.id, t]));
+    const [trips, settings, ltl] = await Promise.all([
+      tripRepository.findMany(actor.companyID, tripIds),
+      settingsService.get(actor.companyID),
+      this.ltlContext(actor.companyID, rows.filter((r) => r.scope === "LTL").map((r) => r.id)),
+    ]);
+    const tripOf = new Map([...trips.map((t) => [t.id, t] as const), ...ltl.tripOf]);
+    const tripFor = (c: TruckingConsignmentRecord) => (c.scope === "LTL" ? currentTrip(c.id, ltl.legs, ltl.tripOf) : c.tripId ? (tripOf.get(c.tripId) ?? null) : null);
     const day = today();
     const now = new Date();
     const search = (q.search ?? "").trim().toLowerCase();
     const items = rows
-      .map((c) => listItem(c, c.tripId ? (tripOf.get(c.tripId) ?? null) : null, settings.marginFloor, day, now))
+      .map((c) => listItem(c, tripFor(c), settings.marginFloor, day, now, ltl.legs))
       .filter(
         (i) =>
           !search ||
@@ -253,7 +311,7 @@ class ConsignmentService {
     const p = f.price;
     if (p.source === "TARIFF") {
       if (!bothCz(f)) throw APIError.failedPrecondition("The tariffs price CZ postcodes only: give an agreed price");
-      const rated = await rateService.rate(companyId, rateRequestOf(f, customerId, f.serviceLevel));
+      const rated = await rateService.rate(companyId, rateRequestOf(f, customerId, f.serviceLevel, scopeOf(f)));
       const result = rated.results[0];
       if (!result) throw APIError.failedPrecondition("That service level is not in the trucking settings");
       if (!isPriced(result.sell)) throw APIError.failedPrecondition(result.sell.reason);
@@ -280,7 +338,7 @@ class ConsignmentService {
   private async cheapestBuy(companyId: string, customerId: string, f: ConsignmentFields): Promise<number | null> {
     if (!bothCz(f) || !f.serviceLevel) return null;
     try {
-      const rated = await rateService.rate(companyId, rateRequestOf(f, customerId, f.serviceLevel));
+      const rated = await rateService.rate(companyId, rateRequestOf(f, customerId, f.serviceLevel, scopeOf(f)));
       return rated.results[0]?.buy[0]?.totalCzk ?? null;
     } catch {
       return null;
@@ -337,6 +395,37 @@ class ConsignmentService {
     };
   }
 
+  /**
+   * What an LTL edit does to the legs: drawn again when every leg is still open and the route or
+   * the choice (brought by the customer, last mile, partner) changed; refused once a leg is planned
+   * and the route, the load or the choice would change under it.
+   */
+  private async ltlLegPlan(companyId: string, c: TruckingConsignmentRecord, f: ConsignmentFields, ltl: LtlChoice) {
+    const legs = ltlLegsOf(c.id, await legRepository.forConsignments(companyId, [c.id]));
+    const planned = legs.some((l) => l.status !== "OPEN");
+    const choiceChanged = ltl.selfDelivered !== c.selfDelivered || ltl.lastMile !== c.lastMile || ltl.partnerHaulierCustomerId !== c.partnerHaulierCustomerId;
+    const placesChanged = placeKey(f.pickup) !== placeKey(c.pickup) || placeKey(f.delivery) !== placeKey(c.delivery);
+    const loadChanged = JSON.stringify(f.load) !== JSON.stringify(c.load);
+    return {
+      legIds: legs.map((l) => l.id),
+      rebuild: !planned && (choiceChanged || placesChanged),
+      changed: choiceChanged || placesChanged || loadChanged,
+      refusal: planned ? "The consignment is planned: take its legs off their trips (and remove the partner's delivery price) before changing the route, the load or the last mile" : null,
+    };
+  }
+
+  /** The promised date counted from a confirmed gate-in for a level; `fallback` when the level gives none. */
+  async promiseFromGateIn(companyId: string, level: ServiceLevelCode | null, gateInAt: Date, fallback: string | null): Promise<string | null> {
+    if (!level) return fallback;
+    const day = businessDay(gateInAt);
+    const [settings, extra] = await Promise.all([
+      settingsService.get(companyId),
+      holidays._internalHolidaysCzNational({ from: day, to: addDays(day, HOLIDAY_WINDOW_DAYS) }).then((r) => r.dates),
+    ]);
+    const setting = settings.serviceLevels.find((l) => l.code === level) ?? null;
+    return ltlPromise(setting, gateInAt, day, extra)?.promisedDate ?? fallback;
+  }
+
   // ---- create / update ---------------------------------------------------------------------------
 
   private async customerName(customerId: string): Promise<string> {
@@ -363,10 +452,11 @@ class ConsignmentService {
   async create(actor: Actor, input: ConsignmentCreateInput): Promise<ConsignmentDetail> {
     const companyId = actor.companyID;
     const f = cleanFields(input);
+    const ltl = f.scope === "LTL" ? cleanLtlChoice(f) : null;
     const customerName = await this.customerName(input.customerId);
     const existingJob = input.shipmentId ? await this.job(input.shipmentId, input.customerId) : null;
     const priced = await this.price(companyId, input.customerId, f);
-    const { marginFloor } = await settingsService.get(companyId);
+    const { marginFloor, hub } = await settingsService.get(companyId);
     const belowFloor = marginOf(priced.sell.totalCzk, priced.estBuyCzk, marginFloor).belowFloor;
     const by = await userName(actor.userID);
     // A domestic-only order gets its Road / Domestic job first (another database: no shared transaction).
@@ -402,7 +492,10 @@ class ConsignmentService {
         customerId: input.customerId,
         customerName,
         quoteNumber: f.quoteNumber,
-        scope: "FTL",
+        scope: ltl ? "LTL" : "FTL",
+        selfDelivered: ltl?.selfDelivered ?? false,
+        lastMile: ltl?.lastMile ?? null,
+        partnerHaulierCustomerId: ltl?.partnerHaulierCustomerId ?? null,
         serviceLevel: priced.serviceLevel,
         status: "BOOKED",
         pickupDate: f.pickupDate,
@@ -426,10 +519,11 @@ class ConsignmentService {
         byName: by,
         payload: {
           changes: {},
-          summary: `Created ${ref} for job ${job.jobNumber}: ${routeText(f.pickup, f.delivery)}, ${money(priced.sell.total, priced.sell.currency)} (${priced.sell.source.toLowerCase()})`,
-          facts: { source: priced.sell.source, belowFloor, jobCreated: !input.shipmentId },
+          summary: `Created ${ref}${ltl ? " (groupage)" : ""} for job ${job.jobNumber}: ${routeText(f.pickup, f.delivery)}, ${money(priced.sell.total, priced.sell.currency)} (${priced.sell.source.toLowerCase()})`,
+          facts: { source: priced.sell.source, belowFloor, jobCreated: !input.shipmentId, scope: row.scope },
         },
       });
+      if (ltl) await legRepository.insertMany(tx, newLegs(companyId, row, ltl, hub));
       await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, row, "costs", sellCosts(row))]);
       return row;
     });
@@ -446,16 +540,21 @@ class ConsignmentService {
     const { c, trip } = await this.load(companyId, id);
     if (c.cancelledAt) throw APIError.failedPrecondition("The consignment is cancelled");
     if (!Number.isInteger(input.version) || input.version !== c.version) throw APIError.aborted(CONSIGNMENT_CONFLICT);
-    const f = cleanFields(input);
-    if (c.pickedUpAt) {
+    const f = cleanFields({ ...input, scope: input.scope ?? c.scope });
+    if (f.scope !== c.scope) throw APIError.failedPrecondition("FTL / LTL cannot change: cancel the consignment and book it again");
+    const ltl = c.scope === "LTL" ? cleanLtlChoice(f) : null;
+    const legPlan = ltl ? await this.ltlLegPlan(companyId, c, f, ltl) : null;
+    if (c.pickedUpAt || c.gateInAt) {
       if (input.reprice) throw APIError.failedPrecondition("After the pick-up the price cannot change");
       if (lockedPart(f, f.price) !== lockedPart(storedFields(c), f.price)) throw APIError.failedPrecondition("After the pick-up only notes and references can change");
     }
     const priced = input.reprice ? await this.price(companyId, c.customerId, f) : null;
     const level = priced?.serviceLevel ?? f.serviceLevel;
     const dateMoved = f.pickupDate !== c.pickupDate || f.pickupTime !== c.pickupTime || level !== c.serviceLevel;
-    const promisedDate = priced ? priced.promisedDate : dateMoved ? await this.promiseFor(companyId, level, f.pickupDate, f.pickupTime) : c.promisedDate;
-    const { marginFloor } = await settingsService.get(companyId);
+    let promisedDate = priced ? priced.promisedDate : dateMoved ? await this.promiseFor(companyId, level, f.pickupDate, f.pickupTime) : c.promisedDate;
+    // LTL after the gate-in: the date counts from the confirmed gate-in (the level may have changed).
+    if (ltl && c.promisedFinal && c.gateInAt) promisedDate = level === c.serviceLevel ? c.promisedDate : await this.promiseFromGateIn(companyId, level, c.gateInAt, c.promisedDate);
+    const { marginFloor, hub } = await settingsService.get(companyId);
     const sell = priced?.sell ?? c.sell;
     const estBuyCzk = priced ? priced.estBuyCzk : c.estBuyCzk;
     const liveTrip = trip && !trip.cancelledAt ? trip : null;
@@ -469,17 +568,24 @@ class ConsignmentService {
       delivery: toStop(f.delivery, "DELIVERY", c.delivery),
       load: f.load,
       promisedDate,
+      ...(ltl ? { selfDelivered: ltl.selfDelivered, lastMile: ltl.lastMile, partnerHaulierCustomerId: ltl.partnerHaulierCustomerId } : {}),
       ...(priced ? { sell: priced.sell, sellCzk: priced.sell.totalCzk, estBuyCzk: priced.estBuyCzk, chargeableKg: priced.chargeableKg } : {}),
       belowFloor,
     };
     const changes = changedFields(c, values);
     if (!Object.keys(changes).length && !priced) return this.get(actor, id);
+    if (legPlan?.refusal && legPlan.changed) throw APIError.failedPrecondition(legPlan.refusal);
     const by = await userName(actor.userID);
     await inTx(async (tx) => {
       const row = await consignmentRepository.update(tx, companyId, id, values, { version: c.version, live: true });
       if (!row) throw APIError.aborted(CONSIGNMENT_CONFLICT);
       const owes: TruckingOutboxInput[] = [];
       if (priced) owes.push(owed(actor, row, "costs", sellCosts(row)));
+      // LTL with every leg still open: the legs are drawn again from the new route and choice.
+      if (ltl && legPlan?.rebuild) {
+        await legRepository.retire(tx, companyId, legPlan.legIds);
+        await legRepository.insertMany(tx, newLegs(companyId, { id, pickup: f.pickup, delivery: f.delivery }, ltl, hub));
+      }
       // FTL: the trip is picked up when the consignment is; the job learns the new dates.
       if (liveTrip && dateMoved) {
         await tripRepository.update(tx, companyId, liveTrip.id, { plannedPickupDate: f.pickupDate }, { live: true });
@@ -513,9 +619,10 @@ class ConsignmentService {
     const { c, trip } = await this.load(actor.companyID, id);
     if (c.cancelledAt) throw APIError.failedPrecondition("The consignment is already cancelled");
     if (c.pickedUpAt) throw APIError.failedPrecondition("The goods are picked up: the consignment can no longer be cancelled");
+    if (c.gateInAt) throw APIError.failedPrecondition("The goods are at our warehouse: the consignment can no longer be cancelled");
     const by = await userName(actor.userID);
     await inTx((tx) => this.cancelInTx(tx, actor, c, trip, by, why, `Cancelled: ${why}`));
-    await deliverDue(id);
+    await deliverDue(c.scope === "LTL" ? undefined : id);
     return this.get(actor, id);
   }
 
@@ -545,6 +652,16 @@ class ConsignmentService {
     );
     if (!row) return false;
     const owes: TruckingOutboxInput[] = [owed(actor, c, "costs", noCosts(consignmentSourceRef(c.id)))];
+    if (c.scope === "LTL") {
+      // Its legs leave their trips (whose prices are split again over the legs left) and a partner's delivery lines go.
+      const legs = ltlLegsOf(c.id, await legRepository.forConsignments(companyId, [c.id], tx));
+      for (const l of legs.filter((x) => x.buy && !x.tripId)) owes.push(owed(actor, c, "costs", noCosts(legSourceRef(l.id))));
+      await legRepository.retire(tx, companyId, legs.map((l) => l.id));
+      for (const tripId of new Set(legs.map((l) => l.tripId).filter((x): x is string => !!x))) {
+        const locked = await tripRepository.lock(tx, companyId, tripId);
+        if (locked && !locked.cancelledAt) await ltlTrips.settle(tx, actor, locked);
+      }
+    }
     if (trip && !trip.cancelledAt) {
       await tripRepository.update(tx, companyId, trip.id, { cancelledAt: now, cancelledBy: by, cancelReason: why, status: "CANCELLED" }, { live: true });
       await tripRepository.revokeLinks(tx, companyId, trip.id);
@@ -571,7 +688,9 @@ class ConsignmentService {
     const { c, trip } = await this.load(actor.companyID, id);
     if (c.cancelledAt) throw APIError.failedPrecondition("The consignment is cancelled");
     const { marginFloor } = await settingsService.get(actor.companyID);
-    const m = moneyOf(c, trip, marginFloor);
+    // LTL: judged with its legs' shares of their trips and its partner's price.
+    const legs = c.scope === "LTL" ? (await this.ltlContext(actor.companyID, [c.id])).legs : [];
+    const m = moneyOf(c, trip, marginFloor, legs);
     if (!m.belowFloor) throw APIError.failedPrecondition("The margin is not below the floor");
     if (m.marginApproved) throw APIError.failedPrecondition("This margin is already approved");
     const by = await userName(actor.userID);
@@ -608,7 +727,11 @@ class ConsignmentService {
     const facts = factsOf(c, trip);
     if (facts[STAMP_COLUMNS[kind].at]) throw APIError.alreadyExists("Already stamped");
     const hasPod = kind === "podReceived" ? await truckingDocumentRepository.hasPod(actor.companyID, id) : false;
-    const refusal = stampRefusal(kind, facts, { hasPod, manager: isManager(actor.role) });
+    const opts = { hasPod, manager: isManager(actor.role) };
+    const refusal =
+      c.scope === "LTL"
+        ? ltlStampRefusal(kind, c, await this.ltlContext(actor.companyID, [c.id]).then((x) => ltlFactsOf(c, x.legs, x.tripOf).legs), opts)
+        : stampRefusal(kind, facts, opts);
     if (refusal) throw APIError.failedPrecondition(refusal);
     const time = stampTime(at, new Date());
     assertAfterEarlier(kind, facts, time);
@@ -636,7 +759,8 @@ class ConsignmentService {
     const companyId = actor.companyID;
     const cols = STAMP_COLUMNS[kind];
     const next: ConsignmentFacts = { ...factsOf(c, trip), [cols.at]: time };
-    const values: ConsignmentValues = { [cols.at]: time, [cols.by]: by, status: consignmentStatus(next) };
+    const status = c.scope === "LTL" ? await this.ltlStatusAfter(tx, companyId, c, { [cols.at]: time }) : consignmentStatus(next);
+    const values: ConsignmentValues = { [cols.at]: time, [cols.by]: by, status };
     if (kind === "podReceived") values.podSource = source;
     const row = await consignmentRepository.update(tx, companyId, c.id, values, { stampEmpty: kind, version: c.version });
     if (!row) {
@@ -659,9 +783,24 @@ class ConsignmentService {
     });
     if (kind === "delivered") {
       await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "delivered", { actualDeliveryDate: businessDay(time) })]);
+      if (c.scope === "LTL") await this.markDeliveryLeg(tx, companyId, c.id, true);
     }
     if (kind === "podReceived") await this.settleBilling(tx, actor, c.shipmentId, c.id, by);
     return row;
+  }
+
+  /** The status an LTL consignment gets with `patch` applied to its stamps / gate times. */
+  async ltlStatusAfter(tx: Tx, companyId: string, c: TruckingConsignmentRecord, patch: Partial<TruckingConsignmentRecord>): Promise<ConsignmentStatus> {
+    const { legs, tripOf } = await this.ltlContext(companyId, [c.id], tx);
+    return ltlStatus(ltlFactsOf({ ...c, ...patch }, legs, tripOf));
+  }
+
+  // The delivery leg is done when the consignment is delivered (and back to planned when voided).
+  private async markDeliveryLeg(tx: Tx, companyId: string, consignmentId: string, done: boolean): Promise<void> {
+    const leg = ltlLegsOf(consignmentId, await legRepository.forConsignments(companyId, [consignmentId], tx)).find((l) => l.kind === "DELIVERY");
+    if (!leg) return;
+    const status = done ? "DONE" : leg.tripId || leg.buy ? "PLANNED" : "OPEN";
+    if (leg.status !== status) await legRepository.update(tx, companyId, leg.id, { status });
   }
 
   /**
@@ -707,7 +846,12 @@ class ConsignmentService {
     const companyId = actor.companyID;
     await inTx(async (tx) => {
       const next: ConsignmentFacts = { ...facts, [cols.at]: null, ...(kind === "podReceived" ? { readyToBillAt: null } : {}) };
-      const values: ConsignmentValues = { [cols.at]: null, [cols.by]: null, status: consignmentStatus(next) };
+      const status =
+        c.scope === "LTL"
+          ? await this.ltlStatusAfter(tx, companyId, c, { [cols.at]: null, ...(kind === "podReceived" ? { readyToBillAt: null } : {}) })
+          : consignmentStatus(next);
+      const values: ConsignmentValues = { [cols.at]: null, [cols.by]: null, status };
+      if (c.scope === "LTL" && kind === "delivered") await this.markDeliveryLeg(tx, companyId, c.id, false);
       if (kind === "podReceived") Object.assign(values, { podSource: null, readyToBillAt: null });
       const row = await consignmentRepository.update(tx, companyId, id, values, { stampSet: kind, version: c.version, live: true });
       if (!row) throw APIError.aborted(CONSIGNMENT_CONFLICT);
@@ -765,7 +909,7 @@ class ConsignmentService {
     for (const c of rows.filter((x) => !x.cancelledAt)) {
       const trip = c.tripId ? await tripRepository.find(companyId, c.tripId) : null;
       await inTx(async (tx) => {
-        const cancelled = !c.pickedUpAt && (await this.cancelInTx(tx, system, c, trip, "Shipments", "The job was deleted in Shipments", "Cancelled: the job was deleted in Shipments"));
+        const cancelled = !c.pickedUpAt && !c.gateInAt && (await this.cancelInTx(tx, system, c, trip, "Shipments", "The job was deleted in Shipments", "Cancelled: the job was deleted in Shipments"));
         if (!cancelled) {
           await appendEvent(tx, companyId, {
             kind: "shipment_deleted",
@@ -795,6 +939,10 @@ function storedFields(c: TruckingConsignmentRecord): ConsignmentFields {
     delivery: stop(c.delivery),
     load: c.load,
     price: { source: "TARIFF" },
+    scope: c.scope,
+    selfDelivered: c.selfDelivered,
+    lastMile: c.scope === "LTL" ? c.lastMile : null,
+    partnerHaulierCustomerId: c.scope === "LTL" ? c.partnerHaulierCustomerId : null,
   };
 }
 
@@ -804,7 +952,20 @@ function lockedPart(f: ConsignmentFields, price: ConsignmentFields["price"]): st
   return JSON.stringify({ ...f, price, pickup: stop(f.pickup), delivery: stop(f.delivery) });
 }
 
-const COMPARED: (keyof ConsignmentValues)[] = ["quoteNumber", "serviceLevel", "pickupDate", "pickupTime", "pickup", "delivery", "load", "promisedDate", "sell"];
+const COMPARED: (keyof ConsignmentValues)[] = [
+  "quoteNumber",
+  "serviceLevel",
+  "pickupDate",
+  "pickupTime",
+  "pickup",
+  "delivery",
+  "load",
+  "promisedDate",
+  "sell",
+  "selfDelivered",
+  "lastMile",
+  "partnerHaulierCustomerId",
+];
 
 /** The fields an update changes, with before and after. */
 function changedFields(c: TruckingConsignmentRecord, v: ConsignmentValues): Record<string, { before: unknown; after: unknown }> {
@@ -836,6 +997,15 @@ function assertAfterEarlier(kind: StampKind, facts: ConsignmentFacts, time: Date
 export const stampText = (d: Date) =>
   `${formatDay(businessDay(d))} ${new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit", hour12: false }).format(d)}`;
 
+/** The trip of an LTL consignment's leg under way (the first planned leg), for the list. */
+function currentTrip(consignmentId: string, legs: TruckingLegRecord[], tripOf: Map<string, TruckingTripRecord>): TruckingTripRecord | null {
+  const leg = ltlLegsOf(consignmentId, legs).find((l) => l.status === "PLANNED" && l.tripId);
+  return leg?.tripId ? (tripOf.get(leg.tripId) ?? null) : null;
+}
+
+/** What identifies a stop's place for the legs (the name and address, not the contact or notes). */
+const placeKey = (s: StopInput) => JSON.stringify([s.name, s.street, s.postcode, s.city, s.country, s.siteId]);
+
 const emptyCounts = (): ConsignmentCounts => ({ attention: 0, pickupToday: 0, deliveryToday: 0, podMissing: 0, readyToBill: 0, openFtlWithoutHaulier: 0 });
 
 const DELIVERED_OR_LATER: ConsignmentStatus[] = ["DELIVERED", "POD_RECEIVED", "READY_TO_BILL"];
@@ -865,7 +1035,7 @@ export function countsOf(items: ConsignmentListItem[], day: string): Consignment
     deliveryToday: n("deliveryToday"),
     podMissing: n("podMissing"),
     readyToBill: n("readyToBill"),
-    openFtlWithoutHaulier: items.filter((i) => i.status === "BOOKED" && !i.tripId).length,
+    openFtlWithoutHaulier: items.filter((i) => i.scope === "FTL" && i.status === "BOOKED" && !i.tripId).length,
   };
 }
 

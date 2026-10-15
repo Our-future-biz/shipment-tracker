@@ -8,6 +8,7 @@ import type {
   TruckingSettingsInput,
   VehicleTypeSetting,
 } from "../interfaces/interfaces";
+import { cleanHub, EMPTY_HUB } from "./ltlRules";
 
 // The trucking settings: defaults when a company has saved none, and the checks a save must pass.
 
@@ -80,6 +81,7 @@ export const DEFAULT_SETTINGS: TruckingSettingsInput = {
   factors: DEFAULT_FACTORS,
   marginFloor: DEFAULT_MARGIN_FLOOR,
   transportOrder: DEFAULT_TRANSPORT_ORDER,
+  hub: EMPTY_HUB,
 };
 
 /** Largest loading length a vehicle may have: mega trailers and road trains (13.6 m is a standard trailer). */
@@ -183,6 +185,7 @@ export function cleanSettings(input: TruckingSettingsInput): TruckingSettingsInp
     factors: cleanFactors(input.factors),
     marginFloor: cleanMarginFloor(input.marginFloor),
     transportOrder: cleanTransportOrder(input.transportOrder),
+    hub: cleanHub(input.hub),
   };
 }
 
@@ -199,6 +202,7 @@ export function readSettings(stored: Partial<TruckingSettingsInput> | null): Tru
     factors: stored.factors ?? DEFAULT_FACTORS,
     marginFloor: stored.marginFloor ?? DEFAULT_MARGIN_FLOOR,
     transportOrder: stored.transportOrder ?? DEFAULT_TRANSPORT_ORDER,
+    hub: stored.hub ?? EMPTY_HUB,
   };
 }
 

@@ -33,7 +33,18 @@ export type TruckingEventKind =
   | "document_uploaded"
   | "shipment_deleted"
   | "shipment_update_failed"
-  | "costs_update_failed";
+  | "costs_update_failed"
+  // Phase 5: LTL legs, runs and the warehouse's gate
+  | "legs_planned"
+  | "trip_legs_changed"
+  | "trip_repriced"
+  | "trip_stamp_set"
+  | "partner_delivery_set"
+  | "gate_in"
+  | "gate_out"
+  | "gate_voided"
+  | "manifest_printed"
+  | "labels_printed";
 
 /** One changed field: what it was and what it became. */
 export interface TruckingFieldChange {

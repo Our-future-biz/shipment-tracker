@@ -172,7 +172,27 @@ export function cleanFields(f: ConsignmentFields): ConsignmentFields {
   const delivery = cleanStop(f.delivery, "delivery");
   // A B2C delivery is always announced (avizace) to the consignee.
   if (load.b2c) delivery.avizaceRequired = true;
-  return { quoteNumber, serviceLevel, pickupDate: f.pickupDate, pickupTime, pickup: cleanStop(f.pickup, "pick-up"), delivery, load, price };
+  const scope = f.scope === undefined || f.scope === null ? "FTL" : f.scope;
+  if (scope !== "FTL" && scope !== "LTL") throw bad("The scope must be FTL or LTL");
+  const ltl = scope === "LTL";
+  const partner = ltl && f.partnerHaulierCustomerId ? String(f.partnerHaulierCustomerId) : null;
+  if (partner !== null && !isUuid(partner)) throw bad("Unknown partner haulier");
+  const lastMile = ltl ? (f.lastMile ?? "OWN_RUN") : null;
+  if (lastMile !== null && lastMile !== "OWN_RUN" && lastMile !== "PARTNER") throw bad("The last mile must be OWN_RUN or PARTNER");
+  return {
+    quoteNumber,
+    serviceLevel,
+    pickupDate: f.pickupDate,
+    pickupTime,
+    pickup: cleanStop(f.pickup, "pick-up"),
+    delivery,
+    load,
+    price,
+    scope,
+    selfDelivered: ltl && f.selfDelivered === true,
+    lastMile,
+    partnerHaulierCustomerId: lastMile === "PARTNER" ? partner : null,
+  };
 }
 
 /** Plates as stored: upper case, no spaces or dashes ("1ab 2345" → "1AB2345"). */

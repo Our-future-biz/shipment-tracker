@@ -82,9 +82,9 @@ class ConsignmentRepository {
     return row ?? null;
   }
 
-  async findMany(companyId: string, ids: string[]): Promise<TruckingConsignmentRecord[]> {
+  async findMany(companyId: string, ids: string[], reader: Tx | typeof db = db): Promise<TruckingConsignmentRecord[]> {
     if (!ids.length) return [];
-    return db.select().from(c).where(and(eq(c.companyId, companyId), inArray(c.id, ids), isNull(c.deletedAt)));
+    return reader.select().from(c).where(and(eq(c.companyId, companyId), inArray(c.id, ids), isNull(c.deletedAt)));
   }
 
   /** The consignment of an FTL trip (live trip link). */
@@ -105,6 +105,15 @@ class ConsignmentRepository {
     if (filter.status) clauses.push(eq(c.status, filter.status));
     if (filter.shipmentId) clauses.push(eq(c.shipmentId, filter.shipmentId));
     return db.select().from(c).where(and(...clauses)).orderBy(desc(c.pickupDate), desc(c.createdAt)).limit(MAX_LIST);
+  }
+
+  /** The live LTL consignments of a job (not cancelled), locked for the caller's transaction. */
+  async ltlForShipmentLocked(tx: Tx, companyId: string, shipmentId: string): Promise<TruckingConsignmentRecord[]> {
+    return tx
+      .select()
+      .from(c)
+      .where(and(eq(c.companyId, companyId), eq(c.shipmentId, shipmentId), eq(c.scope, "LTL"), isNull(c.cancelledAt), isNull(c.deletedAt)))
+      .for("update");
   }
 
   /** Every live consignment of a job (cancelled ones included), locked for the caller's transaction. */
@@ -128,9 +137,10 @@ class ConsignmentRepository {
 
   /** The leg of an FTL consignment on its trip. */
   async insertLeg(tx: Tx, companyId: string, consignmentId: string, tripId: string): Promise<void> {
-    await tx.insert(truckingLegTable).values({ companyId, consignmentId, tripId, seq: 1, kind: "DIRECT" });
+    await tx.insert(truckingLegTable).values({ companyId, consignmentId, tripId, seq: 1, kind: "DIRECT", status: "PLANNED" });
   }
 
+  /** Soft-deletes the FTL (DIRECT) legs of a trip. */
   async retireLegs(tx: Tx, companyId: string, tripId: string): Promise<void> {
     const now = new Date();
     await tx

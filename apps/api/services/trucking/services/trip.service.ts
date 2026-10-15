@@ -2,6 +2,7 @@ import { APIError } from "encore.dev/api";
 import { inTx } from "../db/db";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
+import { legRepository } from "../repositories/leg.repository";
 import { haulierRepository } from "../repositories/haulier.repository";
 import { truckingOutboxRepository, type TruckingOutboxInput } from "../repositories/truckingOutbox.repository";
 import { appendEvent, listEvents } from "../repositories/event.repository";
@@ -11,7 +12,8 @@ import type { Actor } from "../../../lib/rbac";
 import { businessDay } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
 import { cleanPrice, cleanReason, consignmentStatus, marginOf, normalisePlate, truckingRefYear } from "../lib/consignmentRules";
-import { eventItem, factsOf, tripDetail, tripListItem, type HaulierAssessment } from "../lib/consignmentView";
+import { eventItem, factsOf, tripDetail, tripListItem, type HaulierAssessment, type TripLoadView } from "../lib/consignmentView";
+import { capacityOf, tripFill } from "../lib/ltlRules";
 import { buyCosts, noCosts, plannedUpdate, tripSourceRef } from "../lib/truckingLinks";
 import { isManager } from "../lib/roles";
 import { userName } from "../lib/users";
@@ -20,6 +22,7 @@ import { consignmentService, manualSnapshot, owed, rateRequestOf, snapshotOf } f
 import { rateService } from "./rate.service";
 import { settingsService } from "./settings.service";
 import { deliverDue } from "./truckingOutbox.service";
+import { ltlTrips } from "./ltlTrips";
 
 // FTL trips: one consignment on one truck of a subcontracted haulier. The haulier is the
 // engine's first candidate (preferred lane, then cheapest) unless the user picks another - which
@@ -71,24 +74,39 @@ class TripService {
   }
 
   async get(actor: Actor, id: string): Promise<TripDetail> {
-    const trip = await this.load(actor.companyID, id);
-    const [consignment, assessments, link, events] = await Promise.all([
-      consignmentRepository.findByTrip(actor.companyID, trip.id),
-      this.haulierAssessments(actor.companyID, [trip.haulierCustomerId]),
-      tripRepository.liveLink(actor.companyID, trip.id),
-      listEvents(actor.companyID, { tripId: trip.id }),
+    const companyId = actor.companyID;
+    const trip = await this.load(companyId, id);
+    const [assessments, link, events, settings] = await Promise.all([
+      this.haulierAssessments(companyId, [trip.haulierCustomerId]),
+      tripRepository.liveLink(companyId, trip.id),
+      listEvents(companyId, { tripId: trip.id }),
+      settingsService.get(companyId),
     ]);
-    return tripDetail(trip, consignment ? [consignment] : [], assessments.get(trip.haulierCustomerId)!, link, events.map(eventItem));
+    let consignments: { id: string; ref: string }[];
+    let load: TripLoadView;
+    if (trip.kind === "FTL") {
+      const c = await consignmentRepository.findByTrip(companyId, trip.id);
+      const capacity = capacityOf(settings.vehicleTypes.find((v) => v.code === trip.vehicleTypeCode) ?? null);
+      consignments = c ? [c] : [];
+      load = { legs: [], capacity, fill: tripFill(c ? [c.load] : [], capacity), warnings: [] };
+    } else {
+      const view = (await ltlTrips.loads(companyId, [trip], settings)).get(trip.id)!;
+      consignments = view.consignments;
+      load = view;
+    }
+    return tripDetail(trip, consignments, assessments.get(trip.haulierCustomerId)!, link, events.map(eventItem), load);
   }
 
   async list(actor: Actor, q: { status?: TripStatus; search?: string }): Promise<TripListItem[]> {
     const trips = await tripRepository.list(actor.companyID, { status: q.status });
-    const [consignments, assessments] = await Promise.all([
-      consignmentRepository.findByTrips(actor.companyID, trips.map((t) => t.id)),
+    const [consignments, assessments, loads] = await Promise.all([
+      consignmentRepository.findByTrips(actor.companyID, trips.filter((t) => t.kind === "FTL").map((t) => t.id)),
       this.haulierAssessments(actor.companyID, trips.map((t) => t.haulierCustomerId)),
+      ltlTrips.loads(actor.companyID, trips.filter((t) => t.kind !== "FTL")),
     ]);
     const ofTrip = new Map<string, { id: string; ref: string }[]>();
     for (const c of consignments) ofTrip.set(c.tripId!, [...(ofTrip.get(c.tripId!) ?? []), { id: c.id, ref: c.ref }]);
+    for (const [tripId, view] of loads) ofTrip.set(tripId, view.consignments);
     const search = (q.search ?? "").trim().toLowerCase();
     return trips
       .map((t) => tripListItem(t, ofTrip.get(t.id) ?? [], assessments.get(t.haulierCustomerId)!, null))
@@ -106,6 +124,7 @@ class TripService {
     const companyId = actor.companyID;
     const { c } = await consignmentService.load(companyId, input.consignmentId);
     if (c.cancelledAt) throw APIError.failedPrecondition("The consignment is cancelled");
+    if (c.scope === "LTL") throw APIError.failedPrecondition("A groupage (LTL) consignment is planned leg by leg on the planning board");
     if (c.tripId) throw APIError.failedPrecondition("The consignment is already on a trip");
     const price = cleanPrice(input.price, false) as TripPriceInput;
     const settings = await settingsService.get(companyId);
@@ -234,6 +253,8 @@ class TripService {
     await inTx(async (tx) => {
       const row = await tripRepository.update(tx, companyId, id, values, { version: trip.version, live: true });
       if (!row) throw APIError.aborted(TRIP_CONFLICT);
+      // An LTL trip already announced to our warehouse is announced again with the new vehicle and driver.
+      if (row.kind !== "FTL" && row.orderSentAt) await ltlTrips.settle(tx, actor, (await tripRepository.lock(tx, companyId, id)) ?? row);
       await appendEvent(tx, companyId, {
         kind: "trip_updated",
         tripId: id,
@@ -247,6 +268,7 @@ class TripService {
       }
     });
     if (consignment) await deliverDue(consignment.id);
+    else if (trip.kind !== "FTL") await deliverDue();
     return this.get(actor, id);
   }
 
@@ -257,6 +279,7 @@ class TripService {
     const companyId = actor.companyID;
     const trip = await this.load(companyId, id);
     if (trip.cancelledAt) throw APIError.failedPrecondition("The trip is already cancelled");
+    if (trip.kind !== "FTL") return this.cancelLtl(actor, trip, why);
     const c = await consignmentRepository.findByTrip(companyId, id);
     if (c?.pickedUpAt) throw APIError.failedPrecondition("The goods are picked up: the trip can no longer be cancelled");
     const by = await userName(actor.userID);
@@ -290,6 +313,42 @@ class TripService {
     });
     if (c) await deliverDue(c.id);
     return this.get(actor, id);
+  }
+
+  /**
+   * An LTL trip is cancelled until the truck leaves: its legs go back to the planning board
+   * (open), its job cost lines are removed, our warehouse is told the trip is off, and the
+   * haulier's link is revoked.
+   */
+  private async cancelLtl(actor: Actor, trip: TruckingTripRecord, why: string): Promise<TripDetail> {
+    const companyId = actor.companyID;
+    if (trip.departedAt) throw APIError.failedPrecondition("The truck has left: the trip can no longer be cancelled");
+    const by = await userName(actor.userID);
+    await inTx(async (tx) => {
+      const locked = await tripRepository.lock(tx, companyId, trip.id);
+      if (!locked || locked.cancelledAt || locked.version !== trip.version || locked.departedAt) throw APIError.aborted(TRIP_CONFLICT);
+      const legs = await legRepository.forTrips(companyId, [trip.id], tx);
+      for (const l of legs) await legRepository.update(tx, companyId, l.id, { tripId: null, status: "OPEN", costShareCzk: null }, { tripId: trip.id });
+      const row = await tripRepository.update(tx, companyId, trip.id, { cancelledAt: new Date(), cancelledBy: by, cancelReason: why, status: "CANCELLED" }, { live: true });
+      if (!row) throw APIError.aborted(TRIP_CONFLICT);
+      await tripRepository.revokeLinks(tx, companyId, trip.id);
+      await ltlTrips.settle(tx, actor, row);
+      await ltlTrips.refreshStatuses(tx, companyId, [...new Set(legs.map((l) => l.consignmentId))]);
+      await appendEvent(tx, companyId, {
+        kind: "trip_cancelled",
+        tripId: trip.id,
+        customerId: trip.haulierCustomerId,
+        byUserId: actor.userID || null,
+        byName: by,
+        payload: {
+          changes: { status: { before: trip.status, after: "CANCELLED" } },
+          reason: why,
+          summary: `Trip ${trip.ref} with ${trip.haulierName} cancelled: ${why}; ${legs.length} leg${legs.length === 1 ? "" : "s"} back to planning`,
+        },
+      });
+    });
+    await deliverDue();
+    return this.get(actor, trip.id);
   }
 }
 

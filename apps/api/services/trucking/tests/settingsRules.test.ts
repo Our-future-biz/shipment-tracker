@@ -97,3 +97,15 @@ describe("trucking settings checks", () => {
     expect(settingsChanges(clone(), next)).toEqual({ factors: { before: DEFAULT_SETTINGS.factors, after: next.factors } });
   });
 });
+
+describe("our warehouse (hub) in the settings", () => {
+  it("is empty by default, kept from an older row without it, and saved cleaned", () => {
+    expect(DEFAULT_SETTINGS.hub).toEqual({ name: "", street: "", postcode: "", city: "", country: "CZ" });
+    const { hub: _hub, ...older } = clone();
+    void _hub;
+    expect(readSettings(older).hub).toEqual(DEFAULT_SETTINGS.hub);
+    const s = clone();
+    s.hub = { name: "Sklad", street: "", postcode: "250 01", city: "Brandýs", country: "CZ" };
+    expect(cleanSettings(s).hub).toEqual({ name: "Sklad", street: "", postcode: "25001", city: "Brandýs", country: "CZ" });
+  });
+});

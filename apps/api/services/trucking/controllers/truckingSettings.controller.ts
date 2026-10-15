@@ -4,6 +4,7 @@ import { requireRole } from "../../../lib/rbac";
 import { settingsService } from "../services/settings.service";
 import type {
   ChargeableFactors,
+  HubAddress,
   MarginFloor,
   ServiceLevelSetting,
   TransportOrderTexts,
@@ -15,8 +16,8 @@ interface TruckingSettingsResponse {
   settings: TruckingSettings;
 }
 
-// Trucking settings: service levels, vehicle types, chargeable-weight factors, margin floor and
-// the transport-order e-mail texts. Everyone signed in may read them (the defaults, version 0,
+// Trucking settings: service levels, vehicle types, chargeable-weight factors, margin floor, the
+// transport-order e-mail texts and our warehouse (the hub of LTL). Everyone signed in may read them (the defaults, version 0,
 // until a manager saves); only a manager changes them.
 export const truckingSettingsGet = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/settings" },
@@ -32,6 +33,8 @@ interface TruckingSettingsUpdateRequest {
   factors: ChargeableFactors;
   marginFloor: MarginFloor;
   transportOrder: TransportOrderTexts;
+  /** Our warehouse (all empty = not set); left out = the saved one stays */
+  hub?: HubAddress;
   /** The version read (0 when none is saved yet); a save on top of a newer one is refused with 409. */
   version: number;
 }
