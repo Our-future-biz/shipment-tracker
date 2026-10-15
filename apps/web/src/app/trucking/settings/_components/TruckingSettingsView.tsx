@@ -15,6 +15,7 @@ import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
 import { CONFLICT_TEXT, isVersionConflict } from "../../_lib/saveConflict";
 import { settingsProblems, TEXT_PLACEHOLDERS, type SettingsDraft } from "../../_lib/settings";
+import { FuelIndexSection } from "./FuelIndexSection";
 import { ServiceLevelsTable } from "./ServiceLevelsTable";
 import { TruckingField } from "../../_components/TruckingField";
 import { VehicleTypesTable } from "./VehicleTypesTable";
@@ -102,7 +103,7 @@ export const TruckingSettingsView = () => {
           <div className="min-w-0">
             <h1 className="text-[22px] font-bold text-slate-800 m-0">Trucking settings</h1>
             <div className="text-xs text-slate-500 mt-1">
-              {TERMS.serviceLevel}s, vehicle types, {TERMS.chargeableWeight.toLowerCase()}, margin floor and the {TERMS.transportOrder.toLowerCase()} e-mail.
+              {TERMS.serviceLevel}s, vehicle types, {TERMS.chargeableWeight.toLowerCase()}, margin floor, the {TERMS.transportOrder.toLowerCase()} e-mail and the {TERMS.fuelIndex.toLowerCase()}.
               {settings.updatedAt
                 ? ` Last changed${settings.updatedBy ? ` by ${settings.updatedBy}` : ""} on ${formatDateTime(settings.updatedAt)}.`
                 : " Nothing saved yet — the defaults are shown."}
@@ -216,6 +217,9 @@ export const TruckingSettingsView = () => {
             {problems.length > 0 && <span className="text-xs text-red-600">{problems.join(" · ")}</span>}
           </div>
         )}
+
+        {/* Saved month by month with its own button, apart from the settings above. */}
+        <FuelIndexSection canEdit={canEdit} />
       </div>
     </div>
   );
