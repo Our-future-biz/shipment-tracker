@@ -50,7 +50,8 @@ describe("haulier portal words", () => {
 
 describe("haulier portal actions", () => {
   it("offers Loaded only where the haulier loads, no stamps on a partner delivery", () => {
-    expect(stampKinds("FTL")).toEqual(["LOADED", "DEPARTED", "ARRIVED"]);
+    expect(stampKinds("FTL")).toEqual(["LOADED"]);
+    expect(stampKinds("PICKUP_RUN")).toEqual(["LOADED", "DEPARTED", "ARRIVED"]);
     expect(stampKinds("PICKUP_RUN")).toEqual(["LOADED", "DEPARTED", "ARRIVED"]);
     expect(stampKinds("LINEHAUL")).toEqual(["DEPARTED", "ARRIVED"]);
     expect(stampKinds("PARTNER_DELIVERY")).toEqual([]);

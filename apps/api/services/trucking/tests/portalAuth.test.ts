@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
+  auth: { _internalCompanyName: vi.fn(async () => ({ name: "Registered Name s.r.o." })) },
   customers: { _internalHaulierList: vi.fn(async () => ({ hauliers: [{ id: "00000000-0000-0000-0000-0000000000a1", companyName: "Bravo Trans" }] })) },
 }));
 vi.mock("../db/db", async () => (await import("./truckingFakes")).dbModule);
@@ -15,9 +16,10 @@ const hauliers = vi.hoisted(() => ({ find: vi.fn() }));
 vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: hauliers }));
 vi.mock("../services/haulier.service", () => ({ haulierService: { get: vi.fn(async () => ({ companyName: "Bravo Trans" })) } }));
 vi.mock("../services/transportOrder.service", () => ({ ourCompany: vi.fn(async () => ({ name: "SSL Forwarding s.r.o." })) }));
+import { ourCompany } from "../services/transportOrder.service";
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
 
-import { customers } from "~encore/clients";
+import { auth, customers } from "~encore/clients";
 import { portalAuthService } from "../services/portalAuth.service";
 import { portalUserService } from "../services/portalUser.service";
 import { haulierService } from "../services/haulier.service";
@@ -140,6 +142,14 @@ describe("set the password through the one-time link", () => {
 });
 
 describe("login", () => {
+  it("shows our registered company name when no invoicing or quotation details are set", async () => {
+    await active();
+    vi.mocked(ourCompany).mockResolvedValueOnce({ name: "" } as never);
+    const out = await login("eva@bravo.cz");
+    expect(out.me.ourCompany).toBe("Registered Name s.r.o.");
+    expect(auth._internalCompanyName).toHaveBeenCalledWith({ authData: { userID: manager.userID, companyID: COMPANY, role: "user" } });
+  });
+
   it("logs in: a session token of which only the hash is stored, a 12 hour expiry, the event", async () => {
     await active();
     const out = await login(" EVA@bravo.cz ");

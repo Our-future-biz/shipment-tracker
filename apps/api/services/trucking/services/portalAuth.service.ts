@@ -1,7 +1,7 @@
 import { hash, verify } from "@node-rs/argon2";
 import log from "encore.dev/log";
 import { APIError } from "encore.dev/api";
-import { customers } from "~encore/clients";
+import { auth, customers } from "~encore/clients";
 import { db, inTx } from "../db/db";
 import { portalRepository } from "../repositories/portal.repository";
 import { haulierRepository } from "../repositories/haulier.repository";
@@ -181,7 +181,14 @@ class PortalAuthService {
         }),
       ourCompany(authData),
     ]);
-    return { userName: u.name, email: u.email, haulierName, ourCompany: our.name };
+    // A company with no invoicing or quotation details yet still shows its registered name.
+    const ourName =
+      our.name ||
+      (await auth._internalCompanyName({ authData }).then((r) => r.name).catch((err: unknown) => {
+        log.warn(err, "trucking portal: company name not read");
+        return "";
+      }));
+    return { userName: u.name, email: u.email, haulierName, ourCompany: ourName };
   }
 
   /**

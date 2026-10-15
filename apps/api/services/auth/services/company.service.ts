@@ -17,6 +17,11 @@ class CompanyService {
       createdAt: c.createdAt instanceof Date ? c.createdAt.toISOString() : String(c.createdAt),
     }));
   }
+
+  /** The registered name of one company; "" when it does not exist. */
+  async nameOf(companyId: string): Promise<string> {
+    return (await companyRepository.getById(companyId))?.name ?? "";
+  }
 }
 
 export const companyService = new CompanyService();

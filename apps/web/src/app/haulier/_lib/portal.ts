@@ -59,11 +59,13 @@ export const stampAt = (stamps: PortalOrder["stamps"], kind: PortalStampKind): s
 
 /**
  * The stamps a haulier gives an order: Loaded only where it picks the goods up itself (FTL, pick-up
- * run; a line haul and a delivery run are loaded by our warehouse), Departed and Arrived on every
- * trip, none on a partner delivery (its stops are stamped Delivered one by one).
+ * run; a line haul and a delivery run are loaded by our warehouse), Departed and Arrived on the runs
+ * and line hauls. An FTL order follows its consignment instead (Loaded, then Delivered and the POD at
+ * the stop), and a partner delivery has only its stops' Delivered.
  */
 export function stampKinds(kind: PortalOrderItem["kind"]): PortalStampKind[] {
-  if (kind === "FTL" || kind === "PICKUP_RUN") return ["LOADED", "DEPARTED", "ARRIVED"];
+  if (kind === "FTL") return ["LOADED"];
+  if (kind === "PICKUP_RUN") return ["LOADED", "DEPARTED", "ARRIVED"];
   if (kind === "LINEHAUL" || kind === "DELIVERY_RUN") return ["DEPARTED", "ARRIVED"];
   return [];
 }
