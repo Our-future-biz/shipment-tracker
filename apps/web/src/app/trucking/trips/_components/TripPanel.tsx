@@ -44,8 +44,8 @@ const ActionButton = ({ state, label, primary, onClick }: ActionButtonProps) => 
 
 interface TripPanelProps {
   trip: TripDetail;
-  /** What the consignment on the trip allows now; null while it loads (buttons then wait). */
-  actions: ConsignmentActions | null;
+  /** What the trip's transport order allows now (an FTL trip: its consignment's actions); null while it loads (buttons then wait). */
+  actions: Pick<ConsignmentActions, "printOrder" | "sendOrder" | "recordConfirmation"> | null;
   manager: boolean;
   /** Shown on the consignment page: the trip's ref links to its own page. */
   linkToTrip?: boolean;
@@ -92,7 +92,9 @@ export const TripPanel = ({ trip, actions, manager, linkToTrip = false, onDialog
               {trip.haulierName}
             </Link>
             <HaulierStatusChip status={trip.haulierStatus} />
-            <span className="text-xs text-slate-500">Planned pick-up {formatDate(trip.plannedPickupDate)}</span>
+            <span className="text-xs text-slate-500">
+              {trip.kind === "FTL" ? "Planned pick-up" : "Date"} {formatDate(trip.plannedPickupDate)}
+            </span>
             {manager && !closed && (
               <button type="button" className={`${btnDefault} ml-auto`} onClick={() => onDialog("cancel")}>
                 Cancel trip…

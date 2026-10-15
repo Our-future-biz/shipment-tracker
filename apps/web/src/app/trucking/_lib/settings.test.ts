@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { settingsProblems, vehicleTypeProblems, workingDaysText, type SettingsDraft } from "./settings";
+import { EMPTY_HUB, hubIsSet, hubProblems, settingsProblems, vehicleTypeProblems, workingDaysText, type SettingsDraft } from "./settings";
 
 const van = { code: "van", label: "Van", capacityLdm: 3, capacityKg: 1200, palletPlaces: 6, tailLift: false, active: true };
 const draft: SettingsDraft = {
@@ -8,6 +8,7 @@ const draft: SettingsDraft = {
   factors: { kgPerLdm: 1750, kgPerCbm: 250, kgPerPalletPlace: 400 },
   marginFloor: { percent: 8, minAmountCzk: 300 },
   transportOrder: { emailSubject: "Transport order {orderRef}", emailBody: "Dear {haulier}" },
+  hub: EMPTY_HUB,
 };
 
 describe("vehicleTypeProblems", () => {
@@ -54,5 +55,22 @@ describe("workingDaysText", () => {
     expect(workingDaysText("D3", 3)).toBe("3 working days");
     expect(workingDaysText("EXP_SAMEDAY", 0)).toBe("Same day");
     expect(workingDaysText("EXP_FIXED", 0)).toBe("Date agreed per order");
+  });
+});
+
+describe("our warehouse (hub)", () => {
+  const hub = { name: "CTO sklad", street: "Na Hůrce 1", postcode: "16100", city: "Praha", country: "CZ" as const };
+
+  it("may stay empty, but not half-filled", () => {
+    expect(hubProblems(EMPTY_HUB)).toEqual([]);
+    expect(hubProblems(hub)).toEqual([]);
+    expect(hubProblems({ ...EMPTY_HUB, city: "Praha" })).toEqual(["Our warehouse: name", "Our warehouse: street", "Our warehouse: postcode (PSČ) has 5 digits"]);
+    expect(settingsProblems({ ...draft, hub: { ...hub, postcode: "161" } })).toEqual(["Our warehouse: postcode (PSČ) has 5 digits"]);
+  });
+
+  it("is set once street, PSČ and city are there", () => {
+    expect(hubIsSet(EMPTY_HUB)).toBe(false);
+    expect(hubIsSet(null)).toBe(false);
+    expect(hubIsSet(hub)).toBe(true);
   });
 });

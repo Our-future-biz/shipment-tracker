@@ -1,4 +1,4 @@
-import type { ConsignmentCreate, ConsignmentDetail, ConsignmentUpdate, LoadInput, StopInput } from "@/hooks/useTruckingConsignments";
+import type { ConsignmentCreate, ConsignmentDetail, ConsignmentScope, ConsignmentUpdate, LastMile, LoadInput, StopInput } from "@/hooks/useTruckingConsignments";
 import type { CustomerSiteItem } from "@/hooks/useCustomerSites";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
@@ -19,8 +19,23 @@ export const SOURCE_OPTIONS: { value: ConsignmentSource; label: string }[] = [
 
 export type PriceSource = "TARIFF" | "QUOTE" | "MANUAL";
 
+export const SCOPE_OPTIONS: { value: ConsignmentScope; label: string }[] = [
+  { value: "FTL", label: "FTL — direct, a whole truck" },
+  { value: "LTL", label: "LTL — groupage through our warehouse" },
+];
+
+export const LAST_MILE_OPTIONS: { value: LastMile; label: string }[] = [
+  { value: "OWN_RUN", label: "Own delivery run" },
+  { value: "PARTNER", label: "Partner network" },
+];
+
 export interface ConsignmentForm {
   source: ConsignmentSource;
+  scope: ConsignmentScope;
+  /** LTL: the customer brings the goods to our warehouse (no pick-up run). */
+  selfDelivered: boolean;
+  lastMile: LastMile;
+  partnerHaulierCustomerId: string | null;
   shipmentId: string | null;
   jobNumber: string;
   customerId: string | null;
@@ -72,6 +87,10 @@ export const emptyLoad = (): LoadInput => ({
 
 export const emptyConsignmentForm = (source: ConsignmentSource, today: string): ConsignmentForm => ({
   source,
+  scope: "FTL",
+  selfDelivered: false,
+  lastMile: "OWN_RUN",
+  partnerHaulierCustomerId: null,
   shipmentId: null,
   jobNumber: "",
   customerId: null,
@@ -181,6 +200,10 @@ export function formFromDetail(c: ConsignmentDetail): ConsignmentForm {
   const sell = c.sell;
   return {
     source: "job",
+    scope: c.scope,
+    selfDelivered: c.selfDelivered,
+    lastMile: c.lastMile,
+    partnerHaulierCustomerId: c.partnerHaulierCustomerId,
     shipmentId: c.shipmentId,
     jobNumber: c.jobNumber,
     customerId: c.customerId,
@@ -220,6 +243,7 @@ export function consignmentFormProblems(f: ConsignmentForm): string[] {
   if (f.source === "quote" && !f.quoteNumber) out.push("Pick the quote");
   if (!f.customerId) out.push(f.source === "job" ? "The job has no customer from the Customer Database — set it in Shipments first" : "Pick the customer");
   if (!f.serviceLevel) out.push("Choose the service level");
+  if (f.scope === "LTL" && f.lastMile === "PARTNER" && !f.partnerHaulierCustomerId) out.push("Pick the partner haulier of the last mile");
   if (!/^\d{4}-\d{2}-\d{2}$/.test(f.pickupDate)) out.push("Pick-up date is required");
   if (f.pickupTime != null && !isTime(f.pickupTime)) out.push("Pick-up time must be HH:MM");
   out.push(...stopProblems("Pick-up", f.pickup), ...stopProblems("Delivery", f.delivery));
@@ -257,7 +281,14 @@ export function toCreateRequest(f: ConsignmentForm): ConsignmentCreate {
     delivery: trimStop(f.delivery),
     load: f.load,
     price: priceOf(f),
+    ...ltlFields(f),
   };
+}
+
+/** The LTL choices; an FTL consignment sends the plain defaults. */
+function ltlFields(f: ConsignmentForm): Pick<ConsignmentCreate, "scope" | "selfDelivered" | "lastMile" | "partnerHaulierCustomerId"> {
+  if (f.scope !== "LTL") return { scope: "FTL", selfDelivered: false, lastMile: "OWN_RUN", partnerHaulierCustomerId: null };
+  return { scope: "LTL", selfDelivered: f.selfDelivered, lastMile: f.lastMile, partnerHaulierCustomerId: f.lastMile === "PARTNER" ? f.partnerHaulierCustomerId : null };
 }
 
 /** The update request with the version read; `reprice` prices again from the tariff or quote. */
@@ -274,5 +305,9 @@ export function toUpdateRequest(f: ConsignmentForm, version: number, reprice: bo
     price: c.price,
     version,
     reprice,
+    scope: c.scope,
+    selfDelivered: c.selfDelivered,
+    lastMile: c.lastMile,
+    partnerHaulierCustomerId: c.partnerHaulierCustomerId,
   };
 }

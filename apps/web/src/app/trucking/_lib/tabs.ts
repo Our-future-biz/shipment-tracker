@@ -22,7 +22,7 @@ export const TRUCKING_TABS = [
     label: "Consignments",
     purpose: `Every ${TERMS.consignment.toLowerCase()} we carry, from order to ${TERMS.pod}.`,
     holds: [
-      `${TERMS.ftl} consignments with pick-up and delivery address, ${TERMS.serviceLevel.toLowerCase()} and promised date (${TERMS.ltl} with Phase 5)`,
+      `${TERMS.ftl} and ${TERMS.ltl} consignments with pick-up and delivery address, ${TERMS.serviceLevel.toLowerCase()} and promised date`,
       `Pieces, weight, ${TERMS.palletPlaces.toLowerCase()}, ${TERMS.ldm} and ${TERMS.chargeableWeight.toLowerCase()}, sell, buy and margin`,
       `Status from booking to ${TERMS.pod}, with the ${TERMS.transportOrder.toLowerCase()}, ${TERMS.cmr} and ${TERMS.pod}`,
     ],
@@ -32,13 +32,14 @@ export const TRUCKING_TABS = [
   {
     key: "planning",
     label: "Planning",
-    purpose: "Puts the open consignments on trucks for the coming days.",
+    purpose: `Puts the open ${TERMS.ltl} ${TERMS.leg.toLowerCase()}s on trucks for the coming days.`,
     holds: [
-      `Consignments due by ${TERMS.serviceLevel.toLowerCase()}, grouped by ${TERMS.zone.toLowerCase()}`,
+      `Open ${TERMS.leg.toLowerCase()}s by ${TERMS.zone.toLowerCase()}, with their deadline`,
       `Building ${TERMS.pickupRun.toLowerCase()}s, ${TERMS.lineHaul.toLowerCase()}s and ${TERMS.deliveryRun.toLowerCase()}s, with truck capacity`,
       `The ${TERMS.haulier.toLowerCase()} we ordered for each trip`,
     ],
     phase: 5,
+    live: true,
   },
   {
     key: "trips",

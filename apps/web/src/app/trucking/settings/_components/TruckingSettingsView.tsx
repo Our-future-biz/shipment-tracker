@@ -14,8 +14,9 @@ import { useUnsavedGuard } from "@/app/warehouse/_lib/useUnsavedGuard";
 import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
 import { CONFLICT_TEXT, isVersionConflict } from "../../_lib/saveConflict";
-import { settingsProblems, TEXT_PLACEHOLDERS, type SettingsDraft } from "../../_lib/settings";
+import { EMPTY_HUB, settingsProblems, TEXT_PLACEHOLDERS, type SettingsDraft } from "../../_lib/settings";
 import { FuelIndexSection } from "./FuelIndexSection";
+import { HubSection } from "./HubSection";
 import { ServiceLevelsTable } from "./ServiceLevelsTable";
 import { TruckingField } from "../../_components/TruckingField";
 import { VehicleTypesTable } from "./VehicleTypesTable";
@@ -29,6 +30,8 @@ const draftOf = (s: TruckingSettings): SettingsDraft => ({
   factors: { ...s.factors },
   marginFloor: { ...s.marginFloor },
   transportOrder: { ...s.transportOrder },
+  // Settings saved before Phase 5 have no hub yet.
+  hub: { ...EMPTY_HUB, ...s.hub },
 });
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -103,7 +106,7 @@ export const TruckingSettingsView = () => {
           <div className="min-w-0">
             <h1 className="text-[22px] font-bold text-slate-800 m-0">Trucking settings</h1>
             <div className="text-xs text-slate-500 mt-1">
-              {TERMS.serviceLevel}s, vehicle types, {TERMS.chargeableWeight.toLowerCase()}, margin floor, the {TERMS.transportOrder.toLowerCase()} e-mail and the {TERMS.fuelIndex.toLowerCase()}.
+              {TERMS.serviceLevel}s, vehicle types, {TERMS.chargeableWeight.toLowerCase()}, margin floor, our warehouse ({TERMS.hub.toLowerCase()}), the {TERMS.transportOrder.toLowerCase()} e-mail and the {TERMS.fuelIndex.toLowerCase()}.
               {settings.updatedAt
                 ? ` Last changed${settings.updatedBy ? ` by ${settings.updatedBy}` : ""} on ${formatDateTime(settings.updatedAt)}.`
                 : " Nothing saved yet — the defaults are shown."}
@@ -182,6 +185,8 @@ export const TruckingSettingsView = () => {
             <p className="mt-3 mb-0 text-[11px] text-slate-400">A price below both is flagged before it goes to the customer.</p>
           </SectionCard>
         </div>
+
+        <HubSection hub={draft.hub} disabled={!canEdit} onChange={(hub) => set("hub", hub)} />
 
         <SectionCard title={`${TERMS.transportOrder} e-mail`}>
           <div className="flex flex-col gap-3">

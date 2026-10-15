@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Tooltip } from "antd";
-import { PlusOutlined } from "@ant-design/icons";
+import { Button, Tooltip } from "antd";
+import { PlusOutlined, TagsOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { useConsignments, type ConsignmentListItem, type ConsignmentStatus } from "@/hooks/useTruckingConsignments";
@@ -15,6 +15,7 @@ import { formatMoney, formatQty } from "../_lib/tariffs";
 import { ConsignmentCreateModal } from "./ConsignmentCreateModal";
 import { ConsignmentQuickChips } from "./ConsignmentQuickChips";
 import { ConsignmentTiles, type ConsignmentTileId } from "./ConsignmentTiles";
+import { LabelsModal } from "./LabelsModal";
 import { TruckingStatusChip } from "./TruckingStatusChip";
 
 const STATUSES = Object.keys(CONSIGNMENT_STATUS_CHIP) as ConsignmentStatus[];
@@ -132,6 +133,7 @@ export const TruckingConsignmentsTab = () => {
   const searchParams = useSearchParams();
   const { settings } = useTruckingSettings();
   const [createOpen, setCreateOpen] = useState(false);
+  const [labelsFor, setLabelsFor] = useState<ConsignmentListItem[] | null>(null);
 
   const view = CONSIGNMENT_CHIPS.find((c) => c.id === searchParams.get("view"))?.id ?? null;
   const status = STATUSES.find((s) => s === searchParams.get("status")) ?? null;
@@ -179,6 +181,11 @@ export const TruckingConsignmentsTab = () => {
         exportFilePrefix="consignments"
         emptyText={emptyText}
         resetKey={`${view ?? ""}|${status ?? ""}`}
+        bulkActions={(selected) => (
+          <Button size="small" icon={<TagsOutlined />} onClick={() => setLabelsFor(selected)}>
+            Labels PDF…
+          </Button>
+        )}
         actions={
           <Tooltip title="Book a consignment from a job, from a quote, or as a new domestic order (its job is created)">
             <button
@@ -192,6 +199,13 @@ export const TruckingConsignmentsTab = () => {
           </Tooltip>
         }
       />
+      {labelsFor && (
+        <LabelsModal
+          consignmentIds={labelsFor.map((c) => c.id)}
+          what={labelsFor.length === 1 ? labelsFor[0]!.ref : `${labelsFor.length} consignments`}
+          onClose={() => setLabelsFor(null)}
+        />
+      )}
       {createOpen && <ConsignmentCreateModal onClose={() => setCreateOpen(false)} onCreated={(id) => router.push(consignmentHref(id))} />}
     </>
   );

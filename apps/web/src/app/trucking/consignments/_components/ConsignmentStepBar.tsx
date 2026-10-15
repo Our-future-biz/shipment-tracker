@@ -6,7 +6,7 @@ import { CheckCircleOutlined, DownOutlined, RightOutlined } from "@ant-design/ic
 import type { ConsignmentDetail, StampKind } from "@/hooks/useTruckingConsignments";
 import { formatDateTime } from "@/lib/date";
 import { btnDefault, btnPrimary } from "@/app/warehouse/gate-log/_components/job/fields";
-import { STAMP_KINDS, STAMP_LABELS, nextStep, stampOf, type ActionState, type ConsignmentActions } from "../../_lib/consignments";
+import { STAMP_LABELS, nextStep, stampKindsFor, stampOf, type ActionState, type ConsignmentActions } from "../../_lib/consignments";
 
 interface ConsignmentStepBarProps {
   c: ConsignmentDetail;
@@ -28,7 +28,7 @@ export const ConsignmentStepBar = ({ c, actions, onStep, onVoid }: ConsignmentSt
   const next = nextStep(c);
   return (
     <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Stamps">
-      {STAMP_KINDS.map((kind, i) => {
+      {stampKindsFor(c.scope).map((kind, i) => {
         const stamp = stampOf(c.stamps, kind);
         const label = STAMP_LABELS[kind];
         let item;

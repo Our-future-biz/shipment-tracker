@@ -46,7 +46,7 @@ export const TripDialogs = ({ trip, dialog, onClose }: TripDialogsProps) => {
     return (
       <TruckingTextModal
         title={`Cancel trip ${trip.ref}`}
-        hint={`The trip is cancelled and its consignment goes back to Booked, to be planned again. Tell ${trip.haulierName} yourself if the ${TERMS.transportOrder.toLowerCase()} went out. The reason is logged.`}
+        hint={`The trip is cancelled and ${trip.kind === "FTL" ? "its consignment goes back to Booked" : "its legs are open again"}, to be planned again. Tell ${trip.haulierName} yourself if the ${TERMS.transportOrder.toLowerCase()} went out. The reason is logged.`}
         placeholder="Reason (required)"
         okText="Cancel trip"
         danger

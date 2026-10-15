@@ -9,6 +9,7 @@ import {
   consignmentLifecycle,
   marginText,
   nextStep,
+  stampKindsFor,
   routeText,
   stampTimeProblem,
 } from "./consignments";
@@ -32,7 +33,8 @@ const trip = (extra: Partial<TripDetail> = {}) =>
 
 describe("status chips", () => {
   it("name every consignment and trip status", () => {
-    expect(Object.keys(CONSIGNMENT_STATUS_CHIP)).toHaveLength(9);
+    expect(Object.keys(CONSIGNMENT_STATUS_CHIP)).toHaveLength(12);
+    expect(CONSIGNMENT_STATUS_CHIP.AT_HUB.label).toBe("At our warehouse");
     expect(CONSIGNMENT_STATUS_CHIP.POD_RECEIVED.label).toBe("POD received");
     expect(CONSIGNMENT_STATUS_CHIP.CANCELLED.tone).toBe("r");
     expect(TRIP_STATUS_CHIP.IN_TRANSIT.label).toBe("In transit");
@@ -145,5 +147,43 @@ describe("stampTimeProblem", () => {
     expect(stampTimeProblem("2026-10-07T12:00:00Z", now)).toBe("At most 7 days back");
     expect(stampTimeProblem("2026-10-15T14:00:00Z", now)).toBe("The time cannot be in the future");
     expect(stampTimeProblem("nonsense", now)).toBe("Not a valid time");
+  });
+});
+
+describe("LTL consignments", () => {
+  const ltl = (status: ConsignmentStatus, extra: Partial<ActionInput> = {}): ActionInput => ({ ...consignment(status), scope: "LTL", selfDelivered: false, ...extra });
+
+  it("are planned on the Planning tab and ordered per trip", () => {
+    const a = consignmentActions(ltl("BOOKED"), null, false);
+    expect(a.planTrip).toEqual({ allowed: false, reason: "LTL legs are planned on the Planning tab" });
+    expect(a.sendOrder.allowed).toBe(false);
+    expect(a.recordConfirmation.allowed).toBe(false);
+  });
+
+  it("stamp picked up after the order, delivered after the warehouse gate-out", () => {
+    expect(consignmentActions(ltl("ORDERED"), null, false).pickedUp.allowed).toBe(true);
+    expect(consignmentActions(ltl("ORDERED", { selfDelivered: true }), null, false).pickedUp.reason).toBe("The customer brings the goods to our warehouse");
+    expect(consignmentActions(ltl("AT_HUB"), null, false).delivered.reason).toBe("Waits for the warehouse gate-out");
+    expect(consignmentActions(ltl("OUT_FOR_DELIVERY"), null, false).delivered.allowed).toBe(true);
+    expect(consignmentActions(ltl("ON_LINEHAUL"), null, false).delivered.allowed).toBe(true);
+    expect(consignmentActions(ltl("AT_HUB", { permissions: MANAGER }), null, false).cancel.reason).toMatch(/Picked up/);
+  });
+
+  it("have their own next step and no confirmed stamp", () => {
+    expect(nextStep({ status: "BOOKED", scope: "LTL" })).toBeNull();
+    expect(nextStep({ status: "ORDERED", scope: "LTL" })).toBe("pickedUp");
+    expect(nextStep({ status: "OUT_FOR_DELIVERY", scope: "LTL" })).toBe("delivered");
+    expect(stampKindsFor("LTL")).toEqual(["pickedUp", "delivered", "podReceived"]);
+    expect(stampKindsFor("FTL")).toHaveLength(4);
+  });
+
+  it("show the warehouse in the lifecycle, the line haul only when there is one", () => {
+    const base = { createdAt: "2026-10-14T08:00:00Z", stamps: NO_STAMPS, tripId: null, podReceivedAt: null, scope: "LTL" as const };
+    const l = consignmentLifecycle({ ...base, status: "AT_HUB", gateInAt: "2026-10-15T07:00:00Z", legs: [] });
+    expect(l.steps.map((s) => s.stage)).toEqual(["BOOKED", "PLANNED", "ORDERED", "PICKED_UP", "AT_HUB", "OUT_FOR_DELIVERY", "DELIVERED", "POD_RECEIVED", "READY_TO_BILL"]);
+    expect(l.steps.map((s) => s.done)).toEqual([true, true, true, true, true, false, false, false, false]);
+    expect(l.at).toBe("2026-10-15T07:00:00Z");
+    const withLinehaul = consignmentLifecycle({ ...base, status: "BOOKED", legs: [{ kind: "LINEHAUL" } as ConsignmentDetail["legs"][number]] });
+    expect(withLinehaul.steps.map((s) => s.stage)).toContain("ON_LINEHAUL");
   });
 });

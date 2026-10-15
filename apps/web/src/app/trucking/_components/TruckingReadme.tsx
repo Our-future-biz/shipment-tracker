@@ -97,6 +97,64 @@ export const TruckingReadme = () => (
       </p>
     </Part>
 
+    <Part title="Groupage (LTL) through our warehouse">
+      <p>
+        An <b>{TERMS.ltl}</b> consignment shares trucks with others and always passes <b>our warehouse</b> (the <b>{TERMS.hub.toLowerCase()}</b>, its address in
+        Trucking settings). Book it like an FTL one with the scope <b>LTL</b>, then choose: <b>Customer brings goods to our warehouse</b> (no pick-up run) and
+        the <b>last mile</b> — our <b>own delivery run</b> or the <b>{TERMS.partnerNetwork.toLowerCase()}</b> (a partner haulier). Its sell price comes from the
+        customer&apos;s LTL sell list.
+      </p>
+      <p>
+        Its road is made of <b>{TERMS.leg.toLowerCase()}s</b>: <b>Pick-up</b> (customer → our warehouse, on a {TERMS.pickupRun.toLowerCase()}),{" "}
+        <b>{TERMS.lineHaul}</b> (our warehouse → the partner&apos;s depot, only when a partner delivers from its own depot) and <b>Delivery</b> (on our{" "}
+        {TERMS.deliveryRun.toLowerCase()}, or by the partner — priced per consignment from the partner&apos;s {TERMS.buyTariff.toLowerCase()}, scope LTL, or at
+        an agreed price; set with <b>Set partner…</b> on the consignment&apos;s Legs). The consignment page shows the legs as a timeline with their trips, the
+        gate-in time and the promised date.
+      </p>
+      <ul>
+        <li>
+          <b>Status</b>: Booked → Planned (every leg needed is on a trip) → Ordered (the first transport order is sent) → Picked up → <b>At our warehouse</b>{" "}
+          → On line haul / Out for delivery → Delivered → POD received → Ready to bill.
+        </li>
+        <li>
+          <b>The warehouse stamps the gates</b>, not Trucking: a pick-up run arriving is not the gate-in. The gate-in the warehouse confirms moves the
+          consignment to At our warehouse; its gate-out moves it on by the next leg. A voided gate stamp takes the step back.
+        </li>
+        <li>
+          <b>Promised date</b>: until the gate-in it is <b>Estimated</b> (the planned pick-up counts as the gate-in day); after it, it is final: the service
+          level&apos;s working days counted from the gate-in (after the {TERMS.cutoff.toLowerCase()} from the next working day).
+        </li>
+      </ul>
+      <p>
+        <b>Planning</b> (the Planning tab): pick the day and the kind — Pick-up runs, Line hauls or Delivery runs. The open legs are on the left, by{" "}
+        {TERMS.zone.toLowerCase()}, with a deadline badge (overdue and today red, tomorrow amber). The day&apos;s trips are cards with the haulier, vehicle, the{" "}
+        <b>{TERMS.fill.toLowerCase()}</b> as two bars (LDM and kg — the fuller sets the colour), the stops, the cost and the warnings.
+      </p>
+      <ul>
+        <li>
+          <b>Drag a leg onto a card</b>, or use its <b>Add to trip…</b> menu (the keyboard way; it says what the leg would bring up). Drag the stops to
+          reorder them (or the arrows); × takes a leg off.
+        </li>
+        <li>
+          <b>New trip</b> from the ticked legs: the hauliers the buy tariffs offer (★ preferred lane first, then cheapest; blocked ones apart with why) or another
+          haulier at its tariff or an agreed price, and the vehicle type.
+        </li>
+        <li>
+          <b>Warnings never block</b>: over capacity, {TERMS.adr} on a haulier without {TERMS.adr}, a promised date before the trip, a{" "}
+          {TERMS.tailLift.toLowerCase()} needed but missing. If someone changed the trip meanwhile the board reloads — make the change again.
+        </li>
+        <li>
+          Card actions: <b>{TERMS.transportOrder}</b> (the same Print / Send dialogs as FTL, listing every stop), <b>{TERMS.manifest} PDF</b>,{" "}
+          <b>Labels PDF</b> (100 × 150 mm, also from the Consignments grid for ticked rows) and <b>Open trip</b>.
+        </li>
+        <li>
+          <b>Cost</b>: a trip&apos;s buy price is shared over its legs by the haulier&apos;s {TERMS.costSplit.toLowerCase()} (chargeable weight unless set
+          otherwise), exact to the cent, and shared again when legs or the price change; each job gets one buying line per trip (&quot;pick-up run share, 3 of
+          18 consignments&quot;).
+        </li>
+      </ul>
+    </Part>
+
     <Part title="Hauliers">
       <p>
         A haulier is a company in the Customer Database with the <b>Haulier</b> role; the Hauliers tab lists every one of them. Its page in Trucking holds what we
@@ -229,7 +287,8 @@ export const TruckingReadme = () => (
         Behind the gear: the {TERMS.serviceLevel.toLowerCase()}s with their order <b>{TERMS.cutoff.toLowerCase()}</b>, the {TERMS.vehicleType.toLowerCase()}s, the
         factors that turn LDM, volume and pallet places into {TERMS.chargeableWeight.toLowerCase()} (the defaults of new tariff versions), the{" "}
         <b>{TERMS.marginFloor.toLowerCase()}</b>, the text of the {TERMS.transportOrder.toLowerCase()} e-mail and the monthly{" "}
-        <b>{TERMS.fuelIndex.toLowerCase()}</b>. Everyone can read them; a manager changes them. Two people saving at once cannot overwrite each other: the
+        <b>{TERMS.fuelIndex.toLowerCase()}</b>, and <b>our warehouse</b> (the {TERMS.hub.toLowerCase()} every {TERMS.ltl} trip starts or ends at; planning waits
+        until it is set). Everyone can read them; a manager changes them. Two people saving at once cannot overwrite each other: the
         second is asked to reload and make the change again.
       </p>
     </Part>
@@ -283,8 +342,9 @@ export const TruckingReadme = () => (
           for the transport run for their shipments.
         </li>
         <li>
-          <b>Warehouse</b>: {TERMS.ltl} consignments are gated in and out at our warehouse. The warehouse-confirmed gate-in starts the service-level clock, and a
-          delivery run picks the goods up from there.
+          <b>Warehouse</b>: {TERMS.ltl} consignments are gated in and out at our warehouse. A trip planned in Trucking shows there as expected (haulier, plate,
+          driver, a dock slot when one is free) and fills the job&apos;s pick-up rows (read-only there, &quot;From trip LCZ…&quot;). The warehouse keeps the gate
+          stamps, release, PIN check and exceptions; its confirmed gate-in starts the service-level clock and its gate-out sends the consignment on.
         </li>
       </ul>
     </Part>
