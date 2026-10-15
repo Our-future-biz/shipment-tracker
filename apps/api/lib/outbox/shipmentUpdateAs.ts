@@ -15,18 +15,21 @@ export interface ShipmentUpdateOwed {
   actingRole: string;
 }
 
-async function actingRoleNow(row: ShipmentUpdateOwed): Promise<string | null> {
+async function actingRoleNow(row: Pick<ShipmentUpdateOwed, "companyId" | "actingUserId" | "actingRole">): Promise<string | null> {
   const authData = { userID: row.actingUserId, companyID: row.companyId, role: row.actingRole };
   const { users } = await auth.userLookup({ ids: [row.actingUserId] }, { authData });
   return users.find((u) => u.id === row.actingUserId)?.role ?? null;
 }
 
-/** Throws the upstream error when Shipments does not take the update. */
-export async function sendShipmentUpdateAs(row: ShipmentUpdateOwed): Promise<void> {
+/** Who an owed call is made as: the acting user with their role now; permission_denied when the user is gone. */
+export async function actingAuthNow(row: Pick<ShipmentUpdateOwed, "companyId" | "actingUserId" | "actingRole">) {
   const role = await actingRoleNow(row);
   if (!role) throw APIError.permissionDenied("the acting user no longer exists");
-  await shipments.shipmentUpdate(
-    { shipmentId: row.shipmentId, ...row.payload },
-    { authData: { userID: row.actingUserId, companyID: row.companyId, role } },
-  );
+  return { userID: row.actingUserId, companyID: row.companyId, role };
+}
+
+/** Throws the upstream error when Shipments does not take the update. */
+export async function sendShipmentUpdateAs(row: ShipmentUpdateOwed): Promise<void> {
+  const authData = await actingAuthNow(row);
+  await shipments.shipmentUpdate({ shipmentId: row.shipmentId, ...row.payload }, { authData });
 }

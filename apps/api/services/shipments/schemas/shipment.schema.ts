@@ -126,6 +126,8 @@ export const shipmentTable = pgTable(
     plateNumber: text("plate_number").notNull().default(""),
     plannedDeliveryDate: date("planned_delivery_date", { mode: "string" }),
     plannedDeliveryTime: text("planned_delivery_time").notNull().default(""),
+    // When the goods were delivered (road): written by Trucking when the delivery is stamped; null until then.
+    actualDeliveryDate: date("actual_delivery_date", { mode: "string" }),
 
     // — Commercial —
     commercialInvoice: text("commercial_invoice").notNull().default(""),

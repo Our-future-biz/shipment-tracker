@@ -62,6 +62,7 @@ const toCostItem = (r: InvoiceCostRecord): InvoiceCostItem => ({
   vendor: r.vendor,
   haulierId: r.haulierId,
   sortOrder: r.sortOrder,
+  sourceTruckingRef: r.sourceTruckingRef,
 });
 
 const toSellingItem = (r: InvoiceSellingCostRecord): SellingCostItem => ({
@@ -77,6 +78,7 @@ const toSellingItem = (r: InvoiceSellingCostRecord): SellingCostItem => ({
   sourceBuyId: r.sourceBuyId,
   vatCode: r.vatCode,
   sortOrder: r.sortOrder,
+  sourceTruckingRef: r.sourceTruckingRef,
 });
 
 const toChargeItem = (r: InvoiceAdditionalChargeRecord): AdditionalChargeItem => ({

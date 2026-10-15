@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgTable, text, numeric, uuid, integer, boolean, index } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 
@@ -30,11 +31,18 @@ export const invoiceCostTable = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
     /** The sales quote the row was copied from; "" for a row entered by hand. Tells whether a quote was already copied. */
     sourceQuoteNumber: text("source_quote_number").notNull().default(""),
+    /**
+     * The Trucking consignment (sell, "trucking:consignment:<id>") or trip (buy, "trucking:trip:<id>")
+     * the row was pushed from; null for any other row. Such rows are kept by Trucking (replaced as a
+     * set) and read-only in Costs Breakdown.
+     */
+    sourceTruckingRef: text("source_trucking_ref"),
   },
   (table) => [
     ...defaultTableIndexes("invoice_cost", table),
     tenantIndex("invoice_cost", table),
     index("invoice_cost_shipment_id_idx").on(table.shipmentId),
+    index("invoice_cost_trucking_ref_idx").on(table.companyId, table.sourceTruckingRef).where(sql`source_trucking_ref IS NOT NULL`),
   ],
 );
 

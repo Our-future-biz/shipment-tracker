@@ -546,3 +546,252 @@ export interface TestLaneLevel {
   label: string;
   result: PricedSide | Unpriced;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Phase 4: consignments, FTL trips, transport orders, the haulier link and POD.
+
+export type ConsignmentStatus = "BOOKED" | "PLANNED" | "ORDERED" | "CONFIRMED" | "PICKED_UP" | "DELIVERED" | "POD_RECEIVED" | "READY_TO_BILL" | "CANCELLED";
+export type TripStatus = "DRAFT" | "ORDERED" | "CONFIRMED" | "IN_TRANSIT" | "DONE" | "CANCELLED";
+export type StampKind = "confirmed" | "pickedUp" | "delivered" | "podReceived";
+
+export interface StopInput {
+  /** A Customer Database site, or null for an address typed in */
+  siteId: string | null;
+  name: string;
+  street: string;
+  /** CZ PSČ normalised to 5 digits ("11000"); other countries as typed */
+  postcode: string;
+  city: string;
+  /** ISO 3166 alpha-2 */
+  country: string;
+  /** ISO datetime (Prague), optional */
+  windowFrom: string | null;
+  windowTo: string | null;
+  contactName: string;
+  contactPhone: string;
+  avizaceRequired: boolean;
+  reference: string;
+  notes: string;
+}
+
+export interface Stop extends StopInput {
+  id: string;
+  kind: "PICKUP" | "DELIVERY";
+  actualArrival: string | null;
+  actualDeparture: string | null;
+}
+
+export interface LoadInput {
+  pieces: number;
+  palletPlaces: number;
+  ldm: number;
+  weightKg: number;
+  cbm: number;
+  adr: boolean;
+  /** 4 digits when adr */
+  adrUn: string;
+  adrClass: string;
+  adrPackingGroup: "" | "I" | "II" | "III";
+  nonStackable: boolean;
+  tailLift: boolean;
+  b2c: boolean;
+  description: string;
+}
+
+/** What was priced; never recomputed silently. */
+export interface PriceSnapshot {
+  source: "TARIFF" | "QUOTE" | "MANUAL";
+  tariffId: string | null;
+  tariffVersionId: string | null;
+  versionNo: number | null;
+  tariffName: string;
+  serviceLevel: ServiceLevelCode | null;
+  currency: "CZK" | "EUR";
+  total: number;
+  totalCzk: number;
+  lines: PriceLine[];
+  ratedAt: string;
+  overrideReason: string | null;
+}
+
+export interface ConsignmentListItem {
+  id: string;
+  /** "TCZ2026000001" */
+  ref: string;
+  shipmentId: string;
+  jobNumber: string;
+  customerId: string;
+  customerName: string;
+  /** LTL arrives in Phase 5 */
+  scope: "FTL";
+  serviceLevel: ServiceLevelCode | null;
+  status: ConsignmentStatus;
+  pickupDate: string;
+  pickupPostcode: string;
+  pickupCity: string;
+  deliveryPostcode: string;
+  deliveryCity: string;
+  promisedDate: string | null;
+  palletPlaces: number;
+  ldm: number;
+  weightKg: number;
+  chargeableKg: number | null;
+  adr: boolean;
+  tripId: string | null;
+  tripRef: string | null;
+  haulierName: string | null;
+  sellCzk: number | null;
+  buyCzk: number | null;
+  marginCzk: number | null;
+  marginPercent: number | null;
+  belowFloor: boolean;
+  marginApproved: boolean;
+  podReceivedAt: string | null;
+  /** Plain-English reasons, e.g. "Pick-up within 24 h and no trip" */
+  needsAttention: string[];
+  createdAt: string;
+}
+
+export interface TruckingEventItem {
+  id: string;
+  kind: string;
+  at: string;
+  by: string;
+  summary: string;
+}
+
+export interface ConsignmentDetail extends ConsignmentListItem {
+  pickup: Stop;
+  delivery: Stop;
+  load: LoadInput;
+  sell: PriceSnapshot | null;
+  quoteNumber: string | null;
+  stamps: Record<StampKind, { at: string; by: string } | null>;
+  marginApproval: { byName: string; at: string; reason: string; marginCzk: number } | null;
+  version: number;
+  /** Newest first */
+  events: TruckingEventItem[];
+  permissions: { canCancel: boolean; canApproveMargin: boolean; canVoidStamp: boolean };
+}
+
+export interface TransportOrderState {
+  number: string;
+  sentAt: string | null;
+  sentBy: string | null;
+  recordedOnly: boolean;
+  confirmedAt: string | null;
+  confirmedVia: "LINK" | "USER" | null;
+  rejectedAt: string | null;
+  rejectReason: string | null;
+  pinPrinted: boolean;
+  podLinkExpiresAt: string | null;
+}
+
+export interface TripDetail {
+  id: string;
+  /** "LCZ2026000001" */
+  ref: string;
+  kind: "FTL";
+  status: TripStatus;
+  haulierCustomerId: string;
+  haulierName: string;
+  haulierStatus: HaulierStatus;
+  haulierIssues: HaulierIssue[];
+  vehicleTypeCode: string | null;
+  tractorPlate: string;
+  trailerPlate: string;
+  driverName: string;
+  driverPhone: string;
+  plannedPickupDate: string;
+  consignmentIds: string[];
+  /** Haulier tariff or agreed price (source MANUAL + reason) */
+  buy: PriceSnapshot | null;
+  /** From the rate engine at assignment, for audit */
+  buyCandidates: PricedSide[];
+  transportOrder: TransportOrderState | null;
+  version: number;
+  events: TruckingEventItem[];
+}
+
+export interface TripListItem {
+  id: string;
+  ref: string;
+  kind: "FTL";
+  status: TripStatus;
+  haulierCustomerId: string;
+  haulierName: string;
+  haulierStatus: HaulierStatus;
+  haulierIssues: HaulierIssue[];
+  vehicleTypeCode: string | null;
+  tractorPlate: string;
+  trailerPlate: string;
+  driverName: string;
+  driverPhone: string;
+  plannedPickupDate: string;
+  consignmentIds: string[];
+  buy: PriceSnapshot | null;
+  transportOrder: TransportOrderState | null;
+  version: number;
+  consignmentRefs: string[];
+}
+
+/** What the haulier sees via the link: no prices of the customer. */
+export interface PublicTransportOrder {
+  orderNumber: string;
+  haulierName: string;
+  ourCompany: string;
+  plannedPickupDate: string;
+  pickup: Omit<Stop, "id" | "siteId">;
+  delivery: Omit<Stop, "id" | "siteId">;
+  load: LoadInput;
+  /** The BUY price only */
+  agreedPrice: { total: number; currency: string } | null;
+  status: "AWAITING_CONFIRMATION" | "CONFIRMED" | "REJECTED" | "DELIVERED";
+  podUploaded: boolean;
+  linkExpiresAt: string;
+}
+
+export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill";
+
+export interface ConsignmentCounts {
+  attention: number;
+  pickupToday: number;
+  deliveryToday: number;
+  podMissing: number;
+  readyToBill: number;
+  openFtlWithoutHaulier: number;
+}
+
+export type ConsignmentPriceInput =
+  | { source: "TARIFF" }
+  | { source: "QUOTE" }
+  | { source: "MANUAL"; total: number; currency: "CZK" | "EUR"; reason: string };
+
+export type TripPriceInput = { source: "TARIFF" } | { source: "MANUAL"; total: number; currency: "CZK" | "EUR"; reason: string };
+
+/** The consignment fields a create and an update send. */
+export interface ConsignmentFields {
+  quoteNumber: string | null;
+  serviceLevel: ServiceLevelCode | null;
+  /** YYYY-MM-DD */
+  pickupDate: string;
+  /** "HH:MM" (Prague) or null */
+  pickupTime: string | null;
+  pickup: StopInput;
+  delivery: StopInput;
+  load: LoadInput;
+  price: ConsignmentPriceInput;
+}
+
+export type TruckingDocumentKind = "POD" | "CMR" | "DELIVERY_NOTE" | "OTHER";
+
+export interface TruckingDocumentItem {
+  id: string;
+  kind: TruckingDocumentKind;
+  fileName: string;
+  uploadedAt: string;
+  uploadedBy: string;
+  source: "USER" | "HAULIER";
+}
+
+export type DocLanguageCode = "cs" | "en" | "both";
