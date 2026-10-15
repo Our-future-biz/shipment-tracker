@@ -11,7 +11,7 @@ import { useToast } from "@/lib/toast";
 import { useGateLog, type GateMovement, type GateStampKind, useStampMovement } from "@/hooks/useGateLog";
 import { getCellConditionalStyle } from "@/lib/columnConfig";
 import { reportBulk, runBulk } from "@/app/warehouse/_components/tabs/shared";
-import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOfVisit, releaseGatesText } from "@/app/warehouse/_lib/glossary";
+import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOf, releaseGatesText } from "@/app/warehouse/_lib/glossary";
 import { formatDateTime } from "@/lib/date";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { Badge, CUSTOMS_CLEARED, CUSTOMS_STATUSES, GATE_STATUSES, OPERATION_TYPES, PACKINGS, isFcl, isLcl, nf } from "../_lib/gate";
@@ -90,9 +90,9 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
     key: "handling",
     title: TERMS.direction,
     width: 120,
-    text: (r) => directionOfVisit(r.visit),
+    text: (r) => directionOf(r),
     filterOptions: [...DIRECTIONS],
-    render: (_, r) => dim(directionOfVisit(r.visit)),
+    render: (_, r) => dim(directionOf(r)),
   },
   { key: "operationType", title: "Operation", width: 180, text: (r) => r.operationType, filterOptions: OPERATION_TYPES, render: (_, r) => dim(r.operationType) },
   { key: "packing", title: "Packing", width: 150, text: (r) => r.packing, filterOptions: PACKINGS, render: (_, r) => dim(r.packing) },

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { DownOutlined, RightOutlined } from "@ant-design/icons";
 import type { GateMovement } from "@/hooks/useGateLog";
-import { TERMS, directionOfVisit } from "@/app/warehouse/_lib/glossary";
+import { TERMS, directionOf } from "@/app/warehouse/_lib/glossary";
 import { expectedBecause, expectedSortKey, isExpectedToday, pragueToday } from "@/app/warehouse/_lib/worklist";
 import { Badge, VISIT_TONE, nf } from "../_lib/gate";
 
@@ -44,7 +44,7 @@ export function ExpectedTodayPanel({ movements }: { movements: GateMovement[] })
                   <Link href={`/warehouse/gate-log/${m.id}`} className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 px-4 py-2 text-xs hover:bg-slate-50">
                     <span className="font-mono font-bold text-indigo-500 w-[130px]">{m.positionRef || m.gateRef}</span>
                     <span className="text-slate-800 font-medium min-w-[160px]">{m.customer || "—"}</span>
-                    <Badge tone={VISIT_TONE[m.visit] ?? ""}>{directionOfVisit(m.visit)}</Badge>
+                    <Badge tone={VISIT_TONE[m.visit] ?? ""}>{directionOf(m)}</Badge>
                     <span className="text-slate-500">{expectedBecause(m, today)}</span>
                     <span className="ml-auto text-slate-500 tabular-nums">
                       {m.colli ? `${nf(m.colli)} ${TERMS.pieces.toLowerCase()}` : ""}

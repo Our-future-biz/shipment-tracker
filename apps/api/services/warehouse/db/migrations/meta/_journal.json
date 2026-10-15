@@ -155,6 +155,13 @@
       "when": 1792071336887,
       "tag": "0021_trucking_trip_expect_gate_events",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1792072033909,
+      "tag": "0022_domestic_handling",
+      "breakpoints": true
     }
   ]
 }

@@ -24,10 +24,14 @@ export const customsLine = (customsStatus: string): GateReleaseLine =>
 
 const t = gateMovementTable;
 
-/** Release gates with the Customs line set to `line` (order kept), or appended when missing. */
+/**
+ * Release gates with the Customs line set to `line` (order kept), or appended when missing.
+ * Domestic positions have no customs: their gates stay as they are.
+ */
 export const setCustomsLineSql = (line: GateReleaseLine) => {
   const lineJson = sql`${JSON.stringify(line)}::jsonb`;
-  return sql`CASE WHEN ${t.releaseGates} @> ${JSON.stringify([{ g: "Customs" }])}::jsonb
+  return sql`CASE WHEN ${t.handling} = 'Domestic' THEN ${t.releaseGates}
+    WHEN ${t.releaseGates} @> ${JSON.stringify([{ g: "Customs" }])}::jsonb
     THEN (SELECT jsonb_agg(CASE WHEN e.x->>'g' = 'Customs' THEN ${lineJson} ELSE e.x END ORDER BY e.ord)
           FROM jsonb_array_elements(${t.releaseGates}) WITH ORDINALITY AS e(x, ord))
     ELSE ${t.releaseGates} || jsonb_build_array(${lineJson}) END`;

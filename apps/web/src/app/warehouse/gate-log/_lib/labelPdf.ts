@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import QRCode from "qrcode";
 import type { GateMovement } from "@/hooks/useGateLog";
 import { formatDate, formatDateTime } from "@/lib/date";
-import { TERMS, directionOfVisit } from "../../_lib/glossary";
+import { TERMS, directionOf } from "../../_lib/glossary";
 import { drawCode128 } from "./code128";
 import { businessToday } from "@/lib/date";
 
@@ -55,7 +55,7 @@ function drawLabel(doc: jsPDF, m: GateMovement, qr: string, piece?: { n: number;
   const rows: [string, string][] = [
     ["Customer", m.customer],
     [TERMS.jobNo, m.jobNumber],
-    [TERMS.direction, directionOfVisit(m.visit)],
+    [TERMS.direction, directionOf(m)],
     ["Operation", m.operationType],
     [TERMS.pieces, m.colli ? `${num(m.colli)}${m.packing ? ` ${m.packing}` : ""}` : m.packing],
     [TERMS.weightKg, m.weightKg ? num(m.weightKg) : ""],

@@ -6,7 +6,7 @@ import { businessDayOf, businessTime } from "@/lib/date";
 // Values and colour rules taken from the Warehouse prototype (v0.6, Gate Log).
 
 export const VISITS = ["příjem", "výdej"] as const;
-export const HANDLINGS = ["Import", "Export"] as const satisfies readonly interfaces.GateHandling[];
+export const HANDLINGS = ["Import", "Export", "Domestic"] as const satisfies readonly interfaces.GateHandling[];
 export const OPERATION_TYPES = [
   "LCL consolidation",
   "FCL stuffing",
@@ -89,7 +89,7 @@ export const STATUS_TONE: Record<string, Tone> = {
   Released: "g",
   Refused: "r",
 };
-export const HANDLING_TONE: Record<string, Tone> = { Import: "b", Export: "i" };
+export const HANDLING_TONE: Record<string, Tone> = { Import: "b", Export: "i", Domestic: "g" };
 export const VISIT_TONE: Record<string, Tone> = { příjem: "b", výdej: "i" };
 export const CUSTOMS_STATUS_TONE: Record<string, Tone> = {
   "Waiting For Commercial Paperwork": "r",

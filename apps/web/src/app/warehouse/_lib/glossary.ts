@@ -1,5 +1,5 @@
 // One set of words for the Warehouse module: screens, Gate Log, labels, Read me and exports.
-// Display only — stored values stay as they are (handling "Import" / "Export", visit
+// Display only — stored values stay as they are (handling "Import" / "Export" / "Domestic", visit
 // "příjem" / "výdej"), and so do the API fields.
 
 export const TERMS = {
@@ -8,6 +8,7 @@ export const TERMS = {
   direction: "Direction",
   inbound: "Inbound",
   outbound: "Outbound",
+  domestic: "Domestic",
   releaseGates: "Release gates",
   clear: "Clear",
   blocked: "Blocked",
@@ -73,7 +74,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     replaces: "Gate ref, Internal ref., Warehouse Ref",
   },
   { term: TERMS.jobNo, meaning: "The shipment's job number (its internal reference in Shipments). Copied positions keep it as text only.", replaces: "Internal Reference" },
-  { term: `${TERMS.direction}: ${TERMS.inbound} / ${TERMS.outbound}`, meaning: "Inbound cargo comes into the warehouse (export cargo). Outbound cargo leaves it (import cargo).", replaces: "Trade direction Import / Export, příjem / výdej" },
+  { term: `${TERMS.direction}: ${TERMS.inbound} / ${TERMS.outbound} / ${TERMS.domestic}`, meaning: "Inbound cargo comes into the warehouse (export cargo). Outbound cargo leaves it (import cargo). Domestic cargo (Trucking's LTL through our warehouse) comes in at the gate-in and leaves through the WH release, which stamps the gate-out — no customs, no pick-up PIN.", replaces: "Trade direction Import / Export / Domestic, příjem / výdej" },
   { term: `${TERMS.releaseGates}: ${TERMS.clear} / ${TERMS.blocked}`, meaning: "Whether outbound cargo may be released: Clear when every release gate is OK (or a supervisor overrode), Blocked otherwise.", replaces: "Armed / NOT armed" },
   { term: TERMS.whRelease, meaning: "The stamp that releases outbound cargo. It also stamps the gate-out." },
   { term: TERMS.released, meaning: "Warehouse status after the WH release stamp. Used only as a status." },
@@ -230,20 +231,25 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   },
 ];
 
-export const DIRECTIONS = [TERMS.inbound, TERMS.outbound] as const;
+export const DIRECTIONS = [TERMS.inbound, TERMS.outbound, TERMS.domestic] as const;
 
 // příjem (goods received) is inbound, výdej (goods issued) is outbound.
 export const directionOfVisit = (visit: string): string =>
   visit === "příjem" ? TERMS.inbound : visit === "výdej" ? TERMS.outbound : visit;
 
-// Import cargo leaves the warehouse (outbound), export cargo comes in (inbound).
+// Import cargo leaves the warehouse (outbound), export cargo comes in (inbound); domestic cargo
+// (Trucking's LTL through our hub) comes in and leaves again — no customs.
 export const directionOfHandling = (handling: string): string =>
-  handling === "Import" ? TERMS.outbound : handling === "Export" ? TERMS.inbound : handling;
+  handling === "Import" ? TERMS.outbound : handling === "Export" ? TERMS.inbound : handling === "Domestic" ? TERMS.domestic : handling;
 
 export const handlingOfDirection = (direction: string): string =>
-  direction === TERMS.outbound ? "Import" : direction === TERMS.inbound ? "Export" : direction;
+  direction === TERMS.outbound ? "Import" : direction === TERMS.inbound ? "Export" : direction === TERMS.domestic ? "Domestic" : direction;
+
+/** A position's direction as the screens show it: Domestic, else from its visit (Inbound / Outbound). */
+export const directionOf = (m: { visit: string; handling?: string }): string => (m.handling === "Domestic" ? TERMS.domestic : directionOfVisit(m.visit));
 
 // The release-gates indicator in one word, for grids and exports. Inbound cargo has no release.
 export const RELEASE_GATES_VALUES = [TERMS.clear, TERMS.blocked, TERMS.released, "n/a — inbound"];
-export const releaseGatesText = (m: { visit: string; armed: boolean; impRelease: string | null }): string =>
-  m.visit !== "výdej" ? "n/a — inbound" : m.impRelease ? TERMS.released : m.armed ? TERMS.clear : TERMS.blocked;
+// Domestic cargo comes in, then leaves through the WH release: its release gates count.
+export const releaseGatesText = (m: { visit: string; armed: boolean; impRelease: string | null; handling?: string }): string =>
+  m.visit !== "výdej" && m.handling !== "Domestic" ? "n/a — inbound" : m.impRelease ? TERMS.released : m.armed ? TERMS.clear : TERMS.blocked;

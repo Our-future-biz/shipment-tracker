@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { directionOfHandling, directionOfVisit, GLOSSARY, handlingOfDirection, releaseGatesText, TERMS } from "./glossary";
+import { DIRECTIONS, directionOf, directionOfHandling, directionOfVisit, GLOSSARY, handlingOfDirection, releaseGatesText, TERMS } from "./glossary";
 
 describe("direction mapping", () => {
   it("maps visits", () => {
@@ -92,5 +92,22 @@ describe("glossary — stock, KPIs and supplier e-mail", () => {
     expect(GLOSSARY.find((g) => g.term === TERMS.warehouseSettings)?.meaning).toMatch(/only a manager/);
     expect(GLOSSARY.find((g) => g.term === TERMS.supplierEmail)?.meaning).toMatch(/Retry/);
     expect(GLOSSARY.find((g) => g.term === TERMS.recordedOnly)?.meaning).toMatch(/nothing is e-mailed/);
+  });
+});
+
+describe("Domestic positions", () => {
+  it("show as Domestic and map back to the stored handling", () => {
+    expect(directionOf({ visit: "příjem", handling: "Domestic" })).toBe("Domestic");
+    expect(directionOf({ visit: "příjem", handling: "Export" })).toBe("Inbound");
+    expect(directionOf({ visit: "výdej", handling: "Import" })).toBe("Outbound");
+    expect(directionOfHandling("Domestic")).toBe("Domestic");
+    expect(handlingOfDirection("Domestic")).toBe("Domestic");
+    expect(DIRECTIONS).toContain("Domestic");
+  });
+
+  it("count their release gates (they leave through the WH release); other inbound cargo stays n/a", () => {
+    expect(releaseGatesText({ visit: "příjem", handling: "Domestic", armed: true, impRelease: null })).toBe("Clear");
+    expect(releaseGatesText({ visit: "příjem", handling: "Domestic", armed: true, impRelease: "2026-10-15T08:00:00Z" })).toBe("Released");
+    expect(releaseGatesText({ visit: "příjem", handling: "Export", armed: true, impRelease: null })).toBe("n/a — inbound");
   });
 });

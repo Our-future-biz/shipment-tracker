@@ -5,7 +5,7 @@ import { ArrowLeftOutlined } from "@ant-design/icons";
 import type { GateMovement } from "@/hooks/useGateLog";
 import type { interfaces } from "@/lib/api/client";
 import { formatDate } from "@/lib/date";
-import { TERMS, directionOfVisit } from "../../_lib/glossary";
+import { TERMS, directionOf } from "../../_lib/glossary";
 import { Badge, CUSTOMS_STATUS_TONE, STATUS_TONE, nf } from "../../gate-log/_lib/gate";
 import { wm, type CargoTotals } from "../../_lib/cargoCompare";
 import { StorageLine } from "../../_lib/storageText";
@@ -68,7 +68,7 @@ export function HeaderStrip({
           ),
         )}
         {item("Customer", customer || <span className="text-slate-300">—</span>)}
-        {m && item(TERMS.direction, directionOfVisit(m.visit))}
+        {m && item(TERMS.direction, directionOf(m))}
         {item(TERMS.warehouseStatus, m ? <Badge tone={STATUS_TONE[m.status] ?? ""}>{m.status}</Badge> : <span className="text-slate-300">no gate record</span>)}
         {item(
           "Customs",

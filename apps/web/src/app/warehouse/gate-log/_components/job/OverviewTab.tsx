@@ -201,7 +201,7 @@ export function OverviewTab({
                 <FieldRow label={TERMS.warehouseRef}>
                   <span className="font-mono font-semibold text-slate-900">{m.gateRef}</span>
                 </FieldRow>
-                {/* Saves the stored handling (Import / Export), shown as Outbound / Inbound; the server
+                {/* Saves the stored handling (Import / Export / Domestic), shown as Outbound / Inbound / Domestic; the server
                     moves the gate visit with it. Locked once anything is stamped. */}
                 <FieldRow label={TERMS.direction}>
                   {m.gateIn || m.gateOut || m.impRelease || m.expDraft || m.expReceipt || m.container ? (

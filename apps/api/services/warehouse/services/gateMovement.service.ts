@@ -12,6 +12,7 @@ import { gateMovementTable, type GateChecklist, type GateEvent, type GateMovemen
 import type { NewShipmentOutboxRecord, ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
 import { gateExceptionRepository } from "../repositories/gateException.repository";
 import type { WarehouseExceptionRecord } from "../schemas/warehouseException.schema";
+import type { GateVisit } from "../interfaces/gate.interfaces";
 import type { GateDockSlot, GateExceptionItem, GateMovementInput, GateMovementItem, GatePickupInfo, GateReweighItem, GateSurveyInput } from "../interfaces/gate.interfaces";
 import { EXCEPTION_GATE, exceptionHold, noOpenExceptionSql } from "./osd";
 import { isIsoDate, movementStorage, pragueDate, storageNote, type StorageInfo } from "./storage";
@@ -57,6 +58,14 @@ export const MAX_PIN_TRIES = 3;
 export const DEFAULT_CHECKLIST: GateChecklist = { ht: "a", photos: "a", measure: "a", vgm: "a", seal: "a", dg: "a" };
 
 const isFcl = (operationType: string) => /^FCL|Container yard/.test(operationType);
+
+// Domestic cargo (Trucking's LTL through our hub) arrives at the gate (příjem: the gate-in is the
+// arrival) and leaves through the WH release, which stamps the gate-out too. No customs at all:
+// no Customs / MRN / B/L / VGM lines, no pick-up PIN, never "needs attention" for a missing MRN.
+export const DOMESTIC = "Domestic";
+export const isDomestic = (handling: string | null | undefined) => handling === DOMESTIC;
+/** The gate visit a handling means: Import cargo goes out (výdej); Export and Domestic cargo come in (příjem). */
+export const visitOfHandling = (handling: string): GateVisit => (handling === "Import" ? "výdej" : "příjem");
 
 export { CUSTOMS_CLEARED, CUSTOMS_MODES, CUSTOMS_STATUSES } from "./customs";
 export const MAX_SUB_POSITIONS = 10;
@@ -128,10 +137,18 @@ export const normalizeLegs = (legs: GateTransportLeg[] | null | undefined): Gate
 // (`pickupPin`): that line is set only by the PIN check at the gate.
 export function defaultReleaseGates(handling: string, operationType: string, customsStatus: string, pickupPin = false): GateReleaseLine[] {
   const gates = baseReleaseGates(handling, operationType, customsStatus);
-  return pickupPin ? [...gates, pickupPinLine()] : gates;
+  return pickupPin && !isDomestic(handling) ? [...gates, pickupPinLine()] : gates;
 }
 
 function baseReleaseGates(handling: string, operationType: string, customsStatus: string): GateReleaseLine[] {
+  // Domestic: nothing customs-related (no Customs, B/L, MRN or VGM line); the exceptions hold is
+  // added by the exceptions themselves, as for every position.
+  if (isDomestic(handling)) {
+    return [
+      { g: "Charges", s: "OK", note: "nothing disputed" },
+      { g: "Storage settled", s: "OK", note: "within free time" },
+    ];
+  }
   if (!isFcl(operationType)) {
     return [
       { g: "B/L / release order", s: handling === "Import" ? "Pending" : "OK", note: handling === "Import" ? "original or telex awaited" : "export — n/a" },
@@ -168,9 +185,11 @@ export function isArmed(m: Pick<GateMovementRow, "status" | "overridden" | "rele
 // still under customs (not cleared) with no MRN recorded. Incoming cargo and cleared cargo
 // never need an MRN here, and cargo already released or gone out no longer needs attention.
 export function needsAttention(
-  m: Pick<GateMovementRow, "visit" | "mrn" | "customsStatus" | "status" | "overridden" | "releaseGates" | "impRelease" | "gateOut">,
+  m: Pick<GateMovementRow, "visit" | "mrn" | "customsStatus" | "status" | "overridden" | "releaseGates" | "impRelease" | "gateOut"> & { handling?: string },
 ): boolean {
   if (m.visit !== "výdej" || m.impRelease || m.gateOut) return false;
+  // Domestic cargo has no customs: only a blocked release counts.
+  if (isDomestic(m.handling)) return !isArmed(m);
   const noMrn = !m.mrn.trim() || m.mrn === "—";
   return !isArmed(m) || (m.customsStatus !== CUSTOMS_CLEARED && noMrn);
 }
@@ -336,6 +355,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // Outgoing cargo (výdej) leaves only through WH release, which stamps the gate-out too; a
 // gate-out of its own would skip the release gates.
 const OUT_NEEDS_RELEASE = "Outgoing cargo leaves through WH release (it stamps the gate-out too) — stamp WH release first";
+const DOMESTIC_OUT_NEEDS_RELEASE = "Domestic cargo leaves through WH release (it stamps the gate-out too) — stamp WH release first";
+// The cargo leaves the warehouse with this stamp (what Trucking hears as gateOut): the WH release
+// (it stamps the gate-out too), or an outbound gate-out. An inbound (příjem) gate-out of its own is
+// the delivering truck leaving — the cargo stays.
+const cargoLeaves = (m: Pick<GateMovementRow, "visit">, kind: StampKind) => kind === "impRelease" || (kind === "gateOut" && m.visit === "výdej");
 
 /** What a stamp check reads besides the row: the container house and whether it is re-weighed. */
 export interface StampContext {
@@ -350,6 +374,7 @@ function stampBlocked(m: GateMovementRow, kind: StampKind, ctx: StampContext = {
       return m.gateIn ? "Gate-in already stamped" : null;
     case "gateOut":
       if (m.gateOut) return "Gate-out already stamped";
+      if (isDomestic(m.handling) && !m.impRelease) return DOMESTIC_OUT_NEEDS_RELEASE;
       return m.visit === "výdej" && !m.impRelease ? OUT_NEEDS_RELEASE : null;
     case "impRelease":
       if (m.impRelease) return "WH release already stamped";
@@ -653,7 +678,7 @@ class GateMovementService {
         throw APIError.failedPrecondition("Direction cannot change once a gate stamp is recorded");
       }
       if (house) throw APIError.failedPrecondition(`Direction cannot change while the position is in container ${house.container.number}`);
-      if (handlingChanged && input.visit === undefined) patch.visit = input.handling === "Import" ? "výdej" : "příjem";
+      if (handlingChanged && input.visit === undefined) patch.visit = visitOfHandling(input.handling!);
       if (visitChanged && input.handling === undefined) patch.handling = input.visit === "výdej" ? "Import" : "Export";
     }
 
@@ -662,6 +687,7 @@ class GateMovementService {
     // Customs status drives the Customs line of the release gate. It is set in SQL on the stored
     // gates (as the customs follow does), so a line changed meanwhile — the "No open exceptions"
     // hold of an exception created or resolved since the load, or the Pick-up PIN line — is kept.
+    // (Domestic positions have no Customs line: setCustomsLineSql leaves them as they are.)
     const customsChanged = input.customsStatus !== undefined && input.customsStatus !== m.customsStatus;
     // The grid's carrier / driver / plate follow the leg the cargo moves on at this gate.
     if (patch.transportLegs) {
@@ -997,7 +1023,7 @@ class GateMovementService {
             companyId,
             { gateOut: at },
             [evt(kind, STAMP_LABEL.gateOut, true)],
-            sql`${t.gateOut} IS NULL AND (${t.visit} <> 'výdej' OR ${t.impRelease} IS NOT NULL)`,
+            sql`${t.gateOut} IS NULL AND ((${t.visit} <> 'výdej' AND ${t.handling} <> ${DOMESTIC}) OR ${t.impRelease} IS NOT NULL)`,
             tx,
           );
           break;
@@ -1047,7 +1073,9 @@ class GateMovementService {
           userId,
           stampKind: kind,
           at,
-          stamped: { gateIn: !m.gateIn && sameTime(row.gateIn, at), gateOut: !m.gateOut && sameTime(row.gateOut, at) },
+          // Arrival: the gate-in of inbound cargo (an outbound gate-in is the pick-up truck).
+          // Departure: the cargo leaves (cargoLeaves) — once, with the stamp that lets it go.
+          stamped: { gateIn: m.visit !== "výdej" && !m.gateIn && sameTime(row.gateIn, at), gateOut: cargoLeaves(m, kind) },
         },
         role,
       );
