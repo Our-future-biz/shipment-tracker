@@ -15,6 +15,13 @@
       "when": 1792058954011,
       "tag": "0001_tariffs",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792061008077,
+      "tag": "0002_tariff_files",
+      "breakpoints": true
     }
   ]
 }

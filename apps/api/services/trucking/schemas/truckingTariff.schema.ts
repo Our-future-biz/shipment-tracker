@@ -65,6 +65,8 @@ export const truckingTariffTable = pgTable(
 // activated the validity is binding: an EXCLUDE constraint (hand-added in the migration) keeps
 // the activated, not superseded, live versions of one tariff from overlapping by a single day.
 // superseded_at marks a scheduled version replaced before it started. Status is derived on read.
+// A version imported from an Excel file keeps the file in the bucket (source_key, its sha256 and
+// name here) and the problems met reading it (parse_findings), which activation still counts.
 export const truckingTariffVersionTable = pgTable(
   "trucking_tariff_version",
   {
@@ -87,6 +89,12 @@ export const truckingTariffVersionTable = pgTable(
     /** Display name */
     activatedBy: text("activated_by"),
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    /** Problems met reading the uploaded file; they stay with the draft and keep it from activation */
+    parseFindings: jsonb("parse_findings").$type<ValidationFinding[]>().notNull().default([]),
+    /** The uploaded file (bucket trucking-tariff-files); null when the version was entered without one */
+    sourceFileName: text("source_file_name"),
+    sourceSha256: text("source_sha256"),
+    sourceKey: text("source_key"),
   },
   (table) => [
     ...defaultTableIndexes("trucking_tariff_version", table),
