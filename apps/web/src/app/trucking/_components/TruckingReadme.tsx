@@ -286,11 +286,49 @@ export const TruckingReadme = () => (
       <p>
         Behind the gear: the {TERMS.serviceLevel.toLowerCase()}s with their order <b>{TERMS.cutoff.toLowerCase()}</b>, the {TERMS.vehicleType.toLowerCase()}s, the
         factors that turn LDM, volume and pallet places into {TERMS.chargeableWeight.toLowerCase()} (the defaults of new tariff versions), the{" "}
-        <b>{TERMS.marginFloor.toLowerCase()}</b>, the text of the {TERMS.transportOrder.toLowerCase()} e-mail and the monthly{" "}
+        <b>{TERMS.marginFloor.toLowerCase()}</b>, the free {TERMS.waitingTime.toLowerCase()} ({TERMS.ltl} 30 and {TERMS.ftl} 120 minutes by default), the text of the{" "}
+        {TERMS.transportOrder.toLowerCase()} e-mail and the monthly{" "}
         <b>{TERMS.fuelIndex.toLowerCase()}</b>, and <b>our warehouse</b> (the {TERMS.hub.toLowerCase()} every {TERMS.ltl} trip starts or ends at; planning waits
         until it is set). Everyone can read them; a manager changes them. Two people saving at once cannot overwrite each other: the
         second is asked to reload and make the change again.
       </p>
+    </Part>
+
+    <Part title="Control and money">
+      <ul>
+        <li>
+          <b>{TERMS.avizace}</b> — needed for B2C deliveries and for delivery stops that ask for it. The consignment page shows whether it is needed;{" "}
+          <b>Avizace text…</b> prepares the message in Czech and English (consignee, address, date and window, ref, pieces / pallets / kg, tail-lift and B2C
+          notes — never the {TERMS.pickupPin}) with Copy buttons; nothing is e-mailed. <b>Record avizace…</b> keeps the{" "}
+          <b>{TERMS.avizaceRecord.toLowerCase()}</b>: how, who, the agreed window and a note. Until it is recorded, the {TERMS.deliveryRun.toLowerCase()} or{" "}
+          {TERMS.ftl} trip shows a warning on the Trips and Planning tabs — never a block. Consignments → <b>Avizace pending</b> lists them.
+        </li>
+        <li>
+          <b>{TERMS.pod} missing</b> — a consignment delivered more than 2 working days ago without its {TERMS.pod} is on the <b>POD missing</b> chip, and its page
+          says how many working days it has waited.
+        </li>
+        <li>
+          <b>Exceptions</b> — the consignment&apos;s <b>Exceptions</b> tab records a failed delivery (it goes back to Out for delivery and needs a redelivery or a
+          return), damage, shortage, overage, {TERMS.waitingTime.toLowerCase()} (charged per started 15 minutes beyond the free time), a redelivery or anything
+          else, with photos. The <b>{TERMS.exceptionDecision.toLowerCase()}</b>: charge the customer (a selling line on the job, or the internal charge), claim from
+          the haulier (taken off its expected cost) or absorb it — a manager&apos;s call except absorbing at no cost. An exception that is not decided and closed
+          keeps the consignment from Ready to bill (<b>Open exceptions</b> chip). Damage, short and over recorded by our warehouse are shown there read-only.
+        </li>
+        <li>
+          <b>Haulier invoices</b> — <b>Enter invoice</b>: choose the haulier, tick its delivered trips and partner deliveries, type what it invoices for each (the
+          difference shows as you type), the header and optionally the PDF. Only an <b>{TERMS.exactMatch.toLowerCase()}</b> is approved by itself; any difference
+          waits for a manager&apos;s <b>Approve</b> (with a reason) or <b>Reject</b>. The <b>{TERMS.vatBankAccountCheck}</b> blocks an invoice for everyone while the
+          haulier is an unreliable VAT payer, its account is not published in the VAT register, or the invoice&apos;s account is not one of the{" "}
+          <b>Published bank accounts</b> on the haulier page; the invoice says which and how to fix it.
+        </li>
+        <li>
+          <b>Internal billing</b> — a consignment on a job owned by another department is <b>Internal</b> (badge on its page): its Money card shows the internal
+          price instead of a customer price. Each delivered internal consignment is an <b>{TERMS.internalCharge.toLowerCase()}</b> in its month of delivery; one the{" "}
+          {TERMS.internalTariff.toLowerCase()} cannot price is listed as <b>Not priced</b>. After the month a manager uses <b>{TERMS.monthClose}</b> (once all is
+          priced): one <b>{TERMS.internalStatement.toLowerCase()}</b> per department (ICZ + year + 4 digits, no VAT, PDF) and an Excel export. A closed month
+          never changes.
+        </li>
+      </ul>
     </Part>
 
     <Part title="Three kinds of work">
@@ -337,9 +375,10 @@ export const TruckingReadme = () => (
         </li>
         <li>
           <b>Invoicing</b>: a consignment&apos;s sell price and its trip&apos;s buy price are lines of the job&apos;s Costs Breakdown, tagged{" "}
-          <b>From Trucking · TCZ…</b> and read-only there (they change in Trucking). Customers are invoiced at the {TERMS.sellTariff.toLowerCase()}; haulier invoices are checked against the{" "}
-          {TERMS.buyTariff.toLowerCase()} and the {TERMS.transportOrder.toLowerCase()}; each month the <b>{TERMS.internalCharge.toLowerCase()}</b> bills Operations
-          for the transport run for their shipments.
+          <b>From Trucking · TCZ…</b> and read-only there (they change in Trucking). Customers are invoiced at the {TERMS.sellTariff.toLowerCase()}. An approved{" "}
+          {TERMS.haulierInvoice.toLowerCase()} writes the real cost (amount and invoice number) onto the job&apos;s buying lines. A job owned by another department gets
+          no customer selling lines and no haulier costs from Trucking — only one internal buying line per consignment, numbered with the month&apos;s{" "}
+          {TERMS.internalStatement.toLowerCase()} once the month is closed.
         </li>
         <li>
           <b>Warehouse</b>: {TERMS.ltl} consignments are gated in and out at our warehouse. A trip planned in Trucking shows there as expected (haulier, plate,

@@ -14,7 +14,17 @@ export interface SettingsDraft {
   marginFloor: interfaces.MarginFloor;
   transportOrder: interfaces.TransportOrderTexts;
   hub: interfaces.HubAddress;
+  waitingFreeMinutes: interfaces.WaitingFreeMinutes;
 }
+
+/** Free time before waiting time is charged, as the server defaults it. */
+export const DEFAULT_WAITING_FREE: interfaces.WaitingFreeMinutes = { LTL: 30, FTL: 120 };
+
+/** The free waiting time of the settings; settings saved before Phase 6 have none yet. */
+export const waitingFreeOf = (settings: Pick<interfaces.TruckingSettings, "waitingFreeMinutes"> | null | undefined): interfaces.WaitingFreeMinutes => ({
+  ...DEFAULT_WAITING_FREE,
+  ...settings?.waitingFreeMinutes,
+});
 
 export const EMPTY_HUB: interfaces.HubAddress = { name: "", street: "", postcode: "", city: "", country: "CZ" };
 
@@ -68,6 +78,10 @@ export function settingsProblems(d: SettingsDraft): string[] {
   if (!d.transportOrder.emailSubject.trim()) out.push("Transport-order e-mail subject is required");
   if (!d.transportOrder.emailBody.trim()) out.push("Transport-order e-mail body is required");
   out.push(...hubProblems(d.hub));
+  for (const scope of ["LTL", "FTL"] as const) {
+    const minutes = d.waitingFreeMinutes[scope];
+    if (!Number.isInteger(minutes) || minutes < 0) out.push(`Free waiting time ${scope}: whole minutes, 0 or more`);
+  }
   return out;
 }
 

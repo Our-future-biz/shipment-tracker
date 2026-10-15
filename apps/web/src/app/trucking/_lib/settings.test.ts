@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { EMPTY_HUB, hubIsSet, hubProblems, settingsProblems, vehicleTypeProblems, workingDaysText, type SettingsDraft } from "./settings";
+import { EMPTY_HUB, hubIsSet, hubProblems, settingsProblems, vehicleTypeProblems, waitingFreeOf, workingDaysText, type SettingsDraft } from "./settings";
 
 const van = { code: "van", label: "Van", capacityLdm: 3, capacityKg: 1200, palletPlaces: 6, tailLift: false, active: true };
 const draft: SettingsDraft = {
@@ -9,6 +9,7 @@ const draft: SettingsDraft = {
   marginFloor: { percent: 8, minAmountCzk: 300 },
   transportOrder: { emailSubject: "Transport order {orderRef}", emailBody: "Dear {haulier}" },
   hub: EMPTY_HUB,
+  waitingFreeMinutes: { LTL: 30, FTL: 120 },
 };
 
 describe("vehicleTypeProblems", () => {
@@ -72,5 +73,16 @@ describe("our warehouse (hub)", () => {
     expect(hubIsSet(EMPTY_HUB)).toBe(false);
     expect(hubIsSet(null)).toBe(false);
     expect(hubIsSet(hub)).toBe(true);
+  });
+});
+
+describe("free waiting time", () => {
+  it("defaults to LTL 30 and FTL 120 minutes for settings saved before it existed", () => {
+    expect(waitingFreeOf(null)).toEqual({ LTL: 30, FTL: 120 });
+    expect(waitingFreeOf({ waitingFreeMinutes: { LTL: 45, FTL: 90 } })).toEqual({ LTL: 45, FTL: 90 });
+  });
+
+  it("is whole minutes, 0 or more", () => {
+    expect(settingsProblems({ ...draft, waitingFreeMinutes: { LTL: -5, FTL: 120 } })).toEqual(["Free waiting time LTL: whole minutes, 0 or more"]);
   });
 });

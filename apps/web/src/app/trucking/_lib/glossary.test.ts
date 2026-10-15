@@ -54,12 +54,27 @@ describe("Phase 5 terms", () => {
   });
 });
 
+describe("Phase 6 terms", () => {
+  it("explain avizace, exceptions, haulier invoices and internal billing", () => {
+    const meaning = (term: string) => GLOSSARY.find((g) => g.term === term)?.meaning;
+    expect(meaning(TERMS.avizaceRecord)).toMatch(/never the Pick-up PIN/);
+    expect(meaning(TERMS.avizaceRecord)).toMatch(/never a block/);
+    expect(meaning(TERMS.exceptionDecision)).toMatch(/manager's call/);
+    expect(meaning(TERMS.exactMatch)).toMatch(/to the cent/);
+    expect(meaning(TERMS.vatBankAccountCheck)).toMatch(/cannot override/);
+    expect(meaning(TERMS.internalStatement)).toMatch(/ICZ/);
+    expect(meaning(TERMS.monthClose)).toMatch(/never changes/);
+  });
+});
+
 describe("trucking tabs", () => {
   it("follow the work and name the phase that brings each", () => {
     expect(TRUCKING_TABS.map((t) => `${t.label}:${t.phase}`)).toEqual([
       "Consignments:4",
       "Planning:5",
       "Trips:4",
+      "Haulier invoices:6",
+      "Internal billing:6",
       "Hauliers:1",
       "Tariffs:2",
       "Rate calculator:2",
@@ -68,6 +83,6 @@ describe("trucking tabs", () => {
   });
 
   it("mark the built ones live", () => {
-    expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["consignments", "planning", "trips", "hauliers", "tariffs", "calculator"]);
+    expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["consignments", "planning", "trips", "haulierInvoices", "internalBilling", "hauliers", "tariffs", "calculator"]);
   });
 });

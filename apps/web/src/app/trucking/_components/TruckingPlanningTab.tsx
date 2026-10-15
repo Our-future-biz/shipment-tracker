@@ -22,6 +22,8 @@ import { ManifestModal } from "./ManifestModal";
 import { NewLtlTripModal } from "./NewLtlTripModal";
 import { PlanningLegList } from "./PlanningLegList";
 import { PlanningTripCard, type TripCardAction } from "./PlanningTripCard";
+import { useAvizacePending } from "@/hooks/useTruckingControl";
+import { avizaceWarning } from "../_lib/avizace";
 import { PlanningTripOrderDialog } from "./PlanningTripOrderDialog";
 
 const KINDS = TRIP_KIND_OPTIONS.map((o) => o.value);
@@ -40,6 +42,7 @@ export const TruckingPlanningTab = () => {
   const [dialog, setDialog] = useState<Dialog>(null);
   const { settings } = useTruckingSettings();
   const { hauliers } = useHauliers();
+  const avizacePending = useAvizacePending();
   const { unplanned, trips, isLoading, isFetching, error, reload, createTrip, assignLegs, isAssigning } = usePlanningBoard(date, kind);
 
   const groups = useMemo(() => groupLegsByZone(unplanned), [unplanned]);
@@ -186,6 +189,7 @@ export const TruckingPlanningTab = () => {
                     key={trip.id}
                     trip={trip}
                     vehicleLabel={vehicleLabel(trip.vehicleTypeCode)}
+                    avizaceWarning={avizaceWarning({ kind: trip.kind, consignmentIds: trip.stops.map((s) => s.consignmentId), warnings: trip.warnings }, avizacePending)}
                     legDragging={!!draggingLeg}
                     busy={isAssigning}
                     onDropLeg={(t, legId) => {

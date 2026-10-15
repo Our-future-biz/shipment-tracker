@@ -154,7 +154,9 @@ export const CONSIGNMENT_CHIPS: { id: ConsignmentView; label: string; hint: stri
   { id: "attention", label: "Needs attention", hint: "Something is late or missing: no trip close to the pick-up, no confirmation, no POD, a margin waiting for approval", danger: true },
   { id: "pickupToday", label: "Pick-up today", hint: "Planned to be picked up today (Prague)" },
   { id: "deliveryToday", label: "Delivery today", hint: "Promised for delivery today (Prague)" },
-  { id: "podMissing", label: "POD missing", hint: "Delivered, but the proof of delivery is not in yet" },
+  { id: "avizacePending", label: "Avizace pending", hint: "B2C or the delivery stop asks for avizace, and none is recorded yet" },
+  { id: "openExceptions", label: "Open exceptions", hint: "A delivery exception not yet decided and closed — keeps the consignment from Ready to bill", danger: true },
+  { id: "podMissing", label: "POD missing", hint: "Delivered more than 2 working days ago, and the proof of delivery is not in yet", danger: true },
   { id: "readyToBill", label: "Ready to bill", hint: "Every consignment of the job has its POD" },
 ];
 

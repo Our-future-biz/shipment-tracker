@@ -22,5 +22,13 @@ export const truckingKeys = {
   trip: (id: string) => [...truckingKeys.trips(), "one", id] as const,
   planning: () => [...truckingKeys.all, "planning"] as const,
   planningBoard: (date: string, kind: string) => [...truckingKeys.planning(), date, kind] as const,
+  avizaceTemplate: (consignmentId: string) => [...truckingKeys.consignments(), "avizace-template", consignmentId] as const,
+  haulierInvoices: () => [...truckingKeys.all, "haulier-invoices"] as const,
+  haulierInvoiceList: (filters: Record<string, string | undefined>) => [...truckingKeys.haulierInvoices(), "list", filters] as const,
+  haulierInvoice: (id: string) => [...truckingKeys.haulierInvoices(), "one", id] as const,
+  haulierInvoiceCandidates: (haulierCustomerId: string) => [...truckingKeys.haulierInvoices(), "candidates", haulierCustomerId] as const,
+  internal: () => [...truckingKeys.all, "internal"] as const,
+  internalMonths: () => [...truckingKeys.internal(), "months"] as const,
+  internalCharges: (month: string) => [...truckingKeys.internal(), "charges", month] as const,
   publicOrder: (token: string) => ["haulier-order", token] as const,
 };

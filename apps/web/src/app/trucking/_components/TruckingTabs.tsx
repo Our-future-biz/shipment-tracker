@@ -24,7 +24,7 @@ export const TruckingTabs = ({ active, counts, onChange, onHelp }: TruckingTabsP
     tabBarExtraContent={{
       right: (
         <span className="flex items-center gap-1">
-          <Tooltip title="Trucking settings — service levels, vehicle types, margin floor, transport-order e-mail, fuel index">
+          <Tooltip title="Trucking settings — service levels, vehicle types, margin floor, free waiting time, transport-order e-mail, fuel index">
             <Link
               href="/trucking/settings"
               aria-label="Trucking settings"

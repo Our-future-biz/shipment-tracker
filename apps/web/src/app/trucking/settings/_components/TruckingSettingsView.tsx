@@ -14,7 +14,7 @@ import { useUnsavedGuard } from "@/app/warehouse/_lib/useUnsavedGuard";
 import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
 import { CONFLICT_TEXT, isVersionConflict } from "../../_lib/saveConflict";
-import { EMPTY_HUB, settingsProblems, TEXT_PLACEHOLDERS, type SettingsDraft } from "../../_lib/settings";
+import { EMPTY_HUB, settingsProblems, TEXT_PLACEHOLDERS, waitingFreeOf, type SettingsDraft } from "../../_lib/settings";
 import { FuelIndexSection } from "./FuelIndexSection";
 import { HubSection } from "./HubSection";
 import { ServiceLevelsTable } from "./ServiceLevelsTable";
@@ -22,7 +22,7 @@ import { TruckingField } from "../../_components/TruckingField";
 import { VehicleTypesTable } from "./VehicleTypesTable";
 
 // Trucking settings: service levels with their cut-offs, vehicle types, chargeable-weight factors,
-// the margin floor and the transport-order e-mail. Everyone can see them; only a manager changes them.
+// the margin floor, the free waiting time and the transport-order e-mail. Everyone can see them; only a manager changes them.
 
 const draftOf = (s: TruckingSettings): SettingsDraft => ({
   serviceLevels: structuredClone(s.serviceLevels),
@@ -32,6 +32,7 @@ const draftOf = (s: TruckingSettings): SettingsDraft => ({
   transportOrder: { ...s.transportOrder },
   // Settings saved before Phase 5 have no hub yet.
   hub: { ...EMPTY_HUB, ...s.hub },
+  waitingFreeMinutes: waitingFreeOf(s),
 });
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -187,6 +188,28 @@ export const TruckingSettingsView = () => {
         </div>
 
         <HubSection hub={draft.hub} disabled={!canEdit} onChange={(hub) => set("hub", hub)} />
+
+        <SectionCard title={`Free ${TERMS.waitingTime.toLowerCase()}`}>
+          <div className="grid grid-cols-2 gap-3 max-w-[420px]">
+            {(["LTL", "FTL"] as const).map((scope) => (
+              <TruckingField key={scope} label={`${scope} (minutes)`}>
+                <InputNumber
+                  aria-label={`Free waiting time ${scope} in minutes`}
+                  min={0}
+                  precision={0}
+                  step={15}
+                  value={draft.waitingFreeMinutes[scope]}
+                  disabled={!canEdit}
+                  onChange={(v) => set("waitingFreeMinutes", { ...draft.waitingFreeMinutes, [scope]: v ?? 0 })}
+                  className="w-full"
+                />
+              </TruckingField>
+            ))}
+          </div>
+          <p className="mt-3 mb-0 text-[11px] text-slate-400">
+            A truck may wait this long at loading or unloading for free; beyond it, waiting time is charged per started 15 minutes (the tariff&apos;s waiting-time surcharge).
+          </p>
+        </SectionCard>
 
         <SectionCard title={`${TERMS.transportOrder} e-mail`}>
           <div className="flex flex-col gap-3">
