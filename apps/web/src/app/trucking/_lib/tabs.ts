@@ -72,6 +72,7 @@ export const TRUCKING_TABS = [
       `The ${TERMS.internalTariff.toLowerCase()} Operations is charged at, with surcharges (${TERMS.adr}, ${TERMS.b2cDelivery}, ${TERMS.tailLift.toLowerCase()}, express)`,
     ],
     phase: 2,
+    live: true,
   },
   {
     key: "calculator",
@@ -83,6 +84,7 @@ export const TRUCKING_TABS = [
       "Sell price, buy price and margin from the tariffs, ready to use in Sales",
     ],
     phase: 2,
+    live: true,
   },
   {
     key: "reports",

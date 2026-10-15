@@ -42,6 +42,6 @@ describe("trucking tabs", () => {
   });
 
   it("mark the built ones live", () => {
-    expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["hauliers"]);
+    expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["hauliers", "tariffs", "calculator"]);
   });
 });

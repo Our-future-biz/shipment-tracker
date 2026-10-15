@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Drawer } from "antd";
-import { useHauliers } from "@/hooks/useTrucking";
+import { useHauliers, useTariffs } from "@/hooks/useTrucking";
 import { TRUCKING_TABS, type TruckingTab } from "../_lib/tabs";
 import { TruckingEmptyTab } from "./TruckingEmptyTab";
 import { TruckingHauliersTab } from "./TruckingHauliersTab";
+import { TruckingRateCalculatorTab } from "./TruckingRateCalculatorTab";
 import { TruckingReadme } from "./TruckingReadme";
 import { TruckingTabs } from "./TruckingTabs";
+import { TruckingTariffsTab } from "./TruckingTariffsTab";
 
 const FIRST_TAB: TruckingTab = TRUCKING_TABS[0].key;
 
@@ -22,12 +24,14 @@ export const TruckingView = () => {
   const activeTab = TRUCKING_TABS.find((t) => t.key === tabParam) ?? TRUCKING_TABS[0];
   const [helpOpen, setHelpOpen] = useState(false);
   const { hauliers, isLoading: hauliersLoading } = useHauliers();
+  const { tariffs, isLoading: tariffsLoading } = useTariffs();
 
   const handleTabChange = (tab: TruckingTab) => {
     const params = new URLSearchParams(searchParams.toString());
-    // A tab's own filters (?status=, ?view=) do not follow the user into another tab.
+    // A tab's own filters (?status=, ?view=, ?side=) do not follow the user into another tab.
     params.delete("status");
     params.delete("view");
+    params.delete("side");
     if (tab === FIRST_TAB) params.delete("tab");
     else params.set("tab", tab);
     const qs = params.toString();
@@ -42,12 +46,15 @@ export const TruckingView = () => {
           {/* Counts only for the tabs whose phase is built. */}
           <TruckingTabs
             active={activeTab.key}
-            counts={hauliersLoading ? {} : { hauliers: hauliers.length }}
+            counts={{ ...(hauliersLoading ? {} : { hauliers: hauliers.length }), ...(tariffsLoading ? {} : { tariffs: tariffs.length }) }}
             onChange={handleTabChange}
             onHelp={() => setHelpOpen(true)}
           />
         </div>
-        {activeTab.key === "hauliers" ? <TruckingHauliersTab /> : <TruckingEmptyTab tab={activeTab} />}
+        {activeTab.key === "hauliers" && <TruckingHauliersTab />}
+        {activeTab.key === "tariffs" && <TruckingTariffsTab />}
+        {activeTab.key === "calculator" && <TruckingRateCalculatorTab />}
+        {!("live" in activeTab && activeTab.live) && <TruckingEmptyTab tab={activeTab} />}
       </div>
       <Drawer title="Read me" width={760} open={helpOpen} onClose={() => setHelpOpen(false)}>
         <TruckingReadme />

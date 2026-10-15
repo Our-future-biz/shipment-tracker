@@ -36,6 +36,10 @@ export const TERMS = {
   transportLicence: "Transport licence",
   unreliableVatPayer: "Unreliable VAT payer",
   costSplit: "Cost split",
+  tariffVersion: "Tariff version",
+  standardList: "Standard list",
+  fuelIndex: "Fuel index",
+  minimumCharge: "Minimum charge",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -125,5 +129,26 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     term: TERMS.costSplit,
     meaning: "How a haulier's price for a whole trip is shared across the consignments on it: by chargeable weight, LDM or pallet places.",
     replaces: "rozpočítání nákladů",
+  },
+  {
+    term: TERMS.tariffVersion,
+    meaning:
+      "One dated set of prices of a tariff: zones, bands, rates per service level, minimum charges and surcharges. A draft is checked and then activated from a date; the version it replaces ends the day before.",
+    replaces: "verze ceníku, platnost ceníku",
+  },
+  {
+    term: TERMS.standardList,
+    meaning: "The sell tariff for every customer without one of their own. A customer's tariff can also be a percentage off (or on top of) the Standard list.",
+    replaces: "standardní ceník, základní ceník",
+  },
+  {
+    term: TERMS.fuelIndex,
+    meaning: "The fuel surcharge percentage of each month, kept in Trucking settings; a tariff's fuel surcharge can follow it.",
+    replaces: "palivový příplatek, palivová doložka",
+  },
+  {
+    term: TERMS.minimumCharge,
+    meaning: "The lowest freight price of a zone and service level, whatever the chargeable weight.",
+    replaces: "minimální cena, minimum za zásilku",
   },
 ];

@@ -1900,13 +1900,42 @@ export namespace trucking {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.truckingFuelIndexList = this.truckingFuelIndexList.bind(this)
+            this.truckingFuelIndexSet = this.truckingFuelIndexSet.bind(this)
             this.truckingHaulierBlock = this.truckingHaulierBlock.bind(this)
             this.truckingHaulierGet = this.truckingHaulierGet.bind(this)
             this.truckingHaulierList = this.truckingHaulierList.bind(this)
             this.truckingHaulierUnblock = this.truckingHaulierUnblock.bind(this)
             this.truckingHaulierUpdate = this.truckingHaulierUpdate.bind(this)
             this.truckingSettingsGet = this.truckingSettingsGet.bind(this)
+            this.truckingRate = this.truckingRate.bind(this)
             this.truckingSettingsUpdate = this.truckingSettingsUpdate.bind(this)
+            this.truckingTariffCreate = this.truckingTariffCreate.bind(this)
+            this.truckingTariffGet = this.truckingTariffGet.bind(this)
+            this.truckingTariffList = this.truckingTariffList.bind(this)
+            this.truckingTariffUpdate = this.truckingTariffUpdate.bind(this)
+            this.truckingTariffVersionActivate = this.truckingTariffVersionActivate.bind(this)
+            this.truckingTariffVersionCreate = this.truckingTariffVersionCreate.bind(this)
+            this.truckingTariffVersionDiscard = this.truckingTariffVersionDiscard.bind(this)
+            this.truckingTariffVersionGet = this.truckingTariffVersionGet.bind(this)
+        }
+
+        /**
+         * The fuel index: one surcharge percentage per month, newest first.
+         */
+        public async truckingFuelIndexList(): Promise<controllers.TruckingFuelIndexResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/fuel-index`)
+            return await resp.json() as controllers.TruckingFuelIndexResponse
+        }
+
+        /**
+         * Sets the fuel index percentage of one month (manager).
+         */
+        public async truckingFuelIndexSet(params: controllers.TruckingFuelIndexSetRequest): Promise<controllers.TruckingFuelIndexResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/trucking/fuel-index`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingFuelIndexResponse
         }
 
         /**
@@ -1963,6 +1992,15 @@ export namespace trucking {
         }
 
         /**
+         * Prices a consignment from the tariffs: sell, buy candidates, internal and margin per service level.
+         */
+        public async truckingRate(params: interfaces.RateRequest): Promise<interfaces.RateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/rate`, JSON.stringify(params))
+            return await resp.json() as interfaces.RateResponse
+        }
+
+        /**
          * Trucking settings: service levels, vehicle types, chargeable-weight factors, margin floor and
          * the transport-order e-mail texts. Everyone signed in may read them (the defaults, version 0,
          * until a manager saves); only a manager changes them.
@@ -1977,6 +2015,84 @@ export namespace trucking {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/trucking/settings`, JSON.stringify(params))
             return await resp.json() as controllers.TruckingSettingsResponse
+        }
+
+        /**
+         * Creates a tariff (manager), without versions.
+         */
+        public async truckingTariffCreate(params: controllers.TruckingTariffCreateRequest): Promise<controllers.TruckingTariffResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/tariffs`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTariffResponse
+        }
+
+        /**
+         * One tariff with its versions, newest first.
+         */
+        public async truckingTariffGet(id: string): Promise<controllers.TruckingTariffResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/tariffs/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.TruckingTariffResponse
+        }
+
+        /**
+         * The tariffs, optionally of one side or one owner.
+         */
+        public async truckingTariffList(params: controllers.TruckingTariffListRequest): Promise<controllers.TruckingTariffListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                ownerCustomerId: params.ownerCustomerId,
+                side:            params.side === undefined ? undefined : String(params.side),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/tariffs`, undefined, {query})
+            return await resp.json() as controllers.TruckingTariffListResponse
+        }
+
+        /**
+         * Renames a tariff or changes its discount or zone rule (manager).
+         */
+        public async truckingTariffUpdate(id: string, params: controllers.TruckingTariffUpdateRequest): Promise<controllers.TruckingTariffResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/trucking/tariffs/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTariffResponse
+        }
+
+        /**
+         * Activates a version from a date (manager); refused while its findings hold errors.
+         */
+        public async truckingTariffVersionActivate(id: string, params: controllers.TruckingTariffVersionActivateRequest): Promise<controllers.TruckingTariffVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/tariff-versions/${encodeURIComponent(id)}/activate`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTariffVersionResponse
+        }
+
+        /**
+         * Saves a new draft version of a tariff (manager), with its validation findings.
+         */
+        public async truckingTariffVersionCreate(id: string, params: controllers.TruckingTariffVersionCreateRequest): Promise<controllers.TruckingTariffVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/tariffs/${encodeURIComponent(id)}/versions`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTariffVersionResponse
+        }
+
+        /**
+         * Discards a draft version (manager).
+         */
+        public async truckingTariffVersionDiscard(id: string): Promise<controllers.TruckingTariffVersionDiscardResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/tariff-versions/${encodeURIComponent(id)}/discard`)
+            return await resp.json() as controllers.TruckingTariffVersionDiscardResponse
+        }
+
+        /**
+         * One tariff version with its content and validation findings.
+         */
+        public async truckingTariffVersionGet(id: string): Promise<controllers.TruckingTariffVersionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/tariff-versions/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.TruckingTariffVersionResponse
         }
     }
 }
@@ -5765,6 +5881,22 @@ export namespace controllers {
         terms: interfaces.TermsConditionItem
     }
 
+    export interface TruckingFuelIndexResponse {
+        months: interfaces.FuelIndexMonth[]
+    }
+
+    export interface TruckingFuelIndexSetRequest {
+        /**
+         * YYYY-MM
+         */
+        month: string
+
+        /**
+         * 0..100
+         */
+        percent: number
+    }
+
     export interface TruckingHaulierBlockRequest {
         /**
          * Why (3 to 500 characters)
@@ -5862,6 +5994,62 @@ export namespace controllers {
          * The version read (0 when none is saved yet); a save on top of a newer one is refused with 409.
          */
         version: number
+    }
+
+    export interface TruckingTariffCreateRequest {
+        side: interfaces.TariffSide
+        scope: interfaces.TariffScope
+        mode: interfaces.TariffMode
+        name: string
+        /**
+         * Haulier on BUY, customer on SELL (null = the Standard list), null on INTERNAL
+         */
+        ownerCustomerId: string | null
+
+        currency: "CZK" | "EUR"
+        zoneBy: interfaces.ZoneBy
+        /**
+         * DISCOUNT mode only; negative = uplift
+         */
+        discountPercent: number | null
+    }
+
+    export interface TruckingTariffListRequest {
+        side?: interfaces.TariffSide
+        ownerCustomerId?: string
+    }
+
+    export interface TruckingTariffListResponse {
+        tariffs: interfaces.TariffListItem[]
+    }
+
+    export interface TruckingTariffResponse {
+        tariff: interfaces.TariffDetail
+    }
+
+    export interface TruckingTariffUpdateRequest {
+        name?: string
+        discountPercent?: number | null
+        zoneBy?: interfaces.ZoneBy
+    }
+
+    export interface TruckingTariffVersionActivateRequest {
+        /**
+         * YYYY-MM-DD
+         */
+        validFrom: string
+    }
+
+    export interface TruckingTariffVersionCreateRequest {
+        input: interfaces.TariffVersionInput
+    }
+
+    export interface TruckingTariffVersionDiscardResponse {
+        ok: boolean
+    }
+
+    export interface TruckingTariffVersionResponse {
+        version: interfaces.TariffVersionDetail
     }
 
     export interface UnlinkMasterJobResponse {
@@ -9473,6 +9661,302 @@ export namespace interfaces {
 
         emailBody: string
     }
+
+    export type BandBasis = "KG" | "PALLET" | "LDM" | "TRIP"
+
+    export interface FuelIndexMonth {
+        /**
+         * YYYY-MM
+         */
+        month: string
+
+        percent: number
+    }
+
+    export interface PriceLine {
+        code: string
+        label: string
+        qty: number
+        unit: string
+        unitPrice: number
+        amount: number
+    }
+
+    export interface PricedSide {
+        tariffId: string
+        tariffName: string
+        tariffVersionId: string
+        versionNo: number
+        ownerCustomerId: string | null
+        ownerName: string | null
+        currency: "CZK" | "EUR"
+        zoneCode: string
+        zoneLabel: string
+        bandLabel: string
+        chargeable: {
+            basis: BandBasis
+            quantity: number
+            explanation: string
+        }
+        lines: PriceLine[]
+        total: number
+        totalCzk: number
+        /**
+         * null when the currency is CZK
+         */
+        fx: {
+            rate: number
+            date: string
+        } | null
+
+        /**
+         * BUY only
+         */
+        preferred: boolean
+    }
+
+    export type PriceType = "FLAT" | "PER_UNIT" | "PER_100KG"
+
+    export interface RateExtras {
+        adr: boolean
+        tailLift: boolean
+        avizace: boolean
+        timeWindow: boolean
+        b2c: boolean
+        nonStackable: boolean
+        waitingHours: number
+        declaredValueCzk: number | null
+    }
+
+    export interface RateLevelResult {
+        serviceLevel: ServiceLevelCode
+        label: string
+        promisedDate: string | null
+        promisedTime: string | null
+        promiseNote: string
+        sell: PricedSide | Unpriced
+        /**
+         * Sorted: preferred first, then cheapest
+         */
+        buy: PricedSide[]
+
+        excluded: {
+            customerId: string
+            name: string
+            issues: HaulierIssue[]
+        }[]
+        /**
+         * null when not requested
+         */
+        internal: PricedSide | Unpriced | null
+
+        marginCzk: number | null
+        marginPercent: number | null
+        belowFloor: boolean
+    }
+
+    export interface RateRequest {
+        fromPostcode: string
+        toPostcode: string
+        /**
+         * YYYY-MM-DD
+         */
+        pickupDate: string
+
+        /**
+         * "HH:MM" Prague; null = before the cut-off
+         */
+        pickupTime: string | null
+
+        scope: TariffScope
+        pieces: number
+        palletPlaces: number
+        ldm: number
+        weightKg: number
+        cbm: number
+        extras: RateExtras
+        /**
+         * SELL: the customer's tariff, else the Standard list
+         */
+        customerId: string | null
+
+        /**
+         * null = all active levels
+         */
+        serviceLevels: ServiceLevelCode[] | null
+
+        includeBuy: boolean
+        includeInternal: boolean
+    }
+
+    export interface RateResponse {
+        request: RateRequest
+        ratedAt: string
+        results: RateLevelResult[]
+    }
+
+    export type SurchargeCalc = "PCT" | "FLAT" | "PER_KG" | "PER_PALLET" | "PER_HOUR" | "PCT_OF_VALUE" | "FUEL_INDEX"
+
+    export type SurchargeCode = "FUEL" | "TOLL" | "ADR" | "TAIL_LIFT" | "AVIZACE" | "TIME_WINDOW" | "B2C" | "WAITING_TIME" | "REDELIVERY" | "INSURANCE" | "REMOTE_AREA" | "NON_STACKABLE"
+
+    export interface TariffBand {
+        id: string
+        basis: BandBasis
+        fromExcl: number
+        /**
+         * null = open top band
+         */
+        toIncl: number | null
+    }
+
+    export interface TariffDetail extends TariffListItem {
+        /**
+         * Newest first
+         */
+        versions: TariffVersionSummary[]
+    }
+
+    export interface TariffFactors {
+        kgPerLdm: number
+        kgPerCbm: number
+        kgPerPalletPlace: number
+    }
+
+    export interface TariffListItem {
+        id: string
+        side: TariffSide
+        scope: TariffScope
+        mode: TariffMode
+        name: string
+        ownerCustomerId: string | null
+        /**
+         * null owner on SELL = "Standard"
+         */
+        ownerName: string | null
+
+        currency: "CZK" | "EUR"
+        zoneBy: ZoneBy
+        /**
+         * DISCOUNT mode only
+         */
+        discountPercent: number | null
+
+        activeVersion: TariffVersionSummary | null
+        /**
+         * Earliest SCHEDULED
+         */
+        nextVersion: TariffVersionSummary | null
+
+        draftCount: number
+    }
+
+    export interface TariffMinCharge {
+        serviceLevel: ServiceLevelCode
+        zoneCode: string
+        amount: number
+    }
+
+    export type TariffMode = "MATRIX" | "DISCOUNT"
+
+    export interface TariffRate {
+        serviceLevel: ServiceLevelCode
+        zoneCode: string
+        bandId: string
+        amount: number
+        priceType: PriceType
+    }
+
+    export interface TariffRounding {
+        weightStepKg: number
+        moneyStep: number
+    }
+
+    export type TariffScope = "LTL" | "FTL" | "LINEHAUL"
+
+    export type TariffSide = "BUY" | "SELL" | "INTERNAL"
+
+    export interface TariffSurcharge {
+        code: SurchargeCode
+        calc: SurchargeCalc
+        /**
+         * PCT: 12.5 = 12.5 %; FUEL_INDEX: ignored (month % from the fuel index)
+         */
+        value: number
+
+        /**
+         * Minimum amount of this surcharge
+         */
+        min: number | null
+
+        /**
+         * PCT/FUEL_INDEX base: false = freight only
+         */
+        onBasePlusSurcharges: boolean
+    }
+
+    export interface TariffVersionDetail extends TariffVersionSummary {
+        tariffId: string
+        input: TariffVersionInput
+        findings: ValidationFinding[]
+    }
+
+    export interface TariffVersionInput {
+        /**
+         * YYYY-MM-DD
+         */
+        validFrom: string
+
+        validTo: string | null
+        factors: TariffFactors
+        rounding: TariffRounding
+        zones: TariffZone[]
+        bands: TariffBand[]
+        rates: TariffRate[]
+        minCharges: TariffMinCharge[]
+        surcharges: TariffSurcharge[]
+        notes: string
+    }
+
+    export type TariffVersionStatus = "DRAFT" | "SCHEDULED" | "ACTIVE" | "EXPIRED" | "SUPERSEDED"
+
+    export interface TariffVersionSummary {
+        id: string
+        versionNo: number
+        status: TariffVersionStatus
+        validFrom: string
+        validTo: string | null
+        createdAt: string
+        createdBy: string | null
+        activatedAt: string | null
+        activatedBy: string | null
+        serviceLevels: ServiceLevelCode[]
+        zoneCount: number
+        warningCount: number
+    }
+
+    export interface TariffZone {
+        code: string
+        label: string
+        /**
+         * CZ 5 digits, from <= to
+         */
+        postcodeFrom: string
+
+        postcodeTo: string
+        remote: boolean
+    }
+
+    export interface Unpriced {
+        reason: string
+    }
+
+    export interface ValidationFinding {
+        severity: "error" | "warning"
+        message: string
+        where: string
+    }
+
+    export type ZoneBy = "DESTINATION" | "ORIGIN"
 
     export interface TruckingHaulierResponse {
         haulier: HaulierDetail

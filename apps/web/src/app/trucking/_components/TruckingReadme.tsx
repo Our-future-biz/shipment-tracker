@@ -68,11 +68,67 @@ export const TruckingReadme = () => (
       </p>
     </Part>
 
+    <Part title="Tariffs">
+      <p>
+        A tariff is a price list on one of three sides: <b>Buy</b> (what a {TERMS.haulier.toLowerCase()} charges us, one tariff per haulier and scope),{" "}
+        <b>Sell</b> (what we charge — the <b>{TERMS.standardList}</b> for everyone, or a customer&apos;s own) and <b>Internal</b> (what Trucking charges Operations).
+        Each has a scope ({TERMS.ltl}, {TERMS.ftl} or {TERMS.lineHaul.toLowerCase()}) and a currency, CZK or EUR.
+      </p>
+      <p>
+        A customer&apos;s sell tariff is either its own price matrix or a <b>discount</b> on the {TERMS.standardList}: &quot;−5 % on Standard&quot; prices
+        with the Standard version active on the day and takes 5 % off; a negative discount is an uplift.
+      </p>
+      <p>
+        <b>Versions.</b> The prices themselves sit in <b>{TERMS.tariffVersion.toLowerCase()}s</b>. A new version is a <b>Draft</b>; the server checks it on
+        saving and lists errors (overlapping postcode ranges, a price for an unknown zone, gaps between bands…) and warnings (a price that falls as weight rises,
+        a slower service dearer than a faster one, changes over 15 % against the active version). A manager activates a draft without errors from a date: it is{" "}
+        <b>Scheduled</b> until then and <b>Active</b> from it, and the version it replaces ends the day before — so exactly one version prices on any day.
+        Later it becomes <b>Expired</b>, or <b>Superseded</b> if replaced before it started. A draft that is not wanted is discarded. Uploading versions from
+        Excel arrives in the next step.
+      </p>
+      <p>
+        <b>Zones.</b> Each version splits the Czech postcodes (PSČ, e.g. 110 00 – 199 99) into zones. The zone comes from the delivery postcode, or from the
+        pick-up postcode for tariffs set that way (pick-up runs). The narrowest range containing the postcode wins; a postcode in no zone is not priced.
+      </p>
+      <p>
+        <b>Rate sheets.</b> Per service level a version has a matrix: bands down (by weight, pallet places, LDM, or one price per trip), zones across, and a{" "}
+        <b>{TERMS.minimumCharge.toLowerCase()}</b> per zone. Surcharges follow: fuel (fixed % or the month&apos;s <b>{TERMS.fuelIndex.toLowerCase()}</b>), toll,
+        and the extras ({TERMS.adr}, {TERMS.tailLift.toLowerCase()}, {TERMS.avizace}, time window, {TERMS.b2cDelivery}, waiting time, insurance, remote area,
+        non-stackable) only when the consignment needs them.
+      </p>
+    </Part>
+
+    <Part title="Rate calculator">
+      <p>
+        Enter the postcodes, the pick-up date (and time, if after the cut-off matters), what is carried and the extras; it prices every active service level
+        from the tariffs. Nothing is stored. Sell uses the customer&apos;s tariff when one is chosen, otherwise the {TERMS.standardList}.
+      </p>
+      <ul>
+        <li>
+          <b>{TERMS.chargeableWeight}</b> is the highest of the real weight, LDM × kg per LDM, m³ × kg per m³ and pallet places × kg per pallet place (the
+          factors of the tariff version), rounded up to its weight step; the result says which measure won. Tariffs priced by pallet places, LDM or per trip
+          use those directly.
+        </li>
+        <li>
+          <b>Delivered</b> is the promised date: the start day is the pick-up date, or the next working day when the pick-up is after the level&apos;s{" "}
+          {TERMS.cutoff.toLowerCase()}; +1 … +4 add that many working days (weekends and Czech public holidays do not count); Express same day is that day, by
+          10:00 / 12:00 the next working day; Express fixed date is agreed per order. For {TERMS.ltl} the real clock starts at the warehouse gate-in — the
+          calculator assumes it on the start day.
+        </li>
+        <li>
+          <b>Buy</b> lists every haulier with an active buy tariff for the lane, preferred lanes first, then cheapest; blocked hauliers are shown apart with
+          the reason. <b>Margin</b> is sell minus the best buy in CZK; below the {TERMS.marginFloor.toLowerCase()} it is flagged.
+        </li>
+        <li>Amounts in EUR are also shown in CZK at the ČNB rate of the day. A level that cannot be priced says why, in plain words.</li>
+      </ul>
+    </Part>
+
     <Part title="Trucking settings">
       <p>
         Behind the gear: the {TERMS.serviceLevel.toLowerCase()}s with their order <b>{TERMS.cutoff.toLowerCase()}</b>, the {TERMS.vehicleType.toLowerCase()}s, the
-        factors that turn LDM, volume and pallet places into {TERMS.chargeableWeight.toLowerCase()}, the <b>{TERMS.marginFloor.toLowerCase()}</b> and the text of the{" "}
-        {TERMS.transportOrder.toLowerCase()} e-mail. Everyone can read them; a manager changes them. Two people saving at once cannot overwrite each other: the
+        factors that turn LDM, volume and pallet places into {TERMS.chargeableWeight.toLowerCase()} (the defaults of new tariff versions), the{" "}
+        <b>{TERMS.marginFloor.toLowerCase()}</b>, the text of the {TERMS.transportOrder.toLowerCase()} e-mail and the monthly{" "}
+        <b>{TERMS.fuelIndex.toLowerCase()}</b>. Everyone can read them; a manager changes them. Two people saving at once cannot overwrite each other: the
         second is asked to reload and make the change again.
       </p>
     </Part>
