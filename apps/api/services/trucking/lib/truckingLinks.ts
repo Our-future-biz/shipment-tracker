@@ -18,6 +18,9 @@ export interface CostLinePush {
   currency: string;
   vendor: string;
   haulierId: string | null;
+  /** Buying lines known for real at once (the internal line): the real amount per unit and the document number */
+  realAmount?: number;
+  invoiceNumber?: string;
 }
 
 /** The payload of a "costs" outbox row: the whole set of one sourceRef (empty lists remove it). */
@@ -103,4 +106,53 @@ export function tripJobCosts(
 /** A partner's delivery of a consignment (buying side); none when it has no price. */
 export function partnerLegCosts(leg: { id: string; buy: PriceSnapshot | null }, consignmentRef: string, partner: { id: string; name: string }): CostsPayload {
   return { sourceRef: legSourceRef(leg.id), buying: leg.buy ? lines(`${consignmentRef} partner delivery`, leg.buy, partner) : [], selling: [] };
+}
+
+// ---- Phase 6: internal billing and delivery exceptions -------------------------------------------
+
+/** The one internal buying line of a consignment billed to another department / a charged exception's selling line. */
+export const internalSourceRef = (consignmentId: string) => `trucking:internal:${consignmentId}`;
+export const exceptionSourceRef = (exceptionId: string) => `trucking:exception:${exceptionId}`;
+
+/** The vendor of the internal line in the job's Costs. */
+export const INTERNAL_VENDOR = "Trucking (internal)";
+
+/**
+ * What the job pays Trucking for an internal consignment: one buying line in CZK, the estimate and
+ * the real cost both the charge (Trucking prices it itself), with the internal statement number(s)
+ * once the month is closed; none when nothing is charged (no rows yet).
+ */
+export function internalCosts(c: { id: string; ref: string }, charged: { amount: number; statementNumbers: string[] } | null): CostsPayload {
+  const sourceRef = internalSourceRef(c.id);
+  if (!charged) return noCosts(sourceRef);
+  const line: CostLinePush = {
+    chargeCode: "road_freight",
+    description: `${c.ref} · Internal road freight (Trucking)`,
+    qty: 1,
+    unit: "consignment",
+    unitPrice: charged.amount,
+    amount: charged.amount,
+    currency: "CZK",
+    vendor: INTERNAL_VENDOR,
+    haulierId: null,
+    realAmount: charged.amount,
+    invoiceNumber: charged.statementNumbers.join(", "),
+  };
+  return { sourceRef, buying: [line], selling: [] };
+}
+
+/** A delivery exception charged to the customer: one selling line, "TCZ… · Waiting time 45 min". */
+export function exceptionCosts(e: { id: string }, consignmentRef: string, text: string, amount: number, currency: "CZK" | "EUR"): CostsPayload {
+  const line: CostLinePush = {
+    chargeCode: "road_freight",
+    description: `${consignmentRef} · ${text}`,
+    qty: 1,
+    unit: "",
+    unitPrice: amount,
+    amount,
+    currency,
+    vendor: "",
+    haulierId: null,
+  };
+  return { sourceRef: exceptionSourceRef(e.id), buying: [], selling: [line] };
 }

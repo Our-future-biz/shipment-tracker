@@ -486,6 +486,12 @@ export interface TruckingCostLine {
   /** Buying lines: the haulier's name and Customer Database id */
   vendor: string;
   haulierId: string | null;
+  /**
+   * Buying lines whose real cost is known when pushed (Trucking's internal line): the real amount
+   * per unit and the document number (the internal statement); left out = the real side stays open.
+   */
+  realAmount?: number;
+  invoiceNumber?: string;
 }
 
 /** What a Trucking push did to Costs Breakdown. */

@@ -109,3 +109,18 @@ describe("our warehouse (hub) in the settings", () => {
     expect(cleanSettings(s).hub).toEqual({ name: "Sklad", street: "", postcode: "25001", city: "Brandýs", country: "CZ" });
   });
 });
+
+describe("free waiting time (Phase 6)", () => {
+  it("defaults to LTL 30 / FTL 120 minutes, also for a row saved before it existed; whole minutes 0..1440", () => {
+    expect(DEFAULT_SETTINGS.waitingFreeTime).toEqual({ ltlMinutes: 30, ftlMinutes: 120 });
+    const { waitingFreeTime: _w, ...older } = DEFAULT_SETTINGS;
+    expect(readSettings(older as TruckingSettingsInput).waitingFreeTime).toEqual({ ltlMinutes: 30, ftlMinutes: 120 });
+    const s = structuredClone(DEFAULT_SETTINGS);
+    s.waitingFreeTime = { ltlMinutes: 45, ftlMinutes: 90 };
+    expect(cleanSettings(s).waitingFreeTime).toEqual({ ltlMinutes: 45, ftlMinutes: 90 });
+    s.waitingFreeTime = { ltlMinutes: 12.5, ftlMinutes: 90 };
+    expect(() => cleanSettings(s)).toThrow(/whole minutes/);
+    s.waitingFreeTime = { ltlMinutes: 30, ftlMinutes: 2000 };
+    expect(() => cleanSettings(s)).toThrow(/FTL/);
+  });
+});

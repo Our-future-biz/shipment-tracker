@@ -615,4 +615,6 @@ export interface RoadJobBasics {
   freightMode: string;
   pickupDate: string | null;
   plannedDeliveryDate: string | null;
+  /** The owning department ("Road Department", …); Trucking bills other departments internally */
+  department: string;
 }

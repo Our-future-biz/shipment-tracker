@@ -8,6 +8,7 @@ import type {
   ServiceLevelSetting,
   TransportOrderTexts,
   VehicleTypeSetting,
+  WaitingFreeTime,
 } from "../interfaces/interfaces";
 
 // Trucking settings: one row per company, each part a jsonb document. Everyone may read them;
@@ -25,6 +26,8 @@ export const truckingSettingsTable = pgTable(
     transportOrder: jsonb("transport_order").$type<TransportOrderTexts>().notNull(),
     /** Our warehouse (Phase 5); empty until a manager sets it */
     hub: jsonb("hub").$type<HubAddress>().notNull().default({ name: "", street: "", postcode: "", city: "", country: "CZ" }),
+    /** Free waiting time before the WAITING_TIME surcharge counts (Phase 6) */
+    waitingFreeTime: jsonb("waiting_free_time").$type<WaitingFreeTime>().notNull().default({ ltlMinutes: 30, ftlMinutes: 120 }),
     version: integer("version").notNull().default(1),
     /** Display name of who saved last */
     updatedBy: text("updated_by").notNull().default(""),

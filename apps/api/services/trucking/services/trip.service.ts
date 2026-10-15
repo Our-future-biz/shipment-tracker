@@ -14,6 +14,7 @@ import { isUuid } from "../../../lib/uuid";
 import { cleanPrice, cleanReason, consignmentStatus, marginOf, normalisePlate, truckingRefYear } from "../lib/consignmentRules";
 import { eventItem, factsOf, tripDetail, tripListItem, type HaulierAssessment, type TripLoadView } from "../lib/consignmentView";
 import { capacityOf, tripFill } from "../lib/ltlRules";
+import { avizaceWarnings } from "../lib/avizaceRules";
 import { buyCosts, noCosts, plannedUpdate, tripSourceRef } from "../lib/truckingLinks";
 import { isManager } from "../lib/roles";
 import { userName } from "../lib/users";
@@ -88,7 +89,7 @@ class TripService {
       const c = await consignmentRepository.findByTrip(companyId, trip.id);
       const capacity = capacityOf(settings.vehicleTypes.find((v) => v.code === trip.vehicleTypeCode) ?? null);
       consignments = c ? [c] : [];
-      load = { legs: [], capacity, fill: tripFill(c ? [c.load] : [], capacity), warnings: [] };
+      load = { legs: [], capacity, fill: tripFill(c ? [c.load] : [], capacity), warnings: c && !trip.cancelledAt ? avizaceWarnings([c]) : [] };
     } else {
       const view = (await ltlTrips.loads(companyId, [trip], settings)).get(trip.id)!;
       consignments = view.consignments;
@@ -112,10 +113,12 @@ class TripService {
       ofTrip.set(tripId, view.consignments);
       loadOf.set(tripId, view);
     }
-    // An FTL trip's fill is its consignment's load against the vehicle type, as on the trip page.
+    // An FTL trip's fill is its consignment's load against the vehicle type, as on the trip page;
+    // it warns while its delivery needs an avizace not recorded.
     const ftlLoad = (t: TruckingTripRecord): Pick<TripLoadView, "fill" | "warnings"> => {
       const capacity = capacityOf(settings.vehicleTypes.find((v) => v.code === t.vehicleTypeCode) ?? null);
-      return { fill: tripFill(consignments.filter((c) => c.tripId === t.id).map((c) => c.load), capacity), warnings: [] };
+      const mine = consignments.filter((c) => c.tripId === t.id);
+      return { fill: tripFill(mine.map((c) => c.load), capacity), warnings: t.cancelledAt ? [] : avizaceWarnings(mine) };
     };
     const search = (q.search ?? "").trim().toLowerCase();
     return trips
@@ -208,10 +211,9 @@ class TripService {
           facts: { suggestedHaulierId: suggested, haulierCustomerId: haulierId, changedFromSuggestion: changed, candidates: candidates.length },
         },
       });
-      const owes: TruckingOutboxInput[] = [
-        owed(actor, c, "planned", plannedUpdate({ pickupDate: c.pickupDate, promisedDate, tractorPlate: "" })),
-        owed(actor, c, "costs", buyCosts(row)),
-      ];
+      const owes: TruckingOutboxInput[] = [owed(actor, c, "planned", plannedUpdate({ pickupDate: c.pickupDate, promisedDate, tractorPlate: "" }))];
+      // A job of another department is billed internally: the haulier's cost stays in Trucking's ledger.
+      if (!c.internal) owes.push(owed(actor, c, "costs", buyCosts(row)));
       await truckingOutboxRepository.enqueue(tx, companyId, owes);
       return row;
     });

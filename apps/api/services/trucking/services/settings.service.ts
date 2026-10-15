@@ -27,18 +27,20 @@ class SettingsService {
   }
 
   // Manager only (the controller checks the role too). The whole settings are sent; refused when
-  // someone saved since the client read them (`version`). A save without the hub keeps the saved one.
+  // someone saved since the client read them (`version`). A save without the hub or the free
+  // waiting time keeps the saved one.
   async update(
     companyId: string,
     userId: string,
     role: string,
-    input: Omit<TruckingSettingsInput, "hub"> & { hub?: TruckingSettingsInput["hub"] },
+    input: Omit<TruckingSettingsInput, "hub" | "waitingFreeTime"> & { hub?: TruckingSettingsInput["hub"]; waitingFreeTime?: TruckingSettingsInput["waitingFreeTime"] },
     version: number,
   ): Promise<TruckingSettings> {
     if (!isManager(role)) throw APIError.permissionDenied("Only a manager can change the trucking settings");
     if (!Number.isInteger(version) || version < 0) throw APIError.invalidArgument("version must be the version you read (0 when none is saved yet)");
     const row = await settingsRepository.find(companyId);
-    const next = cleanSettings({ ...input, hub: input.hub ?? readSettings(row).hub });
+    const stored = readSettings(row);
+    const next = cleanSettings({ ...input, hub: input.hub ?? stored.hub, waitingFreeTime: input.waitingFreeTime ?? stored.waitingFreeTime });
     const cur = toSettings(row);
     if (cur.version !== version) throw APIError.aborted(SETTINGS_CONFLICT);
     const changes = settingsChanges(readSettings(row), next);

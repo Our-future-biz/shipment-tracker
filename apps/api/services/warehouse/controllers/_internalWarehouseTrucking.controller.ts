@@ -1,6 +1,7 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { truckingExpectService } from "../services/truckingExpect.service";
+import { truckingExceptionsService, type ShipmentException } from "../services/truckingExceptions.service";
 
 // Internal API of the warehouse for Trucking (trips through our warehouse, the hub). Called as the
 // user who planned the trip; never stamps anything — Warehouse keeps owning the gate. Each call is
@@ -83,5 +84,21 @@ export const _internalWarehouseCancelExpected = api(
   async (req: CancelExpectedRequest): Promise<OkResponse> => {
     const { companyID, userID } = getAuthData()!;
     return truckingExpectService.cancelExpected(companyID, userID, req);
+  },
+);
+
+interface ExceptionsForShipmentsRequest {
+  shipmentIds: string[];
+}
+
+interface ExceptionsForShipmentsResponse {
+  exceptions: ShipmentException[];
+}
+
+/** Read-only: the OS&D exceptions (Damaged / Short / Over) of the shipments' positions, for Trucking's consignment page. */
+export const _internalWarehouseExceptionsForShipments = api(
+  { expose: false, auth: true, method: "POST", path: "/internal/warehouse/exceptions-for-shipments" },
+  async ({ shipmentIds }: ExceptionsForShipmentsRequest): Promise<ExceptionsForShipmentsResponse> => {
+    return { exceptions: await truckingExceptionsService.forShipments(getAuthData()!.companyID, shipmentIds) };
   },
 );

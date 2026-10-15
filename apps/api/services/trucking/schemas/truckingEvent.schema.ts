@@ -44,7 +44,16 @@ export type TruckingEventKind =
   | "gate_out"
   | "gate_voided"
   | "manifest_printed"
-  | "labels_printed";
+  | "labels_printed"
+  // Phase 6: avizace, delivery exceptions and internal billing
+  | "avizace_recorded"
+  | "exception_created"
+  | "exception_decided"
+  | "exception_closed"
+  | "exception_photo_added"
+  | "internal_charged"
+  | "internal_reversed"
+  | "internal_month_closed";
 
 /** One changed field: what it was and what it became. */
 export interface TruckingFieldChange {
