@@ -36,7 +36,7 @@ interface HaulierCompanyItem {
   city: string;
 }
 
-const toProfile = ({ profile: r, lanes }: StoredProfile): HaulierProfile => ({
+export const toProfile = ({ profile: r, lanes }: StoredProfile): HaulierProfile => ({
   customerId: r.customerId,
   insurer: r.insurer,
   insurancePolicyNo: r.insurancePolicyNo,

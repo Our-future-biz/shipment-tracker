@@ -1,4 +1,4 @@
-import { and, asc, count, eq, isNull, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, notInArray, sql } from "drizzle-orm";
 import { db, type Tx } from "../db/db";
 import {
   truckingHaulierProfileTable,
@@ -40,6 +40,22 @@ class HaulierRepository extends TenantRepository<typeof truckingHaulierProfileTa
       .where(and(eq(l.companyId, companyId), eq(l.profileId, profile.id), isNull(l.deletedAt)))
       .orderBy(asc(l.createdAt), asc(l.id));
     return { profile, lanes };
+  }
+
+  /** The live profiles of these hauliers, each with its live lanes (hauliers without a profile are left out). */
+  async findMany(companyId: string, customerIds: string[]): Promise<StoredProfile[]> {
+    if (!customerIds.length) return [];
+    const profiles = await db
+      .select()
+      .from(p)
+      .where(and(eq(p.companyId, companyId), inArray(p.customerId, customerIds), isNull(p.deletedAt)));
+    if (!profiles.length) return [];
+    const lanes = await db
+      .select()
+      .from(l)
+      .where(and(eq(l.companyId, companyId), inArray(l.profileId, profiles.map((x) => x.id)), isNull(l.deletedAt)))
+      .orderBy(asc(l.createdAt), asc(l.id));
+    return profiles.map((profile) => ({ profile, lanes: lanes.filter((x) => x.profileId === profile.id) }));
   }
 
   /** Every live profile of the company with its number of live lanes. */
