@@ -363,6 +363,30 @@ describe("cancel and margin approval", () => {
   });
 });
 
+describe("buy: real once a haulier invoice is approved", () => {
+  it("shows the estimate until an approved invoice covers the trip, then its real cost and number (as the Reports count it)", async () => {
+    const { c, trip } = await seed({}, { trip: true, sent: true });
+    expect(await consignmentService.get(user, c.id)).toMatchObject({ buyCzk: 9000, buyReal: false, buyInvoiceNumbers: [], marginCzk: 3000 });
+    store.realCosts = [{ legId: "leg-1", consignmentId: c.id, tripId: trip!.id, realCzk: 7500.5, invoiceNumber: "TEST-PINV-001" }];
+    const real = { buyCzk: 7500.5, buyReal: true, buyInvoiceNumbers: ["TEST-PINV-001"], marginCzk: 4499.5 };
+    expect(await consignmentService.get(user, c.id)).toMatchObject(real);
+    expect((await consignmentService.list(user, {})).consignments[0]).toMatchObject(real);
+  });
+
+  it("ignores an invoice of a trip the consignment is no longer on", async () => {
+    const { c } = await seed({}, { trip: true, sent: true });
+    store.realCosts = [{ legId: "leg-1", consignmentId: c.id, tripId: "old-trip", realCzk: 100, invoiceNumber: "TEST-PINV-002" }];
+    expect(await consignmentService.get(user, c.id)).toMatchObject({ buyCzk: 9000, buyReal: false, buyInvoiceNumbers: [] });
+  });
+
+  it("judges a margin approval with the real cost", async () => {
+    const { c, trip } = await seed({}, { trip: true, sent: true });
+    store.realCosts = [{ legId: "leg-1", consignmentId: c.id, tripId: trip!.id, realCzk: 11900, invoiceNumber: "TEST-PINV-003" }];
+    const d = await consignmentService.approveMargin(manager, c.id, "Haulier charged waiting time");
+    expect(d).toMatchObject({ buyCzk: 11900, belowFloor: true, marginApproved: true, marginApproval: { marginCzk: 100 } });
+  });
+});
+
 describe("update", () => {
   const fields = (over: Record<string, unknown> = {}) => ({ ...input(), price: { source: "TARIFF" as const }, version: 1, reprice: false, ...over });
 

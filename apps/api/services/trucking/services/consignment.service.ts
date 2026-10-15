@@ -262,12 +262,13 @@ class ConsignmentService {
 
   async get(actor: Actor, id: string): Promise<ConsignmentDetail> {
     const { c, trip } = await this.load(actor.companyID, id);
-    const [settings, events, ltl, exceptions, warehouseExceptions] = await Promise.all([
+    const [settings, events, ltl, exceptions, warehouseExceptions, real] = await Promise.all([
       settingsService.get(actor.companyID),
       listEvents(actor.companyID, { consignmentId: c.id }),
       c.scope === "LTL" ? this.ltlContext(actor.companyID, [c.id]) : Promise.resolve(null),
       exceptionRepository.forConsignments(actor.companyID, [c.id]),
       c.scope === "LTL" ? warehouseExceptionsOf(c.shipmentId) : Promise.resolve([]),
+      consignmentRepository.legRealCosts(actor.companyID, [c.id]),
     ]);
     const legs = ltl?.legs ?? [];
     const tripRefs = new Map([...(ltl?.tripOf.values() ?? [])].map((t) => [t.id, t.ref]));
@@ -284,6 +285,7 @@ class ConsignmentService {
       tripRefs,
       exceptions.map(exceptionItem),
       warehouseExceptions,
+      real,
     );
   }
 
@@ -292,11 +294,12 @@ class ConsignmentService {
     const rows = await consignmentRepository.list(actor.companyID, { status: q.status, shipmentId: q.shipmentId });
     const tripIds = [...new Set(rows.map((r) => r.tripId).filter((x): x is string => !!x))];
     const day = today();
-    const [trips, settings, ltl, openExceptions, extraHolidays] = await Promise.all([
+    const [trips, settings, ltl, openExceptions, real, extraHolidays] = await Promise.all([
       tripRepository.findMany(actor.companyID, tripIds),
       settingsService.get(actor.companyID),
       this.ltlContext(actor.companyID, rows.filter((r) => r.scope === "LTL").map((r) => r.id)),
       exceptionRepository.openCounts(actor.companyID, rows.map((r) => r.id)),
+      consignmentRepository.legRealCosts(actor.companyID, rows.map((r) => r.id)),
       // Company holidays of the last weeks, for "POD missing" in working days.
       rows.some((r) => r.deliveredAt && !r.podReceivedAt)
         ? czHolidays(actor.companyID, addDays(day, -HOLIDAY_WINDOW_DAYS), day)
@@ -311,7 +314,7 @@ class ConsignmentService {
       avizacePending: new Set(rows.filter(avizacePending).map((c) => c.id)),
     };
     const items = rows
-      .map((c) => listItem(c, tripFor(c), settings.marginFloor, day, now, ltl.legs, openExceptions.get(c.id) ?? 0))
+      .map((c) => listItem(c, tripFor(c), settings.marginFloor, day, now, ltl.legs, openExceptions.get(c.id) ?? 0, real))
       .filter(
         (i) =>
           !search ||
@@ -763,9 +766,12 @@ class ConsignmentService {
     const { c, trip } = await this.load(actor.companyID, id);
     if (c.cancelledAt) throw APIError.failedPrecondition("The consignment is cancelled");
     const { marginFloor } = await settingsService.get(actor.companyID);
-    // LTL: judged with its legs' shares of their trips and its partner's price.
-    const legs = c.scope === "LTL" ? (await this.ltlContext(actor.companyID, [c.id])).legs : [];
-    const m = moneyOf(c, trip, marginFloor, legs);
+    // LTL: judged with its legs' shares of their trips and its partner's price; real where invoiced and approved.
+    const [legs, real] = await Promise.all([
+      c.scope === "LTL" ? this.ltlContext(actor.companyID, [c.id]).then((x) => x.legs) : Promise.resolve([]),
+      consignmentRepository.legRealCosts(actor.companyID, [c.id]),
+    ]);
+    const m = moneyOf(c, trip, marginFloor, legs, real);
     if (!m.belowFloor) throw APIError.failedPrecondition("The margin is not below the floor");
     if (m.marginApproved) throw APIError.failedPrecondition("This margin is already approved");
     const by = await userName(actor.userID);

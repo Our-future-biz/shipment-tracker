@@ -321,6 +321,10 @@ describe("pick-up runs: legs, cost split and costs per job", () => {
     await ltlService.createTrip(user, { kind: "DELIVERY_RUN", date: "2026-10-16", haulierCustomerId: HAULIER2, vehicleTypeCode: "van", legIds: [legOf(a.id, "DELIVERY").id], price: manual(800) });
     expect(cOf(a.id).status).toBe("PLANNED");
     expect((await consignmentService.get(user, a.id)).buyCzk).toBe(3800);
+    // The delivery run's invoice is approved: that leg's real share replaces its estimate, the pick-up stays an estimate.
+    const delivery = legOf(a.id, "DELIVERY");
+    store.realCosts = [{ legId: delivery.id, consignmentId: a.id, tripId: delivery.tripId, realCzk: 700, invoiceNumber: "TEST-PINV-007" }];
+    expect(await consignmentService.get(user, a.id)).toMatchObject({ buyCzk: 3700, buyReal: false, buyInvoiceNumbers: ["TEST-PINV-007"] });
   });
 
   it("refuses legs of another kind, legs already planned, a blocked haulier and a missing hub", async () => {

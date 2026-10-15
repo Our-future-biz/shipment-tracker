@@ -1,7 +1,6 @@
 import type { Leg, LegKind, LegStatus, PlanningLeg, TripLeg } from "../interfaces/interfaces";
 import type { TruckingConsignmentRecord, TruckingLegRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
 import { deadlineOf, neededBy, type LtlFacts } from "./ltlRules";
-import { roundToStep } from "./rateEngine";
 
 // Rows → API objects for LTL legs and their trips. Pure.
 
@@ -43,17 +42,6 @@ export function ltlFactsOf(c: TruckingConsignmentRecord, legs: TruckingLegRecord
       return { kind: l.kind as LegKind, status: l.status as LegStatus, orderSent: !!trip && !trip.cancelledAt && !!trip.orderSentAt };
     }),
   };
-}
-
-/**
- * What an LTL consignment costs us so far: its legs' shares of their trips and its partner's
- * delivery price (CZK); null when no leg is priced yet (the estimate from pricing then counts).
- */
-export function ltlBuyCzk(consignmentId: string, legs: TruckingLegRecord[]): number | null {
-  const priced = ltlLegsOf(consignmentId, legs)
-    .map((l) => (l.tripId ? l.costShareCzk : (l.buy?.totalCzk ?? null)))
-    .filter((x): x is number => x !== null);
-  return priced.length ? roundToStep(priced.reduce((a, x) => a + x, 0), 0.01) : null;
 }
 
 /** Legs in the order of the trip's stops (legs missing from the order last, by consignment). */

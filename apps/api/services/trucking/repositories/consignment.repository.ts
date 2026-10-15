@@ -11,6 +11,8 @@ import {
 } from "../schemas/truckingConsignment.schema";
 import type { ConsignmentStatus, StampKind } from "../interfaces/interfaces";
 import { formatTruckingRef, MAX_REF_NUMBER } from "../lib/consignmentRules";
+import type { LegRealCost } from "../lib/haulierCost";
+import { legCostParts } from "./legCost.sql";
 
 const c = truckingConsignmentTable;
 const MAX_LIST = 1000;
@@ -147,6 +149,22 @@ class ConsignmentRepository {
       .update(truckingLegTable)
       .set({ deletedAt: now, updatedAt: now })
       .where(and(eq(truckingLegTable.companyId, companyId), eq(truckingLegTable.tripId, tripId), isNull(truckingLegTable.deletedAt)));
+  }
+
+  /** The real costs of these consignments' live legs: those an approved haulier invoice line covers (as the Reports count them). */
+  async legRealCosts(companyId: string, consignmentIds: string[]): Promise<LegRealCost[]> {
+    if (!consignmentIds.length) return [];
+    const ids = sql`SELECT jsonb_array_elements_text(${JSON.stringify(consignmentIds)}::jsonb)::uuid`;
+    const { rows } = await db.execute<Record<string, unknown>>(sql`
+      SELECT p.leg_id, p.consignment_id, p.trip_id, p.real_czk, p.invoice_number
+      FROM (${legCostParts(companyId, ids)}) p WHERE p.real_czk IS NOT NULL`);
+    return rows.map((r) => ({
+      legId: String(r.leg_id),
+      consignmentId: String(r.consignment_id),
+      tripId: r.trip_id == null ? null : String(r.trip_id),
+      realCzk: Number(r.real_czk),
+      invoiceNumber: String(r.invoice_number ?? ""),
+    }));
   }
 }
 

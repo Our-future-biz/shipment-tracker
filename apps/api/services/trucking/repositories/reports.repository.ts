@@ -1,5 +1,6 @@
 import { sql, type SQL } from "drizzle-orm";
 import { db } from "../db/db";
+import { legCostParts } from "./legCost.sql";
 import type { ChargeableFactors, MarginFloor } from "../interfaces/interfaces";
 import type {
   DeliveredGroup,
@@ -22,11 +23,9 @@ import type {
 // The consignments delivered in the period (the `delivered` CTE) carry what every KPI reads:
 //   promised   the final promised date: FTL the planned-pick-up one, LTL only once the gate-in
 //              made it final (promised_final)
-//   cost_czk   the haulier cost: per live leg the real amount of the approved haulier invoice
-//              line of its trip (an LTL leg: its share of it, cost_share / trip buy) or of the
-//              partner delivery, else the estimate (FTL trip buy, LTL leg share, partner price);
-//              without any priced leg the estimate from pricing (est_buy_czk). EUR lines at the
-//              rate of the price snapshot they were invoiced against.
+//   cost_czk   the haulier cost: per live leg (legCost.sql) the real amount of the approved
+//              haulier invoice line, else the estimate; without any priced leg the estimate from
+//              pricing (est_buy_czk). lib/haulierCost.ts works it out the same way per consignment.
 //   haulier    the haulier of the last leg (who delivered it)
 
 const TZ = "Europe/Prague";
@@ -63,30 +62,7 @@ function deliveredCtes(companyId: string, p: ReportPeriod, f: ChargeableFactors,
       FROM trucking_consignment c
       WHERE c.company_id = ${companyId} AND c.deleted_at IS NULL AND c.cancelled_at IS NULL AND ${inPeriod(sql`c.delivered_at`, p)}
     ),
-    p AS (
-      SELECT l.id AS leg_id, l.consignment_id, l.seq, l.trip_id,
-        coalesce(t.haulier_customer_id, l.haulier_customer_id) AS haulier_id, t.haulier_name,
-        CASE WHEN l.trip_id IS NOT NULL THEN (CASE WHEN t.kind = 'FTL' THEN t.buy_czk ELSE l.cost_share_czk END)
-             ELSE (l.buy->>'totalCzk')::numeric END AS est_czk,
-        CASE WHEN l.trip_id IS NOT NULL THEN r.real_czk * (CASE WHEN t.kind = 'FTL' THEN 1 ELSE l.cost_share_czk / nullif(t.buy_czk, 0) END)
-             ELSE r.real_czk END AS real_czk
-      FROM trucking_leg l
-      JOIN dc ON dc.id = l.consignment_id
-      LEFT JOIN trucking_trip t ON t.id = l.trip_id
-      LEFT JOIN LATERAL (
-        SELECT CASE WHEN li.currency = 'CZK' THEN li.invoiced
-                    WHEN snap.buy->>'currency' = 'EUR' AND (snap.buy->>'total')::numeric > 0
-                      THEN li.invoiced * (snap.buy->>'totalCzk')::numeric / (snap.buy->>'total')::numeric END AS real_czk
-        FROM trucking_haulier_invoice_line li
-        JOIN trucking_haulier_invoice i ON i.id = li.invoice_id AND i.status = 'APPROVED' AND i.deleted_at IS NULL
-        CROSS JOIN LATERAL (SELECT CASE WHEN l.trip_id IS NOT NULL THEN t.buy ELSE l.buy END AS buy) snap
-        WHERE li.company_id = l.company_id AND li.live AND li.deleted_at IS NULL
-          AND ((l.trip_id IS NOT NULL AND li.target_kind = 'TRIP' AND li.target_id = l.trip_id)
-            OR (l.trip_id IS NULL AND li.target_kind = 'PARTNER_LEG' AND li.target_id = l.id))
-        LIMIT 1
-      ) r ON true
-      WHERE l.company_id = ${companyId} AND l.deleted_at IS NULL
-    ),
+    p AS (${legCostParts(companyId, sql`SELECT id FROM dc`)}),
     cost AS (
       SELECT consignment_id, sum(coalesce(real_czk, est_czk)) AS cost_czk, bool_and(real_czk IS NOT NULL) AS all_real
       FROM p WHERE coalesce(real_czk, est_czk) IS NOT NULL GROUP BY consignment_id
@@ -218,22 +194,25 @@ class ReportsRepository {
     }));
   }
 
-  /** Each haulier's cost parts of the period's delivered consignments: trips and partner deliveries, consignments, cost and their kg. */
+  /** Each haulier's cost parts of the period's delivered consignments: trips, partner deliveries, consignments, cost and their kg. */
   async haulierCosts(q: ReportScope): Promise<HaulierCost[]> {
     const out = await rows(sql`${deliveredCtes(q.companyId, q.period, q.factors, q.floor)},
       hc AS (
         SELECT p.haulier_id, p.consignment_id, max(p.haulier_name) AS haulier_name, sum(coalesce(p.real_czk, p.est_czk)) AS cost_czk,
-          array_agg(DISTINCT coalesce(p.trip_id, p.leg_id)) AS runs
+          array_agg(DISTINCT p.trip_id) FILTER (WHERE p.trip_id IS NOT NULL) AS trips,
+          array_agg(DISTINCT p.leg_id) FILTER (WHERE p.trip_id IS NULL) AS partner_legs
         FROM p WHERE p.haulier_id IS NOT NULL GROUP BY p.haulier_id, p.consignment_id
       )
       SELECT hc.haulier_id::text AS haulier_id, max(hc.haulier_name) AS haulier_name,
-        (SELECT count(DISTINCT run) FROM hc h2, unnest(h2.runs) AS run WHERE h2.haulier_id = hc.haulier_id) AS trips,
+        (SELECT count(DISTINCT x) FROM hc h2, unnest(h2.trips) AS x WHERE h2.haulier_id = hc.haulier_id) AS trips,
+        (SELECT count(DISTINCT x) FROM hc h2, unnest(h2.partner_legs) AS x WHERE h2.haulier_id = hc.haulier_id) AS partner_legs,
         count(*) AS consignments, sum(hc.cost_czk) AS cost_czk, sum(dc.kg) FILTER (WHERE hc.cost_czk IS NOT NULL) AS cost_kg
       FROM hc JOIN dc ON dc.id = hc.consignment_id GROUP BY hc.haulier_id`);
     return out.map((r) => ({
       haulierId: String(r.haulier_id),
       haulierName: s(r.haulier_name),
       trips: n(r.trips),
+      partnerLegs: n(r.partner_legs),
       consignments: n(r.consignments),
       costCzk: n(r.cost_czk),
       costKg: n(r.cost_kg),

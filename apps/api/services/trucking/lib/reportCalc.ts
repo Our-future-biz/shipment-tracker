@@ -120,7 +120,10 @@ export interface HaulierPerf {
 export interface HaulierCost {
   haulierId: string;
   haulierName: string | null;
+  /** Trips (FTL, LTL) that carried the consignments */
   trips: number;
+  /** Partner deliveries (legs without a trip) */
+  partnerLegs: number;
   consignments: number;
   costCzk: number;
   /** Σ chargeable kg of the consignments with a cost part */
@@ -582,6 +585,7 @@ export function haulierScores(input: HaulierInput): HaulierScore[] {
         haulierCustomerId: id,
         name: input.names.get(id) ?? perf?.haulierName ?? cost?.haulierName ?? "Unknown haulier",
         trips: cost?.trips ?? 0,
+        partnerLegs: cost?.partnerLegs ?? 0,
         consignments: cost?.consignments ?? perf?.delivered ?? 0,
         onTimePercent: perf && perf.measured ? round(pct(perf.onTime, perf.measured)!) : null,
         firstAttemptPercent: perf && perf.delivered ? round(pct(perf.delivered - perf.failed, perf.delivered)!) : null,

@@ -16,7 +16,8 @@ import type {
 import type { DeliveryException, WarehouseExceptionItem } from "../interfaces/avizace.interfaces";
 import type { TruckingConsignmentRecord, TruckingHaulierLinkRecord, TruckingLegRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
 import { approvalCovers, attentionReasons, marginOf, type ConsignmentFacts } from "./consignmentRules";
-import { legItem, ltlBuyCzk, ltlLegsOf } from "./ltlView";
+import { legItem, ltlLegsOf } from "./ltlView";
+import { haulierCostOf, type CostPart, type LegRealCost } from "./haulierCost";
 import { avizaceNeeded } from "./avizaceRules";
 
 // Rows → API objects for consignments and trips. Pure: the service passes the rows, the margin
@@ -37,26 +38,33 @@ export const factsOf = (c: TruckingConsignmentRecord, trip: TruckingTripRecord |
 });
 
 /**
- * The buy price a consignment's margin is judged with: FTL its trip's; LTL its legs' shares and
- * its partner's delivery price; else the estimate from pricing.
+ * The parts of a consignment's buy: FTL its live trip's; LTL its legs' shares of their trips and
+ * its partner's delivery price. `real`: the approved haulier invoice costs of its legs.
  */
-export function buyCzkOf(c: TruckingConsignmentRecord, trip: TruckingTripRecord | null, legs: TruckingLegRecord[] = []): number | null {
-  if (c.scope === "LTL") return ltlBuyCzk(c.id, legs) ?? c.estBuyCzk;
-  return trip && !trip.cancelledAt && trip.buyCzk !== null ? trip.buyCzk : c.estBuyCzk;
+export function costPartsOf(c: TruckingConsignmentRecord, trip: TruckingTripRecord | null, legs: TruckingLegRecord[], real: LegRealCost[]): CostPart[] {
+  const realOf = (match: (r: LegRealCost) => boolean) => real.find((r) => r.consignmentId === c.id && match(r)) ?? null;
+  if (c.scope === "LTL") {
+    return ltlLegsOf(c.id, legs).map((l) => ({ estCzk: l.tripId ? l.costShareCzk : (l.buy?.totalCzk ?? null), real: realOf((r) => r.legId === l.id) }));
+  }
+  return trip && !trip.cancelledAt ? [{ estCzk: trip.buyCzk, real: realOf((r) => r.tripId === trip.id) }] : [];
 }
 
-/** The margin of a consignment now, and whether an approval covers it. */
-export function moneyOf(c: TruckingConsignmentRecord, trip: TruckingTripRecord | null, floor: MarginFloor, legs: TruckingLegRecord[] = []) {
-  const buyCzk = buyCzkOf(c, trip, legs);
-  const m = marginOf(c.sellCzk, buyCzk, floor);
+/**
+ * The margin of a consignment now, and whether an approval covers it. The buy is the one the
+ * Reports use: real where an approved haulier invoice covers it, else the estimate (else the
+ * estimate from pricing).
+ */
+export function moneyOf(c: TruckingConsignmentRecord, trip: TruckingTripRecord | null, floor: MarginFloor, legs: TruckingLegRecord[] = [], real: LegRealCost[] = []) {
+  const buy = haulierCostOf(costPartsOf(c, trip, legs, real), c.estBuyCzk);
+  const m = marginOf(c.sellCzk, buy.buyCzk, floor);
   const approved = m.belowFloor && approvalCovers(c.marginApproval, m.marginCzk);
-  return { sellCzk: c.sellCzk, buyCzk, ...m, marginApproved: approved };
+  return { sellCzk: c.sellCzk, ...buy, ...m, marginApproved: approved };
 }
 
 /**
  * `trip`: an FTL consignment's trip; for LTL the trip of the leg under way (shown in the list).
  * `legs`: the LTL legs (any consignments'; this one's are picked). `openExceptions`: its
- * delivery exceptions not closed.
+ * delivery exceptions not closed. `real`: approved haulier invoice costs of legs (any consignments').
  */
 export function listItem(
   c: TruckingConsignmentRecord,
@@ -66,8 +74,9 @@ export function listItem(
   now: Date,
   legs: TruckingLegRecord[] = [],
   openExceptions = 0,
+  real: LegRealCost[] = [],
 ): ConsignmentListItem {
-  const money = moneyOf(c, trip, floor, legs);
+  const money = moneyOf(c, trip, floor, legs, real);
   const liveTrip = trip && !trip.cancelledAt ? trip : null;
   return {
     id: c.id,
@@ -95,6 +104,8 @@ export function listItem(
     haulierName: liveTrip?.haulierName ?? null,
     sellCzk: money.sellCzk,
     buyCzk: money.buyCzk,
+    buyReal: money.buyReal,
+    buyInvoiceNumbers: money.buyInvoiceNumbers,
     marginCzk: money.marginCzk,
     marginPercent: money.marginPercent,
     belowFloor: money.belowFloor,
@@ -144,8 +155,9 @@ export function detail(
   tripRefs: Map<string, string> = new Map(),
   exceptions: DeliveryException[] = [],
   warehouseExceptions: WarehouseExceptionItem[] = [],
+  real: LegRealCost[] = [],
 ): ConsignmentDetail {
-  const item = listItem(c, trip, floor, today, now, legs, exceptions.filter((e) => !e.closedAt).length);
+  const item = listItem(c, trip, floor, today, now, legs, exceptions.filter((e) => !e.closedAt).length, real);
   const stamps: Record<StampKind, { at: string; by: string } | null> = {
     confirmed: stamp(c.confirmedAt, c.confirmedBy),
     pickedUp: stamp(c.pickedUpAt, c.pickedUpBy),

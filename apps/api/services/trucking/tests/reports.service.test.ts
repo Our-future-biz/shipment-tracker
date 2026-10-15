@@ -126,7 +126,7 @@ beforeEach(() => {
   ]);
   repo.podPairs.mockResolvedValue([{ deliveredDay: "2026-10-23", podDay: "2026-10-27", haulierId: H1, n: 2 }]);
   repo.haulierPerf.mockResolvedValue([{ haulierId: H1, haulierName: "Alfa (trip)", delivered: 4, measured: 4, onTime: 3, failed: 1 }]);
-  repo.haulierCosts.mockResolvedValue([{ haulierId: H1, haulierName: "Alfa (trip)", trips: 2, consignments: 4, costCzk: 8000, costKg: 4000 }]);
+  repo.haulierCosts.mockResolvedValue([{ haulierId: H1, haulierName: "Alfa (trip)", trips: 2, partnerLegs: 1, consignments: 4, costCzk: 8000, costKg: 4000 }]);
   repo.failedReasons.mockResolvedValue([{ reason: "ABSENT", n: 1 }]);
   repo.podOpen.mockResolvedValue([{ deliveredDay: "2026-09-30", haulierId: H2, haulierName: null, n: 1 }]);
   repo.fillTrips.mockResolvedValue([{ kind: "LINEHAUL", vehicleTypeCode: "tautliner_136", ldm: 6.8, kg: 6000 }]);
@@ -171,7 +171,7 @@ describe("Trucking report", () => {
     expect(r.marginByCustomer[0]!.label).toBe("TEST Odběratel Ostrava");
 
     expect(r.hauliers).toEqual([
-      expect.objectContaining({ haulierCustomerId: H1, name: "Alfa s.r.o.", status: "ok", trips: 2, onTimePercent: 75, avgDaysToPod: 2, claims: 1, claimedCzk: 500, costPerKg: 2 }),
+      expect.objectContaining({ haulierCustomerId: H1, name: "Alfa s.r.o.", status: "ok", trips: 2, partnerLegs: 1, onTimePercent: 75, avgDaysToPod: 2, claims: 1, claimedCzk: 500, costPerKg: 2 }),
     ]);
     expect(rates.eurRate).toHaveBeenCalledWith("2026-10-20");
     expect(r.coverageGaps).toEqual([{ side: "SELL", scope: "LTL", serviceLevel: "D2", postcode: "79001", reason: "No zone for postcode 790 01 in Standard LTL", count: 3, lastAt: NOW.toISOString() }]);
@@ -219,6 +219,9 @@ describe("Trucking report export", () => {
     expect(wb.getWorksheet("KPIs")!.getRow(2).getCell(1).value).toBe("On time");
     expect(wb.getWorksheet("Margin by lane")!.getRow(2).getCell(1).value).toBe("110 00 → 602 00 (zones 1 → 4)");
     expect(wb.getWorksheet("Coverage gaps")!.getRow(2).getCell(4).value).toBe("79001");
+    const hauliers = wb.getWorksheet("Hauliers")!;
+    expect([hauliers.getRow(1).getCell(3).value, hauliers.getRow(1).getCell(4).value]).toEqual(["Trips", "Partner deliveries"]);
+    expect([hauliers.getRow(2).getCell(3).value, hauliers.getRow(2).getCell(4).value]).toEqual([2, 1]);
     const dep = wb.getWorksheet("Department")!;
     expect(dep.getRow(5).values).toEqual([undefined, "= Result", 3000]);
     expect(dep.getRow(8).values).toEqual([undefined, "Air", 3000, 2]);

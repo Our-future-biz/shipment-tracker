@@ -289,8 +289,9 @@ describe("haulier scorecard", () => {
   const input = (over: Partial<HaulierInput> = {}): HaulierInput => ({
     perf: [{ haulierId: "h1", haulierName: "From trip", delivered: 4, measured: 3, onTime: 2, failed: 1 }],
     costs: [
-      { haulierId: "h1", haulierName: "From trip", trips: 2, consignments: 5, costCzk: 9000, costKg: 3000 },
-      { haulierId: "h2", haulierName: null, trips: 1, consignments: 1, costCzk: 500, costKg: 0 },
+      { haulierId: "h1", haulierName: "From trip", trips: 2, partnerLegs: 0, consignments: 5, costCzk: 9000, costKg: 3000 },
+      // A partner that only delivered (no trip of its own)
+      { haulierId: "h2", haulierName: null, trips: 0, partnerLegs: 1, consignments: 1, costCzk: 500, costKg: 0 },
     ],
     podPairs: [{ deliveredDay: "2026-10-23", podDay: "2026-10-27", haulierId: "h1", n: 2 }],
     claims: [
@@ -315,6 +316,7 @@ describe("haulier scorecard", () => {
       haulierCustomerId: "h1",
       name: "Alfa s.r.o.",
       trips: 2,
+      partnerLegs: 0,
       consignments: 5,
       onTimePercent: 66.7,
       firstAttemptPercent: 75,
@@ -327,9 +329,9 @@ describe("haulier scorecard", () => {
       invoiceDifferenceCzk: 120,
       status: "ok",
     });
-    expect(h2).toMatchObject({ haulierCustomerId: "h2", name: "Unknown haulier", onTimePercent: null, avgDaysToPod: null, costPerKg: null, status: "warning" });
+    expect(h2).toMatchObject({ haulierCustomerId: "h2", name: "Unknown haulier", trips: 0, partnerLegs: 1, onTimePercent: null, avgDaysToPod: null, costPerKg: null, status: "warning" });
     // Only a blocked invoice: no profile status known → blocked (as a haulier without a profile)
-    expect(h3).toMatchObject({ haulierCustomerId: "h3", consignments: 0, invoicesBlocked: 2, status: "blocked" });
+    expect(h3).toMatchObject({ haulierCustomerId: "h3", trips: 0, partnerLegs: 0, consignments: 0, invoicesBlocked: 2, status: "blocked" });
   });
 
   it("leaves an EUR claim without a ČNB rate out of the CZK sum", () => {

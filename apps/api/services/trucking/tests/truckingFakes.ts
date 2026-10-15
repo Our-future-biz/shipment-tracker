@@ -19,6 +19,7 @@ import type { TruckingExceptionRecord } from "../schemas/avizace.schema";
 import type { TruckingInternalChargeRecord, TruckingInternalMonthRecord, TruckingInternalStatementRecord } from "../schemas/internal.schema";
 import type { LoadInput, StopInput, TruckingSettings } from "../interfaces/interfaces";
 import { DEFAULT_SETTINGS } from "../lib/settingsRules";
+import type { LegRealCost } from "../lib/haulierCost";
 import { formatTruckingRef } from "../lib/consignmentRules";
 
 export const COMPANY = "00000000-0000-0000-0000-000000000001";
@@ -49,6 +50,8 @@ export const store = {
   internalCharges: [] as TruckingInternalChargeRecord[],
   closedMonths: [] as TruckingInternalMonthRecord[],
   statements: [] as TruckingInternalStatementRecord[],
+  /** Real costs of legs (approved haulier invoice lines), as legCost.sql gives them */
+  realCosts: [] as LegRealCost[],
   /** Every value handed to a repository, as JSON (to prove what was never stored) */
   written: [] as string[],
 };
@@ -68,6 +71,7 @@ export function resetStore() {
   store.internalCharges = [];
   store.closedMonths = [];
   store.statements = [];
+  store.realCosts = [];
   store.written = [];
 }
 
@@ -184,6 +188,7 @@ export const consignmentRepository = {
   retireLegs: vi.fn(async (_tx: unknown, _companyId: string, tripId: string) => {
     for (const l of store.legs.filter((x) => x.tripId === tripId)) l.deletedAt = new Date();
   }),
+  legRealCosts: vi.fn(async (_companyId: string, ids: string[]) => store.realCosts.filter((r) => ids.includes(r.consignmentId))),
 };
 
 export const tripRepository = {

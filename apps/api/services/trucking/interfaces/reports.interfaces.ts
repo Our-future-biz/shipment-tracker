@@ -61,8 +61,10 @@ export interface MarginRow {
 export interface HaulierScore {
   haulierCustomerId: string;
   name: string;
-  /** Trips (and partner deliveries) that carried the period's delivered consignments */
+  /** Trips that carried the period's delivered consignments */
   trips: number;
+  /** Partner deliveries (legs without a trip) of the period's delivered consignments */
+  partnerLegs: number;
   /** Delivered consignments the haulier carried (any leg) */
   consignments: number;
   /** Of the consignments the haulier delivered (the last leg) */
