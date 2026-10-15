@@ -483,6 +483,8 @@ export namespace customers {
             this.customerDelete = this.customerDelete.bind(this)
             this.customerGet = this.customerGet.bind(this)
             this.customerList = this.customerList.bind(this)
+            this.customerListPrefGet = this.customerListPrefGet.bind(this)
+            this.customerListPrefSet = this.customerListPrefSet.bind(this)
             this.customerUpdate = this.customerUpdate.bind(this)
             this.documentContent = this.documentContent.bind(this)
             this.documentCreate = this.documentCreate.bind(this)
@@ -609,6 +611,18 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/customers`, undefined, {query})
             return await resp.json() as controllers.CustomerListResponse
+        }
+
+        public async customerListPrefGet(prefKey: string): Promise<controllers.CustomerListPrefGetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customer-list-prefs/${encodeURIComponent(prefKey)}`)
+            return await resp.json() as controllers.CustomerListPrefGetResponse
+        }
+
+        public async customerListPrefSet(prefKey: string, params: controllers.CustomerListPrefSetRequest): Promise<controllers.CustomerListPrefSetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/customer-list-prefs/${encodeURIComponent(prefKey)}`, JSON.stringify(params))
+            return await resp.json() as controllers.CustomerListPrefSetResponse
         }
 
         public async customerUpdate(id: string, params: controllers.CustomerUpdateRequest): Promise<controllers.CustomerUpdateResponse> {
@@ -2498,6 +2512,24 @@ export namespace controllers {
 
     export interface CustomerGetResponse {
         customer: interfaces.CustomerItem
+    }
+
+    export interface CustomerListPrefGetResponse {
+        /**
+         * The value as JSON; null while the user has saved nothing.
+         */
+        value: string | null
+    }
+
+    export interface CustomerListPrefSetRequest {
+        /**
+         * The value as JSON.
+         */
+        value: string
+    }
+
+    export interface CustomerListPrefSetResponse {
+        ok: boolean
     }
 
     export interface CustomerListRequest {
