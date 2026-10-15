@@ -6,6 +6,7 @@ import type { GateShipmentUpdateState } from "../interfaces/gate.interfaces";
 import { OUTBOX_MAX_ATTEMPTS, outboxErrorCode } from "../../../lib/outbox/outboxRetry";
 import { deliverOutboxRow, runOutboxDelivery, type OutboxHandlers } from "../../../lib/outbox/outboxDelivery";
 import { sendShipmentUpdateAs } from "../../../lib/outbox/shipmentUpdateAs";
+import { deliverGateEvents } from "./gateEvents.service";
 
 // Delivery of the shipment updates the gate stamps owe (the outbox). Each row is sent as the
 // user who stamped (sendShipmentUpdateAs). Rows are sent right after the stamp; what fails is
@@ -139,5 +140,5 @@ let started = false;
 export function startOutboxTimer(): void {
   if (started || process.env.VITEST) return;
   started = true;
-  setInterval(() => void deliverDue().then(() => warnStaleOutbox()), TICK_MS).unref();
+  setInterval(() => void deliverDue().then(() => deliverGateEvents()).then(() => warnStaleOutbox()), TICK_MS).unref();
 }

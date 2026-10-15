@@ -155,9 +155,13 @@ export const warehouseDockSlotTable = pgTable(
     vehicle: text("vehicle").notNull().default(""),
     status: text("status").notNull().default("Booked"), // Booked | In progress | Completed | Overdue | Cancelled
     note: text("note").notNull().default(""),
+    // The Trucking trip (LCZ…) that booked the slot through expect-arrival / expect-departure;
+    // "" for slots booked by hand. A trip's cancel frees only its own slots.
+    tripRef: text("trip_ref").notNull().default(""),
   },
   (table) => [
     ...defaultTableIndexes("warehouse_dock_slot", table),
+    index("warehouse_dock_slot_trip_idx").on(table.movementId, table.tripRef).where(sql`trip_ref <> ''`),
     tenantIndex("warehouse_dock_slot", table),
     index("warehouse_dock_slot_movement_idx").on(table.movementId),
     foreignKey({ name: "wh_dock_slot_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),

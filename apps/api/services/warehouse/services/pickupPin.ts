@@ -62,7 +62,8 @@ export function stripPickupSecrets(data: unknown): unknown {
 /** Outbound cargo of a position linked to a shipment: released against the pick-up PIN. */
 export const isLinkedOutbound = (m: { shipmentId: string | null; visit: string }) => !!m.shipmentId && m.visit === "výdej";
 
-export type PickupRow = { haulier: string; licensePlate: string; driver: string };
+/** A row a Trucking trip filled carries `source` (read-only "From trip LCZ…"); rows typed in Shipments have none. */
+export type PickupRow = { haulier: string; licensePlate: string; driver: string; source?: { kind: "trucking"; tripRef: string } };
 export type PickupHistoryEntry = { kind: "created" | "renewed"; at: string; by: string };
 export type PickupData = {
   /** Plain PIN of a PIN stored before hashing; "" otherwise. */
@@ -90,7 +91,14 @@ export function parsePickupRows(raw: unknown): PickupRow[] {
   if (!Array.isArray(list)) return [];
   return list
     .filter((r): r is Record<string, unknown> => !!r && typeof r === "object" && !Array.isArray(r))
-    .map((r) => ({ haulier: str(r.haulier), licensePlate: str(r.licensePlate), driver: str(r.driver) }));
+    .map((r) => {
+      const row: PickupRow = { haulier: str(r.haulier), licensePlate: str(r.licensePlate), driver: str(r.driver) };
+      const src = r.source as Record<string, unknown> | null | undefined;
+      if (src && typeof src === "object" && src.kind === "trucking" && typeof src.tripRef === "string" && src.tripRef.trim()) {
+        row.source = { kind: "trucking", tripRef: src.tripRef };
+      }
+      return row;
+    });
 }
 
 /** Reads a stored pick-up section safely, whatever shape it has. */
@@ -143,7 +151,9 @@ const MAX_PICKUP_FIELD = 200;
 
 // What a pick-up save from Shipments may carry: the rows only, as a JSON string holding a list of
 // up to MAX_PICKUP_ROWS objects with text fields. The PIN and its tries are never taken from
-// the client. Null when the input is not that shape.
+// the client. Null when the input is not that shape. A row sent with a trip marker (`source`) is
+// the trip's row echoed back: it is left out — the stored trip rows stay as they are
+// (tripSource.mergeUserPickupRows).
 export function pickupRowsFromInput(data: unknown): PickupRow[] | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const raw = (data as Record<string, unknown>).rows;
@@ -159,6 +169,7 @@ export function pickupRowsFromInput(data: unknown): PickupRow[] | null {
   for (const r of list) {
     if (!r || typeof r !== "object" || Array.isArray(r)) return null;
     const o = r as Record<string, unknown>;
+    if (o.source !== undefined && o.source !== null) continue;
     const field = (k: string) => (o[k] === undefined || o[k] === null ? "" : o[k]);
     const [haulier, licensePlate, driver] = ["haulier", "licensePlate", "driver"].map(field);
     if ([haulier, licensePlate, driver].some((v) => typeof v !== "string" || v.length > MAX_PICKUP_FIELD)) return null;

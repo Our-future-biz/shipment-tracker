@@ -24,6 +24,15 @@ export interface GateTransportLeg {
   driver: string;
   phone: string; // driver's phone number
   gateTime: string; // free text or ISO; empty falls back to the gate-in / gate-out stamp
+  // Filled by a Trucking trip (expect-arrival / expect-departure): read-only in Warehouse and
+  // Shipments, cleared only by that trip's cancel. Absent on legs typed by hand.
+  source?: GateTripSource | null;
+}
+
+/** What a Trucking trip filled (transport leg, pick-up row, dock slot): "From trip LCZ…". */
+export interface GateTripSource {
+  kind: "trucking";
+  tripRef: string;
 }
 
 // Cargo survey — one record per container ("" = position level when there is none).

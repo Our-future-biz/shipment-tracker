@@ -170,8 +170,8 @@ class WarehouseDockSlotRepository extends TenantRepository<typeof warehouseDockS
   // A live slot of the company that holds `dock` at some time in [startsAt, endsAt), other
   // than `exceptId`; null when the door is free. The EXCLUDE constraint is the guarantee — this
   // only names the clash in the message.
-  async findOverlap(companyId: string, dock: string, startsAt: Date, endsAt: Date, exceptId?: string) {
-    const [row] = await this.db
+  async findOverlap(companyId: string, dock: string, startsAt: Date, endsAt: Date, exceptId?: string, tx: Tx | typeof db = db) {
+    const [row] = await tx
       .select()
       .from(ds)
       .where(
@@ -188,6 +188,66 @@ class WarehouseDockSlotRepository extends TenantRepository<typeof warehouseDockS
       .orderBy(asc(ds.startsAt))
       .limit(1);
     return row ?? null;
+  }
+
+  // The live slots (not cancelled or completed) a Trucking trip booked for a movement, earliest first.
+  async liveTripSlots(tx: Tx, companyId: string, movementId: string, tripRef: string, direction?: "IN" | "OUT") {
+    return tx
+      .select()
+      .from(ds)
+      .where(
+        and(
+          eq(ds.companyId, companyId),
+          eq(ds.movementId, movementId),
+          eq(ds.tripRef, tripRef),
+          isNull(ds.deletedAt),
+          notInArray(ds.status, ["Cancelled", "Completed"]),
+          direction ? eq(ds.direction, direction) : undefined,
+        ),
+      )
+      .orderBy(asc(ds.startsAt), asc(ds.createdAt));
+  }
+
+  // Live slots of a movement booked by any trip but `exceptTripRef` (by hand: trip_ref "").
+  async liveSlotsOtherThanTrip(tx: Tx, companyId: string, movementId: string, exceptTripRef: string) {
+    return tx
+      .select({ id: ds.id })
+      .from(ds)
+      .where(
+        and(
+          eq(ds.companyId, companyId),
+          eq(ds.movementId, movementId),
+          ne(ds.tripRef, exceptTripRef),
+          isNull(ds.deletedAt),
+          notInArray(ds.status, ["Cancelled", "Completed"]),
+        ),
+      );
+  }
+
+  // A slot booked in the caller's transaction. A clash with another booking (the EXCLUDE
+  // constraint) is raised to the caller; run it in a savepoint to carry on after one.
+  async insertTx(tx: Tx, values: typeof warehouseDockSlotTable.$inferInsert) {
+    const [row] = await tx.insert(ds).values(values).returning();
+    return row!;
+  }
+
+  // Cancels the trip's slots of a movement that still only hold the door (Booked / Overdue): a
+  // slot in progress or done stays as the record of what happened. `ids` narrows to those slots.
+  async cancelTripSlots(tx: Tx, companyId: string, movementId: string, tripRef: string, note: string, ids?: string[]) {
+    return tx
+      .update(ds)
+      .set({ status: "Cancelled", note: sql`trim(both ' ·' from ${ds.note} || ' · ' || ${note})`, updatedAt: new Date() })
+      .where(
+        and(
+          eq(ds.companyId, companyId),
+          eq(ds.movementId, movementId),
+          eq(ds.tripRef, tripRef),
+          isNull(ds.deletedAt),
+          inArray(ds.status, ["Booked", "Overdue"]),
+          ids ? inArray(ds.id, ids) : undefined,
+        ),
+      )
+      .returning({ id: ds.id });
   }
 }
 

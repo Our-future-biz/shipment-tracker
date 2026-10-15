@@ -228,6 +228,8 @@ export interface WarehouseDockSlotItem {
   /** Booked | In progress | Completed | Overdue | Cancelled */
   status: string;
   note: string;
+  /** The Trucking trip that booked the slot ("" when booked by hand). */
+  tripRef: string;
   createdAt: string;
   updatedAt: string;
 }

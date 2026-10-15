@@ -77,5 +77,6 @@ export function dockSlotsOf(rows: DockSlotRow[], movementId: string): GateDockSl
       durationMin: s.durationMin,
       startsAt: s.startsAt ? s.startsAt.toISOString() : null,
       endsAt: s.endsAt ? s.endsAt.toISOString() : null,
+      tripRef: s.tripRef,
     }));
 }

@@ -27,6 +27,8 @@ import { assertShipmentExists } from "../../../lib/shipmentRefs";
 import { isUuid } from "../../../lib/uuid";
 import { acceptRecordedAt, checkRequestId, latest, offlineDetail, pragueHhmm, type StampOutcome, type SurveyOutcome } from "./offline";
 import { dockSlotsOf } from "./dockSlots";
+import { deliverGateEvents, enqueueGateEvents } from "./gateEvents.service";
+import { protectTripLegs } from "./tripSource";
 import { reweighRepository } from "../repositories/reweigh.repository";
 import type { WarehouseReweighRecord } from "../schemas/warehouseReweigh.schema";
 import { needsReweigh, REWEIGH_FIRST, reweighOkSql } from "./reweigh";
@@ -542,7 +544,8 @@ class GateMovementService {
     const { pin, warehouseTaskId, transportLegs, subPositions, ...rest } = input;
     const out: Partial<NewGateMovementRecord> = { ...rest };
     for (const key of NOT_EDITABLE) delete (out as Record<string, unknown>)[key];
-    if (transportLegs !== undefined) out.transportLegs = normalizeLegs(transportLegs);
+    // Only a Trucking trip marks a leg (expect-arrival / expect-departure); a client's marker is dropped.
+    if (transportLegs !== undefined) out.transportLegs = normalizeLegs(transportLegs).map(({ source: _source, ...leg }) => leg);
     if (subPositions !== undefined) {
       if (subPositions.length > MAX_SUB_POSITIONS) throw APIError.invalidArgument(`At most ${MAX_SUB_POSITIONS} sub-positions (drops)`);
       out.subPositions = subPositions.map(normalizeDrop);
@@ -637,6 +640,8 @@ class GateMovementService {
   async update(id: string, companyId: string, userId: string, input: GateMovementInput, role = "user", linkChangeReason = "") {
     const m = await this.load(id, companyId);
     const patch = await this.fields(input, companyId);
+    // A leg filled by a Trucking trip is read-only here: it stays as the trip set it.
+    if (patch.transportLegs) patch.transportLegs = protectTripLegs(m.transportLegs, patch.transportLegs);
 
     // Direction is held twice — handling (Import/Export) and the gate visit (výdej/příjem) the
     // gate rules follow — so they change together, and only until the first gate stamp.
@@ -980,7 +985,7 @@ class GateMovementService {
       events: sql`CASE WHEN ${t.gateIn} IS NULL THEN ${json([evt("gateIn", "Gate-in"), own])} ELSE ${json([own])} END`,
     });
 
-    const { row, owed } = await db.transaction(async (tx) => {
+    const { row, owed, published } = await db.transaction(async (tx) => {
       let row: GateMovementRecord | null = null;
       switch (kind) {
         case "gateIn":
@@ -1027,7 +1032,25 @@ class GateMovementService {
           break;
         }
       }
-      if (!row) return { row, owed: [] };
+      if (!row) return { row, owed: [], published: 0 };
+      // The warehouse-gate-stamped event (Trucking listens): what this very update stamped into the
+      // gate-in / gate-out columns, written to the event outbox in this transaction and published
+      // after the commit — a stamp that rolls back never publishes.
+      const published = await enqueueGateEvents(
+        tx,
+        {
+          companyId,
+          movementId: id,
+          positionId: m.positionRef ? m.warehouseTaskId : null,
+          wczRef: m.positionRef ?? "",
+          shipmentId: m.shipmentId,
+          userId,
+          stampKind: kind,
+          at,
+          stamped: { gateIn: !m.gateIn && sameTime(row.gateIn, at), gateOut: !m.gateOut && sameTime(row.gateOut, at) },
+        },
+        role,
+      );
       // Write back only what this very update stamped. Received means inbound cargo arriving: an
       // outbound (výdej) gate-in is the pickup truck, not a receipt. (A výdej gate-out of its own
       // happens only on an already released row whose release left the gate-out empty.)
@@ -1048,7 +1071,7 @@ class GateMovementService {
       // The receipt opens the stock line (and bonded entry), the WH release closes them — in this
       // transaction, so a stamp and its stock line never drift apart (a replay changes nothing).
       await syncStockForMovement(tx, companyId, id, { by, at, why: STAMP_LABEL[kind] });
-      return { row, owed };
+      return { row, owed, published };
     });
     if (!row) {
       // Someone else got there first (or the row is gone): report what the row says now.
@@ -1058,6 +1081,7 @@ class GateMovementService {
       throw APIError.failedPrecondition(stampBlocked(cur, kind, await this.stampContext(cur, companyId)) ?? `${kind} could not be stamped — reload and try again`);
     }
     if (owed.length) await deliverDue(id);
+    if (published) await deliverGateEvents(id);
     const notice = opts.recordedAt ? `${STAMP_LABEL[kind]} stamped ${pragueHhmm(at)} (recorded offline, sent ${pragueHhmm(now)})` : "";
     return { movement: await this.get(id, companyId), outcome: "stamped", notice };
   }

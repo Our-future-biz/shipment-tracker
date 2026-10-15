@@ -2,7 +2,8 @@ import { eq, and, desc, isNull, isNotNull, inArray, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { warehouseSectionTable, type WarehouseSectionRecord } from "../schemas/warehouseSection.schema";
 import { warehouseTaskTable } from "../schemas/warehouseTask.schema";
-import { PICKUP_SECTION, type PickupHistoryEntry, type PickupRow } from "../services/pickupPin";
+import { PICKUP_SECTION, readPickup, type PickupHistoryEntry, type PickupRow } from "../services/pickupPin";
+import { mergeUserPickupRows } from "../services/tripSource";
 import { TenantRepository } from "../../../lib/db/repository";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -190,9 +191,15 @@ class WarehouseSectionRepository extends TenantRepository<typeof warehouseSectio
   // PIN and a PIN check that ticks the release gate never interleave.
   async withPickupLock<T>(shipmentId: string, companyId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
     return db.transaction(async (tx) => {
-      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`warehouse_pickup:${companyId}:${shipmentId}`}))`);
+      await this.lockPickup(tx, shipmentId, companyId);
       return fn(tx);
     });
+  }
+
+  // The same per-shipment lock, taken inside a transaction of the caller's (Trucking's expected
+  // trips: the pick-up lock before the gate row's, as the PIN check takes them).
+  async lockPickup(tx: Tx, shipmentId: string, companyId: string) {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`warehouse_pickup:${companyId}:${shipmentId}`}))`);
   }
 
   async findPickup(shipmentId: string, companyId: string, tx: Tx | typeof db = db): Promise<WarehouseSectionRecord | null> {
@@ -210,18 +217,27 @@ class WarehouseSectionRepository extends TenantRepository<typeof warehouseSectio
 
   // Saves only the haulier / plate / driver rows. The PIN fields are the server's: the rows key
   // is replaced inside the stored data and everything else is kept as it is in the database.
+  // Rows a Trucking trip filled stay as stored (read-only in Shipments): the user's rows are saved
+  // after them (tripSource.mergeUserPickupRows).
   async upsertPickupRows(shipmentId: string, companyId: string, rows: PickupRow[]): Promise<WarehouseSectionRecord> {
-    const rowsText = JSON.stringify(rows);
-    return this.withPickupLock(shipmentId, companyId, async (tx) => {
+    return this.withPickupLock(shipmentId, companyId, (tx) => this.writePickupRows(tx, shipmentId, companyId, (stored) => mergeUserPickupRows(stored, rows)));
+  }
+
+  // Replaces the rows with `change(stored rows)`, keeping every other key; makes the section when
+  // the shipment has none yet. The caller holds the pick-up lock (lockPickup / withPickupLock).
+  async writePickupRows(tx: Tx, shipmentId: string, companyId: string, change: (stored: PickupRow[]) => PickupRow[]): Promise<WarehouseSectionRecord> {
+    const stored = await this.findPickup(shipmentId, companyId, tx);
+    const rowsText = JSON.stringify(change(readPickup(stored?.data).rows));
+    if (stored) {
       const [updated] = await tx
         .update(s)
         .set({ data: sql`(${dataObj} - 'rows') || jsonb_build_object('rows', ${rowsText}::text)`, version: sql`${s.version} + 1`, updatedAt: new Date() })
         .where(pickupRow(shipmentId, companyId))
         .returning();
       if (updated) return updated;
-      const [row] = await tx.insert(s).values({ companyId, shipmentId, section: PICKUP_SECTION, data: { rows: rowsText } }).returning();
-      return row!;
-    });
+    }
+    const [row] = await tx.insert(s).values({ companyId, shipmentId, section: PICKUP_SECTION, data: { rows: rowsText } }).returning();
+    return row!;
   }
 
   // Sets a new pick-up PIN — only when there is none yet, or the current one is locked (`max`

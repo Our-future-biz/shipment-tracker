@@ -9,6 +9,7 @@ import * as warehouseRecordsSchema from "../schemas/warehouseRecords.schema";
 import * as warehouseStockSchema from "../schemas/warehouseStock.schema";
 import * as warehouseRefCounterSchema from "../schemas/warehouseRefCounter.schema";
 import * as shipmentOutboxSchema from "../schemas/shipmentOutbox.schema";
+import * as gateEventOutboxSchema from "../schemas/gateEventOutbox.schema";
 import * as warehouseExceptionSchema from "../schemas/warehouseException.schema";
 import * as warehouseReweighSchema from "../schemas/warehouseReweigh.schema";
 import * as warehouseSettingsSchema from "../schemas/warehouseSettings.schema";
@@ -33,6 +34,7 @@ export const db = drizzle(pool, {
     ...warehouseStockSchema,
     ...warehouseRefCounterSchema,
     ...shipmentOutboxSchema,
+    ...gateEventOutboxSchema,
     ...warehouseExceptionSchema,
     ...warehouseReweighSchema,
     ...warehouseSettingsSchema,
