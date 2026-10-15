@@ -1,0 +1,58 @@
+import { describe, expect, it } from "vitest";
+import { settingsProblems, vehicleTypeProblems, workingDaysText, type SettingsDraft } from "./settings";
+
+const van = { code: "van", label: "Van", capacityLdm: 3, capacityKg: 1200, palletPlaces: 6, tailLift: false, active: true };
+const draft: SettingsDraft = {
+  serviceLevels: [{ code: "D1", label: "+1 day", workingDays: 1, cutoff: "12:00", active: true }],
+  vehicleTypes: [van],
+  factors: { kgPerLdm: 1750, kgPerCbm: 250, kgPerPalletPlace: 400 },
+  marginFloor: { percent: 8, minAmountCzk: 300 },
+  transportOrder: { emailSubject: "Transport order {orderRef}", emailBody: "Dear {haulier}" },
+};
+
+describe("vehicleTypeProblems", () => {
+  it("passes a valid type", () => {
+    expect(vehicleTypeProblems(van)).toEqual([]);
+  });
+
+  it("holds the contract's limits", () => {
+    expect(vehicleTypeProblems({ ...van, code: "Mega 13.6" })).toContain("code uses a–z, 0–9 and _ only");
+    expect(vehicleTypeProblems({ ...van, capacityLdm: 15.4 })).toEqual([]);
+    expect(vehicleTypeProblems({ ...van, capacityLdm: 15.5 })).toContain("LDM must be above 0 and at most 15.4");
+    expect(vehicleTypeProblems({ ...van, capacityKg: 0 })).toContain("kg must be above 0");
+    expect(vehicleTypeProblems({ ...van, palletPlaces: 2.5 })).toContain("pallet places must be a whole number, 0 or more");
+  });
+});
+
+describe("settingsProblems", () => {
+  it("passes valid settings", () => {
+    expect(settingsProblems(draft)).toEqual([]);
+  });
+
+  it("names each problem", () => {
+    expect(
+      settingsProblems({
+        ...draft,
+        serviceLevels: [{ ...draft.serviceLevels[0]!, cutoff: "25:00" }],
+        vehicleTypes: [van, { ...van, label: "Van 2" }],
+        marginFloor: { percent: 120, minAmountCzk: -1 },
+        transportOrder: { emailSubject: " ", emailBody: "x" },
+      }),
+    ).toEqual([
+      "+1 day: cut-off must be HH:MM",
+      "Van 2: code van is used twice",
+      "Margin floor % must be 0–100",
+      "Minimum margin cannot be negative",
+      "Transport-order e-mail subject is required",
+    ]);
+  });
+});
+
+describe("workingDaysText", () => {
+  it("says when each level is due", () => {
+    expect(workingDaysText("D1", 1)).toBe("1 working day");
+    expect(workingDaysText("D3", 3)).toBe("3 working days");
+    expect(workingDaysText("EXP_SAMEDAY", 0)).toBe("Same day");
+    expect(workingDaysText("EXP_FIXED", 0)).toBe("Date agreed per order");
+  });
+});
