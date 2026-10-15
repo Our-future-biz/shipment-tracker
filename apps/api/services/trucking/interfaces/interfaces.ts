@@ -139,6 +139,8 @@ export interface HaulierProfile {
   bankAccountPublished: boolean;
   /** YYYY-MM-DD of the last manual check; older than 30 days gives vat_check_due (warn) */
   vatCheckedAt: string | null;
+  /** Phase 6: the accounts published in the VAT register, normalised ("19-2000145399/0800" or an IBAN); manual for now */
+  bankAccounts: string[];
   /** Default chargeable_weight */
   costSplitBasis: CostSplitBasis;
   blocked: boolean;
@@ -207,6 +209,8 @@ export interface HaulierProfileInput {
   vatUnreliable: boolean;
   bankAccountPublished: boolean;
   vatCheckedAt: string | null;
+  /** Phase 6: the published accounts (the whole list); left out = kept as saved */
+  bankAccounts?: string[];
   costSplitBasis: CostSplitBasis;
   notes: string;
   preferredLanes: PreferredLaneInput[];

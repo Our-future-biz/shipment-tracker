@@ -495,3 +495,16 @@ export interface TruckingLinesResult {
   /** Selling rows of the sourceRef left as they were because one of them is on an issued invoice */
   sellingKept: number;
 }
+
+/** The real cost of one Trucking buying row, from an approved haulier invoice (rows in their order). */
+export interface TruckingRealLine {
+  amount: number;
+  currency: string;
+  /** The haulier's invoice number */
+  invoiceNumber: string;
+}
+
+/** What a real-cost push did: the number of rows whose real side was set (or cleared). */
+export interface TruckingRealResult {
+  updated: number;
+}

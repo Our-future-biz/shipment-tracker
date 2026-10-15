@@ -615,4 +615,5 @@ export interface RoadJobBasics {
   freightMode: string;
   pickupDate: string | null;
   plannedDeliveryDate: string | null;
+  department: string;
 }

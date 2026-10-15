@@ -2,6 +2,7 @@ import { APIError } from "encore.dev/api";
 import { addDays, isRealYmd } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
 import { formatDay } from "./format";
+import { normaliseBankAccount } from "./bankAccount";
 import type {
   HaulierIssue,
   HaulierProfile,
@@ -17,6 +18,24 @@ import type {
 export const WARN_DAYS = 30;
 export const CURRENCIES = ["CZK", "EUR"] as const;
 const MAX_LANES = 200;
+const MAX_BANK_ACCOUNTS = 20;
+
+/**
+ * The published bank accounts as saved: each normalised (lib/bankAccount.ts), each once, at most
+ * 20; throws invalid_argument naming the account that is not a Czech account or an IBAN.
+ */
+export function cleanBankAccounts(v: unknown): string[] {
+  const list = Array.isArray(v) ? v : [];
+  const out: string[] = [];
+  list.forEach((raw, i) => {
+    if (typeof raw === "string" && !raw.trim()) return;
+    const account = normaliseBankAccount(raw);
+    if (!account) throw bad(`Bank account ${i + 1} ("${String(raw).trim().slice(0, 40)}") is not a valid Czech account (prefix-number/bank) or IBAN`);
+    if (!out.includes(account)) out.push(account);
+  });
+  if (out.length > MAX_BANK_ACCOUNTS) throw bad(`At most ${MAX_BANK_ACCOUNTS} published bank accounts are allowed`);
+  return out;
+}
 
 /** A profile that is not saved yet (version 0). */
 export const defaultProfile = (customerId: string): HaulierProfile => ({
@@ -36,6 +55,7 @@ export const defaultProfile = (customerId: string): HaulierProfile => ({
   vatUnreliable: false,
   bankAccountPublished: false,
   vatCheckedAt: null,
+  bankAccounts: [],
   costSplitBasis: "chargeable_weight",
   blocked: false,
   blockReason: "",
@@ -194,6 +214,7 @@ export function cleanProfileInput(input: HaulierProfileInput, vehicleCodes: stri
     vatUnreliable: input.vatUnreliable === true,
     bankAccountPublished: input.bankAccountPublished === true,
     vatCheckedAt,
+    bankAccounts: cleanBankAccounts(input.bankAccounts),
     costSplitBasis: input.costSplitBasis,
     notes: text(input.notes, "The notes", 4000),
     preferredLanes,

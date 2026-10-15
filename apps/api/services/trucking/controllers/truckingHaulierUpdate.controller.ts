@@ -26,6 +26,8 @@ interface TruckingHaulierUpdateRequest {
   bankAccountPublished: boolean;
   /** YYYY-MM-DD */
   vatCheckedAt: string | null;
+  /** The bank accounts published in the VAT register ("prefix-number/bank" or IBAN; the whole list). Left out = kept as saved. */
+  bankAccounts?: string[];
   costSplitBasis: CostSplitBasis;
   notes: string;
   /** The whole list; lanes without id are new, lanes left out are removed. */
