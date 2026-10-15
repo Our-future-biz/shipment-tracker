@@ -17,6 +17,8 @@ export interface InvoiceCostItem {
   /** the haulier the cost is owed to (a Customer Database company), or null */
   haulierId: string | null;
   sortOrder: number;
+  /** The Trucking consignment / trip the row was pushed from ("trucking:trip:<id>"); null otherwise. Read-only then. */
+  sourceTruckingRef: string | null;
 }
 
 /** Selling cost line of the Costs Breakdown (mockup: #sellTable) */
@@ -34,6 +36,8 @@ export interface SellingCostItem {
   /** VAT code on the invoice; null = default by trade direction */
   vatCode: SellingVatCode | null;
   sortOrder: number;
+  /** The Trucking consignment the row was pushed from ("trucking:consignment:<id>"); null otherwise. Read-only then. */
+  sourceTruckingRef: string | null;
 }
 
 export interface AdditionalChargeItem {
@@ -466,4 +470,28 @@ export type QuoteImportTarget = "buy" | "sell" | "both";
 export interface QuoteImportResult {
   buying: number;
   selling: number;
+}
+
+/** A cost line pushed by Trucking (a price line of a consignment or a trip). */
+export interface TruckingCostLine {
+  /** Charge code, "road_freight" (surcharges too, told apart by the description) */
+  chargeCode: string;
+  description: string;
+  qty: number;
+  unit: string;
+  unitPrice: number;
+  /** qty × unitPrice as Trucking priced it */
+  amount: number;
+  currency: string;
+  /** Buying lines: the haulier's name and Customer Database id */
+  vendor: string;
+  haulierId: string | null;
+}
+
+/** What a Trucking push did to Costs Breakdown. */
+export interface TruckingLinesResult {
+  buying: number;
+  selling: number;
+  /** Selling rows of the sourceRef left as they were because one of them is on an issued invoice */
+  sellingKept: number;
 }

@@ -8,9 +8,10 @@ import {
 } from "../schemas/invoiceSellingCost.schema";
 
 // Every query on a line also matches its shipment, so a line can only be written through its
-// own shipment's URL.
+// own shipment's URL. Rows pushed by Trucking (source_trucking_ref) are kept by Trucking and
+// read-only here: no line write reaches them.
 const lineOf = (id: string, companyId: string, shipmentId: string) =>
-  and(eq(t.id, id), eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt));
+  and(eq(t.id, id), eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt), isNull(t.sourceTruckingRef));
 
 class SellingCostRepository extends TenantRepository<typeof t> {
   constructor() {

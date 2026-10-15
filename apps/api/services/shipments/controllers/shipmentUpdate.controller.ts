@@ -119,6 +119,7 @@ interface ShipmentUpdateRequest {
   plateNumber?: string;
   plannedDeliveryDate?: string;
   plannedDeliveryTime?: string;
+  actualDeliveryDate?: string;
 
   // Commercial
   commercialInvoice?: string;

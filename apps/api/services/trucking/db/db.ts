@@ -6,6 +6,8 @@ import * as truckingHaulierSchema from "../schemas/truckingHaulier.schema";
 import * as truckingEventSchema from "../schemas/truckingEvent.schema";
 import * as truckingTariffSchema from "../schemas/truckingTariff.schema";
 import * as truckingFuelIndexSchema from "../schemas/truckingFuelIndex.schema";
+import * as truckingConsignmentSchema from "../schemas/truckingConsignment.schema";
+import * as truckingOutboxSchema from "../schemas/truckingOutbox.schema";
 
 const { Pool } = pg;
 
@@ -24,7 +26,12 @@ export const db = drizzle(pool, {
     ...truckingEventSchema,
     ...truckingTariffSchema,
     ...truckingFuelIndexSchema,
+    ...truckingConsignmentSchema,
+    ...truckingOutboxSchema,
   },
 });
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/** Runs `work` in one transaction (services that write several tables and their event together). */
+export const inTx = <T>(work: (tx: Tx) => Promise<T>): Promise<T> => db.transaction(work);

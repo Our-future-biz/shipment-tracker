@@ -237,6 +237,7 @@ const DATE_FIELDS = new Set([
   "warehouseReceivedDate",
   "warehouseReleasedDate",
   "plannedDeliveryDate",
+  "actualDeliveryDate",
   "shipmentsDate",
   "equipmentDeliveryDate",
 ]);

@@ -175,6 +175,8 @@ export interface ShipmentItem {
   warehouseTruck: string;
   plateNumber: string;
   plannedDeliveryDate: string | null;
+  /** When a road job was delivered (written by Trucking when the delivery is stamped). */
+  actualDeliveryDate: string | null;
   plannedDeliveryTime: string;
 
   // Commercial
@@ -572,4 +574,45 @@ export interface CustomerShipmentFacts {
   /** When the newest one was created. */
   lastShipmentAt: string;
   shipmentCount: number;
+}
+
+/** A Road / Domestic job Trucking asks for when a consignment has no job yet. */
+export interface RoadJobInput {
+  customerId: string;
+  customerName: string;
+  /** The pick-up and delivery place names, as the job's shipper and consignee */
+  shipper: string;
+  consignee: string;
+  pickupAddress: string;
+  pickupSiteId: string | null;
+  pickupPostcode: string;
+  pickupCountry: string;
+  deliveryAddress: string;
+  deliverySiteId: string | null;
+  deliveryPostcode: string;
+  deliveryCountry: string;
+  /** YYYY-MM-DD */
+  pickupDate: string;
+  /** "HH:MM" or "" */
+  pickupTime: string;
+  plannedDeliveryDate: string | null;
+  cargoDescription: string;
+  customerReference: string;
+  /** A sales quote the order comes from: linked as the job's Sales Number */
+  quoteNumber: string | null;
+  /** Who created it, as text ("Trucking · Jana Nováková") */
+  createdBy: string;
+}
+
+/** What Trucking shows of a job. */
+export interface RoadJobBasics {
+  id: string;
+  jobNumber: string;
+  customerId: string | null;
+  customer: string;
+  status: string;
+  tradeDirection: string;
+  freightMode: string;
+  pickupDate: string | null;
+  plannedDeliveryDate: string | null;
 }

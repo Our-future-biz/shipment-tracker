@@ -1,4 +1,4 @@
-import { and, eq, or, ilike, isNotNull, isNull, desc, asc, count, sql } from "drizzle-orm";
+import { and, eq, or, ilike, inArray, isNotNull, isNull, desc, asc, count, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
@@ -320,6 +320,25 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       customers: customers.flatMap((c): CustomerShipmentFactsRow[] => (c.customerId ? [{ ...c, customerId: c.customerId }] : [])),
       shipmentsWithoutCustomer: Number(value),
     };
+  }
+
+  /** A few fields of the company's live shipments among `ids` (Trucking's view of its jobs). */
+  async basicsByIds(companyId: string, ids: string[]) {
+    if (!ids.length) return [];
+    return this.db
+      .select({
+        id: shipmentTable.id,
+        jobNumber: shipmentTable.jobNumber,
+        customerId: shipmentTable.customerId,
+        customer: shipmentTable.customer,
+        status: shipmentTable.status,
+        tradeDirection: shipmentTable.tradeDirection,
+        freightMode: shipmentTable.freightMode,
+        pickupDate: shipmentTable.pickupDate,
+        plannedDeliveryDate: shipmentTable.plannedDeliveryDate,
+      })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), inArray(shipmentTable.id, ids), isNull(shipmentTable.deletedAt)));
   }
 
   async findByJobNumber(jobNumber: string, companyId: string) {
