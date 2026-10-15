@@ -2023,16 +2023,16 @@ export namespace trucking {
         }
 
         /**
-         * Records how the delivery was agreed with the consignee (avizace); never sends anything.
+         * Records how and when the consignee was told of the delivery. Any user.
          */
-        public async truckingAvizaceRecord(id: string, params: controllers.TruckingAvizaceRecordRequest): Promise<controllers.TruckingConsignmentResponse> {
+        public async truckingAvizaceRecord(id: string, params: controllers.TruckingAvizaceRecordRequest): Promise<controllers.TruckingAvizaceRecordResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/${encodeURIComponent(id)}/avizace`, JSON.stringify(params))
-            return await resp.json() as controllers.TruckingConsignmentResponse
+            return await resp.json() as controllers.TruckingAvizaceRecordResponse
         }
 
         /**
-         * The avizace text (cs + en) to copy; it never holds the Pick-up PIN.
+         * The avizace text to copy (Czech and English; never the Pick-up PIN). Any user.
          */
         public async truckingAvizaceTemplate(id: string): Promise<controllers.TruckingAvizaceTemplateResponse> {
             // Now make the actual call to the API
@@ -2149,7 +2149,7 @@ export namespace trucking {
         }
 
         /**
-         * Closes a decided exception.
+         * Closes a decided exception (any user).
          */
         public async truckingExceptionClose(id: string, params: controllers.TruckingExceptionCloseRequest): Promise<controllers.TruckingExceptionResponse> {
             // Now make the actual call to the API
@@ -2158,7 +2158,7 @@ export namespace trucking {
         }
 
         /**
-         * Raises a delivery exception on a consignment (any user).
+         * Records a delivery exception (any user); it blocks the consignment's ready to bill until closed.
          */
         public async truckingExceptionCreate(id: string, params: controllers.TruckingExceptionCreateRequest): Promise<controllers.TruckingExceptionResponse> {
             // Now make the actual call to the API
@@ -2167,7 +2167,7 @@ export namespace trucking {
         }
 
         /**
-         * Decides who bears an exception (a manager for CHARGE_CUSTOMER / CLAIM_HAULIER / ABSORB above 0).
+         * Decides an exception once: a manager for CHARGE_CUSTOMER, CLAIM_HAULIER or ABSORB above 0.
          */
         public async truckingExceptionDecide(id: string, params: controllers.TruckingExceptionDecideRequest): Promise<controllers.TruckingExceptionResponse> {
             // Now make the actual call to the API
@@ -2189,7 +2189,7 @@ export namespace trucking {
         }
 
         /**
-         * Adds a photo (or PDF) to an exception; at most 10 MB.
+         * Adds a photo or PDF (10 MB, the type from the bytes); downloaded as a consignment document.
          */
         public async truckingExceptionPhoto(id: string, params: controllers.TruckingExceptionPhotoRequest): Promise<controllers.TruckingExceptionResponse> {
             // Now make the actual call to the API
@@ -2234,16 +2234,19 @@ export namespace trucking {
             return await resp.json() as interfaces.TruckingHaulierResponse
         }
 
-        public async truckingHaulierInvoiceApprove(id: string, params: controllers.TruckingHaulierInvoiceReasonRequest): Promise<controllers.TruckingHaulierInvoiceResponse> {
+        /**
+         * Manager; refused while BLOCKED (for everyone).
+         */
+        public async truckingHaulierInvoiceApprove(id: string, params: controllers.HaulierInvoiceReasonRequest): Promise<controllers.HaulierInvoiceResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices/${encodeURIComponent(id)}/approve`, JSON.stringify(params))
-            return await resp.json() as controllers.TruckingHaulierInvoiceResponse
+            return await resp.json() as controllers.HaulierInvoiceResponse
         }
 
         /**
-         * Delivered / done trips and partner legs of a haulier not yet on an approved invoice.
+         * The haulier's done trips and partner deliveries not yet on an approved invoice.
          */
-        public async truckingHaulierInvoiceCandidates(params: controllers.TruckingHaulierInvoiceCandidatesRequest): Promise<controllers.TruckingHaulierInvoiceCandidatesResponse> {
+        public async truckingHaulierInvoiceCandidates(params: controllers.HaulierInvoiceCandidatesRequest): Promise<controllers.HaulierInvoiceCandidatesResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 haulierCustomerId: params.haulierCustomerId,
@@ -2251,28 +2254,28 @@ export namespace trucking {
 
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/haulier-invoices/candidates`, undefined, {query})
-            return await resp.json() as controllers.TruckingHaulierInvoiceCandidatesResponse
+            return await resp.json() as controllers.HaulierInvoiceCandidatesResponse
         }
 
-        public async truckingHaulierInvoiceCreate(params: controllers.TruckingHaulierInvoiceCreateRequest): Promise<controllers.TruckingHaulierInvoiceResponse> {
+        public async truckingHaulierInvoiceCreate(params: controllers.HaulierInvoiceBody): Promise<controllers.HaulierInvoiceResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices`, JSON.stringify(params))
-            return await resp.json() as controllers.TruckingHaulierInvoiceResponse
+            return await resp.json() as controllers.HaulierInvoiceResponse
         }
 
-        public async truckingHaulierInvoiceFile(id: string): Promise<controllers.TruckingFileResponse> {
+        public async truckingHaulierInvoiceFile(id: string): Promise<controllers.HaulierInvoiceFileResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/haulier-invoices/${encodeURIComponent(id)}/file`)
-            return await resp.json() as controllers.TruckingFileResponse
+            return await resp.json() as controllers.HaulierInvoiceFileResponse
         }
 
-        public async truckingHaulierInvoiceGet(id: string): Promise<controllers.TruckingHaulierInvoiceResponse> {
+        public async truckingHaulierInvoiceGet(id: string): Promise<controllers.HaulierInvoiceResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/haulier-invoices/${encodeURIComponent(id)}`)
-            return await resp.json() as controllers.TruckingHaulierInvoiceResponse
+            return await resp.json() as controllers.HaulierInvoiceResponse
         }
 
-        public async truckingHaulierInvoiceList(params: controllers.TruckingHaulierInvoiceListRequest): Promise<controllers.TruckingHaulierInvoiceListResponse> {
+        public async truckingHaulierInvoiceList(params: controllers.HaulierInvoiceListRequest): Promise<controllers.HaulierInvoiceListResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 haulierCustomerId: params.haulierCustomerId,
@@ -2281,22 +2284,25 @@ export namespace trucking {
 
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/haulier-invoices`, undefined, {query})
-            return await resp.json() as controllers.TruckingHaulierInvoiceListResponse
-        }
-
-        public async truckingHaulierInvoiceReject(id: string, params: controllers.TruckingHaulierInvoiceReasonRequest): Promise<controllers.TruckingHaulierInvoiceResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices/${encodeURIComponent(id)}/reject`, JSON.stringify(params))
-            return await resp.json() as controllers.TruckingHaulierInvoiceResponse
+            return await resp.json() as controllers.HaulierInvoiceListResponse
         }
 
         /**
-         * DRAFT / NEEDS_APPROVAL only.
+         * Manager.
          */
-        public async truckingHaulierInvoiceUpdate(id: string, params: controllers.TruckingHaulierInvoiceUpdateRequest): Promise<controllers.TruckingHaulierInvoiceResponse> {
+        public async truckingHaulierInvoiceReject(id: string, params: controllers.HaulierInvoiceReasonRequest): Promise<controllers.HaulierInvoiceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/haulier-invoices/${encodeURIComponent(id)}/reject`, JSON.stringify(params))
+            return await resp.json() as controllers.HaulierInvoiceResponse
+        }
+
+        /**
+         * DRAFT, NEEDS_APPROVAL or BLOCKED only; the status is worked out again.
+         */
+        public async truckingHaulierInvoiceUpdate(id: string, params: controllers.HaulierInvoiceUpdateRequest): Promise<controllers.HaulierInvoiceResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/trucking/haulier-invoices/${encodeURIComponent(id)}`, JSON.stringify(params))
-            return await resp.json() as controllers.TruckingHaulierInvoiceResponse
+            return await resp.json() as controllers.HaulierInvoiceResponse
         }
 
         /**
@@ -2340,12 +2346,12 @@ export namespace trucking {
         }
 
         /**
-         * Closes a month (manager): one internal statement per receiving department.
+         * Closes a month (manager): one ICZ statement per receiving department; refused while a charge is not priced.
          */
-        public async truckingInternalMonthClose(month: string): Promise<controllers.TruckingInternalMonthResponse> {
+        public async truckingInternalMonthClose(month: string): Promise<controllers.TruckingInternalMonthCloseResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/internal/months/${encodeURIComponent(month)}/close`)
-            return await resp.json() as controllers.TruckingInternalMonthResponse
+            return await resp.json() as controllers.TruckingInternalMonthCloseResponse
         }
 
         public async truckingInternalMonthExport(month: string): Promise<controllers.TruckingFileResponse> {
@@ -2354,18 +2360,15 @@ export namespace trucking {
             return await resp.json() as controllers.TruckingFileResponse
         }
 
-        /**
-         * The current month and 12 back.
-         */
         public async truckingInternalMonthList(): Promise<controllers.TruckingInternalMonthListResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/internal/months`)
             return await resp.json() as controllers.TruckingInternalMonthListResponse
         }
 
-        public async truckingInternalStatementPdf(number: string): Promise<controllers.TruckingFileResponse> {
+        public async truckingInternalStatementPdf(_number: string): Promise<controllers.TruckingFileResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/internal/statements/${encodeURIComponent(number)}/pdf`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/internal/statements/${encodeURIComponent(_number)}/pdf`)
             return await resp.json() as controllers.TruckingFileResponse
         }
 
@@ -2423,7 +2426,7 @@ export namespace trucking {
 
         /**
          * Trucking settings: service levels, vehicle types, chargeable-weight factors, margin floor, the
-         * transport-order e-mail texts and our warehouse (the hub of LTL). Everyone signed in may read them (the defaults, version 0,
+         * transport-order e-mail texts, our warehouse (the hub of LTL) and the free waiting time. Everyone signed in may read them (the defaults, version 0,
          * until a manager saves); only a manager changes them.
          */
         public async truckingSettingsGet(): Promise<controllers.TruckingSettingsResponse> {
@@ -5046,6 +5049,108 @@ export namespace controllers {
         profile: interfaces.InvoiceProfileItem
     }
 
+    export interface HaulierInvoiceBody {
+        haulierCustomerId: string
+        invoiceNumber: string
+        /**
+         * YYYY-MM-DD
+         */
+        issueDate: string
+
+        dueDate: string | null
+        /**
+         * Date of taxable supply
+         */
+        duzp: string | null
+
+        currency: "CZK" | "EUR"
+        totalNet: number
+        vatAmount: number
+        totalGross: number
+        /**
+         * "prefix-number/bank" or IBAN, as on the invoice
+         */
+        bankAccount: string
+
+        /**
+         * Optional copy of the invoice: PDF or photo, at most 10 MB
+         */
+        fileName?: string
+
+        fileBase64?: string
+        lines: interfaces.HaulierInvoiceLineInput[]
+    }
+
+    export interface HaulierInvoiceCandidatesRequest {
+        haulierCustomerId: string
+    }
+
+    export interface HaulierInvoiceCandidatesResponse {
+        targets: interfaces.HaulierInvoiceCandidate[]
+    }
+
+    export interface HaulierInvoiceFileResponse {
+        file: interfaces.FileDownload
+    }
+
+    export interface HaulierInvoiceListRequest {
+        status?: interfaces.HaulierInvoiceStatus
+        haulierCustomerId?: string
+    }
+
+    export interface HaulierInvoiceListResponse {
+        invoices: interfaces.HaulierInvoice[]
+    }
+
+    export interface HaulierInvoiceReasonRequest {
+        reason: string
+    }
+
+    export interface HaulierInvoiceReasonRequest {
+        reason: string
+    }
+
+    export interface HaulierInvoiceResponse {
+        invoice: interfaces.HaulierInvoice
+    }
+
+    export interface HaulierInvoiceUpdateRequest {
+        /**
+         * The version read; a save on top of a newer one is refused with 409
+         */
+        version: number
+
+        haulierCustomerId: string
+        invoiceNumber: string
+        /**
+         * YYYY-MM-DD
+         */
+        issueDate: string
+
+        dueDate: string | null
+        /**
+         * Date of taxable supply
+         */
+        duzp: string | null
+
+        currency: "CZK" | "EUR"
+        totalNet: number
+        vatAmount: number
+        totalGross: number
+        /**
+         * "prefix-number/bank" or IBAN, as on the invoice
+         */
+        bankAccount: string
+
+        /**
+         * Optional copy of the invoice: PDF or photo, at most 10 MB
+         */
+        fileName?: string
+
+        fileBase64?: string
+        lines: interfaces.HaulierInvoiceLineInput[]
+    }
+
     export interface HolidayDeleteResponse {
         ok: boolean
     }
@@ -6541,6 +6646,30 @@ export namespace controllers {
         terms: interfaces.TermsConditionItem
     }
 
+    export interface TruckingAvizaceRecordRequest {
+        channel: interfaces.AvizaceChannel
+        /**
+         * Who was told (name, phone or e-mail)
+         */
+        contact: string
+
+        /**
+         * ISO or null: the window agreed with the consignee
+         */
+        agreedFrom: string | null
+
+        agreedTo: string | null
+        note: string
+    }
+
+    export interface TruckingAvizaceRecordResponse {
+        consignment: interfaces.ConsignmentDetail
+    }
+
+    export interface TruckingAvizaceTemplateResponse {
+        template: interfaces.AvizaceTemplate
+    }
+
     export interface TruckingConsignmentCreateRequest {
         /**
          * null = a Road / Domestic job is created for the order
@@ -6583,26 +6712,6 @@ export namespace controllers {
          * LTL with a partner: the partner haulier when already known
          */
         partnerHaulierCustomerId?: string | null
-    }
-
-    export interface TruckingAvizaceRecordRequest {
-        channel: interfaces.AvizaceChannel
-        /**
-         * Who was reached: name, phone or e-mail
-         */
-        contact: string
-
-        /**
-         * The agreed delivery window (ISO), when one was agreed
-         */
-        agreedFrom: string | null
-
-        agreedTo: string | null
-        note: string
-    }
-
-    export interface TruckingAvizaceTemplateResponse {
-        template: interfaces.AvizaceTemplate
     }
 
     export interface TruckingConsignmentListRequest {
@@ -6725,29 +6834,51 @@ export namespace controllers {
     export interface TruckingExceptionCreateRequest {
         kind: interfaces.ExceptionKind
         /**
-         * FAILED_DELIVERY only
+         * Required for FAILED_DELIVERY
          */
         failedReason: interfaces.FailedReason | null
 
-        cause: interfaces.ExceptionCause
+        cause: interfaces.ExceptionCause | null
         description: string
         pieces: number | null
+        /**
+         * Required for WAITING_TIME
+         */
         waitingMinutes: number | null
+
+        /**
+         * null = none yet (waiting time: priced from the tariff when it can be)
+         */
         amount: number | null
-        currency: "CZK" | "EUR"
+
+        currency: "CZK" | "EUR" | null
+        /**
+         * The LTL leg it happened on
+         */
         legId: string | null
     }
 
     export interface TruckingExceptionDecideRequest {
         decision: interfaces.ExceptionDecision
-        cause: interfaces.ExceptionCause
+        cause: interfaces.ExceptionCause | null
+        /**
+         * null = the exception's amount
+         */
         amount: number | null
-        currency: "CZK" | "EUR"
+
+        currency: "CZK" | "EUR" | null
+        /**
+         * 3 to 500 characters
+         */
         reason: string
     }
 
     export interface TruckingExceptionListRequest {
+        /**
+         * true = not closed, false = closed; left out = all
+         */
         open?: boolean
+
         kind?: interfaces.ExceptionKind
         consignmentId?: string
     }
@@ -6758,14 +6889,15 @@ export namespace controllers {
 
     export interface TruckingExceptionPhotoRequest {
         fileName: string
-        /**
-         * At most 10 MB; a photo or a PDF (the type is taken from the bytes)
-         */
         fileBase64: string
     }
 
     export interface TruckingExceptionResponse {
         exception: interfaces.DeliveryException
+    }
+
+    export interface TruckingFileResponse {
+        file: interfaces.FileDownload
     }
 
     export interface TruckingFileResponse {
@@ -6811,79 +6943,6 @@ export namespace controllers {
          * Why (3 to 500 characters)
          */
         reason: string
-    }
-
-    export interface TruckingHaulierInvoiceCandidatesRequest {
-        haulierCustomerId: string
-    }
-
-    export interface TruckingHaulierInvoiceCandidatesResponse {
-        targets: interfaces.HaulierInvoiceCandidate[]
-    }
-
-    export interface TruckingHaulierInvoiceCreateRequest {
-        haulierCustomerId: string
-        invoiceNumber: string
-        /**
-         * YYYY-MM-DD
-         */
-        issueDate: string
-
-        dueDate: string | null
-        /**
-         * Datum uskutečnění zdanitelného plnění (YYYY-MM-DD)
-         */
-        duzp: string | null
-
-        currency: "CZK" | "EUR"
-        totalNet: number
-        vatAmount: number
-        totalGross: number
-        /**
-         * "123456789/0800", "19-123456789/0800" or an IBAN
-         */
-        bankAccount: string
-
-        fileName?: string
-        fileBase64?: string
-        lines: interfaces.HaulierInvoiceLineInput[]
-    }
-
-    export interface TruckingHaulierInvoiceListRequest {
-        status?: interfaces.HaulierInvoiceStatus
-        haulierCustomerId?: string
-    }
-
-    export interface TruckingHaulierInvoiceListResponse {
-        invoices: interfaces.HaulierInvoice[]
-    }
-
-    export interface TruckingHaulierInvoiceReasonRequest {
-        reason: string
-    }
-
-    export interface TruckingHaulierInvoiceResponse {
-        invoice: interfaces.HaulierInvoice
-    }
-
-    export interface TruckingHaulierInvoiceUpdateRequest {
-        haulierCustomerId: string
-        invoiceNumber: string
-        issueDate: string
-        dueDate: string | null
-        duzp: string | null
-        currency: "CZK" | "EUR"
-        totalNet: number
-        vatAmount: number
-        totalGross: number
-        bankAccount: string
-        fileName?: string
-        fileBase64?: string
-        lines: interfaces.HaulierInvoiceLineInput[]
-        /**
-         * The version read
-         */
-        version: number
     }
 
     export interface TruckingHaulierListRequest {
@@ -6934,14 +6993,14 @@ export namespace controllers {
         vatUnreliable: boolean
         bankAccountPublished: boolean
         /**
-         * The accounts published in the VAT register (entered and checked by hand for now)
-         */
-        bankAccounts: string[]
-
-        /**
          * YYYY-MM-DD
          */
         vatCheckedAt: string | null
+
+        /**
+         * The bank accounts published in the VAT register ("prefix-number/bank" or IBAN; the whole list). Left out = kept as saved.
+         */
+        bankAccounts?: string[]
 
         costSplitBasis: interfaces.CostSplitBasis
         notes: string
@@ -6960,12 +7019,15 @@ export namespace controllers {
         charges: interfaces.InternalCharge[]
     }
 
-    export interface TruckingInternalMonthListResponse {
-        months: interfaces.InternalMonth[]
+    export interface TruckingInternalMonthCloseResponse {
+        month: interfaces.InternalMonth
     }
 
-    export interface TruckingInternalMonthResponse {
-        month: interfaces.InternalMonth
+    export interface TruckingInternalMonthListResponse {
+        /**
+         * The current month and the 12 before it, newest first
+         */
+        months: interfaces.InternalMonth[]
     }
 
     export interface TruckingLabelsPdfRequest {
@@ -7019,9 +7081,9 @@ export namespace controllers {
         hub?: interfaces.HubAddress
 
         /**
-         * Free time before waiting time is charged, minutes; left out = the saved one stays
+         * Free waiting time (LTL / FTL minutes) before waiting is charged; left out = the saved one stays
          */
-        waitingFreeMinutes?: interfaces.WaitingFreeMinutes
+        waitingFreeTime?: interfaces.WaitingFreeTime
 
         /**
          * The version read (0 when none is saved yet); a save on top of a newer one is refused with 409.
@@ -7750,6 +7812,50 @@ export namespace interfaces {
         fixingDays: number
     }
 
+    export type AvizaceChannel = "PHONE" | "EMAIL" | "SMS" | "OTHER"
+
+    /**
+     * How the consignee was told of the delivery (recorded by staff; e-mail sending is off).
+     */
+    export interface AvizaceRecord {
+        /**
+         * ISO, when it was recorded
+         */
+        at: string
+
+        /**
+         * Display name of who recorded it
+         */
+        by: string
+
+        channel: AvizaceChannel
+        /**
+         * Who was told (name, phone or e-mail)
+         */
+        contact: string
+
+        /**
+         * The delivery window agreed with the consignee (ISO), when one was agreed
+         */
+        agreedFrom: string | null
+
+        agreedTo: string | null
+        note: string
+    }
+
+    /**
+     * The avizace text prepared to copy (Czech and English); never the Pick-up PIN.
+     */
+    export interface AvizaceTemplate {
+        cs: string
+        en: string
+        subject: string
+        /**
+         * The delivery stop's contact phone as stored ("" when none)
+         */
+        to: string
+    }
+
     /**
      * TRIP = one price per trip/lane (line haul, FTL)
      */
@@ -7871,28 +7977,6 @@ export namespace interfaces {
         grossWeight: string
         commercialInvoiceValue: string
         currency: string
-    }
-
-    export type AvizaceChannel = "PHONE" | "EMAIL" | "SMS" | "OTHER"
-
-    export interface AvizaceRecord {
-        at: string
-        by: string
-        channel: AvizaceChannel
-        contact: string
-        agreedFrom: string | null
-        agreedTo: string | null
-        note: string
-    }
-
-    export interface AvizaceTemplate {
-        cs: string
-        en: string
-        subject: string
-        /**
-         * The delivery stop's contact phone / e-mail as stored
-         */
-        to: string
     }
 
     export interface ChargeableFactors {
@@ -8017,30 +8101,17 @@ export namespace interfaces {
     }
 
     export interface ConsignmentCounts {
-        avizacePending: number
-        openExceptions: number
         attention: number
         pickupToday: number
         deliveryToday: number
         podMissing: number
         readyToBill: number
         openFtlWithoutHaulier: number
+        avizacePending: number
+        openExceptions: number
     }
 
     export interface ConsignmentDetail {
-        avizace: AvizaceRecord | null
-        avizaceNeeded: boolean
-        exceptions: DeliveryException[]
-        /**
-         * Warehouse OSD exceptions of the consignment's shipment, read-only
-         */
-        warehouseExceptions: WarehouseExceptionMirror[]
-
-        /**
-         * The job is owned by another department: billed internally, not to the customer
-         */
-        internal: boolean
-
         /**
          * LTL: the customer brings the goods to our warehouse (no pick-up leg)
          */
@@ -8107,6 +8178,21 @@ export namespace interfaces {
             canApproveMargin: boolean
             canVoidStamp: boolean
         }
+        /**
+         * Phase 6: the avizace recorded last (null = none)
+         */
+        avizace: AvizaceRecord | null
+
+        /**
+         * Newest first
+         */
+        exceptions: DeliveryException[]
+
+        /**
+         * The Warehouse's OSD exceptions of the job at our hub (LTL), read-only
+         */
+        warehouseExceptions: WarehouseExceptionItem[]
+
         id: string
         /**
          * "TCZ2026000001"
@@ -8147,13 +8233,28 @@ export namespace interfaces {
         needsAttention: string[]
 
         createdAt: string
+        /**
+         * Phase 6: the delivery must be announced to the consignee (B2C or the stop says so)
+         */
+        avizaceNeeded: boolean
+
+        /**
+         * An avizace is recorded
+         */
+        avizaceDone: boolean
+
+        /**
+         * Delivery exceptions not closed yet
+         */
+        openExceptions: number
+
+        /**
+         * The job belongs to another department: billed internally (no customer selling lines)
+         */
+        internal: boolean
     }
 
     export interface ConsignmentListItem {
-        avizaceNeeded: boolean
-        avizaceDone: boolean
-        openExceptions: number
-        internal: boolean
         id: string
         /**
          * "TCZ2026000001"
@@ -8194,6 +8295,25 @@ export namespace interfaces {
         needsAttention: string[]
 
         createdAt: string
+        /**
+         * Phase 6: the delivery must be announced to the consignee (B2C or the stop says so)
+         */
+        avizaceNeeded: boolean
+
+        /**
+         * An avizace is recorded
+         */
+        avizaceDone: boolean
+
+        /**
+         * Delivery exceptions not closed yet
+         */
+        openExceptions: number
+
+        /**
+         * The job belongs to another department: billed internally (no customer selling lines)
+         */
+        internal: boolean
     }
 
     export type ConsignmentPriceInput = {
@@ -8211,6 +8331,9 @@ export namespace interfaces {
 
     export type ConsignmentStatus = "BOOKED" | "PLANNED" | "ORDERED" | "CONFIRMED" | "PICKED_UP" | "AT_HUB" | "ON_LINEHAUL" | "OUT_FOR_DELIVERY" | "DELIVERED" | "POD_RECEIVED" | "READY_TO_BILL" | "CANCELLED"
 
+    /**
+     * podMissing = delivered more than 2 working days ago without POD
+     */
     export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill" | "avizacePending" | "openExceptions"
 
     export interface ContactItem {
@@ -8496,49 +8619,6 @@ export namespace interfaces {
 
     export type Deadline = "overdue" | "today" | "tomorrow" | "later"
 
-    export interface DeliveryException {
-        id: string
-        consignmentId: string
-        legId: string | null
-        kind: ExceptionKind
-        failedReason: FailedReason | null
-        cause: ExceptionCause
-        decision: ExceptionDecision
-        amount: number | null
-        currency: "CZK" | "EUR"
-        description: string
-        pieces: number | null
-        waitingMinutes: number | null
-        /**
-         * When raised from / linked to a Warehouse OSD exception
-         */
-        warehouseExceptionId: string | null
-
-        createdAt: string
-        createdBy: string
-        decidedAt: string | null
-        decidedBy: string | null
-        closedAt: string | null
-        photos: {
-            id: string
-            fileName: string
-        }[]
-    }
-
-    export type DeliveryExceptionListItem = DeliveryException & {
-        consignmentRef: string
-        customerName: string
-        jobNumber: string
-    }
-
-    export type ExceptionCause = "CUSTOMER" | "HAULIER" | "US" | "UNKNOWN"
-
-    export type ExceptionDecision = "CHARGE_CUSTOMER" | "CLAIM_HAULIER" | "ABSORB" | "PENDING"
-
-    export type ExceptionKind = "FAILED_DELIVERY" | "DAMAGE" | "SHORTAGE" | "OVERAGE" | "WAITING_TIME" | "REDELIVERY" | "OTHER"
-
-    export type FailedReason = "CLOSED" | "ABSENT" | "REFUSED" | "WRONG_ADDRESS" | "REFUSED_DAMAGED" | "NO_AVIZACE" | "OTHER"
-
     export interface DeadlineGroup {
         period: DeadlinePeriod
         items: DeadlineItem[]
@@ -8562,6 +8642,86 @@ export namespace interfaces {
     }
 
     export type DeadlinePeriod = "OVERDUE" | "TODAY" | "THIS_WEEK" | "NEXT_WEEK" | "LATER"
+
+    export interface DeliveryException {
+        id: string
+        consignmentId: string
+        legId: string | null
+        kind: ExceptionKind
+        failedReason: FailedReason | null
+        cause: ExceptionCause
+        decision: ExceptionDecision
+        amount: number | null
+        currency: "CZK" | "EUR"
+        description: string
+        pieces: number | null
+        waitingMinutes: number | null
+        /**
+         * When raised from / linked to a Warehouse OSD exception
+         */
+        warehouseExceptionId: string | null
+
+        createdAt: string
+        /**
+         * Display name
+         */
+        createdBy: string
+
+        decidedAt: string | null
+        /**
+         * Display name
+         */
+        decidedBy: string | null
+
+        closedAt: string | null
+        photos: {
+            id: string
+            fileName: string
+        }[]
+    }
+
+    /**
+     * An exception in the cross-consignment list.
+     */
+    export interface DeliveryExceptionListItem {
+        consignmentRef: string
+        customerName: string
+        jobNumber: string
+        id: string
+        consignmentId: string
+        legId: string | null
+        kind: ExceptionKind
+        failedReason: FailedReason | null
+        cause: ExceptionCause
+        decision: ExceptionDecision
+        amount: number | null
+        currency: "CZK" | "EUR"
+        description: string
+        pieces: number | null
+        waitingMinutes: number | null
+        /**
+         * When raised from / linked to a Warehouse OSD exception
+         */
+        warehouseExceptionId: string | null
+
+        createdAt: string
+        /**
+         * Display name
+         */
+        createdBy: string
+
+        decidedAt: string | null
+        /**
+         * Display name
+         */
+        decidedBy: string | null
+
+        closedAt: string | null
+        photos: {
+            id: string
+            fileName: string
+        }[]
+    }
 
     export interface DiffCell {
         serviceLevel: ServiceLevelCode
@@ -8613,6 +8773,12 @@ export namespace interfaces {
 
     export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other"
 
+    export type ExceptionCause = "CUSTOMER" | "HAULIER" | "US" | "UNKNOWN"
+
+    export type ExceptionDecision = "CHARGE_CUSTOMER" | "CLAIM_HAULIER" | "ABSORB" | "PENDING"
+
+    export type ExceptionKind = "FAILED_DELIVERY" | "DAMAGE" | "SHORTAGE" | "OVERAGE" | "WAITING_TIME" | "REDELIVERY" | "OTHER"
+
     export interface ExtractHblResult {
         shipments: { [key: string]: string }[]
         batchIndex: number
@@ -8632,6 +8798,8 @@ export namespace interfaces {
         method: "text" | "vision"
         fileName: string
     }
+
+    export type FailedReason = "CLOSED" | "ABSENT" | "REFUSED" | "WRONG_ADDRESS" | "REFUSED_DAMAGED" | "NO_AVIZACE" | "OTHER"
 
     export interface FileDownload {
         fileName: string
@@ -9424,81 +9592,6 @@ export namespace interfaces {
         createdAt: string
     }
 
-    export interface HaulierInvoice {
-        id: string
-        haulierCustomerId: string
-        haulierName: string
-        invoiceNumber: string
-        issueDate: string
-        dueDate: string | null
-        duzp: string | null
-        currency: "CZK" | "EUR"
-        totalNet: number
-        vatAmount: number
-        totalGross: number
-        /**
-         * As on the invoice, normalised "123456789/0800" or IBAN
-         */
-        bankAccount: string
-
-        /**
-         * Against the haulier profile (manual list for now)
-         */
-        bankAccountCheck: {
-            published: boolean | null
-            checkedAt: string | null
-            note: string
-        }
-        lines: HaulierInvoiceLine[]
-        difference: number
-        status: HaulierInvoiceStatus
-        blockReasons: string[]
-        approval: {
-            byName: string
-            at: string
-            reason: string
-        } | null
-        fileName: string | null
-        createdAt: string
-        createdBy: string
-        version: number
-    }
-
-    export interface HaulierInvoiceCandidate {
-        kind: "TRIP" | "PARTNER_LEG"
-        id: string
-        ref: string
-        date: string
-        expected: number
-        claimed: number
-        currency: "CZK" | "EUR"
-        alreadyInvoiced: boolean
-    }
-
-    export interface HaulierInvoiceLine {
-        id: string
-        target: {
-            kind: "TRIP" | "PARTNER_LEG"
-            id: string
-            ref: string
-        }
-        expected: number
-        claimed: number
-        invoiced: number
-        difference: number
-        currency: "CZK" | "EUR"
-        note: string
-    }
-
-    export interface HaulierInvoiceLineInput {
-        targetKind: "TRIP" | "PARTNER_LEG"
-        targetId: string
-        invoiced: number
-        note: string
-    }
-
-    export type HaulierInvoiceStatus = "DRAFT" | "MATCHED" | "NEEDS_APPROVAL" | "APPROVED" | "BLOCKED" | "REJECTED"
-
     export interface HaulierDetail {
         customerId: string
         companyName: string
@@ -9513,6 +9606,125 @@ export namespace interfaces {
         status: HaulierStatus
         issues: HaulierIssue[]
     }
+
+    export interface HaulierInvoice {
+        id: string
+        haulierCustomerId: string
+        haulierName: string
+        invoiceNumber: string
+        /**
+         * YYYY-MM-DD
+         */
+        issueDate: string
+
+        dueDate: string | null
+        /**
+         * Datum uskutečnění zdanitelného plnění
+         */
+        duzp: string | null
+
+        currency: "CZK" | "EUR"
+        totalNet: number
+        vatAmount: number
+        totalGross: number
+        /**
+         * As on the invoice, normalised "123456789/0800" (a CZ IBAN is shown so too) or an IBAN
+         */
+        bankAccount: string
+
+        /**
+         * Against the haulier profile (manual list for now)
+         */
+        bankAccountCheck: {
+            published: boolean | null
+            checkedAt: string | null
+            note: string
+        }
+
+        lines: HaulierInvoiceLine[]
+        /**
+         * totalNet − Σ expected
+         */
+        difference: number
+
+        status: HaulierInvoiceStatus
+        /**
+         * Why payment may not be approved (BLOCKED); nobody can override these
+         */
+        blockReasons: string[]
+
+        approval: {
+            byName: string
+            at: string
+            reason: string
+        } | null
+        fileName: string | null
+        createdAt: string
+        createdBy: string
+        version: number
+    }
+
+    /**
+     * A trip or partner delivery of a haulier that may be invoiced.
+     */
+    export interface HaulierInvoiceCandidate {
+        kind: HaulierInvoiceTargetKind
+        id: string
+        ref: string
+        /**
+         * YYYY-MM-DD: the trip's planned pick-up / the delivery day
+         */
+        date: string
+
+        expected: number
+        claimed: number
+        currency: "CZK" | "EUR"
+        /**
+         * Already on another invoice that is not rejected (and not approved yet)
+         */
+        alreadyInvoiced: boolean
+    }
+
+    export interface HaulierInvoiceLine {
+        id: string
+        /**
+         * ref: the trip ref (LCZ…) or "TCZ… partner delivery"
+         */
+        target: {
+            kind: HaulierInvoiceTargetKind
+            id: string
+            ref: string
+        }
+
+        /**
+         * The target's cost less what is claimed against the haulier
+         */
+        expected: number
+
+        claimed: number
+        invoiced: number
+        /**
+         * invoiced − expected
+         */
+        difference: number
+
+        currency: "CZK" | "EUR"
+        note: string
+    }
+
+    /**
+     * A line as entered: the trip or partner delivery and what the haulier invoiced for it.
+     */
+    export interface HaulierInvoiceLineInput {
+        targetKind: HaulierInvoiceTargetKind
+        targetId: string
+        invoiced: number
+        note: string
+    }
+
+    export type HaulierInvoiceStatus = "DRAFT" | "MATCHED" | "NEEDS_APPROVAL" | "APPROVED" | "BLOCKED" | "REJECTED"
+
+    export type HaulierInvoiceTargetKind = "TRIP" | "PARTNER_LEG"
 
     export interface HaulierIssue {
         code: HaulierIssueCode
@@ -9609,14 +9821,14 @@ export namespace interfaces {
         bankAccountPublished: boolean
 
         /**
-         * The accounts published in the VAT register, entered and checked by hand for now
-         */
-        bankAccounts: string[]
-
-        /**
          * YYYY-MM-DD of the last manual check; older than 30 days gives vat_check_due (warn)
          */
         vatCheckedAt: string | null
+
+        /**
+         * Phase 6: the accounts published in the VAT register, normalised ("19-2000145399/0800" or an IBAN); manual for now
+         */
+        bankAccounts: string[]
 
         /**
          * Default chargeable_weight
@@ -9720,6 +9932,60 @@ export namespace interfaces {
         read: "used" | "ignored" | "missing"
         rows: number
         note: string
+    }
+
+    export interface InternalCharge {
+        id: string
+        /**
+         * "2026-10"
+         */
+        month: string
+
+        consignmentId: string
+        consignmentRef: string
+        shipmentId: string
+        jobNumber: string
+        /**
+         * The receiving department (the job's)
+         */
+        department: string
+
+        /**
+         * ISO, the consignment's delivery
+         */
+        deliveredAt: string
+
+        serviceLevel: string | null
+        chargeableKg: number | null
+        tariffVersionId: string | null
+        amount: number
+        currency: "CZK"
+        kind: InternalChargeKind
+        /**
+         * Starts with "Not priced" when no Internal tariff priced it (needs attention)
+         */
+        description: string
+
+        createdAt: string
+    }
+
+    export type InternalChargeKind = "CHARGE" | "EXCEPTION" | "ADJUSTMENT"
+
+    export interface InternalMonth {
+        month: string
+        status: "OPEN" | "CLOSED"
+        closedAt: string | null
+        /**
+         * Display name
+         */
+        closedBy: string | null
+
+        totals: {
+            department: string
+            count: number
+            amount: number
+        }[]
+        statementNumbers: string[]
     }
 
     export interface InvoiceCostItem {
@@ -10140,51 +10406,6 @@ export namespace interfaces {
         tailLift: boolean
         b2c: boolean
         description: string
-    }
-
-    export interface InternalCharge {
-        id: string
-        /**
-         * "2026-10"
-         */
-        month: string
-
-        consignmentId: string
-        consignmentRef: string
-        shipmentId: string
-        jobNumber: string
-        department: string
-        deliveredAt: string
-        serviceLevel: string | null
-        chargeableKg: number | null
-        tariffVersionId: string | null
-        amount: number
-        currency: "CZK"
-        kind: "CHARGE" | "EXCEPTION" | "ADJUSTMENT"
-        description: string
-        createdAt: string
-    }
-
-    export interface InternalMonth {
-        month: string
-        status: "OPEN" | "CLOSED"
-        closedAt: string | null
-        closedBy: string | null
-        totals: {
-            department: string
-            count: number
-            amount: number
-        }[]
-        statementNumbers: string[]
-    }
-
-    export interface InternalStatement {
-        number: string
-        month: string
-        department: string
-        issuedAt: string
-        amount: number
-        lineCount: number
     }
 
     export type LtlTripKind = "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN"
@@ -12403,11 +12624,7 @@ export namespace interfaces {
         marginFloor: MarginFloor
         transportOrder: TransportOrderTexts
         hub: HubAddress
-        /**
-         * Free time before waiting time is charged (default LTL 30, FTL 120)
-         */
-        waitingFreeMinutes: WaitingFreeMinutes
-
+        waitingFreeTime: WaitingFreeTime
         version: number
         updatedAt: string | null
         /**
@@ -12421,24 +12638,6 @@ export namespace interfaces {
          * e.g. "No zone for postcode 790 01 in Standard sell list"
          */
         reason: string
-    }
-
-    /**
-     * Free time before waiting time is charged, minutes, per consignment scope
-     */
-    export interface WaitingFreeMinutes {
-        LTL: number
-        FTL: number
-    }
-
-    export interface WarehouseExceptionMirror {
-        id: string
-        shipmentId: string
-        kind: string
-        pieces: number | null
-        note: string
-        status: string
-        createdAt: string
     }
 
     export interface ValidationFinding {
@@ -12483,6 +12682,21 @@ export namespace interfaces {
 
         tailLift: boolean
         active: boolean
+    }
+
+    /**
+     * Waiting at a stop free of charge before the WAITING_TIME surcharge counts (Phase 6).
+     */
+    export interface WaitingFreeTime {
+        /**
+         * Whole minutes, 0..1440; default 30
+         */
+        ltlMinutes: number
+
+        /**
+         * Whole minutes, 0..1440; default 120
+         */
+        ftlMinutes: number
     }
 
     export interface WarehouseBondedEntryInput {
@@ -12954,6 +13168,27 @@ export namespace interfaces {
         note: string
         createdAt: string
         updatedAt: string
+    }
+
+    /**
+     * A Warehouse OSD exception (Damaged / Short / Over) of the consignment's job, read-only.
+     */
+    export interface WarehouseExceptionItem {
+        id: string
+        shipmentId: string
+        /**
+         * "Damaged" | "Short" | "Over"
+         */
+        kind: string
+
+        pieces: number
+        note: string
+        /**
+         * "open" | "resolved"
+         */
+        status: string
+
+        createdAt: string
     }
 
     /**

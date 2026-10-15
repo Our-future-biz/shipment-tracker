@@ -79,7 +79,7 @@ describe("our warehouse (hub)", () => {
 describe("free waiting time", () => {
   it("defaults to LTL 30 and FTL 120 minutes for settings saved before it existed", () => {
     expect(waitingFreeOf(null)).toEqual({ LTL: 30, FTL: 120 });
-    expect(waitingFreeOf({ waitingFreeMinutes: { LTL: 45, FTL: 90 } })).toEqual({ LTL: 45, FTL: 90 });
+    expect(waitingFreeOf({ waitingFreeTime: { ltlMinutes: 45, ftlMinutes: 90 } })).toEqual({ LTL: 45, FTL: 90 });
   });
 
   it("is whole minutes, 0 or more", () => {

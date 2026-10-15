@@ -289,7 +289,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
                     Mark checked today
                   </Button>
                 </div>
-                <HaulierBankAccounts accounts={draft.bankAccounts} onChange={(v) => set("bankAccounts", v)} />
+                <HaulierBankAccounts accounts={draft.bankAccounts ?? []} onChange={(v) => set("bankAccounts", v)} />
                 <p className="m-0 text-[11px] text-slate-400">
                   Checked by hand in the VAT register for now; a check older than 30 days shows a warning. A haulier invoice is blocked while the haulier is an unreliable VAT
                   payer, its account is not published, or the invoice&apos;s account is not one listed here.

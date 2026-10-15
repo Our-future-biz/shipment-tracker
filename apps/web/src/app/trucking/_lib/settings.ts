@@ -14,17 +14,26 @@ export interface SettingsDraft {
   marginFloor: interfaces.MarginFloor;
   transportOrder: interfaces.TransportOrderTexts;
   hub: interfaces.HubAddress;
-  waitingFreeMinutes: interfaces.WaitingFreeMinutes;
+  waitingFreeMinutes: WaitingFreeMinutes;
+}
+
+/** Free waiting time per scope, as the screens use it (the API keeps it as waitingFreeTime). */
+export interface WaitingFreeMinutes {
+  LTL: number;
+  FTL: number;
 }
 
 /** Free time before waiting time is charged, as the server defaults it. */
-export const DEFAULT_WAITING_FREE: interfaces.WaitingFreeMinutes = { LTL: 30, FTL: 120 };
+export const DEFAULT_WAITING_FREE: WaitingFreeMinutes = { LTL: 30, FTL: 120 };
 
 /** The free waiting time of the settings; settings saved before Phase 6 have none yet. */
-export const waitingFreeOf = (settings: Pick<interfaces.TruckingSettings, "waitingFreeMinutes"> | null | undefined): interfaces.WaitingFreeMinutes => ({
-  ...DEFAULT_WAITING_FREE,
-  ...settings?.waitingFreeMinutes,
+export const waitingFreeOf = (settings: Pick<interfaces.TruckingSettings, "waitingFreeTime"> | null | undefined): WaitingFreeMinutes => ({
+  LTL: settings?.waitingFreeTime?.ltlMinutes ?? DEFAULT_WAITING_FREE.LTL,
+  FTL: settings?.waitingFreeTime?.ftlMinutes ?? DEFAULT_WAITING_FREE.FTL,
 });
+
+/** The free waiting time as the API saves it. */
+export const waitingFreeTimeOf = (m: WaitingFreeMinutes): interfaces.WaitingFreeTime => ({ ltlMinutes: m.LTL, ftlMinutes: m.FTL });
 
 export const EMPTY_HUB: interfaces.HubAddress = { name: "", street: "", postcode: "", city: "", country: "CZ" };
 

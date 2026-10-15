@@ -14,7 +14,7 @@ import { useUnsavedGuard } from "@/app/warehouse/_lib/useUnsavedGuard";
 import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
 import { CONFLICT_TEXT, isVersionConflict } from "../../_lib/saveConflict";
-import { EMPTY_HUB, settingsProblems, TEXT_PLACEHOLDERS, waitingFreeOf, type SettingsDraft } from "../../_lib/settings";
+import { EMPTY_HUB, settingsProblems, TEXT_PLACEHOLDERS, waitingFreeOf, waitingFreeTimeOf, type SettingsDraft } from "../../_lib/settings";
 import { FuelIndexSection } from "./FuelIndexSection";
 import { HubSection } from "./HubSection";
 import { ServiceLevelsTable } from "./ServiceLevelsTable";
@@ -79,7 +79,8 @@ export const TruckingSettingsView = () => {
 
   const handleSave = async () => {
     try {
-      const res = await save({ ...draft, version: settings.version });
+      const { waitingFreeMinutes, ...rest } = draft;
+      const res = await save({ ...rest, waitingFreeTime: waitingFreeTimeOf(waitingFreeMinutes), version: settings.version });
       setDraft(draftOf(res.settings));
       setConflict(false);
       toast.success("Trucking settings saved");
