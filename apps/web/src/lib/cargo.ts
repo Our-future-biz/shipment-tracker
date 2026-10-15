@@ -29,6 +29,26 @@ export const packTypeOptions = (query: string) =>
 
 export const STACKABLE_OPTIONS = ["Stackable", "Non-stackable", "Overstowable", "Non-overstowable"];
 
+// Road freight: the pallet a dimension line stands on, and its ADR (dangerous goods) details.
+export const PALLET_TYPES: { value: interfaces.PalletType; label: string }[] = [
+  { value: "EUR", label: "EUR 120×80" },
+  { value: "INDUSTRIAL", label: "Industrial 120×100" },
+  { value: "HALF", label: "Half 80×60" },
+  { value: "QUARTER", label: "Quarter 60×40" },
+  { value: "OTHER", label: "Other" },
+];
+export const ADR_PACKING_GROUPS: interfaces.AdrPackingGroup[] = ["I", "II", "III"];
+
+/** Whether a dimension line carries any ADR detail. */
+export const hasAdr = (l: interfaces.CargoDimensionLine): boolean =>
+  !!(l.adrUn || l.adrClass || l.adrPackingGroup || l.adrLimitedQuantity);
+
+/** The ADR details of a line in one short text, e.g. "UN 1203 · 3 · PG II · LQ". */
+export const adrSummary = (l: interfaces.CargoDimensionLine): string =>
+  [l.adrUn && `UN ${l.adrUn}`, l.adrClass, l.adrPackingGroup && `PG ${l.adrPackingGroup}`, l.adrLimitedQuantity && "LQ"]
+    .filter(Boolean)
+    .join(" · ");
+
 export const CURRENCIES: { code: string; name: string }[] = [
   { code: "USD", name: "US Dollar" },
   { code: "EUR", name: "Euro" },

@@ -4,9 +4,10 @@ import { canManageSales } from "../../../lib/salesPolicy";
 import log from "encore.dev/log";
 import { auth, customers, invoicing, quotes } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
-import { shipmentRepository, OVERDUE_DEADLINE_FIELDS } from "../repositories/shipment.repository";
+import { shipmentRepository, OVERDUE_DEADLINE_FIELDS, type NewShipmentData } from "../repositories/shipment.repository";
 import { shipmentAuditRepository } from "../repositories/shipmentAudit.repository";
 import { masterJobRepository } from "../repositories/masterJob.repository";
+import { shipmentRefCounterRepository } from "../repositories/shipmentRefCounter.repository";
 import { containerRepository } from "../repositories/container.repository";
 import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
@@ -33,11 +34,14 @@ import type {
   ShipmentItem,
   ShipmentTileCounts,
   CustomsPriority,
+  PalletType,
+  AdrPackingGroup,
 } from "../interfaces/interfaces";
 import { iso } from "../../../lib/db/serialize";
 import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
+import { normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { shipmentDeleted } from "../topics";
 
 // Extra detail rows accepted alongside the shipment's own fields on create/update.
@@ -56,8 +60,11 @@ interface FromQuote {
   allowSecondShipment?: boolean;
 }
 
-/** What a create writes: the shipment's own fields (a blank priority allowed), plus its detail rows. */
-export type ShipmentCreateData = Omit<NewShipmentRecord, "companyId" | "customsPriority"> & BlankablePriority & DetailRows & FromQuote;
+/**
+ * What a create writes: the shipment's own fields (a blank priority allowed), plus its detail rows.
+ * The job number is always the company's next one, given out when the shipment is stored.
+ */
+export type ShipmentCreateData = Omit<NewShipmentRecord, "companyId" | "jobNumber" | "customsPriority"> & BlankablePriority & DetailRows & FromQuote;
 
 // What a create answers: the shipment, and for one made from a quote how each further step went.
 export interface CreatedShipment {
@@ -115,6 +122,11 @@ function toCargoDimensionLine(row: CargoDimensionRecord): CargoDimensionLine {
     weightPerPcKg: row.weightPerPcKg,
     packageType: row.packageType,
     stackable: row.stackable,
+    palletType: row.palletType as PalletType | null,
+    adrUn: row.adrUn,
+    adrClass: row.adrClass,
+    adrPackingGroup: row.adrPackingGroup as AdrPackingGroup | null,
+    adrLimitedQuantity: row.adrLimitedQuantity,
   };
 }
 
@@ -573,7 +585,7 @@ class ShipmentService {
     companyId: string,
     quoteNumber: string,
     allowSecond: boolean,
-    shipmentData: Omit<NewShipmentRecord, "companyId">,
+    shipmentData: NewShipmentData,
     rows: DetailRows,
   ): Promise<CreatedShipment> {
     let quote;
@@ -627,9 +639,11 @@ class ShipmentService {
   }
 
   async create(companyId: string, data: ShipmentCreateData): Promise<CreatedShipment> {
-    const { containers, cargoItems, cargoDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, ...rest } = data;
+    const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, ...rest } = data;
     assertValidContainerNumbers(containers);
+    const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
+    Object.assign(shipmentData, normalizeStops(shipmentData));
     // A new shipment has no paperwork yet, so its customs status starts where the paperwork does.
     delete shipmentData.customsStatus;
     // The starting status belongs to the shipment's Trade Direction.
@@ -666,7 +680,7 @@ class ShipmentService {
       const owner = await this.quoteSalesOwner(salesNumber);
       if (owner) shipmentData.salesPerson = owner;
     }
-    const shipment = await shipmentRepository.createForCompany(companyId, shipmentData);
+    const shipment = await shipmentRepository.createWithJobNumber(companyId, shipmentData);
     await this.syncDetailRows(shipment.id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
     await this.recalcCustomerRollups(shipment.customerId, companyId);
     // A quote number typed as Sales Number links that quote to the shipment, without marking it Won.
@@ -674,20 +688,22 @@ class ShipmentService {
     return { shipment: (await this.getById(shipment.id, companyId))! };
   }
 
-  // Next CZ job number for this company (a per-company sequence over all rows incl.
-  // archived, so a reference is never reused within the company).
+  // The CZ job number the next shipment of this company would get (a per-company sequence over
+  // all rows incl. archived, so a reference is never reused within the company). Only a preview:
+  // the number is taken when the shipment is stored, so a parallel create may get this one first.
   async nextJobNumber(companyId: string): Promise<string> {
-    const max = await shipmentRepository.maxCzJobNumber(companyId);
-    return `CZ${String(max + 1).padStart(8, "0")}`;
+    return shipmentRefCounterRepository.peek(companyId, "CZ");
   }
 
   async update(id: string, companyId: string, data: ShipmentUpdateData, userId: string): Promise<ShipmentItem> {
     const existing = await shipmentRepository.getByIdForCompany(id, companyId);
     if (!existing) throw APIError.notFound("Shipment not found");
 
-    const { containers, cargoItems, cargoDimensions, commercialInvoices, ...rest } = data;
+    const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, ...rest } = data;
     assertValidContainerNumbers(containers);
+    const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData: Partial<NewShipmentRecord> = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
+    Object.assign(shipmentData, normalizeStops(shipmentData, existing));
 
     // Up to "Paperwork Verified" the customs status follows the paperwork; only the steps
     // after it are set by hand, and only once the paperwork is approved.

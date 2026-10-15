@@ -173,8 +173,9 @@ export const CreateShipmentWizard = ({
 
   const baseRequest = (): controllers.ShipmentCreateRequest => {
     const now = new Date().toLocaleString("cs-CZ", { timeZone: "Europe/Prague" });
+    // No job number: the server gives the shipment the next free one when it is stored, so the
+    // number shown above is a preview and a parallel create may take it first.
     return {
-      jobNumber: nextJobNumber,
       tradeDirection: "Import",
       freightMode: "Sea Freight",
       department: "Operation Department",
@@ -185,14 +186,10 @@ export const CreateShipmentWizard = ({
   };
 
   const handleCreateBlank = async () => {
-    if (!nextJobNumber) {
-      toast.error("Generating job number, please wait…");
-      return;
-    }
     setSubmitting(true);
     try {
       const result = await createShipment(baseRequest());
-      toast.success("Shipment created");
+      toast.success(`Shipment ${result.shipment.jobNumber} created`);
       closeAndOpen(result.shipment.id);
     } catch (err) {
       toast.error(`Failed to create shipment - ${apiErrorMessage(err)}`);
@@ -202,7 +199,7 @@ export const CreateShipmentWizard = ({
   };
 
   const handleCreateWithCopy = async () => {
-    if (!source || !nextJobNumber) return;
+    if (!source) return;
     setSubmitting(true);
 
     const request = baseRequest();
@@ -253,13 +250,12 @@ export const CreateShipmentWizard = ({
   // and the server does the rest - it tells the quote, which becomes Won, and copies the quote's
   // cost lines into Costs Breakdown. Its answer says how each of those went.
   const handleCreateFromQuote = async () => {
-    if (!selectedQuote || !nextJobNumber) return;
+    if (!selectedQuote) return;
     setSubmitting(true);
 
     const request: controllers.ShipmentCreateRequest = {
       ...baseRequest(),
       ...quoteToCreateRequest(selectedQuote.quoteNumber, selectedQuote.data, exchange.rates),
-      jobNumber: nextJobNumber,
       allowSecondShipment: (existing && another) || undefined,
     };
 

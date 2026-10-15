@@ -1,9 +1,13 @@
-import { and, eq, or, ilike, isNotNull, isNull, like, desc, asc, count, sql } from "drizzle-orm";
+import { and, eq, or, ilike, isNotNull, isNull, desc, asc, count, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../schemas/shipment.schema";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
+import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
+
+/** A new shipment's own fields; the repository sets the company and the job number. */
+export type NewShipmentData = Omit<NewShipmentRecord, "companyId" | "jobNumber">;
 
 /**
  * Predicates behind the Shipments overview tiles. Shared by the list filter and
@@ -256,17 +260,30 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   async createFromQuote(
     companyId: string,
     reference: string,
-    data: Omit<NewShipmentRecord, "companyId">,
+    data: NewShipmentData,
     allowSecond: boolean,
   ): Promise<{ created: ShipmentRecord } | { existing: NamingShipment }> {
     return this.db.transaction(async (tx) => {
       const [existing] = await this.lockLiveBySalesNumber(tx, companyId, reference);
       if (existing && !allowSecond) return { existing };
+      const jobNumber = await shipmentRefCounterRepository.allocate(tx, companyId, "CZ");
       const [created] = await tx
         .insert(shipmentTable)
-        .values({ ...data, companyId, salesNumber: reference, createdFromQuote: true })
+        .values({ ...data, jobNumber, companyId, salesNumber: reference, createdFromQuote: true })
         .returning();
       return { created: created! };
+    });
+  }
+
+  /**
+   * Inserts a shipment under the company's next CZ job number. The number is taken in the
+   * same transaction as the insert, so two creates at the same moment never get the same one.
+   */
+  async createWithJobNumber(companyId: string, data: NewShipmentData): Promise<ShipmentRecord> {
+    return this.db.transaction(async (tx) => {
+      const jobNumber = await shipmentRefCounterRepository.allocate(tx, companyId, "CZ");
+      const [created] = await tx.insert(shipmentTable).values({ ...data, jobNumber, companyId }).returning();
+      return created!;
     });
   }
 
@@ -307,23 +324,6 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
 
   async findByJobNumber(jobNumber: string, companyId: string) {
     return this.getByColumnForCompany(shipmentTable.jobNumber, jobNumber, companyId);
-  }
-
-  // Highest numeric CZ job number within a company — including archived (soft-deleted)
-  // rows — so a reference is never reused. Job numbers are a per-company sequence.
-  async maxCzJobNumber(companyId: string): Promise<number> {
-    const rows = await this.db
-      .select({ jobNumber: shipmentTable.jobNumber })
-      .from(shipmentTable)
-      .where(and(eq(shipmentTable.companyId, companyId), like(shipmentTable.jobNumber, "CZ%")));
-    let max = 0;
-    for (const r of rows) {
-      const jn = r.jobNumber;
-      if (jn.startsWith("CZQ")) continue;
-      const num = parseInt(jn.slice(2), 10);
-      if (!Number.isNaN(num) && num > max) max = num;
-    }
-    return max;
   }
 
   async findByCustomerId(customerId: string, companyId: string) {

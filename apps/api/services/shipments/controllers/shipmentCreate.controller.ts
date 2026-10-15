@@ -1,5 +1,5 @@
 import { api } from "encore.dev/api";
-import type { MaxLen, MinLen } from "encore.dev/validate";
+import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { shipmentService } from "../services/shipment.service";
 import type {
@@ -14,7 +14,11 @@ import type {
 } from "../interfaces/interfaces";
 
 interface ShipmentCreateRequest {
-  jobNumber: string & MinLen<1>;
+  /**
+   * Not used: the shipment always gets the company's next CZ job number when it is stored
+   * (see the response). Still accepted so clients that send the previewed number keep working.
+   */
+  jobNumber?: string;
   shipper?: string;
   consignee?: string;
   pol?: string;
@@ -66,6 +70,13 @@ interface ShipmentCreateRequest {
   // Commercial parties
   pickupAddress?: string;
   deliveryAddress?: string;
+  // Structured pick-up / delivery place (see the update request).
+  pickupSiteId?: string | null;
+  pickupPostcode?: string | null;
+  pickupCountry?: string | null;
+  deliverySiteId?: string | null;
+  deliveryPostcode?: string | null;
+  deliveryCountry?: string | null;
   shipperContact?: string;
   consigneeContact?: string;
   shipperOpeningFrom?: string;
@@ -187,6 +198,7 @@ interface ShipmentCreateResponse {
 export const shipmentCreate = api(
   { expose: true, auth: true, method: "POST", path: "/shipments" },
   async (req: ShipmentCreateRequest): Promise<ShipmentCreateResponse> => {
-    return shipmentService.create(getAuthData()!.companyID, req);
+    const { jobNumber, ...data } = req;
+    return shipmentService.create(getAuthData()!.companyID, data);
   },
 );

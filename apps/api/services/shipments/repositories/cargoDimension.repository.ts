@@ -48,6 +48,11 @@ class CargoDimensionRepository extends TenantRepository<typeof cargoDimensionTab
         weightPerPcKg: l.weightPerPcKg,
         packageType: l.packageType,
         stackable: l.stackable,
+        palletType: l.palletType ?? null,
+        adrUn: l.adrUn ?? null,
+        adrClass: l.adrClass ?? null,
+        adrPackingGroup: l.adrPackingGroup ?? null,
+        adrLimitedQuantity: l.adrLimitedQuantity ?? false,
       })),
     );
   }
