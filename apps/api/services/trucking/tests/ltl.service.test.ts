@@ -481,6 +481,26 @@ describe("the warehouse's gate", () => {
     }
   });
 
+  it("a gate-out that arrives before its gate-in waits for it (retried), then applies; an old one no longer waits", async () => {
+    const own = await ltl();
+    const soon = new Date(Date.now() + 60_000).toISOString();
+    // Out of order, as after an outage: refused for a retry, and not recorded as seen.
+    await expect(ltlService.handleGateStamped(gate("gateOut", soon))).rejects.toThrow("before its gate-in");
+    expect(cOf(own.id).status).not.toBe("OUT_FOR_DELIVERY");
+    await ltlService.handleGateStamped(gate("gateIn", new Date(Date.now() - 60_000).toISOString()));
+    expect(cOf(own.id).status).toBe("AT_HUB");
+    // The retry now goes through.
+    await ltlService.handleGateStamped(gate("gateOut", soon));
+    expect(cOf(own.id).status).toBe("OUT_FOR_DELIVERY");
+
+    // A gate-out older than the wait with no gate-in at all is taken as it is (nothing to apply).
+    const late = await ltl();
+    await expect(
+      ltlService.handleGateStamped({ ...gate("gateOut", new Date(Date.now() - 7 * 3600_000).toISOString()), positionId: "pos-2" }),
+    ).resolves.toBeUndefined();
+    expect(cOf(late.id).status).not.toBe("OUT_FOR_DELIVERY");
+  });
+
   it("gate-out: OUT_FOR_DELIVERY (or ON_LINEHAUL when a line haul follows); voided stamps are taken back", async () => {
     const own = await ltl();
     const partner = await ltl({ lastMileOf: "PARTNER" });

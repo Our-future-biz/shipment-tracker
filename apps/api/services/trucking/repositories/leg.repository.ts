@@ -100,6 +100,16 @@ class LegRepository {
       .returning({ id: truckingGateEventTable.id });
     return rows.length > 0;
   }
+
+  /** Whether a gate event of `kind` was received for the warehouse position (applied or not). */
+  async hasGateEvent(tx: Tx, companyId: string, positionId: string, kind: "gateIn" | "gateOut" | "voided"): Promise<boolean> {
+    const rows = await tx
+      .select({ id: truckingGateEventTable.id })
+      .from(truckingGateEventTable)
+      .where(and(eq(truckingGateEventTable.companyId, companyId), eq(truckingGateEventTable.positionId, positionId), eq(truckingGateEventTable.kind, kind)))
+      .limit(1);
+    return rows.length > 0;
+  }
 }
 
 export const legRepository = new LegRepository();

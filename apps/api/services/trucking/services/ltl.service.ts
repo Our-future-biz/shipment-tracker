@@ -145,6 +145,9 @@ function buyRequest(scope: TariffScope, from: string, to: string, date: string, 
   };
 }
 
+/** How long a gate-out that came before its gate-in waits for it (pub/sub retries). */
+const GATE_OUT_WAIT_MS = 6 * 60 * 60 * 1000;
+
 class LtlService {
   // ---- planning board ------------------------------------------------------------------------------
 
@@ -733,6 +736,15 @@ class LtlService {
     ]);
     let touched = 0;
     await inTx(async (tx) => {
+      // A gate-out can reach us before its gate-in (both retried after an outage). Recorded now it
+      // would change nothing and never be applied again, so it is refused for a retry until the
+      // gate-in has come - for a while only: a gate-in that never comes must not hold it forever.
+      if (event.kind === "gateOut" && shipmentId && Date.now() - at.getTime() < GATE_OUT_WAIT_MS) {
+        const waiting = (await consignmentRepository.ltlForShipmentLocked(tx, companyId, shipmentId)).some((c) => !c.gateInAt && !c.gateOutAt);
+        if (waiting && !(await legRepository.hasGateEvent(tx, companyId, event.positionId, "gateIn"))) {
+          throw APIError.unavailable("Gate-out received before its gate-in: retried later");
+        }
+      }
       const fresh = await legRepository.recordGateEvent(tx, {
         companyId,
         shipmentId,

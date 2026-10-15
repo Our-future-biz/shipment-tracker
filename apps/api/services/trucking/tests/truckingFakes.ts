@@ -326,6 +326,9 @@ export const legRepository = {
     store.gateEvents.add(key);
     return true;
   }),
+  hasGateEvent: vi.fn(async (_tx: unknown, _companyId: string, positionId: string, kind: string) =>
+    [...store.gateEvents].some((key) => key.startsWith(`${positionId}|${kind}|`)),
+  ),
 };
 
 export const truckingDocumentRepository = {

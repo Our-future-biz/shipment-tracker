@@ -19,6 +19,7 @@ export class APIError extends Error {
   static failedPrecondition = (message: string) => new APIError("failed_precondition", message);
   static permissionDenied = (message: string) => new APIError("permission_denied", message);
   static alreadyExists = (message: string) => new APIError("already_exists", message);
+  static unavailable = (message: string) => new APIError("unavailable", message);
 
   withDetails(details: Record<string, unknown>) {
     return new APIError(this.code, this.message, details);
