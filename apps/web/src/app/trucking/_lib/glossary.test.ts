@@ -98,3 +98,12 @@ describe("trucking tabs", () => {
     expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["consignments", "planning", "trips", "haulierInvoices", "internalBilling", "hauliers", "tariffs", "calculator", "reports"]);
   });
 });
+
+describe("haulier portal terms", () => {
+  it("explain the portal, its users and the one-time link", () => {
+    const meaning = (term: string) => GLOSSARY.find((g) => g.term === term)?.meaning;
+    expect(meaning(TERMS.haulierPortal)).toMatch(/only the trips and partner deliveries given to their haulier/);
+    expect(meaning(TERMS.portalUser)).toMatch(/Not an app user/);
+    expect(meaning(TERMS.invitationLink)).toMatch(/shown once and never again, works once and is valid 72 hours/);
+  });
+});

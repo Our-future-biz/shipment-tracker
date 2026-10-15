@@ -181,6 +181,35 @@ export const TruckingReadme = () => (
       </p>
     </Part>
 
+    <Part title="Haulier portal">
+      <p>
+        The <b>{TERMS.haulierPortal.toLowerCase()}</b> gives a haulier&apos;s staff their own sign-in (e-mail and password) at <b>/haulier/portal</b>, apart from
+        the app: a <b>{TERMS.portalUser.toLowerCase()}</b> is never an app user and cannot open anything else. It sees only the trips and partner deliveries
+        given to its haulier — no customer prices, margins, other hauliers or internal notes.
+      </p>
+      <ul>
+        <li>
+          <b>Add a user</b> — on the haulier page, card <b>{TERMS.portalUser}s</b> → <b>Add user</b> (managers). You get the{" "}
+          <b>{TERMS.invitationLink.toLowerCase()}</b> once: copy it and send it yourself (e-mail sending is off). It works once within 72 hours; the user sets a
+          password of at least 12 characters, not the e-mail.
+        </li>
+        <li>
+          <b>Reset password…</b> signs the user out and gives a new one-time link; <b>Disable…</b> (with a reason) signs it out and keeps it out until{" "}
+          <b>Enable…</b>. Five wrong passwords lock a user for 15 minutes. A blocked haulier&apos;s users cannot get in.
+        </li>
+        <li>
+          <b>In the portal</b> the user sees Open and Done orders (each says what still needs doing), confirms or rejects an order once, stamps{" "}
+          <b>Loaded</b>, <b>Departed</b> and <b>Arrived</b> (the same rules as in the app — a line haul cannot depart before its goods&apos; gate-in), marks each
+          stop <b>Delivered</b> and uploads its {TERMS.pod} (photo or PDF), and downloads the {TERMS.transportOrder.toLowerCase()} — printed without the{" "}
+          {TERMS.pickupPin}. Everything lands in the history as the haulier&apos;s, with the user&apos;s name.
+        </li>
+        <li>
+          The sign-in lasts for the browser tab only (12 hours from the last use at most) and ends with <b>Log out</b>. The old per-order{" "}
+          {TERMS.haulierLink.toLowerCase()} keeps working.
+        </li>
+      </ul>
+    </Part>
+
     <Part title="Tariffs">
       <p>
         A tariff is a price list on one of three sides: <b>Buy</b> (what a {TERMS.haulier.toLowerCase()} charges us, one tariff per haulier and scope),{" "}

@@ -261,3 +261,36 @@ export function useTariffTestLane(versionId: string) {
   const test = useMutation({ mutationFn: (req: TestLaneRequest) => api.trucking.truckingTariffVersionTestLane(versionId, req) });
   return { testLane: test.mutateAsync, isTesting: test.isPending, levels: test.data?.levels ?? null, error: test.error };
 }
+
+export type PortalUser = interfaces.PortalUserItem;
+export type PortalUserCreate = Parameters<typeof api.trucking.truckingPortalUserCreate>[1];
+
+/**
+ * The haulier's portal users. Adding one and resetting a password answer with a one-time link the
+ * caller shows once and then forgets; nothing here keeps it.
+ */
+export function usePortalUsers(customerId: string) {
+  const queryClient = useQueryClient();
+  const key = truckingKeys.portalUsers(customerId);
+  const query = useQuery({ queryKey: key, queryFn: () => api.trucking.truckingPortalUserList(customerId), enabled: !!customerId, retry: false });
+  const refresh = () => queryClient.invalidateQueries({ queryKey: key });
+
+  const create = useMutation({ mutationFn: (req: PortalUserCreate) => api.trucking.truckingPortalUserCreate(customerId, req), onSuccess: refresh });
+  const reset = useMutation({ mutationFn: (id: string) => api.trucking.truckingPortalUserReset(id), onSuccess: refresh });
+  const disable = useMutation({ mutationFn: ({ id, reason }: { id: string; reason: string }) => api.trucking.truckingPortalUserDisable(id, { reason }), onSuccess: refresh });
+  const enable = useMutation({ mutationFn: (id: string) => api.trucking.truckingPortalUserEnable(id), onSuccess: refresh });
+
+  return {
+    users: query.data?.users ?? [],
+    isLoading: query.isLoading,
+    error: query.error,
+    create: create.mutateAsync,
+    isCreating: create.isPending,
+    reset: reset.mutateAsync,
+    isResetting: reset.isPending,
+    disable: disable.mutateAsync,
+    isDisabling: disable.isPending,
+    enable: enable.mutateAsync,
+    isEnabling: enable.isPending,
+  };
+}

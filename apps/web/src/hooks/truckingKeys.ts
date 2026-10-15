@@ -7,6 +7,7 @@ export const truckingKeys = {
   hauliers: () => [...truckingKeys.all, "hauliers"] as const,
   haulierList: () => [...truckingKeys.hauliers(), "list"] as const,
   haulier: (customerId: string) => [...truckingKeys.hauliers(), "one", customerId] as const,
+  portalUsers: (customerId: string) => [...truckingKeys.hauliers(), "portal-users", customerId] as const,
   tariffs: () => [...truckingKeys.all, "tariffs"] as const,
   tariffList: () => [...truckingKeys.tariffs(), "list"] as const,
   tariff: (id: string) => [...truckingKeys.tariffs(), "one", id] as const,
@@ -33,4 +34,9 @@ export const truckingKeys = {
   reports: () => [...truckingKeys.all, "reports"] as const,
   report: (from: string, to: string) => [...truckingKeys.reports(), from, to] as const,
   publicOrder: (token: string) => ["haulier-order", token] as const,
+  // The haulier portal's own data, apart from the app's (it is dropped whole at sign-in and logout).
+  portal: () => ["haulier-portal"] as const,
+  portalMe: () => [...truckingKeys.portal(), "me"] as const,
+  portalOrders: (view: string) => [...truckingKeys.portal(), "orders", view] as const,
+  portalOrder: (id: string) => [...truckingKeys.portal(), "order", id] as const,
 };
