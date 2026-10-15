@@ -1,4 +1,4 @@
-import type { RateLevelResult, RateRequest } from "@/hooks/useTrucking";
+import type { RateLevelResult, RateRequest, TestLaneRequest } from "@/hooks/useTrucking";
 import { formatDate } from "@/lib/date";
 import { isValidPsc } from "./hauliers";
 import type { TariffScope } from "./tariffs";
@@ -93,6 +93,21 @@ export function toRateRequest(f: RateForm): RateRequest {
     serviceLevels: null,
     includeBuy: f.includeBuy,
     includeInternal: f.includeInternal,
+  };
+}
+
+/** The lane a tariff version is tried on in the upload wizard: no pick-up time, customer or other sides. */
+export function toTestLaneRequest(f: RateForm): TestLaneRequest {
+  return {
+    fromPostcode: f.fromPsc,
+    toPostcode: f.toPsc,
+    pickupDate: f.pickupDate,
+    pieces: f.pieces,
+    palletPlaces: f.palletPlaces,
+    ldm: f.ldm,
+    weightKg: f.weightKg,
+    cbm: f.cbm,
+    extras: f.extras,
   };
 }
 

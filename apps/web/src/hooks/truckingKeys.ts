@@ -11,5 +11,6 @@ export const truckingKeys = {
   tariffList: () => [...truckingKeys.tariffs(), "list"] as const,
   tariff: (id: string) => [...truckingKeys.tariffs(), "one", id] as const,
   tariffVersion: (versionId: string) => [...truckingKeys.tariffs(), "version", versionId] as const,
+  tariffVersionDiff: (versionId: string, againstVersionId: string) => [...truckingKeys.tariffs(), "diff", versionId, againstVersionId] as const,
   fuelIndex: () => [...truckingKeys.all, "fuel-index"] as const,
 };

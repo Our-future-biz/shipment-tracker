@@ -5,17 +5,7 @@ import type { RateLevelResult } from "@/hooks/useTrucking";
 import { isPriced, isUnpriced } from "../_lib/tariffs";
 import { HaulierIssueList } from "./HaulierIssueList";
 import { RatePricedSide } from "./RatePricedSide";
-
-interface UnpricedNoteProps {
-  title: string;
-  reason: string;
-}
-
-const UnpricedNote = ({ title, reason }: UnpricedNoteProps) => (
-  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12.5px] text-amber-800">
-    <span className="font-semibold">{title}: unpriced.</span> {reason}
-  </div>
-);
+import { RateUnpricedNote } from "./RateUnpricedNote";
 
 interface RateResultDetailProps {
   result: RateLevelResult;
@@ -28,13 +18,13 @@ export const RateResultDetail = ({ result, includeBuy }: RateResultDetailProps) 
   <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 py-1">
     <div className="flex flex-col gap-3">
       {isPriced(result.sell) && <RatePricedSide title="Sell" side={result.sell} />}
-      {isUnpriced(result.sell) && <UnpricedNote title="Sell" reason={result.sell.reason} />}
+      {isUnpriced(result.sell) && <RateUnpricedNote title="Sell" reason={result.sell.reason} />}
       {isPriced(result.internal) && <RatePricedSide title="Internal" side={result.internal} />}
-      {isUnpriced(result.internal) && <UnpricedNote title="Internal" reason={result.internal.reason} />}
+      {isUnpriced(result.internal) && <RateUnpricedNote title="Internal" reason={result.internal.reason} />}
     </div>
     {includeBuy && (
       <div className="flex flex-col gap-3">
-        {result.buy.length === 0 && <UnpricedNote title="Buy" reason="No haulier has an active buy tariff covering this lane and service level." />}
+        {result.buy.length === 0 && <RateUnpricedNote title="Buy" reason="No haulier has an active buy tariff covering this lane and service level." />}
         {result.buy.map((b, i) => (
           <RatePricedSide
             key={b.tariffVersionId}

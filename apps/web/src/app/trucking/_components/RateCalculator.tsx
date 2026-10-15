@@ -60,11 +60,13 @@ export const RateCalculator = ({ initial, initialCustomerName = null }: RateCalc
       <section className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
         <RateCalculatorForm
           form={form}
-          customerName={customerName}
           onChange={setForm}
-          onCustomerChange={(id, name) => {
-            setForm((f) => ({ ...f, customerId: id }));
-            setCustomerName(name);
+          customer={{
+            name: customerName,
+            onChange: (id, name) => {
+              setForm((f) => ({ ...f, customerId: id }));
+              setCustomerName(name);
+            },
           }}
         />
         <div className="flex flex-wrap items-center gap-3 mt-4">

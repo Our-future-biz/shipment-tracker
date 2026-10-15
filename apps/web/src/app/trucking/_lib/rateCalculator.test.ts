@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bestBuy, emptyRateForm, promisedLabel, rateFormProblems, toRateRequest } from "./rateCalculator";
+import { bestBuy, emptyRateForm, promisedLabel, rateFormProblems, toRateRequest, toTestLaneRequest } from "./rateCalculator";
 
 describe("rate calculator form", () => {
   const ready = { ...emptyRateForm("2026-10-15"), fromPsc: "11000", toPsc: "60200", weightKg: 800 };
@@ -36,5 +36,22 @@ describe("promised date", () => {
 
   it("takes the first buy candidate as the best", () => {
     expect(bestBuy({ buy: [] })).toBeNull();
+  });
+});
+
+describe("test lane of a tariff version", () => {
+  it("sends the lane, date, quantities and extras only", () => {
+    const form = { ...emptyRateForm("2026-11-02"), fromPsc: "11000", toPsc: "60200", palletPlaces: 2, weightKg: 640, pickupTime: "15:00", customerId: "c1" };
+    expect(toTestLaneRequest(form)).toEqual({
+      fromPostcode: "11000",
+      toPostcode: "60200",
+      pickupDate: "2026-11-02",
+      pieces: 1,
+      palletPlaces: 2,
+      ldm: 0,
+      weightKg: 640,
+      cbm: 0,
+      extras: form.extras,
+    });
   });
 });

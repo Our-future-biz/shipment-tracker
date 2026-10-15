@@ -214,3 +214,50 @@ export function useRate() {
   const rate = useMutation({ mutationFn: (req: RateRequest) => api.trucking.truckingRate(req) });
   return { rate: rate.mutateAsync, isRating: rate.isPending, result: rate.data ?? null, error: rate.error, reset: rate.reset };
 }
+
+// The Excel template, upload, comparison and test lane of tariff versions (Phase 2b).
+
+export type FileDownload = Awaited<ReturnType<typeof api.trucking.truckingTariffTemplate>>["file"];
+export type TariffImportResult = Awaited<ReturnType<typeof api.trucking.truckingTariffImport>>;
+export type ImportSheetReport = TariffImportResult["sheets"][number];
+export type TariffVersionDiff = Awaited<ReturnType<typeof api.trucking.truckingTariffVersionDiff>>["diff"];
+export type DiffCell = TariffVersionDiff["cells"][number];
+export type TestLaneRequest = Parameters<typeof api.trucking.truckingTariffVersionTestLane>[1];
+export type TestLaneLevel = Awaited<ReturnType<typeof api.trucking.truckingTariffVersionTestLane>>["levels"][number];
+
+/** The template of a tariff: the given version exported, by default the active one, or the empty template. Fetched on click. */
+export const fetchTariffTemplate = async (tariffId: string, versionId?: string): Promise<FileDownload> =>
+  (await api.trucking.truckingTariffTemplate(tariffId, { versionId })).file;
+
+/** The file a version was uploaded from. Fetched on click. */
+export const fetchTariffVersionSource = async (versionId: string): Promise<FileDownload> => (await api.trucking.truckingTariffVersionSource(versionId)).file;
+
+/** Uploads a price list (manager): the server saves it as a new draft, so the tariff is refreshed. */
+export function useTariffImport(tariffId: string) {
+  const queryClient = useQueryClient();
+  const upload = useMutation({
+    mutationFn: (req: Parameters<typeof api.trucking.truckingTariffImport>[1]) => api.trucking.truckingTariffImport(tariffId, req),
+    onSuccess: (res) => {
+      queryClient.setQueryData(truckingKeys.tariffVersion(res.version.id), { version: res.version });
+      return queryClient.invalidateQueries({ queryKey: truckingKeys.tariff(tariffId) });
+    },
+  });
+  return { upload: upload.mutateAsync, isUploading: upload.isPending, error: upload.error, reset: upload.reset };
+}
+
+/** What a version changes against another one (by default the tariff's active version). */
+export function useTariffVersionDiff(versionId: string | null, againstVersionId?: string) {
+  const query = useQuery({
+    queryKey: truckingKeys.tariffVersionDiff(versionId ?? "", againstVersionId ?? "active"),
+    queryFn: () => api.trucking.truckingTariffVersionDiff(versionId as string, { againstVersionId }),
+    enabled: !!versionId,
+    retry: false,
+  });
+  return { diff: query.data?.diff ?? null, isLoading: query.isLoading, error: query.error };
+}
+
+/** Prices one lane with one version; nothing is stored. */
+export function useTariffTestLane(versionId: string) {
+  const test = useMutation({ mutationFn: (req: TestLaneRequest) => api.trucking.truckingTariffVersionTestLane(versionId, req) });
+  return { testLane: test.mutateAsync, isTesting: test.isPending, levels: test.data?.levels ?? null, error: test.error };
+}

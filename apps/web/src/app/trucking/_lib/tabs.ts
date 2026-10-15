@@ -70,6 +70,7 @@ export const TRUCKING_TABS = [
       `${TERMS.sellTariff}s per customer or standard, by ${TERMS.zone.toLowerCase()} and ${TERMS.chargeableWeight.toLowerCase()}`,
       `${TERMS.buyTariff}s per haulier`,
       `The ${TERMS.internalTariff.toLowerCase()} Operations is charged at, with surcharges (${TERMS.adr}, ${TERMS.b2cDelivery}, ${TERMS.tailLift.toLowerCase()}, express)`,
+      `Price lists uploaded from the Excel ${TERMS.template.toLowerCase()}, checked and compared before they are activated`,
     ],
     phase: 2,
     live: true,
