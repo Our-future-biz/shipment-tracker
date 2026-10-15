@@ -19,6 +19,8 @@ const fake = vi.hoisted(() => {
     /** The number a count reports, and the condition of every count. */
     total: 0 as number | string,
     counts: [] as unknown[],
+    /** Company and sequence of every job number taken. */
+    allocations: [] as [string, string][],
   };
   const run = (name: string) => ({
     execute: async (query: unknown) => {
@@ -73,10 +75,19 @@ const fake = vi.hoisted(() => {
       return result;
     },
   };
-  return { state, db };
+  // The next job number: taken inside the transaction that inserts the shipment.
+  const counter = {
+    allocate: async (on: unknown, companyId: string, sequence: string) => {
+      state.steps.push(on === tx ? "tx job number" : "db job number");
+      state.allocations.push([companyId, sequence]);
+      return "CZ00000102";
+    },
+  };
+  return { state, db, counter };
 });
 
 vi.mock("../../db/db", () => ({ db: fake.db }));
+vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: fake.counter }));
 
 import { SALES_REFERENCE_PATTERN } from "../../../../lib/salesReference";
 import { shipmentRepository } from "../../repositories/shipment.repository";
@@ -108,6 +119,7 @@ beforeEach(() => {
   fake.state.perCustomerReads = [];
   fake.state.total = 0;
   fake.state.counts = [];
+  fake.state.allocations = [];
 });
 
 describe("salesReferenceShipments", () => {
@@ -149,18 +161,19 @@ describe("withLiveBySalesNumber", () => {
 });
 
 describe("createFromQuote", () => {
-  const create = (allowSecond: boolean, data: Record<string, unknown> = { jobNumber: "CZ00000102" }) =>
+  const create = (allowSecond: boolean, data: Record<string, unknown> = {}) =>
     shipmentRepository.createFromQuote(COMPANY, REF, data as never, allowSecond);
 
-  it("takes the lock on the quote, looks for its shipments and inserts - in that order, in one transaction", async () => {
+  it("takes the lock on the quote, looks for its shipments, takes the next job number and inserts - in that order, in one transaction", async () => {
     await expect(create(false)).resolves.toEqual({ created: { id: "shipment-new", jobNumber: "CZ00000102", companyId: COMPANY, salesNumber: REF, createdFromQuote: true } });
-    expect(fake.state.steps).toEqual(["begin", "tx lock", "tx read", "tx insert", "commit"]);
+    expect(fake.state.steps).toEqual(["begin", "tx lock", "tx read", "tx job number", "tx insert", "commit"]);
+    expect(fake.state.allocations).toEqual([[COMPANY, "CZ"]]);
     // A lock that ends with the transaction, on this quote of this company alone.
     expect(sent(fake.state.locks[0])).toEqual(REFERENCE_LOCK);
     expect(sent(fake.state.reads[0]!.where).params).toEqual([COMPANY, REF]);
   });
 
-  it("inserts nothing and returns the oldest shipment of the quote when it has one and a second is not allowed", async () => {
+  it("inserts nothing and takes no job number when the quote has a shipment and a second is not allowed - returning the oldest", async () => {
     fake.state.found = [FIRST, { id: "shipment-2", jobNumber: "CZ00000105" }];
     await expect(create(false)).resolves.toEqual({ existing: FIRST });
     expect(fake.state.steps).toEqual(["begin", "tx lock", "tx read", "commit"]);
@@ -169,12 +182,22 @@ describe("createFromQuote", () => {
   it("inserts the second shipment when that is allowed", async () => {
     fake.state.found = [FIRST];
     await expect(create(true)).resolves.toHaveProperty("created");
-    expect(fake.state.steps).toEqual(["begin", "tx lock", "tx read", "tx insert", "commit"]);
+    expect(fake.state.steps).toEqual(["begin", "tx lock", "tx read", "tx job number", "tx insert", "commit"]);
   });
 
-  it("stores the shipment under the caller's company and the quote's reference, whatever the data says", async () => {
-    await create(false, { jobNumber: "CZ00000102", pol: "Shanghai", companyId: "another-company", salesNumber: "typed by hand", createdFromQuote: false });
+  it("stores the shipment under the caller's company, the quote's reference and the next job number, whatever the data says", async () => {
+    await create(false, { jobNumber: "CZ00000001", pol: "Shanghai", companyId: "another-company", salesNumber: "typed by hand", createdFromQuote: false });
     expect(fake.state.inserted).toEqual([{ jobNumber: "CZ00000102", pol: "Shanghai", companyId: COMPANY, salesNumber: REF, createdFromQuote: true }]);
+  });
+});
+
+describe("createWithJobNumber", () => {
+  it("takes the company's next job number and inserts under it, in one transaction, whatever the data says", async () => {
+    const data = { jobNumber: "CZ00000001", pol: "Hamburg", companyId: "another-company" };
+    await expect(shipmentRepository.createWithJobNumber(COMPANY, data as never)).resolves.toMatchObject({ jobNumber: "CZ00000102", companyId: COMPANY });
+    expect(fake.state.steps).toEqual(["begin", "tx job number", "tx insert", "commit"]);
+    expect(fake.state.allocations).toEqual([[COMPANY, "CZ"]]);
+    expect(fake.state.inserted).toEqual([{ jobNumber: "CZ00000102", pol: "Hamburg", companyId: COMPANY }]);
   });
 });
 

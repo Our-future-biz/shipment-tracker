@@ -63,17 +63,6 @@ export function syncedShipmentData(
   return out;
 }
 
-export function formatMczNumber(n: number): string {
-  return `MCZ${String(n).padStart(8, "0")}`;
-}
-
-/** Numeric part of an MCZ number, or 0 for anything that is not one. */
-export function mczSequence(mczNumber: string): number {
-  if (!mczNumber.startsWith("MCZ")) return 0;
-  const n = parseInt(mczNumber.slice(3), 10);
-  return Number.isNaN(n) ? 0 : n;
-}
-
 export interface MasterContainer {
   containerNumber: string;
   sealNumber: string;

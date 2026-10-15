@@ -9,7 +9,6 @@ import { changesTaxDate } from "../lib/taxDate";
 import {
   FULL_LOAD,
   containersFromHouses,
-  formatMczNumber,
   houseContainerLines,
   isLoadTypeChange,
   legacyContainerGroups,
@@ -130,8 +129,7 @@ class MasterJobService {
   // MCZ numbers are a per-company sequence over all rows incl. archived ones,
   // so a number is never reused.
   async create(companyId: string): Promise<MasterJobItem> {
-    const max = await masterJobRepository.maxMczSequence(companyId);
-    const row = await masterJobRepository.createForCompany(companyId, { mczNumber: formatMczNumber(max + 1) });
+    const row = await masterJobRepository.createWithMczNumber(companyId);
     return toItem(row, 0);
   }
 

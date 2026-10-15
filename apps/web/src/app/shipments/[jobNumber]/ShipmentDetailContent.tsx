@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { Spin, Dropdown, message, Modal, Tag, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
 import dayjs from "dayjs";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
 import {
   CopyOutlined,
   ArrowLeftOutlined,
@@ -50,6 +50,7 @@ import { EditableCell, TradeDirectionContext } from "./_components/EditableCell"
 import { FadeText } from "@/components/FadeText";
 import { CustomerLinkField } from "./_components/CustomerLinkField";
 import { PartyContactField } from "./_components/PartyContactField";
+import { StopPlaceRow } from "./_components/StopPlaceRow";
 import { SalesQuoteLink } from "./_components/SalesQuoteLink";
 import type { controllers } from "@/lib/api/client";
 import { TasksPanel } from "./_components/TasksPanel";
@@ -1308,16 +1309,35 @@ export function ShipmentDetailContent() {
                     { key: "shipper", label: "Shipper", ro: true },
                     { key: "shipperContact", label: "Contact", ro: true },
                     { key: "pickupAddress", label: "Pick-up Address" },
+                    { key: "pickupPlace", label: "Pick-up Postcode / Country", ro: true },
                     { key: "shipperOpening", label: "Opening Hours", ro: true },
                   ];
                   const right: FieldDef[] = [
                     { key: "consignee", label: "Consignee", ro: true },
                     { key: "consigneeContact", label: "Contact", ro: true },
                     { key: "deliveryAddress", label: "Delivery Address" },
+                    { key: "deliveryPlace", label: "Delivery Postcode / Country", ro: true },
                     { key: "consigneeOpening", label: "Opening Hours", ro: true },
                   ];
+                  // A refused value (e.g. a CZ postcode that is not five digits) is rolled back and said.
+                  const saveStop = (data: controllers.ShipmentUpdateRequest) =>
+                    updateShipment({ id: shipment.id, data }).catch((err) => message.error(apiErrorMessage(err)));
 
                   const custom: Record<string, React.ReactNode> = {
+                    pickupPlace: (
+                      <StopPlaceRow
+                        postcode={shipment.pickupPostcode}
+                        country={shipment.pickupCountry}
+                        onSave={(postcode, country) => saveStop({ pickupPostcode: postcode, pickupCountry: country })}
+                      />
+                    ),
+                    deliveryPlace: (
+                      <StopPlaceRow
+                        postcode={shipment.deliveryPostcode}
+                        country={shipment.deliveryCountry}
+                        onSave={(postcode, country) => saveStop({ deliveryPostcode: postcode, deliveryCountry: country })}
+                      />
+                    ),
                     shipper: (
                       <CustomerLinkField label="Shipper" name={shipment.shipper} customerId={shipment.shipperId} onChange={(n, id) => linkParty("shipper", n, id)} />
                     ),
@@ -1557,7 +1577,8 @@ export function ShipmentDetailContent() {
           <CargoDetailsTab
             shipment={shipment}
             focusContainerId={cargoFocusId}
-            onChange={(data) => updateShipment({ id: shipment.id, data })}
+            // A refused line (e.g. a UN number that is not four digits) is rolled back and said.
+            onChange={(data) => updateShipment({ id: shipment.id, data }).catch((err) => message.error(apiErrorMessage(err)))}
           />
         )}
 

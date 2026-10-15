@@ -10,9 +10,12 @@ export default defineConfig({
   },
   test: {
     // The warehouse tests talk to the warehouse database, so they only run under `encore test`
-    // (set WAREHOUSE_DB_TESTS=1 there). A plain `vitest run` skips them.
-    exclude: process.env.WAREHOUSE_DB_TESTS
-      ? configDefaults.exclude
-      : [...configDefaults.exclude, "services/warehouse/tests/**"],
+    // (set WAREHOUSE_DB_TESTS=1 there). A plain `vitest run` skips them. The same goes for the
+    // shipments tests in tests/db (SHIPMENTS_DB_TESTS=1).
+    exclude: [
+      ...configDefaults.exclude,
+      ...(process.env.WAREHOUSE_DB_TESTS ? [] : ["services/warehouse/tests/**"]),
+      ...(process.env.SHIPMENTS_DB_TESTS ? [] : ["services/shipments/tests/db/**"]),
+    ],
   },
 });

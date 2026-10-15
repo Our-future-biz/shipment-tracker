@@ -330,6 +330,13 @@
       "when": 1791998904700,
       "tag": "0046_created_from_quote",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1792053933422,
+      "tag": "0047_road_freight_and_ref_counter",
+      "breakpoints": true
     }
   ]
 }

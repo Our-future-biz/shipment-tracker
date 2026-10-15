@@ -1,9 +1,9 @@
-import { and, count, eq, inArray, isNull, like } from "drizzle-orm";
+import { and, count, eq, inArray, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { masterJobTable } from "../schemas/masterJob.schema";
+import { masterJobTable, type MasterJobRecord } from "../schemas/masterJob.schema";
 import { shipmentTable } from "../schemas/shipment.schema";
-import { mczSequence } from "../lib/masterJobSync";
+import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
 
 class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
   constructor() {
@@ -14,14 +14,14 @@ class MasterJobRepository extends TenantRepository<typeof masterJobTable> {
     return this.getByColumnForCompany(masterJobTable.mczNumber, mczNumber, companyId);
   }
 
-  // Highest MCZ sequence within a company — including archived (soft-deleted)
-  // rows — so an MCZ number is never handed out twice.
-  async maxMczSequence(companyId: string): Promise<number> {
-    const rows = await this.db
-      .select({ mczNumber: masterJobTable.mczNumber })
-      .from(masterJobTable)
-      .where(and(eq(masterJobTable.companyId, companyId), like(masterJobTable.mczNumber, "MCZ%")));
-    return rows.reduce((max, r) => Math.max(max, mczSequence(r.mczNumber)), 0);
+  // Inserts a master job under the company's next MCZ number, taken in the same transaction
+  // as the insert, so two creates at the same moment never get the same number.
+  async createWithMczNumber(companyId: string): Promise<MasterJobRecord> {
+    return this.db.transaction(async (tx) => {
+      const mczNumber = await shipmentRefCounterRepository.allocate(tx, companyId, "MCZ");
+      const [created] = await tx.insert(masterJobTable).values({ companyId, mczNumber }).returning();
+      return created!;
+    });
   }
 
   /** Live shipments per master job, for the given ids. */

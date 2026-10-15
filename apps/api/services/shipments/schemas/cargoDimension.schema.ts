@@ -1,4 +1,5 @@
-import { pgTable, text, uuid, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, integer, boolean, index, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { shipmentTable } from "./shipment.schema";
 import { containerTable } from "./container.schema";
@@ -21,12 +22,21 @@ export const cargoDimensionTable = pgTable(
     weightPerPcKg: text("weight_per_pc_kg").notNull().default(""),
     packageType: text("package_type").notNull().default(""),
     stackable: text("stackable").notNull().default(""),
+    // Road freight: the pallet the pieces stand on, and ADR (dangerous goods) when it applies.
+    palletType: text("pallet_type"),
+    adrUn: text("adr_un"),
+    adrClass: text("adr_class"),
+    adrPackingGroup: text("adr_packing_group"),
+    adrLimitedQuantity: boolean("adr_limited_quantity").notNull().default(false),
   },
   (table) => [
     ...defaultTableIndexes("cargo_dimension", table),
     tenantIndex("cargo_dimension", table),
     index("cargo_dimension_shipment_id_idx").on(table.shipmentId),
     index("cargo_dimension_container_id_idx").on(table.containerId),
+    check("cargo_dimension_pallet_type_check", sql`${table.palletType} IN ('EUR', 'INDUSTRIAL', 'HALF', 'QUARTER', 'OTHER')`),
+    check("cargo_dimension_adr_un_check", sql`${table.adrUn} ~ '^[0-9]{4}$'`),
+    check("cargo_dimension_adr_packing_group_check", sql`${table.adrPackingGroup} IN ('I', 'II', 'III')`),
   ],
 );
 

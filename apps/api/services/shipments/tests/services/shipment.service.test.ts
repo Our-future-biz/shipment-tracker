@@ -14,7 +14,7 @@ vi.mock("~encore/clients", () => ({
 vi.mock("../../repositories/shipment.repository", () => ({
   OVERDUE_DEADLINE_FIELDS: new Set<string>(),
   shipmentRepository: {
-    createForCompany: vi.fn(),
+    createWithJobNumber: vi.fn(),
     createFromQuote: vi.fn(),
     getByIdForCompany: vi.fn(),
     updateForCompany: vi.fn(),
@@ -27,6 +27,7 @@ vi.mock("../../repositories/shipment.repository", () => ({
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: { documentTypesByShipmentIds: vi.fn() } }));
 vi.mock("../../repositories/shipmentAudit.repository", () => ({ shipmentAuditRepository: { create: vi.fn() } }));
 vi.mock("../../repositories/masterJob.repository", () => ({ masterJobRepository: {} }));
+vi.mock("../../repositories/shipmentRefCounter.repository", () => ({ shipmentRefCounterRepository: { peek: vi.fn() } }));
 vi.mock("../../repositories/container.repository", () => ({ containerRepository: { syncForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
 vi.mock("../../repositories/cargoItem.repository", () => ({ cargoItemRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
 vi.mock("../../repositories/cargoDimension.repository", () => ({ cargoDimensionRepository: { replaceForShipment: vi.fn(), listByShipmentId: vi.fn() } }));
@@ -100,7 +101,7 @@ beforeEach(() => {
     stored.set(created.id, created);
     return created;
   };
-  repository.createForCompany.mockImplementation(async (_companyId, data) => insert(data as Record<string, unknown>));
+  repository.createWithJobNumber.mockImplementation(async (_companyId, data) => insert(data as Record<string, unknown>));
   repository.createFromQuote.mockImplementation(async (_companyId, reference, data) => ({ created: insert({ ...(data as Record<string, unknown>), salesNumber: reference }) }));
   repository.getByIdForCompany.mockImplementation(async (id) => stored.get(id) ?? null);
   repository.updateForCompany.mockImplementation(async (id, _companyId, data) => {
@@ -120,7 +121,7 @@ beforeEach(() => {
 });
 
 describe("create from a quote", () => {
-  const fromQuote = (over: Record<string, unknown> = {}) => shipmentService.create(COMPANY, { jobNumber: "CZ00000101", fromQuoteNumber: REF, ...over } as never);
+  const fromQuote = (over: Record<string, unknown> = {}) => shipmentService.create(COMPANY, { fromQuoteNumber: REF, ...over } as never);
 
   it("creates the shipment under the quote's reference, tells the quote it was created from it, and has the quote's costs copied", async () => {
     const result = await fromQuote({ pol: "Shanghai" });
@@ -128,7 +129,7 @@ describe("create from a quote", () => {
     expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: REF });
     const [companyId, reference, data, allowSecond] = repository.createFromQuote.mock.calls[0]!;
     expect([companyId, reference, allowSecond]).toEqual([COMPANY, REF, false]);
-    expect(data).toMatchObject({ jobNumber: "CZ00000101", pol: "Shanghai", salesPerson: "Martin Koubek" });
+    expect(data).toMatchObject({ pol: "Shanghai", salesPerson: "Martin Koubek" });
     // What says how to create is not a field of the shipment.
     expect(data).not.toHaveProperty("fromQuoteNumber");
     expect(data).not.toHaveProperty("allowSecondShipment");
@@ -142,7 +143,7 @@ describe("create from a quote", () => {
     });
     expect(result.quoteLink).not.toHaveProperty("error");
     expect(result.detailRowsError).toBeUndefined();
-    expect(repository.createForCompany).not.toHaveBeenCalled();
+    expect(repository.createWithJobNumber).not.toHaveBeenCalled();
   });
 
   it("goes by the reference the quote is stored under, and reads the request's with the spaces around it gone", async () => {
@@ -252,11 +253,11 @@ describe("create from a quote", () => {
 });
 
 describe("create without a quote", () => {
-  const create = (over: Record<string, unknown> = {}) => shipmentService.create(COMPANY, { jobNumber: "CZ00000101", ...over } as never);
+  const create = (over: Record<string, unknown> = {}) => shipmentService.create(COMPANY, { ...over } as never);
 
   it("stores the Sales Number trimmed and tells the quote it names - without marking it Won, and with no costs copied", async () => {
     const result = await create({ salesNumber: `  ${REF} ` });
-    expect(repository.createForCompany.mock.calls[0]![1]).toMatchObject({ salesNumber: REF });
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ salesNumber: REF });
     expect(links.syncReference).toHaveBeenCalledWith(COMPANY, REF);
     expect(importQuote).not.toHaveBeenCalled();
     expect(repository.createFromQuote).not.toHaveBeenCalled();
@@ -273,14 +274,14 @@ describe("create without a quote", () => {
   it("makes the owner of the sales quote typed as Sales Number the Sales Person", async () => {
     const result = await create({ salesNumber: ` ${REF} ` });
     expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: REF });
-    expect(repository.createForCompany.mock.calls[0]![1]).toMatchObject({ salesNumber: REF, salesPerson: "Martin Koubek" });
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ salesNumber: REF, salesPerson: "Martin Koubek" });
     expect(result).toMatchObject({ shipment: { salesPerson: "Martin Koubek" } });
   });
 
   it("keeps a Sales Person the request names itself, without asking the quote", async () => {
     await create({ salesNumber: REF, salesPerson: "Jana Nováková" });
     expect(salesQuoteGet).not.toHaveBeenCalled();
-    expect(repository.createForCompany.mock.calls[0]![1]).toMatchObject({ salesPerson: "Jana Nováková" });
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ salesPerson: "Jana Nováková" });
   });
 
   it("leaves the Sales Person empty for a Sales Number that is no sales quote, a quote nobody owns and a quote that cannot be read", async () => {
@@ -290,19 +291,19 @@ describe("create without a quote", () => {
     await create({ salesNumber: REF });
     salesQuoteGet.mockRejectedValueOnce(new Error("quotes is unreachable"));
     await create({ salesNumber: REF });
-    expect(repository.createForCompany).toHaveBeenCalledTimes(3);
-    for (const [, data] of repository.createForCompany.mock.calls) expect(data).not.toHaveProperty("salesPerson");
+    expect(repository.createWithJobNumber).toHaveBeenCalledTimes(3);
+    for (const [, data] of repository.createWithJobNumber.mock.calls) expect(data).not.toHaveProperty("salesPerson");
   });
 
   it("does not make up a Sales Number for a request that sends none", async () => {
     await create();
-    expect(repository.createForCompany.mock.calls[0]![1]).not.toHaveProperty("salesNumber");
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).not.toHaveProperty("salesNumber");
   });
 
   it("treats a blank fromQuoteNumber as none", async () => {
     await create({ fromQuoteNumber: "   " });
     expect(salesQuoteGet).not.toHaveBeenCalled();
-    expect(repository.createForCompany).toHaveBeenCalledTimes(1);
+    expect(repository.createWithJobNumber).toHaveBeenCalledTimes(1);
   });
 });
 

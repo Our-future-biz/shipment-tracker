@@ -5008,7 +5008,12 @@ export namespace controllers {
     }
 
     export interface ShipmentCreateRequest {
-        jobNumber: string
+        /**
+         * Not used: the shipment always gets the company's next CZ job number when it is stored
+         * (see the response). Still accepted so clients that send the previewed number keep working.
+         */
+        jobNumber?: string
+
         shipper?: string
         consignee?: string
         pol?: string
@@ -5066,6 +5071,16 @@ export namespace controllers {
         pickupAddress?: string
 
         deliveryAddress?: string
+        /**
+         * Structured pick-up / delivery place (see the update request).
+         */
+        pickupSiteId?: string | null
+
+        pickupPostcode?: string | null
+        pickupCountry?: string | null
+        deliverySiteId?: string | null
+        deliveryPostcode?: string | null
+        deliveryCountry?: string | null
         shipperContact?: string
         consigneeContact?: string
         shipperOpeningFrom?: string
@@ -5392,6 +5407,17 @@ export namespace controllers {
         pickupAddress?: string
 
         deliveryAddress?: string
+        /**
+         * Structured pick-up / delivery place; null or "" clears a value. A CZ postcode is stored
+         * as its five digits ("110 00" → "11000"), the country as ISO alpha-2 in capitals.
+         */
+        pickupSiteId?: string | null
+
+        pickupPostcode?: string | null
+        pickupCountry?: string | null
+        deliverySiteId?: string | null
+        deliveryPostcode?: string | null
+        deliveryCountry?: string | null
         shipperContact?: string
         consigneeContact?: string
         shipperOpeningFrom?: string
@@ -6021,6 +6047,8 @@ export namespace interfaces {
         sortOrder: number
     }
 
+    export type AdrPackingGroup = "I" | "II" | "III"
+
     export interface AresResult {
         ico: string
         dic: string
@@ -6204,6 +6232,23 @@ export namespace interfaces {
         weightPerPcKg: string
         packageType: string
         stackable: string
+        /**
+         * Road freight. Optional on writes: a line sent without them is stored without them.
+         */
+        palletType?: PalletType | null
+
+        /**
+         * ADR: UN number, four digits ("UN 1203" is stored as "1203").
+         */
+        adrUn?: string | null
+
+        /**
+         * ADR class, e.g. "3" or "2.1".
+         */
+        adrClass?: string | null
+
+        adrPackingGroup?: AdrPackingGroup | null
+        adrLimitedQuantity?: boolean
     }
 
     /**
@@ -8003,6 +8048,8 @@ export namespace interfaces {
 
     export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit"
 
+    export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER"
+
     export interface PeriodAverage {
         type: "month" | "quarter" | "year"
         key: string
@@ -8596,6 +8643,28 @@ export namespace interfaces {
         pickupAddress: string
 
         deliveryAddress: string
+        /**
+         * Customer Database site the cargo is picked up from.
+         */
+        pickupSiteId: string | null
+
+        /**
+         * Normalised: five digits for CZ.
+         */
+        pickupPostcode: string | null
+
+        /**
+         * ISO 3166 alpha-2, e.g. "CZ".
+         */
+        pickupCountry: string | null
+
+        /**
+         * Customer Database site the cargo is delivered to.
+         */
+        deliverySiteId: string | null
+
+        deliveryPostcode: string | null
+        deliveryCountry: string | null
         shipperContact: string
         consigneeContact: string
         shipperOpeningFrom: string

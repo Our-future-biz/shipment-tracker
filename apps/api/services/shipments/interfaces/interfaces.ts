@@ -44,7 +44,18 @@ export interface CargoDimensionLine {
   weightPerPcKg: string;
   packageType: string;
   stackable: string;
+  // Road freight. Optional on writes: a line sent without them is stored without them.
+  palletType?: PalletType | null;
+  /** ADR: UN number, four digits ("UN 1203" is stored as "1203"). */
+  adrUn?: string | null;
+  /** ADR class, e.g. "3" or "2.1". */
+  adrClass?: string | null;
+  adrPackingGroup?: AdrPackingGroup | null;
+  adrLimitedQuantity?: boolean;
 }
+
+export type PalletType = "EUR" | "INDUSTRIAL" | "HALF" | "QUARTER" | "OTHER";
+export type AdrPackingGroup = "I" | "II" | "III";
 
 // One commercial invoice of the shipment (the Commercial Invoice pop-up).
 export interface CommercialInvoiceLine {
@@ -119,6 +130,16 @@ export interface ShipmentItem {
   // Commercial parties
   pickupAddress: string;
   deliveryAddress: string;
+  /** Customer Database site the cargo is picked up from. */
+  pickupSiteId: string | null;
+  /** Normalised: five digits for CZ. */
+  pickupPostcode: string | null;
+  /** ISO 3166 alpha-2, e.g. "CZ". */
+  pickupCountry: string | null;
+  /** Customer Database site the cargo is delivered to. */
+  deliverySiteId: string | null;
+  deliveryPostcode: string | null;
+  deliveryCountry: string | null;
   shipperContact: string;
   consigneeContact: string;
   shipperOpeningFrom: string;

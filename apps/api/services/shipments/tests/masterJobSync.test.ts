@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   containersFromHouses,
-  formatMczNumber,
   isLoadTypeChange,
   houseContainerLines,
   legacyContainerGroups,
-  mczSequence,
   syncedShipmentData,
 } from "../lib/masterJobSync";
 import type { ContainerLine } from "../interfaces/interfaces";
@@ -58,15 +56,6 @@ describe("syncedShipmentData", () => {
       estimatedDeparture: null,
       vessel: "MSC ANNA",
     });
-  });
-});
-
-describe("MCZ numbers", () => {
-  it("formats and parses the per-company sequence", () => {
-    expect(formatMczNumber(12)).toBe("MCZ00000012");
-    expect(mczSequence("MCZ00000012")).toBe(12);
-    expect(mczSequence("CZ00000012")).toBe(0);
-    expect(mczSequence("MCZabc")).toBe(0);
   });
 });
 

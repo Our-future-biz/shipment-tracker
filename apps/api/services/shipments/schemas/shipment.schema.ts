@@ -73,6 +73,16 @@ export const shipmentTable = pgTable(
     // — Commercial Parties —
     pickupAddress: text("pickup_address").notNull().default(""),
     deliveryAddress: text("delivery_address").notNull().default(""),
+    // Structured pick-up / delivery place for road freight. The site ids point at Customer
+    // Database sites (customers service, another database: plain uuids, no FK). Postcode and
+    // country (ISO 3166 alpha-2) are kept on the shipment so it can be priced and planned on
+    // its own; the address text above stays what is shown.
+    pickupSiteId: uuid("pickup_site_id"),
+    pickupPostcode: text("pickup_postcode"),
+    pickupCountry: text("pickup_country"),
+    deliverySiteId: uuid("delivery_site_id"),
+    deliveryPostcode: text("delivery_postcode"),
+    deliveryCountry: text("delivery_country"),
     shipperContact: text("shipper_contact").notNull().default(""),
     consigneeContact: text("consignee_contact").notNull().default(""),
     shipperOpeningFrom: text("shipper_opening_from").notNull().default(""),

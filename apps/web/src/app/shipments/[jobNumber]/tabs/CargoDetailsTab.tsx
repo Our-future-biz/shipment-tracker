@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { rowKey } from "@/app/shipments/_lib/rowKey";
-import { Input, Button, AutoComplete, Select, Tag } from "antd";
+import { Input, Button, AutoComplete, Select, Tag, Checkbox } from "antd";
+import { CargoDimensionAdrFields } from "./CargoDimensionAdrFields";
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -16,6 +17,9 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import {
   PACK_TYPES,
   STACKABLE_OPTIONS,
+  PALLET_TYPES,
+  hasAdr,
+  adrSummary,
   CURRENCIES,
   num,
   fmtNum,
@@ -59,7 +63,7 @@ const emptyDim = (containerId: string | null): CargoDimensionLine => ({
 const itemIsEmpty = (l: CargoItemLine) =>
   !l.cargoDescription && !l.hsCode && !l.pieces && !l.packageType && !l.grossWeight && !l.commercialInvoiceValue;
 const dimIsEmpty = (l: CargoDimensionLine) =>
-  !l.pieces && !l.lengthCm && !l.widthCm && !l.heightCm && !l.weightPerPcKg && !l.packageType && !l.stackable;
+  !l.pieces && !l.lengthCm && !l.widthCm && !l.heightCm && !l.weightPerPcKg && !l.packageType && !l.stackable && !l.palletType && !hasAdr(l);
 
 // Ensure every panel has at least one (local-only) row ready to type into.
 function withPanelRows<T>(rows: T[], panelKeys: string[], keyFn: (r: T) => string, mk: (containerId: string | null) => T): T[] {
@@ -84,7 +88,9 @@ const currencyOptions = (query: string) => {
 // Words read better than codes in the summary line.
 const UNIT_LABEL: Record<string, string> = { PCS: "pieces", KG: "kg", "M³": "m³" };
 
-const DIM_COLS = "grid grid-cols-[0.7fr_0.8fr_0.8fr_0.8fr_1fr_1fr_1.1fr_1.2fr_32px] gap-3 items-center";
+const DIM_COLS = "grid grid-cols-[0.7fr_0.8fr_0.8fr_0.8fr_1fr_1fr_1.1fr_1.2fr_1fr_0.9fr_32px] gap-3 items-center";
+const CENTERED_SELECT = "w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center";
+const palletLabel = (value: CargoDimensionLine["palletType"]) => PALLET_TYPES.find((p) => p.value === value)?.label ?? "";
 // Wider gaps and roomier number columns so the header labels no longer collide.
 const DESC_COLS = "grid grid-cols-[2fr_1fr_0.7fr_1.1fr_1.1fr_1.2fr_0.8fr_32px] gap-3 items-center";
 
@@ -143,6 +149,8 @@ export function CargoDetailsTab({
   const [items, setItems] = useState<CargoItemLine[]>(() => shipment.cargoItems ?? []);
   const [dims, setDims] = useState<CargoDimensionLine[]>(() => shipment.cargoDimensions ?? []);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  // Dimension lines (by row key) whose ADR box was ticked before any ADR detail was typed.
+  const [adrOn, setAdrOn] = useState<Set<string>>(() => new Set());
   const [flash, setFlash] = useState<string | null>(null);
   const itemsRef = useRef(items);
   const dimsRef = useRef(dims);
@@ -207,6 +215,21 @@ export function CargoDetailsTab({
   const patchDim = (idx: number, p: Partial<CargoDimensionLine>) => {
     openDims.open(idx);
     setDims((r) => r.map((l, j) => (j === idx ? { ...l, ...p } : l)));
+  };
+
+  // A line's ADR details show while its ADR box is ticked. Ticking only opens the fields (the
+  // line has no ADR data until one is typed); unticking clears them and saves.
+  const handleAdrToggle = (idx: number, line: CargoDimensionLine, on: boolean) => {
+    const key = rowKey(line);
+    setAdrOn((s) => {
+      const next = new Set(s);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+    if (on) return;
+    patchDim(idx, { adrUn: null, adrClass: null, adrPackingGroup: null, adrLimitedQuantity: false });
+    setTimeout(persistDims, 0);
   };
 
   const addItem = (panelKey: string) =>
@@ -331,7 +354,7 @@ export function CargoDetailsTab({
                   </div>
                   <div className="p-3">
                     <div className="overflow-x-auto">
-                      <div className="min-w-[860px]">
+                      <div className="min-w-[1000px]">
                         <div className={`${DIM_COLS} px-1 pb-1.5 text-[10px] font-bold text-slate-500 uppercase tracking-wide border-b border-slate-200`}>
                           <span className="text-center truncate">Pcs</span>
                           <span className="text-center truncate">Length (cm)</span>
@@ -341,6 +364,8 @@ export function CargoDetailsTab({
                           <span className="text-center truncate">Volume / pc (m³)</span>
                           <span className="text-center truncate">Packages</span>
                           <span className="text-center truncate">Stackable</span>
+                          <span className="text-center truncate">Pallet</span>
+                          <span className="text-center truncate">ADR</span>
                           <span />
                         </div>
 
@@ -362,48 +387,75 @@ export function CargoDetailsTab({
                                 <span className="text-center tabular-nums text-slate-500">{vpc ? vpc.toFixed(3) : "—"}</span>
                                 <span className="text-center truncate">{l.packageType || "—"}</span>
                                 <span className="text-center truncate">{l.stackable || "—"}</span>
+                                <span className="text-center truncate">{palletLabel(l.palletType) || "—"}</span>
+                                <span className="text-center truncate text-orange-600 font-medium" title={adrSummary(l)}>
+                                  {hasAdr(l) ? adrSummary(l) : <span className="text-slate-700 font-normal">—</span>}
+                                </span>
                                 <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeDim(idx, panelDims.length)} />
                               </div>
                             );
                           }
+                          const adrShown = hasAdr(l) || adrOn.has(rowKey(l));
                           return (
                             <div
                               key={rowKey(l)}
-                              className={`${DIM_COLS} px-1 py-1 border-b border-slate-100`}
+                              className="border-b border-slate-100"
                               onBlur={openDims.onRowBlur(idx)}
                               onKeyDown={openDims.onRowKeyDown(idx)}
                             >
-                              <Input size="small" className="text-center" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: e.target.value })} onBlur={persistDims} />
-                              <Input size="small" className="text-center" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: e.target.value })} onBlur={persistDims} />
-                              <Input size="small" className="text-center" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: e.target.value })} onBlur={persistDims} />
-                              <Input size="small" className="text-center" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: e.target.value })} onBlur={persistDims} />
-                              <Input size="small" className="text-center" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: e.target.value })} onBlur={persistDims} />
-                              <Input size="small" className="text-center !bg-slate-50 !text-slate-500" readOnly tabIndex={-1} value={vpc ? vpc.toFixed(3) : ""} />
-                              <Select
-                                size="small"
-                                className="w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center"
-                                value={l.packageType || undefined}
-                                allowClear
-                                placeholder="—"
-                                options={PACK_TYPES.map((p) => ({ value: p }))}
-                                onChange={(v) => {
-                                  patchDim(idx, { packageType: v ?? "" });
-                                  setTimeout(persistDims, 0);
-                                }}
-                              />
-                              <Select
-                                size="small"
-                                className="w-full [&_.ant-select-selection-item]:!text-center [&_.ant-select-selection-placeholder]:!text-center"
-                                value={l.stackable || undefined}
-                                allowClear
-                                placeholder="—"
-                                options={STACKABLE_OPTIONS.map((s) => ({ value: s }))}
-                                onChange={(v) => {
-                                  patchDim(idx, { stackable: v ?? "" });
-                                  setTimeout(persistDims, 0);
-                                }}
-                              />
-                              <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeDim(idx, panelDims.length)} />
+                              <div className={`${DIM_COLS} px-1 py-1`}>
+                                <Input size="small" className="text-center" value={l.pieces} onChange={(e) => patchDim(idx, { pieces: e.target.value })} onBlur={persistDims} />
+                                <Input size="small" className="text-center" value={l.lengthCm} onChange={(e) => patchDim(idx, { lengthCm: e.target.value })} onBlur={persistDims} />
+                                <Input size="small" className="text-center" value={l.widthCm} onChange={(e) => patchDim(idx, { widthCm: e.target.value })} onBlur={persistDims} />
+                                <Input size="small" className="text-center" value={l.heightCm} onChange={(e) => patchDim(idx, { heightCm: e.target.value })} onBlur={persistDims} />
+                                <Input size="small" className="text-center" value={l.weightPerPcKg} onChange={(e) => patchDim(idx, { weightPerPcKg: e.target.value })} onBlur={persistDims} />
+                                <Input size="small" className="text-center !bg-slate-50 !text-slate-500" readOnly tabIndex={-1} value={vpc ? vpc.toFixed(3) : ""} />
+                                <Select
+                                  size="small"
+                                  className={CENTERED_SELECT}
+                                  value={l.packageType || undefined}
+                                  allowClear
+                                  placeholder="—"
+                                  options={PACK_TYPES.map((p) => ({ value: p }))}
+                                  onChange={(v) => {
+                                    patchDim(idx, { packageType: v ?? "" });
+                                    setTimeout(persistDims, 0);
+                                  }}
+                                />
+                                <Select
+                                  size="small"
+                                  className={CENTERED_SELECT}
+                                  value={l.stackable || undefined}
+                                  allowClear
+                                  placeholder="—"
+                                  options={STACKABLE_OPTIONS.map((s) => ({ value: s }))}
+                                  onChange={(v) => {
+                                    patchDim(idx, { stackable: v ?? "" });
+                                    setTimeout(persistDims, 0);
+                                  }}
+                                />
+                                <Select
+                                  size="small"
+                                  className={CENTERED_SELECT}
+                                  value={l.palletType ?? undefined}
+                                  allowClear
+                                  placeholder="—"
+                                  popupMatchSelectWidth={false}
+                                  options={PALLET_TYPES}
+                                  onChange={(v) => {
+                                    patchDim(idx, { palletType: v ?? null });
+                                    setTimeout(persistDims, 0);
+                                  }}
+                                />
+                                <Checkbox
+                                  className="justify-self-center"
+                                  aria-label="Dangerous goods (ADR)"
+                                  checked={adrShown}
+                                  onChange={(e) => handleAdrToggle(idx, l, e.target.checked)}
+                                />
+                                <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={() => removeDim(idx, panelDims.length)} />
+                              </div>
+                              {adrShown && <CargoDimensionAdrFields line={l} onPatch={(p) => patchDim(idx, p)} onCommit={persistDims} />}
                             </div>
                           );
                         })}
@@ -416,7 +468,7 @@ export function CargoDetailsTab({
                           <span />
                           {totalCell(check?.kg ?? null, dimTotals.kg, "KG", 2)}
                           {totalCell(check?.m3 ?? null, dimTotals.m3, "M³", 3)}
-                          <span className="col-span-3" />
+                          <span className="col-span-5" />
                         </div>
                       </div>
                     </div>

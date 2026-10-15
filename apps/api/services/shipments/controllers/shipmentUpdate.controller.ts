@@ -67,6 +67,14 @@ interface ShipmentUpdateRequest {
   // Commercial parties
   pickupAddress?: string;
   deliveryAddress?: string;
+  // Structured pick-up / delivery place; null or "" clears a value. A CZ postcode is stored
+  // as its five digits ("110 00" → "11000"), the country as ISO alpha-2 in capitals.
+  pickupSiteId?: string | null;
+  pickupPostcode?: string | null;
+  pickupCountry?: string | null;
+  deliverySiteId?: string | null;
+  deliveryPostcode?: string | null;
+  deliveryCountry?: string | null;
   shipperContact?: string;
   consigneeContact?: string;
   shipperOpeningFrom?: string;
