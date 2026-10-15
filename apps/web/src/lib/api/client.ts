@@ -1944,6 +1944,10 @@ export namespace trucking {
             this.truckingHaulierList = this.truckingHaulierList.bind(this)
             this.truckingHaulierUnblock = this.truckingHaulierUnblock.bind(this)
             this.truckingHaulierUpdate = this.truckingHaulierUpdate.bind(this)
+            this.truckingLabelsPdf = this.truckingLabelsPdf.bind(this)
+            this.truckingLegPartner = this.truckingLegPartner.bind(this)
+            this.truckingManifestPdf = this.truckingManifestPdf.bind(this)
+            this.truckingPlanningBoard = this.truckingPlanningBoard.bind(this)
             this.truckingRate = this.truckingRate.bind(this)
             this.truckingSettingsGet = this.truckingSettingsGet.bind(this)
             this.truckingSettingsUpdate = this.truckingSettingsUpdate.bind(this)
@@ -1963,10 +1967,14 @@ export namespace trucking {
             this.truckingTransportOrderConfirm = this.truckingTransportOrderConfirm.bind(this)
             this.truckingTransportOrderPdf = this.truckingTransportOrderPdf.bind(this)
             this.truckingTransportOrderSend = this.truckingTransportOrderSend.bind(this)
+            this.truckingTripAssignLegs = this.truckingTripAssignLegs.bind(this)
             this.truckingTripCancel = this.truckingTripCancel.bind(this)
             this.truckingTripCreateFtl = this.truckingTripCreateFtl.bind(this)
+            this.truckingTripCreateLtl = this.truckingTripCreateLtl.bind(this)
             this.truckingTripGet = this.truckingTripGet.bind(this)
             this.truckingTripList = this.truckingTripList.bind(this)
+            this.truckingTripReprice = this.truckingTripReprice.bind(this)
+            this.truckingTripStamp = this.truckingTripStamp.bind(this)
             this.truckingTripUpdate = this.truckingTripUpdate.bind(this)
         }
 
@@ -2174,6 +2182,48 @@ export namespace trucking {
         }
 
         /**
+         * 100 x 150 mm labels of consignments (one per consignment, or one per piece with "n / N").
+         */
+        public async truckingLabelsPdf(params: controllers.TruckingLabelsPdfRequest): Promise<controllers.TruckingFileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/labels`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingFileResponse
+        }
+
+        /**
+         * The partner haulier, depot and price of an LTL delivery leg with last mile PARTNER.
+         */
+        public async truckingLegPartner(id: string, params: controllers.TruckingLegPartnerRequest): Promise<controllers.TruckingConsignmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/trucking/legs/${encodeURIComponent(id)}/partner`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingConsignmentResponse
+        }
+
+        /**
+         * The manifest (loading list) of a trip.
+         */
+        public async truckingManifestPdf(id: string, params: controllers.TruckingManifestPdfRequest): Promise<controllers.TruckingFileResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/${encodeURIComponent(id)}/manifest`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingFileResponse
+        }
+
+        /**
+         * The planning board of a day and trip kind: the open legs and the trips of that day.
+         */
+        public async truckingPlanningBoard(params: controllers.TruckingPlanningBoardRequest): Promise<controllers.TruckingPlanningBoardResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                date: params.date,
+                kind: String(params.kind),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/planning`, undefined, {query})
+            return await resp.json() as controllers.TruckingPlanningBoardResponse
+        }
+
+        /**
          * The rate calculator (any user; buy prices are visible to all users): sell, buy and internal
          * prices of a shipment for each service level, with the margin and the promised delivery date.
          */
@@ -2366,6 +2416,15 @@ export namespace trucking {
         }
 
         /**
+         * Adds and removes legs of an LTL trip and orders its stops, with the version read (stale = 409).
+         */
+        public async truckingTripAssignLegs(id: string, params: controllers.TruckingTripAssignLegsRequest): Promise<controllers.TruckingTripResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/${encodeURIComponent(id)}/legs`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTripResponse
+        }
+
+        /**
          * Cancels a trip (manager), refused after the pick-up: the consignment goes back to BOOKED.
          */
         public async truckingTripCancel(id: string, params: controllers.TruckingTripCancelRequest): Promise<controllers.TruckingTripResponse> {
@@ -2381,6 +2440,15 @@ export namespace trucking {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/ftl`, JSON.stringify(params))
             return await resp.json() as controllers.TruckingTripCreateFtlResponse
+        }
+
+        /**
+         * A new LTL trip (pick-up run, line haul or delivery run) of open legs with a usable haulier.
+         */
+        public async truckingTripCreateLtl(params: controllers.TruckingTripCreateLtlRequest): Promise<controllers.TruckingTripResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/ltl`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTripResponse
         }
 
         public async truckingTripGet(id: string): Promise<controllers.TruckingTripResponse> {
@@ -2399,6 +2467,24 @@ export namespace trucking {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/trips`, undefined, {query})
             return await resp.json() as controllers.TruckingTripListResponse
+        }
+
+        /**
+         * Prices a trip again from the haulier's tariff or at an agreed price; the cost is split over its legs again.
+         */
+        public async truckingTripReprice(id: string, params: controllers.TruckingTripRepriceRequest): Promise<controllers.TruckingTripResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/${encodeURIComponent(id)}/price`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTripResponse
+        }
+
+        /**
+         * Stamps a trip departed or arrived (a pick-up run arriving is not the gate-in: the warehouse stamps that).
+         */
+        public async truckingTripStamp(id: string, kind: string, params: controllers.TruckingTripStampRequest): Promise<controllers.TruckingTripResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/${encodeURIComponent(id)}/stamps/${encodeURIComponent(kind)}`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingTripResponse
         }
 
         /**
@@ -6290,6 +6376,21 @@ export namespace controllers {
         delivery: interfaces.StopInput
         load: interfaces.LoadInput
         price: interfaces.ConsignmentPriceInput
+        scope: "FTL" | "LTL"
+        /**
+         * LTL: the customer brings the goods to our warehouse (no pick-up leg)
+         */
+        selfDelivered: boolean
+
+        /**
+         * LTL: our own delivery run or the partner network
+         */
+        lastMile: interfaces.LastMile
+
+        /**
+         * LTL with last mile PARTNER: the partner haulier
+         */
+        partnerHaulierCustomerId: string | null
     }
 
     export interface TruckingConsignmentListRequest {
@@ -6354,6 +6455,11 @@ export namespace controllers {
          * Price again from the price source; otherwise the stored price stays
          */
         reprice: boolean
+
+        scope: "FTL" | "LTL"
+        selfDelivered: boolean
+        lastMile: interfaces.LastMile
+        partnerHaulierCustomerId: string | null
     }
 
     export interface TruckingConsignmentVoidStampRequest {
@@ -6434,6 +6540,44 @@ export namespace controllers {
         hauliers: interfaces.HaulierListItem[]
     }
 
+    export interface TruckingLabelsPdfRequest {
+        consignmentIds: string[]
+        /**
+         * One label per piece ("n / N") instead of one per consignment
+         */
+        perPiece: boolean
+    }
+
+    export interface TruckingLegPartnerRequest {
+        haulierCustomerId: string
+        /**
+         * The partner's Customer Database site (kind "both" / "delivery") used as its depot; null = the partner collects at our warehouse
+         */
+        depotSiteId: string | null
+
+        price: interfaces.TripPriceInput
+    }
+
+    export interface TruckingManifestPdfRequest {
+        language: "cs" | "en" | "both"
+    }
+
+    export interface TruckingPlanningBoardRequest {
+        /**
+         * YYYY-MM-DD
+         */
+        date: string
+
+        kind: interfaces.LtlTripKind
+    }
+
+    export interface TruckingPlanningBoardResponse {
+        date: string
+        kind: interfaces.LtlTripKind
+        unplanned: interfaces.PlanningLeg[]
+        trips: interfaces.PlanningTrip[]
+    }
+
     export interface TruckingHaulierUpdateRequest {
         insurer: string
         insurancePolicyNo: string
@@ -6501,6 +6645,7 @@ export namespace controllers {
         factors: interfaces.ChargeableFactors
         marginFloor: interfaces.MarginFloor
         transportOrder: interfaces.TransportOrderTexts
+        hub: interfaces.HubAddress
         /**
          * The version read (0 when none is saved yet); a save on top of a newer one is refused with 409.
          */
@@ -6651,6 +6796,17 @@ export namespace controllers {
         file: interfaces.FileDownload
     }
 
+    export interface TruckingTripAssignLegsRequest {
+        add: string[]
+        remove: string[]
+        /**
+         * Leg ids in stop order; null keeps the order (new legs last)
+         */
+        stopOrder: string[] | null
+
+        version: number
+    }
+
     export interface TruckingTripCancelRequest {
         reason: string
     }
@@ -6671,6 +6827,19 @@ export namespace controllers {
         consignment: interfaces.ConsignmentDetail
     }
 
+    export interface TruckingTripCreateLtlRequest {
+        kind: interfaces.LtlTripKind
+        /**
+         * YYYY-MM-DD
+         */
+        date: string
+
+        haulierCustomerId: string
+        vehicleTypeCode: string
+        legIds: string[]
+        price: interfaces.TripPriceInput
+    }
+
     export interface TruckingTripListRequest {
         status?: interfaces.TripStatus
         /**
@@ -6689,6 +6858,17 @@ export namespace controllers {
 
     export interface TruckingTripResponse {
         trip: interfaces.TripDetail
+    }
+
+    export interface TruckingTripRepriceRequest {
+        price: interfaces.TripPriceInput
+    }
+
+    export interface TruckingTripStampRequest {
+        /**
+         * null = now
+         */
+        at: string | null
     }
 
     export interface TruckingTripUpdateRequest {
@@ -7476,6 +7656,27 @@ export namespace interfaces {
             canApproveMargin: boolean
             canVoidStamp: boolean
         }
+        /**
+         * LTL: the customer brings the goods to our warehouse
+         */
+        selfDelivered: boolean
+
+        lastMile: LastMile
+        partnerHaulierCustomerId: string | null
+        /**
+         * In seq order; [] for FTL
+         */
+        legs: Leg[]
+
+        /**
+         * The gate-in confirmed by the warehouse
+         */
+        gateInAt: string | null
+
+        /**
+         * false = estimated until the warehouse confirms the gate-in
+         */
+        promisedFinal: boolean
         id: string
         /**
          * "TCZ2026000001"
@@ -7486,10 +7687,7 @@ export namespace interfaces {
         jobNumber: string
         customerId: string
         customerName: string
-        /**
-         * LTL arrives in Phase 5
-         */
-        scope: "FTL"
+        scope: "FTL" | "LTL"
 
         serviceLevel: ServiceLevelCode | null
         status: ConsignmentStatus
@@ -7533,10 +7731,7 @@ export namespace interfaces {
         jobNumber: string
         customerId: string
         customerName: string
-        /**
-         * LTL arrives in Phase 5
-         */
-        scope: "FTL"
+        scope: "FTL" | "LTL"
 
         serviceLevel: ServiceLevelCode | null
         status: ConsignmentStatus
@@ -7580,7 +7775,7 @@ export namespace interfaces {
         reason: string
     }
 
-    export type ConsignmentStatus = "BOOKED" | "PLANNED" | "ORDERED" | "CONFIRMED" | "PICKED_UP" | "DELIVERED" | "POD_RECEIVED" | "READY_TO_BILL" | "CANCELLED"
+    export type ConsignmentStatus = "BOOKED" | "PLANNED" | "ORDERED" | "CONFIRMED" | "PICKED_UP" | "AT_HUB" | "ON_LINEHAUL" | "OUT_FOR_DELIVERY" | "DELIVERED" | "POD_RECEIVED" | "READY_TO_BILL" | "CANCELLED"
 
     export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill"
 
@@ -9288,6 +9483,42 @@ export namespace interfaces {
 
     export type LaneServiceKind = "ANY" | "LTL" | "FTL" | "LINEHAUL"
 
+    export interface HubAddress {
+        name: string
+        street: string
+        postcode: string
+        city: string
+        country: "CZ"
+    }
+
+    export type LastMile = "OWN_RUN" | "PARTNER"
+
+    export interface Leg {
+        id: string
+        consignmentId: string
+        seq: number
+        kind: LegKind
+        fromText: string
+        toText: string
+        tripId: string | null
+        haulierCustomerId: string | null
+        /**
+         * Partner delivery: priced per consignment from the partner's buy tariff (scope LTL) or agreed
+         */
+        buy: PriceSnapshot | null
+
+        /**
+         * The leg's share of its trip's buy price
+         */
+        costShareCzk: number | null
+
+        status: LegStatus
+    }
+
+    export type LegKind = "PICKUP" | "LINEHAUL" | "DELIVERY"
+
+    export type LegStatus = "OPEN" | "PLANNED" | "DONE"
+
     export interface LoadInput {
         pieces: number
         palletPlaces: number
@@ -9307,6 +9538,8 @@ export namespace interfaces {
         b2c: boolean
         description: string
     }
+
+    export type LtlTripKind = "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN"
 
     export interface MarginFloor {
         /**
@@ -9692,6 +9925,59 @@ export namespace interfaces {
     /**
      * What was priced; never recomputed silently.
      */
+    export interface PlanningLeg {
+        id: string
+        consignmentId: string
+        seq: number
+        kind: LegKind
+        fromText: string
+        toText: string
+        tripId: string | null
+        haulierCustomerId: string | null
+        buy: PriceSnapshot | null
+        costShareCzk: number | null
+        status: LegStatus
+        consignmentRef: string
+        customerName: string
+        fromPostcode: string
+        fromCity: string
+        toPostcode: string
+        toCity: string
+        /**
+         * The zone of the address the run serves (pick-up for pick-up runs, delivery otherwise)
+         */
+        zoneLabel: string
+
+        palletPlaces: number
+        ldm: number
+        weightKg: number
+        chargeableKg: number | null
+        adr: boolean
+        tailLift: boolean
+        promisedDate: string | null
+        deadline: "today" | "tomorrow" | "later" | "overdue"
+    }
+
+    export interface PlanningTrip {
+        id: string
+        ref: string
+        kind: TripKind
+        status: TripStatus
+        haulierCustomerId: string
+        haulierName: string
+        vehicleTypeCode: string | null
+        capacity: TripCapacity | null
+        fill: TripFill
+        warnings: string[]
+        /**
+         * The legs in stop order
+         */
+        stops: PlanningLeg[]
+
+        buyTotalCzk: number | null
+        version: number
+    }
+
     export interface PriceSnapshot {
         source: "TARIFF" | "QUOTE" | "MANUAL"
         tariffId: string | null
@@ -11275,7 +11561,7 @@ export namespace interfaces {
          */
         ref: string
 
-        kind: "FTL"
+        kind: TripKind
         status: TripStatus
         haulierCustomerId: string
         haulierName: string
@@ -11288,6 +11574,28 @@ export namespace interfaces {
         driverPhone: string
         plannedPickupDate: string
         consignmentIds: string[]
+        /**
+         * LTL: the legs carried, in stop order; [] for FTL
+         */
+        legs: TripLegItem[]
+
+        fill: TripFill
+        /**
+         * Never block: over capacity, ADR without ADR haulier, promised date too early, tail-lift missing
+         */
+        warnings: string[]
+
+        stopOrder: string[]
+        stamps: {
+            departed: {
+                at: string
+                by: string
+            } | null
+            arrived: {
+                at: string
+                by: string
+            } | null
+        }
         /**
          * Haulier tariff or agreed price (source MANUAL + reason)
          */
@@ -11303,10 +11611,56 @@ export namespace interfaces {
         events: TruckingEventItem[]
     }
 
+    export interface TripCapacity {
+        ldm: number
+        kg: number
+        palletPlaces: number
+    }
+
+    export interface TripFill {
+        ldm: number
+        kg: number
+        palletPlaces: number
+        /**
+         * null when the vehicle type is not known
+         */
+        ldmPercent: number | null
+
+        kgPercent: number | null
+    }
+
+    export type TripKind = "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN"
+
+    export interface TripLegItem {
+        id: string
+        consignmentId: string
+        seq: number
+        kind: LegKind
+        fromText: string
+        toText: string
+        tripId: string | null
+        haulierCustomerId: string | null
+        buy: PriceSnapshot | null
+        costShareCzk: number | null
+        status: LegStatus
+        consignmentRef: string
+        customerName: string
+        fromPostcode: string
+        fromCity: string
+        toPostcode: string
+        toCity: string
+        pieces: number
+        palletPlaces: number
+        ldm: number
+        weightKg: number
+        chargeableKg: number | null
+        adr: boolean
+    }
+
     export interface TripListItem {
         id: string
         ref: string
-        kind: "FTL"
+        kind: TripKind
         status: TripStatus
         haulierCustomerId: string
         haulierName: string
@@ -11323,6 +11677,8 @@ export namespace interfaces {
         transportOrder: TransportOrderState | null
         version: number
         consignmentRefs: string[]
+        fill: TripFill
+        warnings: string[]
     }
 
     export type TripPriceInput = {
@@ -11369,6 +11725,11 @@ export namespace interfaces {
         factors: ChargeableFactors
         marginFloor: MarginFloor
         transportOrder: TransportOrderTexts
+        /**
+         * Our warehouse; empty until set (LTL planning refuses without it)
+         */
+        hub: HubAddress
+
         version: number
         updatedAt: string | null
         /**

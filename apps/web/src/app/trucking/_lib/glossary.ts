@@ -48,6 +48,11 @@ export const TERMS = {
   pickupPin: "Pick-up PIN",
   recordedOnly: "Recorded only",
   haulierLink: "Haulier link",
+  leg: "Leg",
+  hub: "Hub",
+  partnerNetwork: "Partner network",
+  manifest: "Manifest",
+  fill: "Fill",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -205,5 +210,33 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     meaning:
       "The link printed on a sent transport order. Without signing in, the haulier opens the order (no customer prices, only the agreed price), confirms or rejects it once and uploads the POD. It is valid 30 days after the planned pick-up; sending the order again renews it.",
     replaces: "odkaz pro dopravce",
+  },
+  {
+    term: TERMS.leg,
+    meaning:
+      "One part of an LTL consignment's road: the pick-up (customer → our warehouse), the line haul (our warehouse → a partner's depot) and the delivery (→ consignee). Each leg rides on one trip, except a partner delivery, which the partner prices per consignment.",
+    replaces: "úsek, etapa přepravy",
+  },
+  {
+    term: TERMS.hub,
+    meaning: "Our warehouse: every LTL consignment passes it and its Gate Log. The gate-in the warehouse confirms there starts the service-level clock. Its address is set in Trucking settings.",
+    replaces: "náš sklad, překladiště, hub",
+  },
+  {
+    term: TERMS.partnerNetwork,
+    meaning:
+      "Partner hauliers who deliver our LTL consignments in their region (the last mile). A partner is paid per consignment from its buy tariff (scope LTL) or at an agreed price; a line haul takes the goods to its depot unless it collects at our warehouse.",
+    replaces: "partnerská síť, partnerský rozvoz",
+  },
+  {
+    term: TERMS.manifest,
+    meaning: "The loading list of a trip: every consignment on it in stop order with pieces, pallet places, LDM, weight and ADR, against the truck's capacity. Printed for the driver and the warehouse.",
+    replaces: "nakládací list, manifest",
+  },
+  {
+    term: TERMS.fill,
+    meaning:
+      "How full a trip's truck is: its loading metres (LDM) and weight against the capacity of its vehicle type. The fuller of the two sets the colour — amber from 90 %, red over 100 %. Over capacity is a warning, never a block.",
+    replaces: "vytížení, naložení vozu",
   },
 ];

@@ -43,6 +43,17 @@ describe("trucking glossary", () => {
   });
 });
 
+describe("Phase 5 terms", () => {
+  it("explain legs, the hub, the partner network, the manifest and the fill", () => {
+    const meaning = (term: string) => GLOSSARY.find((g) => g.term === term)?.meaning;
+    expect(meaning(TERMS.leg)).toMatch(/pick-up .* line haul .* delivery/);
+    expect(meaning(TERMS.hub)).toMatch(/Gate Log/);
+    expect(meaning(TERMS.partnerNetwork)).toMatch(/per consignment/);
+    expect(GLOSSARY.find((g) => g.term === TERMS.manifest)?.replaces).toMatch(/nakládací list/);
+    expect(meaning(TERMS.fill)).toMatch(/fuller of the two sets the colour/);
+  });
+});
+
 describe("trucking tabs", () => {
   it("follow the work and name the phase that brings each", () => {
     expect(TRUCKING_TABS.map((t) => `${t.label}:${t.phase}`)).toEqual([
@@ -57,6 +68,6 @@ describe("trucking tabs", () => {
   });
 
   it("mark the built ones live", () => {
-    expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["consignments", "trips", "hauliers", "tariffs", "calculator"]);
+    expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["consignments", "planning", "trips", "hauliers", "tariffs", "calculator"]);
   });
 });

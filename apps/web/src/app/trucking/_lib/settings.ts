@@ -1,4 +1,5 @@
 import type { interfaces } from "@/lib/api/client";
+import { isValidPsc } from "./hauliers";
 
 // Checks of the Trucking settings, the same limits the server holds them to.
 
@@ -12,6 +13,26 @@ export interface SettingsDraft {
   factors: interfaces.ChargeableFactors;
   marginFloor: interfaces.MarginFloor;
   transportOrder: interfaces.TransportOrderTexts;
+  hub: interfaces.HubAddress;
+}
+
+export const EMPTY_HUB: interfaces.HubAddress = { name: "", street: "", postcode: "", city: "", country: "CZ" };
+
+/** Whether our warehouse's address is set: LTL planning needs it. */
+export const hubIsSet = (hub: interfaces.HubAddress | null | undefined) => !!hub && !!hub.street.trim() && isValidPsc(hub.postcode) && !!hub.city.trim();
+
+export const HUB_MISSING_TEXT = "Set the warehouse address in Trucking settings";
+
+/** Why the hub address cannot be saved: left empty is fine (planning then waits), half-filled is not. */
+export function hubProblems(hub: interfaces.HubAddress): string[] {
+  const filled = [hub.name, hub.street, hub.postcode, hub.city].some((v) => v.trim());
+  if (!filled) return [];
+  const out: string[] = [];
+  if (!hub.name.trim()) out.push("Our warehouse: name");
+  if (!hub.street.trim()) out.push("Our warehouse: street");
+  if (!isValidPsc(hub.postcode)) out.push("Our warehouse: postcode (PSČ) has 5 digits");
+  if (!hub.city.trim()) out.push("Our warehouse: city");
+  return out;
 }
 
 const isTime = (v: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
@@ -46,6 +67,7 @@ export function settingsProblems(d: SettingsDraft): string[] {
   if (!(d.marginFloor.minAmountCzk >= 0)) out.push("Minimum margin cannot be negative");
   if (!d.transportOrder.emailSubject.trim()) out.push("Transport-order e-mail subject is required");
   if (!d.transportOrder.emailBody.trim()) out.push("Transport-order e-mail body is required");
+  out.push(...hubProblems(d.hub));
   return out;
 }
 

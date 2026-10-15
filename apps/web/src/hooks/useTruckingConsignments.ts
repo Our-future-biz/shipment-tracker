@@ -36,6 +36,24 @@ export type TruckingDocument = Awaited<ReturnType<typeof api.trucking.truckingDo
 export type DocumentUpload = Parameters<typeof api.trucking.truckingDocumentUpload>[1];
 export type DocumentKind = DocumentUpload["kind"];
 export type TruckingFile = Awaited<ReturnType<typeof api.trucking.truckingCmrPdf>>["file"];
+export type ConsignmentScope = ConsignmentDetail["scope"];
+export type LastMile = ConsignmentDetail["lastMile"];
+export type Leg = ConsignmentDetail["legs"][number];
+export type TripKind = TripDetail["kind"];
+export type TripLeg = TripDetail["legs"][number];
+export type TripFill = TripDetail["fill"];
+export type TripStampKind = keyof TripDetail["stamps"];
+export type TripPrice = Parameters<typeof api.trucking.truckingTripReprice>[1]["price"];
+export type PlanningBoardRequest = Parameters<typeof api.trucking.truckingPlanningBoard>[0];
+export type LtlTripKind = PlanningBoardRequest["kind"];
+export type PlanningBoard = Awaited<ReturnType<typeof api.trucking.truckingPlanningBoard>>;
+export type PlanningLeg = PlanningBoard["unplanned"][number];
+export type PlanningTrip = PlanningBoard["trips"][number];
+export type TripCreateLtl = Parameters<typeof api.trucking.truckingTripCreateLtl>[0];
+export type TripAssignLegs = Parameters<typeof api.trucking.truckingTripAssignLegs>[1];
+export type LegPartnerRequest = Parameters<typeof api.trucking.truckingLegPartner>[1];
+export type ManifestLanguage = Parameters<typeof api.trucking.truckingManifestPdf>[1]["language"];
+export type LabelsRequest = Parameters<typeof api.trucking.truckingLabelsPdf>[0];
 export type PublicTransportOrder = Awaited<ReturnType<typeof publicApi.trucking.publicTransportOrderGet>>["order"];
 export type PublicRespond = Parameters<typeof publicApi.trucking.publicTransportOrderRespond>[1];
 export type PublicPod = Parameters<typeof publicApi.trucking.publicTransportOrderPod>[1];
@@ -63,13 +81,14 @@ export function useConsignments(filters: ConsignmentListRequest = {}, { enabled 
   };
 }
 
-/** A change to a consignment or trip moves both lists and the job's cards, so every list is read again. */
-function useRefreshLists() {
+/** A change to a consignment or trip moves both lists, the planning board and the job's cards, so every list is read again. */
+export function useRefreshLists() {
   const queryClient = useQueryClient();
   return () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: truckingKeys.consignments() }),
       queryClient.invalidateQueries({ queryKey: truckingKeys.trips() }),
+      queryClient.invalidateQueries({ queryKey: truckingKeys.planning() }),
       // The job (dates, plate, status) and its costs are written by the server from Trucking.
       queryClient.invalidateQueries({ queryKey: ["shipments"] }),
       queryClient.invalidateQueries({ queryKey: ["invoicing"] }),
@@ -116,6 +135,11 @@ export function useConsignment(id: string) {
     mutationFn: ({ kind, reason }: { kind: StampKind; reason: string }) => api.trucking.truckingConsignmentVoidStamp(id, kind, { reason }),
     onSuccess: onChanged,
   });
+  // A partner delivery leg (LTL, last mile Partner network): partner haulier, depot and price.
+  const legPartner = useMutation({
+    mutationFn: ({ legId, req }: { legId: string; req: LegPartnerRequest }) => api.trucking.truckingLegPartner(legId, req),
+    onSuccess: onChanged,
+  });
   const planTrip = useMutation({
     mutationFn: (req: Omit<TripCreateFtl, "consignmentId">) => api.trucking.truckingTripCreateFtl({ ...req, consignmentId: id }),
     onSuccess: (res) => {
@@ -138,6 +162,7 @@ export function useConsignment(id: string) {
     voidStamp: voidStamp.mutateAsync,
     planTrip: planTrip.mutateAsync,
     isPlanning: planTrip.isPending,
+    setLegPartner: legPartner.mutateAsync,
   };
 }
 
@@ -170,6 +195,12 @@ export function useTrip(id: string | null) {
   };
 
   const update = useMutation({ mutationFn: (req: TripUpdate) => api.trucking.truckingTripUpdate(id as string, req), onSuccess: onChanged });
+  const reprice = useMutation({ mutationFn: (price: TripPrice) => api.trucking.truckingTripReprice(id as string, { price }), onSuccess: onChanged });
+  const assignLegs = useMutation({ mutationFn: (req: TripAssignLegs) => api.trucking.truckingTripAssignLegs(id as string, req), onSuccess: onChanged });
+  const tripStamp = useMutation({
+    mutationFn: ({ kind, at }: { kind: TripStampKind; at: string | null }) => api.trucking.truckingTripStamp(id as string, kind, { at }),
+    onSuccess: onChanged,
+  });
   const cancel = useMutation({ mutationFn: (reason: string) => api.trucking.truckingTripCancel(id as string, { reason }), onSuccess: onChanged });
   const send = useMutation({ mutationFn: (req: TransportOrderSendRequest) => api.trucking.truckingTransportOrderSend(id as string, req), onSuccess: onChanged });
   const confirm = useMutation({ mutationFn: (note: string) => api.trucking.truckingTransportOrderConfirm(id as string, { note }), onSuccess: onChanged });
@@ -189,6 +220,11 @@ export function useTrip(id: string | null) {
     send: send.mutateAsync,
     confirm: confirm.mutateAsync,
     print: print.mutateAsync,
+    reprice: reprice.mutateAsync,
+    assignLegs: assignLegs.mutateAsync,
+    isAssigning: assignLegs.isPending,
+    stamp: tripStamp.mutateAsync,
+    isStamping: tripStamp.isPending,
   };
 }
 
@@ -214,6 +250,12 @@ export function useConsignmentDocuments(consignmentId: string) {
     isUploading: upload.isPending,
   };
 }
+
+/** The manifest (loading list) of a trip, made on click. */
+export const fetchTripManifest = async (tripId: string, language: ManifestLanguage): Promise<TruckingFile> => (await api.trucking.truckingManifestPdf(tripId, { language })).file;
+
+/** Labels (100 × 150 mm) of consignments, made on click. */
+export const fetchConsignmentLabels = async (req: LabelsRequest): Promise<TruckingFile> => (await api.trucking.truckingLabelsPdf(req)).file;
 
 /** One document's file, fetched on click. */
 export const fetchTruckingDocument = async (docId: string): Promise<TruckingFile> => (await api.trucking.truckingDocumentContent(docId)).file;

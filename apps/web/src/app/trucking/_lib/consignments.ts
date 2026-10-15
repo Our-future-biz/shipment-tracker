@@ -28,6 +28,9 @@ export const CONSIGNMENT_STATUS_CHIP: Record<ConsignmentStatus, StatusChip> = {
   ORDERED: { label: "Ordered", tone: "a", hint: "Transport order sent; waiting for the haulier to confirm" },
   CONFIRMED: { label: "Confirmed", tone: "i", hint: "The haulier confirmed the transport order" },
   PICKED_UP: { label: "Picked up", tone: "i", hint: "Loaded at the pick-up site, on its way" },
+  AT_HUB: { label: "At our warehouse", tone: "i", hint: "Gated in at our warehouse (confirmed by the warehouse)" },
+  ON_LINEHAUL: { label: "On line haul", tone: "b", hint: "Gone out of our warehouse on the line haul to the partner's depot" },
+  OUT_FOR_DELIVERY: { label: "Out for delivery", tone: "b", hint: "Gone out of our warehouse for delivery" },
   DELIVERED: { label: "Delivered", tone: "b", hint: "Delivered; waiting for the proof of delivery (POD)" },
   POD_RECEIVED: { label: "POD received", tone: "g", hint: "The signed proof of delivery is in" },
   READY_TO_BILL: { label: "Ready to bill", tone: "g", hint: "Every consignment of the job has its POD; the job is in Billing" },
@@ -55,8 +58,37 @@ export const CONSIGNMENT_FLOW: Exclude<ConsignmentStatus, "CANCELLED">[] = [
   "READY_TO_BILL",
 ];
 
+/** The road of an LTL consignment: through our warehouse; the haulier confirms the trip, not the consignment. */
+export const LTL_FLOW: Exclude<ConsignmentStatus, "CANCELLED">[] = [
+  "BOOKED",
+  "PLANNED",
+  "ORDERED",
+  "PICKED_UP",
+  "AT_HUB",
+  "ON_LINEHAUL",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+  "POD_RECEIVED",
+  "READY_TO_BILL",
+];
+
+/** Every status of both roads in one order, so FTL and LTL rank alike. */
+const STATUS_ORDER: Exclude<ConsignmentStatus, "CANCELLED">[] = [
+  "BOOKED",
+  "PLANNED",
+  "ORDERED",
+  "CONFIRMED",
+  "PICKED_UP",
+  "AT_HUB",
+  "ON_LINEHAUL",
+  "OUT_FOR_DELIVERY",
+  "DELIVERED",
+  "POD_RECEIVED",
+  "READY_TO_BILL",
+];
+
 /** Position on the main road; Cancelled is -1. */
-export const statusRank = (status: ConsignmentStatus): number => CONSIGNMENT_FLOW.indexOf(status as Exclude<ConsignmentStatus, "CANCELLED">);
+export const statusRank = (status: ConsignmentStatus): number => STATUS_ORDER.indexOf(status as Exclude<ConsignmentStatus, "CANCELLED">);
 
 export const STAMP_LABELS: Record<StampKind, string> = {
   confirmed: "Confirmed",
@@ -67,6 +99,9 @@ export const STAMP_LABELS: Record<StampKind, string> = {
 
 export const STAMP_KINDS: StampKind[] = ["confirmed", "pickedUp", "delivered", "podReceived"];
 
+/** The stamps a consignment shows: an LTL consignment is not confirmed on its own (its trips are). */
+export const stampKindsFor = (scope: ConsignmentDetail["scope"] | undefined): StampKind[] => (scope === "LTL" ? STAMP_KINDS.filter((k) => k !== "confirmed") : STAMP_KINDS);
+
 type Stamps = ConsignmentDetail["stamps"];
 
 /** A stamp of a consignment, or null; the API may leave out a kind that was never stamped. */
@@ -74,30 +109,35 @@ export const stampOf = (stamps: Stamps, kind: StampKind) => stamps[kind] ?? null
 
 /** The lifecycle as the shared strip draws it (the Warehouse's LifecycleStrip): every step, done or not, with its time. */
 export function consignmentLifecycle(
-  c: Pick<ConsignmentDetail, "status" | "createdAt" | "stamps" | "tripId" | "podReceivedAt">,
+  c: Pick<ConsignmentDetail, "status" | "createdAt" | "stamps" | "tripId" | "podReceivedAt"> & Partial<Pick<ConsignmentDetail, "scope" | "gateInAt" | "legs">>,
   trip?: Pick<TripDetail, "transportOrder"> | null,
 ): interfaces.GatePositionLifecycle {
   const rank = statusRank(c.status);
   const order = trip?.transportOrder ?? null;
-  const reachedAt: Record<(typeof CONSIGNMENT_FLOW)[number], string | null> = {
+  // LTL: the line haul is a step only when the consignment has one.
+  const flow = c.scope === "LTL" ? LTL_FLOW.filter((s) => s !== "ON_LINEHAUL" || (c.legs ?? []).some((l) => l.kind === "LINEHAUL")) : CONSIGNMENT_FLOW;
+  const reachedAt: Record<(typeof STATUS_ORDER)[number], string | null> = {
     BOOKED: c.createdAt,
     PLANNED: null,
     ORDERED: order?.sentAt ?? null,
     CONFIRMED: stampOf(c.stamps, "confirmed")?.at ?? order?.confirmedAt ?? null,
     PICKED_UP: stampOf(c.stamps, "pickedUp")?.at ?? null,
+    AT_HUB: c.gateInAt ?? null,
+    ON_LINEHAUL: null,
+    OUT_FOR_DELIVERY: null,
     DELIVERED: stampOf(c.stamps, "delivered")?.at ?? null,
     POD_RECEIVED: stampOf(c.stamps, "podReceived")?.at ?? c.podReceivedAt,
     READY_TO_BILL: null,
   };
-  const steps = CONSIGNMENT_FLOW.map((stage, i) => {
+  const steps = flow.map((stage) => {
     // A cancelled consignment keeps what it reached: its stamps, and a trip it still had.
-    const done = rank >= 0 ? i <= rank : stage === "BOOKED" || (stage === "PLANNED" && !!c.tripId) || !!reachedAt[stage];
+    const done = rank >= 0 ? statusRank(stage) <= rank : stage === "BOOKED" || (stage === "PLANNED" && !!c.tripId) || !!reachedAt[stage];
     return { stage, label: CONSIGNMENT_STATUS_CHIP[stage].label, at: done ? reachedAt[stage] : null, done };
   });
   return {
     stage: c.status,
     label: CONSIGNMENT_STATUS_CHIP[c.status].label,
-    at: rank >= 0 ? reachedAt[CONSIGNMENT_FLOW[rank]!] : null,
+    at: rank >= 0 ? reachedAt[STATUS_ORDER[rank]!] : null,
     refused: false,
     steps,
   };
@@ -164,7 +204,12 @@ export interface ConsignmentActions {
 type ActionTrip = Pick<TripDetail, "status" | "haulierStatus" | "haulierIssues" | "transportOrder"> | null;
 
 /** What a consignment allows now, by its status, trip, margin and the user's permissions (from the server). */
-export function consignmentActions(c: Pick<ConsignmentDetail, "status" | "tripId" | "belowFloor" | "marginApproved" | "permissions">, trip: ActionTrip, hasPod: boolean): ConsignmentActions {
+export function consignmentActions(
+  c: Pick<ConsignmentDetail, "status" | "tripId" | "belowFloor" | "marginApproved" | "permissions"> & Partial<Pick<ConsignmentDetail, "scope" | "selfDelivered">>,
+  trip: ActionTrip,
+  hasPod: boolean,
+): ConsignmentActions {
+  if (c.scope === "LTL") return ltlActions(c, hasPod);
   const rank = statusRank(c.status);
   const cancelled = c.status === "CANCELLED";
   const pickedUp = rank >= statusRank("PICKED_UP");
@@ -223,8 +268,63 @@ export function consignmentActions(c: Pick<ConsignmentDetail, "status" | "tripId
   };
 }
 
+export const LTL_PLANNING_TEXT = "LTL legs are planned on the Planning tab";
+const LTL_ORDER_TEXT = "An LTL consignment's transport orders go per trip — open the trip from its legs";
+
+/** What an LTL consignment allows: its legs are planned and ordered per trip; the warehouse stamps gate-in and gate-out. */
+function ltlActions(c: Pick<ConsignmentDetail, "status" | "belowFloor" | "marginApproved" | "permissions"> & Partial<Pick<ConsignmentDetail, "selfDelivered">>, hasPod: boolean): ConsignmentActions {
+  const rank = statusRank(c.status);
+  const cancelled = c.status === "CANCELLED";
+  const pickedUp = rank >= statusRank("PICKED_UP");
+  const ifLive = (state: ActionState) => (cancelled ? no("The consignment is cancelled") : state);
+
+  let pickedUpState = no("Send the pick-up run's transport order first");
+  if (c.selfDelivered) pickedUpState = no("The customer brings the goods to our warehouse");
+  else if (pickedUp) pickedUpState = no("Already stamped");
+  else if (c.status === "ORDERED") pickedUpState = yes;
+
+  let delivered = no("Waits for the warehouse gate-out");
+  if (rank >= statusRank("DELIVERED")) delivered = no("Already stamped");
+  else if (c.status === "ON_LINEHAUL" || c.status === "OUT_FOR_DELIVERY") delivered = yes;
+
+  let podReceived = no("Stamp Delivered first");
+  if (c.status === "DELIVERED") podReceived = hasPod || c.permissions.canVoidStamp ? yes : no("Upload the POD first (a manager may stamp it without one)");
+  else if (rank >= statusRank("POD_RECEIVED")) podReceived = no("Already stamped");
+
+  let cancel = yes;
+  if (!c.permissions.canCancel) cancel = no("Only a manager can cancel a consignment");
+  else if (cancelled) cancel = no("Already cancelled");
+  else if (pickedUp) cancel = no("Picked up — it can no longer be cancelled");
+
+  let approveMargin = yes;
+  if (!c.belowFloor) approveMargin = no("The margin is above the floor; nothing to approve");
+  else if (c.marginApproved) approveMargin = no("Already approved");
+  else if (!c.permissions.canApproveMargin) approveMargin = no("Only a manager can approve a margin below the floor");
+
+  return {
+    edit: cancelled ? no("The consignment is cancelled") : c.status === "READY_TO_BILL" ? no("Ready to bill — the job is in Billing") : yes,
+    editLimited: pickedUp,
+    planTrip: ifLive(no(LTL_PLANNING_TEXT)),
+    printOrder: ifLive(no(LTL_ORDER_TEXT)),
+    sendOrder: ifLive(no(LTL_ORDER_TEXT)),
+    recordConfirmation: ifLive(no(LTL_ORDER_TEXT)),
+    pickedUp: ifLive(pickedUpState),
+    delivered: ifLive(delivered),
+    podReceived: ifLive(podReceived),
+    cancel,
+    approveMargin,
+    voidStamp: c.permissions.canVoidStamp && !cancelled,
+  };
+}
+
 /** The next step of a consignment, as the one primary button of its page. */
-export function nextStep(c: Pick<ConsignmentDetail, "status">): "planTrip" | "sendOrder" | "recordConfirmation" | "pickedUp" | "delivered" | "podReceived" | null {
+export function nextStep(c: Pick<ConsignmentDetail, "status"> & Partial<Pick<ConsignmentDetail, "scope">>): "planTrip" | "sendOrder" | "recordConfirmation" | "pickedUp" | "delivered" | "podReceived" | null {
+  if (c.scope === "LTL") {
+    if (c.status === "ORDERED") return "pickedUp";
+    if (c.status === "ON_LINEHAUL" || c.status === "OUT_FOR_DELIVERY") return "delivered";
+    if (c.status === "DELIVERED") return "podReceived";
+    return null;
+  }
   switch (c.status) {
     case "BOOKED":
       return "planTrip";

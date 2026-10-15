@@ -20,5 +20,7 @@ export const truckingKeys = {
   trips: () => [...truckingKeys.all, "trips"] as const,
   tripList: (filters: Record<string, string | undefined>) => [...truckingKeys.trips(), "list", filters] as const,
   trip: (id: string) => [...truckingKeys.trips(), "one", id] as const,
+  planning: () => [...truckingKeys.all, "planning"] as const,
+  planningBoard: (date: string, kind: string) => [...truckingKeys.planning(), date, kind] as const,
   publicOrder: (token: string) => ["haulier-order", token] as const,
 };

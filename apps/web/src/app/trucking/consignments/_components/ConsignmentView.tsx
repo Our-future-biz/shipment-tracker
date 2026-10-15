@@ -10,13 +10,14 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useTruckingSettings } from "@/hooks/useTrucking";
-import { useConsignment, useConsignmentDocuments, useTrip, type DocumentUpload, type StampKind } from "@/hooks/useTruckingConsignments";
+import { useConsignment, useConsignmentDocuments, useTrip, type DocumentUpload, type Leg, type StampKind } from "@/hooks/useTruckingConsignments";
 import { LifecycleStrip } from "@/app/warehouse/_components/LifecycleStrip";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { btnDefault, btnPrimary } from "@/app/warehouse/gate-log/_components/job/fields";
-import { CONSIGNMENT_STATUS_CHIP, STAMP_LABELS, consignmentActions, consignmentLifecycle, tripHref, type ActionState } from "../../_lib/consignments";
+import { CONSIGNMENT_STATUS_CHIP, STAMP_LABELS, consignmentActions, consignmentLifecycle, statusRank, tripHref, type ActionState } from "../../_lib/consignments";
 import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
+import { LabelsModal } from "../../_components/LabelsModal";
 import { TruckingHistory } from "../../_components/TruckingHistory";
 import { TruckingStatusChip } from "../../_components/TruckingStatusChip";
 import { TruckingTextModal } from "../../_components/TruckingTextModal";
@@ -24,10 +25,12 @@ import { TripDialogs, type TripDialog } from "../../trips/_components/TripDialog
 import { TripPanel } from "../../trips/_components/TripPanel";
 import { ConsignmentDocumentsTab } from "./ConsignmentDocumentsTab";
 import { ConsignmentEditModal } from "./ConsignmentEditModal";
+import { ConsignmentLegsTimeline } from "./ConsignmentLegsTimeline";
 import { ConsignmentOverviewTab } from "./ConsignmentOverviewTab";
 import { ConsignmentStatusCards } from "./ConsignmentStatusCards";
 import { ConsignmentStepBar } from "./ConsignmentStepBar";
 import { DocumentUploadModal } from "./DocumentUploadModal";
+import { PartnerLegModal } from "./PartnerLegModal";
 import { PlanTripModal } from "./PlanTripModal";
 import { StampModal } from "./StampModal";
 
@@ -44,6 +47,8 @@ type Dialog =
   | { kind: "offerPod" }
   | { kind: "cancel" }
   | { kind: "approve" }
+  | { kind: "partner"; leg: Leg }
+  | { kind: "labels" }
   | null;
 
 // A button that, when it cannot be used now, says why on hover.
@@ -68,7 +73,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
   const toast = useToast();
   const { user } = useAuth();
   const { settings } = useTruckingSettings();
-  const { consignment: c, isLoading, error, update, cancel, approveMargin, stamp, voidStamp, planTrip } = useConsignment(consignmentId);
+  const { consignment: c, isLoading, error, update, cancel, approveMargin, stamp, voidStamp, planTrip, setLegPartner } = useConsignment(consignmentId);
   const { trip } = useTrip(c?.tripId ?? null);
   const { documents, isLoading: docsLoading, upload } = useConsignmentDocuments(consignmentId);
   const [tab, setTab] = useUrlParam<Tab>("tab", TABS, "overview");
@@ -120,15 +125,21 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
       })
       .catch(fail("Could not upload the file"));
 
+  const ltl = c.scope === "LTL";
+  // A partner delivery is set until the goods leave our warehouse.
+  const partnerOpen = ltl && c.status !== "CANCELLED" && statusRank(c.status) < statusRank("ON_LINEHAUL");
+  const legsTimeline = <ConsignmentLegsTimeline c={c} onPartner={partnerOpen ? (leg) => setDialog({ kind: "partner", leg }) : null} />;
+
   const tabs: { key: Tab; label: string; count?: number }[] = [
     { key: "overview", label: "Overview" },
-    { key: "trip", label: `${TERMS.trip} & ${TERMS.haulier.toLowerCase()}` },
+    { key: "trip", label: ltl ? `${TERMS.leg}s & ${TERMS.trip.toLowerCase()}s` : `${TERMS.trip} & ${TERMS.haulier.toLowerCase()}` },
     { key: "documents", label: "Documents", count: documents.length || undefined },
     { key: "history", label: "History", count: c.events.length || undefined },
   ];
   const moreItems = [
     { key: "edit", label: actions.edit.allowed ? "Edit…" : <Tooltip title={actions.edit.reason}>Edit…</Tooltip>, disabled: !actions.edit.allowed, onClick: () => setDialog({ kind: "edit" }) },
     { key: "upload", label: "Upload document…", onClick: () => setDialog({ kind: "upload" }) },
+    { key: "labels", label: "Labels PDF…", onClick: () => setDialog({ kind: "labels" }) },
     {
       key: "approve",
       label: actions.approveMargin.allowed ? "Approve margin…" : <Tooltip title={actions.approveMargin.reason}>Approve margin…</Tooltip>,
@@ -182,7 +193,13 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
           </div>
 
           <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
-            {!c.tripId || !liveTrip ? (
+            {ltl ? (
+              <Tooltip title={actions.planTrip.reason}>
+                <Link href="/trucking?tab=planning" className={c.status === "BOOKED" ? btnPrimary : btnDefault}>
+                  Planning
+                </Link>
+              </Tooltip>
+            ) : !c.tripId || !liveTrip ? (
               <HeaderButton state={actions.planTrip} label="Plan trip…" primary={actions.planTrip.allowed} onClick={() => setDialog({ kind: "plan" })} />
             ) : (
               <Dropdown
@@ -252,8 +269,15 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
       </div>
 
       <div className="p-6">
-        {tab === "overview" && <ConsignmentOverviewTab c={c} />}
+        {tab === "overview" && (
+          <div className="flex flex-col gap-4">
+            {ltl && legsTimeline}
+            <ConsignmentOverviewTab c={c} />
+          </div>
+        )}
+        {tab === "trip" && ltl && legsTimeline}
         {tab === "trip" &&
+          !ltl &&
           (trip ? (
             <TripPanel trip={trip} actions={actions} manager={isTruckingManager(user)} linkToTrip onDialog={setTripDialog} />
           ) : (
@@ -357,6 +381,19 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
             approveMargin(reason)
               .then(() => toast.success("Margin approved"))
               .catch(fail("Could not approve the margin"))
+          }
+        />
+      )}
+      {dialog?.kind === "labels" && <LabelsModal consignmentIds={[c.id]} what={c.ref} onClose={close} />}
+      {dialog?.kind === "partner" && (
+        <PartnerLegModal
+          c={c}
+          leg={dialog.leg}
+          onClose={close}
+          onSave={(req) =>
+            setLegPartner({ legId: dialog.leg.id, req })
+              .then(() => toast.success("Partner delivery saved"))
+              .catch(fail("Could not save the partner delivery"))
           }
         />
       )}

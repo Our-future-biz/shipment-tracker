@@ -3,12 +3,11 @@
 import { useState } from "react";
 import { Alert, Button, Input, Modal, Radio } from "antd";
 import { apiErrorMessage } from "@/lib/api";
-import { downloadDataUrl } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import type { TransportOrderLanguage, TransportOrderPdfRequest, TransportOrderSendRequest, TripDetail, TruckingFile } from "@/hooks/useTruckingConsignments";
 import { TERMS } from "../../_lib/glossary";
 import { LANGUAGE_OPTIONS, PIN_EXPLANATION, invalidRecipients, orderFileName, parseRecipients, pinProblem, pinValue } from "../../_lib/transportOrder";
-import { fileDataUrl } from "../../_lib/tariffUpload";
+import { savePdf } from "../../_lib/pdfFile";
 import { TruckingField } from "../../_components/TruckingField";
 
 interface TransportOrderModalProps {
@@ -19,7 +18,6 @@ interface TransportOrderModalProps {
   onSend: (req: TransportOrderSendRequest) => Promise<{ recordedOnly: boolean; file: TruckingFile }>;
 }
 
-const savePdf = (file: TruckingFile, orderNumber: string) => downloadDataUrl(fileDataUrl({ ...file, contentType: file.contentType || "application/pdf" }), file.fileName || orderFileName(orderNumber));
 
 // Print… and Send… of a transport order. The pick-up PIN is typed here because Shipments shows it
 // only once: it travels with this one request, is printed on the PDF and is never stored or logged.
@@ -45,11 +43,11 @@ export const TransportOrderModal = ({ mode, trip, onClose, onPrint, onSend }: Tr
     try {
       if (mode === "print") {
         const res = await onPrint({ pickupPin: pinValue(pin), language });
-        savePdf(res.file, orderNumber);
+        savePdf(res.file, orderFileName(orderNumber));
         toast.success(pinValue(pin) ? "Transport order downloaded — the PIN is printed on it, not kept" : "Transport order downloaded");
       } else {
         const res = await onSend({ pickupPin: pinValue(pin), language, to: recipients, note: note.trim() });
-        savePdf(res.file, orderNumber);
+        savePdf(res.file, orderFileName(orderNumber));
         toast.success(res.recordedOnly ? "Marked as sent (recorded only) — the PDF is downloaded; send it to the haulier yourself" : `Sent to ${recipients.join(", ")}`);
       }
       onClose();

@@ -80,6 +80,23 @@ describe("requests", () => {
     expect("shipmentId" in req).toBe(false);
     expect("customerId" in req).toBe(false);
   });
+
+  it("sends FTL with the plain LTL defaults", () => {
+    const req = toCreateRequest({ ...valid(), selfDelivered: true, lastMile: "PARTNER", partnerHaulierCustomerId: "p1" });
+    expect(req).toMatchObject({ scope: "FTL", selfDelivered: false, lastMile: "OWN_RUN", partnerHaulierCustomerId: null });
+  });
+
+  it("sends the LTL choices; a partner only with the partner network", () => {
+    const partner = toCreateRequest({ ...valid(), scope: "LTL", selfDelivered: true, lastMile: "PARTNER", partnerHaulierCustomerId: "p1" });
+    expect(partner).toMatchObject({ scope: "LTL", selfDelivered: true, lastMile: "PARTNER", partnerHaulierCustomerId: "p1" });
+    const own = toUpdateRequest({ ...valid(), scope: "LTL", lastMile: "OWN_RUN", partnerHaulierCustomerId: "p1" }, 2, false);
+    expect(own).toMatchObject({ scope: "LTL", lastMile: "OWN_RUN", partnerHaulierCustomerId: null });
+  });
+
+  it("asks for the partner haulier of an LTL partner delivery", () => {
+    expect(consignmentFormProblems({ ...valid(), scope: "LTL", lastMile: "PARTNER" })).toEqual(["Pick the partner haulier of the last mile"]);
+    expect(consignmentFormProblems({ ...valid(), scope: "LTL", lastMile: "PARTNER", partnerHaulierCustomerId: "p1" })).toEqual([]);
+  });
 });
 
 describe("prefill", () => {
