@@ -477,6 +477,10 @@ export namespace customers {
             this.customerDelete = this.customerDelete.bind(this)
             this.customerGet = this.customerGet.bind(this)
             this.customerList = this.customerList.bind(this)
+            this.customerSiteCreate = this.customerSiteCreate.bind(this)
+            this.customerSiteDelete = this.customerSiteDelete.bind(this)
+            this.customerSiteList = this.customerSiteList.bind(this)
+            this.customerSiteUpdate = this.customerSiteUpdate.bind(this)
             this.customerUpdate = this.customerUpdate.bind(this)
             this.documentContent = this.documentContent.bind(this)
             this.documentCreate = this.documentCreate.bind(this)
@@ -550,6 +554,7 @@ export namespace customers {
             const query = makeRecord<string, string | string[]>({
                 country: params.country,
                 label:   params.label === undefined ? undefined : String(params.label),
+                role:    params.role === undefined ? undefined : String(params.role),
                 search:  params.search,
                 status:  params.status === undefined ? undefined : String(params.status),
             })
@@ -557,6 +562,30 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/customers`, undefined, {query})
             return await resp.json() as controllers.CustomerListResponse
+        }
+
+        public async customerSiteCreate(customerId: string, params: controllers.CustomerSiteCreateRequest): Promise<controllers.CustomerSiteCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(customerId)}/sites`, JSON.stringify(params))
+            return await resp.json() as controllers.CustomerSiteCreateResponse
+        }
+
+        public async customerSiteDelete(id: string): Promise<controllers.CustomerSiteDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/customer-sites/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.CustomerSiteDeleteResponse
+        }
+
+        public async customerSiteList(customerId: string): Promise<controllers.CustomerSiteListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/${encodeURIComponent(customerId)}/sites`)
+            return await resp.json() as controllers.CustomerSiteListResponse
+        }
+
+        public async customerSiteUpdate(id: string, params: controllers.CustomerSiteUpdateRequest): Promise<controllers.CustomerSiteUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/customer-sites/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.CustomerSiteUpdateResponse
         }
 
         public async customerUpdate(id: string, params: controllers.CustomerUpdateRequest): Promise<controllers.CustomerUpdateResponse> {
@@ -3488,6 +3517,11 @@ export namespace controllers {
          * IČO: exactly 8 digits
          */
         ico: string
+
+        /**
+         * ["customer"] when left out.
+         */
+        roles?: interfaces.CustomerRole[]
     }
 
     export interface CustomerCreateResponse {
@@ -3511,10 +3545,85 @@ export namespace controllers {
         status?: interfaces.CustomerStatus
         label?: interfaces.CustomerLabel
         country?: string
+        /**
+         * Only companies with this role, e.g. ?role=haulier
+         */
+        role?: interfaces.CustomerRole
     }
 
     export interface CustomerListResponse {
         data: interfaces.CustomerItem[]
+    }
+
+    export interface CustomerSiteCreateRequest {
+        label: string
+        kind?: interfaces.CustomerSiteKind
+        street?: string
+        /**
+         * Czech: 5 digits, spaces allowed ("110 00"); other countries: any non-empty text.
+         */
+        postcode: string
+
+        city?: string
+        /**
+         * ISO 3166-1 alpha-2; CZ when left out.
+         */
+        country?: string
+
+        lat?: number | null
+        lng?: number | null
+        openingHours?: string
+        avizaceName?: string
+        avizacePhone?: string
+        avizaceEmail?: string
+        loadingNotes?: string
+        tailLiftNeeded?: boolean
+        isDefault?: boolean
+    }
+
+    export interface CustomerSiteCreateResponse {
+        site: interfaces.CustomerSiteItem
+    }
+
+    export interface CustomerSiteDeleteResponse {
+        ok: boolean
+    }
+
+    export interface CustomerSiteListResponse {
+        data: interfaces.CustomerSiteItem[]
+    }
+
+    /**
+     * The site's own customer is used, so there is no customerId to send.
+     */
+    export interface CustomerSiteUpdateRequest {
+        label?: string
+        kind?: interfaces.CustomerSiteKind
+        street?: string
+        /**
+         * Czech: 5 digits, spaces allowed ("110 00"); other countries: any non-empty text.
+         */
+        postcode?: string
+
+        city?: string
+        /**
+         * ISO 3166-1 alpha-2
+         */
+        country?: string
+
+        lat?: number | null
+        lng?: number | null
+        openingHours?: string
+        avizaceName?: string
+        avizacePhone?: string
+        avizaceEmail?: string
+        loadingNotes?: string
+        tailLiftNeeded?: boolean
+        isDefault?: boolean
+    }
+
+    export interface CustomerSiteUpdateResponse {
+        site: interfaces.CustomerSiteItem
     }
 
     /**
@@ -3537,6 +3646,10 @@ export namespace controllers {
         country?: string
         registeredAddress?: string
         nace?: string
+        /**
+         * The whole set, replacing the current one; at least one role.
+         */
+        roles?: interfaces.CustomerRole[]
     }
 
     export interface CustomerUpdateResponse {
@@ -6259,11 +6372,67 @@ export namespace interfaces {
          */
         lastActivityDate: string
 
+        /**
+         * Never empty; "customer" for every company added before roles existed.
+         */
+        roles: CustomerRole[]
+
         createdAt: string
         updatedAt: string
     }
 
     export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "PROSPECT" | "RISK"
+
+    /**
+     * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor. One company can be both.
+     */
+    export type CustomerRole = "customer" | "haulier"
+
+    /**
+     * A loading or delivery address of a customer, structured for zone pricing.
+     */
+    export interface CustomerSiteItem {
+        id: string
+        customerId: string
+        label: string
+        kind: CustomerSiteKind
+        street: string
+        /**
+         * Czech postcodes as 5 digits without the space ("11000"); free text for other countries.
+         */
+        postcode: string
+
+        city: string
+        /**
+         * ISO 3166-1 alpha-2, e.g. "CZ"
+         */
+        country: string
+
+        lat: number | null
+        lng: number | null
+        openingHours: string
+        /**
+         * Who to call before arriving (avizace).
+         */
+        avizaceName: string
+
+        avizacePhone: string
+        avizaceEmail: string
+        loadingNotes: string
+        tailLiftNeeded: boolean
+        /**
+         * At most one site per customer is the default.
+         */
+        isDefault: boolean
+
+        createdAt: string
+        updatedAt: string
+    }
+
+    /**
+     * What happens at a site: goods are picked up (loading), dropped off (delivery), or both.
+     */
+    export type CustomerSiteKind = "loading" | "delivery" | "both"
 
     /**
      * The closed sets the database CHECK constraints allow (schemas/*.schema.ts). Spelled out as

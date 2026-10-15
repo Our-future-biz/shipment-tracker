@@ -2,7 +2,14 @@ import { APIError } from "encore.dev/api";
 import { customerRepository } from "../repositories/customer.repository";
 import type { CustomerListFilters } from "../repositories/customer.repository";
 import type { CustomerRecord, NewCustomerRecord } from "../schemas/customer.schema";
-import type { CustomerItem, CustomerLabel, CustomerPipelineItem, CustomerRollups, CustomerStatus } from "../interfaces/interfaces";
+import type {
+  CustomerItem,
+  CustomerLabel,
+  CustomerPipelineItem,
+  CustomerRole,
+  CustomerRollups,
+  CustomerStatus,
+} from "../interfaces/interfaces";
 import { iso } from "../../../lib/db/serialize";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
@@ -26,10 +33,18 @@ export interface CustomerPatch {
   country?: string;
   registeredAddress?: string;
   nace?: string;
+  roles?: CustomerRole[];
 }
 
 // Must match the "PREPAYMENT" option of the web app's payment-terms selects (customers/_lib/constants.ts).
 const NEW_CUSTOMER_PAYMENT_TERMS = "PREPAYMENT";
+
+// A company always has at least one role; each one is kept once, in the order sent.
+const requireRoles = (roles: CustomerRole[]): CustomerRole[] => {
+  const unique = [...new Set(roles)];
+  if (unique.length === 0) throw APIError.invalidArgument("A company needs at least one role");
+  return unique;
+};
 
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -62,7 +77,8 @@ class CustomerService {
     return customers.map((customer) => ({ ...customer, createdAt: iso(customer.createdAt) }));
   }
 
-  async createFromAres(companyId: string, ico: string): Promise<CustomerItem> {
+  async createFromAres(companyId: string, ico: string, roles: CustomerRole[] = ["customer"]): Promise<CustomerItem> {
+    const checkedRoles = requireRoles(roles);
     if (await customerRepository.findByIco(ico, companyId)) {
       throw APIError.alreadyExists("A customer with this IČO already exists");
     }
@@ -86,13 +102,16 @@ class CustomerService {
       paymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
       freightPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
       dutyPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
+      roles: checkedRoles,
     };
     const row = await customerRepository.createForCompany(companyId, values);
     return toCustomerItem(row);
   }
 
   async update(id: string, companyId: string, patch: CustomerPatch): Promise<CustomerItem> {
-    const row = await customerRepository.updateForCompany(id, companyId, definedOnly(patch));
+    const values = definedOnly(patch);
+    if (values.roles) values.roles = requireRoles(values.roles);
+    const row = await customerRepository.updateForCompany(id, companyId, values);
     if (!row) throw APIError.notFound("Customer not found");
     return toCustomerItem(row);
   }

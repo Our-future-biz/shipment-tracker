@@ -13,6 +13,30 @@ export const DOCUMENT_TYPES = ["Contract", "NDA", "Power of attorney", "Customs"
 
 export const NOTE_TYPES = ["Note", "Email", "Call", "Follow-up", "Visit"] as const satisfies readonly interfaces.NoteType[];
 
+// What a company is to us; one company can have both roles. A haulier is a trucking subcontractor.
+export const CUSTOMER_ROLES = ["customer", "haulier"] as const satisfies readonly interfaces.CustomerRole[];
+
+export const CUSTOMER_ROLE_LABELS: Record<interfaces.CustomerRole, string> = {
+  customer: "Customer",
+  haulier: "Haulier",
+};
+
+export const CUSTOMER_ROLE_OPTIONS = CUSTOMER_ROLES.map((role) => ({ value: role, label: CUSTOMER_ROLE_LABELS[role] }));
+
+export const CUSTOMER_SITE_KINDS = ["loading", "delivery", "both"] as const satisfies readonly interfaces.CustomerSiteKind[];
+
+export const CUSTOMER_SITE_KIND_LABELS: Record<interfaces.CustomerSiteKind, string> = {
+  loading: "Loading",
+  delivery: "Delivery",
+  both: "Loading & delivery",
+};
+
+export const CUSTOMER_SITE_KIND_COLORS: Record<interfaces.CustomerSiteKind, string> = {
+  loading: "blue",
+  delivery: "green",
+  both: "purple",
+};
+
 
 export interface CustomerTab {
   key: string;
@@ -23,6 +47,7 @@ export interface CustomerTab {
 export const CUSTOMER_DETAIL_TABS: CustomerTab[] = [
   { key: "overview", label: "Overview" },
   { key: "contacts", label: "Contacts" },
+  { key: "sites", label: "Sites" },
   { key: "shipments", label: "Shipments" },
   { key: "quotes", label: "Quotes" },
   { key: "finance", label: "Finance" },

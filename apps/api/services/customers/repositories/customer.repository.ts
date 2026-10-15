@@ -1,4 +1,4 @@
-import { and, eq, or, ilike, desc, isNull } from "drizzle-orm";
+import { and, arrayContains, eq, or, ilike, desc, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { customerTable, type CustomerRecord } from "../schemas/customer.schema";
@@ -6,13 +6,16 @@ import { contactTable } from "../schemas/contact.schema";
 import { customerNoteTable } from "../schemas/customerNote.schema";
 import { customerDocumentTable } from "../schemas/customerDocument.schema";
 import { customerInvoiceTable } from "../schemas/customerInvoice.schema";
-import type { CustomerLabel, CustomerStatus } from "../interfaces/interfaces";
+import { customerSiteTable } from "../schemas/customerSite.schema";
+import type { CustomerLabel, CustomerRole, CustomerStatus } from "../interfaces/interfaces";
 
 export interface CustomerListFilters {
   search?: string;
   status?: CustomerStatus;
   label?: CustomerLabel;
   country?: string;
+  /** Only companies that have this role (among possibly others). */
+  role?: CustomerRole;
   limit?: number;
 }
 
@@ -50,6 +53,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     if (f.status) clauses.push(eq(customerTable.status, f.status));
     if (f.label) clauses.push(eq(customerTable.label, f.label));
     if (f.country) clauses.push(eq(customerTable.country, f.country));
+    if (f.role) clauses.push(arrayContains(customerTable.roles, [f.role]));
     if (f.search) {
       const s = `%${f.search}%`;
       const match = or(
@@ -69,7 +73,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
   }
 
   // The customer and everything filed under it go together, in one transaction, so no
-  // contact/note/document/invoice outlives its customer.
+  // contact/note/document/invoice/site outlives its customer.
   async softDeleteWithChildren(id: string, companyId: string): Promise<CustomerRecord | null> {
     return this.db.transaction(async (tx) => {
       const now = new Date();
@@ -88,6 +92,8 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
         .where(and(eq(customerDocumentTable.companyId, companyId), eq(customerDocumentTable.customerId, id), isNull(customerDocumentTable.deletedAt)));
       await tx.update(customerInvoiceTable).set(gone)
         .where(and(eq(customerInvoiceTable.companyId, companyId), eq(customerInvoiceTable.customerId, id), isNull(customerInvoiceTable.deletedAt)));
+      await tx.update(customerSiteTable).set(gone)
+        .where(and(eq(customerSiteTable.companyId, companyId), eq(customerSiteTable.customerId, id), isNull(customerSiteTable.deletedAt)));
       return customer;
     });
   }

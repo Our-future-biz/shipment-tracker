@@ -13,11 +13,12 @@ import { PillTabs } from "@/components/SectionCard";
 import { useCustomers, type CustomerItem } from "@/hooks/useCustomers";
 import { formatDate } from "@/lib/date";
 import { useDebounced } from "@/hooks/useDebounced";
-import { CUSTOMER_LABELS, CUSTOMER_STATUSES } from "../_lib/constants";
+import { CUSTOMER_LABELS, CUSTOMER_ROLE_OPTIONS, CUSTOMER_ROLES, CUSTOMER_STATUSES } from "../_lib/constants";
 import { rememberCustomerListQuery } from "../_lib/customerListHref";
 import { fmtMoney, marginPct } from "../_lib/customerMoney";
 import { AddCustomerModal } from "./AddCustomerModal";
 import { CustomerAccountTypeBadge } from "./CustomerAccountTypeBadge";
+import { CustomerHaulierBadge } from "./CustomerHaulierBadge";
 import { CustomerStatusDot } from "./CustomerStatusDot";
 import { EMPTY_CELL } from "../_lib/customerTable";
 
@@ -34,7 +35,7 @@ const LEGACY_TAB_FILTERS: Record<string, { status?: string; type?: string }> = {
   risk: { type: "RISK" },
 };
 
-type ListParam = "q" | "status" | "type" | "sort";
+type ListParam = "q" | "status" | "type" | "role" | "sort";
 
 // ?sort= holds one of these keys, with a leading "-" for descending.
 const SORT_KEYS = ["name", "revenue", "margin", "activity"] as const;
@@ -63,6 +64,7 @@ export function CustomersView() {
   const legacy = rawStatus === null && rawType === null ? LEGACY_TAB_FILTERS[searchParams.get("tab") ?? ""] : undefined;
   const status = CUSTOMER_STATUSES.find((s) => s === (rawStatus ?? legacy?.status)) ?? "";
   const accountType = CUSTOMER_LABELS.find((l) => l === (rawType ?? legacy?.type)) ?? "";
+  const role = CUSTOMER_ROLES.find((r) => r === searchParams.get("role")) ?? "";
   const rawSort = searchParams.get("sort") ?? "";
   const sortKey = SORT_KEYS.find((key) => key === rawSort.replace(/^-/, ""));
   const sortDirection: SortDirection = rawSort.startsWith("-") ? "descend" : "ascend";
@@ -88,6 +90,7 @@ export function CustomersView() {
     search: debouncedSearch,
     status: status || undefined,
     label: accountType || undefined,
+    role: role || undefined,
   });
 
   // The table shows one page at a time, so sorting has to happen here, over all rows, and
@@ -100,14 +103,14 @@ export function CustomersView() {
     return [...customers].sort((a, b) => direction * COMPARE[sortKey](a, b));
   }, [customers, isError, sortKey, sortDirection]);
 
-  const hasFilters = !!debouncedSearch || !!status || !!accountType;
+  const hasFilters = !!debouncedSearch || !!status || !!accountType || !!role;
   let emptyText = "No customers yet — add one from the Czech ARES registry";
   if (hasFilters) emptyText = "No customers match these filters.";
   if (isFetching) emptyText = "Loading customers…";
   if (isError) emptyText = "Could not load customers.";
 
   const replaceParams = (patch: Partial<Record<ListParam, string>>) => {
-    const next: Record<ListParam, string> = { q: search, status, type: accountType, sort: sortKey ? rawSort : "", ...patch };
+    const next: Record<ListParam, string> = { q: search, status, type: accountType, role, sort: sortKey ? rawSort : "", ...patch };
     const params = new URLSearchParams(searchParams.toString());
     // A legacy ?tab= is already part of status / type above, so it is replaced by them.
     params.delete("tab");
@@ -128,6 +131,8 @@ export function CustomersView() {
   const handleStatusChange = (key: string) => replaceParams({ status: key === "all" ? "" : key });
 
   const handleAccountTypeChange = (value?: string) => replaceParams({ type: value ?? "" });
+
+  const handleRoleChange = (value?: string) => replaceParams({ role: value ?? "" });
 
   const handleTableChange: NonNullable<TableProps<CustomerItem>["onChange"]> = (_pagination, _filters, sorter) => {
     const active = Array.isArray(sorter) ? sorter[0] : sorter;
@@ -176,6 +181,7 @@ export function CustomersView() {
           >
             {name || record.ico}
           </Link>
+          <CustomerHaulierBadge roles={record.roles} />
         </div>
       ),
     },
@@ -258,6 +264,15 @@ export function CustomersView() {
               allowClear
               className="w-44"
             />
+            <Select
+              value={role || undefined}
+              onChange={handleRoleChange}
+              options={CUSTOMER_ROLE_OPTIONS}
+              placeholder="All roles"
+              aria-label="Role"
+              allowClear
+              className="w-32"
+            />
           </div>
         </div>
 
@@ -267,7 +282,7 @@ export function CustomersView() {
           rowKey="id"
           loading={isFetching}
           scroll={{ x: "max-content" }}
-          resetKey={`${debouncedSearch}|${status}|${accountType}|${sortKey ?? ""}|${sortDirection}`}
+          resetKey={`${debouncedSearch}|${status}|${accountType}|${role}|${sortKey ?? ""}|${sortDirection}`}
           locale={{ emptyText }}
           onChange={handleTableChange}
           onRow={(record) => ({

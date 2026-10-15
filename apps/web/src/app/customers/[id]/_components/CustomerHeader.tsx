@@ -12,6 +12,7 @@ import { useCustomer } from "@/hooks/useCustomers";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { useToast } from "@/lib/toast";
 import { CustomerAccountTypeBadge } from "../../_components/CustomerAccountTypeBadge";
+import { CustomerHaulierBadge } from "../../_components/CustomerHaulierBadge";
 import { CustomerStatusDot } from "../../_components/CustomerStatusDot";
 import { isRegistryActive } from "../../_lib/companyAnalysis";
 import { useCustomerListHref } from "../../_lib/customerListHref";
@@ -109,6 +110,7 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
             <div className="flex items-center gap-2.5 flex-wrap">
               <h1 className="text-[22px] font-bold text-slate-800 m-0">{customer.companyName}</h1>
               <CustomerAccountTypeBadge label={customer.label} />
+              <CustomerHaulierBadge roles={customer.roles} />
               <CustomerStatusDot status={customer.status} />
               {customer.companyStatus && (
                 <span
@@ -151,7 +153,7 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
         onClose={() => setDeleteOpen(false)}
         onConfirm={handleDelete}
         title="Delete customer"
-        description={`Delete ${customer.companyName} and all its contacts, invoices, documents and notes? Its shipments and quotes are kept. This cannot be undone.`}
+        description={`Delete ${customer.companyName} and all its contacts, sites, invoices, documents and notes? Its shipments and quotes are kept. This cannot be undone.`}
         confirmLabel="Delete"
         danger
         loading={deleting}

@@ -3,7 +3,8 @@ import type { ContactRecord } from "../schemas/contact.schema";
 import type { CustomerRecord } from "../schemas/customer.schema";
 import type { CustomerInvoiceRecord } from "../schemas/customerInvoice.schema";
 import type { CustomerNoteRecord } from "../schemas/customerNote.schema";
-import type { ContactItem, CustomerItem, DocumentItem, InvoiceItem, NoteItem } from "../interfaces/interfaces";
+import type { CustomerSiteRecord } from "../schemas/customerSite.schema";
+import type { ContactItem, CustomerItem, CustomerSiteItem, DocumentItem, InvoiceItem, NoteItem } from "../interfaces/interfaces";
 import { dateOutput } from "./dates";
 
 // Rows → API items: only the declared fields go out (no companyId, deletedAt, file bytes).
@@ -38,6 +39,29 @@ export const toCustomerItem = (r: CustomerRecord): CustomerItem => ({
   totalProfit: r.totalProfit,
   totalShipments: r.totalShipments,
   lastActivityDate: dateOutput(r.lastActivityDate),
+  roles: r.roles,
+  createdAt: iso(r.createdAt),
+  updatedAt: iso(r.updatedAt),
+});
+
+export const toCustomerSiteItem = (r: CustomerSiteRecord): CustomerSiteItem => ({
+  id: r.id,
+  customerId: r.customerId,
+  label: r.label,
+  kind: r.kind,
+  street: r.street,
+  postcode: r.postcode,
+  city: r.city,
+  country: r.country,
+  lat: r.lat,
+  lng: r.lng,
+  openingHours: r.openingHours,
+  avizaceName: r.avizaceName,
+  avizacePhone: r.avizacePhone,
+  avizaceEmail: r.avizaceEmail,
+  loadingNotes: r.loadingNotes,
+  tailLiftNeeded: r.tailLiftNeeded,
+  isDefault: r.isDefault,
   createdAt: iso(r.createdAt),
   updatedAt: iso(r.updatedAt),
 });

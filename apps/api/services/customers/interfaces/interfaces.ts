@@ -10,6 +10,10 @@ export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";
 export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other";
 /** Credited = reversed by a credit note; like Paid, it no longer counts as owed. */
 export type InvoiceStatus = "Open" | "Overdue" | "Paid" | "Credited";
+/** What a company is to us. A customer buys our services; a haulier is a trucking subcontractor. One company can be both. */
+export type CustomerRole = "customer" | "haulier";
+/** What happens at a site: goods are picked up (loading), dropped off (delivery), or both. */
+export type CustomerSiteKind = "loading" | "delivery" | "both";
 
 export interface CustomerItem {
   id: string;
@@ -43,6 +47,8 @@ export interface CustomerItem {
   totalShipments: number;
   /** yyyy-mm-dd, or "" when the customer has no shipments */
   lastActivityDate: string;
+  /** Never empty; "customer" for every company added before roles existed. */
+  roles: CustomerRole[];
   createdAt: string;
   updatedAt: string;
 }
@@ -66,6 +72,33 @@ export interface ContactItem {
   phone: string;
   role: ContactRole;
   isMain: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A loading or delivery address of a customer, structured for zone pricing. */
+export interface CustomerSiteItem {
+  id: string;
+  customerId: string;
+  label: string;
+  kind: CustomerSiteKind;
+  street: string;
+  /** Czech postcodes as 5 digits without the space ("11000"); free text for other countries. */
+  postcode: string;
+  city: string;
+  /** ISO 3166-1 alpha-2, e.g. "CZ" */
+  country: string;
+  lat: number | null;
+  lng: number | null;
+  openingHours: string;
+  /** Who to call before arriving (avizace). */
+  avizaceName: string;
+  avizacePhone: string;
+  avizaceEmail: string;
+  loadingNotes: string;
+  tailLiftNeeded: boolean;
+  /** At most one site per customer is the default. */
+  isDefault: boolean;
   createdAt: string;
   updatedAt: string;
 }

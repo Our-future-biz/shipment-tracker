@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import type { ChangeEvent } from "react";
-import { Button, Form, Input, Modal } from "antd";
+import { Button, Checkbox, Form, Input, Modal } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
 import { api, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
@@ -10,6 +10,7 @@ import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { CustomerInfoRow } from "../[id]/_components/CustomerInfoRow";
 import { legalFormText, parseNaceCodes } from "../_lib/companyAnalysis";
+import { CUSTOMER_ROLE_OPTIONS } from "../_lib/constants";
 
 const ICO_LENGTH = 8;
 const ICO_INPUT_ID = "add-customer-ico";
@@ -21,7 +22,7 @@ interface AddCustomerModalProps {
   onClose: () => void;
   onCreated: (customerId: string) => void;
   // Passed in by the list page, so the dialog does not start a customers query of its own.
-  createCustomer: (ico: string) => Promise<controllers.CustomerCreateResponse>;
+  createCustomer: (params: controllers.CustomerCreateRequest) => Promise<controllers.CustomerCreateResponse>;
   isCreating: boolean;
 }
 
@@ -38,6 +39,7 @@ export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isC
   const [preview, setPreview] = useState<interfaces.AresResult | null>(null);
   const [looking, setLooking] = useState(false);
   const [error, setError] = useState("");
+  const [roles, setRoles] = useState<interfaces.CustomerRole[]>(["customer"]);
   // Number of the latest lookup. A response that carries an older number is dropped, so a
   // slow earlier request can never replace the result of a newer one.
   const lookupSeq = useRef(0);
@@ -82,7 +84,7 @@ export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isC
   const handleCreate = async () => {
     if (!preview) return;
     try {
-      const res = await createCustomer(preview.ico);
+      const res = await createCustomer({ ico: preview.ico, roles });
       toast.success(`${res.customer.companyName} added`);
       onCreated(res.customer.id);
     } catch (err) {
@@ -98,6 +100,7 @@ export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isC
 
   const handleAfterClose = () => {
     setIco("");
+    setRoles(["customer"]);
     resetLookup();
   };
 
@@ -113,7 +116,7 @@ export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isC
       afterClose={handleAfterClose}
       title="Add Customer"
       okText="Create customer"
-      okButtonProps={{ disabled: !preview }}
+      okButtonProps={{ disabled: !preview || roles.length === 0 }}
       cancelButtonProps={{ disabled: isCreating }}
       confirmLoading={isCreating}
       width={520}
@@ -142,6 +145,14 @@ export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isC
               Look up
             </Button>
           </div>
+        </Form.Item>
+        <Form.Item
+          label="Roles"
+          extra="A haulier is a company we subcontract trucking to. A company can be both."
+          validateStatus={roles.length === 0 ? "error" : undefined}
+          help={roles.length === 0 ? "Choose at least one role" : undefined}
+        >
+          <Checkbox.Group options={CUSTOMER_ROLE_OPTIONS} value={roles} onChange={setRoles} disabled={isCreating} />
         </Form.Item>
       </Form>
 

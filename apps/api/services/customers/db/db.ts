@@ -6,6 +6,7 @@ import * as contactSchema from "../schemas/contact.schema";
 import * as customerNoteSchema from "../schemas/customerNote.schema";
 import * as customerDocumentSchema from "../schemas/customerDocument.schema";
 import * as customerInvoiceSchema from "../schemas/customerInvoice.schema";
+import * as customerSiteSchema from "../schemas/customerSite.schema";
 
 const { Pool } = pg;
 
@@ -24,5 +25,6 @@ export const db = drizzle(pool, {
     ...customerNoteSchema,
     ...customerDocumentSchema,
     ...customerInvoiceSchema,
+    ...customerSiteSchema,
   },
 });
