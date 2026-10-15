@@ -1,6 +1,6 @@
-// Pure helpers for the trucking documents (transport order, consignment note): label texts in
-// Czech and English, number and date formatting per language, and word wrapping. No pdf-lib, so
-// everything here is unit-tested without building a PDF.
+// Pure helpers for the trucking documents (transport orders, consignment note, manifest, labels):
+// label texts in Czech and English, number and date formatting per language, and word wrapping.
+// No pdf-lib, so everything here is unit-tested without building a PDF.
 
 import type { DocLanguage, DocParty, DocStop } from "./documentTypes";
 
@@ -86,6 +86,33 @@ const LABELS = {
   cmr22: ["Podpis a razítko odesílatele", "Signature and stamp of the sender"],
   cmr23: ["Podpis a razítko dopravce", "Signature and stamp of the carrier"],
   cmr24: ["Zboží převzal: místo, datum, podpis a razítko příjemce", "Goods received: place, date, signature and stamp of the consignee"],
+  manifest: ["Nakládací list", "Loading manifest"],
+  tripKind: ["Druh jízdy", "Trip kind"],
+  from: ["Odkud", "From"],
+  to: ["Kam", "To"],
+  manyStops: ["Více míst vykládky", "Several delivery stops"],
+  seq: ["Poř.", "No."],
+  customer: ["Zákazník", "Customer"],
+  consignee: ["Příjemce", "Consignee"],
+  destination: ["PSČ, místo", "Postcode, city"],
+  piecesShort: ["Ks", "Pcs"],
+  palletsShort: ["Pal.", "Pal."],
+  weightKg: ["kg", "kg"],
+  adr: ["ADR", "ADR"],
+  total: ["Celkem", "Total"],
+  capacity: ["Vytížení", "Capacity"],
+  loadedBy: ["Naložil", "Loaded by"],
+  receivedAt: ["Převzal (místo určení)", "Received at"],
+  stops: ["Zastávky", "Stops"],
+  stopCount: ["Počet zastávek", "Number of stops"],
+  stopKind: ["Druh", "Kind"],
+  place: ["Místo", "Place"],
+  stopPickup: ["Nakládka", "Pick-up"],
+  stopDelivery: ["Vykládka", "Delivery"],
+  sender: ["Odesílatel", "Sender"],
+  zone: ["Zóna", "Zone"],
+  service: ["Služba", "Service"],
+  piece: ["Kus", "Piece"],
 } as const satisfies Record<string, readonly [string, string]>;
 
 export type LabelKey = keyof typeof LABELS;
