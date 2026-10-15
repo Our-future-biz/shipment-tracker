@@ -13,6 +13,7 @@ import { ContactsTab } from "./_tabs/ContactsTab";
 import { SitesTab } from "./_tabs/SitesTab";
 import { ShipmentsTab } from "./_tabs/ShipmentsTab";
 import { QuotesTab } from "./_tabs/QuotesTab";
+import { TruckingTab } from "./_tabs/TruckingTab";
 import { FinanceTab } from "./_tabs/FinanceTab";
 import { DocumentsTab } from "./_tabs/DocumentsTab";
 import { CommunicationTab } from "./_tabs/CommunicationTab";
@@ -87,6 +88,7 @@ export function CustomerDetailContent() {
         {activeTab === "sites" && <SitesTab customerId={id} />}
         {activeTab === "shipments" && <ShipmentsTab customerId={id} />}
         {activeTab === "quotes" && <QuotesTab customerId={id} />}
+        {activeTab === "trucking" && <TruckingTab customerId={id} />}
         {activeTab === "finance" && <FinanceTab customerId={id} onSelectTab={handleSelectTab} />}
         {activeTab === "documents" && <DocumentsTab customerId={id} />}
         {activeTab === "communication" && <CommunicationTab customerId={id} />}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Alert, Button, Form, Input } from "antd";
+import { Alert, Button, Form, Input, Tooltip } from "antd";
 import { FilePdfOutlined } from "@ant-design/icons";
 import { LINK_CLASS } from "@/components/linkClass";
 import { SalesDialog } from "@/app/sales/_components/SalesDialog";
@@ -38,6 +38,8 @@ interface EmailQuoteModalProps {
   validUntil: string | null;
   // The statuses the server lets the quote move to now.
   allowedTransitions: readonly string[];
+  // Why the quote may not be marked as sent now (its margin waits for a manager); null when nothing stops it.
+  sendBlocked: string | null;
   onExportPdf: () => void;
   // Asks the server to make the quote Quoted. Resolves with why it refused - a sentence that
   // finishes "QCZ… - …" - or with null once the quote is Quoted.
@@ -51,6 +53,7 @@ export function EmailQuoteModal({
   data,
   validUntil,
   allowedTransitions,
+  sendBlocked,
   onExportPdf,
   onMarkSent,
   onClose,
@@ -144,9 +147,11 @@ export function EmailQuoteModal({
         <Button disabled={marking} onClick={onClose}>
           Not yet
         </Button>
-        <Button type="primary" loading={marking} onClick={markSent}>
-          Mark as sent
-        </Button>
+        <Tooltip title={sendBlocked}>
+          <Button type="primary" loading={marking} onClick={markSent}>
+            Mark as sent
+          </Button>
+        </Tooltip>
       </>
     ) : (
       <Button type="primary" onClick={onClose}>
@@ -165,6 +170,11 @@ export function EmailQuoteModal({
       subtitle="This opens the message in your own email program - the app does not send email."
       footer={buttons}
     >
+      {sendBlocked && (
+        <div className="mb-4">
+          <Alert type="warning" showIcon message={sendBlocked} />
+        </div>
+      )}
       <div className="mb-4">
         <Alert
           type="info"

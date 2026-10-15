@@ -144,7 +144,30 @@ export const TruckingReadme = () => (
           the reason. <b>Margin</b> is sell minus the best buy in CZK; below the {TERMS.marginFloor.toLowerCase()} it is flagged.
         </li>
         <li>Amounts in EUR are also shown in CZK at the ČNB rate of the day. A level that cannot be priced says why, in plain words.</li>
+        <li>
+          <b>Copy to quote</b> puts a level and haulier on a Draft or Revised quote, or on a new Road quote: the quote is priced again from the same inputs for
+          the quote&apos;s own customer, and opens.
+        </li>
       </ul>
+    </Part>
+
+    <Part title="Trucking in quotes">
+      <p>
+        A Road quote (or any quote with lines priced from a tariff) has a <b>Road transport</b> card under Pricing: pick-up and delivery (a site of the
+        customer, which fills in its postcode, or a typed PSČ), pick-up date and time, scope, what is carried and the extras. <b>Price from tariff</b> shows
+        every active service level for these inputs and the quote&apos;s customer — its own sell list, else the {TERMS.standardList} — and the user picks a
+        level and a haulier (the best one first). The tariff&apos;s lines then replace the quote&apos;s earlier tariff lines; lines typed by hand stay. The
+        promised delivery date is shown on the card.
+      </p>
+      <p>
+        Lines priced from a tariff carry a <b>Tariff vN</b> tag. Changing one by hand is allowed and marks it <b>{TERMS.override}</b>. Everyone sees buy
+        prices.
+      </p>
+      <p>
+        The quote shows its margin in CZK against the <b>{TERMS.marginFloor.toLowerCase()}</b>. Below it, a manager must give a{" "}
+        <b>{TERMS.marginApproval.toLowerCase()}</b> (with a reason) before the quote can be marked Ready to send or sent; the approval covers that margin or
+        a better one. Pricing again clears it. Saving the quote is never blocked.
+      </p>
     </Part>
 
     <Part title="Trucking settings">
@@ -186,13 +209,16 @@ export const TruckingReadme = () => (
       <ul>
         <li>
           <b>Customer Database</b>: customers, their addresses and contacts. The postcode (PSČ) of an address gives its <b>{TERMS.zone.toLowerCase()}</b>.
+          Each company&apos;s <b>Trucking</b> tab shows the price list it is priced with (its own or the {TERMS.standardList}), lets a manager give it a
+          discount or its own list, and for a haulier lists its {TERMS.buyTariff.toLowerCase()}s.
         </li>
         <li>
           <b>Shipments</b>: every consignment belongs to a shipment job; an order for a domestic-only customer gets its job created automatically. What Trucking learns (picked up, delivered) is written back to the shipment through an outbox,
           as the user who recorded it, and retried when Shipments is briefly unavailable — the same way the Warehouse gate writes back today.
         </li>
         <li>
-          <b>Sales</b>: the <b>Rate calculator</b> and the <b>{TERMS.sellTariff.toLowerCase()}s</b> price trucking in quotes.
+          <b>Sales</b>: the <b>Rate calculator</b> and the <b>{TERMS.sellTariff.toLowerCase()}s</b> price trucking in quotes (Price from tariff, Copy to
+          quote), with the {TERMS.marginApproval.toLowerCase()} below the floor.
         </li>
         <li>
           <b>Invoicing</b>: customers are invoiced at the {TERMS.sellTariff.toLowerCase()}; haulier invoices are checked against the{" "}

@@ -1,7 +1,7 @@
+import type { interfaces } from "@/lib/api/client";
+
 // A "sales quote" is stored in the shared `quote` table: quoteNumber = reference (QCZ…),
 // and all rich fields live in the `data` jsonb blob shaped like SalesQuoteData.
-
-import type { interfaces } from "@/lib/api/client";
 
 type ServiceLevelCode = interfaces.ServiceLevelCode;
 
@@ -168,7 +168,8 @@ export interface SalesQuoteData {
   // The quote's own snapshot of the rates its lines are converted with, by currency, so a quote
   // that was sent does not change when next week's Exchange sheet is entered.
   rates?: Record<string, QuoteRate>;
-  // Road transport, priced from the trucking tariffs
+  // Road transport: what the Road transport card prices, and (server only) what pricing wrote and
+  // a manager's approval of a margin below the floor.
   road?: QuoteRoadInput;
   roadPricing?: QuoteRoadPricing;
   marginApproval?: QuoteMarginApproval;

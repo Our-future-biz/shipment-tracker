@@ -37,6 +37,21 @@ const draftFor = (side: TariffSide): CreateDraft => ({
   name: "",
 });
 
+/** A customer's own sell tariff to start from (the Customer Database's Trucking tab): an own matrix or a discount on Standard. */
+export interface TariffCreatePreset {
+  ownerCustomerId: string;
+  ownerName: string;
+  discount: boolean;
+}
+
+const presetDraft = (p: TariffCreatePreset): CreateDraft => ({
+  ...draftFor("SELL"),
+  standard: false,
+  ownerCustomerId: p.ownerCustomerId,
+  ownerName: p.ownerName,
+  discount: p.discount,
+});
+
 const SCOPE_OPTIONS = (Object.keys(SCOPE_LABELS) as TariffScope[]).map((k) => ({ value: k, label: SCOPE_LABELS[k] }));
 const CURRENCY_OPTIONS = CURRENCIES.map((c) => ({ value: c, label: c }));
 
@@ -65,13 +80,16 @@ interface TariffCreateModalProps {
   create: (req: TariffCreate) => Promise<{ tariff: { id: string } }>;
   isCreating: boolean;
   onCreated: (tariffId: string) => void;
+  /** Starts on a customer's own sell tariff instead of `side` (render with a `key` per preset). */
+  preset?: TariffCreatePreset;
 }
 
 // New tariff (manager): its side, scope and owner — a haulier for a buy tariff, a customer or the
 // Standard list for a sell tariff, nobody for the internal one — and how it prices. Its prices
 // come later, as versions.
-export const TariffCreateModal = ({ open, side, onClose, create, isCreating, onCreated }: TariffCreateModalProps) => {
-  const [draft, setDraft] = useState<CreateDraft>(() => draftFor(side));
+export const TariffCreateModal = ({ open, side, onClose, create, isCreating, onCreated, preset }: TariffCreateModalProps) => {
+  const initialDraft = () => (preset ? presetDraft(preset) : draftFor(side));
+  const [draft, setDraft] = useState<CreateDraft>(initialDraft);
   const [refusal, setRefusal] = useState<string | null>(null);
   const { hauliers } = useHauliers();
   const problems = createProblems(draft);
@@ -114,7 +132,7 @@ export const TariffCreateModal = ({ open, side, onClose, create, isCreating, onC
       width={560}
       destroyOnHidden
       afterClose={() => {
-        setDraft(draftFor(side));
+        setDraft(initialDraft());
         setRefusal(null);
       }}
     >

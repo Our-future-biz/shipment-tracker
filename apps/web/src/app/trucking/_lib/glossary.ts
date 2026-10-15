@@ -42,6 +42,8 @@ export const TERMS = {
   minimumCharge: "Minimum charge",
   template: "Template",
   draftVersion: "Draft version",
+  override: "Override",
+  marginApproval: "Margin floor approval",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -164,5 +166,17 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     meaning:
       "A tariff version that is saved and checked but never activated, so nothing is priced with it. Every upload becomes one; it is activated from a date, kept for later or discarded.",
     replaces: "koncept ceníku, rozpracovaný ceník",
+  },
+  {
+    term: TERMS.override,
+    meaning:
+      "A quote line priced from a tariff whose amount or currency was changed by hand afterwards. The line keeps its \"Tariff vN\" tag and gets an \"Override\" tag, so everyone sees the price is not the tariff's.",
+    replaces: "ruční úprava ceny, přepsaná cena",
+  },
+  {
+    term: TERMS.marginApproval,
+    meaning:
+      "A manager's approval, with a reason, of a road quote whose margin is below the margin floor. Without it the quote cannot be marked Ready to send or sent. It covers the approved margin or a better one; a worse margin needs a new approval.",
+    replaces: "schválení marže, výjimka z minimální marže",
   },
 ];
