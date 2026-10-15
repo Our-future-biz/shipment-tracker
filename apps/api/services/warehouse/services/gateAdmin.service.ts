@@ -14,6 +14,7 @@ import type { Tx } from "../repositories/warehouseSection.repository";
 import { syncStockForMovement } from "./warehouseStockSync";
 import { dockSlotRepository } from "../repositories/warehouseRecords.repository";
 import { gateExceptionRepository } from "../repositories/gateException.repository";
+import { deliverGateEvents, enqueueGateEvents } from "./gateEvents.service";
 
 // Manager actions on gate records — voiding a wrong stamp, archiving a stamped record and
 // restoring an archived one — and removing a position with its gate records. Every one needs a
@@ -139,6 +140,7 @@ class GateAdminService {
     const what = cleared.some((k) => k === "gateIn") ? "warehouse received date" : "warehouse released date";
 
     let mayNeedCorrecting = false;
+    let published = 0;
     await db.transaction(async (tx) => {
       // Again under the locks (container, then position): a stuffed mark under way is seen.
       if (kind === "gateIn" || kind === "expDraft" || kind === "expReceipt") {
@@ -182,9 +184,27 @@ class GateAdminService {
         tx,
       );
       if (!row) throw APIError.aborted("The record changed meanwhile — reload and try again");
+      // A voided gate-in / gate-out is told on the warehouse-gate-stamped topic ("voided"), after
+      // the commit through the event outbox, as the stamp itself was.
+      published = await enqueueGateEvents(
+        tx,
+        {
+          companyId,
+          movementId: id,
+          positionId: m.positionRef ? m.warehouseTaskId : null,
+          wczRef: m.positionRef ?? "",
+          shipmentId: m.shipmentId,
+          userId,
+          stampKind: kind,
+          at: now,
+          voided: { gateIn: cleared.includes("gateIn"), gateOut: cleared.includes("gateOut") },
+        },
+        role,
+      );
       // Stock on Hand / Bonded Register follow the gate record (a voided receipt voids the line).
       await syncStockForMovement(tx, companyId, id, { by, why: `${STAMP_LABEL[kind]} voided: ${why}` });
     });
+    if (published) await deliverGateEvents(id);
     return {
       movement: await gateMovementService.get(id, companyId),
       notice: mayNeedCorrecting ? `The shipment is not changed back — its ${what} was (or is being) set from this stamp. Check it in Shipments and correct it if needed.` : "",

@@ -87,6 +87,7 @@ describe("expected today", () => {
     durationMin: 60,
     startsAt: "2026-10-14T06:00:00.000Z",
     endsAt: "2026-10-14T07:00:00.000Z",
+    tripRef: "",
     ...over,
   });
   it("uses the dock slot booked in Dock & Yard first", () => {
@@ -109,6 +110,27 @@ describe("expected today", () => {
     ];
     const sorted = [...list].sort((a, b) => expectedSortKey(a, today).localeCompare(expectedSortKey(b, today)));
     expect(sorted.map((m) => m.id)).toEqual(["early", "text", "etaTime", "late", "eta"]);
+  });
+  it("counts the arrival a Trucking trip plans today (its IN leg), even without a dock slot", () => {
+    const leg = (over: Partial<interfaces.GateTransportLeg> = {}): interfaces.GateTransportLeg => ({
+      leg: "IN",
+      company: "Rapid",
+      plate: "1AB 2345",
+      driver: "",
+      phone: "",
+      gateTime: "2026-10-14T08:00:00.000Z",
+      source: { kind: "trucking", tripRef: "LCZ26-0001" },
+      ...over,
+    });
+    expect(isExpectedToday(mv({ transportLegs: [leg()] }), today)).toBe(true);
+    expect(expectedBecause(mv({ transportLegs: [leg()] }), today)).toBe("From trip LCZ26-0001 10:00");
+    expect(expectedSortKey(mv({ transportLegs: [leg()] }), today)).toBe("10:00");
+    // A leg typed by hand, another day or an arrived truck does not.
+    expect(isExpectedToday(mv({ transportLegs: [leg({ source: null })] }), today)).toBe(false);
+    expect(isExpectedToday(mv({ transportLegs: [leg({ gateTime: "2026-10-15T08:00:00.000Z" })] }), today)).toBe(false);
+    expect(isExpectedToday(mv({ transportLegs: [leg()], gateIn: "2026-10-14T08:05:00Z" }), today)).toBe(false);
+    // The booked slot wins the wording.
+    expect(expectedBecause(mv({ transportLegs: [leg()], dockSlots: [slot()] }), today)).toBe("Slot 08:00 · Dock 2");
   });
   it("words a dock slot", () => {
     expect(dockSlotText(slot())).toBe("Dock 2 · 14 Oct 08:00–09:00 · Booked");

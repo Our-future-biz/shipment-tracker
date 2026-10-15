@@ -1,5 +1,6 @@
 import { api } from "encore.dev/api";
 import { deliverDue, startOutboxTimer, warnStaleOutbox } from "../services/shipmentOutbox.service";
+import { deliverGateEvents } from "../services/gateEvents.service";
 
 // Locally the minute timer does the cron's job (Encore cron jobs don't fire under `encore run`).
 startOutboxTimer();
@@ -10,6 +11,8 @@ export const _cronShipmentOutbox = api(
   { expose: false, method: "POST", path: "/warehouse/cron/shipment-outbox" },
   async (): Promise<void> => {
     await deliverDue();
+    // The warehouse-gate-stamped events not published straight after their stamp.
+    await deliverGateEvents();
     // Monitoring: updates still pending after 10 minutes are logged as a warning.
     await warnStaleOutbox();
   },

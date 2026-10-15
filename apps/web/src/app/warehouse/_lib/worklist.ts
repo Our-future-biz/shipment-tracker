@@ -1,6 +1,7 @@
 import type { interfaces } from "@/lib/api/client";
 import { businessDay, businessDayOf } from "@/lib/date";
 import { customsDue, movementCustomsClock, type CustomsClockFields } from "./customsClock";
+import { tripLabel } from "@/lib/tripSource";
 
 // The warehouse as an exception worklist: Prague dates, "expected today", the quick-filter chips
 // of Positions and the scan / type box of the Gate Log. Pure helpers (tested in worklist.test.ts).
@@ -23,7 +24,7 @@ function dayOf(v: string | null | undefined): string {
   return "";
 }
 
-type ExpectedFields = Pick<Movement, "status" | "gateIn" | "eta" | "slot" | "subPositions" | "dockSlots">;
+type ExpectedFields = Pick<Movement, "status" | "gateIn" | "eta" | "slot" | "subPositions" | "dockSlots"> & Partial<Pick<Movement, "transportLegs">>;
 type DockSlot = interfaces.GateDockSlot;
 
 /** Dock slots that still hold their door (Cancelled and Completed ones free it). */
@@ -40,23 +41,31 @@ export function dockSlotText(s: DockSlot): string {
   return `${s.dock} · ${day} ${s.time}${s.end ? `–${s.end}` : ""} · ${s.status}`;
 }
 
+/** The IN leg a Trucking trip filled, when the trip plans the arrival today (Prague). */
+export function tripArrivalToday(m: Partial<Pick<Movement, "transportLegs">>, today: string): interfaces.GateTransportLeg | undefined {
+  const leg = (m.transportLegs ?? []).find((l) => l.leg === "IN");
+  return leg && tripLabel(leg) && dayOf(leg.gateTime) === today ? leg : undefined;
+}
+
 /**
  * Expected at the gate today: not arrived yet (status Expected, no gate-in) and today is its ETA,
- * its dock slot (Dock & Yard; the older slot text when it has none) or the ETA warehouse (ETW) of
- * one of its sub-positions.
+ * its dock slot (Dock & Yard; the older slot text when it has none), the planned arrival of the
+ * Trucking trip that fills its IN leg, or the ETA warehouse (ETW) of one of its sub-positions.
  */
 export function isExpectedToday(m: ExpectedFields, today: string): boolean {
   if (m.status !== "Expected" || m.gateIn) return false;
-  if (slotToday(m, today) || dayOf(m.eta) === today || dayOf(m.slot) === today) return true;
+  if (slotToday(m, today) || dayOf(m.eta) === today || dayOf(m.slot) === today || tripArrivalToday(m, today)) return true;
   return m.subPositions.some((s) => dayOf(s.etw) === today);
 }
 
-/** What made a movement expected today, for the panel ("Slot 08:00 · Dock 2", "ETA", "ETW"). */
+/** What made a movement expected today, for the panel ("Slot 08:00 · Dock 2", "From trip LCZ… 10:00", "ETA", "ETW"). */
 export function expectedBecause(m: ExpectedFields, today: string): string {
   const parts: string[] = [];
   const booked = slotToday(m, today);
+  const trip = tripArrivalToday(m, today);
   if (booked) parts.push(`Slot ${booked.time} · ${booked.dock}`);
   else if (dayOf(m.slot) === today) parts.push(`Slot ${m.slot.slice(11, 16) || m.slot}`.trim());
+  else if (trip) parts.push(`${tripLabel(trip)} ${PRAGUE_TIME.format(new Date(trip.gateTime))}`);
   if (dayOf(m.eta) === today) parts.push("ETA");
   if (m.subPositions.some((s) => dayOf(s.etw) === today)) parts.push("ETW");
   return parts.join(" · ");
@@ -70,6 +79,8 @@ export function expectedSortKey(m: ExpectedFields, today: string): string {
   const booked = slotToday(m, today);
   if (booked) return booked.time;
   if (dayOf(m.slot) === today && /\d{2}:\d{2}/.test(m.slot.slice(11))) return m.slot.slice(11, 16);
+  const trip = tripArrivalToday(m, today);
+  if (trip) return PRAGUE_TIME.format(new Date(trip.gateTime));
   const eta = (m.eta ?? "").trim();
   if (dayOf(eta) === today && /[ T]\d{2}:\d{2}/.test(eta)) {
     const zoned = /[zZ]|[+-]\d{2}:?\d{2}$/.test(eta);

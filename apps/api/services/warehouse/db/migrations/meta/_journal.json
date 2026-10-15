@@ -148,6 +148,13 @@
       "when": 1792047238205,
       "tag": "0020_relations_checks_numeric",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1792071336887,
+      "tag": "0021_trucking_trip_expect_gate_events",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@ import type { MessageInstance } from "antd/es/message/interface";
 import { useGeneratePickupPin, useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { APIError } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
+import { splitPickupRows, tripLabel, type PickupRowData } from "@/lib/tripSource";
 import { SaveStatus } from "./JobExtras";
 
 // The PIN and its fields are written by the server only; this page sends the rows. The server
@@ -35,6 +36,9 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
   const pinSet = !!(section.pin || section.pinCreatedAt || shownPin);
   const pin = shownPin ?? section.pin ?? null;
   const locked = pinSet && (section.pinTries ?? 0) >= MAX_PIN_TRIES;
+  // Rows a Trucking trip filled ("From trip LCZ…") are read-only here and never sent back: the
+  // server keeps them as stored. `rows` are the ones people type.
+  const [tripRows, setTripRows] = useState<PickupRowData[]>([]);
   const [rows, setRows] = useState<Record<string, string>[]>([emptyRow()]);
   const [dirty, setDirty] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
@@ -42,9 +46,11 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
   useEffect(() => {
     const sec = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
     try {
-      const parsed: Record<string, string>[] = JSON.parse(sec.rows || "[]");
-      if (parsed.length > 0) {
-        setRows(parsed);
+      const parsed: PickupRowData[] = JSON.parse(sec.rows || "[]");
+      const split = splitPickupRows(Array.isArray(parsed) ? parsed : []);
+      setTripRows(split.tripRows);
+      if (split.ownRows.length > 0 || split.tripRows.length > 0) {
+        setRows(split.ownRows as Record<string, string>[]);
         setDirty(false);
       }
     } catch {
@@ -141,6 +147,24 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
           </tr>
         </thead>
         <tbody>
+          {tripRows.map((row, idx) => (
+            <tr key={`trip-${idx}`} className="border-b border-slate-100 bg-sky-50/40">
+              <td className="p-0.5 px-1.5 font-mono text-indigo-500">{pin ?? ""}</td>
+              {["haulier", "licensePlate", "driver"].map((f) => {
+                const v = typeof row[f] === "string" ? (row[f] as string) : "";
+                return (
+                  <td key={f} className="p-0.5">
+                    <span className={`block px-1.5 py-1 ${v ? "text-slate-900" : "text-slate-300"}`}>{v || "—"}</span>
+                  </td>
+                );
+              })}
+              <td className="p-0.5 px-1.5">
+                <span className="whitespace-nowrap rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700" title="Planned in Trucking — change it on the trip">
+                  {tripLabel(row)}
+                </span>
+              </td>
+            </tr>
+          ))}
           {rows.map((row, idx) => (
             <tr key={idx} className="border-b border-slate-100">
               {/* The PIN belongs to the pick-up, so every row carries it. */}
@@ -155,7 +179,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
                 </td>
               ))}
               <td className="p-0.5">
-                {!readOnly && rows.length > 1 && (
+                {!readOnly && (rows.length > 1 || tripRows.length > 0) && (
                   <Button type="text" size="small" danger icon={<DeleteOutlined className="text-[11px]" />} onClick={() => deleteRow(idx)} />
                 )}
               </td>

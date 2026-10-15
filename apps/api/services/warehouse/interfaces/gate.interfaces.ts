@@ -24,6 +24,14 @@ export interface GateTransportLeg {
   /** Driver's phone number. */
   phone: string;
   gateTime: string;
+  /** Set when a Trucking trip filled the leg ("From trip LCZ…"): read-only, cleared only by the trip. */
+  source?: GateTripSource | null;
+}
+
+/** What a Trucking trip filled (transport leg, pick-up row, dock slot). */
+export interface GateTripSource {
+  kind: "trucking";
+  tripRef: string;
 }
 
 /** A container of the position, from the warehouse container register. */
@@ -123,7 +131,8 @@ export interface GatePickupInfo {
   locked: boolean;
   pinCreatedAt: string;
   pinCreatedBy: string;
-  rows: { haulier: string; licensePlate: string; driver: string }[];
+  /** A row a Trucking trip filled carries `source` ("From trip LCZ…", read-only). */
+  rows: { haulier: string; licensePlate: string; driver: string; source?: GateTripSource | null }[];
 }
 
 /**
@@ -233,6 +242,8 @@ export interface GateDockSlot {
   /** ISO; null on old slots whose date / time could not be read. */
   startsAt: string | null;
   endsAt: string | null;
+  /** The Trucking trip that booked the slot ("" when booked by hand). */
+  tripRef: string;
 }
 
 /** One re-weighing of the position (LCL cargo is re-weighed on receipt; the latest counts). */
