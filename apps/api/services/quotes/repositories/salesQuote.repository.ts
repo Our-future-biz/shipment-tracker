@@ -435,6 +435,28 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   }
 
   /**
+   * How many of the company's live sales quotes that are not won or lost were road-priced (the
+   * document's roadPricing) with one of these trucking tariff versions, on the sell or the buy side.
+   */
+  async countOpenByTariffVersions(companyId: string, versionIds: string[]): Promise<number> {
+    if (!versionIds.length) return 0;
+    const ids = textArray(versionIds);
+    const [{ value }] = await db
+      .select({ value: count() })
+      .from(quoteTable)
+      .where(
+        and(
+          eq(quoteTable.companyId, companyId),
+          isNull(quoteTable.deletedAt),
+          isSalesQuote,
+          sql`${quoteTable.status} NOT IN ('won', 'lost')`,
+          sql`(${quoteTable.data}->'roadPricing'->'sell'->>'tariffVersionId' = ANY(${ids}) OR ${quoteTable.data}->'roadPricing'->'buy'->>'tariffVersionId' = ANY(${ids}))`,
+        ),
+      );
+    return Number(value);
+  }
+
+  /**
    * What the company's live sales quotes say about each customer they are for - the customer is
    * the document's customerId, which the column customer_id follows: how many went out, when the
    * first did, and when any of them was last written. Sent quotes that name no customer record

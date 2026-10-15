@@ -3,13 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The review service runs for real (diff, rate engine) against stand-ins for the repositories, the
 // settings, the fuel index and the customers / fx services.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
+  quotes: { _internalQuotesByTariffVersions: vi.fn() },
   customers: { _internalHaulierList: vi.fn(), _internalCustomerPipelineList: vi.fn() },
   fx: { fxResolve: vi.fn() },
   holidays: { _internalHolidaysCzNational: vi.fn() },
 }));
-const repo = vi.hoisted(() => ({ find: vi.fn(), findVersion: vi.fn(), bindingOn: vi.fn() }));
+const repo = vi.hoisted(() => ({ find: vi.fn(), findVersion: vi.fn(), bindingOn: vi.fn(), versionSummaries: vi.fn() }));
 vi.mock("../repositories/tariff.repository", () => ({ tariffRepository: repo }));
+const reports = vi.hoisted(() => ({ openConsignmentsPricedWith: vi.fn() }));
+vi.mock("../repositories/reports.repository", () => ({ reportsRepository: reports }));
+vi.mock("../repositories/rateGap.repository", () => ({ rateGapRepository: { record: vi.fn() } }));
 vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: { findMany: vi.fn() } }));
 const settings = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock("../services/settings.service", () => ({ settingsService: settings }));
@@ -17,7 +22,7 @@ const fuel = vi.hoisted(() => ({ list: vi.fn() }));
 vi.mock("../services/fuelIndex.service", () => ({ fuelIndexService: fuel }));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "") }));
 
-import { customers, fx } from "~encore/clients";
+import { customers, fx, quotes } from "~encore/clients";
 import { tariffReviewService } from "../services/tariffReview.service";
 import { DEFAULT_SETTINGS } from "../lib/settingsRules";
 import type { PricedSide, TestLaneRequest, Unpriced } from "../interfaces/interfaces";
@@ -96,6 +101,9 @@ beforeEach(() => {
   settings.get.mockResolvedValue(DEFAULT_SETTINGS);
   fuel.list.mockResolvedValue([{ month: "2026-11", percent: 10 }]);
   vi.mocked(customers._internalCustomerPipelineList).mockResolvedValue({ data: [] } as never);
+  repo.versionSummaries.mockResolvedValue([{ id: V }, { id: OLD }]);
+  reports.openConsignmentsPricedWith.mockResolvedValue(0);
+  vi.mocked(quotes._internalQuotesByTariffVersions).mockResolvedValue({ count: 0 });
 });
 
 afterEach(() => vi.useRealTimers());
@@ -118,6 +126,24 @@ describe("diff", () => {
   it("compares with a chosen version of the same tariff only", async () => {
     repo.findVersion.mockImplementation(async (_c, id) => (id === V ? version() : version({ id: OLD, tariffId: "00000000-0000-0000-0000-0000000000a2" })));
     await expect(tariffReviewService.diff(C, V, OLD)).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+});
+
+describe("diff: what a change touches", () => {
+  it("counts the open quotes and consignments priced with any version of the tariff", async () => {
+    vi.mocked(quotes._internalQuotesByTariffVersions).mockResolvedValue({ count: 3 });
+    reports.openConsignmentsPricedWith.mockResolvedValue(7);
+    const diff = await tariffReviewService.diff(C, V);
+    expect(diff).toMatchObject({ affectedOpenQuotes: 3, affectedOpenConsignments: 7 });
+    expect(repo.versionSummaries).toHaveBeenCalledWith(C, [T]);
+    expect(quotes._internalQuotesByTariffVersions).toHaveBeenCalledWith({ versionIds: [V, OLD] });
+    expect(reports.openConsignmentsPricedWith).toHaveBeenCalledWith(C, [V, OLD]);
+  });
+
+  it("leaves a count it cannot read null, and still gives the diff", async () => {
+    vi.mocked(quotes._internalQuotesByTariffVersions).mockRejectedValue(new Error("quotes down"));
+    reports.openConsignmentsPricedWith.mockResolvedValue(2);
+    expect(await tariffReviewService.diff(C, V)).toMatchObject({ against: null, affectedOpenQuotes: null, affectedOpenConsignments: 2 });
   });
 });
 

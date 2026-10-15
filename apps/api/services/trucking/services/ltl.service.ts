@@ -270,7 +270,7 @@ class LtlService {
     const level = cons.find((c) => c.serviceLevel)?.serviceLevel ?? null;
     const first = ratedEnds(legs[0]!, hub);
     const last = ratedEnds(legs[legs.length - 1]!, hub);
-    const whole = await rateService.rate(companyId, buyRequest(scope, first.from, last.to, date, cons.map((c) => c.load), level));
+    const whole = await rateService.rate(companyId, buyRequest(scope, first.from, last.to, date, cons.map((c) => c.load), level), ["BUY"]);
     const candidates = whole.results[0]?.buy ?? [];
     const side = candidates.find((b) => b.ownerCustomerId === haulier.id);
     if (side && side.chargeable.basis === "TRIP") return { buy: snapshotOf(side, level, whole.ratedAt), candidates };
@@ -279,7 +279,7 @@ class LtlService {
     for (const [i, l] of legs.entries()) {
       const c = cons[i]!;
       const ends = ratedEnds(l, hub);
-      const rated = await rateService.rate(companyId, buyRequest(scope, ends.from, ends.to, date, [c.load], c.serviceLevel ?? level));
+      const rated = await rateService.rate(companyId, buyRequest(scope, ends.from, ends.to, date, [c.load], c.serviceLevel ?? level), ["BUY"]);
       const s = rated.results[0]?.buy.find((b) => b.ownerCustomerId === haulier.id);
       if (!s) throw APIError.failedPrecondition(`${haulier.name} has no ${scope} tariff price for ${c.ref} (${l.fromText} → ${l.toText}): give the agreed price`);
       parts.push({ ref: c.ref, side: s });
@@ -640,7 +640,7 @@ class LtlService {
     if (price.source === "MANUAL") {
       buy = await manualSnapshot(price.total, price.currency, price.reason, c.serviceLevel, c.pickupDate);
     } else {
-      const rated = await rateService.rate(companyId, buyRequest("LTL", from.postcode, c.delivery.postcode, c.pickupDate, [c.load], c.serviceLevel));
+      const rated = await rateService.rate(companyId, buyRequest("LTL", from.postcode, c.delivery.postcode, c.pickupDate, [c.load], c.serviceLevel), ["BUY"]);
       const side = rated.results[0]?.buy.find((b) => b.ownerCustomerId === haulier.customerId);
       if (!side || !isPriced(side)) throw APIError.failedPrecondition(`${haulier.companyName} has no LTL tariff price for this delivery: give the agreed price`);
       buy = snapshotOf(side, c.serviceLevel, rated.ratedAt);

@@ -38,7 +38,7 @@ class InternalBillingService {
     const notPriced = (why: string): InternalPrice => ({ amount: 0, tariffVersionId: null, chargeableKg: null, text: `${NOT_PRICED}: ${why}`, notPriced: true });
     if (!request) return notPriced("no service level, or not a CZ → CZ consignment");
     try {
-      const rated = await rateService.rate(companyId, { ...request, includeBuy: false, includeInternal: true });
+      const rated = await rateService.rate(companyId, { ...request, includeBuy: false, includeInternal: true }, ["INTERNAL"]);
       const side = rated.results[0]?.internal ?? null;
       if (!side) return notPriced("the service level is not in the trucking settings");
       if (!isPriced(side)) return notPriced(side.reason);
