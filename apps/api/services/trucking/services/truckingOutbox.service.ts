@@ -4,13 +4,15 @@ import { truckingOutboxRepository } from "../repositories/truckingOutbox.reposit
 import { appendEvent } from "../repositories/event.repository";
 import type { TruckingOutboxKind, TruckingOutboxRecord } from "../schemas/truckingOutbox.schema";
 import type { CostsPayload } from "../lib/truckingLinks";
+import { cancelExpected, expectArrival, expectDeparture, type CancelExpectedInput, type ExpectArrivalInput, type ExpectDepartureInput } from "../lib/warehouseLink";
 import { outboxErrorCode } from "../../../lib/outbox/outboxRetry";
 import { deliverOutboxRow, runOutboxDelivery, type OutboxHandlers } from "../../../lib/outbox/outboxDelivery";
 import { actingAuthNow, sendShipmentUpdateAs } from "../../../lib/outbox/shipmentUpdateAs";
 import { db } from "../db/db";
 
 // Delivery of what consignments and trips owe their job: dates and plate (ShipmentUpdate), the
-// Billing step (shipments) and the Trucking lines of Costs Breakdown (invoicing). Each row is sent
+// Billing step (shipments), the Trucking lines of Costs Breakdown (invoicing) and an LTL trip's
+// announcement to our warehouse (warehouse). Each row is sent
 // as the user who caused it. Rows are sent right after the change; what fails is retried by the
 // trucking-shipment-outbox cron (and the local timer, see startOutboxTimer) with a growing wait.
 // The retry rules and the delivery loop are shared (lib/outbox).
@@ -23,6 +25,9 @@ export const OUTBOX_WHAT: Record<TruckingOutboxKind, string> = {
   delivered: "actual delivery date",
   billing: "Shipment Status Billing",
   costs: "Trucking lines in Costs Breakdown",
+  expect_arrival: "expected arrival at our warehouse",
+  expect_departure: "expected departure from our warehouse",
+  cancel_expected: "trip withdrawn from our warehouse",
 };
 
 // What users see of a failed delivery (stored as last_error and in the history): our own
@@ -52,6 +57,19 @@ export async function sendRow(row: TruckingOutboxRecord): Promise<void> {
     return;
   }
   const authData = await actingAuthNow(row);
+  // Our warehouse (lib/warehouseLink: not wired to the warehouse service until the branches meet).
+  if (row.kind === "expect_arrival") {
+    await expectArrival(row.payload as unknown as ExpectArrivalInput, authData);
+    return;
+  }
+  if (row.kind === "expect_departure") {
+    await expectDeparture(row.payload as unknown as ExpectDepartureInput, authData);
+    return;
+  }
+  if (row.kind === "cancel_expected") {
+    await cancelExpected(row.payload as unknown as CancelExpectedInput, authData);
+    return;
+  }
   if (row.kind === "billing") {
     await shipments._internalShipmentMarkBilling({ shipmentId: row.shipmentId }, { authData });
     return;

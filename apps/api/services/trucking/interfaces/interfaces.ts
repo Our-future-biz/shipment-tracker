@@ -51,6 +51,16 @@ export interface TransportOrderTexts {
   emailBody: string;
 }
 
+/** Our warehouse (the hub every line haul starts or ends at). All empty = not set yet. */
+export interface HubAddress {
+  name: string;
+  street: string;
+  /** 5 digits ("11000") */
+  postcode: string;
+  city: string;
+  country: "CZ";
+}
+
 export interface TruckingSettings {
   /** Always all 8 codes, in the order of ServiceLevelCode */
   serviceLevels: ServiceLevelSetting[];
@@ -58,6 +68,7 @@ export interface TruckingSettings {
   factors: ChargeableFactors;
   marginFloor: MarginFloor;
   transportOrder: TransportOrderTexts;
+  hub: HubAddress;
   version: number;
   updatedAt: string | null;
   /** Display name */
@@ -208,6 +219,7 @@ export interface TruckingSettingsInput {
   factors: ChargeableFactors;
   marginFloor: MarginFloor;
   transportOrder: TransportOrderTexts;
+  hub: HubAddress;
 }
 
 export interface TruckingHaulierResponse {
@@ -550,7 +562,19 @@ export interface TestLaneLevel {
 // ---------------------------------------------------------------------------------------------
 // Phase 4: consignments, FTL trips, transport orders, the haulier link and POD.
 
-export type ConsignmentStatus = "BOOKED" | "PLANNED" | "ORDERED" | "CONFIRMED" | "PICKED_UP" | "DELIVERED" | "POD_RECEIVED" | "READY_TO_BILL" | "CANCELLED";
+export type ConsignmentStatus =
+  | "BOOKED"
+  | "PLANNED"
+  | "ORDERED"
+  | "CONFIRMED"
+  | "PICKED_UP"
+  | "AT_HUB"
+  | "ON_LINEHAUL"
+  | "OUT_FOR_DELIVERY"
+  | "DELIVERED"
+  | "POD_RECEIVED"
+  | "READY_TO_BILL"
+  | "CANCELLED";
 export type TripStatus = "DRAFT" | "ORDERED" | "CONFIRMED" | "IN_TRANSIT" | "DONE" | "CANCELLED";
 export type StampKind = "confirmed" | "pickedUp" | "delivered" | "podReceived";
 
@@ -622,8 +646,7 @@ export interface ConsignmentListItem {
   jobNumber: string;
   customerId: string;
   customerName: string;
-  /** LTL arrives in Phase 5 */
-  scope: "FTL";
+  scope: ConsignmentScope;
   serviceLevel: ServiceLevelCode | null;
   status: ConsignmentStatus;
   pickupDate: string;
@@ -661,6 +684,17 @@ export interface TruckingEventItem {
 }
 
 export interface ConsignmentDetail extends ConsignmentListItem {
+  /** LTL: the customer brings the goods to our warehouse (no pick-up leg) */
+  selfDelivered: boolean;
+  /** LTL only (null for FTL) */
+  lastMile: LastMile | null;
+  partnerHaulierCustomerId: string | null;
+  /** LTL legs in order (FTL: []) */
+  legs: Leg[];
+  /** The gate-in at our warehouse confirmed by the warehouse (LTL) */
+  gateInAt: string | null;
+  /** false = the promised date is an estimate until the warehouse confirms the gate-in (LTL) */
+  promisedFinal: boolean;
   pickup: Stop;
   delivery: Stop;
   load: LoadInput;
@@ -691,7 +725,7 @@ export interface TripDetail {
   id: string;
   /** "LCZ2026000001" */
   ref: string;
-  kind: "FTL";
+  kind: TripKind;
   status: TripStatus;
   haulierCustomerId: string;
   haulierName: string;
@@ -711,12 +745,20 @@ export interface TripDetail {
   transportOrder: TransportOrderState | null;
   version: number;
   events: TruckingEventItem[];
+  /** LTL trips: the legs carried, in stop order (FTL: []) */
+  legs: TripLeg[];
+  /** Leg ids in the order of the stops */
+  stopOrder: string[];
+  capacity: TripCapacity | null;
+  fill: TripFill;
+  warnings: string[];
+  stamps: { departed: { at: string; by: string } | null; arrived: { at: string; by: string } | null };
 }
 
 export interface TripListItem {
   id: string;
   ref: string;
-  kind: "FTL";
+  kind: TripKind;
   status: TripStatus;
   haulierCustomerId: string;
   haulierName: string;
@@ -771,6 +813,14 @@ export type TripPriceInput = { source: "TARIFF" } | { source: "MANUAL"; total: n
 
 /** The consignment fields a create and an update send. */
 export interface ConsignmentFields {
+  /** Default FTL; cannot change after the create */
+  scope?: ConsignmentScope;
+  /** LTL: the customer brings the goods to our warehouse */
+  selfDelivered?: boolean;
+  /** LTL: own delivery run or a partner network (default OWN_RUN) */
+  lastMile?: LastMile | null;
+  /** LTL with lastMile PARTNER: the partner haulier, when already known */
+  partnerHaulierCustomerId?: string | null;
   quoteNumber: string | null;
   serviceLevel: ServiceLevelCode | null;
   /** YYYY-MM-DD */
@@ -795,3 +845,142 @@ export interface TruckingDocumentItem {
 }
 
 export type DocLanguageCode = "cs" | "en" | "both";
+
+// ---------------------------------------------------------------------------------------------
+// Phase 5: LTL groupage - legs, pick-up runs, line hauls, delivery runs, planning.
+
+export type ConsignmentScope = "FTL" | "LTL";
+export type LastMile = "OWN_RUN" | "PARTNER";
+export type TripKind = "FTL" | "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN";
+export type LtlTripKind = Exclude<TripKind, "FTL">;
+export type LegKind = "PICKUP" | "LINEHAUL" | "DELIVERY";
+export type LegStatus = "OPEN" | "PLANNED" | "DONE";
+
+export interface Leg {
+  id: string;
+  consignmentId: string;
+  seq: number;
+  kind: LegKind;
+  fromText: string;
+  toText: string;
+  tripId: string | null;
+  /** The trip's ref when on a trip */
+  tripRef: string | null;
+  /** The trip's haulier, or the partner of a partner delivery */
+  haulierCustomerId: string | null;
+  /** The partner's depot (a Customer Database site) of a partner delivery; null = our warehouse */
+  depotSiteId: string | null;
+  /** A partner delivery's price (partner's BUY tariff, scope LTL, or an agreed price) */
+  buy: PriceSnapshot | null;
+  /** This leg's share of its trip's buy price (CZK) */
+  costShareCzk: number | null;
+  status: LegStatus;
+}
+
+export interface TripCapacity {
+  vehicleTypeCode: string;
+  label: string;
+  ldm: number;
+  kg: number;
+  palletPlaces: number;
+  tailLift: boolean;
+}
+
+/** How full a trip is; the fuller of LDM and kg drives the colour. Percentages null without a vehicle. */
+export interface TripFill {
+  ldm: number;
+  kg: number;
+  palletPlaces: number;
+  ldmPercent: number | null;
+  kgPercent: number | null;
+}
+
+/** A leg on a trip, with what the trip page and the planning board show of its consignment. */
+export interface TripLeg {
+  legId: string;
+  kind: LegKind;
+  status: LegStatus;
+  consignmentId: string;
+  consignmentRef: string;
+  jobNumber: string;
+  shipmentId: string;
+  customerName: string;
+  fromText: string;
+  toText: string;
+  fromPostcode: string;
+  fromCity: string;
+  toPostcode: string;
+  toCity: string;
+  pieces: number;
+  palletPlaces: number;
+  ldm: number;
+  weightKg: number;
+  chargeableKg: number | null;
+  adr: boolean;
+  tailLift: boolean;
+  promisedDate: string | null;
+  costShareCzk: number | null;
+}
+
+export type Deadline = "overdue" | "today" | "tomorrow" | "later";
+
+/** An unplanned leg on the planning board, with its consignment's basics. */
+export interface PlanningLeg {
+  legId: string;
+  kind: LegKind;
+  status: LegStatus;
+  seq: number;
+  consignmentId: string;
+  consignmentRef: string;
+  jobNumber: string;
+  customerName: string;
+  fromText: string;
+  toText: string;
+  fromPostcode: string;
+  fromCity: string;
+  toPostcode: string;
+  toCity: string;
+  /** The tariff zone of the leg's far end (where the run goes), "" when no zone */
+  zoneLabel: string;
+  serviceLevel: ServiceLevelCode | null;
+  pieces: number;
+  palletPlaces: number;
+  ldm: number;
+  weightKg: number;
+  chargeableKg: number | null;
+  adr: boolean;
+  tailLift: boolean;
+  pickupDate: string;
+  promisedDate: string | null;
+  promisedFinal: boolean;
+  deadline: Deadline;
+}
+
+export interface PlanningTrip {
+  id: string;
+  ref: string;
+  kind: LtlTripKind;
+  status: TripStatus;
+  date: string;
+  haulierCustomerId: string;
+  haulierName: string;
+  haulierStatus: HaulierStatus;
+  vehicleTypeCode: string | null;
+  capacity: TripCapacity | null;
+  fill: TripFill;
+  warnings: string[];
+  /** The legs in stop order */
+  stops: TripLeg[];
+  buyTotal: number | null;
+  buyCurrency: "CZK" | "EUR" | null;
+  buyTotalCzk: number | null;
+  transportOrderSent: boolean;
+  version: number;
+}
+
+export interface PlanningBoard {
+  date: string;
+  kind: LtlTripKind;
+  unplanned: PlanningLeg[];
+  trips: PlanningTrip[];
+}

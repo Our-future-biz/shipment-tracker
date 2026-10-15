@@ -4,9 +4,10 @@ import { customers, invoicing, sales } from "~encore/clients";
 import { inTx } from "../db/db";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
+import { legRepository } from "../repositories/leg.repository";
 import { appendEvent } from "../repositories/event.repository";
 import type { TruckingConsignmentRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
-import type { DocLanguageCode, FileDownload, TripDetail } from "../interfaces/interfaces";
+import type { DocLanguageCode, FileDownload, LegKind, TripDetail, TruckingSettings } from "../interfaces/interfaces";
 import type { DocParty } from "../lib/documentTypes";
 import type { Actor } from "../../../lib/rbac";
 import { sendMail } from "../../../lib/email";
@@ -25,11 +26,17 @@ import { haulierLinkUrl, linkExpiry, newToken } from "../lib/haulierToken";
 import { formatDay } from "../lib/format";
 import { buildTransportOrderPdf } from "../lib/transportOrderPdf";
 import { buildCmrPdf } from "../lib/cmrPdf";
+import { buildLtlTransportOrderPdf } from "../lib/ltlTransportOrderPdf";
+import { ltlTransportOrderDoc, type DocLeg } from "../lib/ltlDocs";
+import { ltlTripStatus } from "../lib/ltlRules";
+import { inStopOrder } from "../lib/ltlView";
 import { userName } from "../lib/users";
 import { haulierService } from "./haulier.service";
 import { consignmentService } from "./consignment.service";
 import { tripService } from "./trip.service";
+import { deliverDue } from "./truckingOutbox.service";
 import { settingsService } from "./settings.service";
+import { ltlTrips } from "./ltlTrips";
 
 // The transport order (print, send - recorded only while e-mail is off - and a confirmation the
 // user records) and the CMR. The Pick-up PIN is typed by the user for each print or send: it goes
@@ -82,7 +89,7 @@ export async function ourCompany(): Promise<DocParty> {
 }
 
 /** The haulier as printed, with its payment days; the address and contact from the Customer Database. */
-async function haulierOf(companyId: string, haulierId: string) {
+export async function haulierOf(companyId: string, haulierId: string) {
   const detail = await haulierService.get(companyId, haulierId);
   const [customer, contacts] = await Promise.all([
     customers.customerGet({ id: haulierId }).then((r) => r.customer).catch(() => null),
@@ -148,6 +155,7 @@ class TransportOrderService {
   async pdf(actor: Actor, tripId: string, input: TransportOrderPrintInput): Promise<FileDownload> {
     const lang = language(input.language);
     const pin = cleanPin(input.pickupPin);
+    if ((await tripService.load(actor.companyID, tripId)).kind !== "FTL") return this.pdfLtl(actor, tripId, lang, pin);
     const { trip, c, settings, haulier } = await this.ready(actor, tripId);
     const bytes = await this.build(trip, c, lang, pin, null, haulier, settings.vehicleTypes, await ourCompany());
     const by = await userName(actor.userID);
@@ -176,6 +184,7 @@ class TransportOrderService {
     const to = cleanRecipients(input.to);
     const note = typeof input.note === "string" ? input.note.trim().slice(0, 2000) : "";
     const companyId = actor.companyID;
+    if ((await tripService.load(companyId, tripId)).kind !== "FTL") return this.sendLtl(actor, tripId, lang, pin, to, note);
     const { trip, c, settings, haulier } = await this.ready(actor, tripId);
     const our = await ourCompany();
     const { token, hash } = newToken();
@@ -254,7 +263,12 @@ class TransportOrderService {
         tx,
         companyId,
         trip.id,
-        { confirmedAt: now, confirmedVia: "USER", confirmedBy: by, status: tripStatus({ ...trip, confirmedAt: now }, c) },
+        {
+          confirmedAt: now,
+          confirmedVia: "USER",
+          confirmedBy: by,
+          status: trip.kind === "FTL" ? tripStatus({ ...trip, confirmedAt: now }, c) : ltlTripStatus({ ...trip, confirmedAt: now }),
+        },
         { live: true, sent: true, unconfirmed: true },
       );
       if (!row) throw APIError.alreadyExists("The transport order is already confirmed");
@@ -278,6 +292,145 @@ class TransportOrderService {
       });
     });
     return tripService.get(actor, trip.id);
+  }
+
+  // ---- LTL trips: one transport order with every stop ---------------------------------------------
+
+  // An LTL trip, its legs in stop order with their consignments, and whether its transport order
+  // may go out: not cancelled, with legs, no consignment below the floor without approval, the
+  // haulier not blocked.
+  private async readyLtl(actor: Actor, tripId: string) {
+    const companyId = actor.companyID;
+    const trip = await tripService.load(companyId, tripId);
+    const [settings, haulier] = await Promise.all([settingsService.get(companyId), haulierOf(companyId, trip.haulierCustomerId)]);
+    const legs = inStopOrder(await legRepository.forTrips(companyId, [trip.id]), trip.stopOrder);
+    const consignments = await consignmentRepository.findMany(companyId, [...new Set(legs.map((l) => l.consignmentId))]);
+    const byId = new Map(consignments.map((c) => [c.id, c]));
+    const { legs: allLegs } = await consignmentService.ltlContext(companyId, consignments.map((c) => c.id));
+    const low = consignments.find((c) => {
+      const m = moneyOf(c, null, settings.marginFloor, allLegs);
+      return m.belowFloor && !m.marginApproved;
+    });
+    const refusal = transportOrderRefusal({
+      consignmentCancelled: false,
+      tripCancelled: !!trip.cancelledAt,
+      belowFloor: !!low,
+      marginApproved: false,
+      haulierName: trip.haulierName,
+      haulierBlockIssues: haulier.detail.issues.filter((i) => i.severity === "block").map((i) => i.message),
+    });
+    if (refusal) throw APIError.failedPrecondition(low && !trip.cancelledAt ? `${low.ref}: ${refusal}` : refusal);
+    if (!legs.length) throw APIError.failedPrecondition("The trip has no legs yet");
+    const docLegs: DocLeg[] = legs.map((l) => ({ kind: l.kind as LegKind, toText: l.toText, toPostcode: l.toPostcode, consignment: byId.get(l.consignmentId)! }));
+    return { trip, settings, haulier, docLegs, consignmentIds: consignments.map((c) => c.id) };
+  }
+
+  private async buildLtl(
+    trip: TruckingTripRecord,
+    docLegs: DocLeg[],
+    lang: DocLanguageCode,
+    pin: string | null,
+    haulier: { party: DocParty; paymentDays: number },
+    settings: TruckingSettings,
+    our: DocParty,
+  ): Promise<Uint8Array> {
+    if (trip.kind === "FTL") throw new Error("not an LTL trip");
+    const vehicle = settings.vehicleTypes.find((v) => v.code === trip.vehicleTypeCode) ?? null;
+    const doc = ltlTransportOrderDoc({
+      language: lang,
+      issuedAt: new Date(),
+      ourCompany: our,
+      haulier: haulier.party,
+      paymentDays: haulier.paymentDays,
+      trip: { ...trip, kind: trip.kind },
+      vehicle: vehicle ? { label: vehicle.label, tailLift: vehicle.tailLift } : null,
+      hub: settings.hub,
+      legs: docLegs,
+      pickupPin: pin,
+      podLink: null,
+    });
+    return buildLtlTransportOrderPdf(doc);
+  }
+
+  private async pdfLtl(actor: Actor, tripId: string, lang: DocLanguageCode, pin: string | null): Promise<FileDownload> {
+    const { trip, settings, haulier, docLegs } = await this.readyLtl(actor, tripId);
+    const bytes = await this.buildLtl(trip, docLegs, lang, pin, haulier, settings, await ourCompany());
+    const by = await userName(actor.userID);
+    await inTx(async (tx) => {
+      if (pin) await tripRepository.update(tx, actor.companyID, trip.id, { pinPrinted: true }, { live: true });
+      await appendEvent(tx, actor.companyID, {
+        kind: "transport_order_printed",
+        tripId: trip.id,
+        byUserId: actor.userID || null,
+        byName: by,
+        payload: { changes: {}, summary: `Transport order ${trip.ref} printed${pin ? " (PIN printed)" : ""}`, facts: { pinPrinted: !!pin, language: lang } },
+      });
+    });
+    return pdfFile(`${trip.ref}.pdf`, bytes);
+  }
+
+  /**
+   * An LTL trip's transport order sent (recorded only while e-mail is off). No haulier link: the
+   * haulier's page shows one consignment, so for groupage the confirmation is recorded by the
+   * user and the PODs are uploaded per consignment. The trip is announced to our warehouse.
+   */
+  private async sendLtl(
+    actor: Actor,
+    tripId: string,
+    lang: DocLanguageCode,
+    pin: string | null,
+    to: string[],
+    note: string,
+  ): Promise<{ trip: TripDetail; recordedOnly: boolean; file: FileDownload }> {
+    const companyId = actor.companyID;
+    const { trip, settings, haulier, docLegs } = await this.readyLtl(actor, tripId);
+    const our = await ourCompany();
+    const file = pdfFile(`${trip.ref}.pdf`, await this.buildLtl(trip, docLegs, lang, pin, haulier, settings, our));
+    const texts = { orderRef: trip.ref, haulier: trip.haulierName, date: formatDay(trip.plannedPickupDate) };
+    const mail = await sendMail({
+      to,
+      cc: [],
+      subject: fillOrderText(settings.transportOrder.emailSubject, texts),
+      text: [fillOrderText(settings.transportOrder.emailBody, texts), note].filter(Boolean).join("\n\n"),
+      attachments: [{ filename: file.fileName, content: file.fileBase64 }],
+      idempotencyKey: `${trip.id}:${trip.version}`,
+    });
+    const recordedOnly = !mail.sent;
+    const by = await userName(actor.userID);
+    const now = new Date();
+    await inTx(async (tx) => {
+      const locked = await tripRepository.lock(tx, companyId, trip.id);
+      if (!locked || locked.cancelledAt || locked.version !== trip.version) throw APIError.aborted("The trip was changed by someone else. Reload and try again.");
+      const values = {
+        orderSentAt: now,
+        orderSentBy: by,
+        orderSentByUserId: actor.userID || null,
+        orderSentByRole: actor.role,
+        orderRecordedOnly: recordedOnly,
+        orderTo: to,
+        ...(pin ? { pinPrinted: true } : {}),
+        ourCompanyName: our.name,
+        rejectedAt: null,
+        rejectReason: null,
+      };
+      const row = await tripRepository.update(tx, companyId, trip.id, { ...values, status: ltlTripStatus({ ...locked, ...values }) }, { live: true });
+      if (!row) throw APIError.aborted("The trip was changed by someone else. Reload and try again.");
+      await appendEvent(tx, companyId, {
+        kind: "transport_order_sent",
+        tripId: trip.id,
+        customerId: trip.haulierCustomerId,
+        byUserId: actor.userID || null,
+        byName: by,
+        payload: {
+          changes: {},
+          summary: `Transport order ${trip.ref} ${recordedOnly ? "marked as sent (recorded only)" : "sent"}${to.length ? ` to ${to.join(", ")}` : ""}${pin ? " (PIN printed)" : ""}`,
+          facts: { recordedOnly, to, pinPrinted: !!pin, language: lang, note },
+        },
+      });
+      await ltlTrips.settle(tx, actor, row);
+    });
+    await deliverDue();
+    return { trip: await tripService.get(actor, trip.id), recordedOnly, file };
   }
 
   /** Any user: the CMR (consignment note) of a consignment; the carrier is its trip's haulier when planned. */

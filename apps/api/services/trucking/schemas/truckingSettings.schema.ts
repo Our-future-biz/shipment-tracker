@@ -3,6 +3,7 @@ import { pgTable, text, integer, jsonb, uniqueIndex } from "drizzle-orm/pg-core"
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import type {
   ChargeableFactors,
+  HubAddress,
   MarginFloor,
   ServiceLevelSetting,
   TransportOrderTexts,
@@ -22,6 +23,8 @@ export const truckingSettingsTable = pgTable(
     factors: jsonb("factors").$type<ChargeableFactors>().notNull(),
     marginFloor: jsonb("margin_floor").$type<MarginFloor>().notNull(),
     transportOrder: jsonb("transport_order").$type<TransportOrderTexts>().notNull(),
+    /** Our warehouse (Phase 5); empty until a manager sets it */
+    hub: jsonb("hub").$type<HubAddress>().notNull().default({ name: "", street: "", postcode: "", city: "", country: "CZ" }),
     version: integer("version").notNull().default(1),
     /** Display name of who saved last */
     updatedBy: text("updated_by").notNull().default(""),

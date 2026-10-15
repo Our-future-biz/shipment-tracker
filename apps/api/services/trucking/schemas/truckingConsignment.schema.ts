@@ -2,12 +2,17 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, integer, numeric, date, boolean, jsonb, uuid, timestamp, index, uniqueIndex, check, primaryKey, foreignKey } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import type {
+  ConsignmentScope,
   ConsignmentStatus,
+  LastMile,
+  LegKind,
+  LegStatus,
   LoadInput,
   PricedSide,
   PriceSnapshot,
   ServiceLevelCode,
   Stop,
+  TripKind,
   TripStatus,
   TruckingDocumentKind,
 } from "../interfaces/interfaces";
@@ -44,7 +49,9 @@ export interface StoredMarginApproval {
 }
 
 // One road consignment: what a customer orders us to move, always under a Shipments job
-// (shipment_id, another database: bare uuid). Phase 4 = FTL only, one consignment on one trip.
+// (shipment_id, another database: bare uuid). FTL = one consignment on one trip; LTL (Phase 5) =
+// legs through our warehouse (pick-up run, line haul, delivery run or a partner's delivery), the
+// gate-in / gate-out heard from the warehouse.
 // Stops and load are jsonb documents written and read as a whole. `status` is derived from the
 // stamps and the trip on every write (lib/consignmentRules.ts) and stored for lists. Stamps are
 // set once by a guarded UPDATE (… WHERE <stamp>_at IS NULL); a manager may void one (event kept).
@@ -60,7 +67,17 @@ export const truckingConsignmentTable = pgTable(
     customerId: uuid("customer_id").notNull(),
     customerName: text("customer_name").notNull().default(""),
     quoteNumber: text("quote_number"),
-    scope: text("scope").$type<"FTL">().notNull().default("FTL"),
+    scope: text("scope").$type<ConsignmentScope>().notNull().default("FTL"),
+    /** LTL: the customer brings the goods to our warehouse (no pick-up leg) */
+    selfDelivered: boolean("self_delivered").notNull().default(false),
+    /** LTL: who delivers the last mile; null for FTL */
+    lastMile: text("last_mile").$type<LastMile>(),
+    partnerHaulierCustomerId: uuid("partner_haulier_customer_id"),
+    /** LTL: the gate-in / gate-out at our warehouse as the warehouse confirmed them */
+    gateInAt: timestamp("gate_in_at", { withTimezone: true }),
+    gateOutAt: timestamp("gate_out_at", { withTimezone: true }),
+    /** LTL: the promised date counts from the confirmed gate-in (else it is an estimate) */
+    promisedFinal: boolean("promised_final").notNull().default(false),
     serviceLevel: text("service_level").$type<ServiceLevelCode>(),
     status: text("status").$type<ConsignmentStatus>().notNull().default("BOOKED"),
     pickupDate: date("pickup_date", { mode: "string" }).notNull(),
@@ -101,24 +118,30 @@ export const truckingConsignmentTable = pgTable(
     index("trucking_consignment_shipment_idx").on(table.companyId, table.shipmentId),
     index("trucking_consignment_status_idx").on(table.companyId, table.status, table.pickupDate),
     index("trucking_consignment_trip_idx").on(table.tripId),
-    check("trucking_consignment_scope_check", sql`${table.scope} IN ('FTL')`),
+    check("trucking_consignment_scope_check", sql`${table.scope} IN ('FTL', 'LTL')`),
+    check("trucking_consignment_last_mile_check", sql`${table.lastMile} IS NULL OR ${table.lastMile} IN ('OWN_RUN', 'PARTNER')`),
     check(
       "trucking_consignment_status_check",
-      sql`${table.status} IN ('BOOKED', 'PLANNED', 'ORDERED', 'CONFIRMED', 'PICKED_UP', 'DELIVERED', 'POD_RECEIVED', 'READY_TO_BILL', 'CANCELLED')`,
+      sql`${table.status} IN ('BOOKED', 'PLANNED', 'ORDERED', 'CONFIRMED', 'PICKED_UP', 'AT_HUB', 'ON_LINEHAUL', 'OUT_FOR_DELIVERY', 'DELIVERED', 'POD_RECEIVED', 'READY_TO_BILL', 'CANCELLED')`,
     ),
     check("trucking_consignment_pod_source_check", sql`${table.podSource} IS NULL OR ${table.podSource} IN ('USER', 'HAULIER')`),
     check("trucking_consignment_ref_check", sql`${table.ref} ~ '^TCZ[0-9]{10}$'`),
-    // Stamps in order: a later one stands only on the earlier (void the later one first).
+    // Stamps in order: a later one stands only on the earlier (void the later one first). An LTL
+    // consignment the customer brought to our warehouse has a gate-in instead of a pick-up.
     check(
       "trucking_consignment_stamp_order_check",
-      sql`(${table.deliveredAt} IS NULL OR ${table.pickedUpAt} IS NOT NULL) AND (${table.podReceivedAt} IS NULL OR ${table.deliveredAt} IS NOT NULL) AND (${table.readyToBillAt} IS NULL OR ${table.podReceivedAt} IS NOT NULL)`,
+      sql`(${table.deliveredAt} IS NULL OR ${table.pickedUpAt} IS NOT NULL OR ${table.gateInAt} IS NOT NULL) AND (${table.podReceivedAt} IS NULL OR ${table.deliveredAt} IS NOT NULL) AND (${table.readyToBillAt} IS NULL OR ${table.podReceivedAt} IS NOT NULL)`,
     ),
     check("trucking_consignment_cancelled_check", sql`(${table.status} = 'CANCELLED') = (${table.cancelledAt} IS NOT NULL)`),
   ],
 );
 
-// One truck run with a subcontracted haulier. Phase 4 = FTL: exactly one consignment (through
-// one leg). The transport order is part of the trip: its number is the trip ref; sending records
+// One truck run with a subcontracted haulier. FTL: exactly one consignment (through one leg).
+// LTL (Phase 5): a pick-up run, line haul or delivery run carrying many legs in `stop_order`; its
+// buy price is split over the legs (leg.cost_share_czk). `cost_jobs` / `warehouse_jobs` remember
+// which jobs were last sent cost lines / announced to the warehouse, so a job taken off the trip
+// gets its lines removed and its expected arrival / departure cancelled. The row is locked FOR
+// UPDATE while its legs change. The transport order is part of the trip: its number is the trip ref; sending records
 // who and when (e-mail is off, so "recorded only"), the haulier answers through the link or a
 // user records the answer. The Pick-up PIN is never stored: only whether one was printed.
 export const truckingTripTable = pgTable(
@@ -127,8 +150,16 @@ export const truckingTripTable = pgTable(
     ...defaultTableColumns,
     ...tenantColumns,
     ref: text("ref").notNull(),
-    kind: text("kind").$type<"FTL">().notNull().default("FTL"),
+    kind: text("kind").$type<TripKind>().notNull().default("FTL"),
     status: text("status").$type<TripStatus>().notNull().default("DRAFT"),
+    /** LTL: leg ids in the order of the stops */
+    stopOrder: jsonb("stop_order").$type<string[]>().notNull().default([]),
+    departedAt: timestamp("departed_at", { withTimezone: true }),
+    departedBy: text("departed_by"),
+    arrivedAt: timestamp("arrived_at", { withTimezone: true }),
+    arrivedBy: text("arrived_by"),
+    costJobs: jsonb("cost_jobs").$type<TripJobRef[]>().notNull().default([]),
+    warehouseJobs: jsonb("warehouse_jobs").$type<TripJobRef[]>().notNull().default([]),
     haulierCustomerId: uuid("haulier_customer_id").notNull(),
     haulierName: text("haulier_name").notNull().default(""),
     /** The engine's first candidate when the trip was made (null = none); differs from the haulier when the user chose another */
@@ -168,24 +199,43 @@ export const truckingTripTable = pgTable(
     tenantIndex("trucking_trip", table),
     uniqueIndex("trucking_trip_ref_unique").on(table.companyId, table.ref),
     index("trucking_trip_status_idx").on(table.companyId, table.status, table.plannedPickupDate),
-    check("trucking_trip_kind_check", sql`${table.kind} IN ('FTL')`),
+    check("trucking_trip_kind_check", sql`${table.kind} IN ('FTL', 'PICKUP_RUN', 'LINEHAUL', 'DELIVERY_RUN')`),
     check("trucking_trip_status_check", sql`${table.status} IN ('DRAFT', 'ORDERED', 'CONFIRMED', 'IN_TRANSIT', 'DONE', 'CANCELLED')`),
     check("trucking_trip_confirmed_via_check", sql`${table.confirmedVia} IS NULL OR ${table.confirmedVia} IN ('LINK', 'USER')`),
     check("trucking_trip_ref_check", sql`${table.ref} ~ '^LCZ[0-9]{10}$'`),
   ],
 );
 
-// A consignment's part of a trip. FTL: exactly one leg per consignment (Phase 5 adds LTL legs:
-// pick-up run, line haul, delivery run). A cancelled trip's leg is soft-deleted.
+/** A job a trip carries (or carried) and one of its consignments (the outbox row's consignment). */
+export interface TripJobRef {
+  shipmentId: string;
+  consignmentId: string;
+}
+
+// A consignment's part of the road. FTL: exactly one DIRECT leg per consignment on its trip (a
+// cancelled trip's leg is soft-deleted). LTL: PICKUP (origin → our warehouse, unless the customer
+// brings the goods), LINEHAUL (our warehouse → a partner's depot) and DELIVERY (→ consignee) by
+// `seq` 1 / 2 / 3. A leg waits OPEN until it is on a trip (or, for a partner's delivery, priced
+// with the partner), then PLANNED, then DONE.
 export const truckingLegTable = pgTable(
   "trucking_leg",
   {
     ...defaultTableColumns,
     ...tenantColumns,
     consignmentId: uuid("consignment_id").notNull(),
-    tripId: uuid("trip_id").notNull(),
+    tripId: uuid("trip_id"),
     seq: integer("seq").notNull().default(1),
-    kind: text("kind").$type<"DIRECT">().notNull().default("DIRECT"),
+    kind: text("kind").$type<"DIRECT" | LegKind>().notNull().default("DIRECT"),
+    status: text("status").$type<LegStatus>().notNull().default("OPEN"),
+    fromText: text("from_text").notNull().default(""),
+    toText: text("to_text").notNull().default(""),
+    /** The leg's ends as rated (CZ: 5 digits) */
+    fromPostcode: text("from_postcode").notNull().default(""),
+    toPostcode: text("to_postcode").notNull().default(""),
+    haulierCustomerId: uuid("haulier_customer_id"),
+    depotSiteId: uuid("depot_site_id"),
+    buy: jsonb("buy").$type<PriceSnapshot>(),
+    costShareCzk: numeric("cost_share_czk", { precision: 14, scale: 2, mode: "number" }),
   },
   (table) => [
     ...defaultTableIndexes("trucking_leg", table),
@@ -195,7 +245,10 @@ export const truckingLegTable = pgTable(
     uniqueIndex("trucking_leg_live_unique").on(table.consignmentId, table.seq).where(sql`deleted_at IS NULL`),
     foreignKey({ name: "trucking_leg_consignment_fk", columns: [table.consignmentId], foreignColumns: [truckingConsignmentTable.id] }).onDelete("restrict"),
     foreignKey({ name: "trucking_leg_trip_fk", columns: [table.tripId], foreignColumns: [truckingTripTable.id] }).onDelete("restrict"),
-    check("trucking_leg_kind_check", sql`${table.kind} IN ('DIRECT')`),
+    check("trucking_leg_kind_check", sql`${table.kind} IN ('DIRECT', 'PICKUP', 'LINEHAUL', 'DELIVERY')`),
+    check("trucking_leg_status_check", sql`${table.status} IN ('OPEN', 'PLANNED', 'DONE')`),
+    // A leg on a trip is planned or done.
+    check("trucking_leg_trip_check", sql`${table.tripId} IS NULL OR ${table.status} <> 'OPEN'`),
   ],
 );
 
@@ -255,6 +308,31 @@ export type TruckingConsignmentRecord = typeof truckingConsignmentTable.$inferSe
 export type NewTruckingConsignmentRecord = typeof truckingConsignmentTable.$inferInsert;
 export type TruckingTripRecord = typeof truckingTripTable.$inferSelect;
 export type NewTruckingTripRecord = typeof truckingTripTable.$inferInsert;
+export type TruckingLegRecord = typeof truckingLegTable.$inferSelect;
+export type NewTruckingLegRecord = typeof truckingLegTable.$inferInsert;
 export type TruckingHaulierLinkRecord = typeof truckingHaulierLinkTable.$inferSelect;
 export type TruckingDocumentRecord = typeof truckingDocumentTable.$inferSelect;
 export type NewTruckingDocumentRecord = typeof truckingDocumentTable.$inferInsert;
+
+// The warehouse's gate stamps Trucking has heard (topic warehouse-gate-stamped), one row per
+// (position, kind, time): a message delivered twice is applied once.
+export const truckingGateEventTable = pgTable(
+  "trucking_gate_event",
+  {
+    ...defaultTableColumns,
+    ...tenantColumns,
+    shipmentId: uuid("shipment_id"),
+    positionId: text("position_id").notNull(),
+    wczRef: text("wcz_ref").notNull().default(""),
+    kind: text("kind").$type<"gateIn" | "gateOut" | "voided">().notNull(),
+    stampKind: text("stamp_kind").notNull().default(""),
+    at: timestamp("at", { withTimezone: true }).notNull(),
+    userId: text("user_id").notNull().default(""),
+  },
+  (table) => [
+    ...defaultTableIndexes("trucking_gate_event", table),
+    tenantIndex("trucking_gate_event", table),
+    uniqueIndex("trucking_gate_event_unique").on(table.companyId, table.positionId, table.kind, table.at),
+    check("trucking_gate_event_kind_check", sql`${table.kind} IN ('gateIn', 'gateOut', 'voided')`),
+  ],
+);

@@ -4,7 +4,14 @@
 
 import { randomUUID } from "node:crypto";
 import { vi } from "vitest";
-import type { TruckingConsignmentRecord, TruckingDocumentRecord, TruckingHaulierLinkRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
+import type {
+  TruckingConsignmentRecord,
+  TruckingDocumentRecord,
+  TruckingHaulierLinkRecord,
+  TruckingLegRecord,
+  TruckingTripRecord,
+} from "../schemas/truckingConsignment.schema";
+import type { LegGuard } from "../repositories/leg.repository";
 import type { ConsignmentGuard } from "../repositories/consignment.repository";
 import type { TripGuard } from "../repositories/trip.repository";
 import type { LoadInput, StopInput, TruckingSettings } from "../interfaces/interfaces";
@@ -29,6 +36,10 @@ export const store = {
   events: [] as Record<string, unknown>[],
   outbox: [] as Record<string, unknown>[],
   legs: [] as { consignmentId: string; tripId: string; deletedAt: Date | null }[],
+  /** LTL legs (Phase 5) */
+  ltlLegs: [] as TruckingLegRecord[],
+  /** Gate events heard, as "position|kind|at" */
+  gateEvents: new Set<string>(),
   counters: new Map<string, number>(),
   /** Every value handed to a repository, as JSON (to prove what was never stored) */
   written: [] as string[],
@@ -42,6 +53,8 @@ export function resetStore() {
   store.events = [];
   store.outbox = [];
   store.legs = [];
+  store.ltlLegs = [];
+  store.gateEvents = new Set();
   store.counters = new Map();
   store.written = [];
 }
@@ -93,6 +106,13 @@ export const consignmentRepository = {
       updatedAt: new Date(),
       deletedAt: null,
       quoteNumber: null,
+      scope: "FTL",
+      selfDelivered: false,
+      lastMile: null,
+      partnerHaulierCustomerId: null,
+      gateInAt: null,
+      gateOutAt: null,
+      promisedFinal: false,
       serviceLevel: null,
       pickupTime: null,
       promisedDate: null,
@@ -125,6 +145,9 @@ export const consignmentRepository = {
   }),
   find: vi.fn(async (companyId: string, id: string) => copy(store.consignments.find((c) => c.companyId === companyId && c.id === id) ?? null)),
   findMany: vi.fn(async (companyId: string, ids: string[]) => store.consignments.filter((c) => c.companyId === companyId && ids.includes(c.id)).map(copy)),
+  ltlForShipmentLocked: vi.fn(async (_tx: unknown, companyId: string, shipmentId: string) =>
+    store.consignments.filter((c) => c.companyId === companyId && c.shipmentId === shipmentId && c.scope === "LTL" && !c.cancelledAt).map(copy),
+  ),
   findByTrip: vi.fn(async (companyId: string, tripId: string) => copy(store.consignments.find((c) => c.companyId === companyId && c.tripId === tripId) ?? null)),
   findByTrips: vi.fn(async (companyId: string, ids: string[]) => store.consignments.filter((c) => c.companyId === companyId && c.tripId && ids.includes(c.tripId)).map(copy)),
   list: vi.fn(async (companyId: string, f: { status?: string; shipmentId?: string }) =>
@@ -156,6 +179,14 @@ export const tripRepository = {
       createdAt: new Date(),
       updatedAt: new Date(),
       deletedAt: null,
+      kind: "FTL",
+      stopOrder: [],
+      departedAt: null,
+      departedBy: null,
+      arrivedAt: null,
+      arrivedBy: null,
+      costJobs: [],
+      warehouseJobs: [],
       suggestedHaulierId: null,
       vehicleTypeCode: null,
       tractorPlate: "",
@@ -190,6 +221,10 @@ export const tripRepository = {
   }),
   find: vi.fn(async (companyId: string, id: string) => copy(store.trips.find((t) => t.companyId === companyId && t.id === id) ?? null)),
   findMany: vi.fn(async (companyId: string, ids: string[]) => store.trips.filter((t) => t.companyId === companyId && ids.includes(t.id)).map(copy)),
+  lock: vi.fn(async (_tx: unknown, companyId: string, id: string) => copy(store.trips.find((t) => t.companyId === companyId && t.id === id) ?? null)),
+  listLtl: vi.fn(async (companyId: string, kind: string, date: string) =>
+    store.trips.filter((t) => t.companyId === companyId && !t.cancelledAt && t.kind === kind && t.plannedPickupDate === date).map(copy),
+  ),
   list: vi.fn(async (companyId: string) => store.trips.filter((t) => t.companyId === companyId).map(copy)),
   update: vi.fn(async (_tx: unknown, companyId: string, id: string, values: Partial<TruckingTripRecord>, guard: TripGuard = {}) => {
     remember(values);
@@ -210,6 +245,72 @@ export const tripRepository = {
   }),
   liveLink: vi.fn(async (_companyId: string, tripId: string) => copy(store.links.find((l) => l.tripId === tripId && !l.revokedAt) ?? null)),
   linkByHash: vi.fn(async (hash: string) => copy(store.links.find((l) => l.tokenHash === hash) ?? null)),
+};
+
+function legMatches(l: TruckingLegRecord, g: LegGuard): boolean {
+  if (g.status && l.status !== g.status) return false;
+  if (g.tripId === null && l.tripId) return false;
+  if (g.tripId && l.tripId !== g.tripId) return false;
+  return true;
+}
+
+const liveLeg = (companyId: string) => (l: TruckingLegRecord) => l.companyId === companyId && !l.deletedAt;
+
+export const legRepository = {
+  insertMany: vi.fn(async (_tx: unknown, rows: Partial<TruckingLegRecord>[]) => {
+    remember(rows);
+    const made = rows.map(
+      (values) =>
+        ({
+          id: randomUUID(),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          deletedAt: null,
+          tripId: null,
+          seq: 1,
+          kind: "DIRECT",
+          status: "OPEN",
+          fromText: "",
+          toText: "",
+          fromPostcode: "",
+          toPostcode: "",
+          haulierCustomerId: null,
+          depotSiteId: null,
+          buy: null,
+          costShareCzk: null,
+          ...values,
+        }) as TruckingLegRecord,
+    );
+    store.ltlLegs.push(...made);
+    return made.map(copy);
+  }),
+  find: vi.fn(async (companyId: string, id: string) => copy(store.ltlLegs.filter(liveLeg(companyId)).find((l) => l.id === id) ?? null)),
+  findMany: vi.fn(async (companyId: string, ids: string[]) => store.ltlLegs.filter(liveLeg(companyId)).filter((l) => ids.includes(l.id)).map(copy)),
+  forConsignments: vi.fn(async (companyId: string, ids: string[]) =>
+    store.ltlLegs
+      .filter(liveLeg(companyId))
+      .filter((l) => ids.includes(l.consignmentId))
+      .sort((a, b) => a.consignmentId.localeCompare(b.consignmentId) || a.seq - b.seq)
+      .map(copy),
+  ),
+  forTrips: vi.fn(async (companyId: string, ids: string[]) => store.ltlLegs.filter(liveLeg(companyId)).filter((l) => l.tripId && ids.includes(l.tripId)).map(copy)),
+  open: vi.fn(async (companyId: string, kind: string) => store.ltlLegs.filter(liveLeg(companyId)).filter((l) => l.kind === kind && l.status === "OPEN" && !l.tripId).map(copy)),
+  update: vi.fn(async (_tx: unknown, companyId: string, id: string, values: Partial<TruckingLegRecord>, guard: LegGuard = {}) => {
+    remember(values);
+    const row = store.ltlLegs.filter(liveLeg(companyId)).find((l) => l.id === id);
+    if (!row || !legMatches(row, guard)) return null;
+    Object.assign(row, values, { updatedAt: new Date() });
+    return copy(row);
+  }),
+  retire: vi.fn(async (_tx: unknown, companyId: string, ids: string[]) => {
+    for (const l of store.ltlLegs.filter(liveLeg(companyId)).filter((x) => ids.includes(x.id))) l.deletedAt = new Date();
+  }),
+  recordGateEvent: vi.fn(async (_tx: unknown, v: { positionId: string; kind: string; at: Date }) => {
+    const key = `${v.positionId}|${v.kind}|${v.at.toISOString()}`;
+    if (store.gateEvents.has(key)) return false;
+    store.gateEvents.add(key);
+    return true;
+  }),
 };
 
 export const truckingDocumentRepository = {

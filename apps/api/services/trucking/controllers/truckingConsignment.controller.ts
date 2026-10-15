@@ -7,7 +7,9 @@ import type {
   ConsignmentListItem,
   ConsignmentPriceInput,
   ConsignmentStatus,
+  ConsignmentScope,
   ConsignmentView,
+  LastMile,
   LoadInput,
   ServiceLevelCode,
   StampKind,
@@ -54,6 +56,14 @@ interface TruckingConsignmentCreateRequest {
   delivery: StopInput;
   load: LoadInput;
   price: ConsignmentPriceInput;
+  /** Default FTL; cannot change after the create */
+  scope?: ConsignmentScope;
+  /** LTL: the customer brings the goods to our warehouse (no pick-up leg) */
+  selfDelivered?: boolean;
+  /** LTL: our delivery run (default) or a partner network */
+  lastMile?: LastMile | null;
+  /** LTL with a partner: the partner haulier when already known */
+  partnerHaulierCustomerId?: string | null;
 }
 
 // Creates a consignment (any user): priced from the tariff, a quote or an agreed price. A margin
@@ -86,6 +96,14 @@ interface TruckingConsignmentUpdateRequest {
   delivery: StopInput;
   load: LoadInput;
   price: ConsignmentPriceInput;
+  /** Default FTL; cannot change after the create */
+  scope?: ConsignmentScope;
+  /** LTL: the customer brings the goods to our warehouse (no pick-up leg) */
+  selfDelivered?: boolean;
+  /** LTL: our delivery run (default) or a partner network */
+  lastMile?: LastMile | null;
+  /** LTL with a partner: the partner haulier when already known */
+  partnerHaulierCustomerId?: string | null;
   /** The version read */
   version: number;
   /** Price again from the price source; otherwise the stored price stays */

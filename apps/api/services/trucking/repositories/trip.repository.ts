@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, sql, type SQL } from "drizzle-orm";
 import { db, type Tx } from "../db/db";
 import {
   truckingHaulierLinkTable,
@@ -7,7 +7,7 @@ import {
   type TruckingHaulierLinkRecord,
   type TruckingTripRecord,
 } from "../schemas/truckingConsignment.schema";
-import type { TripStatus } from "../interfaces/interfaces";
+import type { TripKind, TripStatus } from "../interfaces/interfaces";
 
 const t = truckingTripTable;
 const l = truckingHaulierLinkTable;
@@ -49,15 +49,30 @@ class TripRepository {
     return row ?? null;
   }
 
-  async findMany(companyId: string, ids: string[]): Promise<TruckingTripRecord[]> {
+  async findMany(companyId: string, ids: string[], reader: Tx | typeof db = db): Promise<TruckingTripRecord[]> {
     if (!ids.length) return [];
-    return db.select().from(t).where(and(eq(t.companyId, companyId), inArray(t.id, ids), isNull(t.deletedAt)));
+    return reader.select().from(t).where(and(eq(t.companyId, companyId), inArray(t.id, ids), isNull(t.deletedAt)));
   }
 
   async list(companyId: string, filter: { status?: TripStatus }): Promise<TruckingTripRecord[]> {
     const clauses: SQL[] = [eq(t.companyId, companyId), isNull(t.deletedAt)];
     if (filter.status) clauses.push(eq(t.status, filter.status));
     return db.select().from(t).where(and(...clauses)).orderBy(desc(t.plannedPickupDate), desc(t.createdAt)).limit(MAX_LIST);
+  }
+
+  /** The trip row locked FOR UPDATE until the caller's transaction ends (its legs are about to change). */
+  async lock(tx: Tx, companyId: string, id: string): Promise<TruckingTripRecord | null> {
+    const [row] = await tx.select().from(t).where(and(eq(t.companyId, companyId), eq(t.id, id), isNull(t.deletedAt))).for("update");
+    return row ?? null;
+  }
+
+  /** The live LTL trips of a kind on a day (the planning board). */
+  async listLtl(companyId: string, kind: TripKind, date: string): Promise<TruckingTripRecord[]> {
+    return db
+      .select()
+      .from(t)
+      .where(and(eq(t.companyId, companyId), isNull(t.deletedAt), isNull(t.cancelledAt), eq(t.kind, kind), eq(t.plannedPickupDate, date)))
+      .orderBy(asc(t.createdAt));
   }
 
   /** Writes `values` when the guard still holds; bumps the version. Null when it no longer does. */

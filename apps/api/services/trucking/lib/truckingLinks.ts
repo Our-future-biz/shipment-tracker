@@ -62,3 +62,45 @@ export function plannedUpdate(p: { pickupDate: string; promisedDate: string | nu
   if (p.tractorPlate) out.plateNumber = p.tractorPlate;
   return out;
 }
+
+// ---- Phase 5: LTL trips and partner deliveries -------------------------------------------------
+
+/** The buying lines of one job's share of an LTL trip / of a partner's delivery leg. */
+export const tripJobSourceRef = (tripId: string, shipmentId: string) => `trucking:trip:${tripId}:job:${shipmentId}`;
+export const legSourceRef = (legId: string) => `trucking:leg:${legId}`;
+
+const RUN_TEXT: Record<"PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN", string> = {
+  PICKUP_RUN: "pick-up run",
+  LINEHAUL: "line haul",
+  DELIVERY_RUN: "delivery run",
+};
+
+/**
+ * One job's share of an LTL trip: one buying line in CZK, "LCZ2026000007 pick-up run share (3 of
+ * 18 consignments)"; none when the trip has no price.
+ */
+export function tripJobCosts(
+  trip: { id: string; ref: string; kind: "PICKUP_RUN" | "LINEHAUL" | "DELIVERY_RUN"; haulierCustomerId: string; haulierName: string; priced: boolean },
+  job: { shipmentId: string; consignments: number; shareCzk: number },
+  tripConsignments: number,
+): CostsPayload {
+  const sourceRef = tripJobSourceRef(trip.id, job.shipmentId);
+  if (!trip.priced) return noCosts(sourceRef);
+  const line: CostLinePush = {
+    chargeCode: "road_freight",
+    description: `${trip.ref} ${RUN_TEXT[trip.kind]} share (${job.consignments} of ${tripConsignments} consignment${tripConsignments === 1 ? "" : "s"})`,
+    qty: 1,
+    unit: "trip",
+    unitPrice: job.shareCzk,
+    amount: job.shareCzk,
+    currency: "CZK",
+    vendor: trip.haulierName,
+    haulierId: trip.haulierCustomerId,
+  };
+  return { sourceRef, buying: [line], selling: [] };
+}
+
+/** A partner's delivery of a consignment (buying side); none when it has no price. */
+export function partnerLegCosts(leg: { id: string; buy: PriceSnapshot | null }, consignmentRef: string, partner: { id: string; name: string }): CostsPayload {
+  return { sourceRef: legSourceRef(leg.id), buying: leg.buy ? lines(`${consignmentRef} partner delivery`, leg.buy, partner) : [], selling: [] };
+}

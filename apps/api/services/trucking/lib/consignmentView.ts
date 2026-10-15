@@ -1,5 +1,8 @@
 import type {
   ConsignmentDetail,
+  TripCapacity,
+  TripFill,
+  TripLeg,
   ConsignmentListItem,
   HaulierIssue,
   HaulierStatus,
@@ -10,8 +13,9 @@ import type {
   TripListItem,
   TruckingEventItem,
 } from "../interfaces/interfaces";
-import type { TruckingConsignmentRecord, TruckingHaulierLinkRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
+import type { TruckingConsignmentRecord, TruckingHaulierLinkRecord, TruckingLegRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
 import { approvalCovers, attentionReasons, marginOf, type ConsignmentFacts } from "./consignmentRules";
+import { legItem, ltlBuyCzk, ltlLegsOf } from "./ltlView";
 
 // Rows → API objects for consignments and trips. Pure: the service passes the rows, the margin
 // floor, the haulier's status and the day.
@@ -30,20 +34,36 @@ export const factsOf = (c: TruckingConsignmentRecord, trip: TruckingTripRecord |
   readyToBillAt: c.readyToBillAt,
 });
 
-/** The buy price a consignment's margin is judged with: its trip's, else the estimate from pricing. */
-export const buyCzkOf = (c: TruckingConsignmentRecord, trip: TruckingTripRecord | null): number | null =>
-  trip && !trip.cancelledAt && trip.buyCzk !== null ? trip.buyCzk : c.estBuyCzk;
+/**
+ * The buy price a consignment's margin is judged with: FTL its trip's; LTL its legs' shares and
+ * its partner's delivery price; else the estimate from pricing.
+ */
+export function buyCzkOf(c: TruckingConsignmentRecord, trip: TruckingTripRecord | null, legs: TruckingLegRecord[] = []): number | null {
+  if (c.scope === "LTL") return ltlBuyCzk(c.id, legs) ?? c.estBuyCzk;
+  return trip && !trip.cancelledAt && trip.buyCzk !== null ? trip.buyCzk : c.estBuyCzk;
+}
 
 /** The margin of a consignment now, and whether an approval covers it. */
-export function moneyOf(c: TruckingConsignmentRecord, trip: TruckingTripRecord | null, floor: MarginFloor) {
-  const buyCzk = buyCzkOf(c, trip);
+export function moneyOf(c: TruckingConsignmentRecord, trip: TruckingTripRecord | null, floor: MarginFloor, legs: TruckingLegRecord[] = []) {
+  const buyCzk = buyCzkOf(c, trip, legs);
   const m = marginOf(c.sellCzk, buyCzk, floor);
   const approved = m.belowFloor && approvalCovers(c.marginApproval, m.marginCzk);
   return { sellCzk: c.sellCzk, buyCzk, ...m, marginApproved: approved };
 }
 
-export function listItem(c: TruckingConsignmentRecord, trip: TruckingTripRecord | null, floor: MarginFloor, today: string, now: Date): ConsignmentListItem {
-  const money = moneyOf(c, trip, floor);
+/**
+ * `trip`: an FTL consignment's trip; for LTL the trip of the leg under way (shown in the list).
+ * `legs`: the LTL legs (any consignments'; this one's are picked).
+ */
+export function listItem(
+  c: TruckingConsignmentRecord,
+  trip: TruckingTripRecord | null,
+  floor: MarginFloor,
+  today: string,
+  now: Date,
+  legs: TruckingLegRecord[] = [],
+): ConsignmentListItem {
+  const money = moneyOf(c, trip, floor, legs);
   const liveTrip = trip && !trip.cancelledAt ? trip : null;
   return {
     id: c.id,
@@ -52,7 +72,7 @@ export function listItem(c: TruckingConsignmentRecord, trip: TruckingTripRecord 
     jobNumber: c.jobNumber,
     customerId: c.customerId,
     customerName: c.customerName,
-    scope: "FTL",
+    scope: c.scope,
     serviceLevel: c.serviceLevel,
     status: c.status,
     pickupDate: c.pickupDate,
@@ -112,16 +132,25 @@ export function detail(
   manager: boolean,
   today: string,
   now: Date,
+  legs: TruckingLegRecord[] = [],
+  tripRefs: Map<string, string> = new Map(),
 ): ConsignmentDetail {
-  const item = listItem(c, trip, floor, today, now);
+  const item = listItem(c, trip, floor, today, now, legs);
   const stamps: Record<StampKind, { at: string; by: string } | null> = {
     confirmed: stamp(c.confirmedAt, c.confirmedBy),
     pickedUp: stamp(c.pickedUpAt, c.pickedUpBy),
     delivered: stamp(c.deliveredAt, c.deliveredBy),
     podReceived: stamp(c.podReceivedAt, c.podReceivedBy),
   };
+  const ltl = c.scope === "LTL";
   return {
     ...item,
+    selfDelivered: c.selfDelivered,
+    lastMile: ltl ? c.lastMile : null,
+    partnerHaulierCustomerId: c.partnerHaulierCustomerId,
+    legs: ltl ? ltlLegsOf(c.id, legs).map((l) => legItem(l, l.tripId ? (tripRefs.get(l.tripId) ?? null) : null)) : [],
+    gateInAt: iso(c.gateInAt),
+    promisedFinal: ltl ? c.promisedFinal : c.promisedDate !== null,
     pickup: c.pickup,
     delivery: c.delivery,
     load: c.load,
@@ -134,7 +163,7 @@ export function detail(
     version: c.version,
     events,
     permissions: {
-      canCancel: manager && !c.cancelledAt && !c.pickedUpAt,
+      canCancel: manager && !c.cancelledAt && !c.pickedUpAt && !c.gateInAt,
       canApproveMargin: manager && !c.cancelledAt && item.belowFloor && !item.marginApproved,
       canVoidStamp: manager && !c.cancelledAt,
     },
@@ -166,7 +195,7 @@ export function tripListItem(t: TruckingTripRecord, consignments: { id: string; 
   return {
     id: t.id,
     ref: t.ref,
-    kind: "FTL",
+    kind: t.kind,
     status: t.status,
     haulierCustomerId: t.haulierCustomerId,
     haulierName: t.haulierName,
@@ -186,14 +215,35 @@ export function tripListItem(t: TruckingTripRecord, consignments: { id: string; 
   };
 }
 
+/** What a trip carries: its legs in stop order (LTL), the vehicle's capacity, the fill and the warnings. */
+export interface TripLoadView {
+  legs: TripLeg[];
+  capacity: TripCapacity | null;
+  fill: TripFill;
+  warnings: string[];
+}
+
+const stampOf = (at: Date | null, by: string | null) => (at ? { at: at.toISOString(), by: by ?? "" } : null);
+
 export function tripDetail(
   t: TruckingTripRecord,
   consignments: { id: string; ref: string }[],
   haulier: HaulierAssessment,
   link: TruckingHaulierLinkRecord | null,
   events: TruckingEventItem[],
+  load: TripLoadView,
 ): TripDetail {
   const { consignmentRefs: _refs, ...item } = tripListItem(t, consignments, haulier, link);
   void _refs;
-  return { ...item, buyCandidates: t.buyCandidates, events };
+  return {
+    ...item,
+    buyCandidates: t.buyCandidates,
+    events,
+    legs: load.legs,
+    stopOrder: t.kind === "FTL" ? [] : load.legs.map((l) => l.legId),
+    capacity: load.capacity,
+    fill: load.fill,
+    warnings: load.warnings,
+    stamps: { departed: stampOf(t.departedAt, t.departedBy), arrived: stampOf(t.arrivedAt, t.arrivedBy) },
+  };
 }
