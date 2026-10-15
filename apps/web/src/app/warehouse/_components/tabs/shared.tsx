@@ -233,6 +233,8 @@ export function RecordFormModal<V extends object>({
 }) {
   const [form] = Form.useForm<V>();
   const toast = useToast();
+  // antd's static Modal.confirm does not render under React 19; the hook version does.
+  const [modal, modalHolder] = Modal.useModal();
   // The server's refusal stays in the form (e.g. a dock door already booked) until the next try.
   const [error, setError] = useState("");
 
@@ -281,7 +283,7 @@ export function RecordFormModal<V extends object>({
               type="button"
               className="text-xs text-red-500 hover:underline bg-transparent border-none cursor-pointer p-0"
               onClick={() =>
-                Modal.confirm({
+                modal.confirm({
                   title: "Delete this record?",
                   okText: "Delete",
                   okButtonProps: { danger: true },
@@ -301,6 +303,7 @@ export function RecordFormModal<V extends object>({
         </div>
       )}
     >
+      {modalHolder}
       {note && <div className="mb-3 text-xs text-slate-500">{note}</div>}
       {error && <Alert type="error" showIcon className="!mb-3" message={error} />}
       <Form

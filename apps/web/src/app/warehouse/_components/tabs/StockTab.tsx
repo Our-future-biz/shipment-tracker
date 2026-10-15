@@ -98,11 +98,13 @@ function BuildStockButton() {
   const { user } = useAuth();
   const toast = useToast();
   const { run, isRunning } = useStockSync();
+  // antd's static Modal.confirm does not render under React 19; the hook version does.
+  const [modal, modalHolder] = Modal.useModal();
   if (!isManager(user)) return null;
   const start = async () => {
     try {
       const preview = await run(true);
-      Modal.confirm({
+      modal.confirm({
         title: "Build stock from gate records?",
         width: 560,
         content: (
@@ -135,9 +137,12 @@ function BuildStockButton() {
     }
   };
   return (
-    <Button size="small" icon={<SyncOutlined spin={isRunning} />} onClick={start} disabled={isRunning} title="Manager: create / close the automatic stock lines from the gate records">
-      Build stock from gate records
-    </Button>
+    <>
+      {modalHolder}
+      <Button size="small" icon={<SyncOutlined spin={isRunning} />} onClick={start} disabled={isRunning} title="Manager: create / close the automatic stock lines from the gate records">
+        Build stock from gate records
+      </Button>
+    </>
   );
 }
 

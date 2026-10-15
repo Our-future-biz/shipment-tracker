@@ -48,6 +48,8 @@ const label = "text-[11px] font-bold text-slate-500 uppercase tracking-wide";
 
 export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (survey: SurveyInput) => Promise<unknown> }) {
   const toast = useToast();
+  // antd's static Modal.confirm does not render under React 19; the hook version does.
+  const [modal, modalHolder] = Modal.useModal();
   const { files, upload, remove } = useGateFiles(m.id);
   // Containers live in the warehouse container register; adding one here registers it on this position.
   const { create: addContainer } = useWarehouseContainers();
@@ -131,6 +133,7 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
 
   return (
     <div className="space-y-5">
+      {modalHolder}
       <Section
         title="Cargo survey"
         icon={<FileSearchOutlined />}
@@ -329,7 +332,7 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
             }
           }}
           onDelete={(file) =>
-            Modal.confirm({
+            modal.confirm({
               title: `Remove ${file.fileName}?`,
               content: "The file is taken off this movement.",
               okText: "Remove",

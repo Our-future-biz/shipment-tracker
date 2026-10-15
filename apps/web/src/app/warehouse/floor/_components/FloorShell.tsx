@@ -28,11 +28,14 @@ const STATE_TEXT: Record<ItemStatus["state"], { text: string; tone: string }> = 
 function QueueRow({ item }: { item: QueueItem }) {
   const q = useFloorQueue();
   const st = q.statusOf(item);
+  // antd's static Modal.confirm does not render under React 19; the hook version does.
+  const [modal, modalHolder] = Modal.useModal();
   const s = STATE_TEXT[st.state];
   const canRetry = st.state === "failed";
   const canDiscard = st.state === "failed" || st.state === "too_old";
   return (
     <li className="border-b border-slate-100 py-3 last:border-b-0">
+      {modalHolder}
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[14px] font-bold text-indigo-600">{item.ref}</span>
         <span className="text-[15px] font-semibold text-slate-800">{item.label}</span>
@@ -57,7 +60,7 @@ function QueueRow({ item }: { item: QueueItem }) {
               type="button"
               className={`${bigDefault} !text-red-600 !border-red-300`}
               onClick={() =>
-                Modal.confirm({
+                modal.confirm({
                   title: `Discard “${item.label}” of ${item.ref}?`,
                   content: "It is taken off this phone and never sent. Record it again on the gate job if it is still needed.",
                   okText: "Discard",
