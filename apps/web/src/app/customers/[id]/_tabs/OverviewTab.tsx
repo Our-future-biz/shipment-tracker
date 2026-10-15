@@ -7,7 +7,6 @@ import { CustomerCreditSummaryCard } from "../_components/CustomerCreditSummaryC
 import { CustomerCrmCard } from "../_components/CustomerCrmCard";
 import { CustomerLastInteractionCard } from "../_components/CustomerLastInteractionCard";
 import { CustomerMainContactCard } from "../_components/CustomerMainContactCard";
-import { CustomerNextStepsCard } from "../_components/CustomerNextStepsCard";
 import { CustomerRecentShipmentsCard } from "../_components/CustomerRecentShipmentsCard";
 import { CustomerRegistryCard } from "../_components/CustomerRegistryCard";
 import { CustomerSnapshotTiles } from "../_components/CustomerSnapshotTiles";
@@ -32,11 +31,7 @@ export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
         <CustomerAttentionCard customerId={customerId} onSelectTab={onSelectTab} />
         <CustomerSnapshotTiles customerId={customerId} onSelectTab={onSelectTab} />
         <CustomerRecentShipmentsCard customerId={customerId} onSelectTab={onSelectTab} />
-        {/* "Next steps" hides itself when everything is done; "Last interaction" then takes the whole row. */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start lg:[&>*:only-child]:col-span-2">
-          <CustomerNextStepsCard customer={customer} onSelectTab={onSelectTab} />
-          <CustomerLastInteractionCard customerId={customerId} onSelectTab={onSelectTab} />
-        </div>
+        <CustomerLastInteractionCard customerId={customerId} onSelectTab={onSelectTab} />
         <CustomerCompanyAnalysisCard customer={customer} />
         <CustomerRegistryCard customer={customer} />
       </div>

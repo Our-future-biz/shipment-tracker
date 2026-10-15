@@ -150,6 +150,16 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
     });
   }
 
+  if (!(creditLimit > 0)) {
+    items.push({
+      key: "no-credit-limit",
+      severity: "warning",
+      title: "No credit limit",
+      detail: "Set how much this customer may owe.",
+      tab: "finance",
+    });
+  }
+
   const typesOnFile = new Set(documents.map((document) => documentTypeKey(document.type)));
   const missingTypes = ATTENTION_RULES.requiredDocumentTypes.map(documentTypeKey).filter((type) => !typesOnFile.has(type));
   if (missingTypes.length > 0) {
