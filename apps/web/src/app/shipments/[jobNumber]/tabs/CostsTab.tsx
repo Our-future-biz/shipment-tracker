@@ -12,16 +12,9 @@ import type { ShipmentItem } from "@/hooks/useShipments";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { normaliseAmount } from "@/lib/money";
 import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
+import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
-
-/** Cost categories (shared by buying and selling). */
-const COST_CATEGORIES = [
-  "Ocean freight", "Air freight", "Rail freight", "Road freight",
-  "Documentation", "THC Origin", "THC Destination", "Customs clearance",
-  "Handling", "Delivery", "Pickup", "Insurance", "Inspection",
-  "Storage", "Demurrage", "Other",
-];
 
 interface CurrencyPickerProps {
   value: string;
@@ -526,7 +519,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                                  [&_.ant-select-selection-item]:!text-[13px]${
                         locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
                       }`}
-                      options={COST_CATEGORIES.map((v) => ({ value: v, label: v }))}
+                      options={chargeOptions(r.category)}
                       onChange={(v) => updateBuy.mutate({ id: r.id, category: v })}
                     />
                   </td>
@@ -727,7 +720,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                                  [&_.ant-select-selection-item]:!text-[13px]${
                         locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
                       }`}
-                      options={COST_CATEGORIES.map((v) => ({ value: v, label: v }))}
+                      options={chargeOptions(r.category)}
                       onChange={(v) => updateSell.mutate({ id: r.id, category: v })}
                     />
                   </td>
@@ -742,7 +735,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     <input
                       className={`${FIELD}${fld}`}
                       defaultValue={r.customer}
-                      placeholder={r.category ? `On the invoice: ${r.category}` : "Text on the invoice"}
+                      placeholder={r.category ? `On the invoice: ${chargeLabel(r.category)}` : "Text on the invoice"}
                       maxLength={200}
                       aria-label="Invoice text"
                       onBlur={(e) => e.target.value !== r.customer && updateSell.mutate({ id: r.id, customer: e.target.value })}

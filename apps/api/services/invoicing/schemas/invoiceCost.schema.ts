@@ -7,6 +7,7 @@ export const invoiceCostTable = pgTable(
     ...defaultTableColumns,
     ...tenantColumns,
     shipmentId: uuid("shipment_id").notNull(),
+    /** The charge code (apps/api/lib/chargeCodes.ts), e.g. "road_freight"; older rows may hold text typed before the catalogue. */
     category: text("category").notNull().default(""),
     /** What the cost is for, in words - the category alone cannot tell two lines of one kind apart. */
     description: text("description").notNull().default(""),
@@ -18,10 +19,14 @@ export const invoiceCostTable = pgTable(
     realQty: numeric("real_qty", { precision: 14, scale: 2 }),
     realAmount: numeric("real_amount", { precision: 14, scale: 2 }),
     realCurrency: text("real_currency").notNull().default("CZK"),
+    /** What the quantity counts ("km", "pallet", "hour"); "" = a charge counted as a whole. */
+    unit: text("unit").notNull().default(""),
     invoiceNumber: text("invoice_number").notNull().default(""),
     /** the vendor's invoice has been received */
     received: boolean("received").notNull().default(false),
     vendor: text("vendor").notNull().default(""),
+    /** The haulier the cost is owed to: a company of the Customer Database (no FK - another service's database). */
+    haulierId: uuid("haulier_id"),
     sortOrder: integer("sort_order").notNull().default(0),
     /** The sales quote the row was copied from; "" for a row entered by hand. Tells whether a quote was already copied. */
     sourceQuoteNumber: text("source_quote_number").notNull().default(""),

@@ -6,25 +6,28 @@ import { PlusOutlined } from "@ant-design/icons";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, moneyInputParser } from "@/lib/money";
 import type { CostLine, SalesQuoteData } from "@/app/sales/_lib/types";
-import { COST_LINE_TYPES } from "@/app/sales/_lib/types";
+import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
 import { convertLine, quoteCurrency, type LivePricing } from "@/app/sales/_lib/salesQuote";
 import { MiniButton, RemoveLineButton } from "./QuoteButtons";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./LineBlock";
 
-// The freight line that goes with each freight mode - what a new cost line most likely is.
-const FREIGHT_LINE_TYPE: Record<string, string> = {
-  Air: "Air freight",
-  "Sea FCL": "Ocean freight",
-  "Sea LCL": "Ocean freight",
-  Rail: "Rail freight",
-  Road: "Road freight",
+// The freight charge that goes with each freight mode - what a new cost line most likely is.
+const FREIGHT_LINE_CODE: Record<string, string> = {
+  Air: "air_freight",
+  "Sea FCL": "ocean_freight",
+  "Sea LCL": "ocean_freight",
+  Rail: "rail_freight",
+  Road: "road_freight",
 };
+
+// A line stores its charge code and, for the print and older readers, its label as the type.
+const chargeOf = (code: string): Pick<CostLine, "type" | "chargeCode"> => ({ type: chargeLabel(code), chargeCode: code });
 
 // A new cost line is in the quote's currency, so adding one never mixes currencies by accident.
 const newCostLine = (quote: SalesQuoteData): CostLine => ({
-  type: FREIGHT_LINE_TYPE[quote.serviceType ?? ""] ?? "Other",
+  ...chargeOf(FREIGHT_LINE_CODE[quote.serviceType ?? ""] ?? "other"),
   description: "",
   supplier: "",
   currency: quoteCurrency(quote),
@@ -110,9 +113,9 @@ export function CostLinesEditor({
                       size="small"
                       className="w-full"
                       aria-label="Type"
-                      value={l.type}
-                      onChange={(v) => patch(i, { type: v })}
-                      options={COST_LINE_TYPES.map((t) => ({ value: t, label: t }))}
+                      value={l.chargeCode || toChargeCode(l.type)}
+                      onChange={(v) => patch(i, chargeOf(v))}
+                      options={chargeOptions(l.chargeCode || toChargeCode(l.type))}
                     />
                   </td>
                   <td className={LINE_TD_CLASS}>

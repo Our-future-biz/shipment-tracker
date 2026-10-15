@@ -58,15 +58,7 @@ export const FULL_LOAD: LoadType = "Full Load";
 export const BOL_TYPES = ["OBL", "SWB", "TLX", "Express"] as const;
 export type BolType = (typeof BOL_TYPES)[number];
 
-export const INVOICE_COST_CATEGORIES = [
-  "freight",
-  "collection",
-  "locals",
-  "others",
-  "insurance",
-  "customs",
-] as const;
-export type InvoiceCostCategory = (typeof INVOICE_COST_CATEGORIES)[number];
+// Cost categories are charge codes: the catalogue is CHARGE_CODES in @/lib/chargeCodes.
 
 // Status badge colors for the UI
 export const STATUS_COLORS: Record<string, string> = {

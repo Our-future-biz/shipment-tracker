@@ -82,6 +82,7 @@ const buying = (category: string): QuoteBuyingRow => ({
   estCurrency: "USD",
   realQty: "1",
   realCurrency: "USD",
+  unit: "",
 });
 const selling = (category: string): QuoteSellingRow => ({ category, description: "", customer: "ITTEC s.r.o.", qty: "1", amount: "2400.00", currency: "USD", invoice: true });
 const BUYING = [buying("Ocean freight"), buying("THC Destination")];

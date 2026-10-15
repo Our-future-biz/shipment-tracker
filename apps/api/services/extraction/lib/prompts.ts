@@ -1,3 +1,5 @@
+import { OFFERED_CHARGE_CODES } from "../../../lib/chargeCodes";
+
 // How the readers write places and countries; places.service then matches them to the database.
 export const PLACE_RULES = `Places and countries:
 - Origin, POL, POD, Destination: the place name as printed plus its country, e.g. "Halifax, Canada". If the document prints a UN/LOCODE (e.g. "DEHAM"), return that code instead.
@@ -35,7 +37,7 @@ Rules:
 - invoice_date: DD/MM/YYYY format
 - due_date: DD/MM/YYYY format
 - description: brief summary, max 80 characters
-- service_type: one of "freight", "collection", "locals", "others", "insurance", "customs"
+- service_type: the charge the invoice is for, one of ${OFFERED_CHARGE_CODES.map((c) => `"${c}"`).join(", ")}
 - Return ONLY a JSON object. No markdown, no explanation, no code fences.`;
 
 export const CUSTOMS_PROMPT = `You are a customs document data extractor. You read the MRN (Movement Reference Number) and basic shipment data from:

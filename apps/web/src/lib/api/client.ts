@@ -946,6 +946,7 @@ export namespace invoicing {
             this.invoicingDeleteSellingCost = this.invoicingDeleteSellingCost.bind(this)
             this.invoicingGet = this.invoicingGet.bind(this)
             this.invoicingImportQuote = this.invoicingImportQuote.bind(this)
+            this.invoicingSplitCost = this.invoicingSplitCost.bind(this)
             this.invoicingUpdateBuyingCost = this.invoicingUpdateBuyingCost.bind(this)
             this.invoicingUpdateCharge = this.invoicingUpdateCharge.bind(this)
             this.invoicingUpdateSellingCost = this.invoicingUpdateSellingCost.bind(this)
@@ -1106,6 +1107,18 @@ export namespace invoicing {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/${encodeURIComponent(shipmentId)}/import-quote`, JSON.stringify(params))
             return await resp.json() as interfaces.QuoteImportResult
+        }
+
+        /**
+         * Splits one vendor invoice over shipments by weight - a master job's invoice by each
+         * shipment's freight tons - so the parts add up to the total to the cent, and posts each part
+         * as the real cost of the shipment's line of the charge code. With `dryRun` it only answers the
+         * split and the real cost each shipment already has, for the review before posting.
+         */
+        public async invoicingSplitCost(params: controllers.SplitCostRequest): Promise<controllers.SplitCostResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/invoicing/cost-split`, JSON.stringify(params))
+            return await resp.json() as controllers.SplitCostResponse
         }
 
         public async invoicingUpdateBuyingCost(shipmentId: string, costId: string, params: controllers.UpdateBuyingRequest): Promise<controllers.BuyingResponse> {
@@ -2918,7 +2931,11 @@ export namespace warehouse {
 
 export namespace controllers {
     export interface AddBuyingRequest {
+        /**
+         * the charge code (apps/api/lib/chargeCodes.ts); a label is stored as its code
+         */
         category?: string
+
         /**
          * what is charged, in words (from the quote)
          */
@@ -2931,8 +2948,18 @@ export namespace controllers {
         realQty?: string
         realAmount?: string
         realCurrency?: string
+        /**
+         * what the quantity counts ("km", "pallet")
+         */
+        unit?: string
+
         invoiceNumber?: string
         received?: boolean
+        /**
+         * a Customer Database company id; "" clears it
+         */
+        haulierId?: string
+
         sortOrder?: number
     }
 
@@ -5391,6 +5418,35 @@ export namespace controllers {
         shipment: interfaces.ShipmentItem
     }
 
+    export interface SplitCostRequest {
+        /**
+         * the charge code the parts are posted under
+         */
+        category: string
+
+        /**
+         * the invoice total, a decimal string ("1250.50")
+         */
+        total: string
+
+        currency: string
+        invoiceNumber: string
+        lines: interfaces.CostSplitLine[]
+        /**
+         * shipments whose real cost of the code is replaced; the others keep theirs
+         */
+        overwriteShipmentIds?: string[]
+
+        /**
+         * only answer the split, write nothing
+         */
+        dryRun?: boolean
+    }
+
+    export interface SplitCostResponse {
+        lines: interfaces.CostSplitResultLine[]
+    }
+
     export interface StaffListResponse {
         staff: interfaces.WarehouseStaffItem[]
     }
@@ -5489,8 +5545,18 @@ export namespace controllers {
         realQty?: string
         realAmount?: string
         realCurrency?: string
+        /**
+         * what the quantity counts ("km", "pallet")
+         */
+        unit?: string
+
         invoiceNumber?: string
         received?: boolean
+        /**
+         * a Customer Database company id; "" clears it
+         */
+        haulierId?: string
+
         /**
          * position in the list (undo / re-insert keeps a line where it was)
          */
@@ -6219,6 +6285,44 @@ export namespace interfaces {
          * Why nothing was copied; "Copy from quote" on the Costs tab does it later.
          */
         error?: string
+    }
+
+    /**
+     * A shipment's real cost that a split would replace.
+     */
+    export interface CostSplitExisting {
+        realAmount: string
+        realCurrency: string
+        invoiceNumber: string
+    }
+
+    /**
+     * A shipment and its weight in a split (freight tons, or any measure the split goes by).
+     */
+    export interface CostSplitLine {
+        shipmentId: string
+        weight: number
+    }
+
+    /**
+     * A shipment's part of a split cost.
+     */
+    export interface CostSplitResultLine {
+        shipmentId: string
+        /**
+         * its part ("33.34"); null for a shipment of weight 0, which gets nothing
+         */
+        amount: string | null
+
+        /**
+         * the real cost the shipment already has under the code
+         */
+        existing: CostSplitExisting | null
+
+        /**
+         * the part was posted to the shipment
+         */
+        written: boolean
     }
 
     export interface CustomerItem {
@@ -7229,9 +7333,19 @@ export namespace interfaces {
         realQty: string | null
         realAmount: string | null
         realCurrency: string
+        /**
+         * what the quantity counts ("km", "pallet"); "" = a charge counted as a whole
+         */
+        unit: string
+
         invoiceNumber: string
         received: boolean
         vendor: string
+        /**
+         * the haulier the cost is owed to (a Customer Database company), or null
+         */
+        haulierId: string | null
+
         sortOrder: number
     }
 

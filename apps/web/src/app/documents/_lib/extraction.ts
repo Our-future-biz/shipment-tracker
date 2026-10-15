@@ -86,15 +86,6 @@ export const SHIPMENT_FIELD_MAP: Record<string, ShipmentTextField> = {
   "Freight Mode": "freightMode",
 };
 
-export const COST_CATEGORY_OPTIONS = [
-  { value: "freight", label: "Freight" },
-  { value: "collection", label: "Collection / Delivery" },
-  { value: "locals", label: "Locals" },
-  { value: "others", label: "Others" },
-  { value: "insurance", label: "Insurance" },
-  { value: "customs", label: "Customs clearance" },
-] as const;
-
 export const INVOICE_FIELD_LABELS: Record<string, string> = {
   total_amount: "Total Amount",
   currency: "Currency",

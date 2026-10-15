@@ -33,8 +33,12 @@ interface UpdateBuyingRequest {
   realQty?: string;
   realAmount?: string;
   realCurrency?: string;
+  /** what the quantity counts ("km", "pallet") */
+  unit?: string;
   invoiceNumber?: string;
   received?: boolean;
+  /** a Customer Database company id; "" clears it */
+  haulierId?: string;
   /** position in the list (undo / re-insert keeps a line where it was) */
   sortOrder?: number;
 }

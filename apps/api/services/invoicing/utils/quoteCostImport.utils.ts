@@ -3,6 +3,8 @@
 // currency of its line - nothing is added up and nothing converted. The document comes from
 // browsers, so nothing about its shape is taken for granted. Pure, so the mapping has its test.
 
+import { toChargeCode } from "../../../lib/chargeCodes";
+
 /** A buying row of Costs Breakdown, as a quote's buying line fills it. */
 export interface QuoteBuyingRow {
   category: string;
@@ -13,6 +15,7 @@ export interface QuoteBuyingRow {
   estCurrency: string;
   realQty: string;
   realCurrency: string;
+  unit: string;
 }
 
 /** A selling row of Costs Breakdown, as a quote's selling line fills it. */
@@ -26,7 +29,7 @@ export interface QuoteSellingRow {
   invoice: boolean;
 }
 
-// A quote line is one charge: its amount is the whole of it.
+// A quote line without a unit price is one charge: its amount is the whole of it.
 const ONE = "1";
 
 // An amount column is numeric(14, 2): fourteen digits when counted in cents.
@@ -67,9 +70,15 @@ interface QuoteLine {
   category: string;
   description: string;
   supplier: string;
+  /** the quantity of the row: the line's own with its unit price, else 1 */
+  qty: string;
+  unit: string;
+  /** the price of one `qty`: the unit price, or the whole line's amount when the qty is 1 */
   amount: string | null;
   currency: string;
 }
+
+const toAmount = (cents: number | null) => (cents === null ? null : (cents / 100).toFixed(2));
 
 // The lines of one side that say something. A line nobody filled in - the editor adds new lines
 // with a type and the amount 0 - has no amount, no description and no supplier, and is left out.
@@ -82,11 +91,19 @@ function linesOf(value: unknown, quoteCurrency: string): QuoteLine[] {
     const description = text(line.description);
     const supplier = text(line.supplier);
     if (!cents && !description && !supplier) continue;
+    // A line priced per unit (a tariff: 420 km at 1.15) is copied as its quantity and unit price;
+    // the amount alone is the whole charge, counted once.
+    const qtyCents = centsOf(line.qty);
+    const unitPriceCents = centsOf(line.unitPrice);
+    const perUnit = qtyCents !== null && qtyCents > 0 && unitPriceCents !== null;
     lines.push({
-      category: text(line.type),
+      // Stored as its charge code: the code the editor keeps, else the type (a label) as its code.
+      category: toChargeCode(text(line.chargeCode) || text(line.type)),
       description,
       supplier,
-      amount: cents === null ? null : (cents / 100).toFixed(2),
+      qty: perUnit ? toAmount(qtyCents)! : ONE,
+      unit: text(line.unit),
+      amount: perUnit ? toAmount(unitPriceCents) : toAmount(cents),
       // A line without a currency of its own is in the quote's.
       currency: text(line.currency) || quoteCurrency,
     });
@@ -109,17 +126,18 @@ export function quoteLinesToCostRows(data: unknown): { buying: QuoteBuyingRow[];
       category: line.category,
       description: line.description,
       vendor: line.supplier,
-      estQty: ONE,
+      estQty: line.qty,
       estAmount: line.amount,
       estCurrency: line.currency,
-      realQty: ONE,
+      realQty: line.qty,
       realCurrency: line.currency,
+      unit: line.unit,
     })),
     selling: linesOf(doc.sellingLines, quoteCurrency).map((line) => ({
       category: line.category,
       description: line.description,
       customer,
-      qty: ONE,
+      qty: line.qty,
       amount: line.amount,
       currency: line.currency,
       invoice: true,
