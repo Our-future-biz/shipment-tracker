@@ -155,10 +155,11 @@ describe("marginGateMessage", () => {
     );
   });
 
-  it("adds why the margin cannot be worked out", () => {
+  it("says why the margin cannot be worked out and what lets the quote go, without asking for an approval", () => {
     const unknown = roadMargin(road([line(1, "EUR")], []), ctx({ rates: {} }))!;
+    expect(unknown.needsApproval).toBe(true);
     expect(marginGateMessage(unknown)).toBe(
-      "The margin cannot be worked out, so it counts as below the floor of 8 % / 300 CZK. A manager must approve it before the quote is sent. No ČNB rate for EUR on 2026-10-15.",
+      "The margin cannot be worked out: No ČNB rate for EUR on 2026-10-15. The quote can be sent once the rate is available or its lines are in CZK.",
     );
   });
 });

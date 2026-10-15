@@ -157,7 +157,10 @@ export function formatMargin(marginCzk: number, marginPercent: number | null): s
 export function marginGateMessage(margin: RoadMargin): string {
   const floor = `${formatPercent(margin.floorPercent)} / ${formatCzk(margin.floorMinCzk)}`;
   const approve = "A manager must approve it before the quote is sent.";
-  // The margin is unknown exactly when a rate is missing: the sentence then says which.
-  if (margin.marginCzk === null) return `The margin cannot be worked out, so it counts as below the floor of ${floor}. ${approve} ${margin.problem}.`;
+  // The margin is unknown exactly when a rate is missing: no approval can cover that (one is
+  // compared with a known margin), so the sentence says what makes the quote sendable instead.
+  if (margin.marginCzk === null) {
+    return `The margin cannot be worked out: ${margin.problem}. The quote can be sent once the rate is available or its lines are in CZK.`;
+  }
   return `The margin of ${formatMargin(margin.marginCzk, margin.marginPercent)} is below the floor of ${floor}. ${approve}`;
 }
