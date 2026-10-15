@@ -2427,7 +2427,9 @@ export namespace trucking {
         }
 
         /**
-         * Trucking reports and KPIs of a period (any user): KPIs, margin, haulier scorecard, coverage gaps and the department result.
+         * Reports tab: the KPIs of the period (delivered date, Prague), the margin tables, the haulier
+         * scorecard, the coverage gaps and the department result. Any logged-in user of the company (all
+         * users see buy prices).
          */
         public async truckingReport(params: controllers.TruckingReportRequest): Promise<{
     report: interfaces.TruckingReport
@@ -2446,9 +2448,12 @@ export namespace trucking {
         }
 
         /**
-         * The Trucking report of a period as an Excel workbook.
+         * The same report as an Excel workbook (sheets KPIs, Margin by customer / lane / service level,
+         * Hauliers, Coverage gaps, Department).
          */
-        public async truckingReportExport(params: controllers.TruckingReportRequest): Promise<controllers.TruckingFileResponse> {
+        public async truckingReportExport(params: controllers.TruckingReportRequest): Promise<{
+    file: interfaces.FileDownload
+}> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 from: params.from,
@@ -2457,7 +2462,9 @@ export namespace trucking {
 
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/reports/export`, undefined, {query})
-            return await resp.json() as controllers.TruckingFileResponse
+            return await resp.json() as {
+    file: interfaces.FileDownload
+}
         }
 
         /**
@@ -7099,14 +7106,26 @@ export namespace controllers {
 
     export interface TruckingReportRequest {
         /**
-         * YYYY-MM-DD (Prague), first day included
+         * YYYY-MM-DD (Prague), first day included; default 6 days before `to`.
          */
-        from: string
+        from?: string
 
         /**
-         * YYYY-MM-DD (Prague), last day included; at most 366 days
+         * YYYY-MM-DD (Prague), last day included; default today. At most 366 days.
          */
-        to: string
+        to?: string
+    }
+
+    export interface TruckingReportRequest {
+        /**
+         * YYYY-MM-DD (Prague), first day included; default 6 days before `to`.
+         */
+        from?: string
+
+        /**
+         * YYYY-MM-DD (Prague), last day included; default today. At most 366 days.
+         */
+        to?: string
     }
 
     export interface TruckingSettingsResponse {
@@ -8504,15 +8523,26 @@ export namespace interfaces {
     }
 
     /**
-     * A lane asked for (rate calculator, quotes, consignments) that a tariff could not price, in the period.
+     * A lane asked for (rate calculator / quotes / consignments) that a tariff could not price.
      */
     export interface CoverageGap {
         side: "SELL" | "BUY" | "INTERNAL"
         scope: "LTL" | "FTL" | "LINEHAUL"
         serviceLevel: ServiceLevelCode | null
+        /**
+         * CZ postcode, 5 digits
+         */
         postcode: string
+
         reason: string
+        /**
+         * How many times it was asked for (all time)
+         */
         count: number
+
+        /**
+         * ISO, the last time
+         */
         lastAt: string
     }
 
@@ -8789,13 +8819,17 @@ export namespace interfaces {
     }
 
     /**
-     * Trucking department P&L for the period (internal billing included).
+     * The Trucking department's result for the period (internal billing included).
      */
     export interface DepartmentResult {
         externalSellCzk: number
         internalChargesCzk: number
         haulierCostCzk: number
+        /**
+         * externalSell + internalCharges − haulierCost
+         */
         resultCzk: number
+
         internalByDepartment: {
             department: string
             amountCzk: number
@@ -9931,23 +9965,51 @@ export namespace interfaces {
     export interface HaulierScore {
         haulierCustomerId: string
         name: string
-        trips: number
-        consignments: number
-        onTimePercent: number | null
-        firstAttemptPercent: number | null
-        avgDaysToPod: number | null
-        claims: number
-        claimedCzk: number
-        costCzk: number
-        costPerKg: number | null
-        invoicesBlocked: number
         /**
-         * Σ |difference| of approved invoices
+         * Trips (and partner deliveries) that carried the period's delivered consignments
+         */
+        trips: number
+
+        /**
+         * Delivered consignments the haulier carried (any leg)
+         */
+        consignments: number
+
+        /**
+         * Of the consignments the haulier delivered (the last leg)
+         */
+        onTimePercent: number | null
+
+        firstAttemptPercent: number | null
+        /**
+         * Working days from delivered to POD received
+         */
+        avgDaysToPod: number | null
+
+        /**
+         * Claims (CLAIM_HAULIER exceptions) raised in the period
+         */
+        claims: number
+
+        claimedCzk: number
+        /**
+         * The haulier's part of the period's delivered consignments (real when invoiced and approved, else estimate)
+         */
+        costCzk: number
+
+        costPerKg: number | null
+        /**
+         * Invoices blocked now
+         */
+        invoicesBlocked: number
+
+        /**
+         * Σ |difference| of invoices approved in the period
          */
         invoiceDifferenceCzk: number
 
         /**
-         * current profile status
+         * Current profile status
          */
         status: HaulierStatus
     }
@@ -10526,9 +10588,12 @@ export namespace interfaces {
         minAmountCzk: number
     }
 
+    /**
+     * One line of a margin table (Road consignments delivered in the period; internal ones are left out).
+     */
     export interface MarginRow {
         /**
-         * customer id / lane key / service level code / haulier id
+         * customer id / lane key ("11000>60200") / service level code ("" = none) / haulier id
          */
         key: string
 
@@ -10541,9 +10606,13 @@ export namespace interfaces {
         sellCzk: number
         buyCzk: number
         marginCzk: number
-        marginPercent: number | null
         /**
-         * how many consignments were below the floor
+         * null when the sell is 0
+         */
+        marginPercent: number | null
+
+        /**
+         * How many consignments were below the floor
          */
         belowFloor: number
     }
@@ -12740,25 +12809,61 @@ export namespace interfaces {
     }
 
     export interface TruckingKpi {
-        key: "onTime" | "firstAttempt" | "daysToPod" | "podMissing" | "lineHaulFill" | "costPerKg" | "costPerPallet" | "margin" | "exceptionRate" | "avizaceDone"
+        key: TruckingKpiKey
         label: string
+        /**
+         * null when it cannot be measured in this period (see `notMeasured`).
+         */
         value: number | null
+
+        /**
+         * % · working days · consignments · CZK/kg · CZK/pallet place · per 100 consignments
+         */
         unit: string
+
+        /**
+         * How many records the value is built from.
+         */
         n: number
+
+        /**
+         * "How it is measured": start → stop, the population and the rule.
+         */
         measured: string
+
+        /**
+         * Why the value is null (or what is left out); "" when nothing is missing.
+         */
         notMeasured: string
+
         breakdown: TruckingKpiPart[]
     }
 
+    export type TruckingKpiKey = "onTime" | "firstAttempt" | "daysToPod" | "podMissing" | "lineHaulFill" | "costPerKg" | "costPerPallet" | "margin" | "exceptionRate" | "avizaceDone"
+
+    /**
+     * One extra figure of a KPI (per service level, per scope, per haulier, P90 …).
+     */
     export interface TruckingKpiPart {
         label: string
+        /**
+         * null = not measured (no data).
+         */
         value: number | null
+
         unit: string
+        /**
+         * How many records the figure is built from.
+         */
         n: number
     }
 
     export interface TruckingReport {
+        /**
+         * YYYY-MM-DD (Prague), both days included
+         */
         from: string
+
         to: string
         kpis: TruckingKpi[]
         marginByCustomer: MarginRow[]
