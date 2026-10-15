@@ -1,4 +1,5 @@
 import { api, Query } from "encore.dev/api";
+import type { MaxLen } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
 import { gateMovementService, type StampKind } from "../services/gateMovement.service";
@@ -17,26 +18,39 @@ interface GateMovementListRequest {
   archived?: Query<boolean>;
 }
 
-// The Gate Log. Linked records whose customs status was not read lately follow their
-// shipment first (a limited number per call, never waiting long for Shipments).
+// The Gate Log (reads only; the shipments' customs status comes in through gateMovementFollow).
 export const gateMovementList = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-gate" },
   async ({ archived }: GateMovementListRequest): Promise<{ movements: GateMovementItem[] }> => {
-    return { movements: await gateMovementService.list(getAuthData()!.companyID, { archived: !!archived, follow: true }) };
+    return { movements: await gateMovementService.list(getAuthData()!.companyID, { archived: !!archived }) };
   },
 );
 
 interface GateMovementGetRequest {
   id: string;
-  /** true ("Refresh"): read the linked shipment's customs status now, not only after 30 s. */
-  refresh?: Query<boolean>;
 }
 
-// One record, live or archived; a linked one follows its shipment's customs status.
+// One record, live or archived (reads only).
 export const gateMovementGet = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-gate/:id" },
-  async ({ id, refresh }: GateMovementGetRequest): Promise<GateMovementResponse> => {
-    return { movement: await gateMovementService.get(id, getAuthData()!.companyID, { follow: true, force: !!refresh }) };
+  async ({ id }: GateMovementGetRequest): Promise<GateMovementResponse> => {
+    return { movement: await gateMovementService.get(id, getAuthData()!.companyID) };
+  },
+);
+
+interface GateMovementFollowRequest {
+  /** One record ("Refresh" on the job); without it, a limited number of records not read lately. */
+  id?: string;
+  /** With `id`: read it now, even if it was read in the last half minute. */
+  force?: boolean;
+}
+
+// Linked records read their shipment's customs status (and move their stock / bonded entry with
+// it). The Gate Log calls this when it opens and the job's "Refresh" with `force`.
+export const gateMovementFollow = api(
+  { expose: true, auth: true, method: "POST", path: "/warehouse-gate/follow" },
+  async ({ id, force }: GateMovementFollowRequest): Promise<{ changed: number }> => {
+    return { changed: await gateMovementService.followShipments(getAuthData()!.companyID, { id, force: !!force }) };
   },
 );
 
@@ -55,13 +69,15 @@ export const gateMovementCreate = api(
 
 interface GateMovementUpdateRequest extends GateMovementInput {
   id: string;
+  /** Required (managers only) to change the link or direction of a position linked to a shipment. */
+  linkChangeReason?: string & MaxLen<500>;
 }
 
 export const gateMovementUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/warehouse-gate/:id" },
-  async ({ id, ...data }: GateMovementUpdateRequest): Promise<GateMovementResponse> => {
+  async ({ id, linkChangeReason, ...data }: GateMovementUpdateRequest): Promise<GateMovementResponse> => {
     const { companyID, userID, role } = getAuthData()!;
-    return { movement: await gateMovementService.update(id, companyID, userID, data, role) };
+    return { movement: await gateMovementService.update(id, companyID, userID, data, role, linkChangeReason) };
   },
 );
 

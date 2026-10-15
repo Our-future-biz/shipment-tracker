@@ -44,6 +44,8 @@ export function FloorContainer({ id }: { id: string }) {
   const { container: base, isLoading } = useWarehouseContainer(id);
   const c = useMemo(() => (base ? applyPendingContainer(base, q.items) : undefined), [base, q.items]);
   const [confirm, setConfirm] = useState<"gateIn" | "strippingStart" | null>(null);
+  // A second tap while the first stamp is on its way would send a second write.
+  const [stamping, setStamping] = useState(false);
   const toast = useToast();
 
   if (!c) {
@@ -65,9 +67,15 @@ export function FloorContainer({ id }: { id: string }) {
   };
 
   const stamp = async (k: "gateIn" | "strippingStart") => {
-    const res = await q.submit({ kind: "containerStamp", label: CONTAINER_STAMP_LABEL[k], payload: { containerId: c.id, containerNumber: c.number, kind: k } });
-    report(res, `${CONTAINER_STAMP_LABEL[k]} stamped`);
-    setConfirm(null);
+    if (stamping) return;
+    setStamping(true);
+    try {
+      const res = await q.submit({ kind: "containerStamp", label: CONTAINER_STAMP_LABEL[k], payload: { containerId: c.id, containerNumber: c.number, kind: k } });
+      report(res, `${CONTAINER_STAMP_LABEL[k]} stamped`);
+    } finally {
+      setStamping(false);
+      setConfirm(null);
+    }
   };
 
   return (
@@ -121,7 +129,7 @@ export function FloorContainer({ id }: { id: string }) {
         <div className="fixed inset-x-0 bottom-0 z-10 border-t border-slate-200 bg-white/95 px-4 pb-[max(12px,env(safe-area-inset-bottom))] pt-3">
           <div className="mx-auto max-w-[560px]">
             {containerStampBlocked(c, queueable) && <div className="mb-2 text-[13px] font-semibold text-red-600">{containerStampBlocked(c, queueable)}</div>}
-            <button type="button" className={bigPrimary} disabled={!!containerStampBlocked(c, queueable)} onClick={() => setConfirm(queueable)}>
+            <button type="button" className={bigPrimary} disabled={!!containerStampBlocked(c, queueable) || stamping} onClick={() => setConfirm(queueable)}>
               {CONTAINER_STAMP_LABEL[queueable]}
             </button>
           </div>
@@ -138,6 +146,7 @@ export function FloorContainer({ id }: { id: string }) {
             q.online ? "" : ` No connection — it will be sent when the phone is back online, with the time now (${hhmm(new Date().toISOString())}).`
           }`}
           confirmLabel={CONTAINER_STAMP_LABEL[confirm]}
+          loading={stamping}
         />
       )}
     </div>

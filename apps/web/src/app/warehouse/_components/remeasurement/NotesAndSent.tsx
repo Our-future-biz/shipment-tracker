@@ -11,8 +11,8 @@ import type { GateMovement } from "@/hooks/useGateLog";
 import { nf } from "../../gate-log/_lib/gate";
 import { Card } from "../tabs/shared";
 import type { JobDraft } from "./useJobDraft";
-import type { SupplierKind } from "../../settings/_lib/useWarehouseSettings";
-import { mayHaveGoneOut, sentNotRecorded, type SupplierEmail } from "./useSupplierEmail";
+import type { SupplierKind } from "@/hooks/useWarehouseSettings";
+import { mayHaveGoneOut, sentNotRecorded, type SupplierEmail } from "@/hooks/useSupplierEmail";
 import { SEND_LABEL } from "./SendToSupplierModal";
 
 // Block D — warehouse notes (saved with the lines from the "Save changes" bar) and "Sent to

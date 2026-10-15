@@ -1,5 +1,5 @@
-// Read a File's bytes as base64 (without the `data:...;base64,` prefix).
-export function fileToBase64(file: File): Promise<string> {
+// Read a File's (or any Blob's) bytes as base64 (without the `data:...;base64,` prefix).
+export function fileToBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");

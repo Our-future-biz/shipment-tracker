@@ -227,6 +227,7 @@ export function GateJobView({ id }: { id: string }) {
   const [printOpen, setPrintOpen] = useState(false);
   const [confirmStamp, setConfirmStamp] = useState<{ kind: GateStampKind; label: string } | null>(null);
   const [reweighOpen, setReweighOpen] = useState(false);
+  const [linkChange, setLinkChange] = useState<controllers.GateMovementUpdateRequest | null>(null);
 
   if (isLoading) {
     return (
@@ -246,8 +247,25 @@ export function GateJobView({ id }: { id: string }) {
     );
   }
 
-  const save = (data: Omit<controllers.GateMovementUpdateRequest, "id">) =>
-    update.mutateAsync(data).catch((e) => toast.error(errorMessage(e, "Failed to save")));
+  // The direction (visit / handling) or the position link of a record linked to a shipment decides
+  // the pick-up PIN and what the shipment is told: the server takes a change only from a manager,
+  // with a logged reason.
+  const changesLink = (data: controllers.GateMovementUpdateRequest) =>
+    !!m.shipmentId &&
+    ((data.visit !== undefined && data.visit !== m.visit) ||
+      (data.handling !== undefined && data.handling !== m.handling) ||
+      (data.warehouseTaskId !== undefined && data.warehouseTaskId !== m.warehouseTaskId));
+  const save = (data: controllers.GateMovementUpdateRequest) => {
+    if (changesLink(data)) {
+      if (!manager) {
+        toast.error("This record is linked to a shipment — only a manager can change its direction or position, with a reason.");
+        return Promise.resolve();
+      }
+      setLinkChange(data);
+      return Promise.resolve();
+    }
+    return update.mutateAsync(data).catch((e) => toast.error(errorMessage(e, "Failed to save")));
+  };
 
   // Stamps are final, so each one is confirmed first (as in the Gate Log bulk bar).
   const pickStamp = (kind: GateStampKind, label: string, at: string | null) => {
@@ -608,6 +626,20 @@ export function GateJobView({ id }: { id: string }) {
       <PrintLabelsModal open={printOpen} movements={[m]} onClose={() => setPrintOpen(false)} />
       <ReweighModal open={reweighOpen} movementId={m.id} label={m.gateRef} declaredKg={m.weightKg} onClose={() => setReweighOpen(false)} />
 
+      <ReasonModal
+        open={!!linkChange}
+        title="Change a shipment-linked record"
+        hint={`${m.gateRef} is linked to shipment ${m.jobNumber || ""}. Changing its direction or position changes the pick-up PIN check and what the shipment is told. Who, when and the reason are logged.`}
+        okText="Change"
+        danger
+        onClose={() => setLinkChange(null)}
+        onSubmit={(reason) =>
+          update
+            .mutateAsync({ ...linkChange!, linkChangeReason: reason })
+            .then(() => setLinkChange(null))
+            .catch((e) => toast.error(errorMessage(e, "Failed to save")))
+        }
+      />
       <ReasonModal
         open={!!voidStep}
         title={`Void ${voidStep?.label ?? "stamp"}`}

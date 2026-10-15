@@ -5,19 +5,18 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button, Drawer, Input, Modal, Segmented, Select, Spin, Tabs, Tooltip } from "antd";
 import { PlusOutlined, DeleteOutlined, MobileOutlined, PrinterOutlined, QuestionCircleOutlined } from "@ant-design/icons";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
-import { useWarehouse } from "@/hooks/useWarehouse";
+import { useCopyJobSearch, useCopyQuotes, useCreatePosition, useWarehouse } from "@/hooks/useWarehouse";
+import { useDebounced } from "@/hooks/useDebounced";
 import { useGateLog, type GateMovement } from "@/hooks/useGateLog";
 import { useStockLines } from "@/hooks/useWarehouseRecords";
 import { useToast } from "@/lib/toast";
 import { formatDate } from "@/lib/date";
-import { api } from "@/lib/api";
 import { toSalesQuote } from "@/app/sales/_lib/salesQuote";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { Badge, CUSTOMS_STATUSES, errorMessage, hasAnyStamp, isFcl, isLcl, isManager, nf } from "../gate-log/_lib/gate";
+import { asGateCustomsStatus, Badge, CUSTOMS_STATUSES, errorMessage, hasAnyStamp, isFcl, isLcl, isManager, nf } from "../gate-log/_lib/gate";
 import { GateLogView } from "../gate-log/_components/GateLogView";
 import { PrintLabelsModal } from "../gate-log/_components/PrintLabelsModal";
 import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOfVisit, releaseGatesText } from "../_lib/glossary";
@@ -47,15 +46,6 @@ import { LIFECYCLE_VALUES, lifecycleText, stageOrder } from "../_lib/lifecycle";
 type WarehouseTask = interfaces.WarehouseTaskItem;
 type PositionRow = { task: WarehouseTask; m: GateMovement | undefined };
 type LoadFilter = "fcl" | "lcl";
-
-function useDebounced<T>(value: T, delay: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return debounced;
-}
 
 const dim = (v: string | undefined) => (v ? <span className="text-slate-600">{v}</span> : <span className="text-slate-300">—</span>);
 const mono = (v: string | undefined) => (v ? <span className="text-slate-600 font-mono">{v}</span> : <span className="text-slate-300">—</span>);
@@ -738,7 +728,7 @@ const fromShipment = (sh: ShipmentItem): Partial<NewPositionValues> => ({
   weightKg: num(sh.totalWeightTons) != null ? Math.round(num(sh.totalWeightTons)! * 1000) : 0,
   measureCbm: num(sh.totalVolumeCbm) ?? 0,
   shipmentOwner: sh.personInCharge || undefined,
-  customsStatus: sh.customsStatus || undefined,
+  customsStatus: asGateCustomsStatus(sh.customsStatus),
   jobNumber: sh.jobNumber || undefined,
   pol: sh.pol || undefined,
   pod: sh.pod || undefined,
@@ -782,7 +772,6 @@ const IMPORT_CHUNK = 100;
 type ImportResult = interfaces.WarehouseImportResult;
 
 const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: () => void; tasks: WarehouseTask[] }) => {
-  const queryClient = useQueryClient();
   const { importShipments: importBatch } = useWarehouse();
   const [results, setResults] = useState<ImportResult[] | null>(null);
   const router = useRouter();
@@ -797,16 +786,9 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
   const importing = source === "shipments" || source === "masters";
   const debouncedJobQuery = useDebounced(jobQuery.trim(), 300);
 
-  const { data: jobData, isFetching: jobsLoading } = useQuery({
-    queryKey: ["warehouse-copy-jobs", debouncedJobQuery],
-    queryFn: () => api.shipments.shipmentList({ limit: 50, search: debouncedJobQuery || undefined }),
-    enabled: open && source === "job",
-  });
-  const { data: quoteData, isFetching: quotesLoading } = useQuery({
-    queryKey: ["quotes", "warehouse-copy"],
-    queryFn: () => api.quotes.salesQuoteList({ limit: 200, sortDirection: "desc" }),
-    enabled: open && source === "quote",
-  });
+  const { data: jobData, isFetching: jobsLoading } = useCopyJobSearch(debouncedJobQuery, open && source === "job");
+  const { data: quoteData, isFetching: quotesLoading } = useCopyQuotes(open && source === "quote");
+  const createPosition = useCreatePosition();
   const quotes = useMemo(() => (quoteData?.data ?? []).map(toSalesQuote), [quoteData]);
 
   useEffect(() => {
@@ -867,13 +849,8 @@ const NewPositionModal = ({ open, onClose, tasks }: { open: boolean; onClose: ()
     }
     setSaving(from);
     try {
-      const { task, movement } = await api.warehouse.warehousePositionCreate(
-        Object.fromEntries(Object.entries(values).filter(([, v]) => v !== undefined)) as NewPositionValues,
-      );
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["warehouse"] }),
-        queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] }),
-      ]);
+      // Fields left undefined are not sent (JSON drops them).
+      const { task, movement } = await createPosition.mutateAsync(values);
       toast.success(`Position ${task.taskId} created`);
       onClose();
       // Straight to the new position's one page, its Gate Log job.

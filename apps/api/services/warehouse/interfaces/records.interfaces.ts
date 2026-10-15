@@ -411,6 +411,8 @@ export interface ShipmentUpdateHealth {
   pending: number;
   /** Stopped: need a hand in Shipments. */
   failed: number;
+  /** Pending updates held back behind a stopped one of the same shipment (sent in order). */
+  blockedByFailed: number;
   /** Oldest pending update (ISO); null when none. */
   oldestPendingAt: string | null;
 }

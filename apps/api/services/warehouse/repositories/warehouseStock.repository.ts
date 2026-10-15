@@ -34,7 +34,7 @@ const task = warehouseTaskTable;
 
 class StockLineRepository extends TenantRepository<typeof warehouseStockLineTable> {
   constructor() {
-    super(db as never, warehouseStockLineTable, "warehouse_stock_line");
+    super(db, warehouseStockLineTable, "warehouse_stock_line");
   }
 
   /** Live lines with the WCZ ref of their position (archived positions keep their ref). */
@@ -103,13 +103,13 @@ class StockLineRepository extends TenantRepository<typeof warehouseStockLineTabl
 
 class ZoneRepository extends TenantRepository<typeof warehouseZoneTable> {
   constructor() {
-    super(db as never, warehouseZoneTable, "warehouse_zone");
+    super(db, warehouseZoneTable, "warehouse_zone");
   }
 }
 
 class StockMovementRepository extends TenantRepository<typeof warehouseStockMovementTable> {
   constructor() {
-    super(db as never, warehouseStockMovementTable, "warehouse_stock_movement");
+    super(db, warehouseStockMovementTable, "warehouse_stock_movement");
   }
 
   async appendTx(tx: Tx, rows: NewStockMovementRecord[]) {
@@ -119,7 +119,7 @@ class StockMovementRepository extends TenantRepository<typeof warehouseStockMove
 
 class BondedEntryRepository extends TenantRepository<typeof warehouseBondedEntryTable> {
   constructor() {
-    super(db as never, warehouseBondedEntryTable, "warehouse_bonded_entry");
+    super(db, warehouseBondedEntryTable, "warehouse_bonded_entry");
   }
 
   async listWithPosition(companyId: string, limit = 5000): Promise<(BondedEntryRecord & PositionLink)[]> {

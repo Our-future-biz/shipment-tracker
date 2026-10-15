@@ -6,8 +6,10 @@ import { SearchOutlined, FilterOutlined, CloseOutlined, DownloadOutlined, Settin
 import type { ColumnType } from "antd/es/table";
 import type { SortOrder } from "antd/es/table/interface";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
-import { SortableContext, arrayMove, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
+import { SortableContext, arrayMove, horizontalListSortingStrategy } from "@dnd-kit/sortable";
+import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
+import { downloadCsv } from "@/lib/csv";
+import { businessToday } from "@/lib/date";
 
 // The app's grid, with the same structure as the Shipments grid: title row, toolbar
 // (actions left; search, filters, column filters, columns and export right), bulk bar
@@ -26,7 +28,7 @@ export interface AppGridColumn<T> extends Omit<ColumnType<T>, "key" | "title"> {
   filterOptions?: string[];
 }
 
-type ColFilter = { key: string; value: string };
+type ColFilter = { id: number; key: string; value: string };
 type Sort = { key: string; order: Exclude<SortOrder, null> };
 
 // A column's compare function (`sorter` as a function or `{ compare }`), if it sorts on the client.
@@ -39,39 +41,13 @@ function compareOf<T>(col: AppGridColumn<T> | undefined): ((a: T, b: T) => numbe
 
 const PAGE_SIZE_OPTIONS = [50, 100, 150, 200];
 
-type HeaderCellProps = React.ThHTMLAttributes<HTMLTableCellElement> & { id?: string };
-
-const DraggableHeaderCell = ({ id, style, ...rest }: HeaderCellProps) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: id ?? "" });
-  if (!id) return <th style={style} {...rest} />;
-  const thStyle: React.CSSProperties = {
-    ...style,
-    transform: CSS.Translate.toString(transform),
-    transition,
-    cursor: "grab",
-    userSelect: "none",
-    ...(isDragging ? { position: "relative", zIndex: 2, background: "#eef2ff" } : {}),
-  };
-  return <th ref={setNodeRef} style={thStyle} {...rest} {...attributes} {...listeners} />;
-};
-
 const toolbarButton =
   "flex items-center justify-center shrink-0 rounded-lg border border-slate-300 bg-white w-8 h-8 p-0 text-slate-700 hover:bg-slate-50 transition-colors";
 
+// The rows as a CSV file (lib/csv guards cells a spreadsheet would run as formulas), named
+// with today's date on the company's calendar.
 function exportCsv<T>(rows: T[], cols: AppGridColumn<T>[], filePrefix: string) {
-  const csv = [cols.map((c) => c.title), ...rows.map((r) => cols.map((c) => c.text(r)))]
-    .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-    .join("\n");
-  // BOM so Excel reads the UTF-8 diacritics correctly.
-  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${filePrefix}-${new Date().toISOString().slice(0, 10)}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  downloadCsv(`${filePrefix}-${businessToday()}.csv`, [cols.map((c) => c.title), ...rows.map((r) => cols.map((c) => String(c.text(r))))]);
 }
 
 interface AppGridProps<T> {
@@ -171,6 +147,7 @@ export function AppGrid<T extends object>({
     return () => window.removeEventListener("keydown", onKey);
   }, []);
   const [colFilters, setColFilters] = useState<ColFilter[]>([]);
+  const nextFilterId = useRef(0);
   const [columnSearch, setColumnSearch] = useState("");
   const [pageSize, setPageSize] = useState(50);
   const [currentPage, setCurrentPage] = useState(1);
@@ -309,11 +286,11 @@ export function AppGrid<T extends object>({
                   <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-lg">No filters yet — add one to narrow the list.</div>
                 ) : (
                   <div className="flex flex-col gap-2">
-                    {colFilters.map((f, i) => {
+                    {colFilters.map((f) => {
                       const col = columnMap.get(f.key);
-                      const update = (patch: Partial<ColFilter>) => setColFilters(colFilters.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
+                      const update = (patch: Partial<ColFilter>) => setColFilters(colFilters.map((x) => (x.id === f.id ? { ...x, ...patch } : x)));
                       return (
-                        <div key={i} className="flex items-center gap-1.5">
+                        <div key={f.id} className="flex items-center gap-1.5">
                           <Select
                             showSearch
                             placeholder="Column"
@@ -342,7 +319,7 @@ export function AppGrid<T extends object>({
                             )}
                           </div>
                           <button
-                            onClick={() => setColFilters(colFilters.filter((_, idx) => idx !== i))}
+                            onClick={() => setColFilters(colFilters.filter((x) => x.id !== f.id))}
                             aria-label="Remove filter"
                             className="shrink-0 flex items-center justify-center w-6 h-6 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 bg-transparent border-none cursor-pointer transition-colors"
                           >
@@ -354,7 +331,7 @@ export function AppGrid<T extends object>({
                   </div>
                 )}
                 <button
-                  onClick={() => setColFilters([...colFilters, { key: "", value: "" }])}
+                  onClick={() => setColFilters([...colFilters, { id: nextFilterId.current++, key: "", value: "" }])}
                   className="mt-2.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-dashed border-slate-300 text-xs font-medium text-slate-500 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/40 bg-transparent cursor-pointer transition-colors"
                 >
                   + Add filter
@@ -363,7 +340,7 @@ export function AppGrid<T extends object>({
             }
           >
             <Tooltip title="Filters">
-              <Badge count={activeFilters.length} size="small" color="#4f46e5" offset={[-4, 4]}>
+              <Badge count={activeFilters.length} size="small" offset={[-4, 4]} className="[&_.ant-badge-count]:!bg-indigo-600">
                 <button aria-label="Filters" className={toolbarButton}>
                   <FilterOutlined />
                 </button>

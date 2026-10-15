@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Input } from "antd";
 import { useGateFiles, type GateMovement } from "@/hooks/useGateLog";
+import { useListKeys } from "@/hooks/useListKeys";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
-import { INNER_FLAGS, OUTER_PACKINGS, VISUAL_FLAGS, hasSurvey, requiredSurveyPhase, surveyPhaseKey, surveyTargets } from "@/app/warehouse/gate-log/_lib/gate";
+import { INNER_FLAGS, OUTER_PACKINGS, VISUAL_FLAGS, hasSurvey, requiredSurveyPhase, surveyPhaseKey, surveyTargets, type SurveyPhaseKey } from "@/app/warehouse/gate-log/_lib/gate";
 import { blankLine, blankSurvey, lineFilled, pickInput, surveyPhotoCheck, type SurveyInput, type SurveyLine } from "@/app/warehouse/gate-log/_lib/survey";
 import { useFloorQueue } from "../_lib/useFloorQueue";
 import { Chip, FloorCard, Stepper, bigDefault, bigPrimary } from "./floorUi";
@@ -18,30 +19,21 @@ const toggle = (list: string[], v: string) => (list.includes(v) ? list.filter((x
 // gate-out), one container per screen. The same survey as the gate job's Survey tab; saved with
 // one button (kept on the phone and sent later when offline). Damaged or lost pieces offer to
 // record an exception, which puts the cargo on hold.
-export function FloorSurvey({ m, onBack, onRecordException }: { m: GateMovement; onBack: () => void; onRecordException: () => void }) {
-  const toast = useToast();
-  const q = useFloorQueue();
+interface FloorSurveyProps {
+  m: GateMovement;
+  onBack: () => void;
+  onRecordException: () => void;
+}
+
+export function FloorSurvey({ m, onBack, onRecordException }: FloorSurveyProps) {
   const phase = requiredSurveyPhase(m);
   const targets = surveyTargets(m);
   const [container, setContainer] = useState(targets.find((c) => phase && !hasSurvey(m, c, phase)) ?? targets[0] ?? "");
   const stored = phase ? m.surveys.find((s) => s.container === container && surveyPhaseKey(s.phase) === phase) : undefined;
-  const [draft, setDraft] = useState<SurveyInput | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [shooting, setShooting] = useState(false);
-  const { files } = useGateFiles(m.id);
-  const take = useTakePhoto(m);
+  // Which container + pass was saved on this screen (survives the form's remount after the save).
+  const [savedFor, setSavedFor] = useState<string | null>(null);
 
-  // A fresh form for another container; the stored survey when there is one.
-  useEffect(() => {
-    if (!phase) return;
-    setDraft(stored ? pickInput(stored) : blankSurvey(container, phase));
-    setSaved(false);
-    // Only when the container or pass changes; own saves echo back the same values.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [container, phase]);
-
-  if (!phase || !draft) {
+  if (!phase) {
     return (
       <div className="flex flex-col gap-4">
         <FloorBack onBack={onBack} title="Survey" />
@@ -51,6 +43,47 @@ export function FloorSurvey({ m, onBack, onRecordException }: { m: GateMovement;
       </div>
     );
   }
+
+  const formKey = `${container}|${phase}`;
+  // A fresh form per container and pass; it starts from the stored survey, and starts again once
+  // when a stored survey first arrives (another phone, or the list loading late). Own saves don't
+  // remount it, so nothing being typed is reset.
+  return (
+    <FloorSurveyForm
+      key={`${formKey}|${stored ? "stored" : "new"}`}
+      m={m}
+      phase={phase}
+      targets={targets}
+      container={container}
+      onContainer={setContainer}
+      stored={stored}
+      saved={savedFor === formKey}
+      onSaved={() => setSavedFor(formKey)}
+      onBack={onBack}
+      onRecordException={onRecordException}
+    />
+  );
+}
+
+interface FloorSurveyFormProps extends FloorSurveyProps {
+  phase: SurveyPhaseKey;
+  targets: string[];
+  container: string;
+  onContainer: (container: string) => void;
+  stored: GateMovement["surveys"][number] | undefined;
+  saved: boolean;
+  onSaved: () => void;
+}
+
+function FloorSurveyForm({ m, phase, targets, container, onContainer, stored, saved, onSaved, onBack, onRecordException }: FloorSurveyFormProps) {
+  const toast = useToast();
+  const q = useFloorQueue();
+  const [draft, setDraft] = useState<SurveyInput>(() => (stored ? pickInput(stored) : blankSurvey(container, phase)));
+  const [saving, setSaving] = useState(false);
+  const [shooting, setShooting] = useState(false);
+  const { files } = useGateFiles(m.id);
+  const take = useTakePhoto(m);
+  const lineKeys = useListKeys(draft.lines.length);
 
   const setLine = (i: number, patch: Partial<SurveyLine>) => setDraft({ ...draft, lines: draft.lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) });
   const pieces = m.colli;
@@ -73,10 +106,10 @@ export function FloorSurvey({ m, onBack, onRecordException }: { m: GateMovement;
       if (res.type === "sent") {
         if (res.outcome === "newer_exists") toast.warning(res.notice || "A later survey of this container is kept — this one was not saved");
         else toast.success("Survey saved");
-        setSaved(true);
+        onSaved();
       } else if (res.type === "queued") {
         toast.info("Survey kept on the phone — waiting to send");
-        setSaved(true);
+        onSaved();
       } else toast.error(res.type === "refused" ? res.error : "Failed to save the survey");
     } finally {
       setSaving(false);
@@ -90,7 +123,7 @@ export function FloorSurvey({ m, onBack, onRecordException }: { m: GateMovement;
       {targets.length > 1 && (
         <div className="flex flex-wrap gap-2" role="group" aria-label="Container">
           {targets.map((c) => (
-            <Chip key={c} on={c === container} onClick={() => setContainer(c)}>
+            <Chip key={c} on={c === container} onClick={() => onContainer(c)}>
               {hasSurvey(m, c, phase) ? "✓ " : ""}
               {c || "Position"}
             </Chip>
@@ -109,7 +142,7 @@ export function FloorSurvey({ m, onBack, onRecordException }: { m: GateMovement;
       </div>
 
       {draft.lines.map((l, i) => (
-        <FloorCard key={i} title={draft.lines.length > 1 ? `Line ${i + 1}` : "Packages"}>
+        <FloorCard key={lineKeys.keys[i]} title={draft.lines.length > 1 ? `Line ${i + 1}` : "Packages"}>
           <div className="flex flex-col gap-3">
             <Stepper label="Number" value={l.qty ?? 0} onChange={(v) => setLine(i, { qty: v })} />
             <div>
@@ -143,7 +176,10 @@ export function FloorSurvey({ m, onBack, onRecordException }: { m: GateMovement;
               </div>
             </div>
             {draft.lines.length > 1 && (
-              <button type="button" className={`${bigDefault} !text-red-600`} onClick={() => setDraft({ ...draft, lines: draft.lines.filter((_, idx) => idx !== i) })}>
+              <button type="button" className={`${bigDefault} !text-red-600`} onClick={() => {
+                  lineKeys.remove(i);
+                  setDraft({ ...draft, lines: draft.lines.filter((_, idx) => idx !== i) });
+                }}>
                 Remove line {i + 1}
               </button>
             )}

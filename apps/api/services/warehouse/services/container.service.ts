@@ -27,11 +27,12 @@ import { isArmed } from "./gateMovement.service";
 import { containerKind, containerStatus, containerTotals, directionFits, LEGACY_LINK, strippingCompletedAt, tallyLinks, TALLY_LABEL, TALLY_OUTCOMES, type TallyResult } from "./containerRules";
 import { positionLifecycle } from "./lifecycle";
 import { needsReweigh, needsReweighSql } from "./reweigh";
-import { acceptRecordedAt, checkRequestId, offlineDetail, pgCode, pragueHhmm } from "./offline";
+import { acceptRecordedAt, checkRequestId, offlineDetail, pragueHhmm } from "./offline";
 import { pragueDate } from "./storage";
 import { deliverDue } from "./shipmentOutbox.service";
 import { isManager, userName } from "./users";
 import { syncStockForMovement } from "./warehouseStockSync";
+import { isUniqueViolation } from "../../../lib/db/errors";
 
 // One container, many positions (houses): the stuffing plan of an export container and the
 // stripping tally of an import container, with the container's own stamps. Every action runs in
@@ -328,7 +329,7 @@ class ContainerService {
         await this.log(tx, c, companyId, [{ kind: "positionsAdded", label: `Added: ${refs.join(", ")}`.slice(0, 500), at, by }], movementEvents);
       });
     } catch (err) {
-      if (pgCode(err) !== "23505") throw err;
+      if (!isUniqueViolation(err)) throw err;
       throw APIError.failedPrecondition("A position was added to another container at the same moment — reload and try again");
     }
     return this.detail(id, companyId);
@@ -456,7 +457,7 @@ class ContainerService {
           }
         }
       }
-      if (opts.recordedAt) at = acceptRecordedAt(opts.recordedAt, now, kind === "strippingStart" ? { notBefore: c.gateInAt, after: "the container gate-in" } : {});
+      if (opts.recordedAt) at = acceptRecordedAt(opts.recordedAt, now, { requestId, ...(kind === "strippingStart" ? { notBefore: c.gateInAt, after: "the container gate-in" } : {}) });
       const evt: GateEvent = {
         kind,
         label: kind === "close" ? `${STAMP_LABEL.close} — seal ${seal}` : STAMP_LABEL[kind],
@@ -584,7 +585,7 @@ class ContainerService {
       }
       const [m] = await gateMovementRepository.lockLive(tx, [movementId], companyId);
       if (!m) throw APIError.failedPrecondition("The position is archived");
-      const at = opts.recordedAt ? acceptRecordedAt(opts.recordedAt, now, { notBefore: c.gateInAt, after: "the container gate-in" }) : now;
+      const at = opts.recordedAt ? acceptRecordedAt(opts.recordedAt, now, { notBefore: c.gateInAt, after: "the container gate-in", requestId }) : now;
       if (stuffed && !directionFits(c.direction, m.visit)) {
         throw APIError.failedPrecondition(`${ref(m)} is outgoing cargo (výdej) — an export container is stuffed with inbound (příjem) cargo; take it out of this container`);
       }
@@ -661,7 +662,7 @@ class ContainerService {
         if (requestId) return { outcome: "done_by_someone_else" as const, notice: `The house was ${what}` };
         throw APIError.failedPrecondition(`The house was ${what} — a manager can void the tally`);
       }
-      const at = opts.recordedAt ? acceptRecordedAt(opts.recordedAt, now, { notBefore: c.gateInAt, after: "the container gate-in" }) : now;
+      const at = opts.recordedAt ? acceptRecordedAt(opts.recordedAt, now, { notBefore: c.gateInAt, after: "the container gate-in", requestId }) : now;
       const [m] = await gateMovementRepository.lockLive(tx, [movementId], companyId);
       if (!m) throw APIError.failedPrecondition("The position is archived");
       // Only outgoing (výdej) houses added for the tally are tallied: an old one-position container
@@ -793,7 +794,7 @@ class ContainerService {
         const tallyDay = link.tickedAt ? pragueDate(link.tickedAt) : "";
         // The typed "Received in warehouse" date the tick replaced comes back (free time starts there again).
         const previous = [...m.events].reverse().find((e) => e.kind === "tallyReceived")?.previous ?? "";
-        const owed = m.shipmentId ? await shipmentOutboxRepository.cancelForStamps(tx, m.id, [TALLY_STAMP]) : [];
+        const owed = m.shipmentId ? await shipmentOutboxRepository.cancelForStamps(tx, m.id, companyId, [TALLY_STAMP]) : [];
         const inFlight = (r: (typeof owed)[number]) => r.status === "pending" && !!r.lockedUntil && r.lockedUntil.getTime() > Date.now();
         if (owed.some((r) => (r.status === "pending" && !inFlight(r)) || r.status === "failed")) {
           events.push({ kind: "shipmentUpdateCancelled", label: "Shipment update cancelled — the tally was voided", at, by, detail: "warehouse received date" });
@@ -878,7 +879,7 @@ class ContainerService {
         const left = await this.leftWith(tx, c, companyId);
         let mayNeedCorrecting = false;
         for (const m of left) {
-          const owed = m.shipmentId ? await shipmentOutboxRepository.cancelForStamps(tx, m.id, [CONTAINER_GATE_OUT_STAMP]) : [];
+          const owed = m.shipmentId ? await shipmentOutboxRepository.cancelForStamps(tx, m.id, companyId, [CONTAINER_GATE_OUT_STAMP]) : [];
           const inFlight = (r: (typeof owed)[number]) => r.status === "pending" && !!r.lockedUntil && r.lockedUntil.getTime() > Date.now();
           const mEvents: GateEvent[] = [{ kind: "leftInContainerVoided", label: `Back in the warehouse — gate-out of container ${c.number} voided`, at, by, detail: why }];
           if (owed.some((r) => (r.status === "pending" && !inFlight(r)) || r.status === "failed")) {

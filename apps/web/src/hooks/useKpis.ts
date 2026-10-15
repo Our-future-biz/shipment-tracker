@@ -4,7 +4,8 @@ import { useCallback } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import { KPI_PRESETS, periodRange, type KpiPreset, type KpiRange } from "./kpiPeriod";
+import { KPI_PRESETS, periodRange, type KpiPreset, type KpiRange } from "@/app/warehouse/_components/kpi/kpiPeriod";
+import { warehouseRecordKeys } from "./warehouseKeys";
 
 // The Reports period, kept in the URL (?period=7d, or ?period=custom&from=…&to=…), and the KPI
 // report for it. The query key sits under the report summary key, so every change to the warehouse
@@ -46,7 +47,7 @@ export function useKpiPeriod(): { preset: KpiPreset; range: KpiRange; setPreset:
 
 export function useKpiReport(range: KpiRange) {
   const query = useQuery({
-    queryKey: ["warehouse-records", "report-summary", "kpis", range.from, range.to],
+    queryKey: warehouseRecordKeys.kpis(range.from, range.to),
     queryFn: async () => (await api.warehouse.warehouseKpis({ from: range.from, to: range.to })).report,
     placeholderData: (prev) => prev,
   });

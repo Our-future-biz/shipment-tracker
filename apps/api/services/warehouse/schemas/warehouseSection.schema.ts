@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, jsonb, integer, uuid, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, jsonb, integer, uuid, index, uniqueIndex, foreignKey } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { warehouseTaskTable } from "./warehouseTask.schema";
 
 // Warehouse sections (Shipment Details "job", customs, invoicing, pick-up). Since migration 0015
 // they belong to a warehouse POSITION (task_id), linked to a shipment or not; shipment_id is kept
@@ -32,6 +33,7 @@ export const warehouseSectionTable = pgTable(
     uniqueIndex("warehouse_section_company_shipment_section_unique")
       .on(table.companyId, table.shipmentId, table.section)
       .where(sql`deleted_at IS NULL AND task_id IS NULL`),
+    foreignKey({ name: "wh_section_task_fk", columns: [table.taskId], foreignColumns: [warehouseTaskTable.id] }).onDelete("restrict"),
   ],
 );
 

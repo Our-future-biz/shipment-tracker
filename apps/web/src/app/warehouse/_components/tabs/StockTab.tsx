@@ -22,10 +22,12 @@ import { useGateLog } from "@/hooks/useGateLog";
 import { Badge, PACKINGS, errorMessage, isManager } from "@/app/warehouse/gate-log/_lib/gate";
 import { CustomsDeadlineChip } from "@/app/warehouse/_lib/customsDeadline";
 import { customsClockSort } from "@/app/warehouse/_lib/customsClock";
-import { stockSyncText, useStockSync } from "@/app/warehouse/_lib/stockSync";
+import { stockSyncText } from "@/app/warehouse/_lib/stockSync";
+import { useStockSync } from "@/hooks/useStockSync";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { BulkDeleteButton, Callout, Card, Kpi, RecordFormModal, StatusTag, SubTabs, dim, nf, type FieldDef } from "./shared";
+import { businessToday } from "@/lib/date";
 
 // Stock tab: what is on hand (per house job), where it sits on the floor, how it moved, how long
 // it has been in store against its free time, and what is under customs control.
@@ -332,7 +334,7 @@ function StockOnHand() {
           initial={
             editing.line
               ? { ...editing.line, movementId: editing.line.movementId ?? undefined }
-              : { receivedAt: new Date().toISOString().slice(0, 10), freeDays: 7, customs: "Free circulation", status: "Available" }
+              : { receivedAt: businessToday(), freeDays: 7, customs: "Free circulation", status: "Available" }
           }
           saving={isSaving}
           onCancel={() => setEditing(null)}
@@ -417,7 +419,7 @@ function Locations() {
                   Zone {z.code}
                   {z.name ? ` — ${z.name}` : ""}
                 </div>
-                <div className="grid gap-1.5" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))" }}>
+                <div className="grid gap-1.5 grid-cols-[repeat(auto-fill,minmax(84px,1fr))]">
                   {bays
                     .filter((b) => b.zone.id === z.id)
                     .map((b) => (
@@ -788,7 +790,7 @@ function Bonded() {
           initial={
             editing.entry
               ? { ...editing.entry, movementId: editing.entry.movementId ?? undefined }
-              : { procedure: "71 00 — customs warehousing", entryDate: new Date().toISOString().slice(0, 10) }
+              : { procedure: "71 00 — customs warehousing", entryDate: businessToday() }
           }
           saving={isSaving}
           onCancel={() => setEditing(null)}

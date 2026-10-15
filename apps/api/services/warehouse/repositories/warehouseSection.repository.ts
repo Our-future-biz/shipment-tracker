@@ -3,6 +3,7 @@ import { db } from "../db/db";
 import { warehouseSectionTable, type WarehouseSectionRecord } from "../schemas/warehouseSection.schema";
 import { warehouseTaskTable } from "../schemas/warehouseTask.schema";
 import { PICKUP_SECTION, type PickupHistoryEntry, type PickupRow } from "../services/pickupPin";
+import { TenantRepository } from "../../../lib/db/repository";
 
 export type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -11,6 +12,9 @@ const s = warehouseSectionTable;
 const pickupRow = (shipmentId: string, companyId: string) =>
   and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), eq(s.section, PICKUP_SECTION), isNull(s.deletedAt), isNull(s.taskId));
 // Tries stored in the section, read defensively (anything that is not a small whole number is 0).
+// A PIN is set: its hash, or a plain PIN stored before hashing.
+const pinSetSql = (d: unknown) =>
+  sql`(btrim(COALESCE(${d}->>'pin', '')) <> '' OR COALESCE(${d}->>'pinHash', '') <> '')`;
 const triesSql = sql`(CASE WHEN ${s.data}->>'pinTries' ~ '^\\d{1,6}$' THEN (${s.data}->>'pinTries')::int ELSE 0 END)`;
 const dataObj = sql`(CASE WHEN jsonb_typeof(${s.data}) = 'object' THEN ${s.data} ELSE '{}'::jsonb END)`;
 
@@ -34,7 +38,11 @@ const adoptableRow = (companyId: string, shipmentId: string, section: string) =>
       SELECT 1 FROM ${warehouseTaskTable} wt WHERE wt.id = ${s.taskId} AND wt.deleted_at IS NULL))`,
   );
 
-class WarehouseSectionRepository {
+class WarehouseSectionRepository extends TenantRepository<typeof warehouseSectionTable> {
+  constructor() {
+    super(db, warehouseSectionTable, "warehouse_section");
+  }
+
   async findByTask(taskId: string, section: string, companyId: string, tx: Tx | typeof db = db): Promise<WarehouseSectionRecord | null> {
     const [row] = await tx.select().from(s).where(and(live(companyId, section), eq(s.taskId, taskId)));
     return row ?? null;
@@ -223,27 +231,28 @@ class WarehouseSectionRepository {
   async setPickupPin(
     shipmentId: string,
     companyId: string,
-    p: { pin: string; pinId: string; at: string; by: string },
+    p: { pinHash: string; pinId: string; at: string; by: string },
     max: number,
     after: (tx: Tx, kind: PickupHistoryEntry["kind"]) => Promise<void>,
   ) {
     return this.withPickupLock(shipmentId, companyId, async (tx) => {
       const [cur] = await tx
-        .select({ id: s.id, pin: sql<string>`COALESCE(${dataObj}->>'pin', '')`, tries: sql<number>`${triesSql}` })
+        .select({ id: s.id, hasPin: sql<boolean>`${pinSetSql(dataObj)}`, tries: sql<number>`${triesSql}` })
         .from(s)
         .where(pickupRow(shipmentId, companyId))
         .for("update");
-      const hasPin = !!cur && cur.pin.trim() !== "";
+      const hasPin = !!cur && cur.hasPin;
       if (hasPin && cur.tries < max) return null;
       const kind: PickupHistoryEntry["kind"] = hasPin ? "renewed" : "created";
       const entry: PickupHistoryEntry = { kind, at: p.at, by: p.by };
-      const fields = { pin: p.pin, pinId: p.pinId, pinTries: 0, pinCreatedAt: p.at, pinCreatedBy: p.by };
+      // Only the hash is stored; a plain PIN from before hashing is dropped.
+      const fields = { pinHash: p.pinHash, pinId: p.pinId, pinTries: 0, pinCreatedAt: p.at, pinCreatedBy: p.by };
       let row;
       if (cur) {
         [row] = await tx
           .update(s)
           .set({
-            data: sql`${dataObj} || ${JSON.stringify(fields)}::jsonb || jsonb_build_object('pinHistory',
+            data: sql`(${dataObj} - 'pin') || ${JSON.stringify(fields)}::jsonb || jsonb_build_object('pinHistory',
               (CASE WHEN jsonb_typeof(${dataObj}->'pinHistory') = 'array' THEN ${dataObj}->'pinHistory' ELSE '[]'::jsonb END) || ${JSON.stringify([entry])}::jsonb)`,
             version: sql`${s.version} + 1`,
             updatedAt: new Date(),
@@ -271,12 +280,33 @@ class WarehouseSectionRepository {
         and(
           pickupRow(shipmentId, companyId),
           sql`jsonb_typeof(${s.data}) = 'object'`,
-          sql`btrim(COALESCE(${s.data}->>'pin', '')) <> ''`,
+          pinSetSql(s.data),
           sql`${triesSql} < ${max}`,
         ),
       )
-      .returning({ pin: sql<string>`${s.data}->>'pin'`, pinId: sql<string>`COALESCE(${s.data}->>'pinId', '')`, pinTries: sql<number>`${triesSql}` });
-    return row ? { pin: row.pin, pinId: row.pinId, pinTries: Number(row.pinTries) } : null;
+      .returning({
+        pin: sql<string>`COALESCE(${s.data}->>'pin', '')`,
+        pinHash: sql<string>`COALESCE(${s.data}->>'pinHash', '')`,
+        pinId: sql<string>`COALESCE(${s.data}->>'pinId', '')`,
+        pinTries: sql<number>`${triesSql}`,
+      });
+    return row ? { pin: row.pin.trim(), pinHash: row.pinHash, pinId: row.pinId, pinTries: Number(row.pinTries) } : null;
+  }
+
+  // A plain PIN stored before hashing is replaced by its hash once it has been checked (only the
+  // same PIN — a renewed one is hashed already).
+  async hashLegacyPickupPin(shipmentId: string, companyId: string, pinId: string, pinHash: string): Promise<void> {
+    await db
+      .update(s)
+      .set({ data: sql`(${s.data} - 'pin') || jsonb_build_object('pinHash', ${pinHash}::text)` })
+      .where(
+        and(
+          pickupRow(shipmentId, companyId),
+          sql`jsonb_typeof(${s.data}) = 'object'`,
+          sql`COALESCE(${s.data}->>'pinId', '') = ${pinId}`,
+          sql`COALESCE(${s.data}->>'pinHash', '') = ''`,
+        ),
+      );
   }
 
   // A shipment deleted in Shipments, with no warehouse position left: its pick-up row and the

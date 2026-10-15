@@ -3,8 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Input, Select, Table, Tag, Tooltip } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
-import { useInfiniteQuery, useQueries, useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useImportMasterJobDetails, useImportMasterJobs, useImportShipmentSearch } from "@/hooks/useWarehouseImport";
 import { formatDate } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { TERMS } from "../_lib/glossary";
@@ -104,15 +103,7 @@ function ShipmentsList({ inWarehouse, selected, onChange, results }: ListProps) 
   const [query, setQuery] = useState("");
   const search = useDebounced(query.trim(), 300);
 
-  const { data, isFetching, hasNextPage, fetchNextPage } = useInfiniteQuery({
-    queryKey: ["warehouse-import-shipments", search],
-    queryFn: ({ pageParam }) => api.shipments.shipmentList({ limit: PAGE, offset: pageParam, search: search || undefined }),
-    initialPageParam: 0,
-    getNextPageParam: (last) => {
-      const next = last.pagination.offset + last.pagination.limit;
-      return next < last.pagination.total ? next : undefined;
-    },
-  });
+  const { data, isFetching, hasNextPage, fetchNextPage } = useImportShipmentSearch(search, PAGE);
 
   const rows = useMemo<ImportRow[]>(
     () =>
@@ -165,16 +156,8 @@ function ShipmentsList({ inWarehouse, selected, onChange, results }: ListProps) 
 function MasterJobsList({ inWarehouse, selected, onChange, results }: ListProps) {
   const [masterIds, setMasterIds] = useState<string[]>([]);
 
-  const { data: masters, isFetching: mastersLoading } = useQuery({
-    queryKey: ["warehouse-import-masters"],
-    queryFn: () => api.shipments.masterJobList(),
-  });
-  const details = useQueries({
-    queries: masterIds.map((id) => ({
-      queryKey: ["warehouse-import-master", id],
-      queryFn: () => api.shipments.masterJobGet(id),
-    })),
-  });
+  const { data: masters, isFetching: mastersLoading } = useImportMasterJobs();
+  const details = useImportMasterJobDetails(masterIds);
 
   const rows = useMemo<ImportRow[]>(() => {
     const seen = new Set<string>();

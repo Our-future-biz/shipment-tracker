@@ -10,7 +10,7 @@ vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
-    auth: { usersList: vi.fn(async () => ({ users: [] })) },
+    auth: (await import("./authFake")).authFake([]),
   };
 });
 
@@ -85,7 +85,7 @@ describe("import in one request", () => {
     const c = randomUUID();
     const s = randomUUID();
     vi.spyOn(gateMovementRepository, "create").mockRejectedValueOnce(new Error("insert failed"));
-    expect((await warehouseImportService.importShipments(c, user, [s]))[0]).toMatchObject({ outcome: "failed", reason: "insert failed" });
+    expect((await warehouseImportService.importShipments(c, user, [s]))[0]).toMatchObject({ outcome: "failed", reason: "The position could not be made — try again" });
     expect(await warehouseTaskRepository.listAll(c)).toEqual([]);
     expect((await warehouseImportService.importShipments(c, user, [s]))[0]).toMatchObject({ outcome: "created", ref: expect.stringMatching(/000001$/) });
   });
@@ -105,7 +105,7 @@ describe("repair of positions without a gate record", () => {
     failingShipments.set(b, new Error("shipments unavailable"));
     await expect(warehouseImportService.repairMissingRows(c, user, "user")).rejects.toThrow(/manager/);
     const res = await warehouseImportService.repairMissingRows(c, user, "manager");
-    expect(res).toEqual({ created: 1, failed: [{ taskId: tb.id, ref: tb.taskId, reason: "shipments unavailable" }] });
+    expect(res).toEqual({ created: 1, failed: [{ taskId: tb.id, ref: tb.taskId, reason: "The shipment could not be read — try again" }] });
     const rows = await gateMovementService.list(c);
     expect(rows.map((m) => m.warehouseTaskId)).toEqual([ta.id]);
     expect((await warehouseImportService.repairMissingRows(c, user, "admin")).created).toBe(0);

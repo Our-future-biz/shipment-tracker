@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
+import { gateKeys, warehouseRecordKeys } from "./warehouseKeys";
 
 export type WarehouseContainer = interfaces.WarehouseContainerItem;
 export type DockSlot = interfaces.WarehouseDockSlotItem;
@@ -23,13 +24,13 @@ interface RecordApi<Item, Input> {
 // slots also refresh the gate log, and every change the calculated reports.
 function useRecords<Item, Input>({ key, list, create, update, remove }: RecordApi<Item, Input>) {
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: ["warehouse-records", key], queryFn: list });
+  const query = useQuery({ queryKey: warehouseRecordKeys.of(key), queryFn: list });
   const refresh = () =>
     Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["warehouse-records", key] }),
-      queryClient.invalidateQueries({ queryKey: ["warehouse-records", "report-summary"] }),
+      queryClient.invalidateQueries({ queryKey: warehouseRecordKeys.of(key) }),
+      queryClient.invalidateQueries({ queryKey: warehouseRecordKeys.reportSummary() }),
       // Positions show their containers, and their dock slots (gate job, Expected today, floor mode).
-      ...(key === "containers" || key === "dock-slots" ? [queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] })] : []),
+      ...(key === "containers" || key === "dock-slots" ? [queryClient.invalidateQueries({ queryKey: gateKeys.all })] : []),
     ]);
 
   const createMut = useMutation({ mutationFn: create, onSuccess: refresh });
@@ -104,7 +105,7 @@ export const useSavedReports = () =>
 
 export const useReportSummary = () => {
   const query = useQuery({
-    queryKey: ["warehouse-records", "report-summary"],
+    queryKey: warehouseRecordKeys.reportSummary(),
     queryFn: async () => (await w.warehouseReportSummary()).summary,
   });
   return { summary: query.data, isLoading: query.isLoading };
@@ -123,9 +124,9 @@ export const useStockLines = () => {
   const records = useRecords<StockLine, interfaces.WarehouseStockLineInput>({
     key: "stock-lines",
     list: async () => (await w.warehouseStockLineList()).lines,
-    create: (input) => w.warehouseStockLineCreate(input).then(() => queryClient.invalidateQueries({ queryKey: ["warehouse-records", "zones"] })),
-    update: (id, input) => w.warehouseStockLineUpdate(id, input).then(() => queryClient.invalidateQueries({ queryKey: ["warehouse-records", "zones"] })),
-    remove: (id) => w.warehouseStockLineDelete(id).then(() => queryClient.invalidateQueries({ queryKey: ["warehouse-records", "zones"] })),
+    create: (input) => w.warehouseStockLineCreate(input).then(() => queryClient.invalidateQueries({ queryKey: warehouseRecordKeys.of("zones") })),
+    update: (id, input) => w.warehouseStockLineUpdate(id, input).then(() => queryClient.invalidateQueries({ queryKey: warehouseRecordKeys.of("zones") })),
+    remove: (id) => w.warehouseStockLineDelete(id).then(() => queryClient.invalidateQueries({ queryKey: warehouseRecordKeys.of("zones") })),
   });
   return records;
 };
@@ -151,10 +152,10 @@ export const useBondedEntries = () =>
 // Movements are an audit trail: list and record only.
 export const useStockMovements = () => {
   const queryClient = useQueryClient();
-  const query = useQuery({ queryKey: ["warehouse-records", "stock-movements"], queryFn: async () => (await w.warehouseStockMovementList()).movements });
+  const query = useQuery({ queryKey: warehouseRecordKeys.of("stock-movements"), queryFn: async () => (await w.warehouseStockMovementList()).movements });
   const record = useMutation({
     mutationFn: (input: interfaces.WarehouseStockMovementInput) => w.warehouseStockMovementCreate(input),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouse-records", "stock-movements"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: warehouseRecordKeys.of("stock-movements") }),
   });
   return { items: query.data ?? [], isLoading: query.isLoading, record: record.mutateAsync, isSaving: record.isPending };
 };
@@ -165,7 +166,7 @@ export type ContainerHouse = interfaces.WarehouseContainerHouse;
 export type ContainerStampKind = interfaces.ContainerStampKind;
 export type ContainerTallyInput = interfaces.ContainerTallyInput;
 
-const CONTAINERS_KEY = ["warehouse-records", "containers"];
+const CONTAINERS_KEY = warehouseRecordKeys.of("containers");
 export const containerKey = (id: string) => [...CONTAINERS_KEY, id];
 
 /**
@@ -184,8 +185,8 @@ export const useWarehouseContainer = (id: string | undefined) => {
   const onContainer = (c: WarehouseContainer) => {
     queryClient.setQueryData(containerKey(c.id), c);
     queryClient.invalidateQueries({ queryKey: CONTAINERS_KEY, exact: true });
-    queryClient.invalidateQueries({ queryKey: ["warehouse-records", "report-summary"] });
-    queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+    queryClient.invalidateQueries({ queryKey: warehouseRecordKeys.reportSummary() });
+    queryClient.invalidateQueries({ queryKey: gateKeys.all });
   };
   const withContainer = <R extends { container: WarehouseContainer }>(res: R) => {
     onContainer(res.container);

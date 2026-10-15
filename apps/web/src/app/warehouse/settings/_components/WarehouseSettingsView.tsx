@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Alert, Button, Checkbox, Select, Spin, Switch, Tag } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
@@ -11,7 +11,7 @@ import { errorMessage } from "../../gate-log/_lib/gate";
 import { Card } from "../../_components/tabs/shared";
 import { useUnsavedGuard } from "../../_lib/useUnsavedGuard";
 import { isEmailAddress, normaliseList, recipientsProblem, splitAddresses } from "../_lib/emailList";
-import { useWarehouseSettings, type SupplierKind, type SupplierRecipients, type WarehouseSettings } from "../_lib/useWarehouseSettings";
+import { useWarehouseSettings, type SupplierKind, type SupplierRecipients, type WarehouseSettings } from "@/hooks/useWarehouseSettings";
 
 // Warehouse settings: who gets the supplier e-mails (VGM, Survey, Remeasurement) — an on/off switch
 // and To / Cc per type — and the docks with their opening hours (the Dock Schedule grid and dock
@@ -45,15 +45,17 @@ export function WarehouseSettingsView() {
   // only while nothing is edited here.
   const [base, setBase] = useState<Draft | null>(null);
 
-  useEffect(() => {
-    if (!settings) return;
+  // Settings as read (set while rendering, not in an effect): newer stored settings replace the
+  // draft only while nothing is edited here.
+  const [seen, setSeen] = useState<WarehouseSettings | null>(null);
+  if (settings && settings !== seen) {
+    setSeen(settings);
     const next = draftOf(settings);
     if (!draft || !base || same(draft, base)) {
       setDraft(next);
       setBase(next);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings, draft === null]);
+  }
 
   const stored = settings ? draftOf(settings) : null;
   const dirty = !!draft && !!stored && !same(draft, stored);

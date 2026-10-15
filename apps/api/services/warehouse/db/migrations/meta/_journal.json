@@ -141,6 +141,13 @@
       "when": 1792039558547,
       "tag": "0019_typed_shipment_and_due_date",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792047238205,
+      "tag": "0020_relations_checks_numeric",
+      "breakpoints": true
     }
   ]
 }

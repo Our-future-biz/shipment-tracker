@@ -10,9 +10,10 @@ import { gateMovementTable, type GateEvent } from "../schemas/gateMovement.schem
 import type { GateMovementItem, GateReweighInput } from "../interfaces/gate.interfaces";
 import { gateMovementService } from "./gateMovement.service";
 import { houseContexts, tallyRequired } from "./houses";
-import { acceptRecordedAt, checkRequestId, offlineDetail, pgCode, pragueHhmm } from "./offline";
+import { acceptRecordedAt, checkRequestId, offlineDetail, pragueHhmm } from "./offline";
 import { kgText, MAX_REWEIGH_KG, pctText, reweighVariance } from "./reweigh";
 import { userName } from "./users";
+import { isUniqueViolation } from "../../../lib/db/errors";
 
 // Re-weighing of a position on receipt (LCL cargo: what the warehouse calls "VGM"). Any user may
 // record one, at the gate or from a phone (offline queue: `recordedAt`, `clientRequestId`); it is
@@ -90,7 +91,7 @@ class ReweighService {
     const arrivedWhat = tallied ? `the gate-in of container ${house.container.number}` : "the gate-in";
     if (!arrivedAt && (m.visit !== "výdej" || tallied)) throw APIError.failedPrecondition(`The cargo has not arrived yet — re-weigh it after ${arrivedWhat}`);
     const now = new Date();
-    const at = input.recordedAt ? acceptRecordedAt(input.recordedAt, now, { notBefore: arrivedAt, after: arrivedWhat }) : now;
+    const at = input.recordedAt ? acceptRecordedAt(input.recordedAt, now, { notBefore: arrivedAt, after: arrivedWhat, requestId }) : now;
     const fileIds = [...new Set(input.fileIds ?? [])];
     if (fileIds.length > MAX_FILES) throw APIError.invalidArgument(`At most ${MAX_FILES} photos per re-weigh`);
     for (const f of fileIds) {
@@ -112,7 +113,7 @@ class ReweighService {
         if (requestId && (await reweighRepository.findByRequestId(id, companyId, requestId, tx))) return null;
         const latest = await reweighRepository.latestForMovement(id, companyId, tx);
         newerExists = !!latest && latest.weighedAt.getTime() > at.getTime();
-        const row = await reweighRepository.create(tx, {
+        const row = await reweighRepository.insert(tx, {
           companyId,
           movementId: id,
           taskId: m.warehouseTaskId,
@@ -149,7 +150,7 @@ class ReweighService {
         return row;
       });
     } catch (err) {
-      if (pgCode(err) !== "23505" || !requestId) throw err;
+      if (!isUniqueViolation(err) || !requestId) throw err;
     }
     if (!created) {
       const again = await already();

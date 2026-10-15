@@ -6,6 +6,8 @@
 //   docks             the dock names, opening hours and working days used for dock utilisation.
 //                     The defaults are the four docks, 06:00–19:00, Monday to Friday.
 
+import { InputError } from "./inputError";
+
 export const SUPPLIER_KINDS = ["vgm", "survey", "remeasurement"] as const;
 export type SupplierKind = (typeof SUPPLIER_KINDS)[number];
 export const SUPPLIER_KIND_LABEL: Record<SupplierKind, string> = { vgm: "VGM", survey: "Survey", remeasurement: "Remeasurement" };
@@ -55,29 +57,29 @@ export const isEmailAddress = (v: string) => v.length <= MAX_ADDRESS && EMAIL.te
 /** Trimmed, lower-cased, de-duplicated; throws an Error naming the first bad address. */
 export function cleanAddressList(list: unknown, label: string): string[] {
   if (list === undefined || list === null) return [];
-  if (!Array.isArray(list)) throw new Error(`${label} must be a list of e-mail addresses`);
+  if (!Array.isArray(list)) throw new InputError(`${label} must be a list of e-mail addresses`);
   const out: string[] = [];
   for (const raw of list) {
-    if (typeof raw !== "string") throw new Error(`${label}: every address must be text`);
+    if (typeof raw !== "string") throw new InputError(`${label}: every address must be text`);
     const a = raw.trim().toLowerCase();
     if (!a) continue;
-    if (!isEmailAddress(a)) throw new Error(`${label}: "${raw.trim().slice(0, 80)}" is not a valid e-mail address`);
+    if (!isEmailAddress(a)) throw new InputError(`${label}: "${raw.trim().slice(0, 80)}" is not a valid e-mail address`);
     if (!out.includes(a)) out.push(a);
   }
-  if (out.length > MAX_PER_LIST) throw new Error(`${label}: at most ${MAX_PER_LIST} addresses`);
+  if (out.length > MAX_PER_LIST) throw new InputError(`${label}: at most ${MAX_PER_LIST} addresses`);
   return out;
 }
 
 /** One message type's recipients, checked; an address in both To and Cc is kept in To only. */
 export function cleanRecipients(input: unknown, kind: SupplierKind, strict = true): SupplierRecipients {
   const label = SUPPLIER_KIND_LABEL[kind];
-  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error(`${label}: recipients are missing`);
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new InputError(`${label}: recipients are missing`);
   const o = input as Record<string, unknown>;
-  if (o.enabled !== undefined && typeof o.enabled !== "boolean") throw new Error(`${label}: on/off must be true or false`);
+  if (o.enabled !== undefined && typeof o.enabled !== "boolean") throw new InputError(`${label}: on/off must be true or false`);
   const to = cleanAddressList(o.to, `${label} To`);
   const cc = cleanAddressList(o.cc, `${label} Cc`).filter((a) => !to.includes(a));
-  if (to.length + cc.length > MAX_PER_MESSAGE) throw new Error(`${label}: at most ${MAX_PER_MESSAGE} addresses in To and Cc together`);
-  if (strict && o.enabled === true && !to.length) throw new Error(`${label}: add at least one To address before switching e-mail on`);
+  if (to.length + cc.length > MAX_PER_MESSAGE) throw new InputError(`${label}: at most ${MAX_PER_MESSAGE} addresses in To and Cc together`);
+  if (strict && o.enabled === true && !to.length) throw new InputError(`${label}: add at least one To address before switching e-mail on`);
   return { enabled: o.enabled === true, to, cc };
 }
 
@@ -85,29 +87,29 @@ const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 export const minutesOf = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 
 export function cleanDocks(input: unknown): DockSettings {
-  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("Docks: the settings are missing");
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new InputError("Docks: the settings are missing");
   const o = input as Record<string, unknown>;
-  if (!Array.isArray(o.docks)) throw new Error("Docks: the dock names must be a list");
+  if (!Array.isArray(o.docks)) throw new InputError("Docks: the dock names must be a list");
   const docks: string[] = [];
   for (const d of o.docks) {
-    if (typeof d !== "string") throw new Error("Docks: every dock name must be text");
+    if (typeof d !== "string") throw new InputError("Docks: every dock name must be text");
     const n = d.trim();
     if (!n) continue;
-    if (n.length > MAX_DOCK_NAME) throw new Error(`Docks: "${n.slice(0, 40)}…" is too long (at most ${MAX_DOCK_NAME} characters)`);
-    if (docks.some((x) => x.toLowerCase() === n.toLowerCase())) throw new Error(`Docks: "${n}" is listed twice`);
+    if (n.length > MAX_DOCK_NAME) throw new InputError(`Docks: "${n.slice(0, 40)}…" is too long (at most ${MAX_DOCK_NAME} characters)`);
+    if (docks.some((x) => x.toLowerCase() === n.toLowerCase())) throw new InputError(`Docks: "${n}" is listed twice`);
     docks.push(n);
   }
-  if (!docks.length) throw new Error("Docks: add at least one dock");
-  if (docks.length > MAX_DOCKS) throw new Error(`Docks: at most ${MAX_DOCKS} docks`);
+  if (!docks.length) throw new InputError("Docks: add at least one dock");
+  if (docks.length > MAX_DOCKS) throw new InputError(`Docks: at most ${MAX_DOCKS} docks`);
   const opensAt = typeof o.opensAt === "string" ? o.opensAt.trim() : "";
   const closesAt = typeof o.closesAt === "string" ? o.closesAt.trim() : "";
-  if (!HHMM.test(opensAt) || !HHMM.test(closesAt)) throw new Error("Docks: opening hours must be times like 06:00");
-  if (minutesOf(closesAt) <= minutesOf(opensAt)) throw new Error("Docks: closing time must be after opening time");
+  if (!HHMM.test(opensAt) || !HHMM.test(closesAt)) throw new InputError("Docks: opening hours must be times like 06:00");
+  if (minutesOf(closesAt) <= minutesOf(opensAt)) throw new InputError("Docks: closing time must be after opening time");
   if (!Array.isArray(o.workingDays) || o.workingDays.some((d) => !Number.isInteger(d) || (d as number) < 1 || (d as number) > 7)) {
-    throw new Error("Docks: working days must be weekday numbers 1 (Monday) to 7 (Sunday)");
+    throw new InputError("Docks: working days must be weekday numbers 1 (Monday) to 7 (Sunday)");
   }
   const workingDays = [...new Set(o.workingDays as number[])].sort((a, b) => a - b);
-  if (!workingDays.length) throw new Error("Docks: choose at least one working day");
+  if (!workingDays.length) throw new InputError("Docks: choose at least one working day");
   return { docks, opensAt, closesAt, workingDays };
 }
 

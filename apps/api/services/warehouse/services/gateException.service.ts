@@ -9,8 +9,9 @@ import type { GateExceptionInput } from "../interfaces/gate.interfaces";
 import { gateMovementService } from "./gateMovement.service";
 import { EXCEPTION_GATE, EXCEPTION_TYPES, openExceptionsNote, setExceptionLineSql } from "./osd";
 import { userName } from "./users";
-import { acceptRecordedAt, checkRequestId, offlineDetail, pgCode, pragueHhmm, type ExceptionOutcome } from "./offline";
+import { acceptRecordedAt, checkRequestId, offlineDetail, pragueHhmm, type ExceptionOutcome } from "./offline";
 import type { GateMovementItem } from "../interfaces/gate.interfaces";
+import { isUniqueViolation } from "../../../lib/db/errors";
 
 // Damage / short / over (OS&D) exceptions of a gate movement. Recording one puts the cargo ON
 // HOLD (the "No open exceptions" release-gate line goes to Blocked); any user may resolve it with
@@ -91,7 +92,7 @@ class GateExceptionService {
     // the server stored but whose answer was lost may come back late or with a skewed clock.
     const known = await already();
     if (known) return known;
-    const at = input.recordedAt ? acceptRecordedAt(input.recordedAt, now) : now;
+    const at = input.recordedAt ? acceptRecordedAt(input.recordedAt, now, { requestId }) : now;
     const fileIds = [...new Set(input.fileIds ?? [])];
     if (fileIds.length > MAX_FILES) throw APIError.invalidArgument(`At most ${MAX_FILES} photos per exception`);
     for (const f of fileIds) {
@@ -107,7 +108,7 @@ class GateExceptionService {
         if (!m) throw APIError.notFound("Gate movement not found");
         // A copy of this request that got the lock first has made it already.
         if (requestId && (await gateExceptionRepository.findByRequestId(tx, id, companyId, requestId))) return false;
-        const row = await gateExceptionRepository.create(tx, {
+        const row = await gateExceptionRepository.insert(tx, {
           companyId,
           movementId: id,
           taskId: m.warehouseTaskId,
@@ -135,7 +136,7 @@ class GateExceptionService {
       });
     } catch (err) {
       // Two copies of one request racing past the lock: the unique index lets one in.
-      if (pgCode(err) !== "23505" || !requestId) throw err;
+      if (!isUniqueViolation(err) || !requestId) throw err;
       created = false;
     }
     if (!created) {

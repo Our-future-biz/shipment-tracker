@@ -3,7 +3,7 @@ import log from "encore.dev/log";
 import { shipments } from "~encore/clients";
 import { gateMovementRepository, type GateMovementRow } from "../repositories/gateMovement.repository";
 import { gateMovementTable, type GateMovementRecord } from "../schemas/gateMovement.schema";
-import { CUSTOMS_STATUSES, customsLine, setCustomsLineSql } from "./customs";
+import { customsLine, isCustomsStatus, setCustomsLineSql } from "./customs";
 
 // Customs follow: the customs status of a gate record linked to a shipment follows the
 // shipment (Shipments works it out from its documents). It is read from the shipments service
@@ -37,7 +37,8 @@ async function fetchStatuses(shipmentIds: string[], budgetMs: number): Promise<M
         const { shipment } = await shipments.shipmentGet({ shipmentId: id });
         out.set(id, { ok: true, customsStatus: shipment.customsStatus });
       } catch (err) {
-        out.set(id, { ok: false, error: err instanceof Error ? err.message : String(err) });
+        log.warn(err, "warehouse: shipment not read for the customs follow", { shipmentId: id });
+        out.set(id, { ok: false, error: "The shipment could not be read" });
       }
     }
   };
@@ -77,7 +78,7 @@ export async function followCustoms(
   for (const m of due) {
     const f = fetched.get(m.shipmentId!);
     if (!f) continue; // not answered in time: read again next time
-    if (!f.ok || !CUSTOMS_STATUSES.includes(f.customsStatus) || f.customsStatus === m.customsStatus) {
+    if (!f.ok || !isCustomsStatus(f.customsStatus) || f.customsStatus === m.customsStatus) {
       checkedOnly.push(m.id);
       continue;
     }

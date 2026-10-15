@@ -9,7 +9,9 @@ import { APIError } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { SaveStatus } from "./JobExtras";
 
-// The PIN and its fields are written by the server only; this page sends the rows.
+// The PIN and its fields are written by the server only; this page sends the rows. The server
+// keeps the PIN hidden: it is shown once, in the answer to "Generate PIN", and afterwards only
+// that a PIN is set (`pinCreatedAt`).
 interface PickupSectionData {
   pin?: string;
   pinTries?: number;
@@ -23,12 +25,16 @@ const MAX_PIN_TRIES = 3;
 
 const emptyRow = () => ({ haulier: "", licensePlate: "", driver: "" });
 
+
 export function PickupSection({ ownerId, messageApi, readOnly = false }: { ownerId: string; messageApi: MessageInstance; readOnly?: boolean }) {
   const { data: sectionData, save, isSaving } = useWarehouseSection(ownerId, "pickup");
   const generate = useGeneratePickupPin(ownerId);
   const section = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
-  const pin = section.pin || null;
-  const locked = !!pin && (section.pinTries ?? 0) >= MAX_PIN_TRIES;
+  // Shown only right after generating it here (the server hides it otherwise).
+  const [shownPin, setShownPin] = useState<string | null>(null);
+  const pinSet = !!(section.pin || section.pinCreatedAt || shownPin);
+  const pin = shownPin ?? section.pin ?? null;
+  const locked = pinSet && (section.pinTries ?? 0) >= MAX_PIN_TRIES;
   const [rows, setRows] = useState<Record<string, string>[]>([emptyRow()]);
   const [dirty, setDirty] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
@@ -49,8 +55,9 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
   // The server makes the PIN (six digits). A new one only once the old one is locked at the gate.
   const generatePin = async () => {
     try {
-      await generate.mutateAsync();
-      messageApi.success(locked ? "New PIN generated — give it to the haulier" : "PIN generated");
+      const res = await generate.mutateAsync();
+      setShownPin(res.pin || null);
+      messageApi.success(locked ? "New PIN generated — give it to the haulier now (it is not shown again)" : "PIN generated — give it to the haulier now (it is not shown again)");
     } catch (e) {
       messageApi.error(e instanceof APIError ? e.message : "Failed to generate the PIN");
     }
@@ -85,9 +92,9 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
         <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">PIN</div>
         <Space align="center" wrap>
           <span className="font-mono text-[32px] tracking-[0.3em] text-slate-800">
-            {pin ? pin.split("").join(" ") : "– – – – – –"}
+            {pin ? pin.split("").join(" ") : pinSet ? "• • • • • •" : "– – – – – –"}
           </span>
-          {!pin && !readOnly && (
+          {!pinSet && !readOnly && (
             <Button type="primary" size="small" onClick={generatePin} loading={generate.isPending}>
               Generate PIN
             </Button>
@@ -105,9 +112,9 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
               </Button>
             </Popconfirm>
           )}
-          {pin && !locked && <Tag color="green">Set</Tag>}
+          {pinSet && !locked && <Tag color="green">{pin ? "Set" : "Set — hidden"}</Tag>}
         </Space>
-        {pin && section.pinCreatedAt && (
+        {pinSet && section.pinCreatedAt && (
           <div className="text-[11px] text-slate-500 mt-1">
             generated {formatDateTime(section.pinCreatedAt)}
             {section.pinCreatedBy ? ` · ${section.pinCreatedBy}` : ""}

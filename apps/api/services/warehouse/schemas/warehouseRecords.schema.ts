@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, doublePrecision, uuid, index, timestamp, jsonb, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, uuid, index, timestamp, jsonb, uniqueIndex, numeric, foreignKey, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import type { GateEvent } from "./gateMovement.schema";
+import { gateMovementTable } from "./gateMovement.schema";
+import { warehouseTaskTable } from "./warehouseTask.schema";
 
 // Warehouse module records behind the Containers, Dock & Yard and Reports tabs.
 
@@ -25,8 +27,8 @@ export const warehouseContainerTable = pgTable(
     seal: text("seal").notNull().default(""),
     pieces: integer("pieces"),
     packages: text("packages").notNull().default(""),
-    weightKg: doublePrecision("weight_kg"),
-    cbm: doublePrecision("cbm"),
+    weightKg: numeric("weight_kg", { precision: 12, scale: 3, mode: "number" }),
+    cbm: numeric("cbm", { precision: 12, scale: 3, mode: "number" }),
     direction: text("direction").notNull().default("Unloading"), // Unloading | Loading
     note: text("note").notNull().default(""),
     // Devanning / stuffing schedule
@@ -44,8 +46,8 @@ export const warehouseContainerTable = pgTable(
     detentionExpiry: text("detention_expiry").notNull().default(""), // YYYY-MM-DD
     yardStatus: text("yard_status").notNull().default(""),
     // VGM
-    tareKg: doublePrecision("tare_kg"),
-    cargoKg: doublePrecision("cargo_kg"),
+    tareKg: numeric("tare_kg", { precision: 12, scale: 3, mode: "number" }),
+    cargoKg: numeric("cargo_kg", { precision: 12, scale: 3, mode: "number" }),
     vgmMethod: text("vgm_method").notNull().default(""),
     vgmDeclaredBy: text("vgm_declared_by").notNull().default(""),
     vgmDeclaredAt: text("vgm_declared_at").notNull().default(""), // YYYY-MM-DDTHH:MM
@@ -71,6 +73,7 @@ export const warehouseContainerTable = pgTable(
     ...defaultTableIndexes("warehouse_container", table),
     tenantIndex("warehouse_container", table),
     index("warehouse_container_movement_idx").on(table.movementId),
+    foreignKey({ name: "wh_container_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
   ],
 );
 
@@ -114,6 +117,12 @@ export const warehouseContainerPositionTable = pgTable(
     uniqueIndex("warehouse_container_position_request_unique")
       .on(table.companyId, table.containerId, table.clientRequestId)
       .where(sql`client_request_id IS NOT NULL`),
+    foreignKey({ name: "wh_container_position_container_fk", columns: [table.containerId], foreignColumns: [warehouseContainerTable.id] }).onDelete("restrict"),
+    foreignKey({ name: "wh_container_position_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
+    foreignKey({ name: "wh_container_position_task_fk", columns: [table.taskId], foreignColumns: [warehouseTaskTable.id] }).onDelete("restrict"),
+    index("wh_container_position_movement_idx").on(table.movementId),
+    index("wh_container_position_task_idx").on(table.taskId),
+    check("wh_container_position_tally_check", sql`${table.tallyOutcome} IN ('', 'received', 'short', 'not_arrived')`),
   ],
 );
 
@@ -151,6 +160,9 @@ export const warehouseDockSlotTable = pgTable(
     ...defaultTableIndexes("warehouse_dock_slot", table),
     tenantIndex("warehouse_dock_slot", table),
     index("warehouse_dock_slot_movement_idx").on(table.movementId),
+    foreignKey({ name: "wh_dock_slot_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
+    check("wh_dock_slot_status_check", sql`${table.status} IN ('Booked', 'In progress', 'Completed', 'Overdue', 'Cancelled')`),
+    check("wh_dock_slot_direction_check", sql`${table.direction} IN ('IN', 'OUT')`),
   ],
 );
 

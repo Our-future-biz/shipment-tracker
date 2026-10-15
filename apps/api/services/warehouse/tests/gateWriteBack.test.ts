@@ -18,7 +18,7 @@ vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate, shipmentGet: vi.fn(getShipment) },
-    auth: { usersList: vi.fn(async () => ({ users: [] })) },
+    auth: (await import("./authFake")).authFake([]),
   };
 });
 
@@ -65,7 +65,7 @@ describe("gate stamps write back to the shipment", () => {
     expect(shipmentUpdate).toHaveBeenCalledTimes(1);
     expect(shipmentUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ shipmentId, warehouseReference: task.taskId, warehouseReceivedDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) }),
-      asUser(c, "manager"),
+      asUser(c),
     );
     await expect(gateMovementService.stamp(row.id, c, user, "gateIn")).rejects.toThrow(/already/);
     expect(shipmentUpdate).toHaveBeenCalledTimes(1);
@@ -139,7 +139,7 @@ describe("gate stamps write back to the shipment", () => {
     expect(shipmentUpdate.mock.calls[0]![0]).not.toHaveProperty("plateNumber");
     await gateMovementService.update(row.id, c, user, { plate: "5XY 9988" }, "admin");
     expect(shipmentUpdate).toHaveBeenCalledTimes(2);
-    expect(shipmentUpdate).toHaveBeenLastCalledWith({ shipmentId, plateNumber: "5XY 9988" }, asUser(c, "admin"));
+    expect(shipmentUpdate).toHaveBeenLastCalledWith({ shipmentId, plateNumber: "5XY 9988" }, asUser(c));
     // Saving the same plate again sends nothing.
     await gateMovementService.update(row.id, c, user, { plate: "5XY 9988" });
     expect(shipmentUpdate).toHaveBeenCalledTimes(2);
@@ -157,7 +157,7 @@ describe("shipment update outbox", () => {
     shipmentUpdate.mockRejectedValueOnce(new Error("shipments unavailable"));
     const stamped = await gateMovementService.stamp(row.id, c, user, "gateIn", "manager");
     expect(stamped.gateIn).not.toBeNull();
-    expect(stamped.shipmentUpdate).toMatchObject({ state: "pending", what: ["warehouse received date"], attempts: 1, lastError: "shipments unavailable" });
+    expect(stamped.shipmentUpdate).toMatchObject({ state: "pending", what: ["warehouse received date"], attempts: 1, lastError: "The update could not be sent" });
     const [pending] = await outboxOf(row.id);
     expect(pending).toMatchObject({ status: "pending", stamp: "gateIn", attempts: 1, actingUserId: user, actingRole: "manager" });
     expect(pending!.nextAttemptAt.getTime()).toBeGreaterThan(Date.now());
@@ -168,7 +168,7 @@ describe("shipment update outbox", () => {
     await makeDue(row.id);
     await deliverDue(row.id);
     expect(shipmentUpdate).toHaveBeenCalledTimes(2);
-    expect(shipmentUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ shipmentId, warehouseReceivedDate: expect.any(String) }), asUser(c, "manager"));
+    expect(shipmentUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ shipmentId, warehouseReceivedDate: expect.any(String) }), asUser(c));
     expect((await outboxOf(row.id))[0]).toMatchObject({ status: "sent", attempts: 2 });
     expect((await gateMovementService.get(row.id, c)).shipmentUpdate).toBeNull();
   });
@@ -177,7 +177,7 @@ describe("shipment update outbox", () => {
     const { c, row } = await inboundRow();
     shipmentUpdate.mockRejectedValueOnce(APIError.notFound("Shipment not found"));
     const stamped = await gateMovementService.stamp(row.id, c, user, "gateIn");
-    expect(stamped.shipmentUpdate).toMatchObject({ state: "failed", lastError: "Shipment not found", nextAttemptAt: null });
+    expect(stamped.shipmentUpdate).toMatchObject({ state: "failed", lastError: "The shipment no longer exists in Shipments", nextAttemptAt: null });
     expect(stamped.events.at(-1)).toMatchObject({ kind: "shipmentUpdateFailed", label: "Shipment not updated: warehouse received date" });
     // Retry now: back to pending and sent.
     const retried = await gateAdminService.retryShipmentUpdate(row.id, c, user);
@@ -268,7 +268,7 @@ describe("shipment update outbox", () => {
     // An older update of the shipment (another record) waits for a long retry.
     await db.insert(o).values({
       companyId: c,
-      movementId: randomUUID(),
+      movementId: (await gateMovementService.create(c, user, { gateRef: "OLDER-1" })).id,
       shipmentId,
       kind: "plate",
       stamp: "",
@@ -293,5 +293,18 @@ describe("shipment update outbox", () => {
     spy.mockRestore();
     expect(await outboxOf(row.id)).toEqual([]);
     expect((await gateMovementService.get(row.id, c)).gateIn).toBeNull();
+  });
+});
+
+describe("shipment update sent as the stamping user as they are now", () => {
+  it("uses the user's current role, not the role at the stamp", async () => {
+    const { fakeRoles } = await import("./authFake");
+    const { c, row } = await inboundRow();
+    shipmentUpdate.mockReset();
+    shipmentUpdate.mockImplementation(async () => ({}));
+    fakeRoles.set(user, "user");
+    await gateMovementService.stamp(row.id, c, user, "gateIn", "manager");
+    expect(shipmentUpdate).toHaveBeenLastCalledWith(expect.anything(), asUser(c, "user"));
+    fakeRoles.delete(user);
   });
 });

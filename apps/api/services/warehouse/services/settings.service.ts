@@ -2,8 +2,9 @@ import { APIError } from "encore.dev/api";
 import { settingsRepository } from "../repositories/settings.repository";
 import type { WarehouseSettingsRecord } from "../schemas/warehouseSettings.schema";
 import type { WarehouseSettingsItem } from "../interfaces/settings.interfaces";
-import { emailConfigured } from "./emailSender";
+import { emailConfigured } from "../../../lib/email";
 import { isManager, userName } from "./users";
+import { InputError, inputMessage } from "./inputError";
 import {
   DEFAULT_DOCKS,
   DEFAULT_SUPPLIER_EMAIL,
@@ -58,9 +59,9 @@ class SettingsService {
     const next = { supplierEmail: { ...cur.supplierEmail }, docks: cur.docks };
     try {
       if (patch.supplierEmail !== undefined) {
-        if (!patch.supplierEmail || typeof patch.supplierEmail !== "object" || Array.isArray(patch.supplierEmail)) throw new Error("Supplier e-mail settings are not valid");
+        if (!patch.supplierEmail || typeof patch.supplierEmail !== "object" || Array.isArray(patch.supplierEmail)) throw new InputError("Supplier e-mail settings are not valid");
         for (const k of Object.keys(patch.supplierEmail)) {
-          if (!(SUPPLIER_KINDS as readonly string[]).includes(k)) throw new Error(`Unknown message type "${k}" — use ${SUPPLIER_KINDS.join(", ")}`);
+          if (!(SUPPLIER_KINDS as readonly string[]).includes(k)) throw new InputError(`Unknown message type "${k}" — use ${SUPPLIER_KINDS.join(", ")}`);
         }
         for (const k of SUPPLIER_KINDS) {
           if (patch.supplierEmail[k] !== undefined) next.supplierEmail[k] = cleanRecipients(patch.supplierEmail[k], k);
@@ -68,7 +69,7 @@ class SettingsService {
       }
       if (patch.docks !== undefined) next.docks = cleanDocks(patch.docks);
     } catch (err) {
-      throw APIError.invalidArgument(err instanceof Error ? err.message : String(err));
+      throw APIError.invalidArgument(inputMessage(err, "The settings are not valid"));
     }
     const changes = settingsChanges(cur, next);
     if (!changes.length) return this.item(cur, role);

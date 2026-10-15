@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, doublePrecision, uuid, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, uuid, timestamp, index, uniqueIndex, numeric, foreignKey } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { gateMovementTable } from "./gateMovement.schema";
+import { warehouseTaskTable } from "./warehouseTask.schema";
 
 // Stock tab of the warehouse module: what is on hand, where it is, how it moved and what
 // sits under customs control.
@@ -19,8 +21,8 @@ export const warehouseStockLineTable = pgTable(
     pod: text("pod").notNull().default(""),
     pieces: integer("pieces").notNull().default(0),
     packageType: text("package_type").notNull().default(""),
-    weightKg: doublePrecision("weight_kg").notNull().default(0),
-    cbm: doublePrecision("cbm").notNull().default(0),
+    weightKg: numeric("weight_kg", { precision: 12, scale: 3, mode: "number" }).notNull().default(0),
+    cbm: numeric("cbm", { precision: 12, scale: 3, mode: "number" }).notNull().default(0),
     location: text("location").notNull().default(""), // bay, e.g. A-04-2 (zone-bay-level)
     receivedAt: text("received_at").notNull(), // YYYY-MM-DD
     freeDays: integer("free_days").notNull().default(7),
@@ -47,6 +49,9 @@ export const warehouseStockLineTable = pgTable(
     uniqueIndex("warehouse_stock_line_auto_movement_unique")
       .on(table.companyId, table.movementId)
       .where(sql`source = 'auto' AND deleted_at IS NULL`),
+    foreignKey({ name: "wh_stock_line_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
+    foreignKey({ name: "wh_stock_line_task_fk", columns: [table.taskId], foreignColumns: [warehouseTaskTable.id] }).onDelete("restrict"),
+    index("wh_stock_line_task_idx").on(table.taskId),
   ],
 );
 
@@ -88,6 +93,9 @@ export const warehouseStockMovementTable = pgTable(
     ...defaultTableIndexes("warehouse_stock_movement", table),
     tenantIndex("warehouse_stock_movement", table),
     index("warehouse_stock_movement_movement_idx").on(table.movementId),
+    foreignKey({ name: "wh_stock_movement_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
+    foreignKey({ name: "wh_stock_movement_task_fk", columns: [table.taskId], foreignColumns: [warehouseTaskTable.id] }).onDelete("restrict"),
+    index("wh_stock_movement_task_idx").on(table.taskId),
   ],
 );
 
@@ -105,7 +113,7 @@ export const warehouseBondedEntryTable = pgTable(
     procedure: text("procedure").notNull().default("71 00 — customs warehousing"),
     entryDate: text("entry_date").notNull().default(""), // YYYY-MM-DD
     pieces: integer("pieces").notNull().default(0),
-    weightKg: doublePrecision("weight_kg").notNull().default(0),
+    weightKg: numeric("weight_kg", { precision: 12, scale: 3, mode: "number" }).notNull().default(0),
     customsValue: text("customs_value").notNull().default(""), // with currency, e.g. "CZK 412 000"
     discharge: text("discharge").notNull().default(""), // date · document, empty while in stock
     balance: integer("balance").notNull().default(0), // pieces still under customs control
@@ -126,5 +134,8 @@ export const warehouseBondedEntryTable = pgTable(
     uniqueIndex("warehouse_bonded_entry_auto_movement_unique")
       .on(table.companyId, table.movementId)
       .where(sql`source = 'auto' AND deleted_at IS NULL`),
+    foreignKey({ name: "wh_bonded_entry_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
+    foreignKey({ name: "wh_bonded_entry_task_fk", columns: [table.taskId], foreignColumns: [warehouseTaskTable.id] }).onDelete("restrict"),
+    index("wh_bonded_entry_task_idx").on(table.taskId),
   ],
 );

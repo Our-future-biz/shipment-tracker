@@ -22,6 +22,7 @@ import {
   resumeAfterReload,
   retryItem,
   uuid,
+  waitingCount,
   type QueueItem,
 } from "./queue";
 
@@ -338,5 +339,19 @@ describe("re-weighs and container work in the queue", () => {
     expect(shown.positions[1]).toMatchObject({ reweighKg: 1234.5, stuffedAt: null });
     expect(c.positions[0]!.tallyOutcome).toBe("");
     expect(applyPendingContainer(c, [])).toBe(c);
+  });
+});
+
+describe("waiting count", () => {
+  it("counts what this phone will still send — not failed, too old or another user's items", () => {
+    const items = [
+      item(),
+      item({ state: "failed", error: "Refused" }),
+      item({ movementId: "m2", recordedAt: minutesAgo(13 * 60), createdAt: minutesAgo(13 * 60) }),
+      item({ movementId: "m3", userId: "u2", userName: "Petr" }),
+      item({ movementId: "m4" }),
+    ];
+    expect(waitingCount(items, NOW, "u1")).toBe(2);
+    expect(waitingCount([], NOW, "u1")).toBe(0);
   });
 });

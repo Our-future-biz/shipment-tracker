@@ -212,7 +212,8 @@ export function OverviewTab({
                       value={m.handling}
                       options={HANDLINGS}
                       labels={directionOfHandling}
-                      onSave={(v) => save({ handling: v })}
+                      clearable={false}
+                      onSave={(v) => v && save({ handling: v })}
                     />
                   )}
                 </FieldRow>
@@ -248,7 +249,8 @@ export function OverviewTab({
                     value={m.customsStatus}
                     options={CUSTOMS_STATUSES}
                     width={250}
-                    onSave={(v) => save({ customsStatus: v })}
+                    clearable={false}
+                    onSave={(v) => v && save({ customsStatus: v })}
                   />
                 </FieldRow>
                 <FieldRow label={TERMS.releaseGates}>
@@ -286,7 +288,8 @@ export function OverviewTab({
                   <InlineSelect
                     value={m.customsMode}
                     options={CUSTOMS_MODES}
-                    onSave={(v) => save({ customsMode: v })}
+                    clearable={false}
+                    onSave={(v) => v && save({ customsMode: v })}
                   />
                 </FieldRow>
                 <FieldRow label="MRN Number">

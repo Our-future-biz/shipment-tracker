@@ -3,6 +3,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { APIError, ErrCode, type controllers, type services } from "@/lib/api/client";
+import { gateKeys, sectionKeys } from "./warehouseKeys";
 
 export type SectionKeyChange = services.SectionKeyChange;
 
@@ -20,7 +21,7 @@ export const SECTION_CONFLICT_TEXT = "Someone else saved this meanwhile — thei
 
 export function useWarehouseSection(shipmentId: string, section: string) {
   const queryClient = useQueryClient();
-  const key = ["warehouse-section", shipmentId, section];
+  const key = sectionKeys.ofShipment(shipmentId, section);
 
   const query = useQuery({
     queryKey: key,
@@ -69,8 +70,8 @@ export function useGeneratePickupPin(shipmentId: string) {
   return useMutation({
     mutationFn: () => api.warehouse.pickupPinGenerate(shipmentId),
     onSuccess: (res) => {
-      queryClient.setQueryData(["warehouse-section", shipmentId, "pickup"], res);
-      queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+      queryClient.setQueryData(sectionKeys.ofShipment(shipmentId, "pickup"), res);
+      queryClient.invalidateQueries({ queryKey: gateKeys.all });
     },
   });
 }
@@ -82,7 +83,7 @@ export type SentWhat = "vgm" | "survey" | "remeasurement" | "inform_operations";
 // cached section (the Shipments view of the same rows included) and the gate records (History).
 export function usePositionSection(taskId: string | null | undefined, section: string) {
   const queryClient = useQueryClient();
-  const key = ["warehouse-section", "task", taskId ?? "", section];
+  const key = sectionKeys.ofTask(taskId ?? "", section);
 
   const query = useQuery({
     queryKey: key,
@@ -91,9 +92,9 @@ export function usePositionSection(taskId: string | null | undefined, section: s
   });
 
   const refreshOthers = () => {
-    queryClient.invalidateQueries({ queryKey: ["warehouse-section"], predicate: (q) => q.queryKey[1] !== "task" || q.queryKey[2] !== taskId });
-    queryClient.invalidateQueries({ queryKey: ["warehouse-section-summary"] });
-    queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+    queryClient.invalidateQueries({ queryKey: sectionKeys.all, predicate: (q) => q.queryKey[1] !== "task" || q.queryKey[2] !== taskId });
+    queryClient.invalidateQueries({ queryKey: sectionKeys.summary() });
+    queryClient.invalidateQueries({ queryKey: gateKeys.all });
   };
 
   const patch = useMutation({
@@ -140,7 +141,7 @@ export function usePositionSection(taskId: string | null | undefined, section: s
 // Per position: remeasured lines saved, last remeasurement sent, operations informed (worklist).
 export function useWarehouseSectionSummary(enabled = true) {
   const query = useQuery({
-    queryKey: ["warehouse-section-summary"],
+    queryKey: sectionKeys.summary(),
     queryFn: () => api.warehouse.warehouseSectionSummary(),
     enabled,
   });

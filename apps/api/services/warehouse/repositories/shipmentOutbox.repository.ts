@@ -2,12 +2,17 @@ import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { shipmentOutboxTable, type NewShipmentOutboxRecord, type ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
 import type { Tx } from "./warehouseSection.repository";
+import { TenantRepository } from "../../../lib/db/repository";
 
 const o = shipmentOutboxTable;
 // A claimed row is held this long; a delivery that dies leaves it to the next run after that.
 const LOCK = sql`interval '2 minutes'`;
 
-class ShipmentOutboxRepository {
+class ShipmentOutboxRepository extends TenantRepository<typeof shipmentOutboxTable> {
+  constructor() {
+    super(db, shipmentOutboxTable, "warehouse_shipment_outbox");
+  }
+
   // Written in the stamp's own transaction, so the stamp and what it owes the shipment are
   // committed together (or not at all).
   async enqueue(tx: Tx, rows: NewShipmentOutboxRecord[]) {
@@ -18,7 +23,9 @@ class ShipmentOutboxRepository {
   // Takes up to `limit` due rows for delivery and counts the attempt. Safe to run from several
   // places at once (the cron and the local timer, or two app instances): rows are claimed with
   // SKIP LOCKED and held for a while. Updates of one shipment go out in the order they were
-  // made — a row waits while an older one of the same shipment is still pending.
+  // made — a row waits while an older one of the same shipment is still pending, or failed for
+  // good (a "released" date must not reach a shipment whose "received" date never did; the
+  // failed row is retried or dismissed by hand first).
   // With `movementId`, only that record's rows (the delivery right after a stamp); with
   // `shipmentIds`, only the rows of those shipments ("Retry now").
   // Each claim adds one to `attempts`, which then serves as the claim's token: only the run
@@ -36,7 +43,7 @@ class ShipmentOutboxRepository {
           ${shipmentIds ? sql`AND x.shipment_id IN (${sql.join(shipmentIds.map((id) => sql`${id}`), sql`, `)})` : sql``}
           AND NOT EXISTS (
             SELECT 1 FROM ${o} y
-            WHERE y.shipment_id = x.shipment_id AND y.status = 'pending' AND y.deleted_at IS NULL
+            WHERE y.shipment_id = x.shipment_id AND y.status IN ('pending', 'failed') AND y.deleted_at IS NULL
               AND (y.created_at, y.id) < (x.created_at, x.id))
         ORDER BY x.created_at, x.id
         LIMIT ${limit}
@@ -78,16 +85,16 @@ class ShipmentOutboxRepository {
 
   // A voided stamp: what it still owes the shipment is cancelled. Returns the rows of those
   // stamps as they were (to tell whether an update already reached the shipment).
-  async cancelForStamps(tx: Tx, movementId: string, stamps: string[]) {
+  async cancelForStamps(tx: Tx, movementId: string, companyId: string, stamps: string[]) {
     const before = await tx
       .select()
       .from(o)
-      .where(and(eq(o.movementId, movementId), inArray(o.stamp, stamps)))
+      .where(and(eq(o.companyId, companyId), eq(o.movementId, movementId), inArray(o.stamp, stamps)))
       .for("update");
     await tx
       .update(o)
       .set({ status: "cancelled", lockedUntil: null, lastError: "stamp voided", updatedAt: new Date() })
-      .where(and(eq(o.movementId, movementId), inArray(o.stamp, stamps), inArray(o.status, ["pending", "failed"])));
+      .where(and(eq(o.companyId, companyId), eq(o.movementId, movementId), inArray(o.stamp, stamps), inArray(o.status, ["pending", "failed"])));
     return before;
   }
 
@@ -151,11 +158,20 @@ class ShipmentOutboxRepository {
         pending: sql<number>`count(*) FILTER (WHERE ${o.status} = 'pending')`,
         failed: sql<number>`count(*) FILTER (WHERE ${o.status} = 'failed')`,
         oldest: sql<Date | string | null>`min(${o.createdAt}) FILTER (WHERE ${o.status} = 'pending')`,
+        // Pending rows held back by an older failed row of the same shipment.
+        blocked: sql<number>`count(*) FILTER (WHERE ${o.status} = 'pending' AND EXISTS (
+          SELECT 1 FROM ${o} y WHERE y.company_id = ${o.companyId} AND y.shipment_id = ${o.shipmentId}
+            AND y.status = 'failed' AND y.deleted_at IS NULL AND (y.created_at, y.id) < (${o.createdAt}, ${o.id})))`,
       })
       .from(o)
       .where(and(eq(o.companyId, companyId), isNull(o.deletedAt), inArray(o.status, ["pending", "failed"])));
     const oldest = row?.oldest ? new Date(row.oldest) : null;
-    return { pending: Number(row?.pending ?? 0), failed: Number(row?.failed ?? 0), oldestPendingAt: oldest ? oldest.toISOString() : null };
+    return {
+      pending: Number(row?.pending ?? 0),
+      failed: Number(row?.failed ?? 0),
+      blockedByFailed: Number(row?.blocked ?? 0),
+      oldestPendingAt: oldest ? oldest.toISOString() : null,
+    };
   }
 
   // Pending updates (all companies) older than `minutes`: count and the oldest, for the warning log.

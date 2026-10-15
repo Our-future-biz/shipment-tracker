@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
-import { auth } from "~encore/clients";
 import { gateFileRepository } from "../repositories/gateFile.repository";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import { gateFileBucket } from "../storage/gateFileBucket";
 import type { GateFileRecord } from "../schemas/gateFile.schema";
 import type { GateFileItem } from "../interfaces/gate.interfaces";
-import { checkRequestId, pgCode } from "./offline";
+import { checkRequestId } from "./offline";
+import { isUniqueViolation } from "../../../lib/db/errors";
+import { userName } from "./users";
+import { servedFileType, storedFileType } from "./fileType";
 
 // A single upload may be up to 25 MB; the page shows usage against ~20 MB per shipment.
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -18,7 +20,7 @@ const toItem = (f: GateFileRecord): GateFileItem => ({
   tag: f.tag,
   fileName: f.fileName,
   fileSize: f.fileSize,
-  fileType: f.fileType,
+  fileType: servedFileType(f.fileType),
   uploadedBy: f.uploadedBy,
   createdAt: f.createdAt.toISOString(),
 });
@@ -51,16 +53,12 @@ class GateFileService {
     if (!buffer.length) throw APIError.invalidArgument("The file is empty");
     if (buffer.length > MAX_FILE_BYTES) throw APIError.invalidArgument("The file is larger than 25 MB");
 
+    // The type comes from the bytes, never from what the client claims: an HTML or SVG file
+    // named .jpg is stored (and served) as a download.
+    const fileType = storedFileType(buffer);
     const storageKey = `${companyId}/${movementId}/${randomUUID()}`;
-    await gateFileBucket.upload(storageKey, buffer, { contentType: input.fileType || "application/octet-stream" });
-    let uploadedBy = "";
-    try {
-      const { users } = await auth.usersList();
-      const me = users.find((u) => u.id === userId);
-      uploadedBy = me?.displayName || me?.email || "";
-    } catch {
-      // Name is cosmetic — keep the upload.
-    }
+    await gateFileBucket.upload(storageKey, buffer, { contentType: fileType });
+    const uploadedBy = await userName(userId);
     try {
       const row = await gateFileRepository.create({
         companyId,
@@ -69,7 +67,7 @@ class GateFileService {
         tag: input.tag ?? "",
         fileName: input.fileName.trim(),
         fileSize: buffer.length,
-        fileType: input.fileType ?? "",
+        fileType,
         storageKey,
         uploadedBy,
         ...(requestId ? { clientRequestId: requestId } : {}),
@@ -78,7 +76,7 @@ class GateFileService {
     } catch (err) {
       // Two copies of one upload at once: the first one stored is the file (the other copy's
       // bytes stay in the bucket unused, as removed files' bytes do).
-      const first = requestId && pgCode(err) === "23505" ? await gateFileRepository.findByRequestId(movementId, companyId, requestId) : null;
+      const first = requestId && isUniqueViolation(err) ? await gateFileRepository.findByRequestId(movementId, companyId, requestId) : null;
       if (!first) throw err;
       return toItem(first);
     }
@@ -89,7 +87,7 @@ class GateFileService {
     const f = await gateFileRepository.findById(fileId, movementId, companyId);
     if (!f) throw APIError.notFound("File not found");
     const buffer = await gateFileBucket.download(f.storageKey);
-    return { fileName: f.fileName, fileType: f.fileType, contentBase64: buffer.toString("base64") };
+    return { fileName: f.fileName, fileType: servedFileType(f.fileType), contentBase64: buffer.toString("base64") };
   }
 
   // Metadata is archived; the stored bytes are kept (survey evidence).

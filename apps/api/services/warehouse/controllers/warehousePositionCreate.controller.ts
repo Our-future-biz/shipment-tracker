@@ -1,26 +1,26 @@
 import { api } from "encore.dev/api";
+import type { Min } from "encore.dev/validate";
 import { getAuthData } from "~encore/auth";
 import { warehouseImportService } from "../services/warehouseImport.service";
 import { toTaskItem } from "../services/warehouse.service";
 import type { WarehouseTaskItem } from "../interfaces/interfaces";
-import type { GateMovementItem } from "../interfaces/gate.interfaces";
+import type { GateCustomsMode, GateCustomsStatus, GateHandling, GateMovementItem } from "../interfaces/gate.interfaces";
 
 interface WarehousePositionCreateRequest {
   customer?: string;
   customerRef?: string;
   customerContact?: string;
   shipmentOwner?: string;
-  customsStatus?: string;
-  /** Import | Export */
-  handling?: string;
+  customsStatus?: GateCustomsStatus;
+  handling?: GateHandling;
   freightMode?: string;
   loadType?: string;
-  customsMode?: string;
+  customsMode?: GateCustomsMode;
   commodity?: string;
   packing?: string;
-  colli?: number;
-  weightKg?: number;
-  measureCbm?: number;
+  colli?: number & Min<0>;
+  weightKg?: number & Min<0>;
+  measureCbm?: number & Min<0>;
   note?: string;
   /** Job fields copied from a shipment ("Copy from job"); the position keeps no link to it. */
   jobNumber?: string;

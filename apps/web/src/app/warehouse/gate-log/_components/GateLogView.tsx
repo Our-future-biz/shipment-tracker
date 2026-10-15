@@ -5,12 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Switch, Tooltip } from "antd";
 import { MobileOutlined, PrinterOutlined } from "@ant-design/icons";
-import { useQueryClient } from "@tanstack/react-query";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
-import { api } from "@/lib/api";
-import { useGateLog, type GateMovement, type GateStampKind } from "@/hooks/useGateLog";
+import { useGateLog, type GateMovement, type GateStampKind, useStampMovement } from "@/hooks/useGateLog";
 import { getCellConditionalStyle } from "@/lib/columnConfig";
 import { reportBulk, runBulk } from "@/app/warehouse/_components/tabs/shared";
 import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOfVisit, releaseGatesText } from "@/app/warehouse/_lib/glossary";
@@ -125,7 +123,7 @@ const COLUMNS: AppGridColumn<GateMovement>[] = [
     width: 210,
    
     text: (r) => r.customsStatus,
-    filterOptions: CUSTOMS_STATUSES,
+    filterOptions: [...CUSTOMS_STATUSES],
     onCell: (r) => tint("customsStatus", r.customsStatus),
     render: (_, r) => dim(r.customsStatus),
   },
@@ -197,7 +195,7 @@ const isNextStep = (m: GateMovement, kind: GateStampKind) => gateSteps(m).some((
 export function GateLogView({ embedded, header }: { embedded?: boolean; header?: ReactNode } = {}) {
   const router = useRouter();
   const toast = useToast();
-  const queryClient = useQueryClient();
+  const { stamp: stampMovement, refresh: refreshAfterStamps } = useStampMovement();
   // Show archived (?archived=1): archived records only, read-only here; managers restore them on the job.
   const [archivedParam, setArchivedParam] = useUrlParam("archived", ["0", "1"] as const, "0");
   const archived = archivedParam === "1";
@@ -222,12 +220,17 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
   // how many were stamped and why the rest were not. Failed rows stay ticked to retry.
   const runStamp = async (a: StampAction) => {
     setStamping(true);
-    const result = await runBulk(eligible(a), (m) => api.warehouse.gateMovementStamp(m.id, { kind: a.kind }));
-    await queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
-    setStamping(false);
-    setStampAction(null);
-    reportBulk(toast, result, { verb: `${a.label} stamped on`, nouns: ["movement", "movements"], label: (m) => m.gateRef });
-    if (result.failed.length === 0) selection.clear();
+    try {
+      const result = await runBulk(eligible(a), (m) => stampMovement(m.id, { kind: a.kind }));
+      await refreshAfterStamps();
+      setStampAction(null);
+      reportBulk(toast, result, { verb: `${a.label} stamped on`, nouns: ["movement", "movements"], label: (m) => m.gateRef });
+      if (result.failed.length === 0) selection.clear();
+    } catch (e) {
+      toast.error(e instanceof Error && e.message ? e.message : "Failed to stamp the movements");
+    } finally {
+      setStamping(false);
+    }
   };
 
   const pick = (a: StampAction) => {

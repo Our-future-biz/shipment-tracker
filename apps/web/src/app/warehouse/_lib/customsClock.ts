@@ -1,4 +1,5 @@
 import type { interfaces } from "@/lib/api/client";
+import { addDays, businessDayOf, businessToday } from "@/lib/date";
 
 // Days under customs control and the EU temporary-storage deadline (UCC art. 149) of a position.
 // The same rules as the server (apps/api/services/warehouse/services/warehouseStockCustoms.ts),
@@ -32,18 +33,11 @@ export interface CustomsClock {
   note: string;
 }
 
-const PRAGUE = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Prague", year: "numeric", month: "2-digit", day: "2-digit" });
-const pragueDate = (at: string) => {
-  const d = new Date(at);
-  return isNaN(d.getTime()) ? "" : PRAGUE.format(d);
-};
-const pragueToday = () => PRAGUE.format(new Date());
 
 const DAY = 86_400_000;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const isDate = (s: string | null | undefined): s is string => !!s && DATE.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
 const dayNo = (d: string) => Math.floor(Date.parse(`${d}T00:00:00Z`) / DAY);
-const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
 export function customsRegime(m: Pick<Movement, "customsMode" | "customsStatus" | "operationType">): CustomsRegime {
@@ -77,12 +71,12 @@ export function customsClock(p: { regime: CustomsRegime; start: string | null; s
 }
 
 // A lifecycle time as a Prague day: a typed YYYY-MM-DD stays, an instant is converted.
-const dayOf = (at: string | null | undefined) => (!at ? null : isDate(at) ? at : pragueDate(at) || null);
+const dayOf = (at: string | null | undefined) => (!at ? null : isDate(at) ? at : businessDayOf(at) || null);
 
 export type CustomsClockFields = Pick<Movement, "customsMode" | "customsStatus" | "operationType"> & { lifecycle?: Pick<Movement["lifecycle"], "steps"> | null };
 
 /** The counter of a gate record, from its receipt to its leaving (or today). */
-export function movementCustomsClock(m: CustomsClockFields, today: string = pragueToday()): CustomsClock {
+export function movementCustomsClock(m: CustomsClockFields, today: string = businessToday()): CustomsClock {
   const steps = m.lifecycle?.steps ?? [];
   const received = steps.find((s) => s.stage === "received");
   const left = steps.find((s) => s.stage === "left");

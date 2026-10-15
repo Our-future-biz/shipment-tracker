@@ -1,6 +1,5 @@
 import { and, asc, eq, gt, inArray, isNull, like, lt, ne, notInArray, sql, type SQL } from "drizzle-orm";
 import type { PgUpdateSetSource } from "drizzle-orm/pg-core";
-import log from "encore.dev/log";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import type { GateEvent } from "../schemas/gateMovement.schema";
@@ -23,7 +22,7 @@ export type MovementContainerRef = { id: string; number: string; equipment: stri
 
 class WarehouseContainerRepository extends TenantRepository<typeof warehouseContainerTable> {
   constructor() {
-    super(db as never, warehouseContainerTable, "warehouse_container");
+    super(db, warehouseContainerTable, "warehouse_container");
   }
 
   // The containers of these positions: the one each is a house of (warehouse_container_position),
@@ -36,17 +35,11 @@ class WarehouseContainerRepository extends TenantRepository<typeof warehouseCont
       .from(ct)
       .where(and(eq(ct.companyId, companyId), inArray(ct.movementId, movementIds), isNull(ct.deletedAt)))
       .orderBy(ct.createdAt);
-    let linked: typeof legacy = [];
-    try {
-      linked = await this.db
-        .select({ id: ct.id, number: ct.number, equipment: ct.equipment, movementId: cp.movementId, createdAt: ct.createdAt })
-        .from(cp)
-        .innerJoin(ct, and(eq(ct.id, cp.containerId), isNull(ct.deletedAt)))
-        .where(and(eq(cp.companyId, companyId), inArray(cp.movementId, movementIds), isNull(cp.deletedAt)));
-    } catch (err) {
-      if (!missingSchema(err)) throw err;
-      log.warn("warehouse: container positions missing — restart the API so migration 0017 is applied");
-    }
+    const linked: typeof legacy = await this.db
+      .select({ id: ct.id, number: ct.number, equipment: ct.equipment, movementId: cp.movementId, createdAt: ct.createdAt })
+      .from(cp)
+      .innerJoin(ct, and(eq(ct.id, cp.containerId), isNull(ct.deletedAt)))
+      .where(and(eq(cp.companyId, companyId), inArray(cp.movementId, movementIds), isNull(cp.deletedAt)));
     const seen = new Set<string>();
     const out: MovementContainerRef[] = [];
     for (const r of [...linked, ...legacy]) {
@@ -90,32 +83,20 @@ class ContainerPositionRepository {
   // Live houses of these containers, in their order.
   async listForContainers(containerIds: string[], companyId: string, tx: Tx | typeof db = db) {
     if (!containerIds.length) return [];
-    try {
-      return await tx
-        .select()
-        .from(cp)
-        .where(and(eq(cp.companyId, companyId), inArray(cp.containerId, containerIds), isNull(cp.deletedAt)))
-        .orderBy(asc(cp.sequence), asc(cp.createdAt));
-    } catch (err) {
-      if (!missingSchema(err)) throw err;
-      log.warn("warehouse: container positions missing — restart the API so migration 0017 is applied");
-      return [];
-    }
+    return tx
+      .select()
+      .from(cp)
+      .where(and(eq(cp.companyId, companyId), inArray(cp.containerId, containerIds), isNull(cp.deletedAt)))
+      .orderBy(asc(cp.sequence), asc(cp.createdAt));
   }
 
   // The live house of each of these positions (a position is in at most one container).
   async liveForMovements(movementIds: string[], companyId: string, tx: Tx | typeof db = db) {
     if (!movementIds.length) return [];
-    try {
-      return await tx
-        .select()
-        .from(cp)
-        .where(and(eq(cp.companyId, companyId), inArray(cp.movementId, movementIds), isNull(cp.deletedAt)));
-    } catch (err) {
-      if (!missingSchema(err)) throw err;
-      log.warn("warehouse: container positions missing — restart the API so migration 0017 is applied");
-      return [];
-    }
+    return tx
+      .select()
+      .from(cp)
+      .where(and(eq(cp.companyId, companyId), inArray(cp.movementId, movementIds), isNull(cp.deletedAt)));
   }
 
   async liveForMovement(tx: Tx | typeof db, movementId: string, companyId: string) {
@@ -158,32 +139,32 @@ class ContainerPositionRepository {
 }
 
 const ds = warehouseDockSlotTable;
-// Postgres "undefined_table" / "undefined_column": the slot link comes with migration 0016, which
-// Encore applies only on a restart. Until then the Gate Log keeps working without dock slots.
-const missingSchema = (err: unknown) => {
-  const code = (err as { code?: string })?.code ?? (err as { cause?: { code?: string } })?.cause?.code;
-  return code === "42P01" || code === "42703";
-};
 
 class WarehouseDockSlotRepository extends TenantRepository<typeof warehouseDockSlotTable> {
   constructor() {
-    super(db as never, warehouseDockSlotTable, "warehouse_dock_slot");
+    super(db, warehouseDockSlotTable, "warehouse_dock_slot");
   }
 
   // Live slots of these movements (every status), earliest first.
   async listForMovements(movementIds: string[], companyId: string) {
     if (!movementIds.length) return [];
-    try {
-      return await this.db
-        .select()
-        .from(ds)
-        .where(and(eq(ds.companyId, companyId), inArray(ds.movementId, movementIds), isNull(ds.deletedAt)))
-        .orderBy(asc(ds.startsAt), asc(ds.createdAt));
-    } catch (err) {
-      if (!missingSchema(err)) throw err;
-      log.warn("warehouse: dock slot link missing — restart the API so migration 0016 is applied");
-      return [];
-    }
+    return this.db
+      .select()
+      .from(ds)
+      .where(and(eq(ds.companyId, companyId), inArray(ds.movementId, movementIds), isNull(ds.deletedAt)))
+      .orderBy(asc(ds.startsAt), asc(ds.createdAt));
+  }
+
+  // The booked slots of positions taken out of the warehouse are cancelled, so they stop
+  // holding the dock door (slots in progress or done stay as the record of what happened).
+  async cancelForMovements(tx: Tx, movementIds: string[], companyId: string, note: string): Promise<number> {
+    if (!movementIds.length) return 0;
+    const rows = await tx
+      .update(ds)
+      .set({ status: "Cancelled", note: sql`trim(both ' ·' from ${ds.note} || ' · ' || ${note})`, updatedAt: new Date() })
+      .where(and(eq(ds.companyId, companyId), inArray(ds.movementId, movementIds), isNull(ds.deletedAt), inArray(ds.status, ["Booked", "Overdue"])))
+      .returning({ id: ds.id });
+    return rows.length;
   }
 
   // A live slot of the company that holds `dock` at some time in [startsAt, endsAt), other
@@ -212,19 +193,19 @@ class WarehouseDockSlotRepository extends TenantRepository<typeof warehouseDockS
 
 class WarehouseStaffRepository extends TenantRepository<typeof warehouseStaffTable> {
   constructor() {
-    super(db as never, warehouseStaffTable, "warehouse_staff");
+    super(db, warehouseStaffTable, "warehouse_staff");
   }
 }
 
 class WarehouseEquipmentRepository extends TenantRepository<typeof warehouseEquipmentTable> {
   constructor() {
-    super(db as never, warehouseEquipmentTable, "warehouse_equipment");
+    super(db, warehouseEquipmentTable, "warehouse_equipment");
   }
 }
 
 class WarehouseClaimRepository extends TenantRepository<typeof warehouseClaimTable> {
   constructor() {
-    super(db as never, warehouseClaimTable, "warehouse_claim");
+    super(db, warehouseClaimTable, "warehouse_claim");
   }
 
   // Creates a claim under the next number for the prefix (CL-YY- + 0001, 0002, …). Numbers
@@ -247,7 +228,7 @@ class WarehouseClaimRepository extends TenantRepository<typeof warehouseClaimTab
 
 class WarehouseSavedReportRepository extends TenantRepository<typeof warehouseSavedReportTable> {
   constructor() {
-    super(db as never, warehouseSavedReportTable, "warehouse_saved_report");
+    super(db, warehouseSavedReportTable, "warehouse_saved_report");
   }
 }
 

@@ -1,5 +1,8 @@
-import { pgTable, text, integer, doublePrecision, boolean, uuid, jsonb, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, uuid, jsonb, timestamp, index, numeric, foreignKey, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import type { GateCustomsMode, GateCustomsStatus, GateHandling, GateOperationType, GateVisit } from "../interfaces/gate.interfaces";
+import { sql } from "drizzle-orm";
+import { warehouseTaskTable } from "./warehouseTask.schema";
 
 // Checklist icon state: g done · a pending · r problem · n n/a.
 export type GateCheckState = "g" | "a" | "r" | "n";
@@ -87,21 +90,25 @@ export const gateMovementTable = pgTable(
     ...tenantColumns,
     gateRef: text("gate_ref").notNull(),
     warehouseTaskId: uuid("warehouse_task_id"),
-    visit: text("visit").notNull().default("příjem"), // příjem (in) | výdej (out)
-    handling: text("handling").notNull().default("Import"),
-    operationType: text("operation_type").notNull().default("LCL consolidation"),
-    customsMode: text("customs_mode").notNull().default("SCP"),
+    // The shipment whose pick-up PIN releases this outbound cargo, fixed when the row is made (or
+    // re-linked by a manager with a reason). While set, the WH release needs the Pick-up PIN line
+    // OK even if the task link went away — unlinking the position never skips the PIN.
+    pickupShipmentId: uuid("pickup_shipment_id"),
+    visit: text("visit").$type<GateVisit>().notNull().default("příjem"), // příjem (in) | výdej (out)
+    handling: text("handling").$type<GateHandling>().notNull().default("Import"),
+    operationType: text("operation_type").$type<GateOperationType>().notNull().default("LCL consolidation"),
+    customsMode: text("customs_mode").$type<GateCustomsMode>().notNull().default("SCP"),
     customer: text("customer").notNull().default(""),
     customerRef: text("customer_ref").notNull().default(""),
     customerContact: text("customer_contact").notNull().default(""),
     shipmentOwner: text("shipment_owner").notNull().default(""),
     colli: integer("colli").notNull().default(0),
     packing: text("packing").notNull().default(""),
-    weightKg: doublePrecision("weight_kg").notNull().default(0),
-    measureCbm: doublePrecision("measure_cbm").notNull().default(0),
+    weightKg: numeric("weight_kg", { precision: 12, scale: 3, mode: "number" }).notNull().default(0),
+    measureCbm: numeric("measure_cbm", { precision: 12, scale: 3, mode: "number" }).notNull().default(0),
     customsDocs: text("customs_docs").notNull().default(""),
     mrn: text("mrn").notNull().default(""),
-    customsStatus: text("customs_status").notNull().default("Waiting For Commercial Paperwork"),
+    customsStatus: text("customs_status").$type<GateCustomsStatus>().notNull().default("Waiting For Commercial Paperwork"),
     freightMode: text("freight_mode").notNull().default(""),
     loadType: text("load_type").notNull().default(""),
     commodity: text("commodity").notNull().default(""),
@@ -142,6 +149,8 @@ export const gateMovementTable = pgTable(
     // Export (příjem) cargo that left stuffed in a container: the container's gate-out. Stops the
     // storage clock; the status becomes Released without a WH release.
     leftAt: timestamp("left_at", { withTimezone: true }),
+    // → warehouse_container.id: the FK is hand-written in migration 0020 (a schema reference
+    // both ways between the two tables would make their TypeScript types circular).
     leftContainerId: uuid("left_container_id"),
     checklist: jsonb("checklist").$type<GateChecklist>().notNull(),
     releaseGates: jsonb("release_gates").$type<GateReleaseLine[]>().notNull(),
@@ -172,6 +181,15 @@ export const gateMovementTable = pgTable(
     ...defaultTableIndexes("warehouse_gate_movement", table),
     tenantIndex("warehouse_gate_movement", table),
     index("warehouse_gate_movement_task_idx").on(table.warehouseTaskId),
+    foreignKey({ name: "wh_gate_movement_task_fk", columns: [table.warehouseTaskId], foreignColumns: [warehouseTaskTable.id] }).onDelete("restrict"),
+    check("wh_gate_movement_visit_check", sql`${table.visit} IN ('příjem', 'výdej')`),
+    check("wh_gate_movement_handling_check", sql`${table.handling} IN ('Import', 'Export')`),
+    check("wh_gate_movement_operation_type_check", sql`${table.operationType} IN ('LCL consolidation', 'FCL stuffing', 'FCL stripping', 'FCL transload (cross-stuff)', 'Cargo storage', 'Cargo storage (bonded)', 'Container yard storage')`),
+    check("wh_gate_movement_customs_mode_check", sql`${table.customsMode} IN ('SCP', 'JSD', 'T1', 'T2L', 'ATA Carnet', 'RDT', 'C-Goods')`),
+    check("wh_gate_movement_customs_status_check", sql`${table.customsStatus} IN ('Waiting For Commercial Paperwork', 'Paperwork Verification Pending', 'Paperwork Verified', 'Under Customs Clearance', 'Customs Cleared/Released')`),
+    check("wh_gate_movement_status_check", sql`${table.status} IN ('Expected', 'In Warehouse', 'Released', 'Refused')`),
+    check("wh_gate_movement_figures_check", sql`${table.colli} >= 0 AND ${table.weightKg} >= 0 AND ${table.measureCbm} >= 0`),
+    index("wh_gate_movement_pickup_shipment_idx").on(table.pickupShipmentId),
   ],
 );
 

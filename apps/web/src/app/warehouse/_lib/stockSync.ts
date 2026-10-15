@@ -1,28 +1,8 @@
-"use client";
-
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 
-// "Build stock from gate records" (manager): the gate sync run on every live gate record — first
-// as a dry run that only counts, then for real. Refreshes the stock lists, zones, movements and
-// the bonded register.
+// What "Build stock from gate records" did or will do, as text (the hook is hooks/useStockSync).
 
 export type StockSyncResult = interfaces.WarehouseStockSyncResult;
-
-export function useStockSync() {
-  const queryClient = useQueryClient();
-  const mutation = useMutation({
-    mutationFn: async (dryRun: boolean) => (await api.warehouse.warehouseStockSync({ dryRun })).result,
-    onSuccess: (_r, dryRun) => {
-      if (dryRun) return;
-      for (const key of ["stock-lines", "zones", "stock-movements", "bonded", "report-summary"]) {
-        void queryClient.invalidateQueries({ queryKey: ["warehouse-records", key] });
-      }
-    },
-  });
-  return { run: mutation.mutateAsync, isRunning: mutation.isPending };
-}
 
 /** "3 lines to create, 1 to close · 2 bonded entries to open" — what the build will do. */
 export function stockSyncText(r: StockSyncResult, future: boolean): string {

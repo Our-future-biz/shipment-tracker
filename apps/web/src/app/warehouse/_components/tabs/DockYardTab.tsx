@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button, Tooltip } from "antd";
@@ -22,8 +22,9 @@ import type { interfaces } from "@/lib/api/client";
 import { CONTAINER_TYPES } from "@/app/warehouse/gate-log/_lib/gate";
 import { TERMS, directionOfVisit } from "@/app/warehouse/_lib/glossary";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
-import { useWarehouseSettings } from "@/app/warehouse/settings/_lib/useWarehouseSettings";
+import { useWarehouseSettings } from "@/hooks/useWarehouseSettings";
 import { Card, ExpiryTag, Kpi, RecordFormModal, StatusTag, SubTabs, daysUntil, dim, type FieldDef } from "./shared";
+import { addDays, businessToday } from "@/lib/date";
 
 type Sub = "schedule" | "yard" | "resources";
 
@@ -50,12 +51,8 @@ const btnPrimary =
   "flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors";
 
 const pad = (n: number) => String(n).padStart(2, "0");
-const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-const shiftDate = (iso: string, days: number) => {
-  const d = new Date(`${iso}T12:00:00`);
-  d.setDate(d.getDate() + days);
-  return localDate(d);
-};
+// Slot dates are days on the warehouse's calendar (Prague), not the device's.
+const shiftDate = (iso: string, days: number) => addDays(iso, days);
 const longDate = (iso: string) =>
   new Date(`${iso}T12:00:00`).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 
@@ -143,7 +140,7 @@ function DockSchedule() {
   const toast = useToast();
   const { items, isLoading, create, update, remove, isSaving } = useDockSlots();
   const { movements, isLoading: movementsLoading } = useGateLog();
-  const [date, setDate] = useState(localDate(new Date()));
+  const [date, setDate] = useState(businessToday);
   const [editing, setEditing] = useState<{ slot?: DockSlot; preset?: Partial<interfaces.WarehouseDockSlotInput> } | null>(null);
   const daySlots = useMemo(() => items.filter((s) => s.date === date).sort((a, b) => a.time.localeCompare(b.time)), [items, date]);
   // The docks and hours from Warehouse settings, and any other door name used on this day.
@@ -160,31 +157,35 @@ function DockSchedule() {
   );
   const byId = useMemo(() => new Map(movements.map((m) => [m.id, m])), [movements]);
 
-  const presetFor = (m: GateMovement, extra: Partial<interfaces.WarehouseDockSlotInput> = {}): Partial<interfaces.WarehouseDockSlotInput> => ({
-    movementId: m.id,
-    date,
-    direction: slotDirection(m),
-    reference: m.positionRef || m.gateRef,
-    party: m.customer,
-    vehicle: m.plate,
-    status: "Booked",
-    durationMin: 60,
-    ...extra,
-  });
+  const presetFor = useCallback(
+    (m: GateMovement, extra: Partial<interfaces.WarehouseDockSlotInput> = {}): Partial<interfaces.WarehouseDockSlotInput> => ({
+      movementId: m.id,
+      date,
+      direction: slotDirection(m),
+      reference: m.positionRef || m.gateRef,
+      party: m.customer,
+      vehicle: m.plate,
+      status: "Booked",
+      durationMin: 60,
+      ...extra,
+    }),
+    [date],
+  );
 
   // ?book=<movement id> (from the gate job): the booking form for that position.
   const book = searchParams.get("book");
+  // Each link is handled once (the URL loses ?book= right after).
+  const handledBook = useRef<string | null>(null);
   useEffect(() => {
-    if (!book || movementsLoading) return;
+    if (!book || movementsLoading || handledBook.current === book) return;
+    handledBook.current = book;
     const m = byId.get(book);
     if (m) setEditing({ preset: presetFor(m) });
     else toast.warning("That position is not in the Gate Log (archived?) — pick it in the form");
     const params = new URLSearchParams(searchParams.toString());
     params.delete("book");
     router.replace(params.toString() ? `${pathname}?${params}` : pathname, { scroll: false });
-    // Once per link.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [book, movementsLoading]);
+  }, [book, movementsLoading, byId, presetFor, toast, searchParams, router, pathname]);
 
   const legacy = !!editing?.slot && !editing.slot.movementId;
   const positionOptions = useMemo(() => {
@@ -259,7 +260,7 @@ function DockSchedule() {
         extra={
           <>
             <Button size="small" icon={<LeftOutlined />} onClick={() => setDate(shiftDate(date, -1))} aria-label="Previous day" />
-            <Button size="small" onClick={() => setDate(localDate(new Date()))}>
+            <Button size="small" onClick={() => setDate(businessToday())}>
               Today
             </Button>
             <Button size="small" icon={<RightOutlined />} onClick={() => setDate(shiftDate(date, 1))} aria-label="Next day" />
@@ -476,7 +477,7 @@ function YardPark() {
           open
           title={editing.container ? `Container ${editing.container.number}` : "Gate-in container"}
           fields={fields}
-          initial={editing.container ?? { gatedIn: localDate(new Date()), yardStatus: "On site" }}
+          initial={editing.container ?? { gatedIn: businessToday(), yardStatus: "On site" }}
           saving={isSaving}
           onCancel={() => setEditing(null)}
           onSubmit={(v) => (editing.container ? update(editing.container.id, v) : create({ direction: "Unloading", ...v }))}

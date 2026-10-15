@@ -4,9 +4,9 @@ import { settingsService } from "../services/settings.service";
 import { DEFAULT_DOCKS } from "../services/settingsRules";
 
 // Warehouse settings (supplier e-mail recipients, docks). Needs migration 0018.
-vi.mock("~encore/clients", () => ({
+vi.mock("~encore/clients", async () => ({
   shipments: {},
-  auth: { usersList: vi.fn(async () => ({ users: [] })) },
+  auth: (await import("./authFake")).authFake([]),
 }));
 
 const user = randomUUID();

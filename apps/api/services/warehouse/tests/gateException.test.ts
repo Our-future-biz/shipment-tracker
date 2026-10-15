@@ -16,7 +16,7 @@ vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
-    auth: { usersList: vi.fn(async () => ({ users: [] })) },
+    auth: (await import("./authFake")).authFake([]),
   };
 });
 
@@ -164,7 +164,7 @@ describe("history and monitoring", () => {
 
   it("reports pending and failed shipment updates and the storage of cargo in the warehouse", async () => {
     const c = randomUUID();
-    const id = randomUUID();
+    const { id } = await gateMovementService.create(c, user, { gateRef: "OUTBOX-1" });
     const row = (shipment: string) => ({
       companyId: c,
       movementId: id,
@@ -188,6 +188,6 @@ describe("history and monitoring", () => {
   it("counts cargo in the warehouse by its storage clock", async () => {
     const { c } = await armedPosition();
     expect((await warehouseRecordsService.reportSummary(c)).storage).toMatchObject({ inWarehouse: 1, chargeable: 0, estimatedCzk: 0 });
-    expect((await warehouseRecordsService.reportSummary(c)).shipmentUpdates).toEqual({ pending: 0, failed: 0, oldestPendingAt: null });
+    expect((await warehouseRecordsService.reportSummary(c)).shipmentUpdates).toEqual({ pending: 0, failed: 0, blockedByFailed: 0, oldestPendingAt: null });
   });
 });

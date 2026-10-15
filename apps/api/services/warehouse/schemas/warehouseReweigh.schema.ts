@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, doublePrecision, boolean, jsonb, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, boolean, jsonb, timestamp, index, uniqueIndex, numeric, foreignKey, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { gateMovementTable } from "./gateMovement.schema";
+import { warehouseTaskTable } from "./warehouseTask.schema";
 
 // Re-weighing of LCL cargo on receipt (what the warehouse calls "VGM"): every LCL position is
 // weighed by the warehouse before its receipt (export: before the WH receipt; import: before the
@@ -13,11 +15,11 @@ export const warehouseReweighTable = pgTable(
     ...tenantColumns,
     movementId: uuid("movement_id").notNull(),
     taskId: uuid("task_id"),
-    weighedKg: doublePrecision("weighed_kg").notNull(),
+    weighedKg: numeric("weighed_kg", { precision: 12, scale: 3, mode: "number" }).notNull(),
     // The declared gross weight it was compared with, as it was at the weighing.
-    declaredKg: doublePrecision("declared_kg"),
+    declaredKg: numeric("declared_kg", { precision: 12, scale: 3, mode: "number" }),
     declaredSource: text("declared_source").notNull().default(""), // shipment | gate | ""
-    variancePct: doublePrecision("variance_pct"),
+    variancePct: numeric("variance_pct", { precision: 9, scale: 4, mode: "number" }),
     flagged: boolean("flagged").notNull().default(false),
     weighedBy: text("weighed_by").notNull().default(""),
     weighedAt: timestamp("weighed_at", { withTimezone: true }).notNull(),
@@ -33,6 +35,10 @@ export const warehouseReweighTable = pgTable(
     uniqueIndex("warehouse_reweigh_request_unique")
       .on(table.companyId, table.movementId, table.clientRequestId)
       .where(sql`client_request_id IS NOT NULL`),
+    foreignKey({ name: "wh_reweigh_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
+    foreignKey({ name: "wh_reweigh_task_fk", columns: [table.taskId], foreignColumns: [warehouseTaskTable.id] }).onDelete("restrict"),
+    index("wh_reweigh_task_idx").on(table.taskId),
+    check("wh_reweigh_weight_check", sql`${table.weighedKg} >= 0`),
   ],
 );
 

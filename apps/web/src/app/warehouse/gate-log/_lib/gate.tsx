@@ -1,10 +1,12 @@
 import type { ReactNode } from "react";
 import { APIError, type interfaces } from "@/lib/api/client";
+import { formatNumber } from "@/lib/number";
+import { businessDayOf, businessTime } from "@/lib/date";
 
 // Values and colour rules taken from the Warehouse prototype (v0.6, Gate Log).
 
 export const VISITS = ["příjem", "výdej"] as const;
-export const HANDLINGS = ["Import", "Export"] as const;
+export const HANDLINGS = ["Import", "Export"] as const satisfies readonly interfaces.GateHandling[];
 export const OPERATION_TYPES = [
   "LCL consolidation",
   "FCL stuffing",
@@ -14,7 +16,7 @@ export const OPERATION_TYPES = [
   "Cargo storage (bonded)",
   "Container yard storage",
 ];
-export const CUSTOMS_MODES = ["SCP", "JSD", "T1", "T2L", "ATA Carnet", "RDT", "C-Goods"];
+export const CUSTOMS_MODES = ["SCP", "JSD", "T1", "T2L", "ATA Carnet", "RDT", "C-Goods"] as const satisfies readonly interfaces.GateCustomsMode[];
 // Same list as the Shipments module; only the last one releases cargo.
 export const CUSTOMS_STATUSES = [
   "Waiting For Commercial Paperwork",
@@ -22,8 +24,12 @@ export const CUSTOMS_STATUSES = [
   "Paperwork Verified",
   "Under Customs Clearance",
   "Customs Cleared/Released",
-];
+] as const satisfies readonly interfaces.GateCustomsStatus[];
 export const CUSTOMS_CLEARED = "Customs Cleared/Released";
+
+/** A status from Shipments as the gate's typed status; undefined when it is not one of them. */
+export const asGateCustomsStatus = (v: string | null | undefined): interfaces.GateCustomsStatus | undefined =>
+  (CUSTOMS_STATUSES as readonly string[]).includes(v ?? "") ? (v as interfaces.GateCustomsStatus) : undefined;
 export const PACKINGS = ["Pallet(s)", "Cartons", "Colli", "Boxes", "Wooden boxes", "Drums"];
 export const FREIGHT_MODES = ["Air Freight", "Sea Freight", "Rail Freight", "Road Freight"];
 export const LOAD_TYPES = ["Full Load", "Consolidation", "Project Shipment"];
@@ -98,20 +104,11 @@ export const isFcl = (operationType: string) => /^FCL/.test(operationType);
 export const isLcl = (operationType: string) => /^LCL/.test(operationType);
 
 // Thousands separated by a space, decimal point — readable for CZ and EN users.
-export const nf = (v: number | null | undefined, d = 0) =>
-  v == null ? "—" : v.toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d }).replace(/,/g, " ");
+export const nf = (v: number | null | undefined, d = 0) => formatNumber(v, d, "—");
 
-const pad = (n: number) => String(n).padStart(2, "0");
-export const hhmm = (iso: string | null) => {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-export const stamp = (iso: string | null) => {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${hhmm(iso)}`;
-};
+// Gate times on the warehouse's clock (Prague), wherever the screen is opened.
+export const hhmm = (iso: string | null) => businessTime(iso);
+export const stamp = (iso: string | null) => (iso ? `${businessDayOf(iso)} ${businessTime(iso)}` : "");
 
 export const errorMessage = (e: unknown, fallback: string) => (e instanceof APIError ? e.message : fallback);
 

@@ -8,12 +8,17 @@ import {
 } from "../schemas/warehouseSettings.schema";
 import type { DockSettings, SettingsEvent, SupplierEmailSettings } from "../services/settingsRules";
 import type { Tx } from "./warehouseSection.repository";
+import { TenantRepository } from "../../../lib/db/repository";
 
 const s = warehouseSettingsTable;
 const e = warehouseSupplierEmailTable;
 const MAX_SETTINGS_EVENTS = 200;
 
-class SettingsRepository {
+class SettingsRepository extends TenantRepository<typeof warehouseSettingsTable> {
+  constructor() {
+    super(db, warehouseSettingsTable, "warehouse_settings");
+  }
+
   async find(companyId: string, tx: Tx | typeof db = db) {
     const [row] = await tx.select().from(s).where(and(eq(s.companyId, companyId), isNull(s.deletedAt)));
     return row ?? null;

@@ -1,33 +1,23 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
-import log from "encore.dev/log";
+import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { warehouseExceptionTable, type NewWarehouseExceptionRecord, type WarehouseExceptionRecord } from "../schemas/warehouseException.schema";
 import type { Tx } from "./warehouseSection.repository";
 
 const x = warehouseExceptionTable;
 
-// Postgres "undefined_table": the table comes with migration 0015, which Encore applies only on
-// a restart. Until then the gate keeps working and simply shows no exceptions.
-// The same for "undefined_column" (42703): the request id comes with migration 0016.
-const missingTable = (err: unknown) => {
-  const code = (err as { code?: string })?.code ?? (err as { cause?: { code?: string } })?.cause?.code;
-  return code === "42P01" || code === "42703";
-};
+class GateExceptionRepository extends TenantRepository<typeof warehouseExceptionTable> {
+  constructor() {
+    super(db, warehouseExceptionTable, "warehouse_exception");
+  }
 
-class GateExceptionRepository {
   async listForMovements(movementIds: string[], companyId: string): Promise<WarehouseExceptionRecord[]> {
     if (!movementIds.length) return [];
-    try {
-      return await db
-        .select()
-        .from(x)
-        .where(and(eq(x.companyId, companyId), inArray(x.movementId, movementIds), isNull(x.deletedAt)))
-        .orderBy(asc(x.createdAt));
-    } catch (err) {
-      if (!missingTable(err)) throw err;
-      log.warn("warehouse: exceptions table or column missing — restart the API so migrations 0015 / 0016 are applied");
-      return [];
-    }
+    return this.db
+      .select()
+      .from(x)
+      .where(and(eq(x.companyId, companyId), inArray(x.movementId, movementIds), isNull(x.deletedAt)))
+      .orderBy(asc(x.createdAt));
   }
 
   async openForMovement(tx: Tx, movementId: string, companyId: string) {
@@ -48,7 +38,7 @@ class GateExceptionRepository {
     return row ?? null;
   }
 
-  async create(tx: Tx, row: NewWarehouseExceptionRecord) {
+  async insert(tx: Tx, row: NewWarehouseExceptionRecord) {
     const [created] = await tx.insert(x).values(row).returning();
     return created!;
   }
@@ -62,6 +52,18 @@ class GateExceptionRepository {
       .where(and(eq(x.id, id), eq(x.movementId, movementId), eq(x.companyId, companyId), eq(x.status, "open"), isNull(x.deletedAt)))
       .returning();
     return row ?? null;
+  }
+
+  // Open exceptions of positions taken out of the warehouse are closed (resolved, with the reason).
+  async closeForMovements(tx: Tx, movementIds: string[], companyId: string, by: string, note: string): Promise<number> {
+    if (!movementIds.length) return 0;
+    const now = new Date();
+    const rows = await tx
+      .update(x)
+      .set({ status: "resolved", resolvedAt: now, resolvedBy: by, resolutionNote: note, updatedAt: now })
+      .where(and(eq(x.companyId, companyId), inArray(x.movementId, movementIds), eq(x.status, "open"), isNull(x.deletedAt)))
+      .returning({ id: x.id });
+    return rows.length;
   }
 
   async findById(id: string, movementId: string, companyId: string) {

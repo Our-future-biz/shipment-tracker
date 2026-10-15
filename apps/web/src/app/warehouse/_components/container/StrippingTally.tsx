@@ -5,9 +5,8 @@ import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { Alert, Checkbox, Dropdown, Input, InputNumber, Modal, Select, Tooltip } from "antd";
 import { DeleteOutlined, DownOutlined } from "@ant-design/icons";
-import { useGateLog } from "@/hooks/useGateLog";
+import { useGateLog, useCreateGateException } from "@/hooks/useGateLog";
 import type { useWarehouseContainer, WarehouseContainer, ContainerHouse } from "@/hooks/useWarehouseRecords";
-import { api as apiClient } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
@@ -18,6 +17,7 @@ import { btnDefault, btnInline, btnPrimary } from "@/app/warehouse/gate-log/_com
 import { ReasonModal } from "@/app/warehouse/gate-log/_components/job/ReleaseGatesPanel";
 import { ReweighModal } from "@/app/warehouse/gate-log/_components/job/ReweighSection";
 import { Card } from "../tabs/shared";
+import { warehouseRecordKeys } from "@/hooks/warehouseKeys";
 
 // The stripping tally of an import container: after its gate-in each house is counted (pieces,
 // condition, location) and ticked off. Ticking a house off RECEIVES it — its "Received in
@@ -35,6 +35,7 @@ const td = "px-3 py-1.5 align-middle";
 export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api: Api; manager: boolean }) {
   const toast = useToast();
   const queryClient = useQueryClient();
+  const createException = useCreateGateException();
   const { movements } = useGateLog();
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [reasonFor, setReasonFor] = useState<{ h: ContainerHouse; outcome: "short" | "not_arrived" } | null>(null);
@@ -79,13 +80,12 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
   const recordException = async () => {
     if (!suggestion) return;
     try {
-      await apiClient.warehouse.gateExceptionCreate(suggestion.h.movementId, {
+      await createException.mutateAsync({
+        movementId: suggestion.h.movementId,
         exception: { type: suggestion.type, pieces: suggestion.pieces, container: c.number, source: "tally", note: `Found at the stripping tally of container ${c.number}` },
       });
       toast.success(`${suggestion.type} recorded on ${suggestion.h.positionRef || suggestion.h.gateRef} — the cargo is on hold until it is resolved`);
       setSuggestion(null);
-      queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
-      queryClient.invalidateQueries({ queryKey: ["warehouse-records", "containers"] });
     } catch (e) {
       toast.error(errorMessage(e, "Failed to record the exception"));
     }
@@ -338,7 +338,7 @@ export function StrippingTally({ c, api, manager }: { c: WarehouseContainer; api
         label={reweighFor?.positionRef || reweighFor?.gateRef || ""}
         declaredKg={reweighFor?.weightKg}
         onClose={() => setReweighFor(null)}
-        onDone={() => queryClient.invalidateQueries({ queryKey: ["warehouse-records", "containers", c.id] })}
+        onDone={() => queryClient.invalidateQueries({ queryKey: warehouseRecordKeys.container(c.id) })}
       />
     </div>
   );

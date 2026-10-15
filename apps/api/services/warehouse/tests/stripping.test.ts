@@ -16,7 +16,7 @@ vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate, shipmentGet: vi.fn(getShipment) },
-    auth: { usersList: vi.fn(async () => ({ users: [] })) },
+    auth: (await import("./authFake")).authFake([]),
   };
 });
 
@@ -58,8 +58,8 @@ describe("import stripping tally", () => {
     // Sent at 00:30 Prague on 15 Oct, ticked at 23:50 on 14 Oct.
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-14T22:30:00Z"));
-    await containerService.stamp(box.id, c, user, "user", "gateIn", { recordedAt: "2026-10-14T21:00:00Z", clientRequestId: randomUUID() });
-    await reweighService.record(h.id, c, user, { weighedKg: 1010, recordedAt: "2026-10-14T21:40:00Z" });
+    await containerService.stamp(box.id, c, user, "manager", "gateIn", { recordedAt: "2026-10-14T21:00:00Z", clientRequestId: randomUUID() });
+    await reweighService.record(h.id, c, user, { weighedKg: 1010, recordedAt: "2026-10-14T22:05:00Z", clientRequestId: randomUUID() });
     const res = await containerService.tally(box.id, c, user, "manager", h.id, { outcome: "received", pieces: 10, location: "A-12" }, { recordedAt: "2026-10-14T21:50:00Z", clientRequestId: randomUUID() });
     vi.useRealTimers();
     expect(res.outcome).toBe("done");
@@ -74,7 +74,7 @@ describe("import stripping tally", () => {
     expect(owed[0]).toMatchObject({ kind: "received", stamp: "tally", payload: { warehouseReceivedDate: "2026-10-14", warehouseReference: h.ref } });
     expect(shipmentUpdate).toHaveBeenCalledWith(
       { shipmentId: h.shipmentId, warehouseReceivedDate: "2026-10-14", warehouseReference: h.ref },
-      { authData: { userID: user, companyID: c, role: "manager" } },
+      { authData: { userID: user, companyID: c, role: "user" } },
     );
     // The first tick starts the stripping; the house's received date is the tally's now.
     expect(res.container).toMatchObject({ status: "Stripped", strippingStartedAt: "2026-10-14T21:50:00.000Z" });

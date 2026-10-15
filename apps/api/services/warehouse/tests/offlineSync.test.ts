@@ -19,7 +19,7 @@ vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
-    auth: { usersList: vi.fn(async () => ({ users: [] })) },
+    auth: (await import("./authFake")).authFake([]),
   };
 });
 
@@ -55,26 +55,36 @@ const survey = (container: string, damaged = 0): GateSurveyInput => ({
 describe("recorded time of a write sent later (offline queue)", () => {
   it("accepts a time within the window only", () => {
     const now = new Date("2026-10-14T10:00:00Z");
-    expect(acceptRecordedAt("2026-10-14T09:00:00Z", now).toISOString()).toBe("2026-10-14T09:00:00.000Z");
-    expect(acceptRecordedAt("2026-10-14T12:00:00+02:00", now).toISOString()).toBe("2026-10-14T10:00:00.000Z");
+    const mgr = { requestId: "r" };
+    expect(acceptRecordedAt("2026-10-14T09:00:00Z", now, mgr).toISOString()).toBe("2026-10-14T09:00:00.000Z");
+    expect(acceptRecordedAt("2026-10-14T12:00:00+02:00", now, mgr).toISOString()).toBe("2026-10-14T10:00:00.000Z");
     // A phone clock a little ahead is taken as now; more than 2 minutes is refused.
-    expect(acceptRecordedAt("2026-10-14T10:01:30Z", now).toISOString()).toBe(now.toISOString());
-    expect(() => acceptRecordedAt("2026-10-14T10:03:00Z", now)).toThrow(/in the future/);
-    expect(() => acceptRecordedAt("2026-10-13T21:59:00Z", now)).toThrow(/more than 12 hours/);
-    expect(() => acceptRecordedAt("yesterday", now)).toThrow(/ISO 8601/);
-    expect(() => acceptRecordedAt("2026-10-14T09:00:00", now)).toThrow(/ISO 8601/);
-    expect(() => acceptRecordedAt("2026-10-14T09:00:00Z", now, { notBefore: new Date("2026-10-14T09:30:00Z"), after: "the draft receipt" })).toThrow(
+    expect(acceptRecordedAt("2026-10-14T10:01:30Z", now, mgr).toISOString()).toBe(now.toISOString());
+    expect(() => acceptRecordedAt("2026-10-14T10:03:00Z", now, mgr)).toThrow(/in the future/);
+    expect(() => acceptRecordedAt("2026-10-13T21:59:00Z", now, mgr)).toThrow(/more than 12 hours/);
+    expect(() => acceptRecordedAt("yesterday", now, mgr)).toThrow(/ISO 8601/);
+    expect(() => acceptRecordedAt("2026-10-14T09:00:00", now, mgr)).toThrow(/ISO 8601/);
+    expect(() => acceptRecordedAt("2026-10-14T09:00:00Z", now, { ...mgr, notBefore: new Date("2026-10-14T09:30:00Z"), after: "the draft receipt" })).toThrow(
       /before the draft receipt/,
     );
     expect(offlineDetail(new Date("2026-10-14T08:05:00Z"), new Date("2026-10-14T08:40:00Z"))).toBe("Recorded offline at 10:05, sent 10:40");
     expect(offlineDetail(new Date("2026-10-13T21:50:00Z"), new Date("2026-10-13T22:10:00Z"))).toBe("Recorded offline at 23:50 (13 Oct), sent 00:10");
+  });
+
+  it("takes a recorded time only from floor mode, and accepts a late one up to the queue's 12 hours", () => {
+    const now = new Date("2026-10-14T10:00:00Z");
+    expect(() => acceptRecordedAt("2026-10-14T09:59:00Z", now, {})).toThrow(/only from floor mode/);
+    expect(acceptRecordedAt("2026-10-14T09:40:00Z", now, { requestId: "r" }).toISOString()).toBe("2026-10-14T09:40:00.000Z");
+    // A phone offline for an hour in the yard: still accepted (logged for audit), not refused.
+    expect(acceptRecordedAt("2026-10-14T09:00:00Z", now, { requestId: "r", userId: "u1" }).toISOString()).toBe("2026-10-14T09:00:00.000Z");
+    expect(() => acceptRecordedAt("2026-10-13T21:00:00Z", now, { requestId: "r" })).toThrow(/more than 12 hours/);
   });
 });
 
 describe("stamps sent from the offline queue", () => {
   it("stamps the recorded time and logs that it was recorded offline", async () => {
     const { c, id } = await inbound();
-    const recordedAt = ago(30 * MIN);
+    const recordedAt = ago(20 * MIN);
     const res = await gateMovementService.stampWithOutcome(id, c, user, "gateIn", "user", { recordedAt, clientRequestId: randomUUID() });
     expect(res.outcome).toBe("stamped");
     expect(res.notice).toMatch(/^Gate-in stamped \d{2}:\d{2} \(recorded offline, sent \d{2}:\d{2}\)$/);
@@ -119,7 +129,7 @@ describe("stamps sent from the offline queue", () => {
     // Sent at 00:30 Prague on 15 Oct, recorded at 23:50 on 14 Oct.
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-14T22:30:00Z"));
-    const res = await gateMovementService.stampWithOutcome(id, c, user, "expDraft", "user", { recordedAt: "2026-10-14T21:50:00Z", clientRequestId: randomUUID() });
+    const res = await gateMovementService.stampWithOutcome(id, c, user, "expDraft", "manager", { recordedAt: "2026-10-14T21:50:00Z", clientRequestId: randomUUID() });
     vi.useRealTimers();
     expect(res.movement).toMatchObject({ gateIn: "2026-10-14T21:50:00.000Z", expDraft: "2026-10-14T21:50:00.000Z" });
     const arrival = res.movement.events.filter((e) => e.kind === "gateIn" || e.kind === "expDraft");
@@ -168,7 +178,7 @@ describe("survey saves sent from the offline queue", () => {
   it("keeps the latest survey of a container and pass and recognises a replay", async () => {
     const { c, id } = await inbound();
     await gateMovementService.saveSurvey(id, c, user, survey("TGHU 100", 1));
-    const older = await gateMovementService.saveSurveyWithOutcome(id, c, user, survey("TGHU 100", 5), { recordedAt: ago(60 * MIN), clientRequestId: randomUUID() });
+    const older = await gateMovementService.saveSurveyWithOutcome(id, c, user, survey("TGHU 100", 5), { recordedAt: ago(25 * MIN), clientRequestId: randomUUID() });
     expect(older.outcome).toBe("newer_exists");
     expect(older.notice).toMatch(/^A newer survey \(receipt, TGHU 100\) was saved at \d{2}:\d{2}/);
     expect(older.movement.surveys.find((s) => s.container === "TGHU 100")).toMatchObject({ damaged: 1, warehouseNote: "damaged 1" });

@@ -14,7 +14,6 @@ import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.reposit
 import { movementStorage } from "./storage";
 import { directionFits, EQUIPMENT_CAPACITY_CBM } from "./containerRules";
 import { containerService } from "./container.service";
-import { pgCode } from "./offline";
 import {
   DOCK_SLOT_DEFAULT_MIN,
   DOCK_SLOT_MAX_MIN,
@@ -51,6 +50,7 @@ import type {
   WarehouseStaffInput,
   WarehouseStaffItem,
 } from "../interfaces/records.interfaces";
+import { isExclusionViolation } from "../../../lib/db/errors";
 
 type ContainerRow = typeof warehouseContainerTable.$inferSelect;
 type SlotRow = typeof warehouseDockSlotTable.$inferSelect;
@@ -290,7 +290,7 @@ class WarehouseRecordsService {
     try {
       return await write();
     } catch (err) {
-      if (pgCode(err) !== "23P01") throw err;
+      if (!isExclusionViolation(err)) throw err;
       const clash = v.startsAt && v.endsAt ? await this.clashMessage(companyId, v.dock, v.startsAt, v.endsAt, exceptId) : null;
       throw APIError.alreadyExists(clash ?? `${v.dock} is already booked at that time — pick another time or door`);
     }
@@ -481,7 +481,7 @@ export function buildReportSummary(
   containers: ContainerRow[],
   slots: SlotRow[],
   now = new Date(),
-  shipmentUpdates: ShipmentUpdateHealth = { pending: 0, failed: 0, oldestPendingAt: null },
+  shipmentUpdates: ShipmentUpdateHealth = { pending: 0, failed: 0, blockedByFailed: 0, oldestPendingAt: null },
 ): WarehouseReportSummary {
   const today = todayIso(now);
 

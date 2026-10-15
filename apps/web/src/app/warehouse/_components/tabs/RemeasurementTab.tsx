@@ -4,8 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { Alert, Spin } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { useWarehouse } from "@/hooks/useWarehouse";
 import { useGateLog, useGateMovement } from "@/hooks/useGateLog";
@@ -22,12 +20,13 @@ import { RemeasureLines } from "../remeasurement/RemeasureLines";
 import { SaveBar } from "../remeasurement/SaveBar";
 import { MarkSentModal, NotesAndSent, SENT_LABEL } from "../remeasurement/NotesAndSent";
 import { SendToSupplierModal } from "../remeasurement/SendToSupplierModal";
-import { lastFailedAttempt, useSupplierEmails } from "../remeasurement/useSupplierEmail";
-import { emailedTo, useWarehouseSettings, type SupplierKind } from "../../settings/_lib/useWarehouseSettings";
+import { lastFailedAttempt, useSupplierEmails } from "@/hooks/useSupplierEmail";
+import { emailedTo, useWarehouseSettings, type SupplierKind } from "@/hooks/useWarehouseSettings";
 import { ExceptionsBlock } from "../remeasurement/ExceptionsBlock";
 import { ReleaseReadiness } from "../remeasurement/ReleaseReadiness";
 import { Worklist } from "../remeasurement/Worklist";
 import { useJobDraft } from "../remeasurement/useJobDraft";
+import { useWarehouseShipment } from "@/hooks/useWarehouseShipment";
 
 // Remeasurement / Release: the warehouse's work on one POSITION — linked to a shipment or
 // stand-alone. Opened from the Job no. in Positions (?position=<task id>), from "Shipment Details"
@@ -73,11 +72,7 @@ function PositionPart({ task, onBack }: { task: interfaces.WarehouseTaskItem; on
   const { movement: detail, applyRemeasured } = useGateMovement(listed?.id);
   const m = detail ?? listed;
 
-  const { data: shipmentData } = useQuery({
-    queryKey: ["warehouse-shipment", task.shipmentId],
-    queryFn: () => api.shipments.shipmentGet(task.shipmentId!),
-    enabled: !!task.shipmentId,
-  });
+  const { data: shipmentData } = useWarehouseShipment(task.shipmentId);
   const shipment = shipmentData?.shipment ?? null;
 
   const section = usePositionSection(task.id, "job");
@@ -177,10 +172,7 @@ function PositionPart({ task, onBack }: { task: interfaces.WarehouseTaskItem; on
 // A shipment that is not (or no longer) a warehouse position: its own Shipment Details, kept on
 // the shipment as before positions owned them.
 function ShipmentOnlyPart({ shipmentId, onBack }: { shipmentId: string; onBack: () => void }) {
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["warehouse-shipment", shipmentId],
-    queryFn: () => api.shipments.shipmentGet(shipmentId),
-  });
+  const { data, isLoading, isError } = useWarehouseShipment(shipmentId);
   if (isLoading) {
     return (
       <div className="flex justify-center p-20">

@@ -5,7 +5,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
-import { useGateRowCache, type GateMovement } from "@/hooks/useGateLog";
+import { gateKeys, invalidateAfterGateEvent, useGateRowCache, type GateMovement } from "@/hooks/useGateLog";
+import { fileToBase64 } from "@/lib/files";
 import { containerKey, type WarehouseContainer } from "@/hooks/useWarehouseRecords";
 import {
   classifyError,
@@ -24,9 +25,9 @@ import {
   type ItemStatus,
   type QueueItem,
   type SendResult,
+  waitingCount,
 } from "./queue";
 import { dropPhoto, getPhoto, loadQueue, onOtherTabChange, putPhoto, saveChanges, savePhotoId } from "./queueStore";
-import { blobBase64 } from "./photo";
 
 // Sends floor mode's writes: straight away when the phone is online, into the queue when it is
 // not (or the call fails for want of a connection), and the queue in order once it is back.
@@ -69,8 +70,12 @@ const targetOf = (w: FloorWrite): { movementId: string; ref: string; containerId
 
 export type SubmitResult =
   | { type: "sent"; outcome: string; notice: string; fileId?: string }
-  /** Kept on the phone; sent when back online. `id` is the queue item's (photos: use `local:<id>`). */
-  | { type: "queued"; id: string; recordedAt: string }
+  /**
+   * Kept on the phone; sent when back online. `id` is the queue item's (photos: use `local:<id>`).
+   * `notSaved`: the phone's storage refused it, so it is held only while this page stays open (the
+   * shell shows a persistent warning; it must not be recorded again, it is still queued).
+   */
+  | { type: "queued"; id: string; recordedAt: string; notSaved?: boolean }
   | { type: "refused"; error: string }
   /** Could not even be kept on the phone (photo storage full / unavailable). */
   | { type: "not_kept"; error: string };
@@ -86,6 +91,10 @@ type FloorQueue = {
   retry: (id: string) => void;
   discard: (id: string) => Promise<void>;
   statusOf: (item: QueueItem) => ItemStatus;
+  /** Items this phone will still send (see waitingCount). */
+  waiting: number;
+  /** A write could not be kept in this phone's storage: it lives only until the page closes. */
+  notSaved: boolean;
   /** Marks a call that failed for want of a connection (e.g. a PIN check), so the screen shows offline. */
   noteNetworkError: (e: unknown) => boolean;
 };
@@ -111,13 +120,12 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
   }, [toast]);
   const queryClient = useQueryClient();
   const writeRow = useGateRowCache();
-  // A container action answers with the container: write it to the cache and read the gate log
-  // again (its houses' lifecycles changed).
+  // A container action answers with the container: write it to the cache and read again what its
+  // houses' gate events change (gate log, stock, bonded, KPIs, sections).
   const writeContainer = useCallback(
     (c: WarehouseContainer) => {
       queryClient.setQueryData(containerKey(c.id), c);
-      void queryClient.invalidateQueries({ queryKey: ["warehouse-records", "containers"], exact: true });
-      void queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+      void invalidateAfterGateEvent(queryClient);
     },
     [queryClient],
   );
@@ -128,7 +136,11 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
   const [netDown, setNetDown] = useState(false);
   const [authPaused, setAuthPaused] = useState(false);
   const [sending, setSending] = useState(false);
+  const [notSaved, setNotSaved] = useState(false);
   const flushing = useRef(false);
+  // Writes sent straight away and not answered yet: a later write of the same chain waits behind
+  // them, so a slow direct send that ends up queued can't be overtaken.
+  const inFlight = useRef(new Set<QueueItem>());
   const [now, setNow] = useState(() => new Date());
 
   // Storage is written item by item, one write after the other (a chain), and read through the
@@ -136,23 +148,23 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
   // writes per id that have not reached storage yet: for those, this tab's copy wins over a read.
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const unsaved = useRef(new Map<string, number>());
-  const commit = useCallback((next: QueueItem[]) => {
+  // Resolves with whether the change reached storage (false: kept in memory only).
+  const commit = useCallback((next: QueueItem[]): Promise<boolean> => {
     const diff = queueDiff(itemsRef.current, next);
     itemsRef.current = next;
     setItems(next);
     const ids = [...diff.put.map((i) => i.id), ...diff.remove];
-    if (!ids.length) return;
+    if (!ids.length) return Promise.resolve(true);
     for (const id of ids) unsaved.current.set(id, (unsaved.current.get(id) ?? 0) + 1);
-    chain.current = chain.current
-      .then(() => saveChanges(diff))
-      .catch(() => false)
-      .finally(() => {
+    const saved = chain.current.then(() => saveChanges(diff)).catch(() => false);
+    chain.current = saved.finally(() => {
         for (const id of ids) {
           const n = (unsaved.current.get(id) ?? 1) - 1;
           if (n > 0) unsaved.current.set(id, n);
           else unsaved.current.delete(id);
         }
       });
+    return saved;
   }, []);
 
   /** Reads the stored queue again (another tab may have queued or sent items). */
@@ -214,6 +226,7 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
               CALL_TIMEOUT_MS,
             );
             writeRow(res.movement);
+            void invalidateAfterGateEvent(queryClient);
             return { type: "done", outcome: res.outcome, notice: res.notice };
           }
           case "survey": {
@@ -240,7 +253,7 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
           case "photo": {
             const bytes = blob ?? (await getPhoto(item.id));
             if (!bytes) return { type: "refused", error: "The photo is no longer on this phone — take it again" };
-            const contentBase64 = await blobBase64(bytes);
+            const contentBase64 = await fileToBase64(bytes);
             const res = await withTimeout(
               api.warehouse.gateFileUpload(item.movementId, {
                 fileName: item.payload.fileName,
@@ -255,7 +268,7 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
             photoIds.current = { ...photoIds.current, [item.id]: res.file.id };
             void savePhotoId(item.id, res.file.id);
             void dropPhoto(item.id);
-            queryClient.invalidateQueries({ queryKey: ["warehouse-gate", item.movementId, "files"] });
+            queryClient.invalidateQueries({ queryKey: gateKeys.files(item.movementId) });
             return { type: "done", outcome: "uploaded", fileId: res.file.id };
           }
           case "reweigh": {
@@ -268,7 +281,7 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
               CALL_TIMEOUT_MS,
             );
             writeRow(res.movement);
-            void queryClient.invalidateQueries({ queryKey: ["warehouse-records", "containers"] });
+            void invalidateAfterGateEvent(queryClient);
             return { type: "done", outcome: res.outcome, notice: res.notice };
           }
           case "tally": {
@@ -366,7 +379,7 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
     const t = setInterval(() => {
       withTimeout(api.warehouse.gateMovementList({}), CALL_TIMEOUT_MS)
         .then((res) => {
-          queryClient.setQueryData(["warehouse-gate"], res);
+          queryClient.setQueryData(gateKeys.list(), res);
           setNetDown(false);
           flush();
         })
@@ -399,9 +412,15 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
       } as QueueItem;
       // Straight away when online and nothing of this position waits before it (the order of a
       // position's writes is kept).
-      const behind = itemsRef.current.some((i) => sameChain(i, item));
+      const behind = itemsRef.current.some((i) => sameChain(i, item)) || [...inFlight.current].some((i) => sameChain(i, item));
       if (navigator.onLine && !netDown && !behind) {
-        const result = await send(item, true, w.kind === "photo" ? w.blob : undefined);
+        inFlight.current.add(item);
+        let result: SendResult;
+        try {
+          result = await send(item, true, w.kind === "photo" ? w.blob : undefined);
+        } finally {
+          inFlight.current.delete(item);
+        }
         sawResult(result);
         if (result.type === "done") {
           if (itemsRef.current.length) flush();
@@ -415,9 +434,10 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
         if (kept === "full") return { type: "not_kept", error: "Phone storage full — photo not saved. Take it again when back online." };
         if (kept) return { type: "not_kept", error: "This browser cannot keep photos offline — take it again when back online." };
       }
-      commit(enqueue(itemsRef.current, item));
+      const saved = await commit(enqueue(itemsRef.current, item));
       flush();
-      return { type: "queued", id: item.id, recordedAt: at };
+      if (!saved) setNotSaved(true);
+      return { type: "queued", id: item.id, recordedAt: at, ...(saved ? {} : { notSaved: true }) };
     },
     [commit, flush, netDown, send, sawResult, user],
   );
@@ -438,6 +458,11 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
     [commit],
   );
   const statusOf = useCallback((item: QueueItem) => itemStatus(itemsRef.current, item, now, user?.id), [now, user?.id]);
+  const waiting = useMemo(() => waitingCount(items, now, user?.id), [items, now, user?.id]);
+  // Once everything is sent, nothing is left that only lives in memory.
+  useEffect(() => {
+    if (!items.length) setNotSaved(false);
+  }, [items.length]);
   const noteNetworkError = useCallback(
     (e: unknown) => {
       const r = classifyError(e);
@@ -448,8 +473,8 @@ export function FloorQueueProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<FloorQueue>(
-    () => ({ items, online, authPaused, sending, submit, flush, retry, discard, statusOf, noteNetworkError }),
-    [items, online, authPaused, sending, submit, flush, retry, discard, statusOf, noteNetworkError],
+    () => ({ items, online, authPaused, sending, submit, flush, retry, discard, statusOf, waiting, notSaved, noteNetworkError }),
+    [items, online, authPaused, sending, submit, flush, retry, discard, statusOf, waiting, notSaved, noteNetworkError],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

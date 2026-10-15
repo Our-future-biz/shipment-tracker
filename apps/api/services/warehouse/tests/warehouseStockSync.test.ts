@@ -20,7 +20,7 @@ vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate, shipmentGet: vi.fn(getShipment) },
-    auth: { usersList: vi.fn(async () => ({ users: [] })) },
+    auth: (await import("./authFake")).authFake([]),
   };
 });
 
@@ -128,7 +128,7 @@ describe("manual lines and the manager build", () => {
     const a = await inbound();
     const c = a.c;
     // Received before the sync existed: no line yet (simulated by removing nothing — a second position).
-    const m2 = await gateMovementService.create(c, user, { gateRef: "STOCK-2", handling: "Export", operationType: "FCL" });
+    const m2 = await gateMovementService.create(c, user, { gateRef: "STOCK-2", handling: "Export", operationType: "FCL stuffing" });
     await gateMovementService.stamp(m2.id, c, user, "expDraft");
     await gateMovementService.stamp(m2.id, c, user, "expReceipt");
     await gateMovementService.stamp(a.id, c, user, "expReceipt");
@@ -244,7 +244,8 @@ describe("customs status from the shipment", () => {
   it("the customs follow discharges the bonded entry when the shipment is cleared", async () => {
     const { c, s, id, entry } = await bondedOutbound();
     shipmentData.set(s, { customsProcedure: "T1", customsStatus: "Customs Cleared/Released" });
-    const m = await gateMovementService.get(id, c, { follow: true, force: true });
+    await gateMovementService.followShipments(c, { id, force: true });
+    const m = await gateMovementService.get(id, c);
     expect(m.customsStatus).toBe("Customs Cleared/Released");
     const [after] = await entriesOf(c, id);
     expect(after).toMatchObject({ id: entry.id, balance: 0 });

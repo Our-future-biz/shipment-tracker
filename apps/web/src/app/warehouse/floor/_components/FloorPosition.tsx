@@ -3,10 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { CheckCircleFilled, ClockCircleOutlined, RightOutlined } from "@ant-design/icons";
-import { useGateLog, useGateMovement, useGateRowCache, type GateMovement, type GateStampKind } from "@/hooks/useGateLog";
+import { useGateLog, useGateMovement, type GateMovement, type GateStampKind, useStampMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
 import { formatDateTime } from "@/lib/date";
-import { api } from "@/lib/api";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { TERMS, directionOfVisit } from "@/app/warehouse/_lib/glossary";
 import { dockSlotText, exceptionText, isOnHold } from "@/app/warehouse/_lib/worklist";
@@ -39,8 +38,8 @@ const newer = (a: GateMovement | undefined, b: GateMovement | undefined) => (!a 
 // pick-up PIN and the release readiness each on a screen of its own.
 export function FloorPosition({ id }: { id: string }) {
   const toast = useToast();
+  const { stamp: stampMovement, refresh: refreshAfterStamp } = useStampMovement();
   const q = useFloorQueue();
-  const writeRow = useGateRowCache();
   const { movements, isLoading } = useGateLog();
   const { movement: detail, isLoading: detailLoading } = useGateMovement(id);
   const base = newer(detail, movements.find((x) => x.id === id));
@@ -94,8 +93,8 @@ export function FloorPosition({ id }: { id: string }) {
       if (releaseNeedsServer(step.kind)) {
         // The WH release is the server's decision: sent now or not at all.
         try {
-          const res = await api.warehouse.gateMovementStamp(m.id, { kind: step.kind, clientRequestId: uuid() });
-          writeRow(res.movement);
+          const res = await stampMovement(m.id, { kind: step.kind, clientRequestId: uuid() });
+          void refreshAfterStamp();
           if (res.outcome === "stamped") toast.success(`${step.label} stamped`);
           else toast.info(res.notice || `${step.label} was already stamped`);
         } catch (e) {

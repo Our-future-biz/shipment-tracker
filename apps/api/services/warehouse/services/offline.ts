@@ -1,4 +1,6 @@
 import { APIError } from "encore.dev/api";
+import log from "encore.dev/log";
+import { getAuthData } from "~encore/auth";
 import { pragueDate } from "./storage";
 
 // Floor mode on phones queues stamps, survey saves, exceptions and photos while there is no
@@ -8,6 +10,12 @@ import { pragueDate } from "./storage";
 
 /** A queued write older than this is refused; the phone shows it as too old to send. */
 export const OFFLINE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
+/**
+ * A queued write recorded longer ago than this is still accepted (a phone can be offline for
+ * hours in the yard — refusing it would lose real work), but it is logged with the user, so
+ * late times that move the storage clock and the KPIs can be audited.
+ */
+export const OFFLINE_LOG_AGE_MS = 30 * 60 * 1000;
 /** Phone clocks run a little ahead; a recorded time at most this far in the future is taken as now. */
 export const OFFLINE_CLOCK_SKEW_MS = 2 * 60 * 1000;
 
@@ -28,11 +36,18 @@ export function checkRequestId(raw: string | null | undefined): string | undefin
 }
 
 /**
- * The time a queued write was made on the phone, if the server can accept it: a full ISO time
- * with a zone, not more than OFFLINE_CLOCK_SKEW_MS in the future (a little ahead is taken as
- * `now`), not older than OFFLINE_MAX_AGE_MS, and not before `notBefore` (the step it follows).
+ * The time a queued write was made on the phone, if the server can accept it: only from floor
+ * mode (the write carries its `requestId`), a full ISO time with a zone, not more than
+ * OFFLINE_CLOCK_SKEW_MS in the future (a little ahead is taken as `now`), not older than
+ * OFFLINE_MAX_AGE_MS (older than OFFLINE_LOG_AGE_MS is logged for audit), and not before
+ * `notBefore` (the step it follows). `userId` defaults to the caller's.
  */
-export function acceptRecordedAt(raw: string, now: Date, opts: { notBefore?: Date | null; after?: string } = {}): Date {
+export function acceptRecordedAt(
+  raw: string,
+  now: Date,
+  opts: { notBefore?: Date | null; after?: string; requestId?: string; userId?: string } = {},
+): Date {
+  if (!opts.requestId) throw APIError.invalidArgument("recordedAt is accepted only from floor mode, with a clientRequestId");
   const at = ISO.test(raw.trim()) ? new Date(raw.trim()) : null;
   if (!at || Number.isNaN(at.getTime())) throw APIError.invalidArgument("recordedAt must be a date and time (ISO 8601 with a time zone)");
   const ahead = at.getTime() - now.getTime();
@@ -42,6 +57,15 @@ export function acceptRecordedAt(raw: string, now: Date, opts: { notBefore?: Dat
   const when = ahead > 0 ? now : at;
   if (now.getTime() - when.getTime() > OFFLINE_MAX_AGE_MS) {
     throw APIError.invalidArgument("Recorded more than 12 hours ago — too old to send; record it again");
+  }
+  const ageMs = now.getTime() - when.getTime();
+  if (ageMs > OFFLINE_LOG_AGE_MS) {
+    log.info("warehouse: late floor write accepted", {
+      requestId: opts.requestId,
+      recordedAt: when.toISOString(),
+      ageMinutes: Math.round(ageMs / 60000),
+      userId: opts.userId ?? getAuthData()?.userID ?? "",
+    });
   }
   if (opts.notBefore && when.getTime() < opts.notBefore.getTime()) {
     throw APIError.invalidArgument(
@@ -68,6 +92,3 @@ export type SurveyOutcome = "saved" | "already_saved" | "newer_exists";
 /** What happened to an exception create. */
 export type ExceptionOutcome = "recorded" | "already_recorded";
 
-/** Postgres error code of a database error (drizzle wraps it in `cause`); "" when none. */
-export const pgCode = (err: unknown): string =>
-  (err as { code?: string })?.code ?? (err as { cause?: { code?: string } })?.cause?.code ?? "";

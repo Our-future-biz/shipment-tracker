@@ -38,12 +38,3 @@ export async function downscalePhoto(file: File): Promise<{ blob: Blob; fileName
     return { blob: file, fileName: file.name || "photo.jpg", fileType: file.type || "image/jpeg" };
   }
 }
-
-/** The bytes of a photo as base64 (what the upload endpoint takes). */
-export const blobBase64 = (blob: Blob) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });

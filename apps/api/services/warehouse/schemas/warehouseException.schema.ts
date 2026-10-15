@@ -1,6 +1,8 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, integer, jsonb, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, integer, jsonb, timestamp, index, uniqueIndex, foreignKey, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { gateMovementTable } from "./gateMovement.schema";
+import { warehouseTaskTable } from "./warehouseTask.schema";
 
 // Damage / short / over (OS&D) exceptions of a gate movement, recorded from a survey or by hand.
 // An open exception puts the cargo ON HOLD: the release gate gets the "No open exceptions" line
@@ -36,6 +38,12 @@ export const warehouseExceptionTable = pgTable(
     uniqueIndex("warehouse_exception_request_unique")
       .on(table.companyId, table.movementId, table.clientRequestId)
       .where(sql`client_request_id IS NOT NULL`),
+    foreignKey({ name: "wh_exception_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
+    foreignKey({ name: "wh_exception_task_fk", columns: [table.taskId], foreignColumns: [warehouseTaskTable.id] }).onDelete("restrict"),
+    index("wh_exception_task_idx").on(table.taskId),
+    check("wh_exception_type_check", sql`${table.type} IN ('Damaged', 'Short', 'Over')`),
+    check("wh_exception_status_check", sql`${table.status} IN ('open', 'resolved')`),
+    check("wh_exception_source_check", sql`${table.source} IN ('survey', 'tally', 'manual')`),
   ],
 );
 

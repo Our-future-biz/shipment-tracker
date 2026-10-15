@@ -14,6 +14,7 @@ import { useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons, SaveStatus, SavedMeanwhile, sectionSaveError } from "./warehouse/JobExtras";
+import { warehouseTaskKeys } from "@/hooks/warehouseKeys";
 
 interface JobSectionData {
   inform_operations_sent?: string;
@@ -122,7 +123,7 @@ export function WarehouseTab({ shipment, readOnly = false, editHref }: { shipmen
  *  shipment has a warehouse position. */
 export function ShipmentWarehouseTab({ shipment }: { shipment: ShipmentItem }) {
   const { data } = useQuery({
-    queryKey: ["warehouse", "by-shipment", shipment.id],
+    queryKey: warehouseTaskKeys.byShipment(shipment.id),
     queryFn: () => api.warehouse.warehouseList({ shipmentId: shipment.id }),
   });
   const inWarehouse = (data?.tasks.length ?? 0) > 0;

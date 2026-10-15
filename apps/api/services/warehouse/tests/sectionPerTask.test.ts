@@ -16,7 +16,7 @@ vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
-    auth: { usersList: vi.fn(async () => ({ users: [] })) },
+    auth: (await import("./authFake")).authFake([]),
   };
 });
 
@@ -154,7 +154,7 @@ describe("sections stored per position", () => {
     await gateMovementService.generatePickupPin(shipmentId, c, user);
     const pickup = (await warehouseService.getSection(shipmentId, "pickup", c))!;
     expect(pickup.taskId).toBeNull();
-    expect(readPickup(pickup.data).pin).toMatch(/^\d{6}$/);
+    expect(readPickup(pickup.data).pinHash).toMatch(/^[0-9a-f]{64}$/);
     expect((await warehouseService.getSectionByTask(taskId, "pickup", c))!.id).toBe(pickup.id);
     await expect(warehouseService.patchSectionByTask(taskId, "pickup", c, [{ key: "pin", value: "1", expected: "" }])).rejects.toThrow(/not saved field by field/);
   });

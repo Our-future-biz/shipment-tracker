@@ -4,7 +4,7 @@ import { assertShipmentExists } from "../../../lib/shipmentRefs";
 import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
-import { MAX_PICKUP_ROWS, PICKUP_SECTION, pickupRowsFromInput } from "./pickupPin";
+import { MAX_PICKUP_ROWS, PICKUP_SECTION, pickupRowsFromInput, stripPickupSecrets } from "./pickupPin";
 import { userName } from "./users";
 import { reweighRepository } from "../repositories/reweigh.repository";
 import { kgText, needsReweigh } from "./reweigh";
@@ -295,7 +295,7 @@ class WarehouseService {
     const weighed: Record<string, string> = {};
     let vgmNote = "";
     if (what === "vgm") {
-      const movementId = await gateMovementRepository.liveIdForTask(task.id);
+      const movementId = await gateMovementRepository.liveIdForTask(task.id, companyId);
       const m = movementId ? await gateMovementRepository.findById(movementId, companyId) : null;
       const rw = m ? await reweighRepository.latestForMovement(m.id, companyId) : null;
       if (rw) {
@@ -392,7 +392,8 @@ export function sectionItem(row: WarehouseSectionRecord): WarehouseSectionItem {
     taskId: row.taskId ?? null,
     shipmentId: row.shipmentId ?? null,
     section: row.section,
-    data: row.data,
+    // The pick-up PIN (and its hash) never leaves the server in a section.
+    data: row.section === PICKUP_SECTION ? stripPickupSecrets(row.data) : row.data,
     version: row.version,
     createdAt: iso(row.createdAt),
     updatedAt: iso(row.updatedAt),

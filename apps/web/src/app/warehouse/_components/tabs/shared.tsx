@@ -6,6 +6,8 @@ import { DeleteOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { useToast } from "@/lib/toast";
 import { errorMessage } from "@/app/warehouse/gate-log/_lib/gate";
+import { formatNumber } from "@/lib/number";
+import { businessToday } from "@/lib/date";
 
 // Shared pieces of the Warehouse module tabs (Containers, Dock & Yard, Reports):
 // sub-tab pills, cards, KPI tiles, callouts, status tags and a record form.
@@ -80,14 +82,11 @@ export function StatusTag({ value, colors }: { value: string; colors: Record<str
 export const dim = (v: string | number | null | undefined) =>
   v === "" || v == null ? <span className="text-slate-300">—</span> : <span className="text-slate-600">{v}</span>;
 
-export const nf = (v: number | null | undefined, d = 0) =>
-  v == null ? "" : v.toLocaleString("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d }).replace(/,/g, " ");
+export const nf = (v: number | null | undefined, d = 0) => formatNumber(v, d, "");
 
 const DAY = 86_400_000;
-const todayIndex = () => {
-  const t = new Date();
-  return Math.floor(Date.UTC(t.getFullYear(), t.getMonth(), t.getDate()) / DAY);
-};
+// Today on the warehouse's calendar (Prague), as a day number.
+const todayIndex = () => Math.floor(Date.parse(`${businessToday()}T00:00:00Z`) / DAY);
 
 /** Days until a YYYY-MM-DD date (negative when past). */
 export const daysUntil = (date: string) => (date ? Math.floor(Date.parse(`${date}T00:00:00Z`) / DAY) - todayIndex() : null);

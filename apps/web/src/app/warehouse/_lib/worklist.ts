@@ -1,4 +1,5 @@
 import type { interfaces } from "@/lib/api/client";
+import { businessDay, businessDayOf } from "@/lib/date";
 import { customsDue, movementCustomsClock, type CustomsClockFields } from "./customsClock";
 
 // The warehouse as an exception worklist: Prague dates, "expected today", the quick-filter chips
@@ -6,17 +7,11 @@ import { customsDue, movementCustomsClock, type CustomsClockFields } from "./cus
 
 type Movement = interfaces.GateMovementItem;
 
-const PRAGUE = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Prague", year: "numeric", month: "2-digit", day: "2-digit" });
-
-/** YYYY-MM-DD of a moment in Prague time; "" for no / an invalid time. */
-export function pragueDate(at: string | Date | null | undefined): string {
-  if (!at) return "";
-  const d = at instanceof Date ? at : new Date(at);
-  return isNaN(d.getTime()) ? "" : PRAGUE.format(d);
-}
+/** YYYY-MM-DD of a moment in Prague time; "" for no / an invalid time (lib/date). */
+export const pragueDate = businessDayOf;
 
 /** Today in Prague (YYYY-MM-DD). */
-export const pragueToday = (now: Date = new Date()) => pragueDate(now);
+export const pragueToday = (now: Date = new Date()) => businessDay(now);
 
 // A stored date or date-time as a Prague date: a plain YYYY-MM-DD stays as it is, a time is
 // converted, anything else is "".

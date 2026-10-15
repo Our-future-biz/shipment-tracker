@@ -115,8 +115,15 @@ export function nextSendable(items: QueueItem[], now: Date, userId: string | und
   return items.find((i) => i.state === "waiting" && !skip.has(i.id) && itemStatus(items, i, now, userId).state === "waiting");
 }
 
-/** Items still to go (all but failed / too old ones), for "Waiting to send (n)". */
-export const waitingCount = (items: QueueItem[]) => items.length;
+/**
+ * Items this phone will still send (all but failed, too old and another user's held ones), for
+ * "Waiting to send (n)". Those others stay in the list, where each says why it waits.
+ */
+export const waitingCount = (items: QueueItem[], now: Date, userId: string | undefined) =>
+  items.filter((i) => {
+    const s = itemStatus(items, i, now, userId).state;
+    return s !== "failed" && s !== "too_old" && s !== "held_user";
+  }).length;
 
 // ─── Sending ───────────────────────────────────────────────────
 

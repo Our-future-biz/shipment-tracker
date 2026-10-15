@@ -1,6 +1,6 @@
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
-import { shipments } from "~encore/clients";
+import { auth, shipments } from "~encore/clients";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
 import type { OutboxKind, ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
@@ -29,28 +29,62 @@ export const OUTBOX_WHAT: Record<OutboxKind, string> = {
 /** Minutes to wait before the next try after `attempts` tries: 2, 4, 8 … up to an hour. */
 export const retryDelayMinutes = (attempts: number) => Math.min(2 ** Math.max(1, attempts), 60);
 
-const errText = (err: unknown) => (err instanceof Error ? err.message : String(err)).slice(0, 500);
 const errCode = (err: unknown) => (err instanceof APIError ? String(err.code) : String((err as { code?: unknown })?.code ?? ""));
+
+// What users see of a failed delivery (stored as last_error and in the gate history): our own
+// wording by error code, never the upstream text, which is logged instead.
+export function outboxErrorText(err: unknown): string {
+  switch (errCode(err)) {
+    case "not_found":
+      return "The shipment no longer exists in Shipments";
+    case "permission_denied":
+    case "unauthenticated":
+      return "The user who stamped may no longer change this shipment";
+    case "invalid_argument":
+    case "failed_precondition":
+      return "Shipments refused the update";
+    case "unavailable":
+    case "deadline_exceeded":
+      return "Shipments did not answer";
+    default:
+      return "The update could not be sent";
+  }
+}
+
+// The stamping user as they are now: a role changed (or the user removed) since the stamp counts,
+// not the role stored with the row. Null when the user is gone.
+async function actingRoleNow(row: ShipmentOutboxRecord): Promise<string | null> {
+  const authData = { userID: row.actingUserId, companyID: row.companyId, role: row.actingRole };
+  const { users } = await auth.userLookup({ ids: [row.actingUserId] }, { authData });
+  return users.find((u) => u.id === row.actingUserId)?.role ?? null;
+}
 
 async function deliver(row: ShipmentOutboxRecord): Promise<"sent" | "retry" | "failed"> {
   const what = OUTBOX_WHAT[row.kind] ?? row.kind;
   try {
+    const role = await actingRoleNow(row);
+    if (!role) throw APIError.permissionDenied("the stamping user no longer exists");
     await shipments.shipmentUpdate(
       { shipmentId: row.shipmentId, ...row.payload },
-      { authData: { userID: row.actingUserId, companyID: row.companyId, role: row.actingRole } },
+      { authData: { userID: row.actingUserId, companyID: row.companyId, role } },
     );
   } catch (err) {
-    const error = errText(err);
+    const error = outboxErrorText(err);
     if (PERMANENT.has(errCode(err)) || row.attempts >= MAX_ATTEMPTS) {
       await shipmentOutboxRepository.markFailed(row.id, row.attempts, error);
       await gateMovementRepository.appendEvents(row.movementId, row.companyId, [
         { kind: "shipmentUpdateFailed", label: `Shipment not updated: ${what}`, at: new Date().toISOString(), by: "Shipments", detail: error },
       ]);
-      log.error(err, "warehouse: shipment update from the gate failed for good", { outboxId: row.id, movementId: row.movementId, shipmentId: row.shipmentId });
+      log.error(err, "warehouse: shipment update from the gate failed for good", { outboxId: row.id, movementId: row.movementId, shipmentId: row.shipmentId, error });
       return "failed";
     }
     await shipmentOutboxRepository.markRetry(row.id, row.attempts, error, new Date(Date.now() + retryDelayMinutes(row.attempts) * 60_000));
-    log.warn("warehouse: shipment update from the gate will be retried", { outboxId: row.id, movementId: row.movementId, attempts: row.attempts, error });
+    log.warn("warehouse: shipment update from the gate will be retried", {
+      outboxId: row.id,
+      movementId: row.movementId,
+      attempts: row.attempts,
+      error: err instanceof Error ? err.message : String(err),
+    });
     return "retry";
   }
   const was = await shipmentOutboxRepository.markSent(row.id, row.attempts);

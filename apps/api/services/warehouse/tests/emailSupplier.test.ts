@@ -8,7 +8,7 @@ import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import { settingsService } from "../services/settings.service";
 import { emailSupplierService } from "../services/emailSupplier.service";
-import type { SupplierMail, SupplierMailResult } from "../services/emailSender";
+import type { Mail as SupplierMail, MailResult as SupplierMailResult } from "../../../lib/email";
 import { shipmentData } from "./shipmentFakes";
 
 // Supplier e-mail (Send VGM / Survey / Remeasurement). Needs migration 0018 (warehouse_settings,
@@ -18,10 +18,10 @@ const mail = vi.hoisted(() => ({
   calls: [] as SupplierMail[],
   delayMs: 0,
 }));
-vi.mock("../services/emailSender", () => ({
-  NO_KEY_TEXT: "E-mail sending is off — no Resend API key is set on this server",
+vi.mock("../../../lib/email", () => ({
+  EMAIL_DISABLED: "E-mail sending is disabled",
   emailConfigured: () => false,
-  sendSupplierMail: vi.fn(async (m: SupplierMail) => {
+  sendMail: vi.fn(async (m: SupplierMail) => {
     mail.calls.push(m);
     if (mail.delayMs) await new Promise((r) => setTimeout(r, mail.delayMs));
     return mail.result;
@@ -33,7 +33,12 @@ vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
-    auth: { usersList: vi.fn(async () => ({ users: [{ id: user, email: "jana@wh.cz", displayName: "Jana Nováková", role: "manager" }] })) },
+    auth: {
+      usersList: vi.fn(async () => ({ users: [{ id: user, email: "jana@wh.cz", displayName: "Jana Nováková", role: "manager" }] })),
+      userLookup: vi.fn(async ({ ids }: { ids: string[] }) => ({
+        users: ids.map((id) => ({ id, name: id === user ? "Jana Nováková" : "", role: "manager" })),
+      })),
+    },
   };
 });
 

@@ -3,7 +3,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
-import type { SupplierKind } from "../../settings/_lib/useWarehouseSettings";
+import type { SupplierKind } from "./useWarehouseSettings";
+import { gateKeys, sectionKeys, supplierEmailAttemptsKey, supplierEmailPreviewKey } from "./warehouseKeys";
 
 // Supplier e-mail of a position (Send VGM / survey / remeasurement): the preview, the send and the
 // latest attempts (for "Last e-mail failed — Retry"). Kept next to the Sent-to-suppliers block; the
@@ -12,7 +13,7 @@ import type { SupplierKind } from "../../settings/_lib/useWarehouseSettings";
 export type SupplierEmail = interfaces.SupplierEmailItem;
 export type SupplierEmailPreview = interfaces.SupplierEmailPreview;
 
-const attemptsKey = (taskId: string) => ["warehouse-supplier-emails", taskId];
+const attemptsKey = supplierEmailAttemptsKey;
 
 export function useSupplierEmails(taskId: string | null | undefined) {
   const query = useQuery({
@@ -25,7 +26,7 @@ export function useSupplierEmails(taskId: string | null | undefined) {
 
 export function useSupplierEmailPreview(taskId: string | null | undefined, what: SupplierKind | null) {
   return useQuery({
-    queryKey: ["warehouse-supplier-email-preview", taskId ?? "", what ?? ""],
+    queryKey: supplierEmailPreviewKey(taskId ?? "", what ?? ""),
     queryFn: async () => (await api.warehouse.warehousePositionSendToSupplier(taskId!, { what: what!, previewOnly: true })).preview,
     enabled: !!taskId && !!what,
     staleTime: 0,
@@ -40,16 +41,16 @@ export function useSendToSupplier(taskId: string | null | undefined) {
   const queryClient = useQueryClient();
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: attemptsKey(taskId ?? "") });
-    queryClient.invalidateQueries({ queryKey: ["warehouse-section"], predicate: (q) => q.queryKey[1] !== "task" || q.queryKey[2] !== taskId });
-    queryClient.invalidateQueries({ queryKey: ["warehouse-section-summary"] });
-    queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+    queryClient.invalidateQueries({ queryKey: sectionKeys.all, predicate: (q) => q.queryKey[1] !== "task" || q.queryKey[2] !== taskId });
+    queryClient.invalidateQueries({ queryKey: sectionKeys.summary() });
+    queryClient.invalidateQueries({ queryKey: gateKeys.all });
   };
   return useMutation({
     mutationFn: ({ what, note, clientRequestId }: { what: SupplierKind; note: string; clientRequestId: string }) =>
       api.warehouse.warehousePositionSendToSupplier(taskId!, { what, note, clientRequestId }),
     onSuccess: (res) => {
       if (res.section) {
-        queryClient.setQueryData<controllers.WarehouseSectionGetResponse>(["warehouse-section", "task", taskId ?? "", "job"], { section: res.section });
+        queryClient.setQueryData<controllers.WarehouseSectionGetResponse>(sectionKeys.ofTask(taskId ?? "", "job"), { section: res.section });
       }
       refresh();
     },

@@ -163,29 +163,29 @@ export function InlineNumber({
   );
 }
 
-export function InlineSelect({
-  value,
-  options,
-  onSave,
-  width = 220,
-  labels,
-}: {
+interface InlineSelectProps<T extends string> {
+  /** As stored; an older value that is not in `options` stays shown and selectable. */
   value: string;
-  options: readonly string[];
-  onSave: (v: string) => void;
+  options: readonly T[];
+  /** "" only when the field can be cleared (`clearable`). */
+  onSave: (v: T | "") => void;
   width?: number;
   /** Shown text of a stored value (e.g. "Import" shown as "Outbound"); the stored value is saved. */
-  labels?: (v: string) => string;
-}) {
+  labels?: (v: T) => string;
+  /** False for a field that always has a value (the server refuses ""). */
+  clearable?: boolean;
+}
+
+export function InlineSelect<T extends string>({ value, options, onSave, width = 220, labels, clearable = true }: InlineSelectProps<T>) {
   // Keep a stored value that is not in the list selectable, so it is never silently lost.
-  const all = value && !options.includes(value) ? [value, ...options] : options;
+  const all: readonly T[] = value && !(options as readonly string[]).includes(value) ? [value as T, ...options] : options;
   return (
-    <Select
+    <Select<T>
       size="small"
       variant="borderless"
-      value={value || undefined}
+      value={(value || undefined) as T | undefined}
       placeholder="—"
-      allowClear
+      allowClear={clearable}
       popupMatchSelectWidth={false}
       style={{ width }}
       className={`${inlineClass} [&_.ant-select-selection-item]:!font-medium`}

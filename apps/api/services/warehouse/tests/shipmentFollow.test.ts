@@ -6,9 +6,9 @@ import { gateMovementRepository } from "../repositories/gateMovement.repository"
 import { failingShipments, shipmentData } from "./shipmentFakes";
 
 const { shipmentGet } = vi.hoisted(() => ({ shipmentGet: vi.fn() }));
-vi.mock("~encore/clients", () => ({
+vi.mock("~encore/clients", async () => ({
   shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet },
-  auth: { usersList: vi.fn(async () => ({ users: [] })) },
+  auth: (await import("./authFake")).authFake([]),
 }));
 
 const user = randomUUID();
@@ -36,7 +36,7 @@ describe("customs status follows the shipment", () => {
   it("updates the status and the Customs line when the job is opened, logged", async () => {
     const { c, s, id } = await linked();
     shipmentData.set(s, { customsStatus: "Customs Cleared/Released" });
-    const m = await gateMovementService.get(id, c, { follow: true });
+    const m = (await gateMovementService.followShipments(c, { id }), await gateMovementService.get(id, c));
     expect(m.customsStatus).toBe("Customs Cleared/Released");
     expect(customsOf(m)).toEqual({ g: "Customs", s: "OK", note: "released" });
     expect(m.events.at(-1)).toMatchObject({ kind: "customsFromShipment", label: "Customs status from shipment: Customs Cleared/Released", by: "Shipments" });
@@ -45,20 +45,21 @@ describe("customs status follows the shipment", () => {
 
   it("reads a shipment again only after a while, unless asked to refresh", async () => {
     const { c, id } = await linked();
-    await gateMovementService.get(id, c, { follow: true });
-    await gateMovementService.get(id, c, { follow: true });
-    await gateMovementService.list(c, { follow: true });
+    (await gateMovementService.followShipments(c, { id }), await gateMovementService.get(id, c));
+    (await gateMovementService.followShipments(c, { id }), await gateMovementService.get(id, c));
+    await gateMovementService.followShipments(c);
     expect(shipmentGet).toHaveBeenCalledTimes(1);
-    await gateMovementService.get(id, c, { follow: true, force: true });
+    (await gateMovementService.followShipments(c, { id, force: true }), await gateMovementService.get(id, c));
     expect(shipmentGet).toHaveBeenCalledTimes(2);
   });
 
   it("follows in the list too", async () => {
     const { c, s, id } = await linked();
     shipmentData.set(s, { customsStatus: "Under Customs Clearance" });
-    const rows = await gateMovementService.list(c, { follow: true });
+    await gateMovementService.followShipments(c);
+    const rows = await gateMovementService.list(c);
     expect(rows.find((m) => m.id === id)).toMatchObject({ customsStatus: "Under Customs Clearance" });
-    // Without follow (internal reads) nothing is fetched.
+    // Reads never fetch (or write).
     shipmentGet.mockClear();
     await gateMovementService.list(c);
     expect(shipmentGet).not.toHaveBeenCalled();
@@ -68,7 +69,7 @@ describe("customs status follows the shipment", () => {
     const { c, s, id } = await linked();
     await gateMovementRepository.update(id, c, { impRelease: new Date(), status: "Released" });
     shipmentData.set(s, { customsStatus: "Customs Cleared/Released" });
-    const m = await gateMovementService.get(id, c, { follow: true, force: true });
+    const m = (await gateMovementService.followShipments(c, { id, force: true }), await gateMovementService.get(id, c));
     expect(m.customsStatus).toBe("Paperwork Verified");
     expect(shipmentGet).not.toHaveBeenCalled();
   });
@@ -76,7 +77,7 @@ describe("customs status follows the shipment", () => {
   it("leaves the record unchanged when the shipment cannot be read", async () => {
     const { c, s, id } = await linked();
     failingShipments.set(s, new Error("shipments unavailable"));
-    const m = await gateMovementService.get(id, c, { follow: true });
+    const m = (await gateMovementService.followShipments(c, { id }), await gateMovementService.get(id, c));
     expect(m.customsStatus).toBe("Paperwork Verified");
     expect(m.events.some((e) => e.kind === "customsFromShipment")).toBe(false);
     failingShipments.delete(s);
@@ -86,7 +87,8 @@ describe("customs status follows the shipment", () => {
     const { c, id } = await linked();
     shipmentGet.mockImplementation(() => new Promise(() => {}));
     const started = Date.now();
-    const rows = await gateMovementService.list(c, { follow: true });
+    await gateMovementService.followShipments(c);
+    const rows = await gateMovementService.list(c);
     expect(Date.now() - started).toBeLessThan(5_000);
     expect(rows.find((m) => m.id === id)!.customsStatus).toBe("Paperwork Verified");
   });

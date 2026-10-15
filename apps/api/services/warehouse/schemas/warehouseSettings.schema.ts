@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, integer, jsonb, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, integer, jsonb, timestamp, index, uniqueIndex, foreignKey } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import type { SupplierEmailSettings, DockSettings, SettingsEvent } from "../services/settingsRules";
+import { gateMovementTable } from "./gateMovement.schema";
+import { warehouseTaskTable } from "./warehouseTask.schema";
 
 // Warehouse settings: one row per company. Who gets the supplier e-mails (VGM, Survey,
 // Remeasurement — To / Cc and an on/off switch per type) and the docks with their opening hours
@@ -64,6 +66,8 @@ export const warehouseSupplierEmailTable = pgTable(
     tenantIndex("warehouse_supplier_email", table),
     index("warehouse_supplier_email_task_idx").on(table.companyId, table.taskId, table.createdAt.desc()),
     uniqueIndex("warehouse_supplier_email_request_unique").on(table.companyId, table.clientRequestId),
+    foreignKey({ name: "wh_supplier_email_task_fk", columns: [table.taskId], foreignColumns: [warehouseTaskTable.id] }).onDelete("restrict"),
+    foreignKey({ name: "wh_supplier_email_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
   ],
 );
 

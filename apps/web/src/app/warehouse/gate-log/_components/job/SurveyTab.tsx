@@ -6,6 +6,9 @@ import { CameraOutlined, DeleteOutlined, FileSearchOutlined, PlusOutlined, Print
 import { useGateFiles, useGateFileUrl, type GateFile, type GateMovement } from "@/hooks/useGateLog";
 import { useWarehouseContainers } from "@/hooks/useWarehouseRecords";
 import { useToast } from "@/lib/toast";
+import { useListKeys } from "@/hooks/useListKeys";
+import { fileToBase64 } from "@/lib/files";
+import { escapeHtml } from "@/lib/html";
 import { formatDateTime } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import {
@@ -34,45 +37,42 @@ const PHASE_OPTIONS = [
 
 const isImage = (f: GateFile) => f.fileType.startsWith("image/");
 
-const readBase64 = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result).split(",")[1] ?? "");
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-
-const escapeHtml = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+const readBase64 = fileToBase64;
 
 const label = "text-[11px] font-bold text-slate-500 uppercase tracking-wide";
 
-export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (survey: SurveyInput) => Promise<unknown> }) {
+interface SurveyTabProps {
+  m: GateMovement;
+  saveSurvey: (survey: SurveyInput) => Promise<unknown>;
+}
+
+export function SurveyTab({ m, saveSurvey }: SurveyTabProps) {
   const toast = useToast();
   // antd's static Modal.confirm does not render under React 19; the hook version does.
   const [modal, modalHolder] = Modal.useModal();
   const { files, upload, remove } = useGateFiles(m.id);
   // Containers live in the warehouse container register; adding one here registers it on this position.
   const { create: addContainer } = useWarehouseContainers();
-  const [container, setContainer] = useState(m.containers[0]?.number ?? "");
+  const [chosenContainer, setContainer] = useState(m.containers[0]?.number ?? "");
+  // A container removed elsewhere falls back to the first one.
+  const container = !chosenContainer || m.containers.some((c) => c.number === chosenContainer) ? chosenContainer : (m.containers[0]?.number ?? "");
   // Receipt and release are separate passes per container; opens on the pass due now.
   const [phase, setPhase] = useState<SurveyPhaseKey>(requiredSurveyPhase(m) ?? "receipt");
   const [dialogOpen, setDialogOpen] = useState(false);
   const photosRef = useRef<HTMLDivElement>(null);
 
-  // A container removed elsewhere falls back to the first one.
-  useEffect(() => {
-    if (container && !m.containers.some((c) => c.number === container)) setContainer(m.containers[0]?.number ?? "");
-  }, [m.containers, container]);
-
   const findStored = (c: string, p: SurveyPhaseKey) => m.surveys.find((s) => s.container === c && surveyPhaseKey(s.phase) === p);
   const stored = findStored(container, phase);
   const [draft, setDraft] = useState<SurveyInput>(stored ? pickInput(stored) : blankSurvey(container, phase));
-  useEffect(() => {
-    const s = findStored(container, phase);
-    setDraft(s ? pickInput(s) : blankSurvey(container, phase));
-    // Reset only when switching container or pass; own saves echo back the same values.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [container, phase]);
+  // A fresh draft when switching container or pass (set while rendering, React's way of resetting
+  // state on a change); own saves echo back the same values and don't reset it.
+  const formKey = `${container}|${phase}`;
+  const [draftFor, setDraftFor] = useState(formKey);
+  if (draftFor !== formKey) {
+    setDraftFor(formKey);
+    setDraft(stored ? pickInput(stored) : blankSurvey(container, phase));
+  }
+  const lineKeys = useListKeys(draft.lines.length);
 
   const pieces = m.colli;
   const persist = (next: SurveyInput) => {
@@ -196,11 +196,11 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
           <div className="overflow-x-auto border border-slate-200 rounded-lg">
             <table className="w-full min-w-[820px] border-collapse text-xs">
               <colgroup>
-                <col style={{ width: 90 }} />
-                <col style={{ width: 180 }} />
+                <col className="w-[90px]" />
+                <col className="w-[180px]" />
                 <col />
                 <col />
-                <col style={{ width: 44 }} />
+                <col className="w-[44px]" />
               </colgroup>
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
@@ -224,7 +224,7 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
               </thead>
               <tbody>
                 {draft.lines.map((l, i) => (
-                  <tr key={i} className="border-b border-slate-100 last:border-b-0">
+                  <tr key={lineKeys.keys[i]} className="border-b border-slate-100 last:border-b-0">
                     <td className="px-3 py-1.5">
                       <InputNumber
                         size="small"
@@ -265,7 +265,10 @@ export function SurveyTab({ m, saveSurvey }: { m: GateMovement; saveSurvey: (sur
                         disabled={draft.lines.length === 1}
                         title="Remove this line"
                         aria-label="Remove this line"
-                        onClick={() => persist({ ...draft, lines: draft.lines.filter((_, idx) => idx !== i) })}
+                        onClick={() => {
+                          lineKeys.remove(i);
+                          persist({ ...draft, lines: draft.lines.filter((_, idx) => idx !== i) });
+                        }}
                       />
                     </td>
                   </tr>
@@ -387,9 +390,20 @@ function FlagSelect({ value, options, tone, onChange }: { value: string[]; optio
 
 // Capped at the piece count only when it is known (> 0); with no count, damage and
 // shortage can still be recorded (same rule as the server).
-function PieceInput({ value, max, onSave }: { value: number; max: number; onSave: (v: number) => void }) {
+interface PieceInputProps {
+  value: number;
+  max: number;
+  onSave: (v: number) => void;
+}
+
+function PieceInput({ value, max, onSave }: PieceInputProps) {
   const [draft, setDraft] = useState<number | null>(value);
-  useEffect(() => setDraft(value), [value]);
+  // A new stored value replaces what is shown (set while rendering, not in an effect).
+  const [shownFor, setShownFor] = useState(value);
+  if (shownFor !== value) {
+    setShownFor(value);
+    setDraft(value);
+  }
   const known = max > 0;
   return (
     <span className="inline-flex items-center gap-2">

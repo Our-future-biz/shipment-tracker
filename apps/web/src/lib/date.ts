@@ -48,3 +48,44 @@ export function businessDay(at: Date): string {
 export function businessToday(): string {
   return businessDay(new Date());
 }
+
+/** The company-calendar day (YYYY-MM-DD) of a stored time or Date; "" for none or an invalid one. */
+export function businessDayOf(at: string | Date | null | undefined): string {
+  if (!at) return "";
+  const d = at instanceof Date ? at : new Date(at);
+  return Number.isNaN(d.getTime()) ? "" : businessDay(d);
+}
+
+const DAY_MS = 86_400_000;
+
+/** A calendar day (YYYY-MM-DD) moved by `n` days (negative = back). */
+export function addDays(day: string, n: number): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
+}
+
+const pragueTime = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Prague", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const pragueDayTime = new Intl.DateTimeFormat("en-GB", {
+  timeZone: "Europe/Prague",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** "14:05" — the time of a moment on the company's clock (Prague); "" for none or an invalid one. */
+export function businessTime(at: string | Date | null | undefined): string {
+  if (!at) return "";
+  const d = at instanceof Date ? at : new Date(at);
+  return Number.isNaN(d.getTime()) ? "" : pragueTime.format(d);
+}
+
+/** "05.03.2026 14:05" — a moment on the company's calendar and clock; "" for none or an invalid one. */
+export function businessDateTime(at: string | Date | null | undefined): string {
+  if (!at) return "";
+  const d = at instanceof Date ? at : new Date(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const p = Object.fromEntries(pragueDayTime.formatToParts(d).map((x) => [x.type, x.value]));
+  return `${p.day}.${p.month}.${p.year} ${p.hour}:${p.minute}`;
+}

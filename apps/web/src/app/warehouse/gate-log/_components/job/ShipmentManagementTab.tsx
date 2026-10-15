@@ -14,26 +14,29 @@ type Save = (data: Omit<controllers.GateMovementUpdateRequest, "id">) => void;
 type NumKey = "qty" | "width" | "length" | "height" | "weight" | "measure" | "totalGross" | "storageDays";
 type TextKey = "description" | "plate" | "driver" | "transport";
 
-const COLUMNS: { title: string; width: number }[] = [
-  { title: "Sub-position", width: 128 },
-  { title: "ETW", width: 132 },
-  { title: TERMS.pieces, width: 80 },
-  { title: "Packing", width: 118 },
-  { title: "Width", width: 86 },
-  { title: "Length", width: 86 },
-  { title: "Height", width: 86 },
-  { title: "Description", width: 190 },
-  { title: TERMS.weightKg, width: 92 },
-  { title: TERMS.volumeCbm, width: 104 },
-  { title: "Total gross", width: 104 },
-  { title: TERMS.plate, width: 112 },
-  { title: TERMS.driver, width: 128 },
-  { title: "Transport", width: 150 },
-  { title: "VGM", width: 58 },
-  { title: "VGM date", width: 132 },
-  { title: "Storage (days)", width: 110 },
-  { title: "", width: 44 },
+// Column widths as Tailwind classes (a fixed table layout reads them from the <col>s).
+const COLUMNS: { title: string; width: string }[] = [
+  { title: "Sub-position", width: "w-[128px]" },
+  { title: "ETW", width: "w-[132px]" },
+  { title: TERMS.pieces, width: "w-[80px]" },
+  { title: "Packing", width: "w-[118px]" },
+  { title: "Width", width: "w-[86px]" },
+  { title: "Length", width: "w-[86px]" },
+  { title: "Height", width: "w-[86px]" },
+  { title: "Description", width: "w-[190px]" },
+  { title: TERMS.weightKg, width: "w-[92px]" },
+  { title: TERMS.volumeCbm, width: "w-[104px]" },
+  { title: "Total gross", width: "w-[104px]" },
+  { title: TERMS.plate, width: "w-[112px]" },
+  { title: TERMS.driver, width: "w-[128px]" },
+  { title: "Transport", width: "w-[150px]" },
+  { title: "VGM", width: "w-[58px]" },
+  { title: "VGM date", width: "w-[132px]" },
+  { title: "Storage (days)", width: "w-[110px]" },
+  { title: "", width: "w-[44px]" },
 ];
+/** All columns together (1940px): the table scrolls sideways below that. */
+const TABLE_MIN_WIDTH = "min-w-[1940px]";
 
 const blankDrop = (): Drop => ({
   etw: "",
@@ -123,10 +126,10 @@ export function ShipmentManagementTab({ m, save }: { m: GateMovement; save: Save
       }
     >
       <div className="overflow-x-auto">
-        <table className="border-collapse text-xs table-fixed" style={{ minWidth: COLUMNS.reduce((a, c) => a + c.width, 0) }}>
+        <table className={`border-collapse text-xs table-fixed ${TABLE_MIN_WIDTH}`}>
           <colgroup>
             {COLUMNS.map((c, i) => (
-              <col key={i} style={{ width: c.width }} />
+              <col key={i} className={c.width} />
             ))}
           </colgroup>
           <thead>

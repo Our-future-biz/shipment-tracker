@@ -2,9 +2,7 @@
 
 import { useState } from "react";
 import { Modal, Radio } from "antd";
-import { useQueryClient } from "@tanstack/react-query";
-import type { GateMovement } from "@/hooks/useGateLog";
-import { api } from "@/lib/api";
+import { useLogLabelPrints, type GateMovement } from "@/hooks/useGateLog";
 import { useToast } from "@/lib/toast";
 import { runBulk } from "@/app/warehouse/_components/tabs/shared";
 import { MAX_LABELS, downloadLabels, labelCount } from "../_lib/labelPdf";
@@ -14,7 +12,7 @@ import { MAX_LABELS, downloadLabels, labelCount } from "../_lib/labelPdf";
 // log does not undo the PDF, it is only reported).
 export function PrintLabelsModal({ open, movements, onClose }: { open: boolean; movements: GateMovement[]; onClose: () => void }) {
   const toast = useToast();
-  const queryClient = useQueryClient();
+  const { logPrint, refresh: refreshAfterPrint } = useLogLabelPrints();
   const [perPiece, setPerPiece] = useState(false);
   const [busy, setBusy] = useState(false);
   const total = movements.reduce((s, m) => s + labelCount(m, perPiece), 0);
@@ -29,8 +27,8 @@ export function PrintLabelsModal({ open, movements, onClose }: { open: boolean; 
     setBusy(true);
     try {
       const copies = await downloadLabels(movements, { perPiece });
-      const result = await runBulk(copies, (c) => api.warehouse.gateMovementLabelPrinted(c.id, { copies: c.copies }));
-      await queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+      const result = await runBulk(copies, (c) => logPrint(c.id, c.copies));
+      await refreshAfterPrint();
       if (result.failed.length) {
         toast.warning(`Labels saved, but the print could not be logged on ${result.failed.length} position${result.failed.length === 1 ? "" : "s"}.`);
       } else {

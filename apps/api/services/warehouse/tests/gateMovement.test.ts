@@ -12,7 +12,7 @@ vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
-    auth: { usersList: vi.fn(async () => ({ users: [] })) },
+    auth: (await import("./authFake")).authFake([]),
   };
 });
 
@@ -45,7 +45,7 @@ describe("release gates", () => {
 
   it("flags only outgoing cargo: release blocked, or no MRN while customs is not cleared", () => {
     const gates = defaultReleaseGates("Import", "LCL consolidation", "Under Customs Clearance");
-    const base = { status: "In Warehouse", overridden: false, releaseGates: gates, mrn: "", customsStatus: "Under Customs Clearance", impRelease: null, gateOut: null };
+    const base = { status: "In Warehouse", overridden: false, releaseGates: gates, mrn: "", customsStatus: "Under Customs Clearance" as const, impRelease: null, gateOut: null };
     expect(needsAttention({ ...base, visit: "příjem" })).toBe(false);
     expect(needsAttention({ ...base, visit: "výdej" })).toBe(true);
     expect(needsAttention({ ...base, visit: "výdej", overridden: true })).toBe(true);
@@ -233,7 +233,7 @@ describe("release gate lines", () => {
 
   it("keeps both changes when two lines are ticked at the same time", async () => {
     const c = company();
-    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091632", visit: "výdej", handling: "Import", operationType: "FCL import", mrn: "26CZ11" });
+    const m = await gateMovementService.create(c, user, { gateRef: "WCZ2026091632", visit: "výdej", handling: "Import", operationType: "FCL stripping", mrn: "26CZ11" });
     const pending = m.releaseGates.filter((g) => g.s === "Pending" && g.g !== "Customs").map((g) => g.g);
     const results = await Promise.allSettled(pending.map((g) => gateMovementService.setReleaseGate(m.id, c, user, g, true)));
     // A tick that lost the race is refused, never silently dropped: retry those and all land.

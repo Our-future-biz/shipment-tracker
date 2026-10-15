@@ -5,10 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Input, type InputRef } from "antd";
 import { ScanOutlined } from "@ant-design/icons";
-import { useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
 import { useToast } from "@/lib/toast";
-import type { GateMovement } from "@/hooks/useGateLog";
+import { useCreateWalkIn, type GateMovement } from "@/hooks/useGateLog";
+import { confirmLeave } from "@/app/warehouse/_lib/useUnsavedGuard";
 import { ScanBurst, containerHref, matchScanned, scanHref, scannedContainer, type ScanTarget } from "@/app/warehouse/_lib/scanner";
 import { dialogOpen } from "@/app/warehouse/_lib/useWedgeScanner";
 import { errorMessage } from "../_lib/gate";
@@ -46,7 +45,7 @@ export function ScanBox({
 }) {
   const router = useRouter();
   const toast = useToast();
-  const queryClient = useQueryClient();
+  const createWalkIn = useCreateWalkIn();
   const [value, setValue] = useState("");
   const [result, setResult] = useState<{ q: string; matches: GateMovement[] } | null>(null);
   const [creating, setCreating] = useState(false);
@@ -85,13 +84,15 @@ export function ScanBox({
     // Floor mode: a container number opens the container's tally / stuffing list.
     const container = target === "floor" ? scannedContainer(q, movements) : null;
     if (container) {
-      router.push(containerHref(target, container.id));
+      // A scan is a navigation like a click: unsaved edits on this screen are asked about first.
+      if (confirmLeave()) router.push(containerHref(target, container.id));
       return;
     }
     const { value: used, result: r } = matchScanned(q, movements);
     if (r.kind === "open") {
       setResult({ q: used, matches: [r.movement] });
-      router.push(scanHref(target, r.movement.id));
+      if (confirmLeave()) router.push(scanHref(target, r.movement.id));
+      else refocus();
     } else {
       setResult({ q: r.kind === "many" ? used : q, matches: r.kind === "many" ? r.matches : [] });
       refocus();
@@ -102,10 +103,9 @@ export function ScanBox({
     if (!result) return;
     setCreating(true);
     try {
-      const res = await api.warehouse.gateMovementCreate({ walkIn: true, note: `Scanned / typed at the gate: ${result.q}` });
-      await queryClient.invalidateQueries({ queryKey: ["warehouse-gate"] });
+      const res = await createWalkIn.mutateAsync(`Scanned / typed at the gate: ${result.q}`);
       toast.success("Walk-in recorded");
-      router.push(scanHref(target, res.movement.id));
+      if (confirmLeave()) router.push(scanHref(target, res.movement.id));
     } catch (e) {
       toast.error(errorMessage(e, "Failed to record the walk-in"));
       refocus();

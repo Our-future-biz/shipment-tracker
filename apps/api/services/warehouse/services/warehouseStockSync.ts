@@ -1,9 +1,7 @@
-import log from "encore.dev/log";
 import { db } from "../db/db";
 import type { Tx } from "../repositories/warehouseSection.repository";
 import { bondedEntryRepository, stockGateReader, stockLineRepository, stockMovementRepository } from "../repositories/warehouseStock.repository";
 import { houseContexts } from "./houses";
-import { pgCode } from "./offline";
 import { planStockSync, type StockSyncOptions, type StockSyncPlan, type StockSyncState } from "./warehouseStockPlan";
 
 export { planStockSync, receiptAndLeft, type StockSyncOptions, type StockSyncPlan, type StockSyncState } from "./warehouseStockPlan";
@@ -54,18 +52,12 @@ async function applyPlan(tx: Tx, s: StockSyncState, plan: StockSyncPlan) {
   return true;
 }
 
-// Postgres "undefined column / table": the stock migration (0018) is not applied yet. The gate
-// action itself must not fail then — the sync is skipped (savepoint) and logged; the manager's
-// "Build stock from gate records" brings the lines up to date once it is applied.
-const SCHEMA_MISSING = new Set(["42703", "42P01"]);
-
 /**
  * Brings the stock line and bonded entry of one gate record to its state, inside `tx` (the
  * caller's transaction, after its update of the gate record). Idempotent.
  */
 export async function syncStockForMovement(tx: Tx, companyId: string, movementId: string, opts: StockSyncOptions): Promise<StockSyncPlan | null> {
-  try {
-    return await tx.transaction(async (sp) => {
+  return tx.transaction(async (sp) => {
       const state = await loadState(sp, companyId, movementId);
       if (!state) return null;
       const plan = planStockSync(state, opts);
@@ -78,12 +70,7 @@ export async function syncStockForMovement(tx: Tx, companyId: string, movementId
         return p2;
       }
       return plan;
-    });
-  } catch (err) {
-    if (!SCHEMA_MISSING.has(pgCode(err))) throw err;
-    log.error("warehouse: stock sync skipped — migration 0018 (stock from gate events) is not applied; restart Encore", { movementId, error: String(err) });
-    return null;
-  }
+  });
 }
 
 /** The same for several gate records, each in a transaction of its own (outside a gate action). */

@@ -7,8 +7,8 @@ import { APIError, ErrCode } from "@/lib/api/client";
 import { useToast } from "@/lib/toast";
 import { errorMessage } from "../../gate-log/_lib/gate";
 import { uuid } from "../../floor/_lib/queue";
-import type { SupplierKind } from "../../settings/_lib/useWarehouseSettings";
-import { useSendToSupplier, useSupplierEmailPreview } from "./useSupplierEmail";
+import type { SupplierKind } from "@/hooks/useWarehouseSettings";
+import { useSendToSupplier, useSupplierEmailPreview } from "@/hooks/useSupplierEmail";
 
 // "Send VGM / survey / remeasurement": shows who gets it, the subject, the text and the files, then
 // e-mails it. Only when the provider took it is it recorded as sent; a failure is shown here in red

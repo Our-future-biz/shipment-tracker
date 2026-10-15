@@ -120,17 +120,21 @@ class GateMovementRepository {
 
   // Whether the task ever had a gate row (archived ones count, so a record removed by hand does
   // not come back).
-  async taskHasMovement(taskId: string, tx: Tx | typeof db = db) {
-    const [row] = await tx.select({ id: gateMovementTable.id }).from(gateMovementTable).where(eq(gateMovementTable.warehouseTaskId, taskId)).limit(1);
+  async taskHasMovement(taskId: string, companyId: string, tx: Tx | typeof db = db) {
+    const [row] = await tx
+      .select({ id: gateMovementTable.id })
+      .from(gateMovementTable)
+      .where(and(eq(gateMovementTable.companyId, companyId), eq(gateMovementTable.warehouseTaskId, taskId)))
+      .limit(1);
     return !!row;
   }
 
   // The live gate record of a task, if any.
-  async liveIdForTask(taskId: string, tx: Tx | typeof db = db) {
+  async liveIdForTask(taskId: string, companyId: string, tx: Tx | typeof db = db) {
     const [row] = await tx
       .select({ id: gateMovementTable.id })
       .from(gateMovementTable)
-      .where(and(eq(gateMovementTable.warehouseTaskId, taskId), isNull(gateMovementTable.deletedAt)))
+      .where(and(eq(gateMovementTable.companyId, companyId), eq(gateMovementTable.warehouseTaskId, taskId), isNull(gateMovementTable.deletedAt)))
       .orderBy(desc(gateMovementTable.createdAt))
       .limit(1);
     return row?.id ?? null;

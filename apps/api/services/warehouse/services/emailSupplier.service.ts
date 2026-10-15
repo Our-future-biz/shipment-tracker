@@ -15,11 +15,12 @@ import type { WarehouseSectionRecord } from "../schemas/warehouseSection.schema"
 import { warehouseService } from "./warehouse.service";
 import { settingsService } from "./settings.service";
 import { activeRecipients, SUPPLIER_KIND_LABEL, SUPPLIER_KINDS, type SupplierKind } from "./settingsRules";
-import { sendSupplierMail, type SupplierMailAttachment } from "./emailSender";
+import { sendMail, type MailAttachment } from "../../../lib/email";
 import { emailSubject, emailText, pickAttachments, type EmailContent, type EmailFiles, type EmailPosition, type EmailRemeasureLine, type EmailTotals } from "./emailCompose";
 import { needsReweigh } from "./reweigh";
 import { remeasureTotals } from "./remeasure";
 import { checkRequestId } from "./offline";
+import { inputMessage } from "./inputError";
 
 // "Send VGM" / "Send survey" / "Send remeasurement": e-mails the supplier what the warehouse
 // recorded, to the recipients set in Warehouse settings, and only then marks it as sent.
@@ -178,7 +179,7 @@ class EmailSupplierService {
     const rcpt = activeRecipients(settings.supplierEmail, kind);
     if (!rcpt) throw APIError.failedPrecondition(NOT_SET_UP);
 
-    const movementId = await gateMovementRepository.liveIdForTask(task.id);
+    const movementId = await gateMovementRepository.liveIdForTask(task.id, companyId);
     const m = movementId ? await gateMovementRepository.findById(movementId, companyId) : null;
     const files = m ? await gateFileRepository.listForMovement(m.id, companyId) : [];
     const newestFirst = [...files].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
@@ -236,7 +237,7 @@ class EmailSupplierService {
         const t = remeasureTotals(data.remeasure_rows ?? "[]");
         totals = { pieces: t.pieces, kg: t.weightKg, cbm: t.cbm };
       } catch (err) {
-        throw APIError.failedPrecondition(`The remeasured lines cannot be e-mailed: ${err instanceof Error ? err.message : String(err)} — correct them first`);
+        throw APIError.failedPrecondition(`The remeasured lines cannot be e-mailed: ${inputMessage(err, "they cannot be read")} — correct them first`);
       }
       if (!lines.length) throw APIError.failedPrecondition("No remeasured lines are saved for this position — save the lines first");
       content = {
@@ -314,7 +315,7 @@ class EmailSupplierService {
     const from = await sender(userId);
 
     // Files: attach what fits (a file that cannot be read is linked instead), link the rest.
-    const attachments: SupplierMailAttachment[] = [];
+    const attachments: MailAttachment[] = [];
     const meta: SupplierEmailAttachment[] = [];
     const linkable: GateFileRecord[] = [];
     for (const f of p.attach) {
@@ -381,7 +382,7 @@ class EmailSupplierService {
       throw APIError.aborted(`This ${label} e-mail is still being sent — wait a moment and reload`);
     }
 
-    const res = await sendSupplierMail({
+    const res = await sendMail({
       to: p.to,
       cc: p.cc,
       replyTo: from.email || undefined,
@@ -430,7 +431,7 @@ class EmailSupplierService {
           status: "sent",
           providerId: res.providerId,
           sentAt: at,
-          error: `E-mailed, but not marked as sent: ${err instanceof Error ? err.message : String(err)}`,
+          error: "E-mailed, but not marked as sent",
         })
         .catch(() => undefined);
       throw APIError.internal(sentNotRecorded(label));

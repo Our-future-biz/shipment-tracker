@@ -1860,6 +1860,7 @@ export namespace warehouse {
             this.gateMovementArchive = this.gateMovementArchive.bind(this)
             this.gateMovementCreate = this.gateMovementCreate.bind(this)
             this.gateMovementDelete = this.gateMovementDelete.bind(this)
+            this.gateMovementFollow = this.gateMovementFollow.bind(this)
             this.gateMovementGet = this.gateMovementGet.bind(this)
             this.gateMovementLabelPrinted = this.gateMovementLabelPrinted.bind(this)
             this.gateMovementList = this.gateMovementList.bind(this)
@@ -2038,16 +2039,25 @@ export namespace warehouse {
         }
 
         /**
-         * One record, live or archived; a linked one follows its shipment's customs status.
+         * Linked records read their shipment's customs status (and move their stock / bonded entry with
+         * it). The Gate Log calls this when it opens and the job's "Refresh" with `force`.
          */
-        public async gateMovementGet(id: string, params: controllers.GateMovementGetRequest): Promise<controllers.GateMovementResponse> {
-            // Convert our params into the objects we need for the request
-            const query = makeRecord<string, string | string[]>({
-                refresh: params.refresh === undefined ? undefined : String(params.refresh),
-            })
-
+        public async gateMovementFollow(params: controllers.GateMovementFollowRequest): Promise<{
+    changed: number
+}> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}`, undefined, {query})
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/follow`, JSON.stringify(params))
+            return await resp.json() as {
+    changed: number
+}
+        }
+
+        /**
+         * One record, live or archived (reads only).
+         */
+        public async gateMovementGet(id: string): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}`)
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -2063,8 +2073,7 @@ export namespace warehouse {
         }
 
         /**
-         * The Gate Log. Linked records whose customs status was not read lately follow their
-         * shipment first (a limited number per call, never waiting long for Shipments).
+         * The Gate Log (reads only; the shipments' customs status comes in through gateMovementFollow).
          */
         public async gateMovementList(params: controllers.GateMovementListRequest): Promise<{
     movements: interfaces.GateMovementItem[]
@@ -2243,8 +2252,9 @@ export namespace warehouse {
         }
 
         /**
-         * Operations make the pick-up PIN of a shipment (Shipments → Warehouse → Pick-up): six digits
-         * made on the server. A new one only once the current one is locked at the gate; logged.
+         * Managers make the pick-up PIN of a shipment (Shipments → Warehouse → Pick-up): six digits
+         * made on the server, shown once in this answer. A new one only once the current one is locked
+         * at the gate; logged.
          */
         public async pickupPinGenerate(shipmentId: string): Promise<controllers.PickupPinGenerateResponse> {
             // Now make the actual call to the API
@@ -3847,10 +3857,10 @@ export namespace controllers {
 
         gateRef?: string
         warehouseTaskId?: string | null
-        visit?: string
-        handling?: string
-        operationType?: string
-        customsMode?: string
+        visit?: interfaces.GateVisit
+        handling?: interfaces.GateHandling
+        operationType?: interfaces.GateOperationType
+        customsMode?: interfaces.GateCustomsMode
         customer?: string
         customerRef?: string
         customerContact?: string
@@ -3861,7 +3871,7 @@ export namespace controllers {
         measureCbm?: number
         customsDocs?: string
         mrn?: string
-        customsStatus?: string
+        customsStatus?: interfaces.GateCustomsStatus
         freightMode?: string
         loadType?: string
         commodity?: string
@@ -3904,11 +3914,16 @@ export namespace controllers {
         note?: string
     }
 
-    export interface GateMovementGetRequest {
+    export interface GateMovementFollowRequest {
         /**
-         * true ("Refresh"): read the linked shipment's customs status now, not only after 30 s.
+         * One record ("Refresh" on the job); without it, a limited number of records not read lately.
          */
-        refresh?: boolean
+        id?: string
+
+        /**
+         * With `id`: read it now, even if it was read in the last half minute.
+         */
+        force?: boolean
     }
 
     export interface GateMovementListRequest {
@@ -3923,12 +3938,17 @@ export namespace controllers {
     }
 
     export interface GateMovementUpdateRequest {
+        /**
+         * Required (managers only) to change the link or direction of a position linked to a shipment.
+         */
+        linkChangeReason?: string
+
         gateRef?: string
         warehouseTaskId?: string | null
-        visit?: string
-        handling?: string
-        operationType?: string
-        customsMode?: string
+        visit?: interfaces.GateVisit
+        handling?: interfaces.GateHandling
+        operationType?: interfaces.GateOperationType
+        customsMode?: interfaces.GateCustomsMode
         customer?: string
         customerRef?: string
         customerContact?: string
@@ -3939,7 +3959,7 @@ export namespace controllers {
         measureCbm?: number
         customsDocs?: string
         mrn?: string
-        customsStatus?: string
+        customsStatus?: interfaces.GateCustomsStatus
         freightMode?: string
         loadType?: string
         commodity?: string
@@ -4362,7 +4382,15 @@ export namespace controllers {
     }
 
     export interface PickupPinGenerateResponse {
+        /**
+         * The pick-up section, without the PIN.
+         */
         section: interfaces.WarehouseSectionItem
+
+        /**
+         * The new PIN — shown only in this answer; only its hash is stored.
+         */
+        pin: string
     }
 
     export interface PipelineExtractHblRequest {
@@ -5673,15 +5701,11 @@ export namespace controllers {
         customerRef?: string
         customerContact?: string
         shipmentOwner?: string
-        customsStatus?: string
-        /**
-         * Import | Export
-         */
-        handling?: string
-
+        customsStatus?: interfaces.GateCustomsStatus
+        handling?: interfaces.GateHandling
         freightMode?: string
         loadType?: string
-        customsMode?: string
+        customsMode?: interfaces.GateCustomsMode
         commodity?: string
         packing?: string
         colli?: number
@@ -6460,6 +6484,13 @@ export namespace interfaces {
         type: string
     }
 
+    export type GateCustomsMode = "SCP" | "JSD" | "T1" | "T2L" | "ATA Carnet" | "RDT" | "C-Goods"
+
+    /**
+     * Shared with Shipments; only the last one releases cargo.
+     */
+    export type GateCustomsStatus = "Waiting For Commercial Paperwork" | "Paperwork Verification Pending" | "Paperwork Verified" | "Under Customs Clearance" | "Customs Cleared/Released"
+
     /**
      * A dock slot booked for the movement (Dock & Yard), as the gate job and floor mode show it.
      */
@@ -6595,6 +6626,8 @@ export namespace interfaces {
         uploadedBy: string
         createdAt: string
     }
+
+    export type GateHandling = "Import" | "Export"
 
     /**
      * One step of the position's lifecycle.
@@ -6795,6 +6828,8 @@ export namespace interfaces {
         createdAt: string
         updatedAt: string
     }
+
+    export type GateOperationType = "LCL consolidation" | "FCL stuffing" | "FCL stripping" | "FCL transload (cross-stuff)" | "Cargo storage" | "Cargo storage (bonded)" | "Container yard storage"
 
     /**
      * The shipment's pick-up, as the gate sees it on a linked outbound movement: whether the PIN
@@ -7105,6 +7140,11 @@ export namespace interfaces {
 
         gateTime: string
     }
+
+    /**
+     * Gate visit: příjem (cargo comes in) | výdej (cargo goes out).
+     */
+    export type GateVisit = "příjem" | "výdej"
 
     export interface GeneratedInvoiceItem {
         id: string
@@ -8455,6 +8495,11 @@ export namespace interfaces {
          * Stopped: need a hand in Shipments.
          */
         failed: number
+
+        /**
+         * Pending updates held back behind a stopped one of the same shipment (sent in order).
+         */
+        blockedByFailed: number
 
         /**
          * Oldest pending update (ISO); null when none.

@@ -12,6 +12,8 @@ import { isManager, userName } from "./users";
 import { houseContexts, isExportContainer, lockHouse, releaseHousesForArchive } from "./houses";
 import type { Tx } from "../repositories/warehouseSection.repository";
 import { syncStockForMovement } from "./warehouseStockSync";
+import { dockSlotRepository } from "../repositories/warehouseRecords.repository";
+import { gateExceptionRepository } from "../repositories/gateException.repository";
 
 // Manager actions on gate records — voiding a wrong stamp, archiving a stamped record and
 // restoring an archived one — and removing a position with its gate records. Every one needs a
@@ -143,7 +145,7 @@ class GateAdminService {
         await lockHouse(tx, m.id, companyId);
         await stuffedHouse(tx);
       }
-      const owed = m.shipmentId ? await shipmentOutboxRepository.cancelForStamps(tx, m.id, cleared) : [];
+      const owed = m.shipmentId ? await shipmentOutboxRepository.cancelForStamps(tx, m.id, companyId, cleared) : [];
       // A pending row still held by a delivery run is being sent right now: it may reach the
       // shipment although it is cancelled here (the delivery then logs it as well).
       const inFlight = (r: (typeof owed)[number]) => r.status === "pending" && !!r.lockedUntil && r.lockedUntil.getTime() > Date.now();
@@ -279,6 +281,10 @@ class GateAdminService {
         detail: archiveReason,
       });
       for (const r of rows) await syncStockForMovement(tx, companyId, r.id, { by, why: `position removed: ${archiveReason}` });
+      // Its booked dock slots stop holding the door; its open exceptions are closed.
+      const ids = rows.map((r) => r.id);
+      await dockSlotRepository.cancelForMovements(tx, ids, companyId, `position ${task.taskId} removed`);
+      await gateExceptionRepository.closeForMovements(tx, ids, companyId, by, `Closed: position ${task.taskId} removed — ${archiveReason}`);
     });
   }
 

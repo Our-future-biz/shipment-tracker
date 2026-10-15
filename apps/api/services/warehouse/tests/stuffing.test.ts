@@ -17,7 +17,7 @@ vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate, shipmentGet: vi.fn(getShipment) },
-    auth: { usersList: vi.fn(async () => ({ users: [] })) },
+    auth: (await import("./authFake")).authFake([]),
   };
 });
 
@@ -160,7 +160,7 @@ describe("export stuffing plan", () => {
     await containerService.stamp(box.id, c, user, "user", "gateOut");
     shipmentUpdate.mockClear();
     await records.updateContainer(box.id, c, { plate: "5XY 9988" }, user, "admin");
-    expect(shipmentUpdate).toHaveBeenCalledWith({ shipmentId: a.shipmentId, plateNumber: "5XY 9988" }, { authData: { userID: user, companyID: c, role: "admin" } });
+    expect(shipmentUpdate).toHaveBeenCalledWith({ shipmentId: a.shipmentId, plateNumber: "5XY 9988" }, { authData: { userID: user, companyID: c, role: "user" } });
     await expect(records.updateContainer(box.id, c, { gatedOut: "2020-01-01" })).rejects.toThrow(/follows the container's gate-out/);
   });
 

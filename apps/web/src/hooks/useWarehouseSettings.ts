@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
+import { warehouseSettingsKey } from "./warehouseKeys";
 
 // Warehouse settings (supplier e-mail recipients per message type, docks and hours). Kept next to
 // the settings screen; the integrator may move it to src/hooks/useWarehouseSettings.ts.
@@ -11,7 +12,7 @@ export type WarehouseSettings = interfaces.WarehouseSettingsItem;
 export type SupplierKind = "vgm" | "survey" | "remeasurement";
 export type SupplierRecipients = interfaces.SupplierRecipientsItem;
 
-export const WAREHOUSE_SETTINGS_KEY = ["warehouse-settings"] as const;
+export const WAREHOUSE_SETTINGS_KEY = warehouseSettingsKey;
 
 export function useWarehouseSettings(enabled = true) {
   const queryClient = useQueryClient();

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, integer, jsonb, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, integer, jsonb, timestamp, index, foreignKey, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
+import { gateMovementTable } from "./gateMovement.schema";
 
 /** What a gate stamp writes to its shipment: the received or released date, or a plate added later. */
 export type OutboxKind = "received" | "released" | "plate";
@@ -38,6 +39,10 @@ export const shipmentOutboxTable = pgTable(
     index("warehouse_shipment_outbox_due_idx").on(table.nextAttemptAt).where(sql`status = 'pending'`),
     index("warehouse_shipment_outbox_shipment_idx").on(table.shipmentId, table.createdAt).where(sql`status = 'pending'`),
     index("warehouse_shipment_outbox_movement_idx").on(table.movementId),
+    foreignKey({ name: "wh_outbox_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
+    index("wh_outbox_movement_idx").on(table.movementId),
+    check("wh_outbox_kind_check", sql`${table.kind} IN ('received', 'released', 'plate')`),
+    check("wh_outbox_status_check", sql`${table.status} IN ('pending', 'sent', 'failed', 'cancelled')`),
   ],
 );
 

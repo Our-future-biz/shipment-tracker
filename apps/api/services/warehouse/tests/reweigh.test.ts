@@ -7,12 +7,13 @@ import { warehouseImportService } from "../services/warehouseImport.service";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import { needsReweigh, reweighVariance } from "../services/reweigh";
 import { shipmentData } from "./shipmentFakes";
+import type { GateOperationType } from "../interfaces/gate.interfaces";
 
 vi.mock("~encore/clients", async () => {
   const { getShipment } = await import("./shipmentFakes");
   return {
     shipments: { shipmentUpdate: vi.fn(async () => ({})), shipmentGet: vi.fn(getShipment) },
-    auth: { usersList: vi.fn(async () => ({ users: [] })) },
+    auth: (await import("./authFake")).authFake([]),
   };
 });
 
@@ -20,7 +21,7 @@ const user = randomUUID();
 afterEach(() => vi.useRealTimers());
 
 // An inbound (příjem) position linked to a shipment declaring 1.2 t, arrived (draft receipt).
-async function arrived(operationType = "LCL consolidation") {
+async function arrived(operationType: GateOperationType = "LCL consolidation") {
   const c = randomUUID();
   const shipmentId = randomUUID();
   shipmentData.set(shipmentId, { totalWeightTons: "1.2" } as never);
@@ -100,7 +101,8 @@ describe("re-weighing a position", () => {
     const m = await gateMovementService.get(id, c);
     expect(m.reweighs).toHaveLength(1);
     expect(m.events.filter((e) => e.kind === "reweighed")).toHaveLength(1);
-    await expect(reweighService.record(id, c, user, { weighedKg: 1, recordedAt: new Date(Date.now() - 13 * 3600_000).toISOString() })).rejects.toThrow(/12 hours/);
+    await expect(reweighService.record(id, c, user, { weighedKg: 1, recordedAt: new Date(Date.now() - 13 * 3600_000).toISOString(), clientRequestId: randomUUID() })).rejects.toThrow(/12 hours/);
+    await expect(reweighService.record(id, c, user, { weighedKg: 1, recordedAt: new Date(Date.now() - 60_000).toISOString() })).rejects.toThrow(/only from floor mode/);
   });
 
   it("uses the gate figures when the position has no shipment", async () => {

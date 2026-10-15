@@ -1,3 +1,5 @@
+import { addDays, businessDay } from "@/lib/date";
+
 // Reports period: a preset (Today, 7 days, 30 days) or a custom range, as Prague days
 // (YYYY-MM-DD, both days included). Pure helpers, shared by the Reports tab and its tests.
 
@@ -9,14 +11,12 @@ export const KPI_MAX_DAYS = 366;
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DAY = 86_400_000;
-const PRAGUE = new Intl.DateTimeFormat("sv-SE", { timeZone: "Europe/Prague" });
-
 /** Today in the warehouse's time (Europe/Prague). */
-export const pragueToday = (now = new Date()) => PRAGUE.format(now);
+export const pragueToday = (now = new Date()) => businessDay(now);
 
 export const isDay = (s: string | null | undefined): s is string => !!s && DATE.test(s) && !Number.isNaN(Date.parse(`${s}T00:00:00Z`));
 
-export const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * DAY).toISOString().slice(0, 10);
+export { addDays };
 
 export const daysIn = (from: string, to: string) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY) + 1;
 

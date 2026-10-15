@@ -1,3 +1,4 @@
+import type { Min } from "encore.dev/validate";
 export type GateCheckState = "g" | "a" | "r" | "n";
 
 export interface GateChecklist {
@@ -463,24 +464,44 @@ export interface WarehouseImportResult {
  * Status, release gates and override are not here: they change only through the stamps,
  * Refuse and the supervisor override, each logged on the movement.
  */
+/** Gate visit: příjem (cargo comes in) | výdej (cargo goes out). */
+export type GateVisit = "příjem" | "výdej";
+export type GateHandling = "Import" | "Export";
+export type GateOperationType =
+  | "LCL consolidation"
+  | "FCL stuffing"
+  | "FCL stripping"
+  | "FCL transload (cross-stuff)"
+  | "Cargo storage"
+  | "Cargo storage (bonded)"
+  | "Container yard storage";
+export type GateCustomsMode = "SCP" | "JSD" | "T1" | "T2L" | "ATA Carnet" | "RDT" | "C-Goods";
+/** Shared with Shipments; only the last one releases cargo. */
+export type GateCustomsStatus =
+  | "Waiting For Commercial Paperwork"
+  | "Paperwork Verification Pending"
+  | "Paperwork Verified"
+  | "Under Customs Clearance"
+  | "Customs Cleared/Released";
+
 export interface GateMovementInput {
   gateRef?: string;
   warehouseTaskId?: string | null;
-  visit?: string;
-  handling?: string;
-  operationType?: string;
-  customsMode?: string;
+  visit?: GateVisit;
+  handling?: GateHandling;
+  operationType?: GateOperationType;
+  customsMode?: GateCustomsMode;
   customer?: string;
   customerRef?: string;
   customerContact?: string;
   shipmentOwner?: string;
-  colli?: number;
+  colli?: number & Min<0>;
   packing?: string;
-  weightKg?: number;
-  measureCbm?: number;
+  weightKg?: number & Min<0>;
+  measureCbm?: number & Min<0>;
   customsDocs?: string;
   mrn?: string;
-  customsStatus?: string;
+  customsStatus?: GateCustomsStatus;
   freightMode?: string;
   loadType?: string;
   commodity?: string;

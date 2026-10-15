@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-// The warehouse's supplier e-mail sender (a copy of lib/email.ts with Cc, reply-to, attachments
-// and an idempotency key). Sending is off (no RESEND_API_KEY is declared, like lib/email.ts);
-// the Resend call itself is tested through sendWithKey. Resend is never called: fetch is stubbed.
+// The e-mail sender (lib/email.ts) as the warehouse's supplier e-mails use it: Cc, reply-to,
+// attachments and an idempotency key. Sending is off (no RESEND_API_KEY is declared); the Resend
+// call itself is tested through sendWithKey. Resend is never called: fetch is stubbed.
 vi.mock("encore.dev/log", () => ({ default: { error: vi.fn(), warn: vi.fn(), info: vi.fn() } }));
 
-import { emailConfigured, NO_KEY_TEXT, sendSupplierMail, sendWithKey } from "../services/emailSender";
+import { emailConfigured, EMAIL_DISABLED as NO_KEY_TEXT, sendMail as sendSupplierMail, sendWithKey } from "../../../lib/email";
 
 const msg = {
   to: ["a@x.cz", " a@x.cz ", ""],
@@ -48,14 +48,14 @@ describe("sendSupplierMail", () => {
 
   it("reports a rejected send and a network error without throwing", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("domain not verified", { status: 403 })));
-    expect(await sendWithKey("re_test", msg)).toEqual({ sent: false, error: "The e-mail provider answered 403: domain not verified", providerId: "" });
+    expect(await sendWithKey("re_test", msg)).toEqual({ sent: false, error: "The e-mail provider refused the message (403)", providerId: "" });
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => {
         throw new Error("getaddrinfo ENOTFOUND");
       }),
     );
-    expect(await sendWithKey("re_test", msg)).toEqual({ sent: false, error: "getaddrinfo ENOTFOUND", providerId: "" });
+    expect(await sendWithKey("re_test", msg)).toEqual({ sent: false, error: "The e-mail could not be sent", providerId: "" });
   });
 
   it("refuses a message without recipients", async () => {

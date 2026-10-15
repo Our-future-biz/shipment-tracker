@@ -11,7 +11,7 @@ import type { interfaces } from "@/lib/api/client";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { KpiCard, KpiPeriodBar, kpiTone } from "../kpi/KpiCards";
-import { useKpiPeriod, useKpiReport } from "../kpi/useKpis";
+import { useKpiPeriod, useKpiReport } from "@/hooks/useKpis";
 import { Callout, Card, RecordFormModal, StatusTag, SubTabs, dim, nf } from "./shared";
 
 // Reports: KPIs worked out from the gate stamps for a period (each says how it is measured; a
@@ -152,7 +152,7 @@ function ThroughputChart({ buckets, measure }: { buckets: Bucket[]; measure: Mea
   return (
     <svg viewBox={`0 0 ${W} ${H + 26}`} className="w-full h-auto" role="img" aria-label={`In and out per ${buckets.length > 0 ? "period" : ""} — ${unit}`}>
       {[0, 0.25, 0.5, 0.75, 1].map((t) => (
-        <line key={t} x1={0} x2={W} y1={H - t * H} y2={H - t * H} stroke="#f1f5f9" />
+        <line key={t} x1={0} x2={W} y1={H - t * H} y2={H - t * H} className="stroke-slate-100" />
       ))}
       {buckets.map((b, i) => {
         const [vin, vout] = pick(b, measure);
@@ -161,14 +161,14 @@ function ThroughputChart({ buckets, measure }: { buckets: Bucket[]; measure: Mea
         const x = i * bw;
         return (
           <g key={b.key}>
-            <rect x={x + bw * 0.14} y={H - h1} width={bw * 0.32} height={h1} rx={2} fill="#6366f1">
+            <rect x={x + bw * 0.14} y={H - h1} width={bw * 0.32} height={h1} rx={2} className="fill-indigo-500">
               <title>{`${b.label} in: ${nf(vin, measure === "cbm" ? 1 : 0)} ${unit}`}</title>
             </rect>
-            <rect x={x + bw * 0.5} y={H - h2} width={bw * 0.32} height={h2} rx={2} fill="#c7d2fe">
+            <rect x={x + bw * 0.5} y={H - h2} width={bw * 0.32} height={h2} rx={2} className="fill-indigo-200">
               <title>{`${b.label} out: ${nf(vout, measure === "cbm" ? 1 : 0)} ${unit}`}</title>
             </rect>
             {i % every === 0 && (
-              <text x={x + bw / 2} y={H + 16} textAnchor="middle" fontSize={10} fill="#94a3b8">
+              <text x={x + bw / 2} y={H + 16} textAnchor="middle" fontSize={10} className="fill-slate-400">
                 {b.label}
               </text>
             )}

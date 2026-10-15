@@ -7,6 +7,7 @@ import { SavedMeanwhile } from "@/app/shipments/[jobNumber]/tabs/warehouse/JobEx
 import { Card } from "../tabs/shared";
 import { EMPTY_LINE, LINE_FIELDS, fieldInvalid, lineCbm, lineInvalid, linesTotals, parseLines, toNum, type LineField } from "../../_lib/cargoCompare";
 import type { JobDraft } from "./useJobDraft";
+import { useListKeys } from "@/hooks/useListKeys";
 
 // Block C — the warehouse's remeasured lines. Number inputs with their units; Tab moves Qty → L →
 // W → H → kg along the line, Enter adds a new line and puts the cursor in its Qty. Saved with the
@@ -27,8 +28,15 @@ function describe(json: string): string {
   return lines.map((r) => `${r.pieces || "—"} × ${r.lengthCm || "—"} × ${r.widthCm || "—"} × ${r.heightCm || "—"} cm, ${r.weightPerPcKg || "—"} kg/pc`).join("\n");
 }
 
-export function RemeasureLines({ draft, readOnly }: { draft: JobDraft; readOnly?: boolean }) {
+interface RemeasureLinesProps {
+  draft: JobDraft;
+  readOnly?: boolean;
+}
+
+export function RemeasureLines({ draft, readOnly }: RemeasureLinesProps) {
   const { rows, setRows } = draft;
+  // Stable row keys: each InputNumber keeps the text typed into its own line.
+  const rowKeys = useListKeys(rows.length);
   const tableRef = useRef<HTMLTableElement>(null);
   const [focusLine, setFocusLine] = useState<number | null>(null);
 
@@ -41,10 +49,14 @@ export function RemeasureLines({ draft, readOnly }: { draft: JobDraft; readOnly?
 
   const update = (idx: number, field: LineField, value: string) => setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
   const addAfter = (idx: number) => {
+    rowKeys.insert(idx + 1);
     setRows((prev) => [...prev.slice(0, idx + 1), { ...EMPTY_LINE }, ...prev.slice(idx + 1)]);
     setFocusLine(idx + 1);
   };
-  const remove = (idx: number) => setRows((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : [{ ...EMPTY_LINE }]));
+  const remove = (idx: number) => {
+    if (rows.length > 1) rowKeys.remove(idx);
+    setRows((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : [{ ...EMPTY_LINE }]));
+  };
   const onKeyDown = (idx: number) => (e: KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
     e.preventDefault();
@@ -83,7 +95,7 @@ export function RemeasureLines({ draft, readOnly }: { draft: JobDraft; readOnly?
           </thead>
           <tbody>
             {rows.map((row, idx) => (
-              <tr key={idx} className={`border-b border-slate-100 ${lineInvalid(row) ? "bg-red-50" : ""}`}>
+              <tr key={rowKeys.keys[idx]} className={`border-b border-slate-100 ${lineInvalid(row) ? "bg-red-50" : ""}`}>
                 <td className="px-2 text-slate-400 tabular-nums">{idx + 1}</td>
                 {LINE_FIELDS.map((f) => {
                   const bad = fieldInvalid(row, f);

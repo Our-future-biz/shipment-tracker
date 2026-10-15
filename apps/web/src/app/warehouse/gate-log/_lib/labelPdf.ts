@@ -4,6 +4,7 @@ import type { GateMovement } from "@/hooks/useGateLog";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { TERMS, directionOfVisit } from "../../_lib/glossary";
 import { drawCode128 } from "./code128";
+import { businessToday } from "@/lib/date";
 
 // jsPDF's built-in Helvetica has no Czech diacritics; print the plain letters instead.
 const plain = (v: string) => v.normalize("NFD").replace(/[̀-ͯ]/g, "");
@@ -88,7 +89,7 @@ function drawLabel(doc: jsPDF, m: GateMovement, qr: string, piece?: { n: number;
     drawCode128(doc, MARGIN, 97, W - MARGIN * 2, 16, ref);
     doc.setFont("courier", "bold");
     doc.setFontSize(9);
-    doc.text(ref, W / 2, 117.5, { align: "center" });
+    doc.text(plain(ref), W / 2, 117.5, { align: "center" });
   } catch {
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
@@ -130,6 +131,6 @@ export async function downloadLabels(ms: GateMovement[], { perPiece }: { perPiec
       drawLabel(doc, m, qr, perPiece ? { n: i, total: n } : undefined);
     }
   }
-  doc.save(ms.length === 1 ? `${labelRef(ms[0]!)}.pdf` : `labels-${new Date().toISOString().slice(0, 10)}.pdf`);
+  doc.save(ms.length === 1 ? `${labelRef(ms[0]!)}.pdf` : `labels-${businessToday()}.pdf`);
   return copies;
 }

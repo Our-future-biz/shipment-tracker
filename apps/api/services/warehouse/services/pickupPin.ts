@@ -1,12 +1,15 @@
-import { createHash, randomInt, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { gateMovementTable, type GateReleaseLine } from "../schemas/gateMovement.schema";
 import { warehouseTaskTable } from "../schemas/warehouseTask.schema";
 
 // Pick-up PIN: operations generate it in Shipments (Warehouse tab → Pick-up), the haulier's
 // driver gives it at the gate, and the warehouse checks it before releasing outbound cargo of a
-// position linked to that shipment. The PIN lives in the shipment's "pickup" section; only the
-// server writes it. Pure helpers here, no imports from the services (no import cycle).
+// position linked to that shipment. Only its HMAC (`pinHash`, keyed with a server secret and the
+// PIN's id) is stored in the shipment's "pickup" section; the PIN itself is shown once, in the
+// answer to "generate". PINs stored before the switch as plain `pin` still verify and are hashed
+// (and the plain value dropped) on their first check or on renewal; no read ever returns either
+// field (`stripPickupSecrets`). Pure helpers here, no imports from the services (no import cycle).
 
 /** Release-gate line set by the PIN check at the gate, never by hand. The web shows the same text. */
 export const PICKUP_PIN_GATE = "Pick-up PIN verified";
@@ -31,13 +34,40 @@ export function pinMatches(stored: string | null | undefined, typed: string | nu
   return timingSafeEqual(ha, hb);
 }
 
+/** HMAC of a pick-up PIN: keyed with the server secret, bound to the PIN's id. Hex. */
+export const hashPickupPin = (key: string, pinId: string, pin: string) =>
+  createHmac("sha256", key).update(`${pinId}:${pin.trim()}`).digest("hex");
+
+/**
+ * The typed PIN against what is stored: its hash, or (stored before hashing) the plain PIN.
+ * Constant-time; empty never matches.
+ */
+export function pickupPinMatches(stored: { pin: string; pinHash: string; pinId: string }, typed: string, key: string): boolean {
+  const t = typed.trim();
+  if (!t) return false;
+  if (stored.pinHash) {
+    const a = Buffer.from(stored.pinHash, "hex");
+    const b = Buffer.from(hashPickupPin(key, stored.pinId, t), "hex");
+    return a.length === b.length && timingSafeEqual(a, b);
+  }
+  return pinMatches(stored.pin, t);
+}
+
+/** The pick-up section's data as any client may see it: never the PIN or its hash. */
+export function stripPickupSecrets(data: unknown): unknown {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return data;
+  return Object.fromEntries(Object.entries(data).filter(([k]) => k !== "pin" && k !== "pinHash"));
+}
+
 /** Outbound cargo of a position linked to a shipment: released against the pick-up PIN. */
 export const isLinkedOutbound = (m: { shipmentId: string | null; visit: string }) => !!m.shipmentId && m.visit === "výdej";
 
 export type PickupRow = { haulier: string; licensePlate: string; driver: string };
 export type PickupHistoryEntry = { kind: "created" | "renewed"; at: string; by: string };
 export type PickupData = {
+  /** Plain PIN of a PIN stored before hashing; "" otherwise. */
   pin: string;
+  pinHash: string;
   pinId: string;
   pinTries: number;
   pinCreatedAt: string;
@@ -69,6 +99,7 @@ export function readPickup(data: unknown): PickupData {
   const tries = typeof d.pinTries === "number" && Number.isInteger(d.pinTries) && d.pinTries > 0 ? d.pinTries : 0;
   return {
     pin: str(d.pin).trim(),
+    pinHash: str(d.pinHash),
     pinId: str(d.pinId),
     pinTries: tries,
     pinCreatedAt: str(d.pinCreatedAt),
@@ -76,6 +107,9 @@ export function readPickup(data: unknown): PickupData {
     rows: parsePickupRows(d.rows),
   };
 }
+
+/** A PIN is set (hashed, or plain from before hashing). */
+export const hasPickupPin = (p: { pin: string; pinHash: string }) => !!(p.pin || p.pinHash);
 
 const t = gateMovementTable;
 const lineJson = (line: GateReleaseLine) => sql`${JSON.stringify(line)}::jsonb`;

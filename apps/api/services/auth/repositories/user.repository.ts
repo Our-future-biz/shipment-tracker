@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { BaseRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { userTable } from "../schemas/user.schema";
@@ -35,6 +35,15 @@ class UserRepository extends BaseRepository<typeof userTable> {
       .select({ email: userTable.email, displayName: userTable.displayName })
       .from(userTable)
       .where(and(sql`${userTable.role} IN ('admin', 'superadmin')`, isNull(userTable.deletedAt)));
+  }
+
+  // Live users of one company by id (other services resolve names and roles of their records).
+  async listByIdsInCompany(ids: string[], companyId: string): Promise<{ id: string; displayName: string; email: string; role: string }[]> {
+    if (!ids.length) return [];
+    return this.db
+      .select({ id: userTable.id, displayName: userTable.displayName, email: userTable.email, role: userTable.role })
+      .from(userTable)
+      .where(and(eq(userTable.companyId, companyId), inArray(userTable.id, ids), isNull(userTable.deletedAt)));
   }
 
   // User-management writes are always scoped to the admin's own company.

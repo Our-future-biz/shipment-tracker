@@ -33,7 +33,7 @@ const empty = (over: Partial<KpiInput> = {}): KpiInput => ({
   slots: [],
   reweighs: [],
   exceptions: [],
-  shipmentUpdates: { pending: 0, failed: 0, oldestPendingAt: null },
+  shipmentUpdates: { pending: 0, failed: 0, blockedByFailed: 0, oldestPendingAt: null },
   ...over,
 });
 const kpi = (r: { kpis: WarehouseKpi[] }, key: string) => r.kpis.find((k) => k.key === key)!;
@@ -193,7 +193,7 @@ describe("KPIs from stamps", () => {
           { movementId: "x", type: "Short", pieces: 1, createdAt: at("2026-10-13T09:00:00Z") },
           { movementId: "x", type: "Over", pieces: 1, createdAt: at("2026-10-01T09:00:00Z") },
         ],
-        shipmentUpdates: { pending: 2, failed: 1, oldestPendingAt: "2026-10-15T07:00:00Z" },
+        shipmentUpdates: { pending: 2, failed: 1, blockedByFailed: 1, oldestPendingAt: "2026-10-15T07:00:00Z" },
       }),
       P,
       NOW,

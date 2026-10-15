@@ -84,6 +84,7 @@ export function FloorShell({ children }: { children: ReactNode }) {
   const [sheet, setSheet] = useState(false);
   const home = pathname.replace(/\/$/, "") === "/warehouse/floor";
   const n = q.items.length;
+  const waiting = q.waiting;
 
   return (
     <div className="fixed inset-0 z-[900] flex flex-col bg-slate-50 text-slate-900">
@@ -115,9 +116,14 @@ export function FloorShell({ children }: { children: ReactNode }) {
           }`}
         >
           <CloudSyncOutlined spin={q.sending} />
-          {q.authPaused ? `Sign in again to send (${n})` : `${TERMS.waitingToSend} (${n})`}
+          {q.authPaused ? `Sign in again to send (${waiting})` : `${TERMS.waitingToSend} (${waiting})`}
           <span className="ml-auto text-[13px] font-normal underline">See</span>
         </button>
+      )}
+      {q.notSaved && (
+        <div role="alert" className="shrink-0 bg-red-50 px-4 py-2.5 text-[14px] font-semibold text-red-800">
+          Not saved on this phone — writes are held only while this page stays open. Don&apos;t close or reload it until everything is sent.
+        </div>
       )}
       <main className="flex-1 overflow-y-auto overscroll-contain">
         <div className="mx-auto w-full max-w-[560px] px-4 pb-28 pt-4">{children}</div>
@@ -127,9 +133,9 @@ export function FloorShell({ children }: { children: ReactNode }) {
         open={sheet}
         placement="bottom"
         height="80%"
-        title={`${TERMS.waitingToSend} (${n})`}
+        title={`${TERMS.waitingToSend} (${waiting})`}
         onClose={() => setSheet(false)}
-        styles={{ body: { paddingTop: 4 } }}
+        classNames={{ body: "!pt-1" }}
       >
         <p className="mt-0 text-[13px] text-slate-500">
           Made on this phone while there was no connection. They are sent in order, with the time they were made, as soon as the phone is back online — the server

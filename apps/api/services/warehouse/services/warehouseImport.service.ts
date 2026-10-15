@@ -1,3 +1,4 @@
+import log from "encore.dev/log";
 import { APIError } from "encore.dev/api";
 import { sql } from "drizzle-orm";
 import { shipments } from "~encore/clients";
@@ -6,13 +7,22 @@ import { gateMovementRepository, hasStamp } from "../repositories/gateMovement.r
 import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
 import { gateMovementTable, type GateEvent, type GateReleaseLine, type NewGateMovementRecord } from "../schemas/gateMovement.schema";
 import type { WarehouseTaskRecord } from "../schemas/warehouseTask.schema";
-import type { GateMovementInput, WarehouseImportResult } from "../interfaces/gate.interfaces";
-import { CUSTOMS_MODES, CUSTOMS_STATUSES, customsLine } from "./customs";
+import type {
+  GateCustomsMode,
+  GateCustomsStatus,
+  GateHandling,
+  GateMovementInput,
+  GateOperationType,
+  GateVisit,
+  WarehouseImportResult,
+} from "../interfaces/gate.interfaces";
+import { CUSTOMS_MODES, CUSTOMS_STATUSES, customsLine, isCustomsStatus } from "./customs";
 import { DEFAULT_CHECKLIST, defaultReleaseGates, gateMovementService, normalizeLegs } from "./gateMovement.service";
 import { PICKUP_PIN_GATE } from "./pickupPin";
 import { EXCEPTION_GATE } from "./osd";
 import { isManager, userName } from "./users";
 import { syncStockForMovement } from "./warehouseStockSync";
+import { isUniqueViolation } from "../../../lib/db/errors";
 
 // Bringing shipments into the warehouse. Each shipment becomes a position (WCZ reference) and
 // its gate record in ONE transaction, so there is never a position without its gate record or
@@ -44,17 +54,23 @@ const PARALLEL_FETCHES = 4;
  */
 export type ShipmentMappingInput = Partial<Pick<Shipment, "tradeDirection" | "loadType" | "freightMode" | "containerNumber" | "customsProcedure" | "customsStatus">>;
 
-export function gateFieldsFromShipment(s: ShipmentMappingInput) {
-  const handling = /export/i.test(s.tradeDirection ?? "") ? "Export" : "Import";
+export function gateFieldsFromShipment(s: ShipmentMappingInput): {
+  handling: GateHandling;
+  visit: GateVisit;
+  operationType: GateOperationType;
+  customsMode: GateCustomsMode;
+  customsStatus: GateCustomsStatus;
+} {
+  const handling: GateHandling = /export/i.test(s.tradeDirection ?? "") ? "Export" : "Import";
   const load = (s.loadType ?? "").trim();
   const box = /sea|rail/i.test(s.freightMode ?? "") || !!(s.containerNumber ?? "").trim();
-  let operationType = "LCL consolidation";
+  let operationType: GateOperationType = "LCL consolidation";
   if (/^full/i.test(load) && box) operationType = handling === "Export" ? "FCL stuffing" : "FCL stripping";
   else if (/consol/i.test(load)) operationType = "LCL consolidation";
   else if (/project/i.test(load) || /^full/i.test(load)) operationType = "Cargo storage";
   const procedure = (s.customsProcedure ?? "").trim().toLowerCase();
   const customsMode = CUSTOMS_MODES.find((m) => m.toLowerCase() === procedure) ?? "SCP";
-  const customsStatus = s.customsStatus && CUSTOMS_STATUSES.includes(s.customsStatus) ? s.customsStatus : CUSTOMS_STATUSES[0]!;
+  const customsStatus = isCustomsStatus(s.customsStatus) ? s.customsStatus : CUSTOMS_STATUSES[0]!;
   return { handling, visit: handling === "Import" ? "výdej" : "příjem", operationType, customsMode, customsStatus };
 }
 
@@ -67,7 +83,8 @@ export function copiedFields(s: Partial<Shipment>) {
     shipmentOwner: s.personInCharge ?? "",
     colli: parseInt(s.pcs ?? "", 10) || 0,
     packing: s.typeOfPackages ?? "",
-    weightKg: s.totalWeightTons ? Math.round(parseFloat(s.totalWeightTons) * 1000) || 0 : 0,
+    // Tonnes to kg, kept to the gram (the column is numeric(12,3)); not rounded to whole kg.
+    weightKg: s.totalWeightTons ? Math.round(parseFloat(s.totalWeightTons) * 1_000_000) / 1000 || 0 : 0,
     measureCbm: s.totalVolumeCbm ? parseFloat(s.totalVolumeCbm) || 0 : 0,
     freightMode: s.freightMode ?? "",
     loadType: s.loadType ?? "",
@@ -143,15 +160,21 @@ export function linkedRecord(companyId: string, task: Pick<WarehouseTaskRecord, 
     checklist: DEFAULT_CHECKLIST,
     // Import rows are outbound and linked to the task's shipment: they wait for the pick-up PIN.
     releaseGates: defaultReleaseGates(g.handling, g.operationType, g.customsStatus, g.handling === "Import"),
+    // …and that PIN stays required even if the task link goes away (see pickupShipmentId).
+    pickupShipmentId: g.handling === "Import" ? (s.id ?? null) : null,
     events: [event],
     updatedBy: by,
     shipmentCheckedAt: now,
   };
 }
 
-const reasonOf = (err: unknown) =>
-  err instanceof APIError && err.code === "not_found" ? "Shipment not found" : err instanceof Error ? err.message : String(err);
-const isUniqueViolation = (err: unknown) => (err as { code?: string })?.code === "23505" || (err as { cause?: { code?: string } })?.cause?.code === "23505";
+// Why a shipment could not be imported, in our words (the upstream error is logged).
+function reasonOf(err: unknown): string {
+  if (err instanceof APIError && err.code === "not_found") return "Shipment not found";
+  if (err instanceof APIError && (err.code === "permission_denied" || err.code === "unauthenticated")) return "You may not read this shipment";
+  log.warn(err, "warehouse: shipment could not be read for the import");
+  return "The shipment could not be read — try again";
+}
 
 // Reads shipments, at most PARALLEL_FETCHES at a time, with the caller's access.
 async function fetchShipments(ids: string[]) {
@@ -179,10 +202,10 @@ class WarehouseImportService {
       return await db.transaction(async (tx) => {
         const { task, created } = await warehouseTaskRepository.createInTx(tx, companyId, s.id, now);
         let movementId: string | null;
-        if (created || !(await gateMovementRepository.taskHasMovement(task.id, tx))) {
+        if (created || !(await gateMovementRepository.taskHasMovement(task.id, companyId, tx))) {
           movementId = (await gateMovementRepository.create(linkedRecord(companyId, task, s, by, now), tx)).id;
         } else {
-          movementId = await gateMovementRepository.liveIdForTask(task.id, tx);
+          movementId = await gateMovementRepository.liveIdForTask(task.id, companyId, tx);
         }
         return { task, created, movementId };
       });
@@ -191,7 +214,7 @@ class WarehouseImportService {
       if (!isUniqueViolation(err)) throw err;
       const task = await warehouseTaskRepository.findLiveForShipment(companyId, s.id);
       if (!task) throw err;
-      return { task, created: false, movementId: await gateMovementRepository.liveIdForTask(task.id) };
+      return { task, created: false, movementId: await gateMovementRepository.liveIdForTask(task.id, companyId) };
     }
   }
 
@@ -223,7 +246,8 @@ class WarehouseImportService {
           movementId: r.movementId,
         });
       } catch (err) {
-        results.push({ ...base, jobNumber: f.shipment.jobNumber ?? "", outcome: "failed", reason: reasonOf(err) });
+        log.error(err, "warehouse: position not made for an imported shipment", { shipmentId });
+        results.push({ ...base, jobNumber: f.shipment.jobNumber ?? "", outcome: "failed", reason: "The position could not be made — try again" });
       }
     }
     return results;
@@ -239,7 +263,7 @@ class WarehouseImportService {
       warehouseTaskId: undefined,
       pin: undefined,
       // A job's customs status is kept only when the gate knows it; otherwise the gate default applies.
-      customsStatus: input.customsStatus && CUSTOMS_STATUSES.includes(input.customsStatus) ? input.customsStatus : undefined,
+      customsStatus: isCustomsStatus(input.customsStatus) ? input.customsStatus : undefined,
       handling,
       // Import cargo leaves through the gate, export cargo arrives — as for shipment positions.
       visit: handling === "Import" ? "výdej" : "příjem",
@@ -286,7 +310,7 @@ class WarehouseImportService {
 
     const mapped = gateFieldsFromShipment({ ...shipment, tradeDirection: m.handling });
     let customsStatus = m.customsStatus;
-    if (!m.impRelease && CUSTOMS_STATUSES.includes(shipment.customsStatus) && shipment.customsStatus !== m.customsStatus) {
+    if (!m.impRelease && isCustomsStatus(shipment.customsStatus) && shipment.customsStatus !== m.customsStatus) {
       customsStatus = changes.customsStatus = shipment.customsStatus;
       names.push("customs status");
       details.push(`customs status: ${shown(m.customsStatus)} → ${shown(shipment.customsStatus)}`);
@@ -367,7 +391,7 @@ class WarehouseImportService {
       const now = new Date();
       const made = await db.transaction(async (tx) => {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`warehouse_ref:${companyId}`}))`);
-        if (await gateMovementRepository.taskHasMovement(task.id, tx)) return false;
+        if (await gateMovementRepository.taskHasMovement(task.id, companyId, tx)) return false;
         await gateMovementRepository.create(linkedRecord(companyId, task, f.shipment, by, now), tx);
         return true;
       });

@@ -10,7 +10,7 @@ import { formatDateTime } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { pctText } from "@/app/warehouse/_lib/cargoCompare";
-import { blobBase64 } from "@/app/warehouse/floor/_lib/photo";
+import { fileToBase64 } from "@/lib/files";
 import { Badge, errorMessage, nf } from "../../_lib/gate";
 import { FileLink } from "./ExceptionsPanel";
 import { btnDefault, btnInline, btnPrimary, Section } from "./fields";
@@ -225,7 +225,7 @@ export function ReweighModal({
               if (!file) return;
               if (file.size > MAX_UPLOAD_BYTES) return toast.error(`${file.name} is larger than 25 MB`);
               try {
-                const res = await upload.mutateAsync({ fileName: file.name, fileType: file.type || "image/jpeg", contentBase64: await blobBase64(file), tag: "Scale" });
+                const res = await upload.mutateAsync({ fileName: file.name, fileType: file.type || "image/jpeg", contentBase64: await fileToBase64(file), tag: "Scale" });
                 setFileIds((ids) => [...ids, res.file.id].slice(0, 20));
               } catch (err) {
                 toast.error(errorMessage(err, `Failed to upload ${file.name}`));
