@@ -13,9 +13,11 @@ import type {
   TripListItem,
   TruckingEventItem,
 } from "../interfaces/interfaces";
+import type { DeliveryException, WarehouseExceptionItem } from "../interfaces/avizace.interfaces";
 import type { TruckingConsignmentRecord, TruckingHaulierLinkRecord, TruckingLegRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
 import { approvalCovers, attentionReasons, marginOf, type ConsignmentFacts } from "./consignmentRules";
 import { legItem, ltlBuyCzk, ltlLegsOf } from "./ltlView";
+import { avizaceNeeded } from "./avizaceRules";
 
 // Rows → API objects for consignments and trips. Pure: the service passes the rows, the margin
 // floor, the haulier's status and the day.
@@ -53,7 +55,8 @@ export function moneyOf(c: TruckingConsignmentRecord, trip: TruckingTripRecord |
 
 /**
  * `trip`: an FTL consignment's trip; for LTL the trip of the leg under way (shown in the list).
- * `legs`: the LTL legs (any consignments'; this one's are picked).
+ * `legs`: the LTL legs (any consignments'; this one's are picked). `openExceptions`: its
+ * delivery exceptions not closed.
  */
 export function listItem(
   c: TruckingConsignmentRecord,
@@ -62,6 +65,7 @@ export function listItem(
   today: string,
   now: Date,
   legs: TruckingLegRecord[] = [],
+  openExceptions = 0,
 ): ConsignmentListItem {
   const money = moneyOf(c, trip, floor, legs);
   const liveTrip = trip && !trip.cancelledAt ? trip : null;
@@ -111,6 +115,10 @@ export function listItem(
       now,
     ),
     createdAt: c.createdAt.toISOString(),
+    avizaceNeeded: avizaceNeeded(c),
+    avizaceDone: !!c.avizace,
+    openExceptions,
+    internal: c.internal,
   };
 }
 
@@ -134,8 +142,10 @@ export function detail(
   now: Date,
   legs: TruckingLegRecord[] = [],
   tripRefs: Map<string, string> = new Map(),
+  exceptions: DeliveryException[] = [],
+  warehouseExceptions: WarehouseExceptionItem[] = [],
 ): ConsignmentDetail {
-  const item = listItem(c, trip, floor, today, now, legs);
+  const item = listItem(c, trip, floor, today, now, legs, exceptions.filter((e) => !e.closedAt).length);
   const stamps: Record<StampKind, { at: string; by: string } | null> = {
     confirmed: stamp(c.confirmedAt, c.confirmedBy),
     pickedUp: stamp(c.pickedUpAt, c.pickedUpBy),
@@ -167,6 +177,9 @@ export function detail(
       canApproveMargin: manager && !c.cancelledAt && item.belowFloor && !item.marginApproved,
       canVoidStamp: manager && !c.cancelledAt,
     },
+    avizace: c.avizace,
+    exceptions,
+    warehouseExceptions,
   };
 }
 

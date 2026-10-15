@@ -113,6 +113,17 @@ const LABELS = {
   zone: ["Zóna", "Zone"],
   service: ["Služba", "Service"],
   piece: ["Kus", "Piece"],
+  internalStatement: ["Interní vyúčtování", "Internal statement"],
+  receivingDepartment: ["Odběratel (oddělení)", "Receiving department"],
+  month: ["Měsíc", "Month"],
+  delivered: ["Doručeno", "Delivered"],
+  chargeableKg: ["Účt. kg", "Chg. kg"],
+  amount: ["Částka", "Amount"],
+  chargeText: ["Popis", "Description"],
+  noVat: [
+    "Bez DPH – interní vyúčtování mezi odděleními, není daňovým dokladem.",
+    "No VAT – an internal statement between departments, not a tax document.",
+  ],
 } as const satisfies Record<string, readonly [string, string]>;
 
 export type LabelKey = keyof typeof LABELS;

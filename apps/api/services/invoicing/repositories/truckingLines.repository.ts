@@ -1,10 +1,11 @@
-import { and, asc, eq, isNull, max, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, max, notInArray, sql } from "drizzle-orm";
+import log from "encore.dev/log";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
 import { invoiceCostTable, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import { invoiceSellingCostTable, type NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
 import { invoiceRepository } from "./invoice.repository";
-import { sellingReplaceable } from "../utils/truckingLines.utils";
+import { planBuyingReplace, sellingReplaceable } from "../utils/truckingLines.utils";
 import { realRowValues } from "../utils/truckingReal.utils";
 import type { TruckingLinesResult, TruckingRealLine } from "../interfaces/interfaces";
 
@@ -21,6 +22,8 @@ class TruckingLinesRepository {
    * transaction: the old rows are soft-deleted and the new ones added after the shipment's last
    * row. Selling rows of the ref already on an issued, not credited invoice are never touched -
    * then the whole selling side of the ref stays as it is and the answer counts them as kept.
+   * Buying rows keep their real side (a haulier invoice approved, a statement issued): the new rows
+   * take it over (planBuyingReplace), and a row with a real side no new row takes over is kept.
    * An advisory lock on the shipment keeps two pushes from interleaving.
    */
   async replace(
@@ -40,10 +43,21 @@ class TruckingLinesRepository {
       const sellingPlan = sellingReplaceable(currentSelling.map((r) => r.id), invoiced);
 
       const now = new Date();
-      await tx.update(invoiceCostTable).set({ deletedAt: now, updatedAt: now }).where(of(invoiceCostTable));
-      if (buying.length) {
-        const next = await this.nextSort(tx, invoiceCostTable, companyId, shipmentId);
-        await tx.insert(invoiceCostTable).values(buying.map((row, i) => ({ ...row, companyId, shipmentId, sourceTruckingRef: sourceRef, sortOrder: next + i })));
+      const c = invoiceCostTable;
+      const currentBuying = await tx
+        .select({ id: c.id, description: c.description, realQty: c.realQty, realAmount: c.realAmount, realCurrency: c.realCurrency, invoiceNumber: c.invoiceNumber, received: c.received })
+        .from(c)
+        .where(of(c))
+        .orderBy(asc(c.sortOrder), asc(c.createdAt));
+      const plan = planBuyingReplace(currentBuying, buying);
+      if (plan.keep.length) log.warn("invoicing: Trucking re-push kept buying rows with a real cost", { shipmentId, sourceRef, kept: plan.keep });
+      await tx
+        .update(c)
+        .set({ deletedAt: now, updatedAt: now })
+        .where(plan.keep.length ? and(of(c), notInArray(c.id, plan.keep)) : of(c));
+      if (plan.rows.length) {
+        const next = await this.nextSort(tx, c, companyId, shipmentId);
+        await tx.insert(c).values(plan.rows.map((row, i) => ({ ...row, companyId, shipmentId, sourceTruckingRef: sourceRef, sortOrder: next + i })));
       }
       if (sellingPlan.replace) {
         await tx.update(invoiceSellingCostTable).set({ deletedAt: now, updatedAt: now }).where(of(invoiceSellingCostTable));

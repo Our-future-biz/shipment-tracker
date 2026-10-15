@@ -16,12 +16,13 @@ import type {
   TripStatus,
   TruckingDocumentKind,
 } from "../interfaces/interfaces";
+import type { AvizaceRecord } from "../interfaces/avizace.interfaces";
 
-/** TCZ = consignment, LCZ = trip (load). */
-export type TruckingRefSequence = "TCZ" | "LCZ";
+/** TCZ = consignment, LCZ = trip (load), ICZ = internal statement (Phase 6, 4 digits). */
+export type TruckingRefSequence = "TCZ" | "LCZ" | "ICZ";
 
-// The last consignment / trip number handed out per company, sequence and Prague calendar year
-// (TCZ / LCZ + year + six digits). One row is bumped atomically per new consignment or trip; the
+// The last consignment / trip / internal statement number handed out per company, sequence and
+// Prague calendar year (TCZ / LCZ + year + six digits, ICZ + year + four digits). One row is bumped atomically per new consignment or trip; the
 // row stays locked until the creating transaction ends, so two creates never get one number.
 export const truckingRefCounterTable = pgTable(
   "trucking_ref_counter",
@@ -34,7 +35,7 @@ export const truckingRefCounterTable = pgTable(
   },
   (table) => [
     primaryKey({ columns: [table.companyId, table.sequence, table.year] }),
-    check("trucking_ref_counter_sequence_check", sql`${table.sequence} IN ('TCZ', 'LCZ')`),
+    check("trucking_ref_counter_sequence_check", sql`${table.sequence} IN ('TCZ', 'LCZ', 'ICZ')`),
   ],
 );
 
@@ -109,6 +110,12 @@ export const truckingConsignmentTable = pgTable(
     cancelledBy: text("cancelled_by"),
     cancelReason: text("cancel_reason"),
     createdByUserId: uuid("created_by_user_id"),
+    /** Phase 6: the job's department (Shipments), refreshed on every edit */
+    department: text("department").notNull().default(""),
+    /** Phase 6: the job is another department's: billed internally (lib/internalRules.ts) */
+    internal: boolean("internal").notNull().default(false),
+    /** Phase 6: the avizace recorded last */
+    avizace: jsonb("avizace").$type<AvizaceRecord>(),
     version: integer("version").notNull().default(1),
   },
   (table) => [

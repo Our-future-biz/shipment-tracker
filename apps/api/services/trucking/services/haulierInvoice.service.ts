@@ -134,7 +134,7 @@ class HaulierInvoiceService {
     const tripOf = new Map(trips.map((t) => [t.id, t]));
     const legOf = new Map(legs.map((l) => [l.id, l]));
     const consignmentOf = new Map(consignments.map((c) => [c.id, c]));
-    const claims = await haulierClaims.claimedFor(lines.map((l) => ({ kind: l.targetKind, id: l.targetId })));
+    const claims = await haulierClaims.claimedFor(companyId, lines.map((l) => ({ kind: l.targetKind, id: l.targetId })));
 
     return lines.map((input, i) => {
       const n = i + 1;
@@ -541,7 +541,7 @@ class HaulierInvoiceService {
     ];
     if (!all.length) return [];
     const targets = all.map((x) => ({ kind: x.kind, id: x.id }));
-    const [uses, claims] = await Promise.all([haulierInvoiceRepository.targetUses(companyId, targets), haulierClaims.claimedFor(targets)]);
+    const [uses, claims] = await Promise.all([haulierInvoiceRepository.targetUses(companyId, targets), haulierClaims.claimedFor(companyId, targets)]);
     const approved = new Set(uses.filter((u) => u.status === "APPROVED").map((u) => targetKey(u.targetKind, u.targetId)));
     const open = new Set(uses.filter((u) => u.status !== "APPROVED").map((u) => targetKey(u.targetKind, u.targetId)));
     return all

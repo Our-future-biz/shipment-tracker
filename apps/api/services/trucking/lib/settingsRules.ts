@@ -7,6 +7,7 @@ import type {
   TransportOrderTexts,
   TruckingSettingsInput,
   VehicleTypeSetting,
+  WaitingFreeTime,
 } from "../interfaces/interfaces";
 import { cleanHub, EMPTY_HUB } from "./ltlRules";
 
@@ -75,6 +76,8 @@ export const DEFAULT_TRANSPORT_ORDER: TransportOrderTexts = {
     "Thank you and kind regards",
 };
 
+export const DEFAULT_WAITING_FREE_TIME: WaitingFreeTime = { ltlMinutes: 30, ftlMinutes: 120 };
+
 export const DEFAULT_SETTINGS: TruckingSettingsInput = {
   serviceLevels: DEFAULT_SERVICE_LEVELS,
   vehicleTypes: DEFAULT_VEHICLE_TYPES,
@@ -82,6 +85,7 @@ export const DEFAULT_SETTINGS: TruckingSettingsInput = {
   marginFloor: DEFAULT_MARGIN_FLOOR,
   transportOrder: DEFAULT_TRANSPORT_ORDER,
   hub: EMPTY_HUB,
+  waitingFreeTime: DEFAULT_WAITING_FREE_TIME,
 };
 
 /** Largest loading length a vehicle may have: mega trailers and road trains (13.6 m is a standard trailer). */
@@ -177,6 +181,15 @@ export function cleanTransportOrder(t: TransportOrderTexts): TransportOrderTexts
   };
 }
 
+/** Free waiting time per scope: whole minutes from 0 to a day. */
+export function cleanWaitingFreeTime(w: WaitingFreeTime): WaitingFreeTime {
+  const minutes = (v: unknown, what: string): number => {
+    if (!Number.isInteger(v) || (v as number) < 0 || (v as number) > 1440) throw bad(`${what} must be whole minutes from 0 to 1440`);
+    return v as number;
+  };
+  return { ltlMinutes: minutes(w?.ltlMinutes, "Free waiting time for LTL"), ftlMinutes: minutes(w?.ftlMinutes, "Free waiting time for FTL") };
+}
+
 /** The settings as they are saved; throws invalid_argument with a plain-English message. */
 export function cleanSettings(input: TruckingSettingsInput): TruckingSettingsInput {
   return {
@@ -186,6 +199,7 @@ export function cleanSettings(input: TruckingSettingsInput): TruckingSettingsInp
     marginFloor: cleanMarginFloor(input.marginFloor),
     transportOrder: cleanTransportOrder(input.transportOrder),
     hub: cleanHub(input.hub),
+    waitingFreeTime: cleanWaitingFreeTime(input.waitingFreeTime),
   };
 }
 
@@ -203,6 +217,7 @@ export function readSettings(stored: Partial<TruckingSettingsInput> | null): Tru
     marginFloor: stored.marginFloor ?? DEFAULT_MARGIN_FLOOR,
     transportOrder: stored.transportOrder ?? DEFAULT_TRANSPORT_ORDER,
     hub: stored.hub ?? EMPTY_HUB,
+    waitingFreeTime: stored.waitingFreeTime ?? DEFAULT_WAITING_FREE_TIME,
   };
 }
 

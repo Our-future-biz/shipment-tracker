@@ -674,7 +674,8 @@ class LtlService {
       );
       if (!row || row.status === "DONE") throw APIError.aborted("The delivery was changed by someone else. Reload and try again.");
       await consignmentRepository.update(tx, companyId, c.id, { partnerHaulierCustomerId: haulier.customerId }, { live: true });
-      await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "costs", partnerLegCosts(row, c.ref, { id: haulier.customerId, name: haulier.companyName }))]);
+      // A job of another department is billed internally: the partner's price stays in Trucking's ledger.
+      if (!c.internal) await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "costs", partnerLegCosts(row, c.ref, { id: haulier.customerId, name: haulier.companyName }))]);
       await appendEvent(tx, companyId, {
         kind: "partner_delivery_set",
         consignmentId: c.id,

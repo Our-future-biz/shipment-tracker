@@ -1,7 +1,9 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { warehouseExceptionTable, type NewWarehouseExceptionRecord, type WarehouseExceptionRecord } from "../schemas/warehouseException.schema";
+import { gateMovementTable } from "../schemas/gateMovement.schema";
+import { warehouseTaskTable } from "../schemas/warehouseTask.schema";
 import type { Tx } from "./warehouseSection.repository";
 
 const x = warehouseExceptionTable;
@@ -64,6 +66,23 @@ class GateExceptionRepository extends TenantRepository<typeof warehouseException
       .where(and(eq(x.companyId, companyId), inArray(x.movementId, movementIds), eq(x.status, "open"), isNull(x.deletedAt)))
       .returning({ id: x.id });
     return rows.length;
+  }
+
+  /**
+   * The exceptions of the positions of these shipments (the exception's task, else its
+   * movement's), oldest first: what Trucking shows read-only with a consignment.
+   */
+  async forShipments(companyId: string, shipmentIds: string[]) {
+    if (!shipmentIds.length) return [];
+    const m = gateMovementTable;
+    const task = warehouseTaskTable;
+    return this.db
+      .select({ id: x.id, shipmentId: task.shipmentId, kind: x.type, pieces: x.pieces, note: x.note, status: x.status, createdAt: x.createdAt })
+      .from(x)
+      .innerJoin(m, eq(m.id, x.movementId))
+      .innerJoin(task, eq(task.id, sql`coalesce(${x.taskId}, ${m.warehouseTaskId})`))
+      .where(and(eq(x.companyId, companyId), isNull(x.deletedAt), eq(task.companyId, companyId), inArray(task.shipmentId, shipmentIds)))
+      .orderBy(asc(x.createdAt));
   }
 
   async findById(id: string, movementId: string, companyId: string) {

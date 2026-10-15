@@ -19,6 +19,8 @@ vi.mock("../repositories/trip.repository", async () => ({ tripRepository: (await
 vi.mock("../repositories/truckingDocument.repository", async () => ({ truckingDocumentRepository: (await import("./truckingFakes")).truckingDocumentRepository }));
 vi.mock("../repositories/truckingOutbox.repository", async () => ({ truckingOutboxRepository: (await import("./truckingFakes")).truckingOutboxRepository }));
 vi.mock("../repositories/event.repository", async () => (await import("./truckingFakes")).eventModule);
+vi.mock("../repositories/exception.repository", async () => ({ exceptionRepository: (await import("./truckingFakes")).exceptionRepository }));
+vi.mock("../repositories/internal.repository", async () => ({ internalRepository: (await import("./truckingFakes")).internalRepository }));
 vi.mock("../services/rate.service", () => ({ rateService: { rate: vi.fn() }, eurRate: vi.fn() }));
 vi.mock("../services/settings.service", async () => ({ settingsService: { get: vi.fn(async () => (await import("./truckingFakes")).settings()) } }));
 vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })) }));
@@ -408,12 +410,15 @@ describe("the job was deleted in Shipments", () => {
 describe("list", () => {
   it("counts and filters the worklist views", async () => {
     await seed({ pickupDate: "2026-10-15" });
-    await seed({ status: "DELIVERED", pickedUpAt: new Date(), deliveredAt: new Date("2026-10-15T08:00:00Z") });
+    // POD missing = delivered more than 2 working days ago: Monday's delivery is missing on Thursday, Wednesday's is not yet.
+    await seed({ status: "DELIVERED", pickedUpAt: new Date("2026-10-12T06:00:00Z"), deliveredAt: new Date("2026-10-12T08:00:00Z") });
+    await seed({ status: "DELIVERED", pickedUpAt: new Date("2026-10-14T06:00:00Z"), deliveredAt: new Date("2026-10-14T08:00:00Z") });
     await seed({ status: "READY_TO_BILL" });
     const all = await consignmentService.list(user, {});
-    expect(all.counts).toMatchObject({ pickupToday: 1, podMissing: 1, readyToBill: 1, openFtlWithoutHaulier: 1, attention: 1 });
+    expect(all.counts).toMatchObject({ pickupToday: 1, podMissing: 1, readyToBill: 1, openFtlWithoutHaulier: 1, attention: 2, avizacePending: 0, openExceptions: 0 });
     expect((await consignmentService.list(user, { view: "pickupToday" })).consignments).toHaveLength(1);
-    expect((await consignmentService.list(user, { search: "brno" })).consignments).toHaveLength(3);
+    expect((await consignmentService.list(user, { view: "podMissing" })).consignments.map((c) => c.deliveryCity)).toEqual(["Brno"]);
+    expect((await consignmentService.list(user, { search: "brno" })).consignments).toHaveLength(4);
     expect((await consignmentService.list(user, { search: "nothing" })).consignments).toHaveLength(0);
   });
 });

@@ -62,7 +62,7 @@ class ConsignmentRepository {
    * one statement and stays locked until the caller's transaction ends, so a parallel create
    * waits and gets the next number, and a rolled-back create gives its number back.
    */
-  async allocateRef(tx: Tx, companyId: string, sequence: TruckingRefSequence, year: number): Promise<string> {
+  async allocateRef(tx: Tx, companyId: string, sequence: Exclude<TruckingRefSequence, "ICZ">, year: number): Promise<string> {
     const res = await tx.execute<{ last: number }>(sql`
       INSERT INTO ${truckingRefCounterTable} (company_id, sequence, year, last) VALUES (${companyId}, ${sequence}, ${year}, 1)
       ON CONFLICT (company_id, sequence, year) DO UPDATE SET last = ${truckingRefCounterTable}.last + 1, updated_at = now()

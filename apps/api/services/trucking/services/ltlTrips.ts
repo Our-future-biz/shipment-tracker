@@ -11,6 +11,7 @@ import type { Actor } from "../../../lib/rbac";
 import { splitTripCost } from "../lib/costSplit";
 import { capacityOf, ltlStatus, nextStopOrder, tripFill, tripWarnings } from "../lib/ltlRules";
 import { inStopOrder, ltlFactsOf, tripLeg } from "../lib/ltlView";
+import { avizaceWarnings } from "../lib/avizaceRules";
 import { noCosts, tripJobCosts, tripJobSourceRef } from "../lib/truckingLinks";
 import type { TripLoadView } from "../lib/consignmentView";
 import type { CancelExpectedInput, ExpectArrivalInput, ExpectDepartureInput } from "../lib/warehouseLink";
@@ -20,7 +21,8 @@ import { settingsService } from "./settings.service";
 // What every change of an LTL trip's legs (or its price, plates or transport order) settles in
 // the same transaction, with the trip row locked: the stop order, each leg's share of the price
 // (largest remainder, by the haulier's cost-split basis), one buying line per job in Costs
-// Breakdown (lines of jobs no longer on the trip removed), the trip announced to our warehouse
+// Breakdown (lines of jobs no longer on the trip removed; a job billed internally gets none - its
+// legs keep their shares in Trucking's own ledger, see lib/internalRules.ts), the trip announced to our warehouse
 // once its transport order is out (and withdrawn for jobs that left it), and the statuses of the
 // consignments. Also what the trip page and the planning board show of a trip.
 
@@ -126,18 +128,20 @@ class LtlTrips {
     }
 
     const jobs = jobsOf(live, byId);
+    // Jobs of other departments are billed internally: their shares stay out of the job's Costs.
+    const costJobs = jobs.filter((j) => !j.consignments.every((c) => c.internal));
     const tripConsignments = new Set(live.map((l) => l.consignmentId)).size;
     const owes: TruckingOutboxInput[] = [];
     const kind = trip.kind as LtlTripKind;
     const priced = !!trip.buy;
-    for (const job of jobs) {
+    for (const job of costJobs) {
       const shareCzk = Math.round(job.legIds.reduce((a, id) => a + (shares.get(id) ?? 0), 0) * 100) / 100;
       owes.push(
         owe(actor, job, "costs", tripJobCosts({ ...trip, kind, priced }, { shipmentId: job.shipmentId, consignments: job.consignments.length, shareCzk }, tripConsignments)),
       );
     }
     const current = (j: TripJobRef, list: TripJobRef[]) => list.some((x) => x.shipmentId === j.shipmentId);
-    for (const gone of trip.costJobs.filter((j) => !current(j, jobs))) owes.push(owe(actor, gone, "costs", noCosts(tripJobSourceRef(trip.id, gone.shipmentId))));
+    for (const gone of trip.costJobs.filter((j) => !current(j, costJobs))) owes.push(owe(actor, gone, "costs", noCosts(tripJobSourceRef(trip.id, gone.shipmentId))));
 
     // Our warehouse hears of the trip once its transport order is out.
     const announced = trip.orderSentAt && !trip.cancelledAt ? jobs : [];
@@ -155,7 +159,7 @@ class LtlTrips {
       trip.id,
       {
         stopOrder: nextStopOrder(trip.stopOrder, live.map((l) => l.id), stopOrder),
-        costJobs: jobs.map(ref),
+        costJobs: costJobs.map(ref),
         warehouseJobs: announced.map(ref),
       },
       {},
@@ -207,6 +211,8 @@ class LtlTrips {
               haulierAdrCapable: adrOf.get(t.haulierCustomerId) ?? false,
               legs: shown,
             });
+      // A delivery run warns (never blocks) while a delivery on it needs an avizace not recorded.
+      if (t.kind === "DELIVERY_RUN" && !t.cancelledAt) warnings.push(...avizaceWarnings([...new Set(mine.map((l) => l.consignmentId))].map((id) => byId.get(id)!)));
       const seen = new Map<string, string>();
       for (const l of shown) seen.set(l.consignmentId, l.consignmentRef);
       out.set(t.id, { legs: shown, capacity, fill, warnings, consignments: [...seen].map(([id, ref]) => ({ id, ref })) });

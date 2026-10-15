@@ -1,6 +1,8 @@
 // Plain interfaces for controllers and the web client. Never import Drizzle table types here —
 // Encore's parser cannot resolve the $inferSelect generic chain.
 
+import type { AvizaceRecord, DeliveryException, WarehouseExceptionItem } from "./avizace.interfaces";
+
 export type ServiceLevelCode = "D1" | "D2" | "D3" | "D4" | "EXP_SAMEDAY" | "EXP_1000" | "EXP_1200" | "EXP_FIXED";
 
 export interface ServiceLevelSetting {
@@ -61,6 +63,14 @@ export interface HubAddress {
   country: "CZ";
 }
 
+/** Waiting at a stop free of charge before the WAITING_TIME surcharge counts (Phase 6). */
+export interface WaitingFreeTime {
+  /** Whole minutes, 0..1440; default 30 */
+  ltlMinutes: number;
+  /** Whole minutes, 0..1440; default 120 */
+  ftlMinutes: number;
+}
+
 export interface TruckingSettings {
   /** Always all 8 codes, in the order of ServiceLevelCode */
   serviceLevels: ServiceLevelSetting[];
@@ -69,6 +79,7 @@ export interface TruckingSettings {
   marginFloor: MarginFloor;
   transportOrder: TransportOrderTexts;
   hub: HubAddress;
+  waitingFreeTime: WaitingFreeTime;
   version: number;
   updatedAt: string | null;
   /** Display name */
@@ -224,6 +235,7 @@ export interface TruckingSettingsInput {
   marginFloor: MarginFloor;
   transportOrder: TransportOrderTexts;
   hub: HubAddress;
+  waitingFreeTime: WaitingFreeTime;
 }
 
 export interface TruckingHaulierResponse {
@@ -677,6 +689,14 @@ export interface ConsignmentListItem {
   /** Plain-English reasons, e.g. "Pick-up within 24 h and no trip" */
   needsAttention: string[];
   createdAt: string;
+  /** Phase 6: the delivery must be announced to the consignee (B2C or the stop says so) */
+  avizaceNeeded: boolean;
+  /** An avizace is recorded */
+  avizaceDone: boolean;
+  /** Delivery exceptions not closed yet */
+  openExceptions: number;
+  /** The job belongs to another department: billed internally (no customer selling lines) */
+  internal: boolean;
 }
 
 export interface TruckingEventItem {
@@ -710,6 +730,12 @@ export interface ConsignmentDetail extends ConsignmentListItem {
   /** Newest first */
   events: TruckingEventItem[];
   permissions: { canCancel: boolean; canApproveMargin: boolean; canVoidStamp: boolean };
+  /** Phase 6: the avizace recorded last (null = none) */
+  avizace: AvizaceRecord | null;
+  /** Newest first */
+  exceptions: DeliveryException[];
+  /** The Warehouse's OSD exceptions of the job at our hub (LTL), read-only */
+  warehouseExceptions: WarehouseExceptionItem[];
 }
 
 export interface TransportOrderState {
@@ -801,7 +827,8 @@ export interface PublicTransportOrder {
   linkExpiresAt: string;
 }
 
-export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill";
+/** podMissing = delivered more than 2 working days ago without POD */
+export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill" | "avizacePending" | "openExceptions";
 
 export interface ConsignmentCounts {
   attention: number;
@@ -810,6 +837,8 @@ export interface ConsignmentCounts {
   podMissing: number;
   readyToBill: number;
   openFtlWithoutHaulier: number;
+  avizacePending: number;
+  openExceptions: number;
 }
 
 export type ConsignmentPriceInput =

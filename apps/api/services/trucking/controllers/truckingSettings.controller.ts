@@ -10,6 +10,7 @@ import type {
   TransportOrderTexts,
   TruckingSettings,
   VehicleTypeSetting,
+  WaitingFreeTime,
 } from "../interfaces/interfaces";
 
 interface TruckingSettingsResponse {
@@ -17,7 +18,7 @@ interface TruckingSettingsResponse {
 }
 
 // Trucking settings: service levels, vehicle types, chargeable-weight factors, margin floor, the
-// transport-order e-mail texts and our warehouse (the hub of LTL). Everyone signed in may read them (the defaults, version 0,
+// transport-order e-mail texts, our warehouse (the hub of LTL) and the free waiting time. Everyone signed in may read them (the defaults, version 0,
 // until a manager saves); only a manager changes them.
 export const truckingSettingsGet = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/settings" },
@@ -35,6 +36,8 @@ interface TruckingSettingsUpdateRequest {
   transportOrder: TransportOrderTexts;
   /** Our warehouse (all empty = not set); left out = the saved one stays */
   hub?: HubAddress;
+  /** Free waiting time (LTL / FTL minutes) before waiting is charged; left out = the saved one stays */
+  waitingFreeTime?: WaitingFreeTime;
   /** The version read (0 when none is saved yet); a save on top of a newer one is refused with 409. */
   version: number;
 }
