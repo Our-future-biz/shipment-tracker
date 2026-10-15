@@ -2,6 +2,7 @@ import { APIError } from "encore.dev/api";
 import { publicHolidayRepository } from "../repositories/publicHoliday.repository";
 import type { PublicHolidayRecord } from "../schemas/publicHoliday.schema";
 import { cleanRow, isUsableRow, rowKey } from "../lib/rows";
+import { addDays, isRealYmd } from "../../../lib/businessDate";
 import type { HolidayImportResult, HolidayItem, HolidayRowInput } from "../interfaces/interfaces";
 
 const toRow = (r: PublicHolidayRecord): HolidayRowInput => ({
@@ -50,6 +51,22 @@ class HolidaysService {
       })),
     );
     return { added: fresh.length, skipped };
+  }
+
+  // The company's uploaded national Czech holidays (country code CZ, no regions) as single
+  // yyyy-mm-dd days within from..to, sorted and without repeats. Callers add them to the
+  // statutory calendar in lib/workingDays.ts, which already knows the days set by law.
+  async czNationalDates(companyId: string, from: string, to: string): Promise<string[]> {
+    if (!isRealYmd(from) || !isRealYmd(to)) throw APIError.invalidArgument("From and to must be real dates (YYYY-MM-DD)");
+    if (from > to) throw APIError.invalidArgument("From must not be after to");
+    const rows = await publicHolidayRepository.listCzNationalOverlapping(companyId, from, to);
+    const dates = new Set<string>();
+    for (const r of rows) {
+      if (!r.nationalStart) continue;
+      const last = r.nationalEnd ?? r.nationalStart;
+      for (let d = r.nationalStart; d <= last && d <= to; d = addDays(d, 1)) if (d >= from) dates.add(d);
+    }
+    return [...dates].sort();
   }
 
   async remove(id: string, companyId: string): Promise<void> {

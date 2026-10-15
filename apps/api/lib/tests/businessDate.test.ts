@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addDays, businessDay, isRealYmd } from "../businessDate";
+import { addDays, businessDay, businessMinutes, isRealYmd } from "../businessDate";
 
 describe("businessDay", () => {
   it("is the calendar day in Prague, not in UTC", () => {
@@ -66,5 +66,13 @@ describe("isRealYmd", () => {
     expect(isRealYmd("2026-1-5")).toBe(false);
     expect(isRealYmd(" 2026-10-10")).toBe(false);
     expect(isRealYmd("yesterday")).toBe(false);
+  });
+});
+
+describe("businessMinutes", () => {
+  it("is the time of day in Prague, summer and winter", () => {
+    expect(businessMinutes(new Date("2026-07-15T12:30:00Z"))).toBe(14 * 60 + 30);
+    expect(businessMinutes(new Date("2026-01-15T12:30:00Z"))).toBe(13 * 60 + 30);
+    expect(businessMinutes(new Date("2026-01-15T23:00:00Z"))).toBe(0);
   });
 });

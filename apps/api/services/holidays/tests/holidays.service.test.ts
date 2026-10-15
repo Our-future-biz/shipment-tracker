@@ -4,10 +4,13 @@ const repo = vi.hoisted(() => ({
   listAllForCompany: vi.fn(),
   insertMany: vi.fn(),
   softDeleteForCompany: vi.fn(),
+  listCzNationalOverlapping: vi.fn(),
 }));
 vi.mock("../repositories/publicHoliday.repository", () => ({ publicHolidayRepository: repo }));
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
-vi.mock("encore.dev/api", () => ({ APIError: { notFound: (msg: string) => new Error(msg) } }));
+vi.mock("encore.dev/api", () => ({
+  APIError: { notFound: (msg: string) => new Error(msg), invalidArgument: (msg: string) => new Error(msg) },
+}));
 
 import { holidaysService } from "../services/holidays.service";
 
@@ -67,5 +70,27 @@ describe("holidaysService.remove", () => {
   it("throws not found when nothing was deleted", async () => {
     repo.softDeleteForCompany.mockResolvedValue(null);
     await expect(holidaysService.remove("x", COMPANY)).rejects.toThrow("Holiday not found");
+  });
+});
+
+describe("holidaysService.czNationalDates", () => {
+  it("spreads each holiday over its days, clipped to the range, sorted and without repeats", async () => {
+    repo.listCzNationalOverlapping.mockResolvedValue([
+      { nationalStart: "2026-12-31", nationalEnd: "2027-01-02" },
+      { nationalStart: "2026-12-28", nationalEnd: null },
+      { nationalStart: "2026-12-28", nationalEnd: "2026-12-28" },
+      { nationalStart: null, nationalEnd: null },
+    ]);
+    expect(await holidaysService.czNationalDates(COMPANY, "2026-12-01", "2027-01-01")).toEqual([
+      "2026-12-28",
+      "2026-12-31",
+      "2027-01-01",
+    ]);
+    expect(repo.listCzNationalOverlapping).toHaveBeenCalledWith(COMPANY, "2026-12-01", "2027-01-01");
+  });
+
+  it("refuses dates that are not real or in the wrong order", async () => {
+    await expect(holidaysService.czNationalDates(COMPANY, "2026-02-31", "2026-03-01")).rejects.toThrow("real dates");
+    await expect(holidaysService.czNationalDates(COMPANY, "2026-03-02", "2026-03-01")).rejects.toThrow("after");
   });
 });

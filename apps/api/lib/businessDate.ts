@@ -30,3 +30,16 @@ export function isRealYmd(s: string): boolean {
   // An impossible day is either refused or rolled over into the next month; neither reads back.
   return !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === s;
 }
+
+const timeParts = new Intl.DateTimeFormat("en-GB", {
+  timeZone: BUSINESS_TZ,
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
+
+/** Minutes since midnight in Prague at the given instant (14:30 is 870). */
+export function businessMinutes(at: Date): number {
+  const parts = Object.fromEntries(timeParts.formatToParts(at).map((part) => [part.type, part.value]));
+  return Number(parts.hour) * 60 + Number(parts.minute);
+}
