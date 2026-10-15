@@ -1,7 +1,7 @@
 import { TERMS } from "./glossary";
 
 // Trucking module tabs, in work order; the Read me is in the "?" help drawer. Until a tab's phase
-// is built it shows what it will hold (TruckingEmptyTab), never sample data.
+// is built it shows what it will hold (TruckingEmptyTab), never sample data; a built tab is `live`.
 
 export interface TruckingTabInfo {
   key: string;
@@ -12,6 +12,8 @@ export interface TruckingTabInfo {
   holds: readonly string[];
   /** The phase of the Trucking plan that brings it. */
   phase: number;
+  /** Built: the tab shows real records. */
+  live?: boolean;
 }
 
 export const TRUCKING_TABS = [
@@ -53,11 +55,12 @@ export const TRUCKING_TABS = [
     label: "Hauliers",
     purpose: `The ${TERMS.haulier.toLowerCase()}s we hire, and what they can carry.`,
     holds: [
-      "Company, contacts, insurance and licences with their expiry dates",
-      `Fleet and equipment: trailer types, ${TERMS.tailLift.toLowerCase()}, ${TERMS.adr}`,
-      `The zones they serve and their ${TERMS.buyTariff.toLowerCase()}s`,
+      `${TERMS.liabilityInsurance}, ${TERMS.transportLicence.toLowerCase()} and VAT-register checks, with their expiry dates`,
+      `${TERMS.vehicleType}s, ${TERMS.adr}, payment terms and ${TERMS.preferredLane.toLowerCase()}s`,
+      "A status per haulier: OK, Warning or Blocked, and why",
     ],
     phase: 1,
+    live: true,
   },
   {
     key: "tariffs",

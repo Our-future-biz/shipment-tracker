@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Drawer } from "antd";
+import { useHauliers } from "@/hooks/useTrucking";
 import { TRUCKING_TABS, type TruckingTab } from "../_lib/tabs";
 import { TruckingEmptyTab } from "./TruckingEmptyTab";
+import { TruckingHauliersTab } from "./TruckingHauliersTab";
 import { TruckingReadme } from "./TruckingReadme";
 import { TruckingTabs } from "./TruckingTabs";
 
@@ -19,9 +21,13 @@ export const TruckingView = () => {
   const tabParam = searchParams.get("tab");
   const activeTab = TRUCKING_TABS.find((t) => t.key === tabParam) ?? TRUCKING_TABS[0];
   const [helpOpen, setHelpOpen] = useState(false);
+  const { hauliers, isLoading: hauliersLoading } = useHauliers();
 
   const handleTabChange = (tab: TruckingTab) => {
     const params = new URLSearchParams(searchParams.toString());
+    // A tab's own filters (?status=, ?view=) do not follow the user into another tab.
+    params.delete("status");
+    params.delete("view");
     if (tab === FIRST_TAB) params.delete("tab");
     else params.set("tab", tab);
     const qs = params.toString();
@@ -33,10 +39,15 @@ export const TruckingView = () => {
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Trucking</h1>
-          {/* No counts yet: nothing is recorded in Trucking until its phases land. */}
-          <TruckingTabs active={activeTab.key} counts={{}} onChange={handleTabChange} onHelp={() => setHelpOpen(true)} />
+          {/* Counts only for the tabs whose phase is built. */}
+          <TruckingTabs
+            active={activeTab.key}
+            counts={hauliersLoading ? {} : { hauliers: hauliers.length }}
+            onChange={handleTabChange}
+            onHelp={() => setHelpOpen(true)}
+          />
         </div>
-        <TruckingEmptyTab tab={activeTab} />
+        {activeTab.key === "hauliers" ? <TruckingHauliersTab /> : <TruckingEmptyTab tab={activeTab} />}
       </div>
       <Drawer title="Read me" width={760} open={helpOpen} onClose={() => setHelpOpen(false)}>
         <TruckingReadme />

@@ -40,4 +40,8 @@ describe("trucking tabs", () => {
       "Reports:7",
     ]);
   });
+
+  it("mark the built ones live", () => {
+    expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["hauliers"]);
+  });
 });

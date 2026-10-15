@@ -24,7 +24,11 @@ interface AddCustomerModalProps {
   // Passed in by the list page, so the dialog does not start a customers query of its own.
   createCustomer: (params: controllers.CustomerCreateRequest) => Promise<controllers.CustomerCreateResponse>;
   isCreating: boolean;
+  /** Roles ticked when the dialog opens (Trucking adds hauliers). */
+  defaultRoles?: interfaces.CustomerRole[];
 }
+
+const CUSTOMER_ONLY: interfaces.CustomerRole[] = ["customer"];
 
 // The API says what went wrong ("A customer with this IČO already exists", "ARES registry
 // unavailable"). The fixed text covers failures without such a message: no connection, or a
@@ -33,13 +37,13 @@ function errorMessage(err: unknown, fallback: string): string {
   return isAPIError(err) && err.code !== ErrCode.Unknown && err.message ? err.message : fallback;
 }
 
-export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isCreating }: AddCustomerModalProps) {
+export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isCreating, defaultRoles = CUSTOMER_ONLY }: AddCustomerModalProps) {
   const toast = useToast();
   const [ico, setIco] = useState("");
   const [preview, setPreview] = useState<interfaces.AresResult | null>(null);
   const [looking, setLooking] = useState(false);
   const [error, setError] = useState("");
-  const [roles, setRoles] = useState<interfaces.CustomerRole[]>(["customer"]);
+  const [roles, setRoles] = useState<interfaces.CustomerRole[]>(defaultRoles);
   // Number of the latest lookup. A response that carries an older number is dropped, so a
   // slow earlier request can never replace the result of a newer one.
   const lookupSeq = useRef(0);
@@ -100,7 +104,7 @@ export function AddCustomerModal({ open, onClose, onCreated, createCustomer, isC
 
   const handleAfterClose = () => {
     setIco("");
-    setRoles(["customer"]);
+    setRoles(defaultRoles);
     resetLookup();
   };
 

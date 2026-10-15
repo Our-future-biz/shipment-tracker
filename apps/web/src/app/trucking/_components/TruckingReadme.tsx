@@ -2,7 +2,10 @@
 
 import type { ReactNode } from "react";
 import { GLOSSARY, TERMS } from "../_lib/glossary";
-import { TRUCKING_TABS } from "../_lib/tabs";
+import { TRUCKING_TABS, type TruckingTabInfo } from "../_lib/tabs";
+
+const LIVE_TABS = TRUCKING_TABS.filter((t: TruckingTabInfo) => t.live);
+const PLANNED_TABS = TRUCKING_TABS.filter((t: TruckingTabInfo) => !t.live);
 
 // Read me of the Trucking module, shown in the "?" help drawer: what the module is for and how
 // it is being built. Keep it in step with the code as each phase lands.
@@ -35,8 +38,42 @@ export const TruckingReadme = () => (
         The tabs follow the work: {TRUCKING_TABS.map((t) => t.label).join(" · ")}. This Read me sits behind the <b>?</b> button at the right of the tab bar.
       </p>
       <p>
-        The module is built in phases. Today it is the frame only: nothing is recorded in Trucking yet, and each tab says what it will hold and which phase brings
-        it — {TRUCKING_TABS.map((t) => `${t.label}: Phase ${t.phase}`).join(", ")}.
+        The module is built in phases. Live today: {LIVE_TABS.map((t) => t.label).join(", ")} and the Trucking settings (the gear at the right of the tab bar).
+        Every other tab says what it will hold and which phase brings it — {PLANNED_TABS.map((t) => `${t.label}: Phase ${t.phase}`).join(", ")}.
+      </p>
+    </Part>
+
+    <Part title="Hauliers">
+      <p>
+        A haulier is a company in the Customer Database with the <b>Haulier</b> role; the Hauliers tab lists every one of them. Its page in Trucking holds what we
+        need before we hire it: <b>{TERMS.liabilityInsurance.toLowerCase()}</b> (insurer, policy, limit, valid to), the <b>{TERMS.transportLicence.toLowerCase()}</b>,
+        the VAT-register check, the {TERMS.vehicleType.toLowerCase()}s it sends, {TERMS.adr}, payment terms, the <b>{TERMS.costSplit.toLowerCase()}</b> and its{" "}
+        {TERMS.preferredLane.toLowerCase()}s.
+      </p>
+      <ul>
+        <li>
+          <b>Blocked</b> — cannot be put on a trip: blocked by a manager (with a reason), no valid insurance or licence, or an{" "}
+          {TERMS.unreliableVatPayer.toLowerCase()}. A haulier without a Trucking profile yet is blocked until one is filled in.
+        </li>
+        <li>
+          <b>Warning</b> — can be used, but insurance or licence ends within 30 days, or the VAT register was last checked more than 30 days ago.
+        </li>
+        <li>
+          <b>OK</b> — nothing to do.
+        </li>
+      </ul>
+      <p>
+        The status is worked out by the server on every read, by the Prague calendar. Anyone can fill in a profile; only a manager blocks or unblocks, and every
+        change is logged with who made it and when.
+      </p>
+    </Part>
+
+    <Part title="Trucking settings">
+      <p>
+        Behind the gear: the {TERMS.serviceLevel.toLowerCase()}s with their order <b>{TERMS.cutoff.toLowerCase()}</b>, the {TERMS.vehicleType.toLowerCase()}s, the
+        factors that turn LDM, volume and pallet places into {TERMS.chargeableWeight.toLowerCase()}, the <b>{TERMS.marginFloor.toLowerCase()}</b> and the text of the{" "}
+        {TERMS.transportOrder.toLowerCase()} e-mail. Everyone can read them; a manager changes them. Two people saving at once cannot overwrite each other: the
+        second is asked to reload and make the change again.
       </p>
     </Part>
 

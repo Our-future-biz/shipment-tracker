@@ -28,6 +28,14 @@ export const TERMS = {
   b2cDelivery: "B2C delivery",
   waitingTime: "Waiting time",
   tailLift: "Tail-lift",
+  vehicleType: "Vehicle type",
+  cutoff: "Cut-off",
+  marginFloor: "Margin floor",
+  preferredLane: "Preferred lane",
+  liabilityInsurance: "Carrier liability insurance",
+  transportLicence: "Transport licence",
+  unreliableVatPayer: "Unreliable VAT payer",
+  costSplit: "Cost split",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -86,4 +94,36 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   { term: TERMS.b2cDelivery, meaning: "Delivery to a private person rather than a company: avizace, a time window and often carrying in or a tail-lift.", replaces: "doručení soukromé osobě" },
   { term: TERMS.waitingTime, meaning: "Time a truck waits at loading or unloading beyond the agreed free time; the haulier may charge it and we may pass it on.", replaces: "zdržné, stojné" },
   { term: TERMS.tailLift, meaning: "A lifting platform at the back of the truck, for addresses without a loading ramp.", replaces: "hydraulické čelo" },
+  {
+    term: TERMS.vehicleType,
+    meaning: "A kind of truck a haulier can send, with its loading metres, payload, pallet places and whether it has a tail-lift. Kept in Trucking settings.",
+    replaces: "typ vozidla, druh nástavby",
+  },
+  { term: TERMS.cutoff, meaning: "The latest time (Prague) an order can come in and still count from that day for its service level.", replaces: "uzávěrka objednávek" },
+  { term: TERMS.marginFloor, meaning: "The lowest margin we accept on a price, as a percentage and a minimum amount in CZK; a price below both is flagged.", replaces: "minimální marže" },
+  {
+    term: TERMS.preferredLane,
+    meaning: "A route a haulier likes to run, as a range of pick-up postcodes to a range of delivery postcodes; planning offers that haulier first there.",
+    replaces: "preferovaná relace",
+  },
+  {
+    term: TERMS.liabilityInsurance,
+    meaning: "The haulier's insurance for damage to or loss of the goods it carries, up to its limit. Without a valid one the haulier is blocked.",
+    replaces: "pojištění odpovědnosti dopravce",
+  },
+  {
+    term: TERMS.transportLicence,
+    meaning: "The haulier's licence to carry goods by road for others; in the Czech Republic usually issued without an end date.",
+    replaces: "koncese, živnostenské oprávnění",
+  },
+  {
+    term: TERMS.unreliableVatPayer,
+    meaning: "A company the tax office lists as not paying its VAT; we would be liable for it, so such a haulier is blocked.",
+    replaces: "nespolehlivý plátce DPH",
+  },
+  {
+    term: TERMS.costSplit,
+    meaning: "How a haulier's price for a whole trip is shared across the consignments on it: by chargeable weight, LDM or pallet places.",
+    replaces: "rozpočítání nákladů",
+  },
 ];
