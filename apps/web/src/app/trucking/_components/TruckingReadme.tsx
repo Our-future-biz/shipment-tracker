@@ -27,9 +27,9 @@ export const TruckingReadme = () => (
   <div className="flex flex-col gap-4">
     <Part title="What the Trucking module is">
       <p>
-        Trucking runs the road transport we carry out ourselves, with our own trucks or hired <b>{TERMS.haulier.toLowerCase()}s</b>: collecting goods from
-        customers, moving them between depots and delivering them. Each lot of goods is a <b>{TERMS.consignment.toLowerCase()}</b>; each truck on a route on a day is
-        a <b>{TERMS.trip.toLowerCase()}</b>.
+        Trucking runs the road transport we organise within the Czech Republic. We own no trucks: every move is done by a subcontracted{" "}
+        <b>{TERMS.haulier.toLowerCase()}</b> under a <b>{TERMS.transportOrder.toLowerCase()}</b>. Each lot of goods a customer buys transport for is a{" "}
+        <b>{TERMS.consignment.toLowerCase()}</b>; each truck we order from one haulier is a <b>{TERMS.trip.toLowerCase()}</b>.
       </p>
       <p>
         The tabs follow the work: {TRUCKING_TABS.map((t) => t.label).join(" · ")}. This Read me sits behind the <b>?</b> button at the right of the tab bar.
@@ -43,20 +43,18 @@ export const TruckingReadme = () => (
     <Part title="Three kinds of work">
       <ul>
         <li>
-          <b>{TERMS.pickupRun}</b>: a trip that collects {TERMS.ltl} consignments from customers and brings them to our warehouse, where the gate-in is stamped.
+          <b>Direct ({TERMS.ftl})</b>: one consignment on one trip, straight from the loading site to the unloading site, without passing our warehouse.
         </li>
         <li>
-          <b>{TERMS.lineHaul}</b>: a trip between depots or warehouses carrying many consignments at once, without stops at customers.
-        </li>
-        <li>
-          <b>{TERMS.deliveryRun}</b>: a trip from our warehouse to the consignees, after <b>{TERMS.avizace}</b> where it is needed, ending with the signed{" "}
+          <b>{TERMS.ltl}</b>: a consignment that shares trucks. A <b>{TERMS.pickupRun.toLowerCase()}</b> brings it to our warehouse, where the gate-in is
+          stamped; a <b>{TERMS.deliveryRun.toLowerCase()}</b> takes it to the consignee, after <b>{TERMS.avizace}</b> where it is needed, ending with the signed{" "}
           <b>{TERMS.pod}</b>.
         </li>
+        <li>
+          <b>{TERMS.lineHaul}</b>: a trip between our warehouse and a depot carrying many {TERMS.ltl} consignments at once, without stops at customers. It is
+          bought as one price and its cost is shared across its consignments by chargeable weight.
+        </li>
       </ul>
-      <p>
-        An <b>{TERMS.ftl}</b> consignment fills a truck on its own and goes straight from pick-up to delivery; an <b>{TERMS.ltl}</b> consignment shares trucks
-        and passes through the warehouse.
-      </p>
     </Part>
 
     <Part title="When a consignment is due">
@@ -73,7 +71,7 @@ export const TruckingReadme = () => (
           <b>Customer Database</b>: customers, their addresses and contacts. The postcode (PSČ) of an address gives its <b>{TERMS.zone.toLowerCase()}</b>.
         </li>
         <li>
-          <b>Shipments</b>: a consignment can belong to a shipment. What Trucking learns (picked up, delivered) is written back to the shipment through an outbox,
+          <b>Shipments</b>: every consignment belongs to a shipment job; an order for a domestic-only customer gets its job created automatically. What Trucking learns (picked up, delivered) is written back to the shipment through an outbox,
           as the user who recorded it, and retried when Shipments is briefly unavailable — the same way the Warehouse gate writes back today.
         </li>
         <li>

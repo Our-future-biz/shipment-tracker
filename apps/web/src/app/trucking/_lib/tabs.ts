@@ -33,7 +33,7 @@ export const TRUCKING_TABS = [
     holds: [
       `Consignments due by ${TERMS.serviceLevel.toLowerCase()}, grouped by ${TERMS.zone.toLowerCase()}`,
       `Building ${TERMS.pickupRun.toLowerCase()}s, ${TERMS.lineHaul.toLowerCase()}s and ${TERMS.deliveryRun.toLowerCase()}s, with truck capacity`,
-      `Our own trucks or a ${TERMS.haulier.toLowerCase()} for each trip`,
+      `The ${TERMS.haulier.toLowerCase()} we ordered for each trip`,
     ],
     phase: 5,
   },
