@@ -64,6 +64,15 @@ export interface CustomerPipelineItem {
   createdAt: string;
 }
 
+/** A haulier company as the trucking service needs it. */
+export interface HaulierCompanyItem {
+  id: string;
+  companyName: string;
+  ico: string;
+  dic: string;
+  city: string;
+}
+
 export interface ContactItem {
   id: string;
   customerId: string;

@@ -1,4 +1,4 @@
-import { and, arrayContains, eq, or, ilike, desc, isNull } from "drizzle-orm";
+import { and, arrayContains, asc, eq, inArray, or, ilike, desc, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { customerTable, type CustomerRecord } from "../schemas/customer.schema";
@@ -41,6 +41,27 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       })
       .from(customerTable)
       .where(and(eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)));
+  }
+
+  // Live companies of the company's Customer Database with the haulier role (all of them, or only
+  // `ids` among them), with the few fields the trucking service shows. No logo: it is a base64 image.
+  async haulierList(
+    companyId: string,
+    ids?: string[],
+  ): Promise<Pick<CustomerRecord, "id" | "companyName" | "ico" | "dic" | "city">[]> {
+    const clauses = [eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt), arrayContains(customerTable.roles, ["haulier"])];
+    if (ids) clauses.push(inArray(customerTable.id, ids));
+    return this.db
+      .select({
+        id: customerTable.id,
+        companyName: customerTable.companyName,
+        ico: customerTable.ico,
+        dic: customerTable.dic,
+        city: customerTable.city,
+      })
+      .from(customerTable)
+      .where(and(...clauses))
+      .orderBy(asc(customerTable.companyName));
   }
 
   async findByIco(ico: string, companyId: string): Promise<CustomerRecord | null> {

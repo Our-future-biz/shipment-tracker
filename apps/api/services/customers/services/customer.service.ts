@@ -6,11 +6,13 @@ import type {
   CustomerItem,
   CustomerLabel,
   CustomerPipelineItem,
+  HaulierCompanyItem,
   CustomerRole,
   CustomerRollups,
   CustomerStatus,
 } from "../interfaces/interfaces";
 import { iso } from "../../../lib/db/serialize";
+import { isUuid } from "../../../lib/uuid";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
 import { aresService } from "./ares.service";
@@ -75,6 +77,16 @@ class CustomerService {
   async pipelineList(companyId: string): Promise<CustomerPipelineItem[]> {
     const customers = await customerRepository.pipelineList(companyId);
     return customers.map((customer) => ({ ...customer, createdAt: iso(customer.createdAt) }));
+  }
+
+  // The company's hauliers (role "haulier") for the trucking service; only `ids` among them when
+  // given. Ids that are not uuids cannot be a customer and are left out before they reach SQL.
+  async haulierList(companyId: string, ids?: string[]): Promise<HaulierCompanyItem[]> {
+    if (ids) {
+      ids = ids.filter(isUuid);
+      if (!ids.length) return [];
+    }
+    return customerRepository.haulierList(companyId, ids);
   }
 
   async createFromAres(companyId: string, ico: string, roles: CustomerRole[] = ["customer"]): Promise<CustomerItem> {
