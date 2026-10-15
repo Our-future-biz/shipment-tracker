@@ -50,6 +50,7 @@ export const CUSTOMER_DETAIL_TABS: CustomerTab[] = [
   { key: "sites", label: "Sites" },
   { key: "shipments", label: "Shipments" },
   { key: "quotes", label: "Quotes" },
+  { key: "trucking", label: "Trucking" },
   { key: "finance", label: "Finance" },
   { key: "documents", label: "Documents" },
   { key: "communication", label: "Communication" },

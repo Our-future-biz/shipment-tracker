@@ -45,6 +45,8 @@ interface CostLinesEditorProps {
   onChange: (lines: CostLine[]) => void;
   // More actions of the block, drawn before its "Add" button.
   actions?: ReactNode;
+  // Marks under a line's description, e.g. the tariff it was priced from.
+  lineTag?: (line: CostLine) => ReactNode;
 }
 
 // The buying or the selling lines of a quote. Every line keeps its own currency; the "In EUR"
@@ -59,6 +61,7 @@ export function CostLinesEditor({
   live,
   onChange,
   actions,
+  lineTag,
 }: CostLinesEditorProps) {
   const buying = kind === "buying";
   const currency = quoteCurrency(quote);
@@ -106,6 +109,7 @@ export function CostLinesEditor({
           <tbody>
             {lines.map((l, i) => {
               const converted = convertLine(l, quote, sheet, { selling: !buying, live });
+              const tag = lineTag?.(l);
               return (
                 <tr key={lineKeys.keys[i]}>
                   <td className={LINE_TD_CLASS}>
@@ -120,6 +124,7 @@ export function CostLinesEditor({
                   </td>
                   <td className={LINE_TD_CLASS}>
                     <Input size="small" aria-label="Description" placeholder="Description" value={l.description} onChange={(e) => patch(i, { description: e.target.value })} />
+                    {tag && <div className="mt-1 flex flex-wrap gap-1">{tag}</div>}
                   </td>
                   {buying && (
                     <td className={LINE_TD_CLASS}>

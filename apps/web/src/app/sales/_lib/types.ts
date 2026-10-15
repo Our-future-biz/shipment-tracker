@@ -1,3 +1,5 @@
+import type { interfaces } from "@/lib/api/client";
+
 // A "sales quote" is stored in the shared `quote` table: quoteNumber = reference (QCZ…),
 // and all rich fields live in the `data` jsonb blob shaped like SalesQuoteData.
 
@@ -29,6 +31,8 @@ export interface CostLine {
   unitPrice?: number;
   // The tariff the line was priced from.
   tariffRef?: string;
+  // The haulier of a buying line priced from a tariff.
+  supplierCustomerId?: string;
 }
 
 // One exchange rate an older quote kept for itself (the weekly Exchange sheet's, or typed). Read
@@ -51,11 +55,38 @@ export interface QuoteFx {
   lockedAt?: string; // set when the quote was sent
 }
 
+type ServiceLevelCode = interfaces.ServiceLevelCode;
+
+// What the Road transport card of a quote prices (an editor key).
+export interface QuoteRoadInput {
+  fromSiteId: string | null; fromPostcode: string;     // CZ PSČ as typed ("110 00"); server normalises
+  toSiteId: string | null;   toPostcode: string;
+  pickupDate: string | null; pickupTime: string | null; // null date = "today" when pricing
+  scope: "LTL" | "FTL" | "LINEHAUL";
+  pieces: number; palletPlaces: number; ldm: number; weightKg: number; cbm: number;
+  extras: { adr: boolean; tailLift: boolean; avizace: boolean; timeWindow: boolean; b2c: boolean;
+            nonStackable: boolean; waitingHours: number; declaredValueCzk: number | null };
+}
+
+// What "Price from tariff" wrote (server only).
+export interface QuoteRoadPricing {
+  ratedAt: string; serviceLevel: ServiceLevelCode; serviceLabel: string;
+  promisedDate: string | null; promisedTime: string | null; promiseNote: string;
+  sell: { tariffId: string; tariffName: string; tariffVersionId: string; versionNo: number; currency: "CZK" | "EUR"; total: number; totalCzk: number };
+  buy: { haulierCustomerId: string; haulierName: string; tariffVersionId: string; versionNo: number; currency: "CZK" | "EUR"; total: number; totalCzk: number; preferred: boolean } | null;
+}
+
+// A manager's approval of a margin below the floor (server only).
+export interface QuoteMarginApproval {
+  byUserId: string; byName: string; at: string; reason: string;
+  marginCzk: number; marginPercent: number | null;   // the margin that was approved
+}
+
 // One line of a quote's history. The server writes them; the browser only shows them.
 export interface TimelineEntry {
   // What the line records. A line written before kinds existed has none and is a status change;
   // only status changes carry a status.
-  kind?: "status" | "validity" | "owner" | "follow_up" | "shipment" | "deleted";
+  kind?: "status" | "validity" | "owner" | "follow_up" | "shipment" | "deleted" | "road_price" | "margin_approval";
   status?: QuoteStatus;
   at: string;
   // Display name of who made the change. Entries written before names were recorded say "You".
@@ -95,6 +126,8 @@ export const PROTECTED_KEYS = [
   "timelineUnreadable",
   "fx",
   "rates",
+  "roadPricing",
+  "marginApproval",
 ] as const satisfies readonly (keyof SalesQuoteData)[];
 
 // Every other key is one the Sales editor writes. The server stores those as a save sends them
@@ -135,6 +168,11 @@ export interface SalesQuoteData {
   // The quote's own snapshot of the rates its lines are converted with, by currency, so a quote
   // that was sent does not change when next week's Exchange sheet is entered.
   rates?: Record<string, QuoteRate>;
+  // Road transport: what the Road transport card prices, and (server only) what pricing wrote and
+  // a manager's approval of a margin below the floor.
+  road?: QuoteRoadInput;
+  roadPricing?: QuoteRoadPricing;
+  marginApproval?: QuoteMarginApproval;
   // Shipping terms
   shippingTerms?: string; // name of a terms_condition template
   shippingIncludes?: string;

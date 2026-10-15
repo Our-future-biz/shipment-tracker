@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Alert, Button, Checkbox, DatePicker, Dropdown, Input, InputNumber, Select, Spin } from "antd";
+import { Alert, Button, Checkbox, DatePicker, Dropdown, Input, InputNumber, Select, Spin, Tooltip } from "antd";
 import dayjs from "dayjs";
 import {
   ContainerOutlined,
@@ -22,6 +22,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { EMPTY_CELL } from "@/components/EmptyCell";
 import { InfoRow } from "@/components/InfoRow";
 import { KpiTile, type KpiTone } from "@/components/KpiTile";
+import { Pill } from "@/components/Pill";
 import { LINK_CLASS } from "@/components/linkClass";
 import { PillTabs } from "@/components/SectionCard";
 import { useQuoteFamily } from "@/hooks/useQuoteFamily";
@@ -33,6 +34,7 @@ import { useCustomer, useCustomers, type CustomerItem } from "@/hooks/useCustome
 import { useDebounced } from "@/hooks/useDebounced";
 import { useTermsConditions } from "@/hooks/useTermsConditions";
 import { api } from "@/lib/api";
+import { businessToday } from "@/lib/date";
 import { fmtMoney, moneyInputParser } from "@/lib/money";
 import { useToast } from "@/lib/toast";
 import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAccountTypeBadge";
@@ -50,6 +52,8 @@ import { useQuoteOrigin } from "../../_lib/useQuoteOrigin";
 import { printQuote } from "../../_lib/printQuote";
 import { transitionRequest, type StatusChange } from "../../_lib/statusChange";
 import { salesSettingsHref } from "../../_lib/tabs";
+import { isRoadQuote, lineTariffTag, roadInputDefaults, roadInputProblems, sendBlockedText, sideOverridden, type LineTariffTag, type RatePick } from "../../_lib/roadQuote";
+import { formatMoney } from "@/app/trucking/_lib/tariffs";
 import { CustomerLink } from "../../_components/CustomerLink";
 import { DeleteQuoteModal } from "../../_components/DeleteQuoteModal";
 import { ExchangeRatesError } from "../../_components/ExchangeRatesError";
@@ -68,6 +72,10 @@ import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./_components/LineBlock";
 import { MiniButton, RemoveLineButton } from "./_components/QuoteButtons";
 import { QuoteSection, QuoteStepTiles, type SectionStatus } from "./_components/QuoteSection";
+import { QuoteRoadCard } from "./_components/QuoteRoadCard";
+import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
+import { QuoteMarginPanel } from "./_components/QuoteMarginPanel";
+import { QuoteMarginApproveDialog } from "./_components/QuoteMarginApproveDialog";
 
 // A new package has no dimensions and no weight: made-up ones would print as real cargo and drive
 // the chargeable weight.
@@ -125,7 +133,7 @@ export function QuoteWorkflow() {
   const { terms } = useTermsConditions();
 
   const [modal, setModal] = useState<
-    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling"
+    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "roadPrice" | "approveMargin"
   >(null);
   // The template chosen under Shipping terms while the user is asked whether its text may replace
   // what the quote says; null when no question is open.
@@ -202,6 +210,26 @@ export function QuoteWorkflow() {
       (expectedDataVersion) => api.quotes.salesQuoteTransition(ref, { ...transitionRequest(change), expectedDataVersion }),
       { versioned: true },
     );
+
+  // "Price from tariff": the server prices the road input at the picked level and haulier, writes
+  // the trucking lines and the road pricing, and answers with the quote. Those are document keys
+  // the page edits too, so the stored quote is read again whole rather than merged.
+  const priceRoad = async (pick: RatePick) => {
+    const road = draft.road ?? roadInputDefaults(draft);
+    const refused = await act(
+      (expectedDataVersion) => api.quotes.salesQuoteRoadPrice(ref, { road, ...pick, expectedDataVersion }),
+      { versioned: true },
+    );
+    if (refused) return `Not priced - ${refused}`;
+    setModal(null);
+    toast.success(`${ref} priced from the tariff`);
+    reload();
+    return null;
+  };
+
+  // A manager accepts the margin below the floor; the approval is the server's, like the status.
+  const approveMargin = (reason: string) =>
+    act((expectedDataVersion) => api.quotes.salesQuoteMarginApprove(ref, { reason, expectedDataVersion }), { versioned: true });
 
   // Validity and owner are changed at once, each by its own request. Their controls show what the
   // server stored, so a refusal leaves them as they were and is told here.
@@ -371,6 +399,33 @@ export function QuoteWorkflow() {
   const decided = quote.status === "won" || quote.status === "lost";
 
   const airFreight = draft.serviceType === "Air";
+
+  // Road transport: the card shows on a Road quote and on any quote with lines priced from a tariff.
+  const showRoad = isRoadQuote(draft);
+  const road = draft.road ?? roadInputDefaults(draft);
+  const roadProblems = roadInputProblems(road, businessToday());
+  const roadMargin = quote.roadMargin ?? null;
+  // Why the quote may not be sent or marked Ready to send: its margin waits for a manager.
+  const sendBlocked = sendBlockedText(roadMargin);
+  // "Tariff vN" on a line priced from a tariff, and "Override" when it was changed by hand since.
+  const buyingTag = (line: CostLine) => {
+    const tag = lineTariffTag(line, draft.roadPricing, "buying");
+    return tag && <TariffTag tag={tag} />;
+  };
+  const sellingTag = (line: CostLine) => {
+    const tag = lineTariffTag(line, draft.roadPricing, "selling");
+    return tag && <TariffTag tag={tag} />;
+  };
+  const pricedTotals = { buying: draft.roadPricing?.buy, selling: draft.roadPricing?.sell };
+  const sideOverrideNote = (kind: "buying" | "selling", lines: CostLine[]) => {
+    const priced = pricedTotals[kind];
+    if (!priced || !sideOverridden(lines, priced)) return null;
+    return (
+      <div className="text-[12px] text-amber-700">
+        The {kind} lines priced from the tariff no longer add up to its {formatMoney(priced.total, priced.currency)} - changed by hand (Override).
+      </div>
+    );
+  };
 
   // "Copy buying → selling" puts a copy of every buying line in the place of the selling lines.
   // Selling lines that are there were typed by somebody, and autosave stores the change at once:
@@ -716,7 +771,27 @@ export function QuoteWorkflow() {
             />
             <span className="min-w-0 text-xs text-slate-500">The totals and the customer&apos;s document are in this currency. Every line keeps its own.</span>
           </div>
-          <CostLinesEditor kind="buying" title="Buying (cost)" lines={draft.buyingLines ?? []} quote={draft} sheet={exchange.rates} live={exchange} onChange={(l) => updateLines("buyingLines", l)} />
+          {showRoad && (
+            <QuoteRoadCard
+              road={road}
+              customerId={draft.customerId}
+              pricing={draft.roadPricing}
+              problems={roadProblems}
+              onChange={(next) => set({ road: next })}
+              onPrice={() => setModal("roadPrice")}
+            />
+          )}
+          <CostLinesEditor
+            kind="buying"
+            title="Buying (cost)"
+            lines={draft.buyingLines ?? []}
+            quote={draft}
+            sheet={exchange.rates}
+            live={exchange}
+            onChange={(l) => updateLines("buyingLines", l)}
+            lineTag={buyingTag}
+          />
+          {sideOverrideNote("buying", buyingLines)}
           <CostLinesEditor
             kind="selling"
             title="Selling (rate)"
@@ -725,6 +800,7 @@ export function QuoteWorkflow() {
             sheet={exchange.rates}
             live={exchange}
             onChange={(l) => updateLines("sellingLines", l)}
+            lineTag={sellingTag}
             actions={
               <MiniButton
                 icon={<CopyOutlined />}
@@ -736,6 +812,7 @@ export function QuoteWorkflow() {
               </MiniButton>
             }
           />
+          {sideOverrideNote("selling", sellingLines)}
           <QuoteRatesEditor data={draft} exchange={exchange} />
           {/* Rates that could not be read leave lines out just the same, but they are not missing:
               the user gets a Retry. */}
@@ -759,6 +836,9 @@ export function QuoteWorkflow() {
               tone={marginTone(totals)}
             />
           </div>
+          {roadMargin && (
+            <QuoteMarginPanel margin={roadMargin} canApprove={quote.permissions.canApproveMargin} onApprove={() => setModal("approveMargin")} />
+          )}
           {/* Which rates the totals use: stored on the quote once sent, today's until then. */}
           <div className="text-[12.5px] text-slate-500">{fxNote(totals)}</div>
           {liveRatesMissing && (
@@ -880,9 +960,13 @@ export function QuoteWorkflow() {
               <ToolbarButton icon={<EyeOutlined />} onClick={() => setModal("preview")}>
                 Preview
               </ToolbarButton>
-              <ToolbarButton icon={<MailOutlined />} onClick={openEmail}>
-                Email
-              </ToolbarButton>
+              <Tooltip title={sendBlocked}>
+                <span>
+                  <ToolbarButton icon={<MailOutlined />} onClick={openEmail}>
+                    Email
+                  </ToolbarButton>
+                </span>
+              </Tooltip>
               <ToolbarButton variant="primary" icon={<FilePdfOutlined />} onClick={exportPdf}>
                 Export PDF
               </ToolbarButton>
@@ -977,7 +1061,7 @@ export function QuoteWorkflow() {
       </div>
 
       {/* ── Lifecycle ── */}
-      <LifecycleBar quote={quote} onChange={changeStatus} changingOwner={changingOwner} onChangeOwner={changeOwner} />
+      <LifecycleBar quote={quote} sendBlocked={sendBlocked} onChange={changeStatus} changingOwner={changingOwner} onChangeOwner={changeOwner} />
 
       {/* ── Form and summary ── */}
       <div className="p-6 flex flex-col gap-3">
@@ -1024,10 +1108,22 @@ export function QuoteWorkflow() {
         data={draft}
         validUntil={quote.validUntil}
         allowedTransitions={quote.allowedTransitions}
+        sendBlocked={sendBlocked}
         onExportPdf={exportPdf}
         onMarkSent={markSent}
         onClose={() => setModal(null)}
       />
+      <QuoteRoadPriceDrawer
+        open={modal === "roadPrice"}
+        road={road}
+        customerId={draft.customerId ?? null}
+        previousLevel={draft.roadPricing?.serviceLevel ?? null}
+        onConfirm={priceRoad}
+        onClose={() => setModal(null)}
+      />
+      {modal === "approveMargin" && roadMargin && (
+        <QuoteMarginApproveDialog quoteNumber={ref} margin={roadMargin} onApprove={approveMargin} onClose={() => setModal(null)} />
+      )}
       {modal === "delete" && <DeleteQuoteModal quoteNumber={ref} onDelete={deleteThisQuote} onClose={() => setModal(null)} />}
       {modal === "replaceSelling" && (
         <ConfirmModal
@@ -1205,6 +1301,20 @@ function SaveProblemBanner({ problem, onRetry, onLoadLatest }: SaveProblemBanner
       description="Your changes are still on this page. They are sent again with your next change, or press Retry."
       action={retry}
     />
+  );
+}
+
+// The marks of a cost line priced from a tariff: its version, and "Override" once it was changed by hand.
+function TariffTag({ tag }: { tag: LineTariffTag }) {
+  return (
+    <>
+      <Pill tone="slate">{tag.label}</Pill>
+      {tag.override && (
+        <Pill tone="amber" title="Changed by hand since it was priced from the tariff">
+          Override
+        </Pill>
+      )}
+    </>
   );
 }
 

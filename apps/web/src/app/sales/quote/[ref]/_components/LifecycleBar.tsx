@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Alert, Button, Dropdown, Form, Input, Select } from "antd";
+import { Alert, Button, Dropdown, Form, Input, Select, Tooltip } from "antd";
 import { CheckOutlined, DownOutlined, LockOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
 import { EMPTY_CELL } from "@/components/EmptyCell";
@@ -27,6 +27,9 @@ interface Props {
   // The quote as the server returned it. Its status, what it may be set to, its validity, its
   // owner and its last contact are the server's - nothing here works them out again.
   quote: interfaces.SalesQuoteItem;
+  // Why the quote may not be sent or marked Ready to send now (its margin waits for a manager's
+  // approval); null when nothing stops it. The server refuses those moves with the same words.
+  sendBlocked: string | null;
   // Asks the server for the change. Resolves with why it was refused - a sentence that finishes
   // "QCZ… - …" - or with null once the quote is changed.
   onChange: (change: StatusChange) => Promise<string | null>;
@@ -61,7 +64,10 @@ function validityNote(validUntil: string | null, today: string): string {
 // it on, and under that the four facts the server keeps beside the document - validity, win
 // probability, owner and last contact. Each of them is changed at once by its own request, not
 // with the form below.
-export function LifecycleBar({ quote, onChange, changingOwner, onChangeOwner }: Props) {
+// The moves the margin floor stops until a manager approves the margin.
+const SENDING_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
+
+export function LifecycleBar({ quote, sendBlocked, onChange, changingOwner, onChangeOwner }: Props) {
   const data = asData(quote.data);
   // The status that counts: Expired for a Quoted or Feedback quote whose validity has passed.
   const current = quote.effectiveStatus;
@@ -146,7 +152,19 @@ export function LifecycleBar({ quote, onChange, changingOwner, onChangeOwner }: 
   };
 
   // The status the quote already has is not offered: there is nothing to say anew about it.
-  const nextItems = targets.flatMap((key, i) => (key === current ? [] : [{ key, label: targetLabels[i], onClick: () => openTransition(key) }]));
+  // A move the margin floor stops is still offered - the server has the last word - with the reason beside it.
+  const nextItems = targets.flatMap((key, i) => {
+    if (key === current) return [];
+    const blocked = sendBlocked && SENDING_STATUSES.includes(key);
+    const label = blocked ? (
+      <Tooltip title={sendBlocked} placement="left">
+        <span>{targetLabels[i]} <span className="text-[11px] text-red-600">· margin needs approval</span></span>
+      </Tooltip>
+    ) : (
+      targetLabels[i]
+    );
+    return [{ key, label, onClick: () => openTransition(key) }];
+  });
 
   return (
     <div className="bg-white border-b border-slate-200 px-6 py-3.5">
@@ -252,6 +270,11 @@ export function LifecycleBar({ quote, onChange, changingOwner, onChangeOwner }: 
           </>
         }
       >
+        {!refusal && sendBlocked && target && SENDING_STATUSES.includes(target) && (
+          <div className="mb-4">
+            <Alert type="warning" showIcon message={sendBlocked} />
+          </div>
+        )}
         {refusal && (
           <div className="mb-4">
             <Alert type="error" showIcon message={`${quote.quoteNumber} - ${refusal}`} />

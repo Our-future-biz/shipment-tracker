@@ -44,6 +44,10 @@ interface QuotePickerProps {
   onChange: (quote: SalesQuote | null) => void;
   /** A reference that is not offered: the quote the picker is opened from. */
   exclude?: string;
+  /** Only quotes in these statuses (as shown, comma-separated: "draft,revised"). */
+  statuses?: string;
+  /** Only quotes of this customer. */
+  customerId?: string;
 }
 
 // Picks one sales quote out of all the company has. The server looks for what is typed - in the
@@ -54,11 +58,13 @@ export function QuotePicker({
   value,
   onChange,
   exclude,
+  statuses,
+  customerId,
 }: QuotePickerProps) {
   const [typed, setTyped] = useState("");
   // The request waits until typing pauses: every search reads through the company's quotes.
   const search = useDebounced(typed, 300).trim();
-  const { quotes, total, isLoading, isError } = useSalesQuoteList({ search: search || undefined, limit: PICKER_LIMIT });
+  const { quotes, total, isLoading, isError } = useSalesQuoteList({ search: search || undefined, limit: PICKER_LIMIT, statuses, customerId });
   const offered = quotes.filter((quote) => quote.quoteNumber !== exclude);
   // A quote known by its reference alone reads as the list reads it, while the list holds it.
   const shown = value && !value.data ? (offered.find((quote) => quote.quoteNumber === value.quoteNumber) ?? value) : value;

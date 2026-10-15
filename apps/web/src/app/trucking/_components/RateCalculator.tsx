@@ -2,12 +2,13 @@
 
 import { useMemo, useState } from "react";
 import { Alert, Button, Tooltip } from "antd";
-import { CalculatorOutlined } from "@ant-design/icons";
+import { CalculatorOutlined, CopyOutlined } from "@ant-design/icons";
 import { apiErrorMessage } from "@/lib/api";
 import { businessToday, formatDateTime } from "@/lib/date";
 import { useRate, useTruckingSettings, type RateRequest } from "@/hooks/useTrucking";
 import { emptyRateForm, rateFormProblems, toRateRequest, type RateForm } from "../_lib/rateCalculator";
 import { RateCalculatorForm } from "./RateCalculatorForm";
+import { RateCopyToQuoteModal } from "./RateCopyToQuoteModal";
 import { RateResultsTable } from "./RateResultsTable";
 
 interface RateCalculatorProps {
@@ -33,6 +34,9 @@ export const RateCalculator = ({ initial, initialCustomerName = null }: RateCalc
   const [form, setForm] = useState<RateForm>(() => ({ ...emptyRateForm(businessToday()), ...initial }));
   const [customerName, setCustomerName] = useState<string | null>(initialCustomerName);
   const [asked, setAsked] = useState<RateRequest | null>(null);
+  // The form the shown prices were calculated for: what "Copy to quote" puts on a quote.
+  const [askedForm, setAskedForm] = useState<RateForm | null>(null);
+  const [copyOpen, setCopyOpen] = useState(false);
   const { rate, isRating, result, error, reset } = useRate();
   const { settings } = useTruckingSettings();
 
@@ -42,6 +46,7 @@ export const RateCalculator = ({ initial, initialCustomerName = null }: RateCalc
 
   const handleCalculate = async () => {
     setAsked(request);
+    setAskedForm(form);
     try {
       await rate(request);
     } catch {
@@ -52,6 +57,7 @@ export const RateCalculator = ({ initial, initialCustomerName = null }: RateCalc
     setForm(emptyRateForm(businessToday()));
     setCustomerName(null);
     setAsked(null);
+    setAskedForm(null);
     reset();
   };
 
@@ -89,7 +95,13 @@ export const RateCalculator = ({ initial, initialCustomerName = null }: RateCalc
             <span className="text-[11.5px] text-slate-500">rated {formatDateTime(result.ratedAt)} · click a row for the price lines and every haulier</span>
             <span className="ml-auto flex flex-wrap gap-2">
               <LaterButton label="Create consignment" phase={4} />
-              <LaterButton label="Copy to quote" phase={3} />
+              <Tooltip title={changed ? "Calculate again first: the inputs changed" : undefined}>
+                <span>
+                  <Button icon={<CopyOutlined />} disabled={changed || !askedForm} onClick={() => setCopyOpen(true)}>
+                    Copy to quote
+                  </Button>
+                </span>
+              </Tooltip>
             </span>
           </div>
           {changed && (
@@ -102,6 +114,9 @@ export const RateCalculator = ({ initial, initialCustomerName = null }: RateCalc
             marginFloor={settings?.marginFloor ?? null}
           />
         </section>
+      )}
+      {copyOpen && result && askedForm && (
+        <RateCopyToQuoteModal form={askedForm} customerName={customerName} results={result.results} onClose={() => setCopyOpen(false)} />
       )}
     </div>
   );

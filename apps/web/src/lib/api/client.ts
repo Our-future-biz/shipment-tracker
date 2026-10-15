@@ -1224,7 +1224,9 @@ export namespace quotes {
             this.salesQuoteFollowUp = this.salesQuoteFollowUp.bind(this)
             this.salesQuoteGet = this.salesQuoteGet.bind(this)
             this.salesQuoteList = this.salesQuoteList.bind(this)
+            this.salesQuoteMarginApprove = this.salesQuoteMarginApprove.bind(this)
             this.salesQuoteOwner = this.salesQuoteOwner.bind(this)
+            this.salesQuoteRoadPrice = this.salesQuoteRoadPrice.bind(this)
             this.salesQuoteSave = this.salesQuoteSave.bind(this)
             this.salesQuoteTransition = this.salesQuoteTransition.bind(this)
             this.salesQuoteValidity = this.salesQuoteValidity.bind(this)
@@ -1305,10 +1307,31 @@ export namespace quotes {
             return await resp.json() as controllers.SalesQuoteListResponse
         }
 
+        /**
+         * A manager approves the margin of a quote below the margin floor, with a reason. Stores the
+         * current margin as the approved one. Refused when the margin is above the floor.
+         */
+        public async salesQuoteMarginApprove(quoteNumber: string, params: controllers.SalesQuoteMarginApproveRequest): Promise<controllers.SalesQuoteMarginApproveResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/margin-approval`, JSON.stringify(params))
+            return await resp.json() as controllers.SalesQuoteMarginApproveResponse
+        }
+
         public async salesQuoteOwner(quoteNumber: string, params: controllers.SalesQuoteOwnerRequest): Promise<controllers.SalesQuoteOwnerResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/sales-quotes/${encodeURIComponent(quoteNumber)}/owner`, JSON.stringify(params))
             return await resp.json() as controllers.SalesQuoteOwnerResponse
+        }
+
+        /**
+         * Prices the road transport of a quote from the trucking tariffs at one service level and
+         * haulier: writes road, roadPricing and the trucking lines (other lines untouched) and clears
+         * the margin approval.
+         */
+        public async salesQuoteRoadPrice(quoteNumber: string, params: controllers.SalesQuoteRoadPriceRequest): Promise<controllers.SalesQuoteRoadPriceResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/road-price`, JSON.stringify(params))
+            return await resp.json() as controllers.SalesQuoteRoadPriceResponse
         }
 
         public async salesQuoteSave(quoteNumber: string, params: controllers.SalesQuoteSaveRequest): Promise<controllers.SalesQuoteSaveResponse> {
@@ -5119,6 +5142,19 @@ export namespace controllers {
         data: interfaces.SalesQuoteItem[]
     }
 
+    export interface SalesQuoteMarginApproveRequest {
+        /**
+         * Why the margin is accepted (3-500 characters).
+         */
+        reason: string
+
+        expectedDataVersion: number
+    }
+
+    export interface SalesQuoteMarginApproveResponse {
+        quote: interfaces.SalesQuoteItem
+    }
+
     export interface SalesQuoteOwnerRequest {
         /**
          * The id of the user who owns the quote from now on - one of the company's users - or null for nobody.
@@ -5132,6 +5168,22 @@ export namespace controllers {
          * False when the quote already had that owner: nothing was written.
          */
         changed: boolean
+    }
+
+    export interface SalesQuoteRoadPriceRequest {
+        road: interfaces.QuoteRoadInput
+        serviceLevel: interfaces.ServiceLevelCode
+        /**
+         * null = the engine's first buy candidate (preferred, then cheapest).
+         */
+        haulierCustomerId: string | null
+
+        expectedDataVersion: number
+    }
+
+    export interface SalesQuoteRoadPriceResponse {
+        quote: interfaces.SalesQuoteItem
+        result: interfaces.RateLevelResult
     }
 
     export interface SalesQuoteSaveRequest {
@@ -9086,6 +9138,54 @@ export namespace interfaces {
     }
 
     /**
+     * A manager's approval of a margin below the floor: the margin that was approved.
+     */
+    export interface QuoteMarginApproval {
+        byUserId: string
+        byName: string
+        at: string
+        reason: string
+        marginCzk: number
+        marginPercent: number | null
+    }
+
+    /**
+     * What the Road transport card of a quote prices.
+     */
+    export interface QuoteRoadInput {
+        fromSiteId: string | null
+        /**
+         * CZ PSČ as typed ("110 00"); server normalises
+         */
+        fromPostcode: string
+
+        toSiteId: string | null
+        toPostcode: string
+        /**
+         * null date = "today" when pricing
+         */
+        pickupDate: string | null
+
+        pickupTime: string | null
+        scope: "LTL" | "FTL" | "LINEHAUL"
+        pieces: number
+        palletPlaces: number
+        ldm: number
+        weightKg: number
+        cbm: number
+        extras: {
+            adr: boolean
+            tailLift: boolean
+            avizace: boolean
+            timeWindow: boolean
+            b2c: boolean
+            nonStackable: boolean
+            waitingHours: number
+            declaredValueCzk: number | null
+        }
+    }
+
+    /**
      * What the sales quote a Sales Number names made of its shipments, as the quotes service answers.
      */
     export interface QuoteSyncResult {
@@ -9408,7 +9508,36 @@ export namespace interfaces {
              * nobody may, and shipmentId is set), or the user would have to be a manager.
              */
             deleteBlockedReason?: string
+
+            /**
+             * Whether the user may approve a margin below the floor (manager roles).
+             */
+            canApproveMargin: boolean
         }
+
+        /**
+         * The margin of a road quote against the margin floor; null when the rule does not apply.
+         */
+        roadMargin: {
+            sellingCzk: number
+            buyingCzk: number
+            marginCzk: number | null
+            marginPercent: number | null
+            floorPercent: number
+            floorMinCzk: number
+            belowFloor: boolean
+            approval: QuoteMarginApproval | null
+            approvalValid: boolean
+            /**
+             * belowFloor && !approvalValid
+             */
+            needsApproval: boolean
+
+            /**
+             * e.g. "No ČNB rate for EUR on 2026-10-15"
+             */
+            problem: string | null
+        } | null
     }
 
     /**

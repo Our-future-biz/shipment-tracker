@@ -17,6 +17,14 @@ describe("trucking glossary", () => {
     expect(replaces(TERMS.zone)).toBe("pásmo");
     expect(replaces(TERMS.pod)).toMatch(/doručenka/);
     expect(replaces(TERMS.tailLift)).toBe("hydraulické čelo");
+    expect(replaces(TERMS.marginApproval)).toMatch(/schválení marže/);
+  });
+
+  it("explains overrides and the margin floor approval of quotes", () => {
+    const meaning = (term: string) => GLOSSARY.find((g) => g.term === term)?.meaning;
+    expect(meaning(TERMS.override)).toMatch(/changed by hand/);
+    expect(meaning(TERMS.marginApproval)).toMatch(/below the margin floor/);
+    expect(meaning(TERMS.marginApproval)).toMatch(/a worse margin needs a new approval/);
   });
 
   it("states the service levels and where their clock starts", () => {
