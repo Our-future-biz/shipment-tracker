@@ -268,7 +268,10 @@ describe("rate calculator", () => {
     vi.mocked(holidays._internalHolidaysCzNational).mockResolvedValue({ dates: ["2026-10-16"] });
     const [d1] = (await rateService.rate(C, request())).results;
     expect(d1.promisedDate).toBe("2026-10-19");
-    expect(holidays._internalHolidaysCzNational).toHaveBeenCalledWith({ from: "2026-10-15", to: "2026-11-29" });
+    expect(holidays._internalHolidaysCzNational).toHaveBeenCalledWith(
+      { from: "2026-10-15", to: "2026-11-29" },
+      { authData: expect.objectContaining({ companyID: C }) },
+    );
   });
 
   it("returns the cleaned request", async () => {
