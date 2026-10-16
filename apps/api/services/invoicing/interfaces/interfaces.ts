@@ -430,7 +430,7 @@ export interface JobProfitRow {
   freightMode: string;
   status: string;
   direction: "import" | "export";
-  basis: "ata" | "atd" | "eta" | "etd";
+  basis: "ata" | "atd" | "eta" | "etd" | "delivery" | "planned delivery";
   date: string;
   month: string;
   provisional: boolean; // dated by ETA / ETD, not yet by the tax date

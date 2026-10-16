@@ -300,6 +300,14 @@ describe("month close", () => {
     expect(await internalMonthService.charges(user, "2026-09")).toHaveLength(2);
   });
 
+  it("numbers a statement in the billed month's year: December 2026 closed in January 2027 is ICZ2026… (decision 12)", async () => {
+    vi.setSystemTime(new Date("2026-12-20T10:00:00Z"));
+    const c = await delivered({ pickupDate: "2026-12-14", deliveredAt: new Date("2026-12-15T08:00:00Z") });
+    await consignmentService.stamp(manager, c.id, "podReceived", null);
+    vi.setSystemTime(new Date("2027-01-05T10:00:00Z"));
+    expect(await internalMonthService.close(manager, "2026-12")).toMatchObject({ statementNumbers: ["ICZ20260001"] });
+  });
+
   it("is refused while a charge of the month is not priced, until it is reversed", async () => {
     vi.mocked(rateService.rate).mockResolvedValue(rated(12000, [], { reason: "No internal FTL tariff" }));
     const c = await delivered();

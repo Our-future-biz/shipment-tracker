@@ -17,6 +17,13 @@ describe("jobPeriod", () => {
     expect(jobPeriod(ship({ estimatedArrival: "2026-10-20" }))).toEqual({ basis: "eta", date: "2026-10-20", provisional: true });
     expect(jobPeriod(ship({}))).toBeNull();
   });
+
+  it("dates Domestic and Road Department jobs by the delivery, planned provisionally (C5)", () => {
+    expect(jobPeriod(ship({ tradeDirection: "Domestic", actualDeliveryDate: "2026-10-09", plannedDeliveryDate: "2026-10-08" }))).toEqual({ basis: "delivery", date: "2026-10-09", provisional: false });
+    expect(jobPeriod(ship({ tradeDirection: "Domestic", plannedDeliveryDate: "2026-10-08" }))).toEqual({ basis: "planned delivery", date: "2026-10-08", provisional: true });
+    expect(jobPeriod(ship({ department: "Road Department", estimatedArrival: "2026-10-20", plannedDeliveryDate: "2026-10-08" }))).toEqual({ basis: "planned delivery", date: "2026-10-08", provisional: true });
+    expect(jobPeriod(ship({ tradeDirection: "Domestic" }))).toBeNull();
+  });
 });
 
 describe("buildJobProfit", () => {

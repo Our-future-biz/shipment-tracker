@@ -50,11 +50,18 @@ function currencyOf(line: Record<string, unknown>, data: Record<string, unknown>
   return typeof data.currency === "string" && data.currency ? data.currency : "EUR";
 }
 
-// A line's amount: qty × unit price when both are set, else the amount.
-function amountOf(line: Record<string, unknown>): number {
+/**
+ * A line's value: its amount - what the editor shows and a user may change by hand; qty × unit
+ * price only when the line has no amount. Trucking prices a consignment from a quote by the same rule.
+ */
+export function lineAmount(line: Record<string, unknown>): number {
+  const amount = isNumber(line.amount) ? line.amount : typeof line.amount === "string" && line.amount.trim() !== "" ? Number(line.amount) : NaN;
+  if (Number.isFinite(amount)) return amount;
   if (isNumber(line.qty) && isNumber(line.unitPrice)) return line.qty * line.unitPrice;
-  return isNumber(line.amount) ? line.amount : Number(line.amount) || 0;
+  return 0;
 }
+
+const amountOf = lineAmount;
 
 // The rate a sent quote stored for the currency (data.fx), when it has one.
 function storedRate(data: Record<string, unknown>, currency: string): number | null {

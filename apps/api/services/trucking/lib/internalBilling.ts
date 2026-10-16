@@ -33,6 +33,9 @@ export const MAX_STATEMENT_NUMBER = 9_999;
 /** ICZ20260001 */
 export const formatStatementNumber = (year: number, n: number) => `ICZ${year}${String(n).padStart(4, "0")}`;
 
+/** The year an ICZ statement is numbered in: the billed month's (December 2026 closed in January 2027 → ICZ2026…). */
+export const statementYear = (month: string): number => Number(month.slice(0, 4));
+
 /** Text that marks a charge no Internal tariff priced. */
 export const NOT_PRICED = "Not priced";
 
