@@ -10,6 +10,7 @@ vi.mock("~encore/clients", () => ({
   customers: { _internalHaulierList: vi.fn(async () => ({ hauliers: [{ id: "00000000-0000-0000-0000-0000000000a1", companyName: "Bravo Trans" }] })) },
 }));
 vi.mock("../db/db", async () => (await import("./truckingFakes")).dbModule);
+vi.mock("../../../lib/outbox/serviceIdentity", async () => (await import("./truckingFakes")).serviceIdentityModule);
 vi.mock("../repositories/portal.repository", async () => ({ portalRepository: (await import("./portalFakes")).portalRepository }));
 vi.mock("../repositories/event.repository", async () => (await import("./truckingFakes")).eventModule);
 const hauliers = vi.hoisted(() => ({ find: vi.fn() }));
@@ -26,7 +27,7 @@ import { haulierService } from "../services/haulier.service";
 import { hashToken } from "../lib/haulierToken";
 import { HAULIER_BLOCKED, LOG_IN_AGAIN, LOGIN_FAILED, SET_PASSWORD_LINK_INVALID } from "../lib/portalRules";
 import { portalStore, resetPortalStore } from "./portalFakes";
-import { COMPANY, HAULIER, HAULIER2, eventsOf, manager, resetStore, store, user } from "./truckingFakes";
+import { COMPANY, HAULIER, HAULIER2, SERVICE_USER, eventsOf, manager, resetStore, store, user } from "./truckingFakes";
 
 const CLIENT = { ip: "10.0.0.1", userAgent: "Phone" };
 const PASSWORD = "correct horse battery";
@@ -147,7 +148,7 @@ describe("login", () => {
     vi.mocked(ourCompany).mockResolvedValueOnce({ name: "" } as never);
     const out = await login("eva@bravo.cz");
     expect(out.me.ourCompany).toBe("Registered Name s.r.o.");
-    expect(auth._internalCompanyName).toHaveBeenCalledWith({ authData: { userID: manager.userID, companyID: COMPANY, role: "user" } });
+    expect(auth._internalCompanyName).toHaveBeenCalledWith({ authData: { userID: SERVICE_USER, companyID: COMPANY, role: "user" } });
   });
 
   it("logs in: a session token of which only the hash is stored, a 12 hour expiry, the event", async () => {
@@ -161,7 +162,7 @@ describe("login", () => {
     expect(JSON.stringify(portalStore.written)).not.toContain(out.session);
     expect(eventsOf("portal_login")[0]).toMatchObject({ customerId: HAULIER, byName: "Eva Malá (haulier)", byUserId: null });
     // The internal calls go as the manager who created the portal user, with the least role.
-    expect(customers._internalHaulierList).toHaveBeenCalledWith({ ids: [HAULIER] }, { authData: { userID: manager.userID, companyID: COMPANY, role: "user" } });
+    expect(customers._internalHaulierList).toHaveBeenCalledWith({ ids: [HAULIER] }, { authData: { userID: SERVICE_USER, companyID: COMPANY, role: "user" } });
   });
 
   it("answers an unknown e-mail, a wrong password, a locked e-mail and a disabled user with the same words", async () => {

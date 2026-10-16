@@ -29,6 +29,12 @@ export const SHIPMENT = "00000000-0000-0000-0000-0000000000d1";
 export const HAULIER = "00000000-0000-0000-0000-0000000000a1";
 export const HAULIER2 = "00000000-0000-0000-0000-0000000000a2";
 
+/** The company's service identity "Trucking (system)" (lib/outbox/serviceIdentity). */
+export const SERVICE_USER = "00000000-0000-0000-0000-0000000005e1";
+export const serviceIdentityModule = {
+  serviceActor: vi.fn(async (companyId: string) => ({ userID: SERVICE_USER, companyID: companyId, role: "user" })),
+};
+
 export const manager = { userID: USER, companyID: COMPANY, role: "manager" };
 export const user = { userID: USER, companyID: COMPANY, role: "user" };
 

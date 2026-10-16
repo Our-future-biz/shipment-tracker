@@ -15,6 +15,7 @@ vi.mock("~encore/clients", () => ({
   holidays: { _internalHolidaysCzNational: vi.fn(async () => ({ dates: [] })) },
 }));
 vi.mock("../db/db", async () => (await import("./truckingFakes")).dbModule);
+vi.mock("../../../lib/outbox/serviceIdentity", async () => (await import("./truckingFakes")).serviceIdentityModule);
 vi.mock("../repositories/consignment.repository", async (orig) => ({
   ...(await orig<object>()),
   consignmentRepository: (await import("./truckingFakes")).consignmentRepository,
@@ -50,7 +51,7 @@ import { buildLtlTransportOrderPdf } from "../lib/ltlTransportOrderPdf";
 import type { HaulierDetail, TripKind } from "../interfaces/interfaces";
 import type { TruckingConsignmentRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
 import type { PortalUserRecord } from "../schemas/portal.schema";
-import { COMPANY, CUSTOMER, HAULIER, HAULIER2, SHIPMENT, TX, USER, eventsOf, load, outboxOf, resetStore, stop, store } from "./truckingFakes";
+import { COMPANY, CUSTOMER, HAULIER, HAULIER2, SERVICE_USER, SHIPMENT, TX, USER, eventsOf, load, outboxOf, resetStore, stop, store } from "./truckingFakes";
 
 const SENDER = "00000000-0000-0000-0000-000000000003";
 const SHIPMENT2 = "00000000-0000-0000-0000-0000000000d2";
@@ -383,7 +384,7 @@ describe("stamps through the trucking services' own checks", () => {
     const order = await portalOrderService.delivered(eva, t.id, c.id, { at: null, receiverName: "Petr Brož" });
     expect(order.stops[1]!.deliveredAt).toBe("2026-10-15T10:00:00.000Z");
     expect(cOf(c.id)).toMatchObject({ deliveredBy: "Eva Malá (haulier), received by Petr Brož", status: "DELIVERED" });
-    expect(outboxOf("delivered")).toEqual([expect.objectContaining({ actingUserId: SENDER, payload: { actualDeliveryDate: "2026-10-15" } })]);
+    expect(outboxOf("delivered")).toEqual([expect.objectContaining({ actingUserId: SERVICE_USER, payload: { actualDeliveryDate: "2026-10-15" } })]);
     // The pick-up stop is no delivery stop.
     await expect(portalOrderService.delivered(eva, t.id, "00000000-0000-0000-0000-00000000ffff", { at: null, receiverName: "" })).rejects.toMatchObject({ code: "not_found" });
   });
@@ -438,7 +439,7 @@ describe("stamps through the trucking services' own checks", () => {
     expect(cOf(b.id)).toMatchObject({ deliveredBy: "Eva Malá (haulier), received by Jana", podReceivedBy: "Eva Malá (haulier), received by Jana" });
     expect(done.stops.every((s) => s.podUploaded)).toBe(true);
     expect([cOf(a.id).status, cOf(b.id).status]).toEqual(["READY_TO_BILL", "READY_TO_BILL"]);
-    expect(outboxOf("billing")).toEqual([expect.objectContaining({ shipmentId: SHIPMENT, actingUserId: SENDER })]);
+    expect(outboxOf("billing")).toEqual([expect.objectContaining({ shipmentId: SHIPMENT, actingUserId: SERVICE_USER })]);
   });
 
   it("partner delivery: Delivered and the POD per stop (acting as the portal user's creator); no Loaded / Departed, no transport order", async () => {
@@ -452,7 +453,7 @@ describe("stamps through the trucking services' own checks", () => {
     expect(order).toMatchObject({ status: "DONE", stops: [expect.objectContaining({ deliveredAt: "2026-10-15T09:00:00.000Z", podUploaded: true })] });
     expect(store.ltlLegs.find((l) => l.id === leg.id)!.status).toBe("DONE");
     expect(store.documents[0]).toMatchObject({ kind: "POD", source: "HAULIER", uploadedByUserId: null, uploadedBy: "Eva Malá (haulier)" });
-    expect(outboxOf("billing")).toEqual([expect.objectContaining({ shipmentId: SHIPMENT2, actingUserId: USER })]);
+    expect(outboxOf("billing")).toEqual([expect.objectContaining({ shipmentId: SHIPMENT2, actingUserId: SERVICE_USER })]);
   });
 
   it("FTL POD: a photo or PDF only; stamps the pick-up and delivery it proves, POD received, and Billing", async () => {
@@ -461,7 +462,7 @@ describe("stamps through the trucking services' own checks", () => {
     expect(store.documents).toHaveLength(0);
     await portalOrderService.pod(eva, t.id, c.id, { fileName: "pod.pdf", fileBase64: PDF, receiverName: "", deliveredAt: null });
     expect(cOf(c.id)).toMatchObject({ pickedUpBy: "Eva Malá (haulier)", deliveredBy: "Eva Malá (haulier)", podSource: "HAULIER", status: "READY_TO_BILL" });
-    expect(outboxOf("billing")).toEqual([expect.objectContaining({ actingUserId: SENDER })]);
+    expect(outboxOf("billing")).toEqual([expect.objectContaining({ actingUserId: SERVICE_USER })]);
   });
 });
 
@@ -476,7 +477,7 @@ describe("the transport order PDF", () => {
     expect(eventsOf("transport_order_printed")[0]).toMatchObject({ byUserId: null, byName: "Eva Malá (haulier)", payload: expect.objectContaining({ facts: expect.objectContaining({ pinPrinted: false, via: "PORTAL" }) }) });
     expect(tripOf(t.id).pinPrinted).toBe(true);
     // The internal calls go as the portal user's creator with the least role.
-    expect(customers.customerGet).toHaveBeenCalledWith({ id: HAULIER }, { authData: { userID: USER, companyID: COMPANY, role: "user" } });
+    expect(customers.customerGet).toHaveBeenCalledWith({ id: HAULIER }, { authData: { userID: SERVICE_USER, companyID: COMPANY, role: "user" } });
   });
 
   it("an LTL run's order too", async () => {

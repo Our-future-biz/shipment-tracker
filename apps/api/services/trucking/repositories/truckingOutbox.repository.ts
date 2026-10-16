@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db, type Tx } from "../db/db";
 import { truckingOutboxTable, type NewTruckingOutboxRecord, type TruckingOutboxRecord } from "../schemas/truckingOutbox.schema";
 import { OutboxRepository } from "../../../lib/outbox/outboxRepository";
@@ -28,6 +28,29 @@ class TruckingOutboxRepository extends OutboxRepository<typeof truckingOutboxTab
     const ids = await this.claimDueRows(limit, consignmentId ? sql`AND x.consignment_id = ${consignmentId}` : sql``);
     if (!ids.length) return [];
     return db.select().from(o).where(inArray(o.id, ids)).orderBy(asc(o.createdAt), asc(o.id));
+  }
+
+  /** Rows of the consignments that failed for good (all of the company's without consignments), oldest first. */
+  async failedFor(companyId: string, consignmentIds?: string[]): Promise<TruckingOutboxRecord[]> {
+    if (consignmentIds && !consignmentIds.length) return [];
+    return this.failedWhere(companyId, consignmentIds ? inArray(o.consignmentId, consignmentIds) : undefined);
+  }
+
+  /** Rows of the consignments not delivered in time: failed for good, or pending longer than `minutes`. */
+  async unsentFor(companyId: string, consignmentIds: string[], minutes: number): Promise<TruckingOutboxRecord[]> {
+    if (!consignmentIds.length) return [];
+    return db
+      .select()
+      .from(o)
+      .where(
+        and(
+          eq(o.companyId, companyId),
+          inArray(o.consignmentId, consignmentIds),
+          isNull(o.deletedAt),
+          or(eq(o.status, "failed"), and(eq(o.status, "pending"), sql`${o.createdAt} < now() - make_interval(mins => ${minutes})`)),
+        ),
+      )
+      .orderBy(asc(o.createdAt), asc(o.id));
   }
 
   /** A deleted job: everything still owed to it (pending or failed) is cancelled. */

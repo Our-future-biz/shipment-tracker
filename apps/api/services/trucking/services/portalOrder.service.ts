@@ -19,7 +19,7 @@ import { cleanText } from "../lib/portalRules";
 import { actingFor, type PortalCaller } from "./portalAuth.service";
 import { consignmentService } from "./consignment.service";
 import { ltlService } from "./ltl.service";
-import { recordAnswer, senderOf } from "./publicOrder.service";
+import { recordAnswer } from "./publicOrder.service";
 import { settingsService } from "./settings.service";
 import { transportOrderService } from "./transportOrder.service";
 import { insertDocument, storeFile } from "./truckingDocument.service";
@@ -303,7 +303,7 @@ class PortalOrderService {
     const trip = o.trip;
     if (!trip) throw APIError.failedPrecondition("A partner delivery is stamped per stop: Delivered and the POD");
     if (rejected(trip)) throw APIError.failedPrecondition("This transport order was rejected");
-    const actor = senderOf(trip);
+    const actor = await actingFor(caller.user);
     const who = { by: caller.who, source: "HAULIER" as const, manager: false };
     if (input.kind === "LOADED") {
       if (o.kind !== "FTL" && o.kind !== "PICKUP_RUN") throw APIError.failedPrecondition("Loading at our warehouse is stamped by the warehouse");
@@ -331,18 +331,13 @@ class PortalOrderService {
     return stop.c;
   }
 
-  /** The app identity a stamp's follow-ups (the job's updates) are sent as: the trip's sender, or the portal user's creator. */
-  private actorOf(caller: PortalCaller, o: Loaded) {
-    return o.trip ? senderOf(o.trip) : actingFor(caller.user);
-  }
-
   /** Delivered at one stop (null = now), through the consignment's own checks. */
   async delivered(caller: PortalCaller, id: string, consignmentId: string, input: { at: string | null; receiverName: unknown }): Promise<PortalOrder> {
     const o = await this.load(caller, id);
     const c = this.deliveryStop(o, consignmentId);
     const receiver = typeof input.receiverName === "string" ? input.receiverName.trim().slice(0, MAX_NAME) : "";
     const by = receiver ? `${caller.who}, received by ${receiver}` : caller.who;
-    await consignmentService.stampChecked(this.actorOf(caller, o), c.id, "delivered", input.at ?? null, { by, source: "HAULIER", manager: false });
+    await consignmentService.stampChecked(await actingFor(caller.user), c.id, "delivered", input.at ?? null, { by, source: "HAULIER", manager: false });
     return this.get(caller, id);
   }
 
@@ -372,7 +367,7 @@ class PortalOrderService {
     const receiver = typeof input.receiverName === "string" ? input.receiverName.trim().slice(0, MAX_NAME) : "";
     const by = receiver ? `${caller.who}, received by ${receiver}` : caller.who;
     const companyId = caller.companyId;
-    const actor = this.actorOf(caller, o);
+    const actor = await actingFor(caller.user);
     const key = await storeFile(companyId, c.id, file);
     await inTx(async (tx) => {
       await insertDocument(tx, companyId, c.id, file, key, { kind: "POD", source: "HAULIER", userId: null, name: by });
@@ -393,7 +388,7 @@ class PortalOrderService {
   async transportOrder(caller: PortalCaller, id: string): Promise<FileDownload> {
     const o = await this.load(caller, id);
     if (!o.trip) throw APIError.failedPrecondition("A partner delivery has no transport order");
-    return transportOrderService.haulierCopy(o.trip, actingFor(caller.user), caller.who);
+    return transportOrderService.haulierCopy(o.trip, await actingFor(caller.user), caller.who);
   }
 }
 

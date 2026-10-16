@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, boolean, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantIndex } from "../../../lib/db/defaults";
 import { companyTable } from "./company.schema";
 import { departmentTable, branchTable } from "./orgUnit.schema";
@@ -17,6 +17,10 @@ export const userTable = pgTable(
     // Where the user sits in the company; both optional. Decides which noticeboards they see.
     departmentId: uuid("department_id").references(() => departmentTable.id),
     branchId: uuid("branch_id").references(() => branchTable.id),
+    // A service identity (one per company, "Trucking (system)"): what the system or a haulier
+    // causes in other services is sent as this user. It has no password and can never sign in,
+    // and it is not shown in user lists or pickers.
+    isSystem: boolean("is_system").notNull().default(false),
   },
   (table) => [
     ...defaultTableIndexes("app_user", table),
@@ -29,6 +33,10 @@ export const userTable = pgTable(
     uniqueIndex("app_user_email_unique")
       .on(sql`lower(${table.email})`)
       .where(sql`deleted_at IS NULL`),
+    // At most one live service identity per company (created on demand, see ensureSystemUser).
+    uniqueIndex("app_user_system_unique")
+      .on(table.companyId)
+      .where(sql`is_system AND deleted_at IS NULL`),
     // Roles are a fixed set; reject anything else at the DB level too.
     check("app_user_role_check", sql`${table.role} IN ('superadmin', 'admin', 'manager', 'user')`),
   ],

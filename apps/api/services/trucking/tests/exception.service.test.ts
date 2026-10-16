@@ -27,7 +27,10 @@ vi.mock("../repositories/tariff.repository", () => ({ tariffRepository: { list: 
 vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: { findMany: vi.fn(async () => []) } }));
 vi.mock("../services/rate.service", () => ({ rateService: { rate: vi.fn() }, eurRate: vi.fn() }));
 vi.mock("../services/settings.service", async () => ({ settingsService: { get: vi.fn(async () => (await import("./truckingFakes")).settings()) } }));
-vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })) }));
+vi.mock("../services/truckingOutbox.service", () => ({
+  deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })),
+  addUnsentReasons: vi.fn(async (_companyId: string, items: unknown[]) => items),
+}));
 vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: { upload: vi.fn(async () => undefined), download: vi.fn() } }));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
 

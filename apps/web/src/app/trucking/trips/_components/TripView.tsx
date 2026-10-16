@@ -13,6 +13,7 @@ import { TERMS } from "../../_lib/glossary";
 import { TRIP_KIND_LABEL, ltlTripOrderActions, type TripOrderActions } from "../../_lib/planning";
 import { isTruckingManager } from "../../_lib/roles";
 import { TruckingHistory } from "../../_components/TruckingHistory";
+import { TruckingSendAgain } from "../../_components/TruckingSendAgain";
 import { TruckingStatusChip } from "../../_components/TruckingStatusChip";
 import { TripDialogs, type TripDialog } from "./TripDialogs";
 import { TripLtlSections } from "./TripLtlSections";
@@ -102,6 +103,7 @@ export const TripView = ({ tripId }: TripViewProps) => {
         )}
         <TripPanel trip={trip} actions={actions} manager={isTruckingManager(user)} onDialog={setDialog} />
         <SectionCard title="History">
+          <TruckingSendAgain tripId={trip.id} manager={isTruckingManager(user)} />
           <TruckingHistory events={trip.events} />
         </SectionCard>
       </div>

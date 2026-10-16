@@ -23,8 +23,9 @@ class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTab
   }
 
   // Takes up to `limit` due rows for delivery (see OutboxRepository.claimDueRows). Updates of one
-  // shipment go out in the order they were made — a "released" date must not reach a shipment
-  // whose "received" date never did; a failed row is retried or dismissed by hand first.
+  // shipment go out in the order they were made — a "released" date waits while the "received"
+  // date is still on its way. A row that failed for good does not hold the later ones back: it
+  // is shown on the record and a manager can send it again.
   // With `movementId`, only that record's rows (the delivery right after a stamp); with
   // `shipmentIds`, only the rows of those shipments ("Retry now").
   async claimDue(limit: number, filter: { movementId?: string; shipmentIds?: string[] } = {}): Promise<ShipmentOutboxRecord[]> {
@@ -114,10 +115,6 @@ class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTab
         pending: sql<number>`count(*) FILTER (WHERE ${o.status} = 'pending')`,
         failed: sql<number>`count(*) FILTER (WHERE ${o.status} = 'failed')`,
         oldest: sql<Date | string | null>`min(${o.createdAt}) FILTER (WHERE ${o.status} = 'pending')`,
-        // Pending rows held back by an older failed row of the same shipment.
-        blocked: sql<number>`count(*) FILTER (WHERE ${o.status} = 'pending' AND EXISTS (
-          SELECT 1 FROM ${o} y WHERE y.company_id = ${o.companyId} AND y.shipment_id = ${o.shipmentId}
-            AND y.status = 'failed' AND y.deleted_at IS NULL AND (y.created_at, y.id) < (${o.createdAt}, ${o.id})))`,
       })
       .from(o)
       .where(and(eq(o.companyId, companyId), isNull(o.deletedAt), inArray(o.status, ["pending", "failed"])));
@@ -125,9 +122,15 @@ class ShipmentOutboxRepository extends OutboxRepository<typeof shipmentOutboxTab
     return {
       pending: Number(row?.pending ?? 0),
       failed: Number(row?.failed ?? 0),
-      blockedByFailed: Number(row?.blocked ?? 0),
+      // A failed row no longer holds the later rows of its shipment back (only pending ones do).
+      blockedByFailed: 0,
       oldestPendingAt: oldest ? oldest.toISOString() : null,
     };
+  }
+
+  // The record's rows that failed for good ("Not sent"), oldest first.
+  async failedForMovement(movementId: string, companyId: string): Promise<ShipmentOutboxRecord[]> {
+    return this.failedWhere(companyId, eq(o.movementId, movementId));
   }
 
   // Failed rows the user has settled by hand in Shipments.

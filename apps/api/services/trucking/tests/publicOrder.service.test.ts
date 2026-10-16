@@ -6,6 +6,7 @@ vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ customers: {}, shipments: {}, quotes: {}, holidays: {} }));
 vi.mock("../db/db", async () => (await import("./truckingFakes")).dbModule);
+vi.mock("../../../lib/outbox/serviceIdentity", async () => (await import("./truckingFakes")).serviceIdentityModule);
 vi.mock("../repositories/consignment.repository", async (orig) => ({
   ...(await orig<object>()),
   consignmentRepository: (await import("./truckingFakes")).consignmentRepository,
@@ -27,7 +28,7 @@ import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
 import { truckingDocumentBucket } from "../storage/documentBucket";
 import { newToken } from "../lib/haulierToken";
-import { COMPANY, CUSTOMER, HAULIER, SHIPMENT, TX, eventsOf, load, outboxOf, resetStore, stop, store } from "./truckingFakes";
+import { COMPANY, CUSTOMER, HAULIER, SERVICE_USER, SHIPMENT, TX, eventsOf, load, outboxOf, resetStore, stop, store } from "./truckingFakes";
 
 const SENDER = "00000000-0000-0000-0000-000000000003";
 const PDF = Buffer.from("%PDF-1.7\n%…").toString("base64");
@@ -149,8 +150,8 @@ describe("POD through the link", () => {
     expect(row.podReceivedAt!.toISOString()).toBe("2026-10-15T10:00:00.000Z");
     expect(store.trips[0]!.status).toBe("DONE");
     // Sent to Shipments as the user who sent the transport order.
-    expect(outboxOf("delivered")).toEqual([expect.objectContaining({ payload: { actualDeliveryDate: "2026-10-15" }, actingUserId: SENDER, actingRole: "user" })]);
-    expect(outboxOf("billing")).toEqual([expect.objectContaining({ shipmentId: SHIPMENT, actingUserId: SENDER })]);
+    expect(outboxOf("delivered")).toEqual([expect.objectContaining({ payload: { actualDeliveryDate: "2026-10-15" }, actingUserId: SERVICE_USER, actingRole: "user" })]);
+    expect(outboxOf("billing")).toEqual([expect.objectContaining({ shipmentId: SHIPMENT, actingUserId: SERVICE_USER })]);
     expect(eventsOf("stamp_set").map((e) => (e.payload as { facts: { kind: string } }).facts.kind)).toEqual(["pickedUp", "delivered", "podReceived"]);
   });
 

@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql, type InferSelectModel, type SQL } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import { TenantRepository, type AnyDb } from "../db/repository";
 
@@ -17,7 +17,17 @@ type OutboxTable = PgTable & {
   nextAttemptAt: PgColumn;
   lockedUntil: PgColumn;
   lastError: PgColumn;
+  actingUserId: PgColumn;
+  actingRole: PgColumn;
 };
+
+/** Who rows written by a user no longer there are sent as when they are sent again. */
+export interface ReplaceActors {
+  /** Acting user ids that are no live user any more ("" included) */
+  gone: string[];
+  userId: string;
+  role: string;
+}
 
 export interface OutboxRepositoryOptions {
   /** Column (SQL name) whose updates must go out in order, one at a time, e.g. "shipment_id". */
@@ -40,7 +50,8 @@ export abstract class OutboxRepository<TTable extends OutboxTable> extends Tenan
   // Takes up to `limit` due rows for delivery and counts the attempt. Safe to run from several
   // places at once (the cron and the local timer, or two app instances): rows are claimed with
   // SKIP LOCKED and held for a while. Updates of one order key go out in the order they were
-  // made — a row waits while an older one of the same key is still pending, or failed for good.
+  // made — a row waits while an older one of the same key is still pending. A row that failed
+  // for good does not hold the later ones back (it is shown, warned about and can be sent again).
   // `scope` narrows the rows (it refers to the candidate row as `x`).
   // Each claim adds one to `attempts`, which then serves as the claim's token: only the run
   // holding the latest claim can settle the row (markSent / markRetry / markFailed).
@@ -56,7 +67,7 @@ export abstract class OutboxRepository<TTable extends OutboxTable> extends Tenan
           ${scope}
           AND NOT EXISTS (
             SELECT 1 FROM ${o} y
-            WHERE y.${key} = x.${key} AND y.status IN ('pending', 'failed') AND y.deleted_at IS NULL
+            WHERE y.${key} = x.${key} AND y.status = 'pending' AND y.deleted_at IS NULL
               AND (y.created_at, y.id) < (x.created_at, x.id))
         ORDER BY x.created_at, x.id
         LIMIT ${limit}
@@ -94,6 +105,61 @@ export abstract class OutboxRepository<TTable extends OutboxTable> extends Tenan
       .update(o)
       .set({ status: "failed", lockedUntil: null, lastError: error, updatedAt: new Date() } as never)
       .where(and(eq(o.id, id), eq(o.attempts, attempts), eq(o.status, "pending")));
+  }
+
+  /** The company's rows that failed for good, matching `where` (the table's own columns), oldest first. */
+  async failedWhere(companyId: string, where?: SQL): Promise<InferSelectModel<TTable>[]> {
+    const o = this.table;
+    const rows = await this.db
+      .select()
+      .from(o as PgTable)
+      .where(and(eq(o.companyId, companyId), eq(o.status, "failed"), isNull(o.deletedAt), where))
+      .orderBy(asc(o.createdAt), asc(o.id));
+    return rows as InferSelectModel<TTable>[];
+  }
+
+  // "Send again": failed rows go back to pending, due now, with a fresh count of attempts. Rows
+  // written by a user who is no longer there are sent as `replace` (the service identity) — they
+  // would only fail again. Returns the rows requeued.
+  async requeueFailed(companyId: string, ids: string[], replace: ReplaceActors | null) {
+    if (!ids.length) return [];
+    const o = this.table;
+    const gone = replace?.gone.length ? replace.gone : null;
+    const actor = (col: PgColumn, value: string) =>
+      gone ? sql`CASE WHEN ${o.actingUserId} IN (${sql.join(gone.map((g) => sql`${g}`), sql`, `)}) THEN ${value} ELSE ${col} END` : sql`${col}`;
+    return (await this.db
+      .update(o)
+      .set({
+        status: "pending",
+        attempts: 0,
+        nextAttemptAt: new Date(),
+        lockedUntil: null,
+        lastError: "",
+        updatedAt: new Date(),
+        actingRole: actor(o.actingRole, replace?.role ?? ""),
+        actingUserId: actor(o.actingUserId, replace?.userId ?? ""),
+      } as never)
+      .where(and(eq(o.companyId, companyId), inArray(o.id, ids), eq(o.status, "failed"), isNull(o.deletedAt)))
+      .returning()) as InferSelectModel<TTable>[];
+  }
+
+  // Rows (all companies) not delivered in time: failed for good, or still pending after `minutes`.
+  // Counts and the oldest pending one, for the warning log.
+  async unsentHealth(minutes: number) {
+    const o = this.table;
+    const [row] = await this.db
+      .select({
+        failed: sql<number>`count(*) FILTER (WHERE ${o.status} = 'failed')`,
+        stale: sql<number>`count(*) FILTER (WHERE ${o.status} = 'pending' AND ${o.createdAt} < now() - make_interval(mins => ${minutes}))`,
+        oldest: sql<Date | string | null>`min(${o.createdAt}) FILTER (WHERE ${o.status} = 'pending' AND ${o.createdAt} < now() - make_interval(mins => ${minutes}))`,
+      })
+      .from(o as PgTable)
+      .where(and(inArray(o.status, ["pending", "failed"]), isNull(o.deletedAt)));
+    return {
+      failed: Number(row?.failed ?? 0),
+      stalePending: Number(row?.stale ?? 0),
+      oldestPending: row?.oldest ? new Date(row.oldest).toISOString() : null,
+    };
   }
 
   // Pending rows (all companies) older than `minutes`: count and the oldest, for the warning log.

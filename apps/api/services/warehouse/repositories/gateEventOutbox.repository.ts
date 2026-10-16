@@ -1,4 +1,4 @@
-import { asc, inArray, sql } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db/db";
 import { gateEventOutboxTable, type GateEventOutboxRecord, type NewGateEventOutboxRecord } from "../schemas/gateEventOutbox.schema";
 import type { Tx } from "./warehouseSection.repository";
@@ -7,7 +7,8 @@ import { OutboxRepository } from "../../../lib/outbox/outboxRepository";
 const o = gateEventOutboxTable;
 
 // The `warehouse-gate-stamped` events gate stamps owe (see topics.ts). Claiming and settling come
-// from the shared OutboxRepository; events of one gate record go out in the order they were made.
+// from the shared OutboxRepository; events of one gate record go out in the order they were made
+// (a failed one does not hold the later ones back: it is shown and a manager can send it again).
 class GateEventOutboxRepository extends OutboxRepository<typeof gateEventOutboxTable> {
   constructor() {
     super(db, gateEventOutboxTable, "warehouse_gate_event_outbox", { orderKey: "movement_id", sentAfterCancelNote: "published just before it was cancelled" });
@@ -25,6 +26,11 @@ class GateEventOutboxRepository extends OutboxRepository<typeof gateEventOutboxT
     const ids = await this.claimDueRows(limit, movementId ? sql`AND x.movement_id = ${movementId}` : sql``);
     if (!ids.length) return [];
     return db.select().from(o).where(inArray(o.id, ids)).orderBy(asc(o.createdAt), asc(o.id));
+  }
+
+  // The record's events that could not be published for good ("Not sent"), oldest first.
+  async failedForMovement(movementId: string, companyId: string): Promise<GateEventOutboxRecord[]> {
+    return this.failedWhere(companyId, eq(o.movementId, movementId));
   }
 }
 
