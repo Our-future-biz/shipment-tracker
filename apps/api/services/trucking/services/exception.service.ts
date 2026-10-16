@@ -5,6 +5,7 @@ import { consignmentRepository } from "../repositories/consignment.repository";
 import { legRepository } from "../repositories/leg.repository";
 import { tripRepository } from "../repositories/trip.repository";
 import { tariffRepository } from "../repositories/tariff.repository";
+import { haulierInvoiceRepository } from "../repositories/haulierInvoice.repository";
 import { truckingOutboxRepository } from "../repositories/truckingOutbox.repository";
 import { appendEvent } from "../repositories/event.repository";
 import type { TruckingConsignmentRecord } from "../schemas/truckingConsignment.schema";
@@ -155,12 +156,20 @@ class ExceptionService {
     if (e.closedAt) throw APIError.failedPrecondition("The exception is closed");
     if (e.decision !== "PENDING") throw APIError.failedPrecondition("The exception is already decided");
     const d = cleanDecision(input, e, isManager(actor.role));
-    const { c } = await consignmentService.load(companyId, e.consignmentId);
+    const loaded = await consignmentService.load(companyId, e.consignmentId);
+    // Who pays follows the job's department as it is now (before the POD; frozen after it).
+    const refreshed = await consignmentService.refreshDepartments(actor, [loaded.c], { warn: false });
+    const { c } = refreshed ? await consignmentService.load(companyId, e.consignmentId) : loaded;
     if (d.decision === "CHARGE_CUSTOMER" && c.internal && d.currency !== "CZK") {
       throw APIError.invalidArgument("The job is billed internally: give the amount in CZK");
     }
     const claim = d.decision === "CLAIM_HAULIER" ? await this.claimTarget(companyId, c, e) : null;
     if (d.decision === "CLAIM_HAULIER" && !claim) throw APIError.failedPrecondition("Nothing to claim against: the consignment has no trip or partner delivery");
+    // A claim is taken off the haulier's price: it must be in that price's currency (C15).
+    if (claim && !claim.currency) throw APIError.failedPrecondition(`${claim.ref} has no price to claim against`);
+    if (claim && claim.currency !== d.currency) throw APIError.invalidArgument(`${claim.ref} is priced in ${claim.currency}: give the claim in ${claim.currency}`);
+    // Decided after the haulier's invoice was approved: the real cost is booked already - a credit note is needed.
+    const approved = claim ? (await haulierInvoiceRepository.targetUses(companyId, [{ kind: claim.kind, id: claim.id }])).find((u) => u.status === "APPROVED") : undefined;
     const by = await userName(actor.userID);
     const text = exceptionLineText(e);
     const row = await inTx(async (tx) => {
@@ -197,9 +206,23 @@ class ExceptionService {
           changes: { decision: { before: "PENDING", after: d.decision } },
           reason: d.reason,
           summary: `${text}: ${DECISION_TEXT[d.decision as keyof typeof DECISION_TEXT]}${d.amount ? ` ${d.amount} ${d.currency}` : ""}${c.internal && d.decision === "CHARGE_CUSTOMER" ? " (internal charge)" : ""}: ${d.reason}`,
-          facts: { exceptionId: e.id, decision: d.decision, amount: d.amount, claimTarget: claim },
+          facts: { exceptionId: e.id, decision: d.decision, amount: d.amount, claimTarget: claim && { kind: claim.kind, id: claim.id, haulierCustomerId: claim.haulierCustomerId } },
         },
       });
+      if (claim && approved) {
+        const what = `${d.amount} ${d.currency} on ${claim.ref}`;
+        await consignmentService.addNotice(
+          tx,
+          c,
+          { key: `claim:${e.id}`, code: "HAULIER_CREDIT", text: `Credit from haulier: claim of ${what} decided after invoice ${approved.invoiceNumber} was approved`, at: new Date().toISOString() },
+          {
+            kind: "haulier_credit_needed",
+            by,
+            summary: `Claim of ${what} decided after the haulier's invoice ${approved.invoiceNumber} was approved: the real cost is booked already — ask the haulier for a credit note`,
+            facts: { exceptionId: e.id, invoiceId: approved.invoiceId, amount: d.amount, currency: d.currency },
+          },
+        );
+      }
       return decided;
     });
     await deliverDue(c.id);
@@ -208,15 +231,20 @@ class ExceptionService {
 
   // What a claim is against: the exception's leg (its trip, or the partner's delivery), else the
   // FTL trip, else the LTL delivery leg's; null when there is nothing.
-  private async claimTarget(companyId: string, c: TruckingConsignmentRecord, e: TruckingExceptionRecord): Promise<{ kind: ClaimTargetKind; id: string; haulierCustomerId: string } | null> {
+  // The target's buy currency comes with it (null when it has no price).
+  private async claimTarget(
+    companyId: string,
+    c: TruckingConsignmentRecord,
+    e: TruckingExceptionRecord,
+  ): Promise<{ kind: ClaimTargetKind; id: string; haulierCustomerId: string; ref: string; currency: "CZK" | "EUR" | null } | null> {
     const legs = c.scope === "LTL" ? ltlLegsOf(c.id, await legRepository.forConsignments(companyId, [c.id])) : [];
     const leg = e.legId ? legs.find((l) => l.id === e.legId) : legs.find((l) => l.kind === "DELIVERY");
     const tripId = leg ? leg.tripId : c.tripId;
     if (tripId) {
       const trip = await tripRepository.find(companyId, tripId);
-      return trip && !trip.cancelledAt ? { kind: "TRIP", id: trip.id, haulierCustomerId: trip.haulierCustomerId } : null;
+      return trip && !trip.cancelledAt ? { kind: "TRIP", id: trip.id, haulierCustomerId: trip.haulierCustomerId, ref: `Trip ${trip.ref}`, currency: trip.buy?.currency ?? null } : null;
     }
-    if (leg?.buy && leg.haulierCustomerId) return { kind: "PARTNER_LEG", id: leg.id, haulierCustomerId: leg.haulierCustomerId };
+    if (leg?.buy && leg.haulierCustomerId) return { kind: "PARTNER_LEG", id: leg.id, haulierCustomerId: leg.haulierCustomerId, ref: `The partner delivery of ${c.ref}`, currency: leg.buy.currency };
     return null;
   }
 

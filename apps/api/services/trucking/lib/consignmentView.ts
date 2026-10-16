@@ -121,6 +121,8 @@ export function listItem(
         marginApproved: money.marginApproved,
         marginCzk: money.marginCzk,
         tripRejectedAt: liveTrip?.rejectedAt ?? null,
+        notices: (c.notices ?? []).map((n) => n.text),
+        findings: [...(c.internal ? [] : (c.sell?.findings ?? [])), ...(liveTrip?.buy?.findings ?? [])],
       },
       today,
       now,
@@ -193,6 +195,7 @@ export function detail(
     avizace: c.avizace,
     exceptions,
     warehouseExceptions,
+    notices: c.notices ?? [],
   };
 }
 

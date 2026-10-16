@@ -9,7 +9,7 @@ import {
   type TruckingConsignmentRecord,
   type TruckingRefSequence,
 } from "../schemas/truckingConsignment.schema";
-import type { ConsignmentStatus, StampKind } from "../interfaces/interfaces";
+import type { ConsignmentNotice, ConsignmentStatus, StampKind } from "../interfaces/interfaces";
 import { formatTruckingRef, MAX_REF_NUMBER } from "../lib/consignmentRules";
 import type { LegRealCost } from "../lib/haulierCost";
 import { legCostParts } from "./legCost.sql";
@@ -134,6 +134,51 @@ class ConsignmentRepository {
       .set({ ...values, version: sql`${c.version} + 1`, updatedAt: new Date() })
       .where(and(eq(c.companyId, companyId), eq(c.id, id), isNull(c.deletedAt), ...guardSql(guard)))
       .returning();
+    return row ?? null;
+  }
+
+  /**
+   * Adds a notice unless one with its key is there (so a retried write adds it once); the version
+   * is not bumped - a notice is no edit. True when it was added.
+   */
+  async addNotice(tx: Tx, companyId: string, id: string, notice: ConsignmentNotice): Promise<boolean> {
+    const rows = await tx
+      .update(c)
+      .set({ notices: sql`${c.notices} || ${JSON.stringify([notice])}::jsonb`, updatedAt: new Date() })
+      .where(and(eq(c.companyId, companyId), eq(c.id, id), isNull(c.deletedAt), sql`NOT (${c.notices} @> ${JSON.stringify([{ key: notice.key }])}::jsonb)`))
+      .returning({ id: c.id });
+    return rows.length > 0;
+  }
+
+  /** Removes the notices whose key is one of `keys`; answers the notices removed. */
+  async removeNotices(tx: Tx, companyId: string, id: string, keys: string[]): Promise<ConsignmentNotice[]> {
+    if (!keys.length) return [];
+    const [row] = await tx.select({ notices: c.notices }).from(c).where(and(eq(c.companyId, companyId), eq(c.id, id), isNull(c.deletedAt))).for("update");
+    const removed = (row?.notices ?? []).filter((n) => keys.includes(n.key));
+    if (!removed.length) return [];
+    await tx
+      .update(c)
+      .set({ notices: (row?.notices ?? []).filter((n) => !keys.includes(n.key)), updatedAt: new Date() })
+      .where(and(eq(c.companyId, companyId), eq(c.id, id)));
+    return removed;
+  }
+
+  /**
+   * A page of the consignments whose department may need refreshing from Shipments (not
+   * cancelled; before the POD, or never given one), by id after `afterId`.
+   */
+  async forDepartmentRefresh(companyId: string, afterId: string | null, limit: number): Promise<TruckingConsignmentRecord[]> {
+    const clauses: SQL[] = [eq(c.companyId, companyId), isNull(c.deletedAt), isNull(c.cancelledAt), sql`(${c.podReceivedAt} IS NULL OR ${c.department} = '')`];
+    if (afterId) clauses.push(sql`${c.id} > ${afterId}`);
+    return db.select().from(c).where(and(...clauses)).orderBy(c.id).limit(limit);
+  }
+
+  /** The live consignment priced from a quote (one per quote), when there is one. */
+  async liveByQuote(companyId: string, quoteNumber: string, reader: Tx | typeof db = db): Promise<TruckingConsignmentRecord | null> {
+    const [row] = await reader
+      .select()
+      .from(c)
+      .where(and(eq(c.companyId, companyId), eq(c.quoteNumber, quoteNumber), isNull(c.cancelledAt), isNull(c.deletedAt), sql`${c.sell}->>'source' = 'QUOTE'`));
     return row ?? null;
   }
 

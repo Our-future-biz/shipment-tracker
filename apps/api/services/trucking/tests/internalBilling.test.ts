@@ -42,6 +42,7 @@ import { ltlTrips } from "../services/ltlTrips";
 import { rateService } from "../services/rate.service";
 import { haulierService } from "../services/haulier.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
+import { departmentPlan } from "../lib/internalRules";
 import type { PricedSide, RateLevelResult, RateResponse } from "../interfaces/interfaces";
 import type { TruckingConsignmentRecord } from "../schemas/truckingConsignment.schema";
 import { COMPANY, CUSTOMER, HAULIER, SHIPMENT, load, manager, outboxOf, resetStore, stop, store, tripRepository, legRepository, user, TX } from "./truckingFakes";
@@ -103,9 +104,15 @@ const input = (over: Partial<ConsignmentCreateInput> = {}): ConsignmentCreateInp
   ...over,
 });
 
+const AIR_JOB = "00000000-0000-0000-0000-0000000000d3";
 const jobs = (department: string) =>
   vi.mocked(shipments._internalShipmentBasics).mockImplementation(async ({ ids }) => ({
-    shipments: ids.map((id) => ({ id, jobNumber: id === OCEAN_JOB ? "CZ00000077" : "CZ00000042", customerId: CUSTOMER, department: id === OCEAN_JOB ? department : "Road Department" })),
+    shipments: ids.map((id) => ({
+      id,
+      jobNumber: id === OCEAN_JOB ? "CZ00000077" : id === AIR_JOB ? "CZ00000088" : "CZ00000042",
+      customerId: CUSTOMER,
+      department: id === OCEAN_JOB ? department : id === AIR_JOB ? "Air Department" : "Road Department",
+    })),
   }) as never);
 
 /** A delivered internal (or Road) consignment straight in the store. */
@@ -215,6 +222,100 @@ describe("which consignments are internal and what their jobs' Costs get", () =>
   });
 });
 
+describe("the job's department: followed before the POD, frozen after it (C7, decision 8)", () => {
+  it("plans: same, refresh before the POD, fill a missing department on the same side, frozen otherwise", () => {
+    const pod = new Date();
+    expect(departmentPlan({ department: "Road Department", internal: false, podReceivedAt: null }, "Road Department")).toEqual({ kind: "same" });
+    expect(departmentPlan({ department: "Road Department", internal: false, podReceivedAt: null }, "Sea Department")).toEqual({ kind: "refresh", department: "Sea Department", internal: true });
+    expect(departmentPlan({ department: "", internal: false, podReceivedAt: pod }, "Road Department")).toEqual({ kind: "fill", department: "Road Department" });
+    expect(departmentPlan({ department: "", internal: false, podReceivedAt: pod }, "Sea Department")).toEqual({ kind: "frozen", department: "Sea Department" });
+    expect(departmentPlan({ department: "Road Department", internal: false, podReceivedAt: pod }, "Air Department")).toEqual({ kind: "frozen", department: "Air Department" });
+  });
+
+  it("before the POD a read of the consignments takes the job's new department and moves its lines", async () => {
+    jobs("Road Department");
+    const d = await consignmentService.create(user, input());
+    expect(d.internal).toBe(false);
+    store.outbox = [];
+    jobs("Ocean Department");
+    const { consignments } = await consignmentService.list(user, {});
+    expect(consignments[0]).toMatchObject({ internal: true });
+    expect(store.consignments[0]).toMatchObject({ department: "Ocean Department", internal: true });
+    expect(costs()).toEqual([
+      { sourceRef: `trucking:consignment:${d.id}`, buying: [], selling: [] },
+      { sourceRef: `trucking:internal:${d.id}`, buying: [], selling: [] },
+    ]);
+    expect(store.events.at(-1)).toMatchObject({ kind: "department_changed" });
+    // Read again: nothing more to do.
+    store.outbox = [];
+    await consignmentService.get(user, d.id);
+    expect(costs()).toEqual([]);
+  });
+
+  it("the POD takes the job's department as it is then: the internal charge is written although nobody read the change", async () => {
+    jobs("Road Department");
+    const c = await delivered({ internal: false, department: "Road Department" });
+    jobs("Ocean Department");
+    await consignmentService.stamp(manager, c.id, "podReceived", null);
+    expect(store.consignments[0]).toMatchObject({ internal: true, department: "Ocean Department" });
+    expect(store.internalCharges).toEqual([expect.objectContaining({ kind: "CHARGE", amount: 7000, department: "Ocean Department" })]);
+  });
+
+  it("after the POD a department change is logged once as a warning; billing and the ledger stay", async () => {
+    const c = await delivered();
+    await consignmentService.stamp(manager, c.id, "podReceived", null);
+    store.outbox = [];
+    jobs("Road Department");
+    await consignmentService.get(user, c.id);
+    await consignmentService.get(user, c.id);
+    const row = store.consignments[0]!;
+    expect(row).toMatchObject({ internal: true, department: "Ocean Department" });
+    expect(costs()).toEqual([]);
+    expect(store.internalCharges).toHaveLength(1);
+    expect(store.events.filter((e) => e.kind === "department_change_ignored")).toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({ facts: expect.objectContaining({ department: "Road Department", frozenDepartment: "Ocean Department" }) }) }),
+    ]);
+    // An edit after the POD keeps it frozen too.
+    await consignmentService.update(user, c.id, { ...input({ pickupDate: row.pickupDate }), pickup: { ...stop(), postcode: "110 00", notes: "ramp 3" }, delivery: stop({ city: "Brno", postcode: "602 00" }), version: row.version, reprice: false }).catch(() => undefined);
+    expect(store.consignments[0]).toMatchObject({ internal: true, department: "Ocean Department" });
+  });
+
+  it("an LTL job's share sums only its legs that are not internal", async () => {
+    const road = await delivered({ shipmentId: SHIPMENT, internal: false, department: "Road Department", scope: "LTL", deliveredAt: null, status: "PLANNED", chargeableKg: 1000 });
+    const stale = await delivered({ shipmentId: SHIPMENT, internal: true, department: "Ocean Department", scope: "LTL", deliveredAt: null, status: "PLANNED", chargeableKg: 3000 });
+    const trip = await tripRepository.insert(TX, {
+      companyId: COMPANY,
+      ref: "LCZ2026000010",
+      kind: "PICKUP_RUN",
+      haulierCustomerId: HAULIER,
+      haulierName: "Bravo Trans",
+      plannedPickupDate: "2026-10-16",
+      buy: { ...side(4000), source: "MANUAL" } as never,
+      buyCzk: 4000,
+    });
+    await legRepository.insertMany(TX, [
+      { companyId: COMPANY, consignmentId: road.id, tripId: trip.id, seq: 1, kind: "PICKUP", status: "PLANNED" },
+      { companyId: COMPANY, consignmentId: stale.id, tripId: trip.id, seq: 1, kind: "PICKUP", status: "PLANNED" },
+    ]);
+    await ltlTrips.settle(TX as never, user, (await tripRepository.find(COMPANY, trip.id))!);
+    expect(costs()).toEqual([
+      expect.objectContaining({ sourceRef: `trucking:trip:${trip.id}:job:${SHIPMENT}`, buying: [expect.objectContaining({ amount: 1000, description: expect.stringContaining("(1 of 2 consignments)") })] }),
+    ]);
+  });
+
+  it("a manager backfills the departments: a consignment made before they were recorded gets its job's; idempotent", async () => {
+    jobs("Road Department");
+    const old = await delivered({ shipmentId: SHIPMENT, internal: false, department: "", podReceivedAt: new Date("2026-10-01T08:00:00Z"), status: "POD_RECEIVED" });
+    const open = await delivered({ shipmentId: OCEAN_JOB, internal: false, department: "", deliveredAt: null, status: "BOOKED" });
+    jobs("Ocean Department");
+    await expect(consignmentService.refreshAllDepartments(user)).rejects.toMatchObject({ code: "permission_denied" });
+    expect(await consignmentService.refreshAllDepartments(manager)).toEqual({ checked: 2, written: 2 });
+    expect(store.consignments.find((c) => c.id === old.id)).toMatchObject({ department: "Road Department", internal: false });
+    expect(store.consignments.find((c) => c.id === open.id)).toMatchObject({ department: "Ocean Department", internal: true });
+    expect(await consignmentService.refreshAllDepartments(manager)).toEqual({ checked: 1, written: 0 });
+  });
+});
+
 describe("internal charges", () => {
   it("POD received: the Internal tariff's price in the month of the delivery, and the job's one internal buying line", async () => {
     const c = await delivered();
@@ -265,7 +366,7 @@ describe("month close", () => {
   async function chargedSeptember() {
     const a = await delivered();
     await consignmentService.stamp(manager, a.id, "podReceived", null);
-    const b = await delivered({ shipmentId: "00000000-0000-0000-0000-0000000000d3", department: "Air Department", jobNumber: "CZ00000088" });
+    const b = await delivered({ shipmentId: AIR_JOB, department: "Air Department", jobNumber: "CZ00000088" });
     await consignmentService.stamp(manager, b.id, "podReceived", null);
     return { a, b };
   }

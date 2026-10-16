@@ -25,6 +25,7 @@ vi.mock("../repositories/exception.repository", async () => ({ exceptionReposito
 vi.mock("../repositories/internal.repository", async () => ({ internalRepository: (await import("./truckingFakes")).internalRepository }));
 vi.mock("../repositories/tariff.repository", () => ({ tariffRepository: { list: vi.fn(async () => []), bindingOn: vi.fn(async () => []), findVersion: vi.fn(), find: vi.fn() } }));
 vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: { findMany: vi.fn(async () => []) } }));
+vi.mock("../repositories/haulierInvoice.repository", () => ({ haulierInvoiceRepository: { targetUses: vi.fn(async () => []) } }));
 vi.mock("../services/rate.service", () => ({ rateService: { rate: vi.fn() }, eurRate: vi.fn() }));
 vi.mock("../services/settings.service", async () => ({ settingsService: { get: vi.fn(async () => (await import("./truckingFakes")).settings()) } }));
 vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })) }));
@@ -36,6 +37,7 @@ import { exceptionService } from "../services/exception.service";
 import { consignmentService } from "../services/consignment.service";
 import { tariffRepository } from "../repositories/tariff.repository";
 import { consignmentRepository } from "../repositories/consignment.repository";
+import { haulierInvoiceRepository } from "../repositories/haulierInvoice.repository";
 import type { TruckingConsignmentRecord } from "../schemas/truckingConsignment.schema";
 import type { ExceptionInput } from "../lib/avizaceRules";
 import { COMPANY, CUSTOMER, HAULIER, SHIPMENT, eventsOf, load, manager, outboxOf, resetStore, stop, store, tripRepository, user, TX } from "./truckingFakes";
@@ -52,6 +54,7 @@ async function seed(over: Partial<TruckingConsignmentRecord> = {}) {
     plannedPickupDate: "2026-10-16",
     status: "ORDERED",
     orderSentAt: new Date("2026-10-14T08:00:00Z"),
+    buy: { source: "MANUAL", tariffId: null, tariffVersionId: null, versionNo: null, tariffName: "", serviceLevel: "D1", currency: "CZK", total: 9000, totalCzk: 9000, lines: [], ratedAt: "", overrideReason: "Agreed" },
     buyCzk: 9000,
   });
   const c = await consignmentRepository.insert(TX as never, {
@@ -153,6 +156,35 @@ describe("exceptions", () => {
     const { exceptionRepository } = await import("../repositories/exception.repository");
     expect(await exceptionRepository.claimsFor(COMPANY, [trip!.id])).toEqual([expect.objectContaining({ targetKind: "TRIP", amount: 1200, currency: "CZK" })]);
     expect(outboxOf("costs")).toEqual([]);
+  });
+
+  it("a claim must be in the currency of the haulier's price; a trip without a price has nothing to claim against (C15)", async () => {
+    const { c, trip } = await seed();
+    const e = await exceptionService.create(user, c.id, exception());
+    await expect(exceptionService.decide(manager, e.id, decide("CLAIM_HAULIER", { amount: 80, currency: "EUR" }))).rejects.toMatchObject({
+      code: "invalid_argument",
+      message: "Trip LCZ2026000001 is priced in CZK: give the claim in CZK",
+    });
+    store.trips.find((t) => t.id === trip!.id)!.buy = null;
+    await expect(exceptionService.decide(manager, e.id, decide("CLAIM_HAULIER"))).rejects.toMatchObject({ message: "Trip LCZ2026000001 has no price to claim against" });
+    expect(store.exceptions[0]).toMatchObject({ decision: "PENDING" });
+  });
+
+  it("a claim decided after the haulier's invoice was approved asks for a credit: an event and a notice in Needs attention (C15)", async () => {
+    const { c, trip } = await seed();
+    vi.mocked(haulierInvoiceRepository.targetUses).mockResolvedValue([{ targetKind: "TRIP", targetId: trip!.id, invoiceId: "inv-1", invoiceNumber: "FV2026-118", status: "APPROVED" }] as never);
+    const e = await exceptionService.create(user, c.id, exception());
+    await exceptionService.decide(manager, e.id, decide("CLAIM_HAULIER", { amount: 1200 }));
+    expect(eventsOf("haulier_credit_needed")).toEqual([expect.objectContaining({ payload: expect.objectContaining({ summary: expect.stringContaining("ask the haulier for a credit note") }) })]);
+    const d = await consignmentService.get(user, c.id);
+    expect(d.notices).toEqual([expect.objectContaining({ key: `claim:${e.id}`, code: "HAULIER_CREDIT" })]);
+    expect(d.needsAttention).toContain("Credit from haulier: claim of 1200 CZK on Trip LCZ2026000001 decided after invoice FV2026-118 was approved");
+    // A manager clears it once the credit note is in.
+    await expect(consignmentService.clearNotice(user, c.id, `claim:${e.id}`, "Credit note received")).rejects.toMatchObject({ code: "permission_denied" });
+    const cleared = await consignmentService.clearNotice(manager, c.id, `claim:${e.id}`, "Credit note DOB-7 received");
+    expect(cleared.notices).toEqual([]);
+    expect(cleared.needsAttention.some((r) => r.startsWith("Credit from haulier"))).toBe(false);
+    expect(eventsOf("notice_cleared")).toHaveLength(1);
   });
 
   it("charging the customer adds a selling line to the job: trucking:exception:<id>", async () => {

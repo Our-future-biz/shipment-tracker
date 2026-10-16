@@ -59,6 +59,12 @@ export type TruckingEventKind =
   | "internal_charged"
   | "internal_reversed"
   | "internal_month_closed"
+  // Trucking corrections (M): the job's department, a price change after the invoice, notices
+  | "department_changed"
+  | "department_change_ignored"
+  | "selling_difference_pushed"
+  | "haulier_credit_needed"
+  | "notice_cleared"
   // Haulier portal (customerId = the haulier; facts.portalUserId)
   | "portal_user_created"
   | "portal_user_reset"
