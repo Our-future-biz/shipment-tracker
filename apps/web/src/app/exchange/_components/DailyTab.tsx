@@ -33,6 +33,8 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
   const shift = (n: number) => setMonth(dayjs(`${month}-01`).add(n, "month").format("YYYY-MM"));
   const days = data?.days ?? [];
   const currencies = data?.currencies ?? [];
+  // ČNB stopped publishing these (BGN after 2025-12-31): later days have no rate for them
+  const retired = new Map((data?.retired ?? []).map((r) => [r.currency, r.lastFixingDate]));
   const chronological = [...days].reverse();
   const showRoe = days.some((d) => d.roePct !== 100);
 
@@ -85,9 +87,16 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
                     </td>
                     {currencies.map((c) => {
                       const r = d.rates.find((x) => x.currency === c);
+                      const lastFixing = retired.get(c);
                       return (
                         <td key={c} className={`${CELL} text-right tabular-nums ${quiet ? "text-slate-400" : "text-slate-900"}`}>
-                          {fmtRate(r?.rate)}
+                          {!r && lastFixing && d.date > lastFixing ? (
+                            <Tooltip title={`No longer published by ČNB — last fixing ${formatDate(lastFixing)}`}>
+                              <span className="text-slate-400 text-[12.5px]">not published</span>
+                            </Tooltip>
+                          ) : (
+                            fmtRate(r?.rate)
+                          )}
                         </td>
                       );
                     })}
@@ -108,6 +117,12 @@ export function DailyTab({ initialMonth }: { initialMonth: string }) {
             </tbody>
           </table>
         </div>
+      )}
+      {retired.size > 0 && (
+        <p className="text-[12.5px] text-slate-500 m-0">
+          No longer published by ČNB:{" "}
+          {[...retired].map(([c, last]) => `${c} (last fixing ${formatDate(last)})`).join(", ")}. They have no rate after that day.
+        </p>
       )}
       <p className="text-[12.5px] text-slate-400 m-0">
         A fixing applies to its day and any following weekend or public holiday (ČNB rule). Rates are CZK per 1 unit.

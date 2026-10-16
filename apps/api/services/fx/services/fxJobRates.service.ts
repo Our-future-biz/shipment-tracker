@@ -4,7 +4,7 @@ import { cnbRateRepository } from "../repositories/cnbRate.repository";
 import { jobRateRepository } from "../repositories/jobRate.repository";
 import type { LockedRates } from "../schemas/jobRate.schema";
 import { expectedLatestFixing, pragueToday } from "../lib/dates";
-import { resolveFixing } from "../lib/rates";
+import { ratesForDate } from "../lib/rates";
 import { directionOf, planJobRates } from "../lib/jobRates";
 import type { JobRates } from "../interfaces/interfaces";
 
@@ -23,22 +23,14 @@ interface DateRates {
   missing: boolean; // a fixing that should be stored isn't (import failed) — never lock on it
 }
 
-// Every ČNB currency's rate for `date`, with whether they can be locked.
+// Every ČNB currency's rate for `date`, with whether they can be locked. A currency ČNB no
+// longer publishes (BGN after 2025-12-31) has no rate and never holds the lock back.
 async function ratesOn(date: string): Promise<DateRates> {
-  const expected = expectedLatestFixing();
   const currencies = await cnbRateRepository.currencies();
   const rows = await cnbRateRepository.latestOnOrBefore(date, currencies);
-  const rates: LockedRates = {};
-  let final = rows.length > 0;
-  let missing = false;
-  for (const row of rows) {
-    const res = resolveFixing([row], date, expected);
-    if (!res) continue;
-    rates[row.currency] = { rate: res.rate, fixingDate: res.fixingDate };
-    if (res.provisional || res.missing) final = false;
-    missing ||= res.missing;
-  }
-  return { rates, final, missing };
+  const day = ratesForDate(rows, date, expectedLatestFixing());
+  const rates: LockedRates = Object.fromEntries(day.rates.map((r) => [r.currency, { rate: r.rate, fixingDate: r.fixingDate }]));
+  return { rates, final: day.rates.length > 0 && !day.provisional && !day.missing, missing: day.missing };
 }
 
 function toList(rates: LockedRates): JobRates["rates"] {

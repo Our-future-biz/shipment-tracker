@@ -4,7 +4,9 @@ import { getAuthData } from "~encore/auth";
 import { fxRatesService } from "../services/fxRates.service";
 import { startFxScheduler } from "../services/fxScheduler";
 import { fxJobRatesService } from "../services/fxJobRates.service";
-import type { DailyRow, FxAlertItem, FxOverview, JobRates, RatesOnDate, ImportRunItem, PeriodAverage, ResolvedRate, RoeChange } from "../interfaces/interfaces";
+import type {
+  DailyRow, FxAlertItem, FxOverview, JobRates, RatesOnDate, ImportRunItem, PeriodAverage, ResolvedRate, RetiredCurrencyItem, RoeChange,
+} from "../interfaces/interfaces";
 
 type IsoDate = string & MatchesRegexp<"^\\d{4}-\\d{2}-\\d{2}$">;
 
@@ -25,6 +27,7 @@ interface DailyResponse {
   month: string;
   currencies: string[];
   days: DailyRow[];
+  retired: RetiredCurrencyItem[]; // no longer published by ČNB by the end of the month
 }
 
 export const fxDaily = api(

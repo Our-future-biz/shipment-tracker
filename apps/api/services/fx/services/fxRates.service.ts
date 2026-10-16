@@ -7,11 +7,11 @@ import { cnbImportRunRepository } from "../repositories/cnbImportRun.repository"
 import { roeSettingRepository } from "../repositories/roeSetting.repository";
 import type { RoeSettingRecord } from "../schemas/roeSetting.schema";
 import { addDays, expectedLatestFixing, isCzechHoliday, isIsoDate, isWeekend, lastDayOfMonth, pragueToday } from "../lib/dates";
-import { averageByCurrency, perUnit, periodsOfYear, resolveFixing, round } from "../lib/rates";
+import { averageByCurrency, isRetired, perUnit, periodsOfYear, ratesForDate, resolveFixing, round } from "../lib/rates";
 import { openAlerts } from "./fxAlert.service";
 import type {
-  DailyRow, DayKind, FxAlertItem, FxOverview, ImportRunItem, PeriodAverage, RatesOnDate, ResolvedRate, RoeChange, RoeInfo, SyncStatus,
-  TodayRate,
+  DailyRow, DayKind, FxAlertItem, FxOverview, ImportRunItem, PeriodAverage, RatesOnDate, ResolvedRate, RetiredCurrencyItem, RoeChange, RoeInfo,
+  SyncStatus, TodayRate,
 } from "../interfaces/interfaces";
 
 // The currencies the company trades in. Every ČNB currency is stored; these are shown first.
@@ -108,19 +108,24 @@ export const fxRatesService = {
     };
   },
 
-  async daily(companyId: string, month: string, all: boolean): Promise<{ month: string; currencies: string[]; days: DailyRow[] }> {
+  async daily(
+    companyId: string, month: string, all: boolean,
+  ): Promise<{ month: string; currencies: string[]; days: DailyRow[]; retired: RetiredCurrencyItem[] }> {
     const first = `${month}-01`;
     const last = lastDayOfMonth(month);
     const today = pragueToday();
     const currencies = all ? await cnbRateRepository.currencies() : MAIN_CURRENCIES;
     // A week before the month, so its first days can carry the previous fixing.
-    const [rows, history] = await Promise.all([
+    const asOf = last < today ? last : today;
+    const [rows, history, latest] = await Promise.all([
       cnbRateRepository.between(addDays(first, -10), last, currencies),
       roeSettingRepository.history(companyId),
+      cnbRateRepository.latestOnOrBefore(asOf, currencies),
     ]);
     const byCurrency = new Map<string, typeof rows>();
     for (const r of rows) byCurrency.set(r.currency, [...(byCurrency.get(r.currency) ?? []), r]);
     const fixingNoByDate = new Map(rows.map((r) => [r.validDate, r.fixingNo]));
+    const fixingDates = [...fixingNoByDate.keys()].sort();
     const expected = expectedLatestFixing();
 
     const days: DailyRow[] = [];
@@ -133,13 +138,18 @@ export const fxRatesService = {
       else if (isCzechHoliday(date)) kind = "no_fixing";
       else kind = date <= expected ? "missing" : "pending";
 
+      const newest = fixingDates.filter((d) => d <= date).at(-1) ?? null;
       const dayRates = kind === "future" ? [] : currencies.flatMap((currency) => {
         const res = resolveFixing(byCurrency.get(currency) ?? [], date, expected);
-        return res ? [{ currency, rate: res.rate, fixingDate: res.fixingDate, carried: res.carried }] : [];
+        // a currency ČNB no longer publishes has no rate that day — never its old one carried on
+        return res && !isRetired(res.fixingDate, newest) ? [{ currency, rate: res.rate, fixingDate: res.fixingDate, carried: res.carried }] : [];
       });
       days.push({ date, kind, fixingNo: fixingNoByDate.get(date) ?? null, roePct: pctOn(history, date), rates: dayRates });
     }
-    return { month, currencies, days: days.reverse() };
+    // All currencies: one ČNB stopped publishing before the month has nothing to show in it.
+    const shown = all ? currencies.filter((c) => days.some((d) => d.rates.some((r) => r.currency === c))) : currencies;
+    const { retired } = ratesForDate(latest, asOf, expected);
+    return { month, currencies: shown, days: days.reverse(), retired };
   },
 
   async averages(year: number, all: boolean): Promise<{ year: number; currencies: string[]; periods: PeriodAverage[] }> {
@@ -150,7 +160,9 @@ export const fxRatesService = {
       .filter((p) => p.from <= today)
       .map((p) => ({ ...p, final: p.to < today, averages: averageByCurrency(rows, p.from, p.to) }))
       .filter((p) => p.averages.length > 0);
-    return { year, currencies, periods };
+    // All currencies: one ČNB stopped publishing before the year has no average in it.
+    const shown = all ? currencies.filter((c) => periods.some((p) => p.averages.some((a) => a.currency === c))) : currencies;
+    return { year, currencies: shown, periods };
   },
 
   async roeHistory(companyId: string): Promise<RoeChange[]> {
@@ -187,8 +199,14 @@ export const fxRatesService = {
     if (currency === "CZK") {
       return { currency, date, rate: 1, fixingDate: null, carried: false, provisional: false, missing: false, roePct, reason: "" };
     }
-    const [row] = await cnbRateRepository.latestOnOrBefore(date, [currency]);
+    const [[row], newest] = await Promise.all([cnbRateRepository.latestOnOrBefore(date, [currency]), cnbRateRepository.latestValidDate(date)]);
     const res = row ? resolveFixing([row], date, expectedLatestFixing()) : null;
+    if (res && isRetired(res.fixingDate, newest)) {
+      return {
+        currency, date, rate: null, fixingDate: null, carried: false, provisional: false, missing: false, roePct,
+        reason: `ČNB no longer publishes ${currency} (last fixing ${res.fixingDate})`,
+      };
+    }
     if (!res) {
       return {
         currency, date, rate: null, fixingDate: null, carried: false, provisional: false, missing: false, roePct,
@@ -205,22 +223,15 @@ export const fxRatesService = {
   async ratesOn(companyId: string, dateArg?: string): Promise<RatesOnDate> {
     const date = dateArg || pragueToday();
     if (!isIsoDate(date)) throw APIError.invalidArgument("Date must be a real date (YYYY-MM-DD)");
-    const expected = expectedLatestFixing();
     const [currencies, roe] = await Promise.all([cnbRateRepository.currencies(), roeSettingRepository.inForce(companyId, date)]);
     const rows = await cnbRateRepository.latestOnOrBefore(date, currencies);
-    const rates: RatesOnDate["rates"] = [];
-    let fixingDate: string | null = null;
-    let provisional = false;
-    let missing = false;
-    for (const row of rows) {
-      const res = resolveFixing([row], date, expected);
-      if (!res) continue;
-      rates.push({ currency: row.currency, rate: res.rate });
-      if (!fixingDate || res.fixingDate > fixingDate) fixingDate = res.fixingDate;
-      provisional ||= res.provisional;
-      missing ||= res.missing;
-    }
-    return { date, fixingDate, provisional, missing, roePct: roe ? Number(roe.pct) : DEFAULT_ROE_PCT, rates };
+    // A currency ČNB stopped publishing (BGN) is listed as retired: it never makes the date missing.
+    const { rates, retired, fixingDate, provisional, missing } = ratesForDate(rows, date, expectedLatestFixing());
+    return {
+      date, fixingDate, provisional, missing, roePct: roe ? Number(roe.pct) : DEFAULT_ROE_PCT,
+      rates: rates.map((r) => ({ currency: r.currency, rate: r.rate })),
+      retired,
+    };
   },
 
   /** Open "ČNB rates missing" alerts — only admins see them (they act on them). */

@@ -54,6 +54,56 @@ export function resolveFixing(rows: Fixing[], date: string, expectedLatest: stri
   };
 }
 
+/**
+ * Whether a currency whose newest fixing on or before a date is `fixingDate` is no longer
+ * published by ČNB on that date: a later fixing (`newestFixing`, the newest of any currency on
+ * or before the date) was imported without it — BGN after 2025-12-31, when Bulgaria adopted the
+ * euro. Its old rate is not the date's rate, and the import did not fail, so it is not missing.
+ */
+export function isRetired(fixingDate: string, newestFixing: string | null): boolean {
+  return newestFixing !== null && fixingDate < newestFixing;
+}
+
+export interface RetiredCurrency {
+  currency: string;
+  lastFixingDate: string;
+}
+
+export interface RatesForDate {
+  rates: (ResolvedFixing & { currency: string })[];
+  retired: RetiredCurrency[];
+  fixingDate: string | null; // the newest fixing used
+  provisional: boolean;
+  missing: boolean;
+}
+
+/**
+ * Every currency's rate for `date`. `latest` is each currency's newest fixing on or before the
+ * date (one row per currency, as the repository's latestOnOrBefore returns them). A currency ČNB
+ * has stopped publishing is listed in `retired`, without a rate, and never makes the date
+ * provisional or missing — only the currencies still published decide that.
+ */
+export function ratesForDate(latest: Fixing[], date: string, expectedLatest: string): RatesForDate {
+  const usable = latest.filter((r) => r.validDate <= date);
+  const newest = usable.reduce<string | null>((max, r) => (!max || r.validDate > max ? r.validDate : max), null);
+  const out: RatesForDate = { rates: [], retired: [], fixingDate: null, provisional: false, missing: false };
+  for (const row of usable) {
+    if (isRetired(row.validDate, newest)) {
+      out.retired.push({ currency: row.currency, lastFixingDate: row.validDate });
+      continue;
+    }
+    const res = resolveFixing([row], date, expectedLatest);
+    if (!res) continue;
+    out.rates.push({ currency: row.currency, ...res });
+    if (!out.fixingDate || res.fixingDate > out.fixingDate) out.fixingDate = res.fixingDate;
+    out.provisional ||= res.provisional;
+    out.missing ||= res.missing;
+  }
+  out.rates.sort((a, b) => a.currency.localeCompare(b.currency));
+  out.retired.sort((a, b) => a.currency.localeCompare(b.currency));
+  return out;
+}
+
 // The ROE % is applied to an amount already converted at the raw ČNB rate, never folded
 // into a stored rate: converted × pct / 100 is right in every direction, while dividing
 // by an "adjusted rate" would give the customer a discount.

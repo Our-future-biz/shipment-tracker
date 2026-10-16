@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyRoe, averageByCurrency, periodsOfYear, resolveFixing, type Fixing } from "../lib/rates";
+import { applyRoe, averageByCurrency, isRetired, periodsOfYear, ratesForDate, resolveFixing, type Fixing } from "../lib/rates";
 import { expectedLatestFixing, isCzechHoliday, isFixingDay, pragueToday, previousFixingDay, previousWeekday } from "../lib/dates";
 import { parseRates, publicImportError } from "../lib/cnb";
 
@@ -49,6 +49,42 @@ describe("resolveFixing", () => {
   it("divides by the quoted amount (JPY per 100)", () => {
     const jpy: Fixing[] = [{ validDate: "2026-10-09", currency: "JPY", amount: 100, rate: 15.4 }];
     expect(resolveFixing(jpy, "2026-10-09", "2026-10-14")?.rate).toBeCloseTo(0.154, 6);
+  });
+});
+
+describe("ratesForDate", () => {
+  const fix = (currency: string, validDate: string, rate: number): Fixing => ({ validDate, currency, amount: 1, rate });
+  // Bulgaria adopted the euro: ČNB's last BGN fixing is Wed 31 Dec 2025. EUR and USD go on.
+  const bgn = fix("BGN", "2025-12-31", 12.4);
+
+  it("lists a currency ČNB stopped publishing as retired, without a rate, and the date is not missing", () => {
+    const day = ratesForDate([bgn, fix("EUR", "2026-10-13", 24.4), fix("USD", "2026-10-13", 21.1)], "2026-10-13", "2026-10-13");
+    expect(day).toMatchObject({ fixingDate: "2026-10-13", provisional: false, missing: false });
+    expect(day.rates.map((r) => [r.currency, r.rate])).toEqual([["EUR", 24.4], ["USD", 21.1]]);
+    expect(day.retired).toEqual([{ currency: "BGN", lastFixingDate: "2025-12-31" }]);
+  });
+
+  it("still marks the date missing when a published currency's fixing was not imported", () => {
+    // Tuesday 13 Oct was never imported: EUR and USD stop at Monday's fixing, BGN stays retired
+    const day = ratesForDate([bgn, fix("EUR", "2026-10-12", 24.4), fix("USD", "2026-10-12", 21.1)], "2026-10-13", "2026-10-14");
+    expect(day).toMatchObject({ fixingDate: "2026-10-12", missing: true });
+    expect(day.retired.map((r) => r.currency)).toEqual(["BGN"]);
+  });
+
+  it("keeps today before publication provisional, not retired", () => {
+    const day = ratesForDate([fix("EUR", "2026-10-12", 24.4), fix("USD", "2026-10-12", 21.1)], "2026-10-13", "2026-10-12");
+    expect(day).toMatchObject({ provisional: true, missing: false, retired: [] });
+    expect(day.rates).toHaveLength(2);
+  });
+
+  it("uses a retired currency's fixing for dates it still covers", () => {
+    // Thu 1 Jan 2026 is a public holiday: the 31 Dec fixing (BGN's last) is still that day's rate
+    const day = ratesForDate([bgn, fix("EUR", "2025-12-31", 24.3)], "2026-01-01", "2026-10-13");
+    expect(day.rates.map((r) => r.currency)).toEqual(["BGN", "EUR"]);
+    expect(day).toMatchObject({ missing: false, retired: [] });
+    expect(isRetired("2025-12-31", "2026-01-02")).toBe(true);
+    expect(isRetired("2025-12-31", "2025-12-31")).toBe(false);
+    expect(isRetired("2025-12-31", null)).toBe(false);
   });
 });
 

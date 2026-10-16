@@ -164,4 +164,11 @@ export interface RatesOnDate {
   missing: boolean;
   roePct: number;
   rates: { currency: string; rate: number }[];
+  /** Currencies ČNB no longer publishes on the date (BGN after 2025-12-31): no rate, not missing */
+  retired: RetiredCurrencyItem[];
+}
+
+export interface RetiredCurrencyItem {
+  currency: string;
+  lastFixingDate: string; // its last ČNB fixing
 }

@@ -18,8 +18,10 @@ class CnbRateRepository {
     return added;
   }
 
-  async latestValidDate(): Promise<string | null> {
-    const [row] = await db.select({ d: max(cnbRateTable.validDate) }).from(cnbRateTable);
+  // The newest fixing stored (on or before `date` when given).
+  async latestValidDate(date?: string): Promise<string | null> {
+    const query = db.select({ d: max(cnbRateTable.validDate) }).from(cnbRateTable);
+    const [row] = await (date ? query.where(lte(cnbRateTable.validDate, date)) : query);
     return row?.d ?? null;
   }
 

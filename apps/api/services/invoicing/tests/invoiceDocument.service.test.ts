@@ -70,7 +70,7 @@ const profile = {
   bankAccounts: [{ currency: "CZK", bankName: "B", accountNumber: "1/0800", iban: "", swift: "" }], defaultDueDays: 14, footerNote: "",
 };
 // ČNB rates valid on the DUZP, as the fx service returns them
-const cnb = { date: "2026-10-14", fixingDate: "2026-10-13", provisional: false, missing: false, roePct: 100, rates: [{ currency: "EUR", rate: 25 }, { currency: "USD", rate: 22 }] };
+const cnb = { date: "2026-10-14", fixingDate: "2026-10-13", provisional: false, missing: false, roePct: 100, rates: [{ currency: "EUR", rate: 25 }, { currency: "USD", rate: 22 }], retired: [] };
 const sellRow = (over: Record<string, unknown>) => ({
   id: "s1", category: "Ocean freight", qty: "1.00", amount: "1000.00", currency: "EUR", invoice: true, vatCode: null, ...over,
 });
@@ -145,6 +145,33 @@ describe("ČNB rates", () => {
     expect(p.problems).toContain("Today's ČNB rate is imported at 15:00 (ČNB publishes about 14:30) — issue the invoice after that");
     const future = await invoiceDocumentService.preview(SHIPMENT, COMPANY, { duzp: "2999-01-01" });
     expect(future.problems).toContain("DUZP is in the future — the ČNB rate for it is not known yet");
+  });
+
+  // Bulgaria adopted the euro: ČNB's last BGN fixing is 2025-12-31, fxRatesOn lists it as retired.
+  const withBgnRetired = { ...cnb, retired: [{ currency: "BGN", lastFixingDate: "2025-12-31" }] };
+
+  it("issues an EUR / CZK invoice while a currency ČNB no longer publishes is retired", async () => {
+    fxClient.fxRatesOn.mockResolvedValue(withBgnRetired);
+    settings.getByShipmentId.mockResolvedValue({ billingCurrency: "EUR" });
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, { duzp: "2026-10-13" });
+    expect(p.problems).toEqual([]);
+    await invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { duzp: "2026-10-13" });
+    expect(repo.issue).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a line in a currency ČNB no longer publishes, saying so", async () => {
+    fxClient.fxRatesOn.mockResolvedValue(withBgnRetired);
+    selling.listByShipmentId.mockResolvedValue([sellRow({}), sellRow({ id: "s2", amount: "500.00", currency: "BGN" })]);
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, { duzp: "2026-10-13" });
+    expect(p.problems).toEqual(["ČNB no longer publishes BGN (last fixing 2025-12-31) — change the currency of the BGN selling rows"]);
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, { duzp: "2026-10-13" })).rejects.toThrow(/no longer publishes BGN/);
+    expect(repo.issue).not.toHaveBeenCalled();
+  });
+
+  it("still refuses when a published currency's fixing was not imported, BGN retired or not", async () => {
+    fxClient.fxRatesOn.mockResolvedValue({ ...withBgnRetired, missing: true });
+    const p = await invoiceDocumentService.preview(SHIPMENT, COMPANY, { duzp: "2026-10-13" });
+    expect(p.problems).toContainEqual(expect.stringMatching(/have not been imported yet/));
   });
 
   it("stores the ČNB fixing, source and ROE % on the issued invoice", async () => {

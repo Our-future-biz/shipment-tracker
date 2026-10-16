@@ -79,7 +79,9 @@ async function ratesForDuzp(duzp: string, today: string) {
   // a fixing that should exist for the tax date was not imported: an older one would be the wrong tax rate
   else if (r.missing) problem = "ČNB rates for the tax date have not been imported yet — run Sync now on the Exchange page";
   else if (!r.fixingDate) problem = "No ČNB rates are stored — check the Exchange page";
-  return { rates, fixingDate: r.fixingDate, roePct: r.roePct, problem };
+  // currencies ČNB no longer publishes (BGN after 2025-12-31): only a line in one is refused
+  const retired = new Map(r.retired.map((x) => [x.currency, x.lastFixingDate]));
+  return { rates, fixingDate: r.fixingDate, roePct: r.roePct, retired, problem };
 }
 
 const supplierParty = (s: SupplierSnapshot): InvoicePartyItem => ({
@@ -195,7 +197,12 @@ async function loadContext(shipmentId: string, companyId: string, params: IssueP
     tradeDirection: shipment.tradeDirection,
     vatPayer: profile?.vatPayer ?? true,
   });
-  if (calc.missingCurrencies.length) problems.push(`ČNB publishes no rate for ${calc.missingCurrencies.join(", ")}`);
+  for (const c of calc.missingCurrencies) {
+    const last = picked.retired.get(c);
+    problems.push(last
+      ? `ČNB no longer publishes ${c} (last fixing ${last}) — change the currency of the ${c} selling rows`
+      : `ČNB publishes no rate for ${c}`);
+  }
   if (calc.lines.length === 0) {
     problems.push(alreadyInvoiced.size ? "Every ticked selling row is invoiced already" : "Tick at least one selling row for Invoice");
   }

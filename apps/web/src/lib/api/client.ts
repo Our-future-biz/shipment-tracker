@@ -4858,6 +4858,7 @@ export namespace controllers {
         month: string
         currencies: string[]
         days: interfaces.DailyRow[]
+        retired: interfaces.RetiredCurrencyItem[]
     }
 
     export interface DeleteBuyingResponse {
@@ -12318,6 +12319,10 @@ export namespace interfaces {
             currency: string
             rate: number
         }[]
+        /**
+         * Currencies ČNB no longer publishes on the date (BGN after 2025-12-31): no rate, not missing
+         */
+        retired: RetiredCurrencyItem[]
     }
 
     export interface ResolvedRate {
@@ -12334,6 +12339,11 @@ export namespace interfaces {
 
         roePct: number
         reason: string
+    }
+
+    export interface RetiredCurrencyItem {
+        currency: string
+        lastFixingDate: string
     }
 
     /**
