@@ -35,6 +35,7 @@ import { customers, quotes, shipments } from "~encore/clients";
 import { consignmentService, type ConsignmentCreateInput } from "../services/consignment.service";
 import { eurRate, rateService } from "../services/rate.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
+import { recordSellingDifferences } from "../services/sellingDifference.service";
 import type { PricedSide, RateLevelResult, RateResponse } from "../interfaces/interfaces";
 import type { TruckingConsignmentRecord } from "../schemas/truckingConsignment.schema";
 import { COMPANY, CUSTOMER, HAULIER, SERVICE_USER, SHIPMENT, eventsOf, load, manager, outboxOf, resetStore, stop, store, tripRepository, user, TX } from "./truckingFakes";
@@ -203,7 +204,10 @@ describe("create and price sources", () => {
       customerId: CUSTOMER,
       status: "quoted",
       effectiveStatus: "quoted",
+      validUntil: "2026-10-31",
+      roadMargin: { needsApproval: false },
       data: {
+        road: { fromPostcode: "110 00", toPostcode: "602 00", scope: "FTL" },
         roadPricing: {
           ratedAt: "2026-10-10T09:00:00.000Z",
           serviceLevel: "D2",
@@ -211,8 +215,8 @@ describe("create and price sources", () => {
           buy: { haulierCustomerId: HAULIER, haulierName: "Bravo", tariffVersionId: "vb", versionNo: 1, currency: "CZK", total: 11000, totalCzk: 11000, preferred: true },
         },
         sellingLines: [
-          { chargeCode: "road_freight", description: "Freight", qty: 1, unit: "trip", unitPrice: 15000, amount: 15000, tariffRef: "trucking:v1:D2" },
-          { chargeCode: "customs", description: "Customs", amount: 900 },
+          { chargeCode: "road_freight", description: "Freight", qty: 1, unit: "trip", unitPrice: 15000, amount: 15000, currency: "CZK", tariffRef: "trucking:v1:D2" },
+          { chargeCode: "customs", description: "Customs", amount: 900, currency: "CZK" },
         ],
       },
       ...over,
@@ -236,6 +240,60 @@ describe("create and price sources", () => {
     await expect(consignmentService.create(user, input(asQuote))).rejects.toMatchObject({ message: "Quote QCZ20261010001 is lost" });
     vi.mocked(quotes.salesQuoteGet).mockResolvedValueOnce(quote({ data: {} }) as never);
     await expect(consignmentService.create(user, input(asQuote))).rejects.toMatchObject({ code: "failed_precondition" });
+  });
+
+  describe("only a quote that may price it (decision 10, C9)", () => {
+    const asQuote = { quoteNumber: "QCZ20261010001", serviceLevel: null, price: { source: "QUOTE" as const } };
+    const refused = async (over: Record<string, unknown>, message: string | RegExp) => {
+      vi.mocked(quotes.salesQuoteGet).mockResolvedValueOnce(quote(over) as never);
+      await expect(consignmentService.create(user, input(asQuote))).rejects.toMatchObject({ message: typeof message === "string" ? message : expect.stringMatching(message) });
+    };
+    const data = quote().quote.data;
+
+    it("refuses a draft, an expired one, an unapproved low margin, another lane or scope", async () => {
+      await refused({ status: "draft", effectiveStatus: "draft" }, /has not been sent to the customer/);
+      await refused({ effectiveStatus: "expired" }, /is no longer valid/);
+      await refused({ validUntil: "2026-10-14" }, "Quote QCZ20261010001 is no longer valid (valid until 2026-10-14)");
+      await refused({ roadMargin: { needsApproval: true } }, "Quote QCZ20261010001 has a margin below the floor that no manager approved");
+      await refused({ data: { ...data, road: { ...data.road, toPostcode: "700 30" } } }, /must have the same pick-up and delivery postcodes/);
+      await refused({ data: { ...data, road: { ...data.road, scope: "LTL" } } }, "Quote QCZ20261010001 is priced for LTL, not FTL");
+      await refused({ data: { ...data, road: undefined } }, /names no lane/);
+      expect(store.consignments).toEqual([]);
+    });
+
+    it("a won quote prices it; a second consignment from the same quote is refused, a cancelled one frees it", async () => {
+      vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote({ status: "won", effectiveStatus: "won" }) as never);
+      const first = await consignmentService.create(user, input(asQuote));
+      await expect(consignmentService.create(user, input(asQuote))).rejects.toMatchObject({ code: "already_exists", message: `Quote QCZ20261010001 already prices consignment ${first.ref}: one consignment per quote` });
+      // Repricing the same consignment from its own quote is not a second use.
+      const again = await consignmentService.update(user, first.id, { ...input(asQuote), version: store.consignments[0]!.version, reprice: true });
+      expect(again.sell).toMatchObject({ source: "QUOTE", total: 15000 });
+      await consignmentService.cancel(manager, first.id, "Booked twice");
+      expect((await consignmentService.create(user, input(asQuote))).sell).toMatchObject({ source: "QUOTE" });
+    });
+
+    it("takes the total from the trucking lines as they stand (an amount edited by hand), not the tariff's", async () => {
+      const edited = { ...data, sellingLines: [
+        { chargeCode: "road_freight", description: "Freight", qty: 1, unit: "trip", unitPrice: 15000, amount: 13500, currency: "CZK", tariffRef: "trucking:v1:D2" },
+        { chargeCode: "road_freight", description: "Fuel surcharge", qty: 1, unit: "", unitPrice: 1200, amount: 1200, currency: "CZK", tariffRef: "trucking:v1:D2" },
+        { chargeCode: "customs", description: "Customs", amount: 900, currency: "CZK" },
+      ] };
+      vi.mocked(quotes.salesQuoteGet).mockResolvedValue(quote({ data: edited }) as never);
+      const d = await consignmentService.create(user, input(asQuote));
+      expect(d.sell).toMatchObject({ total: 14700, totalCzk: 14700, currency: "CZK" });
+      expect(d.sell!.lines.map((l) => l.amount)).toEqual([13500, 1200]);
+      expect(outboxOf("costs")[0]!.payload).toMatchObject({ selling: [expect.objectContaining({ amount: 13500, currency: "CZK" }), expect.objectContaining({ amount: 1200 })] });
+    });
+
+    it("keeps the lines' own currency (EUR at the quote's rate) and refuses mixed currencies", async () => {
+      const eur = { ...data, roadPricing: { ...data.roadPricing, sell: { ...data.roadPricing.sell, currency: "EUR", total: 600, totalCzk: 15000 } }, sellingLines: [
+        { chargeCode: "road_freight", description: "Freight", qty: 1, unit: "trip", unitPrice: 600, amount: 580, currency: "EUR", tariffRef: "trucking:v1:D2" },
+      ] };
+      const mixed = { ...data, sellingLines: [...data.sellingLines, { chargeCode: "road_freight", description: "Toll", amount: 40, currency: "EUR", tariffRef: "trucking:v1:D2" }] };
+      await refused({ data: mixed }, "Quote QCZ20261010001 sells road transport in CZK and EUR: one currency only");
+      vi.mocked(quotes.salesQuoteGet).mockResolvedValueOnce(quote({ data: eur }) as never);
+      expect((await consignmentService.create(user, input(asQuote))).sell).toMatchObject({ currency: "EUR", total: 580, totalCzk: 14500 });
+    });
   });
 
   it("takes an agreed price in EUR at the ČNB rate, with the reason", async () => {
@@ -344,7 +402,7 @@ describe("cancel and margin approval", () => {
     expect(store.trips[0]!.status).toBe("CANCELLED");
     expect(store.links[0]!.revokedAt).not.toBeNull();
     expect(outboxOf("costs").map((r) => r.payload)).toEqual([
-      { sourceRef: `trucking:consignment:${c.id}`, buying: [], selling: [] },
+      { sourceRef: `trucking:consignment:${c.id}`, buying: [], selling: [], differenceLabel: `${c.ref} · Price change after invoice` },
       { sourceRef: `trucking:trip:${trip!.id}`, buying: [], selling: [] },
     ]);
   });
@@ -468,5 +526,34 @@ describe("list", () => {
     await tripRepository.update(TX as never, COMPANY, trip!.id, { tractorPlate: "1AB2345", driverName: "Petr Novák" } as never);
     const [item] = (await consignmentService.list(user, { shipmentId: SHIPMENT })).consignments.filter((x) => x.id === c.id);
     expect(item).toMatchObject({ pickedUpAt: "2026-10-15T06:00:00.000Z", deliveredAt: null, tractorPlate: "1AB2345", trailerPlate: "", driverName: "Petr Novák", driverPhone: "" });
+  });
+});
+
+describe("a price change after the customer invoice (decision 9, C8)", () => {
+  it("records each difference line Invoicing added once: an event and a notice in Needs attention until a manager clears it", async () => {
+    const { c } = await seed();
+    const diff = { sourceRef: `trucking:consignment:${c.id}:diff:1`, currency: "CZK", amount: 2240 };
+    expect(await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [diff])).toBe(1);
+    // The push retried (or the next push answering the same line): nothing more.
+    expect(await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [diff])).toBe(0);
+    expect(await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [])).toBe(0);
+    expect(eventsOf("selling_difference_pushed")).toEqual([
+      expect.objectContaining({ payload: expect.objectContaining({ summary: 'The customer invoice was issued already: the price change of +2 240 CZK was added to job CZ00000042 as "Price change after invoice"' }) }),
+    ]);
+    const d = await consignmentService.get(user, c.id);
+    expect(d.needsAttention).toContain("Price change after invoice: +2 240 CZK added to job CZ00000042 as its own line — invoice it");
+    expect((await consignmentService.list(user, { view: "attention" })).consignments.map((x) => x.id)).toEqual([c.id]);
+    await consignmentService.clearNotice(manager, c.id, `${diff.sourceRef}|CZK`, "Invoiced on 2026100123");
+    expect((await consignmentService.get(user, c.id)).needsAttention.some((r) => r.startsWith("Price change after invoice"))).toBe(false);
+  });
+
+  it("a cancel after invoicing: the negative difference keeps the cancelled consignment in Needs attention", async () => {
+    const { c } = await seed();
+    await consignmentService.cancel(manager, c.id, "Customer cancelled");
+    expect(outboxOf("costs")[0]!.payload).toMatchObject({ selling: [], differenceLabel: `${c.ref} · Price change after invoice` });
+    await recordSellingDifferences({ companyId: COMPANY, consignmentId: c.id }, [{ sourceRef: `trucking:consignment:${c.id}:diff:1`, currency: "CZK", amount: -12000 }]);
+    const { consignments, counts } = await consignmentService.list(user, { view: "attention" });
+    expect(consignments.map((x) => [x.status, x.needsAttention])).toEqual([["CANCELLED", ["Price change after invoice: −12 000 CZK added to job CZ00000042 as its own line — invoice it as a credit note"]]]);
+    expect(counts.attention).toBe(1);
   });
 });

@@ -24,6 +24,9 @@ async function allShipments(): Promise<ReportShipment[]> {
         estimatedDeparture: s.estimatedDeparture,
         actualArrival: s.actualArrival,
         actualDeparture: s.actualDeparture,
+        department: s.department,
+        actualDeliveryDate: s.actualDeliveryDate,
+        plannedDeliveryDate: s.plannedDeliveryDate,
       });
     }
     if (res.data.length < PAGE || out.length >= res.pagination.total) return out;

@@ -103,9 +103,11 @@ export interface CoverageGap {
 /** The Trucking department's result for the period (internal billing included). */
 export interface DepartmentResult {
   externalSellCzk: number;
+  /** Delivery exceptions charged to Road customers (CZK; EUR at the delivery day's ČNB rate) */
+  exceptionChargesCzk: number;
   internalChargesCzk: number;
   haulierCostCzk: number;
-  /** externalSell + internalCharges − haulierCost */
+  /** externalSell + exceptionCharges + internalCharges − haulierCost */
   resultCzk: number;
   internalByDepartment: { department: string; amountCzk: number; consignments: number }[];
 }

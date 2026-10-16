@@ -127,6 +127,7 @@ export async function buildReportWorkbook(report: TruckingReport): Promise<Buffe
     ],
     [
       ["External sell (Road)", d.externalSellCzk, null],
+      ["+ Exceptions charged to customers", d.exceptionChargesCzk, null],
       ["+ Internal charges", d.internalChargesCzk, null],
       ["− Haulier cost", d.haulierCostCzk, null],
       ["= Result", d.resultCzk, null],
@@ -135,7 +136,7 @@ export async function buildReportWorkbook(report: TruckingReport): Promise<Buffe
       ...d.internalByDepartment.map((x) => [x.department, x.amountCzk, x.consignments]),
     ],
   );
-  dep.getRow(5).font = { bold: true };
+  dep.getRow(6).font = { bold: true };
   dep.addRow([]);
   dep.addRow([period]);
 

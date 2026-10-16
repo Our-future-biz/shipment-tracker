@@ -126,9 +126,23 @@ export function parseShipmentDate(raw: string | null | undefined): string {
   return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString().slice(0, 10);
 }
 
+/** The department of the jobs Trucking runs (domestic road jobs). */
+export const ROAD_DEPARTMENT = "Road Department";
+
+/**
+ * Whether a job is dated by its delivery rather than by arrival or departure: a Domestic job or
+ * one of the Road Department (owner decision: a trucking job's DUZP is its delivery date).
+ */
+export function isDeliveryDated(shipment: { tradeDirection: string; department?: string | null }): boolean {
+  const direction = (shipment.tradeDirection ?? "").trim().toLowerCase();
+  const department = (shipment.department ?? "").trim().toLowerCase();
+  return direction === "domestic" || department === ROAD_DEPARTMENT.toLowerCase();
+}
+
 /**
  * DUZP default = the tax date (owner decision, 14 Oct 2026): ATA for imports, ATD for
- * exports; until that is known ETA / ETD; else today.
+ * exports; until that is known ETA / ETD; else today. Domestic and Road Department jobs: the
+ * actual delivery date, else the planned one, else today.
  */
 export function defaultDuzp(
   shipment: {
@@ -137,9 +151,15 @@ export function defaultDuzp(
     estimatedDeparture: string | null;
     actualArrival?: string | null;
     actualDeparture?: string | null;
+    department?: string | null;
+    actualDeliveryDate?: string | null;
+    plannedDeliveryDate?: string | null;
   },
   today: string,
 ): string {
+  if (isDeliveryDated(shipment)) {
+    return parseShipmentDate(shipment.actualDeliveryDate) || parseShipmentDate(shipment.plannedDeliveryDate) || today;
+  }
   const isExport = (shipment.tradeDirection ?? "").trim().toLowerCase() === "export";
   const actual = parseShipmentDate(isExport ? shipment.actualDeparture : shipment.actualArrival);
   return actual || parseShipmentDate(isExport ? shipment.estimatedDeparture : shipment.estimatedArrival) || today;

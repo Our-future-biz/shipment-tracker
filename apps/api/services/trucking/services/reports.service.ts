@@ -35,7 +35,7 @@ class ReportsService {
     const settings = await settingsService.get(companyId);
     const scope: ReportScope = { companyId, period, factors: settings.factors, floor: settings.marginFloor };
     const r = reportsRepository;
-    const [delivered, margins, podPairs, perf, costs, failedReasons, podOpen, fillRows, exceptions, claims, invoicesBlocked, invoiceDifferences, internal, gaps, zoneOf] =
+    const [delivered, margins, podPairs, perf, costs, failedReasons, podOpen, fillRows, exceptions, claims, invoicesBlocked, invoiceDifferences, internal, charged, gaps, zoneOf] =
       await Promise.all([
         r.deliveredGroups(scope),
         r.marginGroups(scope),
@@ -50,13 +50,14 @@ class ReportsService {
         r.invoicesBlocked(companyId),
         r.invoiceDifferences(companyId, period),
         r.internalGroups(companyId, period),
+        r.chargedExceptions(companyId, period),
         this.gaps(companyId, period),
         this.zones(companyId, today),
       ]);
 
     const haulierIds = [...new Set([...perf, ...costs, ...podOpen, ...claims, ...invoicesBlocked, ...invoiceDifferences].map((x) => x.haulierId).filter((x): x is string => !!x))];
     const firstDay = [period.from, ...podPairs.map((p) => p.deliveredDay), ...podOpen.map((p) => p.deliveredDay)].sort()[0]!;
-    const [holidays, hauliers, eur] = await Promise.all([czHolidays(companyId, firstDay, today), this.hauliers(companyId, haulierIds, today), this.eurRates([...claims, ...invoiceDifferences])]);
+    const [holidays, hauliers, eur] = await Promise.all([czHolidays(companyId, firstDay, today), this.hauliers(companyId, haulierIds, today), this.eurRates([...claims, ...invoiceDifferences, ...charged])]);
 
     const levelLabels = new Map(settings.serviceLevels.map((l) => [l.code as string, l.label]));
     const fillTrips: FillTrip[] = fillRows.map((t) => ({ kind: t.kind, ldm: t.ldm, kg: t.kg, capacity: capacityOf(settings, t.vehicleTypeCode) }));
@@ -67,7 +68,7 @@ class ReportsService {
       ...marginTables(margins, levelLabels, zoneOf),
       hauliers: haulierScores({ perf, costs, podPairs, claims, invoicesBlocked, invoiceDifferences, holidays, eur, names: hauliers.names, statuses: hauliers.statuses }),
       coverageGaps: gaps,
-      department: departmentResult(delivered, internal),
+      department: departmentResult(delivered, internal, charged, eur),
     };
   }
 

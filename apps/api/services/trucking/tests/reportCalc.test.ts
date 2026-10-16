@@ -350,6 +350,7 @@ describe("department result", () => {
     );
     expect(d).toEqual({
       externalSellCzk: 50000,
+      exceptionChargesCzk: 0,
       internalChargesCzk: 12000.5,
       haulierCostCzk: 38000,
       resultCzk: 24000.5,
@@ -358,6 +359,16 @@ describe("department result", () => {
         { department: "Air", amountCzk: 3000, consignments: 2 },
       ],
     });
+  });
+
+  it("adds the exceptions charged to Road customers, EUR at the delivery day's rate (C19)", () => {
+    const charged = [
+      { haulierId: "", currency: "CZK", day: "2026-10-05", n: 2, amount: 1500 },
+      { haulierId: "", currency: "EUR", day: "2026-10-06", n: 1, amount: 40 },
+      { haulierId: "", currency: "EUR", day: "2026-10-07", n: 1, amount: 99 },
+    ];
+    const eur = new Map<string, number | null>([["2026-10-06", 25], ["2026-10-07", null]]);
+    expect(departmentResult([group({ sellCzk: 10000, costCzk: 6000 })], [], charged, eur)).toMatchObject({ exceptionChargesCzk: 2500, resultCzk: 6500 });
   });
 
   it("counts an adjustment that takes a charge back (negative amount)", () => {

@@ -30,7 +30,7 @@ class InternalRepository {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`trucking-internal:${companyId}`}))`);
   }
 
-  /** The next ICZ statement number for the Prague year (the shared counter row stays locked until the transaction ends). */
+  /** The next ICZ statement number for the year of the billed month (the shared counter row stays locked until the transaction ends). */
   async allocateStatementNumber(tx: Tx, companyId: string, year: number): Promise<string> {
     const res = await tx.execute<{ last: number }>(sql`
       INSERT INTO ${truckingRefCounterTable} (company_id, sequence, year, last) VALUES (${companyId}, 'ICZ', ${year}, 1)

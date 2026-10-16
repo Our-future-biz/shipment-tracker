@@ -93,9 +93,14 @@ describe("roadMargin", () => {
     expect(roadMargin({ serviceType: "Road" }, ctx())).toMatchObject({ marginCzk: null, needsApproval: false });
   });
 
-  it("takes qty × unit price when both are set, else the amount", () => {
+  it("takes the amount, also when it was edited by hand; qty × unit price only without an amount (C4)", () => {
     const selling = [line(999, "CZK", { qty: 3, unitPrice: 1000 }), line(500, "CZK", { qty: 2 }), line(250, "CZK", { unitPrice: 7 })];
-    expect(roadMargin(road(selling, []), ctx())).toMatchObject({ sellingCzk: 3750 });
+    expect(roadMargin(road(selling, []), ctx())).toMatchObject({ sellingCzk: 1749 });
+    expect(roadMargin(road([{ currency: "CZK", qty: 3, unitPrice: 1000 }], []), ctx())).toMatchObject({ sellingCzk: 3000 });
+    expect(roadMargin(road([{ currency: "CZK", qty: 3, unitPrice: 1000, amount: "" }], []), ctx())).toMatchObject({ sellingCzk: 3000 });
+    // A rep cuts the tariff's 10 000 to 6 000 by hand: the gate judges the 6 000.
+    const cut = road([line(6000, "CZK", { qty: 1, unitPrice: 10000, tariffRef: "trucking:v1:D1" })], [line(5800)]);
+    expect(roadMargin(cut, ctx())).toMatchObject({ sellingCzk: 6000, marginCzk: 200, belowFloor: true, needsApproval: true });
     // An amount the browser saved as text still counts.
     expect(roadMargin(road([line("120" as unknown as number)], []), ctx())).toMatchObject({ sellingCzk: 120 });
   });

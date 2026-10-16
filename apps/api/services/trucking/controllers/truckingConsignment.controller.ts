@@ -169,3 +169,35 @@ export const truckingConsignmentVoidStamp = api(
     return { consignment: await consignmentService.voidStamp(requireRole(), id, kind as StampKind, reason) };
   },
 );
+
+interface TruckingConsignmentClearNoticeRequest {
+  id: string;
+  /** The notice's key (ConsignmentDetail.notices) */
+  key: string;
+  /** How it was dealt with */
+  reason: string;
+}
+
+// Clears a notice (manager, with how it was dealt with): it leaves Needs attention; the event stays.
+export const truckingConsignmentClearNotice = api(
+  { expose: true, auth: true, method: "POST", path: "/trucking/consignments/:id/notices/clear" },
+  async ({ id, key, reason }: TruckingConsignmentClearNoticeRequest): Promise<TruckingConsignmentResponse> => {
+    return { consignment: await consignmentService.clearNotice(requireRole(), id, key, reason) };
+  },
+);
+
+interface TruckingDepartmentRefreshResponse {
+  /** Consignments looked at: not cancelled, before the POD or without a department */
+  checked: number;
+  /** Consignments whose department (and side) was written */
+  written: number;
+}
+
+// Manager: refreshes every consignment's department from Shipments (the one-off backfill of
+// consignments made before departments were recorded; safe to run again).
+export const truckingDepartmentRefresh = api(
+  { expose: true, auth: true, method: "POST", path: "/trucking/departments/refresh" },
+  async (): Promise<TruckingDepartmentRefreshResponse> => {
+    return consignmentService.refreshAllDepartments(requireRole());
+  },
+);

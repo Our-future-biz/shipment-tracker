@@ -10,6 +10,7 @@ import type {
   LoadInput,
   PricedSide,
   PriceSnapshot,
+  ConsignmentNotice,
   ServiceLevelCode,
   Stop,
   TripKind,
@@ -110,10 +111,12 @@ export const truckingConsignmentTable = pgTable(
     cancelledBy: text("cancelled_by"),
     cancelReason: text("cancel_reason"),
     createdByUserId: uuid("created_by_user_id"),
-    /** Phase 6: the job's department (Shipments), refreshed on every edit */
+    /** Phase 6: the job's department (Shipments), refreshed until the POD is in (then frozen) */
     department: text("department").notNull().default(""),
-    /** Phase 6: the job is another department's: billed internally (lib/internalRules.ts) */
+    /** Phase 6: the job is another department's: billed internally (lib/internalRules.ts); frozen once the POD is in */
     internal: boolean("internal").notNull().default(false),
+    /** What needs someone's look that no state shows (a price change after the invoice, a credit from the haulier); cleared by a manager */
+    notices: jsonb("notices").$type<ConsignmentNotice[]>().notNull().default([]),
     /** Phase 6: the avizace recorded last */
     avizace: jsonb("avizace").$type<AvizaceRecord>(),
     version: integer("version").notNull().default(1),
@@ -125,6 +128,10 @@ export const truckingConsignmentTable = pgTable(
     index("trucking_consignment_shipment_idx").on(table.companyId, table.shipmentId),
     index("trucking_consignment_status_idx").on(table.companyId, table.status, table.pickupDate),
     index("trucking_consignment_trip_idx").on(table.tripId),
+    // One live consignment per quote it is priced from (decision 10); a cancelled one frees the quote.
+    uniqueIndex("trucking_consignment_quote_unique")
+      .on(table.companyId, table.quoteNumber)
+      .where(sql`quote_number IS NOT NULL AND cancelled_at IS NULL AND deleted_at IS NULL AND sell->>'source' = 'QUOTE'`),
     check("trucking_consignment_scope_check", sql`${table.scope} IN ('FTL', 'LTL')`),
     check("trucking_consignment_last_mile_check", sql`${table.lastMile} IS NULL OR ${table.lastMile} IN ('OWN_RUN', 'PARTNER')`),
     check(

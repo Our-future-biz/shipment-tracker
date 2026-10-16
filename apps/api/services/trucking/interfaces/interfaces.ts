@@ -467,6 +467,8 @@ export interface PricedSide {
   fx: { rate: number; date: string } | null;
   /** BUY only */
   preferred: boolean;
+  /** What was priced on a fallback someone should look at (a missing or an earlier month's fuel index); absent when none */
+  findings?: string[];
 }
 
 export interface Unpriced {
@@ -652,6 +654,22 @@ export interface PriceSnapshot {
   lines: PriceLine[];
   ratedAt: string;
   overrideReason: string | null;
+  /** The engine's findings when it was priced (PricedSide.findings); absent when none */
+  findings?: string[];
+}
+
+/** Why a notice is on a consignment. */
+export type ConsignmentNoticeCode = "PRICE_CHANGE_AFTER_INVOICE" | "HAULIER_CREDIT" | "INTERNAL_NOT_PRICED";
+
+/** Something that needs someone's look and no state shows; it stays in Needs attention until a manager clears it. */
+export interface ConsignmentNotice {
+  /** Unique on the consignment (what wrote it, so a retry never writes it twice) */
+  key: string;
+  code: ConsignmentNoticeCode;
+  /** The Needs-attention text */
+  text: string;
+  /** ISO time it was written */
+  at: string;
 }
 
 export interface ConsignmentListItem {
@@ -750,6 +768,8 @@ export interface ConsignmentDetail extends ConsignmentListItem {
   exceptions: DeliveryException[];
   /** The Warehouse's OSD exceptions of the job at our hub (LTL), read-only */
   warehouseExceptions: WarehouseExceptionItem[];
+  /** What needs a look until a manager clears it (also shown in needsAttention) */
+  notices: ConsignmentNotice[];
 }
 
 export interface TransportOrderState {

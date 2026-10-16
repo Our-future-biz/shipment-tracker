@@ -17,7 +17,7 @@ import type { TripGuard } from "../repositories/trip.repository";
 import type { ExceptionGuard } from "../repositories/exception.repository";
 import type { TruckingExceptionRecord } from "../schemas/avizace.schema";
 import type { TruckingInternalChargeRecord, TruckingInternalMonthRecord, TruckingInternalStatementRecord } from "../schemas/internal.schema";
-import type { LoadInput, StopInput, TruckingSettings } from "../interfaces/interfaces";
+import type { ConsignmentNotice, LoadInput, StopInput, TruckingSettings } from "../interfaces/interfaces";
 import { DEFAULT_SETTINGS } from "../lib/settingsRules";
 import type { LegRealCost } from "../lib/haulierCost";
 import { formatTruckingRef } from "../lib/consignmentRules";
@@ -161,6 +161,7 @@ export const consignmentRepository = {
       createdByUserId: null,
       department: "",
       internal: false,
+      notices: [],
       avizace: null,
       version: 1,
       ...values,
@@ -195,6 +196,28 @@ export const consignmentRepository = {
     for (const l of store.legs.filter((x) => x.tripId === tripId)) l.deletedAt = new Date();
   }),
   legRealCosts: vi.fn(async (_companyId: string, ids: string[]) => store.realCosts.filter((r) => ids.includes(r.consignmentId))),
+  addNotice: vi.fn(async (_tx: unknown, companyId: string, id: string, notice: ConsignmentNotice) => {
+    const row = store.consignments.find((c) => c.companyId === companyId && c.id === id);
+    if (!row || (row.notices ?? []).some((n) => n.key === notice.key)) return false;
+    row.notices = [...(row.notices ?? []), notice];
+    return true;
+  }),
+  removeNotices: vi.fn(async (_tx: unknown, companyId: string, id: string, keys: string[]) => {
+    const row = store.consignments.find((c) => c.companyId === companyId && c.id === id);
+    const removed = (row?.notices ?? []).filter((n) => keys.includes(n.key));
+    if (row) row.notices = row.notices.filter((n) => !keys.includes(n.key));
+    return removed.map(copy);
+  }),
+  forDepartmentRefresh: vi.fn(async (companyId: string, afterId: string | null, limit: number) =>
+    store.consignments
+      .filter((c) => c.companyId === companyId && !c.cancelledAt && (!c.podReceivedAt || c.department === "") && (!afterId || c.id > afterId))
+      .sort((a, b) => a.id.localeCompare(b.id))
+      .slice(0, limit)
+      .map(copy),
+  ),
+  liveByQuote: vi.fn(async (companyId: string, quoteNumber: string) =>
+    copy(store.consignments.find((c) => c.companyId === companyId && c.quoteNumber === quoteNumber && !c.cancelledAt && c.sell?.source === "QUOTE") ?? null),
+  ),
 };
 
 export const tripRepository = {

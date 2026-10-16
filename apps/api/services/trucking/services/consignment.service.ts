@@ -3,7 +3,7 @@ import { czHolidays } from "../lib/czHolidays";
 import { APIError, ErrCode } from "encore.dev/api";
 import log from "encore.dev/log";
 import { customers, quotes, shipments, warehouse } from "~encore/clients";
-import { inTx, type Tx } from "../db/db";
+import { db, inTx, type Tx } from "../db/db";
 import { consignmentRepository, STAMP_COLUMNS, type ConsignmentValues } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
 import { legRepository } from "../repositories/leg.repository";
@@ -14,11 +14,13 @@ import { appendEvent, listEvents } from "../repositories/event.repository";
 import { exceptionRepository } from "../repositories/exception.repository";
 import type { NewTruckingLegRecord, TruckingConsignmentRecord, TruckingLegRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
 import type { TruckingOutboxKind } from "../schemas/truckingOutbox.schema";
+import type { TruckingEventKind } from "../schemas/truckingEvent.schema";
 import type {
   ConsignmentCounts,
   ConsignmentDetail,
   ConsignmentFields,
   ConsignmentListItem,
+  ConsignmentNotice,
   ConsignmentStatus,
   ConsignmentView,
   HubAddress,
@@ -53,13 +55,15 @@ import {
   type ConsignmentFacts,
 } from "../lib/consignmentRules";
 import { detail, eventItem, factsOf, listItem, moneyOf } from "../lib/consignmentView";
-import { buyCosts, consignmentSourceRef, internalSourceRef, legSourceRef, noCosts, partnerLegCosts, sellCosts, tripSourceRef } from "../lib/truckingLinks";
-import { isInternalDepartment, ROAD_DEPARTMENT } from "../lib/internalRules";
+import { buyCosts, consignmentSourceRef, differenceLabel, internalSourceRef, legSourceRef, noCosts, partnerLegCosts, sellCosts, tripSourceRef } from "../lib/truckingLinks";
+import { departmentPlan, isInternalDepartment, ROAD_DEPARTMENT, type DepartmentPlan } from "../lib/internalRules";
 import { avizacePending, exceptionItem, podMissing } from "../lib/avizaceRules";
 import { cleanLtlChoice, hubPlace, LEG_SEQ, legEnds, legKindsFor, ltlPromise, ltlStampRefusal, ltlStatus, type LtlChoice } from "../lib/ltlRules";
 import { ltlFactsOf, ltlLegsOf } from "../lib/ltlView";
 import { isPriced, promise, roundToStep, showPostcode } from "../lib/rateEngine";
 import { formatDay } from "../lib/format";
+import { quoteRefusal, quoteSellLines } from "../lib/quoteRules";
+import { isUniqueViolation } from "../../../lib/db/errors";
 import { isManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { eurRate, rateService } from "./rate.service";
@@ -122,6 +126,23 @@ export const owed = (
 });
 
 const today = () => businessDay(new Date());
+
+/** Who writes on behalf of a change: a user, or the system under a user's or the service's identity. */
+type BillingActor = Pick<Actor, "userID" | "role" | "companyID">;
+
+const DEPARTMENT_PAGE = 200;
+const BASICS_MAX = 500;
+
+/** The departments of jobs as Shipments has them now, by id (a job it no longer has is left out). */
+async function jobDepartments(shipmentIds: string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(shipmentIds)];
+  const out = new Map<string, string>();
+  for (let i = 0; i < ids.length; i += BASICS_MAX) {
+    const { shipments: found } = await shipments._internalShipmentBasics({ ids: ids.slice(i, i + BASICS_MAX) });
+    for (const j of found) out.set(j.id, j.department ?? "");
+  }
+  return out;
+}
 
 const toStop = (s: StopInput, kind: Stop["kind"], before?: Stop): Stop => ({
   ...s,
@@ -187,6 +208,7 @@ export const snapshotOf = (side: PricedSide, level: ServiceLevelCode | null, rat
   lines: side.lines,
   ratedAt,
   overrideReason: null,
+  ...(side.findings?.length ? { findings: side.findings } : {}),
 });
 
 /** An agreed price: one line, in CZK at the ČNB rate of `day` when in EUR. */
@@ -262,7 +284,10 @@ class ConsignmentService {
   }
 
   async get(actor: Actor, id: string): Promise<ConsignmentDetail> {
-    const { c, trip } = await this.load(actor.companyID, id);
+    const loaded = await this.load(actor.companyID, id);
+    // The job's department may have changed in Shipments since: its consignments follow it before the POD (C7).
+    const refreshed = await this.refreshDepartments(actor, await consignmentRepository.list(actor.companyID, { shipmentId: loaded.c.shipmentId }), { warn: true });
+    const { c, trip } = refreshed ? await this.load(actor.companyID, id) : loaded;
     const [settings, events, ltl, exceptions, warehouseExceptions, real] = await Promise.all([
       settingsService.get(actor.companyID),
       listEvents(actor.companyID, { consignmentId: c.id }),
@@ -292,7 +317,11 @@ class ConsignmentService {
 
   async list(actor: Actor, q: ConsignmentListQuery): Promise<{ consignments: ConsignmentListItem[]; counts: ConsignmentCounts }> {
     if (q.shipmentId && !isUuid(q.shipmentId)) return { consignments: [], counts: emptyCounts() };
-    const rows = await consignmentRepository.list(actor.companyID, { status: q.status, shipmentId: q.shipmentId });
+    const listed = await consignmentRepository.list(actor.companyID, { status: q.status, shipmentId: q.shipmentId });
+    // Before the POD a consignment follows its job's department as Shipments has it now (C7).
+    const rows = (await this.refreshDepartments(actor, listed, { warn: false }))
+      ? await consignmentRepository.list(actor.companyID, { status: q.status, shipmentId: q.shipmentId })
+      : listed;
     const tripIds = [...new Set(rows.map((r) => r.tripId).filter((x): x is string => !!x))];
     const day = today();
     const [trips, settings, ltl, openExceptions, real, extraHolidays] = await Promise.all([
@@ -343,7 +372,7 @@ class ConsignmentService {
   }
 
   /** The sell price of a consignment from its source. */
-  async price(companyId: string, customerId: string, f: ConsignmentFields): Promise<Priced> {
+  async price(companyId: string, customerId: string, f: ConsignmentFields, consignmentId?: string): Promise<Priced> {
     const p = f.price;
     if (p.source === "TARIFF") {
       if (!bothCz(f)) throw APIError.failedPrecondition("The tariffs price CZ postcodes only: give an agreed price");
@@ -359,7 +388,7 @@ class ConsignmentService {
         chargeableKg: result.sell.chargeable.basis === "KG" ? result.sell.chargeable.quantity : null,
       };
     }
-    if (p.source === "QUOTE") return this.quotePrice(companyId, customerId, f);
+    if (p.source === "QUOTE") return this.quotePrice(companyId, customerId, f, consignmentId);
     const sell = await manualSnapshot(p.total, p.currency, p.reason, f.serviceLevel, f.pickupDate);
     return {
       sell,
@@ -381,8 +410,13 @@ class ConsignmentService {
     }
   }
 
-  // The price of a road quote (its last pricing from the tariffs): same customer, priced, not lost.
-  private async quotePrice(companyId: string, customerId: string, f: ConsignmentFields): Promise<Priced> {
+  /**
+   * The price of a road quote (decision 10, C9): a quote sent or won, still valid, priced from the
+   * tariffs (its margin approved when it needed it), for the same customer, lane and scope, and not
+   * pricing another live consignment. The price is the quote's trucking selling lines as they
+   * stand, each by its amount, in their one currency.
+   */
+  private async quotePrice(companyId: string, customerId: string, f: ConsignmentFields, exceptId?: string): Promise<Priced> {
     const number = f.quoteNumber!;
     let quote;
     try {
@@ -391,23 +425,13 @@ class ConsignmentService {
       if (err instanceof APIError && err.code === ErrCode.NotFound) throw bad(`Quote ${number} not found`);
       throw err;
     }
-    if (quote.customerId !== customerId) throw APIError.failedPrecondition(`Quote ${quote.quoteNumber} is for another customer`);
-    if (quote.status === "lost" || quote.effectiveStatus === "lost") throw APIError.failedPrecondition(`Quote ${quote.quoteNumber} is lost`);
-    const data = (quote.data && typeof quote.data === "object" ? quote.data : {}) as Record<string, unknown>;
-    const rp = data.roadPricing as QuoteRoadPricing | undefined;
-    if (!rp?.sell) throw APIError.failedPrecondition(`Quote ${quote.quoteNumber} was not priced from the trucking tariffs`);
-    const lines = (Array.isArray(data.sellingLines) ? data.sellingLines : [])
-      .filter((l): l is Record<string, unknown> => !!l && typeof l === "object" && typeof (l as Record<string, unknown>).tariffRef === "string" && String((l as Record<string, unknown>).tariffRef).startsWith("trucking:"))
-      .map(
-        (l): PriceLine => ({
-          code: String(l.chargeCode ?? "road_freight"),
-          label: String(l.description ?? ""),
-          qty: Number(l.qty) || 1,
-          unit: String(l.unit ?? ""),
-          unitPrice: Number(l.unitPrice) || 0,
-          amount: Number(l.amount) || 0,
-        }),
-      );
+    const refusal = quoteRefusal(quote, { customerId, fromPostcode: f.pickup.postcode, toPostcode: f.delivery.postcode, scope: scopeOf(f), today: today() });
+    if (refusal) throw APIError.failedPrecondition(refusal);
+    const used = await consignmentRepository.liveByQuote(companyId, quote.quoteNumber);
+    if (used && used.id !== exceptId) throw APIError.alreadyExists(`Quote ${quote.quoteNumber} already prices consignment ${used.ref}: one consignment per quote`);
+    const sold = quoteSellLines(quote);
+    if (!sold.ok) throw APIError.failedPrecondition(sold.reason);
+    const rp = (quote.data as { roadPricing: QuoteRoadPricing }).roadPricing;
     const level = f.serviceLevel ?? rp.serviceLevel;
     return {
       sell: {
@@ -417,10 +441,10 @@ class ConsignmentService {
         versionNo: rp.sell.versionNo,
         tariffName: rp.sell.tariffName,
         serviceLevel: rp.serviceLevel,
-        currency: rp.sell.currency,
-        total: rp.sell.total,
-        totalCzk: rp.sell.totalCzk,
-        lines: lines.length ? lines : [{ code: "road_freight", label: `Quote ${quote.quoteNumber}`, qty: 1, unit: "trip", unitPrice: rp.sell.total, amount: rp.sell.total }],
+        currency: sold.currency,
+        total: sold.total,
+        totalCzk: await this.quoteTotalCzk(sold.total, sold.currency, rp, f.pickupDate),
+        lines: sold.lines,
         ratedAt: rp.ratedAt,
         overrideReason: null,
       },
@@ -429,6 +453,15 @@ class ConsignmentService {
       promisedDate: await this.promiseFor(companyId, level, f.pickupDate, f.pickupTime),
       chargeableKg: null,
     };
+  }
+
+  // A quote's total in CZK: EUR at the rate the quote was priced with, else the ČNB rate of the pick-up day.
+  private async quoteTotalCzk(total: number, currency: "CZK" | "EUR", rp: QuoteRoadPricing, day: string): Promise<number> {
+    if (currency === "CZK") return total;
+    if (rp.sell.currency === "EUR" && rp.sell.total > 0) return roundToStep(total * (rp.sell.totalCzk / rp.sell.total), 0.01);
+    const fx = await eurRate(day);
+    if (!fx) throw APIError.failedPrecondition(`No ČNB rate for EUR on ${formatDay(day)}`);
+    return roundToStep(total * fx.rate, 0.01);
   }
 
   /**
@@ -574,6 +607,10 @@ class ConsignmentService {
       if (ltl) await legRepository.insertMany(tx, newLegs(companyId, row, ltl, hub));
       if (!internal) await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, row, "costs", sellCosts(row))]);
       return row;
+    }).catch((err: unknown) => {
+      // Two bookings from one quote at once: the unique index keeps one (decision 10).
+      if (priced.sell.source === "QUOTE" && isUniqueViolation(err)) throw APIError.alreadyExists(`Quote ${f.quoteNumber} already prices a consignment: one consignment per quote`);
+      throw err;
     });
     await deliverDue(created.id);
     return this.get(actor, created.id);
@@ -596,7 +633,7 @@ class ConsignmentService {
       if (input.reprice) throw APIError.failedPrecondition("After the pick-up the price cannot change");
       if (lockedPart(f, f.price) !== lockedPart(storedFields(c), f.price)) throw APIError.failedPrecondition("After the pick-up only notes and references can change");
     }
-    const priced = input.reprice ? await this.price(companyId, c.customerId, f) : null;
+    const priced = input.reprice ? await this.price(companyId, c.customerId, f, c.id) : null;
     const level = priced?.serviceLevel ?? f.serviceLevel;
     const dateMoved = f.pickupDate !== c.pickupDate || f.pickupTime !== c.pickupTime || level !== c.serviceLevel;
     let promisedDate = priced ? priced.promisedDate : dateMoved ? await this.promiseFor(companyId, level, f.pickupDate, f.pickupTime) : c.promisedDate;
@@ -607,8 +644,10 @@ class ConsignmentService {
     const estBuyCzk = priced ? priced.estBuyCzk : c.estBuyCzk;
     const liveTrip = trip && !trip.cancelledAt ? trip : null;
     const belowFloor = marginOf(sell?.totalCzk ?? null, liveTrip?.buyCzk ?? estBuyCzk, marginFloor).belowFloor;
-    const department = await this.departmentOf(c);
-    const internal = isInternalDepartment(department);
+    // The job's department: followed before the POD, frozen after it (decision 8).
+    const plan = departmentPlan(c, await this.departmentOf(c));
+    const department = plan.kind === "refresh" || plan.kind === "fill" ? plan.department : c.department;
+    const internal = plan.kind === "refresh" ? plan.internal : c.internal;
     const values: ConsignmentValues = {
       quoteNumber: f.quoteNumber,
       serviceLevel: level,
@@ -625,6 +664,7 @@ class ConsignmentService {
       internal,
     };
     const changes = changedFields(c, values);
+    if (plan.kind === "frozen") await this.warnFrozenDepartment(c, plan.department, await userName(actor.userID));
     if (!Object.keys(changes).length && !priced) return this.get(actor, id);
     if (legPlan?.refusal && legPlan.changed) throw APIError.failedPrecondition(legPlan.refusal);
     const by = await userName(actor.userID);
@@ -669,10 +709,10 @@ class ConsignmentService {
    * is settled again without the job), the internal line is sent as it stands. Road again: the
    * selling lines, the trip's or the partner's buying lines come back, the internal line goes.
    */
-  private async costsAfterFlip(tx: Tx, actor: Actor, row: TruckingConsignmentRecord, trip: TruckingTripRecord | null): Promise<TruckingOutboxInput[]> {
+  private async costsAfterFlip(tx: Tx, actor: BillingActor, row: TruckingConsignmentRecord, trip: TruckingTripRecord | null): Promise<TruckingOutboxInput[]> {
     const companyId = actor.companyID;
     const internal = row.internal;
-    const owes: TruckingOutboxInput[] = [owed(actor, row, "costs", internal ? noCosts(consignmentSourceRef(row.id)) : sellCosts(row))];
+    const owes: TruckingOutboxInput[] = [owed(actor, row, "costs", internal ? noCosts(consignmentSourceRef(row.id), differenceLabel(row.ref)) : sellCosts(row))];
     if (trip && row.scope === "FTL") owes.push(owed(actor, row, "costs", internal ? noCosts(tripSourceRef(trip.id)) : buyCosts(trip)));
     if (row.scope === "LTL") {
       const legs = ltlLegsOf(row.id, await legRepository.forConsignments(companyId, [row.id], tx));
@@ -689,6 +729,146 @@ class ConsignmentService {
     }
     owes.push(internal ? await internalBillingService.lineOwed(tx, actor, row) : owed(actor, row, "costs", noCosts(internalSourceRef(row.id))));
     return owes;
+  }
+
+  // ---- the job's department (C7, decision 8) -------------------------------------------------------
+
+  /**
+   * Brings consignments in line with their jobs' departments as Shipments has them now (read on
+   * every read of the consignments, before a POD, and by the backfill): before the POD a
+   * consignment follows the job - flipping between the customer's selling lines and the internal
+   * line in the same transaction; after the POD the side is frozen and a change is only logged
+   * (`warn`). Never throws: when Shipments cannot be read nothing changes. Answers how many
+   * consignments were written.
+   */
+  async refreshDepartments(actor: BillingActor, rows: TruckingConsignmentRecord[], opts: { warn: boolean }): Promise<number> {
+    const live = rows.filter((c) => !c.cancelledAt && (opts.warn || !c.podReceivedAt || c.department === ""));
+    if (!live.length) return 0;
+    let departments: Map<string, string>;
+    try {
+      departments = await jobDepartments(live.map((c) => c.shipmentId));
+    } catch (err) {
+      log.warn("trucking: job departments not read", { error: err instanceof Error ? err.message : String(err) });
+      return 0;
+    }
+    let written = 0;
+    for (const c of live) {
+      const seen = departments.get(c.shipmentId);
+      if (seen === undefined) continue;
+      const plan = departmentPlan(c, seen);
+      if (plan.kind === "same") continue;
+      if (plan.kind === "frozen") {
+        if (opts.warn) await this.warnFrozenDepartment(c, plan.department, "Shipments");
+        continue;
+      }
+      if (await this.applyDepartment(actor, c, plan)) written++;
+    }
+    if (written) await deliverDue();
+    return written;
+  }
+
+  // Writes a refresh or fill plan (guarded: the version read, the POD still empty for a refresh); false when the row changed meanwhile.
+  private async applyDepartment(actor: BillingActor, c: TruckingConsignmentRecord, plan: Extract<DepartmentPlan, { kind: "refresh" | "fill" }>): Promise<boolean> {
+    const companyId = actor.companyID;
+    const trip = c.scope === "FTL" && c.tripId ? await tripRepository.find(companyId, c.tripId) : null;
+    const liveTrip = trip && !trip.cancelledAt ? trip : null;
+    return inTx(async (tx) => {
+      const values: ConsignmentValues = plan.kind === "refresh" ? { department: plan.department, internal: plan.internal } : { department: plan.department };
+      const row = await consignmentRepository.update(tx, companyId, c.id, values, plan.kind === "refresh" ? { version: c.version, stampEmpty: "podReceived" } : { version: c.version, live: true });
+      if (!row) return false;
+      const flipped = plan.kind === "refresh" && plan.internal !== c.internal;
+      const side = row.internal ? "billed internally" : "billed to the customer";
+      await appendEvent(tx, companyId, {
+        kind: "department_changed",
+        consignmentId: c.id,
+        byUserId: null,
+        byName: "Shipments",
+        payload: {
+          changes: { department: { before: c.department, after: plan.department }, ...(flipped ? { internal: { before: c.internal, after: row.internal } } : {}) },
+          summary: c.department
+            ? `Job ${c.jobNumber} moved from ${c.department} to ${plan.department || "no department"} in Shipments${flipped ? `: now ${side}` : ""}`
+            : `Department recorded from job ${c.jobNumber}: ${plan.department || "none"} (${side})`,
+          facts: { department: plan.department, internal: row.internal },
+        },
+      });
+      if (flipped) await truckingOutboxRepository.enqueue(tx, companyId, await this.costsAfterFlip(tx, actor, row, liveTrip));
+      return true;
+    });
+  }
+
+  // After the POD the side is frozen: a department change in Shipments is logged once per department, billing unchanged.
+  private async warnFrozenDepartment(c: TruckingConsignmentRecord, department: string, by: string): Promise<void> {
+    const events = await listEvents(c.companyId, { consignmentId: c.id });
+    if (events.some((e) => e.kind === "department_change_ignored" && e.payload.facts?.department === department)) return;
+    await appendEvent(db, c.companyId, {
+      kind: "department_change_ignored",
+      consignmentId: c.id,
+      byUserId: null,
+      byName: by,
+      payload: {
+        changes: {},
+        summary: `Warning: job ${c.jobNumber} is now ${department || "without a department"} in Shipments, but the POD is in — the consignment stays ${c.internal ? `billed internally to ${c.department}` : "billed to the customer"}. Correct the billing by hand if the change is right`,
+        facts: { department, frozenDepartment: c.department, internal: c.internal },
+      },
+    });
+  }
+
+  /**
+   * Manager: the one-off backfill (and resync) of the department of every consignment that may
+   * need it - consignments made before the department was recorded, and any whose job moved while
+   * nobody read them. Idempotent: a second run changes nothing.
+   */
+  async refreshAllDepartments(actor: Actor): Promise<{ checked: number; written: number }> {
+    if (!isManager(actor.role)) throw APIError.permissionDenied("Only a manager can refresh the departments of consignments");
+    let checked = 0;
+    let written = 0;
+    for (let after: string | null = null; ; ) {
+      const page = await consignmentRepository.forDepartmentRefresh(actor.companyID, after, DEPARTMENT_PAGE);
+      if (!page.length) break;
+      checked += page.length;
+      written += await this.refreshDepartments(actor, page, { warn: true });
+      after = page[page.length - 1]!.id;
+      if (page.length < DEPARTMENT_PAGE) break;
+    }
+    return { checked, written };
+  }
+
+  // ---- notices --------------------------------------------------------------------------------------
+
+  /** Writes a notice on a consignment (once per key) with its event; false when it was there already. */
+  async addNotice(tx: Tx, c: Pick<TruckingConsignmentRecord, "id" | "companyId">, notice: ConsignmentNotice, event: { kind: TruckingEventKind; summary: string; by: string; facts?: Record<string, unknown> }): Promise<boolean> {
+    const added = await consignmentRepository.addNotice(tx, c.companyId, c.id, notice);
+    if (added) {
+      await appendEvent(tx, c.companyId, {
+        kind: event.kind,
+        consignmentId: c.id,
+        byUserId: null,
+        byName: event.by,
+        payload: { changes: {}, summary: event.summary, facts: { noticeKey: notice.key, ...event.facts } },
+      });
+    }
+    return added;
+  }
+
+  /** Manager, with a reason: takes a notice off the consignment (Needs attention) once it is dealt with. */
+  async clearNotice(actor: Actor, id: string, key: unknown, reason: unknown): Promise<ConsignmentDetail> {
+    if (!isManager(actor.role)) throw APIError.permissionDenied("Only a manager can clear a notice");
+    const why = cleanReason(reason, "how the notice was dealt with");
+    const { c } = await this.load(actor.companyID, id);
+    if (typeof key !== "string" || !(c.notices ?? []).some((n) => n.key === key)) throw APIError.notFound("Notice not found");
+    const by = await userName(actor.userID);
+    await inTx(async (tx) => {
+      const removed = await consignmentRepository.removeNotices(tx, actor.companyID, id, [key]);
+      if (!removed.length) return;
+      await appendEvent(tx, actor.companyID, {
+        kind: "notice_cleared",
+        consignmentId: id,
+        byUserId: actor.userID || null,
+        byName: by,
+        payload: { changes: {}, reason: why, summary: `Cleared: ${removed[0]!.text} — ${why}`, facts: { noticeKey: key, code: removed[0]!.code } },
+      });
+    });
+    return this.get(actor, id);
   }
 
   // ---- cancel / approve --------------------------------------------------------------------------
@@ -732,7 +912,7 @@ class ConsignmentService {
       { beforePickup: true },
     );
     if (!row) return false;
-    const owes: TruckingOutboxInput[] = [owed(actor, c, "costs", noCosts(consignmentSourceRef(c.id)))];
+    const owes: TruckingOutboxInput[] = [owed(actor, c, "costs", noCosts(consignmentSourceRef(c.id), differenceLabel(c.ref)))];
     if (c.scope === "LTL") {
       // Its legs leave their trips (whose prices are split again over the legs left) and a partner's delivery lines go.
       const legs = ltlLegsOf(c.id, await legRepository.forConsignments(companyId, [c.id], tx));
@@ -823,7 +1003,10 @@ class ConsignmentService {
     who: { by: string; source: "USER" | "HAULIER"; manager: boolean },
   ): Promise<void> {
     if (!STAMP_KINDS.includes(kind)) throw bad("Unknown stamp");
-    const { c, trip } = await this.load(actor.companyID, id);
+    const loaded = await this.load(actor.companyID, id);
+    // The POD freezes the consignment's department: take the job's as it is now first (C7).
+    const refreshed = kind === "podReceived" && !loaded.c.podReceivedAt && (await this.refreshDepartments(actor, [loaded.c], { warn: false }));
+    const { c, trip } = refreshed ? await this.load(actor.companyID, id) : loaded;
     const facts = factsOf(c, trip);
     if (facts[STAMP_COLUMNS[kind].at]) throw APIError.alreadyExists("Already stamped");
     const refusal = await this.stampRefusalOf(c, trip, kind, who.manager);
@@ -1159,7 +1342,8 @@ const NO_FLAGS: ViewFlags = { podMissing: new Set(), avizacePending: new Set() }
 
 /** Whether a consignment is in a worklist view. */
 export function inView(i: ConsignmentListItem, view: ConsignmentView, day: string, flags: ViewFlags = NO_FLAGS): boolean {
-  if (i.status === "CANCELLED") return false;
+  // A cancelled consignment is in no worklist - except Needs attention while a notice is on it (a cancel after the invoice).
+  if (i.status === "CANCELLED") return view === "attention" && i.needsAttention.length > 0;
   switch (view) {
     case "attention":
       return i.needsAttention.length > 0;

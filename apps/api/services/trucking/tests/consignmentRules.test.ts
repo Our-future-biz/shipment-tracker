@@ -119,6 +119,17 @@ describe("margin, gates and attention", () => {
     expect(attentionReasons(delivered, "2026-10-15", now)).toEqual(["POD missing for more than 2 days"]);
     expect(attentionReasons({ ...base, cancelledAt: now }, "2026-10-15", now)).toEqual([]);
   });
+
+  it("shows notices (also on a cancelled consignment) and fallback findings until the job is billed", () => {
+    const now = t("2026-10-15T10:00:00Z");
+    const quiet = { ...none, status: "BOOKED" as const, pickupDate: "2026-10-20", promisedDate: null, belowFloor: false, marginApproved: false, marginCzk: 1000, tripRejectedAt: null };
+    const findings = ["No fuel index for 2026-10: the fuel surcharge is priced at 0"];
+    expect(attentionReasons({ ...quiet, findings }, "2026-10-15", now)).toEqual(["Priced on a fallback: No fuel index for 2026-10: the fuel surcharge is priced at 0"]);
+    expect(attentionReasons({ ...quiet, findings, readyToBillAt: now }, "2026-10-15", now)).toEqual([]);
+    const notices = ["Price change after invoice: -12 000 CZK"];
+    expect(attentionReasons({ ...quiet, notices }, "2026-10-15", now)).toEqual(notices);
+    expect(attentionReasons({ ...quiet, notices, cancelledAt: now }, "2026-10-15", now)).toEqual(notices);
+  });
 });
 
 describe("input rules", () => {

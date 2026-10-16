@@ -77,6 +77,17 @@ describe("dates", () => {
     expect(defaultDuzp({ estimatedArrival: null, estimatedDeparture: null, tradeDirection: "Import" }, "2026-10-13")).toBe("2026-10-13");
   });
 
+  it("dates Domestic and Road Department jobs by the delivery: actual, else planned, else today (C5)", () => {
+    const road = { tradeDirection: "Domestic", estimatedArrival: null, estimatedDeparture: null, actualArrival: null, actualDeparture: null };
+    expect(defaultDuzp({ ...road, actualDeliveryDate: "2026-10-09", plannedDeliveryDate: "2026-10-08" }, "2026-10-13")).toBe("2026-10-09");
+    expect(defaultDuzp({ ...road, actualDeliveryDate: null, plannedDeliveryDate: "2026-10-08" }, "2026-10-13")).toBe("2026-10-08");
+    expect(defaultDuzp({ ...road, actualDeliveryDate: null, plannedDeliveryDate: null }, "2026-10-13")).toBe("2026-10-13");
+    // A Road Department job on an Import direction is dated by its delivery too, not its ETA.
+    expect(defaultDuzp({ ...road, tradeDirection: "Import", department: "Road Department", estimatedArrival: "10/20/26", plannedDeliveryDate: "2026-10-08" }, "2026-10-13")).toBe("2026-10-08");
+    // Any other department's import keeps the arrival rule.
+    expect(defaultDuzp({ ...road, tradeDirection: "Import", department: "Sea Department", estimatedArrival: "10/20/26", plannedDeliveryDate: "2026-10-08" }, "2026-10-13")).toBe("2026-10-20");
+  });
+
   it("reads payment terms", () => {
     expect(dueDays("14 days", 30)).toBe(14);
     expect(dueDays("30 days", 14)).toBe(30);

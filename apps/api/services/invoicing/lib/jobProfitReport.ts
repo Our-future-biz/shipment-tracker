@@ -2,11 +2,12 @@
 // each foreign-currency amount is converted at the ČNB average of the month the job falls in
 // (mean of that month's fixing days, without the ROE %). A job falls in the month of its tax
 // date — ATA for imports, ATD for exports — or, until that is known, of its ETA / ETD
-// (provisional). Line rules are those of Costs Breakdown: qty × amount (blank qty = 1);
+// (provisional); a Domestic or Road Department job in the month of its delivery (planned until
+// delivered). Line rules are those of Costs Breakdown: qty × amount (blank qty = 1);
 // buying counts the real cost once filled, otherwise the estimate; selling counts only rows
 // ticked "invoice". An amount whose currency has no average is left out and reported.
 
-import { qtyOrOne } from "./invoiceCalc";
+import { isDeliveryDated, qtyOrOne } from "./invoiceCalc";
 import type { JobProfitRow } from "../interfaces/interfaces";
 
 export type { JobProfitRow };
@@ -22,6 +23,9 @@ export interface ReportShipment {
   estimatedDeparture: string | null;
   actualArrival: string | null;
   actualDeparture: string | null;
+  department?: string | null;
+  actualDeliveryDate?: string | null;
+  plannedDeliveryDate?: string | null;
 }
 
 export interface ReportBuyRow {
@@ -52,6 +56,12 @@ const n = (v: string | null | undefined) => {
 };
 
 export function jobPeriod(s: ReportShipment): { basis: JobProfitRow["basis"]; date: string; provisional: boolean } | null {
+  // Domestic and Road Department jobs fall in the month of their delivery (planned until delivered).
+  if (isDeliveryDated(s)) {
+    if (s.actualDeliveryDate) return { basis: "delivery", date: s.actualDeliveryDate.slice(0, 10), provisional: false };
+    if (s.plannedDeliveryDate) return { basis: "planned delivery", date: s.plannedDeliveryDate.slice(0, 10), provisional: true };
+    return null;
+  }
   const exp = s.tradeDirection.trim().toLowerCase() === "export";
   const actual = exp ? s.actualDeparture : s.actualArrival;
   if (actual) return { basis: exp ? "atd" : "ata", date: actual.slice(0, 10), provisional: false };

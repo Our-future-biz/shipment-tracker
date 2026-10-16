@@ -10,6 +10,7 @@ import { outboxErrorCode } from "../../../lib/outbox/outboxRetry";
 import { deliverOutboxRow, runOutboxDelivery, type OutboxHandlers } from "../../../lib/outbox/outboxDelivery";
 import { actingAuthNow, sendShipmentUpdateAs } from "../../../lib/outbox/shipmentUpdateAs";
 import { db } from "../db/db";
+import { recordSellingDifferences } from "./sellingDifference.service";
 
 // Delivery of what consignments and trips owe their job: dates and plate (ShipmentUpdate), the
 // Billing step (shipments), the Trucking lines of Costs Breakdown (invoicing) and an LTL trip's
@@ -85,7 +86,9 @@ export async function sendRow(row: TruckingOutboxRecord): Promise<void> {
     return;
   }
   const costs = row.payload as unknown as CostsPayload;
-  await invoicing._internalInvoicingTruckingLines({ shipmentId: row.shipmentId, ...costs }, { authData });
+  const result = await invoicing._internalInvoicingTruckingLines({ shipmentId: row.shipmentId, ...costs }, { authData });
+  // A selling set kept for an issued invoice: Invoicing added the difference as its own line (decision 9).
+  await recordSellingDifferences(row, result?.differences);
 }
 
 const what = (row: Pick<TruckingOutboxRecord, "kind">) => OUTBOX_WHAT[row.kind] ?? row.kind;

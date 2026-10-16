@@ -332,6 +332,10 @@ export interface AttentionFacts extends ConsignmentFacts {
   marginApproved: boolean;
   marginCzk: number | null;
   tripRejectedAt: Date | null;
+  /** The texts of the consignment's notices (a price change after the invoice, a credit from the haulier, …) */
+  notices?: string[];
+  /** What the rate engine priced on a fallback (a missing or an earlier month's fuel index) */
+  findings?: string[];
 }
 
 /** Days after the delivery when a missing POD needs attention. */
@@ -339,8 +343,12 @@ export const POD_OVERDUE_DAYS = 2;
 
 /** Plain-English reasons the consignment needs someone now ([] when none). `today` is the Prague day. */
 export function attentionReasons(c: AttentionFacts, today: string, now: Date): string[] {
-  if (c.cancelledAt) return [];
-  const reasons: string[] = [];
+  // A notice stays until a manager clears it, also on a cancelled consignment (a cancel after the invoice).
+  const notices = c.notices ?? [];
+  if (c.cancelledAt) return [...notices];
+  const reasons: string[] = [...notices];
+  // A price on a fallback matters until the job is billed.
+  if (!c.readyToBillAt) reasons.push(...(c.findings ?? []).map((f) => `Priced on a fallback: ${f}`));
   const soon = c.pickupDate <= addDays(today, 1);
   if (c.status === "BOOKED" && soon) reasons.push("Pick-up within 24 h and no trip");
   if (c.status === "PLANNED" && soon) reasons.push("Pick-up within 24 h and the transport order is not sent");

@@ -25,6 +25,7 @@ const repo = vi.hoisted(() => ({
   invoicesBlocked: vi.fn(),
   invoiceDifferences: vi.fn(),
   internalGroups: vi.fn(),
+  chargedExceptions: vi.fn(),
 }));
 vi.mock("../repositories/portal.repository", () => ({ portalRepository: { revokeSessionsOfHaulier: vi.fn(async () => undefined) } }));
 vi.mock("../repositories/reports.repository", () => ({ reportsRepository: repo }));
@@ -136,6 +137,7 @@ beforeEach(() => {
   repo.invoicesBlocked.mockResolvedValue([]);
   repo.invoiceDifferences.mockResolvedValue([]);
   repo.internalGroups.mockResolvedValue([{ department: "Air", amountCzk: 3000, consignments: 2 }]);
+  repo.chargedExceptions.mockResolvedValue([{ haulierId: "", currency: "EUR", day: "2026-10-20", n: 1, amount: 40 }]);
   gaps.lastIn.mockResolvedValue([{ id: "g", companyId: C, side: "SELL", scope: "LTL", serviceLevel: "D2", postcode: "79001", reason: "No zone for postcode 790 01 in Standard LTL", count: 3, firstAt: NOW, lastAt: NOW }]);
   tariffs.list.mockResolvedValue([{ id: "std", scope: "LTL", side: "SELL", ownerCustomerId: null }]);
   tariffs.bindingOn.mockResolvedValue([{ tariffId: "std", input: { zones } }]);
@@ -178,9 +180,10 @@ describe("Trucking report", () => {
     expect(r.coverageGaps).toEqual([{ side: "SELL", scope: "LTL", serviceLevel: "D2", postcode: "79001", reason: "No zone for postcode 790 01 in Standard LTL", count: 3, lastAt: NOW.toISOString() }]);
     expect(r.department).toEqual({
       externalSellCzk: 10000,
+      exceptionChargesCzk: 1000,
       internalChargesCzk: 3000,
       haulierCostCzk: 10000,
-      resultCzk: 3000,
+      resultCzk: 4000,
       internalByDepartment: [{ department: "Air", amountCzk: 3000, consignments: 2 }],
     });
   });
@@ -224,7 +227,8 @@ describe("Trucking report export", () => {
     expect([hauliers.getRow(1).getCell(3).value, hauliers.getRow(1).getCell(4).value]).toEqual(["Trips", "Partner deliveries"]);
     expect([hauliers.getRow(2).getCell(3).value, hauliers.getRow(2).getCell(4).value]).toEqual([2, 1]);
     const dep = wb.getWorksheet("Department")!;
-    expect(dep.getRow(5).values).toEqual([undefined, "= Result", 3000]);
-    expect(dep.getRow(8).values).toEqual([undefined, "Air", 3000, 2]);
+    expect(dep.getRow(3).values).toEqual([undefined, "+ Exceptions charged to customers", 1000]);
+    expect(dep.getRow(6).values).toEqual([undefined, "= Result", 4000]);
+    expect(dep.getRow(9).values).toEqual([undefined, "Air", 3000, 2]);
   });
 });

@@ -14,6 +14,7 @@ import { generatedInvoiceRepository } from "../repositories/generatedInvoice.rep
 import { sellingCostRepository } from "../repositories/sellingCost.repository";
 import { customsInvoiceLineRepository, customsInvoiceRepository } from "../repositories/customsInvoice.repository";
 import { quoteCostImportRepository } from "../repositories/quoteCostImport.repository";
+import { truckingLinesRepository } from "../repositories/truckingLines.repository";
 import { quoteLinesToCostRows } from "../utils/quoteCostImport.utils";
 import type { InvoiceCostRecord, NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import type { InvoiceSellingCostRecord, NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
@@ -164,6 +165,22 @@ export function chargeChanges(input: AdditionalChargeInput): Partial<NewInvoiceA
   });
 }
 
+/**
+ * Refuses a buying cost posted by charge code (document reading, a master job's split) onto a job
+ * whose cost of that code Trucking keeps: the haulier's cost is already there from the trip and
+ * would be counted twice.
+ */
+async function assertNotKeptByTrucking(companyId: string, shipmentIds: string[], code: string): Promise<void> {
+  for (const id of shipmentIds) {
+    if (await truckingLinesRepository.hasBuyingOfCategory(companyId, id, code)) {
+      const job = await assertShipmentExists(id);
+      throw APIError.failedPrecondition(
+        `Job ${job.jobNumber} has its ${code.replace(/_/g, " ")} cost from Trucking: enter the haulier's invoice in Trucking (Haulier invoices), not here, or it is counted twice`,
+      );
+    }
+  }
+}
+
 class InvoicingService {
   async getInvoicingData(shipmentId: string, companyId: string): Promise<InvoicingData> {
     const [costs, sellingCosts, additionalCharges, billingSettings, billingOverrides, generatedInvoices] = await Promise.all([
@@ -208,6 +225,7 @@ class InvoicingService {
    */
   async upsertCost(shipmentId: string, companyId: string, category: string, input: CategoryCostInput): Promise<InvoiceCostItem> {
     const code = toChargeCode(category);
+    await assertNotKeptByTrucking(companyId, [shipmentId], code);
     const changes = buyingChanges(input);
     const existing = await invoiceCostRepository.findByCategory(shipmentId, companyId, code);
     if (existing) {
@@ -237,6 +255,8 @@ class InvoicingService {
     if (weights.some((w) => !Number.isFinite(w) || w < 0)) throw APIError.invalidArgument("a weight must be a number of at least 0");
     if (!weights.some((w) => w > 0)) throw APIError.invalidArgument("no shipment has a weight to split by");
 
+    // A job whose cost of the code Trucking keeps would count it twice: refused before anything is written.
+    await assertNotKeptByTrucking(companyId, input.lines.filter((l) => l.weight > 0).map((l) => l.shipmentId), code);
     const parts = splitAmount(total, weights);
     const overwrite = new Set(input.overwriteShipmentIds ?? []);
     const result: CostSplitResultLine[] = [];
@@ -297,7 +317,9 @@ class InvoicingService {
       if (err instanceof APIError && err.code === ErrCode.NotFound) throw APIError.notFound(`quote ${quoteNumber} not found`);
       throw err;
     }
-    const rows = quoteLinesToCostRows(quote.data);
+    // A job with a Trucking consignment gets its road freight from Trucking: the quote's trucking lines are left out.
+    const skipTrucking = await truckingLinesRepository.hasConsignmentRows(companyId, shipmentId);
+    const rows = quoteLinesToCostRows(quote.data, { skipTrucking });
     const copied = await quoteCostImportRepository.copy(
       companyId,
       shipmentId,

@@ -7,9 +7,8 @@ import { appendEvent } from "../repositories/event.repository";
 import type { FileDownload } from "../interfaces/interfaces";
 import type { InternalCharge, InternalMonth } from "../interfaces/internal.interfaces";
 import type { Actor } from "../../../lib/rbac";
-import { chargeItem, cleanMonth, closeRefusal, monthItem, monthOf, monthsBack, statementGroups } from "../lib/internalBilling";
+import { chargeItem, cleanMonth, closeRefusal, monthItem, monthOf, monthsBack, statementGroups, statementYear } from "../lib/internalBilling";
 import { buildInternalMonthWorkbook, buildInternalStatementPdf } from "../lib/internalStatementPdf";
-import { truckingRefYear } from "../lib/consignmentRules";
 import { isManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { internalBillingService } from "./internalBilling.service";
@@ -66,7 +65,7 @@ class InternalMonthService {
       if (!(await internalRepository.closeMonth(tx, companyId, month, { name: by, userId: actor.userID || null }))) throw APIError.aborted(`${month} was closed meanwhile`);
       const numbers: string[] = [];
       for (const g of statementGroups(charges)) {
-        const number = await internalRepository.allocateStatementNumber(tx, companyId, truckingRefYear(now));
+        const number = await internalRepository.allocateStatementNumber(tx, companyId, statementYear(month));
         await internalRepository.insertStatement(tx, { companyId, number, month, department: g.department, issuedAt: now, issuedBy: by, amount: g.amount, lineCount: g.lineCount });
         numbers.push(`${number} ${g.department}`);
       }

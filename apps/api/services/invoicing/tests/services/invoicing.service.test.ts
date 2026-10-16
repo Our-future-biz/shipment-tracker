@@ -13,10 +13,12 @@ vi.mock("../../repositories/billingOverride.repository", () => ({ billingOverrid
 vi.mock("../../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: {} }));
 vi.mock("../../repositories/sellingCost.repository", () => ({ sellingCostRepository: {} }));
 vi.mock("../../repositories/quoteCostImport.repository", () => ({ quoteCostImportRepository: { copy: vi.fn() } }));
+vi.mock("../../repositories/truckingLines.repository", () => ({ truckingLinesRepository: { hasConsignmentRows: vi.fn() } }));
 
 import { quotes } from "~encore/clients";
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import { quoteCostImportRepository } from "../../repositories/quoteCostImport.repository";
+import { truckingLinesRepository } from "../../repositories/truckingLines.repository";
 import { invoicingService } from "../../services/invoicing.service";
 
 const salesQuoteGet = vi.mocked(quotes.salesQuoteGet);
@@ -97,5 +99,20 @@ describe("importQuote", () => {
     salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF, data: { customerName: "ITTEC s.r.o." } } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
     await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false)).resolves.toEqual({ buying: 0, selling: 0 });
     expect(copy).toHaveBeenCalledWith(COMPANY, SHIPMENT, REF, { buying: [], selling: [] }, false);
+  });
+
+  it("leaves out the quote's trucking lines when the job has a Trucking consignment (its road freight is Trucking's)", async () => {
+    const withRoad = {
+      ...DATA,
+      buyingLines: [...DATA.buyingLines, { type: "Road freight", chargeCode: "road_freight", supplier: "Bravo", currency: "CZK", amount: 9000, tariffRef: "trucking:v1:D1" }],
+      sellingLines: [...DATA.sellingLines, { type: "Road freight", chargeCode: "road_freight", currency: "CZK", amount: 12000, tariffRef: "trucking:v1:D1" }],
+    };
+    salesQuoteGet.mockResolvedValue({ quote: { quoteNumber: REF, data: withRoad } } as Awaited<ReturnType<typeof quotes.salesQuoteGet>>);
+    vi.mocked(truckingLinesRepository.hasConsignmentRows).mockResolvedValueOnce(true);
+    await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", false)).resolves.toEqual({ buying: 2, selling: 1 });
+    expect(copy).toHaveBeenLastCalledWith(COMPANY, SHIPMENT, REF, { buying: BUYING, selling: SELLING }, false);
+    // Without a consignment the trucking lines are copied as any other.
+    vi.mocked(truckingLinesRepository.hasConsignmentRows).mockResolvedValueOnce(false);
+    await expect(invoicingService.importQuote(SHIPMENT, COMPANY, REF, "both", true)).resolves.toEqual({ buying: 3, selling: 2 });
   });
 });

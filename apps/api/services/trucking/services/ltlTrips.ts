@@ -128,8 +128,12 @@ class LtlTrips {
     }
 
     const jobs = jobsOf(live, byId);
-    // Jobs of other departments are billed internally: their shares stay out of the job's Costs.
-    const costJobs = jobs.filter((j) => !j.consignments.every((c) => c.internal));
+    // Consignments billed internally keep their shares in Trucking's own ledger: a job's share in
+    // its Costs sums only its legs that are not internal (a job with none gets no line).
+    const costJobs = jobsOf(
+      live.filter((l) => !byId.get(l.consignmentId)!.internal),
+      byId,
+    );
     const tripConsignments = new Set(live.map((l) => l.consignmentId)).size;
     const owes: TruckingOutboxInput[] = [];
     const kind = trip.kind as LtlTripKind;

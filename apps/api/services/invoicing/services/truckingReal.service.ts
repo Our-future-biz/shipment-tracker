@@ -12,9 +12,9 @@ export interface TruckingRealPush {
 
 class TruckingRealService {
   /**
-   * Sets the real side of the live buying rows Trucking keeps under a sourceRef, one real line per
-   * row in the rows' order (an empty list clears the real side). Refused when the number of rows
-   * is not the number of lines sent: the estimate changed since, and Trucking sends it again.
+   * Sets the real side of the live buying rows Trucking keeps under a sourceRef: each line on the
+   * row with its description, else by position (an empty list clears the real side). Refused only
+   * when the lines cannot be placed (no row of the ref, or none in an extra line's currency).
    * Idempotent. Buying rows are never on a customer invoice, so they may always be written.
    */
   async setReal(companyId: string, push: TruckingRealPush): Promise<TruckingRealResult> {
@@ -22,7 +22,7 @@ class TruckingRealService {
     const sourceRef = checkRealSourceRef(push.sourceRef);
     const lines = checkRealLines(push.realLines);
     const updated = await truckingLinesRepository.setReal(companyId, push.shipmentId, sourceRef, lines);
-    if (updated === null) throw APIError.failedPrecondition("The job's Trucking rows of this trip or delivery do not match the real amounts sent");
+    if (updated === null) throw APIError.failedPrecondition("The job has no Trucking rows of this trip or delivery to put the real amounts on");
     return { updated };
   }
 }
