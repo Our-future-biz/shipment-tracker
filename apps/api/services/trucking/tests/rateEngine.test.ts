@@ -179,6 +179,19 @@ describe("band and freight", () => {
     expect(line(priced(rate({ weightKg: 300 })), "FREIGHT")).toMatchObject({ amount: 1200 }); // 300 × 4 is cheaper
   });
 
+  it("looks for the break-point over every higher band, not only the next one", () => {
+    // 480 kg × 4 = 1 920; the next band (500 kg × 3.9 = 1 950) is dearer, but 1 000 kg flat 1 700 is cheaper.
+    const v = {
+      rates: [
+        { serviceLevel: "D1" as const, zoneCode: "1", bandId: "b2", amount: 4, priceType: "PER_UNIT" as const },
+        { serviceLevel: "D1" as const, zoneCode: "1", bandId: "b3", amount: 3.9, priceType: "PER_UNIT" as const },
+        { serviceLevel: "D1" as const, zoneCode: "1", bandId: "b4", amount: 1700, priceType: "FLAT" as const },
+      ],
+    };
+    const r = priced(rate({ weightKg: 480 }, v));
+    expect(line(r, "FREIGHT")).toMatchObject({ amount: 1700, label: expect.stringContaining("over 1 000 kg price (break-point") });
+  });
+
   it("prices pallets and loading metres on their own basis", () => {
     const pal = priced(rate({ palletPlaces: 4, weightKg: 100 }, {}, "D2"));
     expect(pal.chargeable).toEqual({ basis: "PALLET", quantity: 4, explanation: "4 pallet places" });
@@ -266,6 +279,20 @@ describe("surcharges", () => {
     const none = line(priced(rate({ weightKg: 200, pickupDate: "2026-07-01" }, { surcharges: [surcharge({ code: "FUEL", calc: "FUEL_INDEX", min: 100 })] }, "D1", {}, months)), "FUEL");
     expect(none).toMatchObject({ amount: 0, label: "Fuel surcharge — Fuel index not set" });
     expect(fuelIndexFor([], "2026-10-01")).toBeNull();
+  });
+
+  it("reports a missing or an earlier month's fuel index as a finding; none when the month has its own", () => {
+    const surcharges = [surcharge({ code: "FUEL", calc: "FUEL_INDEX" })];
+    const months = [{ month: "2026-08", percent: 10 }, { month: "2026-10", percent: 12 }];
+    expect(priced(rate({ weightKg: 200 }, { surcharges }, "D1", {}, months)).findings).toBeUndefined();
+    expect(priced(rate({ weightKg: 200, pickupDate: "2026-09-20" }, { surcharges }, "D1", {}, months)).findings).toEqual([
+      "Fuel index for 2026-09 not set: the 2026-08 index (10 %) was used",
+    ]);
+    expect(priced(rate({ weightKg: 200, pickupDate: "2026-07-01" }, { surcharges }, "D1", {}, months)).findings).toEqual([
+      "No fuel index for 2026-07: the fuel surcharge is priced at 0",
+    ]);
+    // A tariff without a fuel-index surcharge has nothing to report.
+    expect(priced(rate({ weightKg: 200, pickupDate: "2026-07-01" }, {}, "D1", {}, months)).findings).toBeUndefined();
   });
 
   it("never charges a redelivery at rating", () => {

@@ -467,6 +467,8 @@ export interface PricedSide {
   fx: { rate: number; date: string } | null;
   /** BUY only */
   preferred: boolean;
+  /** What was priced on a fallback someone should look at (a missing or an earlier month's fuel index); absent when none */
+  findings?: string[];
 }
 
 export interface Unpriced {
@@ -652,6 +654,8 @@ export interface PriceSnapshot {
   lines: PriceLine[];
   ratedAt: string;
   overrideReason: string | null;
+  /** The engine's findings when it was priced (PricedSide.findings); absent when none */
+  findings?: string[];
 }
 
 export interface ConsignmentListItem {

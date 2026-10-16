@@ -277,6 +277,20 @@ class ReportsRepository {
     return out.map((r) => ({ haulierId: String(r.haulier_id), currency: String(r.currency), day: String(r.day), n: n(r.n), amount: n(r.amount) }));
   }
 
+  /**
+   * Delivery exceptions charged to the customer (CHARGE_CUSTOMER) of Road consignments delivered in
+   * the period, per currency and delivery day; an internal job's charge is in the internal ledger.
+   */
+  async chargedExceptions(companyId: string, period: ReportPeriod): Promise<HaulierAmount[]> {
+    const out = await rows(sql`
+      SELECT e.currency, ${pragueDay(sql`c.delivered_at`)} AS day, count(*) AS n, sum(coalesce(e.amount, 0)) AS amount
+      FROM trucking_exception e JOIN trucking_consignment c ON c.id = e.consignment_id AND c.company_id = e.company_id
+      WHERE e.company_id = ${companyId} AND e.deleted_at IS NULL AND e.decision = 'CHARGE_CUSTOMER'
+        AND c.deleted_at IS NULL AND c.cancelled_at IS NULL AND NOT c.internal AND ${inPeriod(sql`c.delivered_at`, period)}
+      GROUP BY 1, 2`);
+    return out.map((r) => ({ haulierId: "", currency: String(r.currency), day: String(r.day), n: n(r.n), amount: n(r.amount) }));
+  }
+
   /** Invoices blocked now, per haulier. */
   async invoicesBlocked(companyId: string): Promise<{ haulierId: string; n: number }[]> {
     const out = await rows(sql`

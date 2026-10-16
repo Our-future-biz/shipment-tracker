@@ -171,8 +171,19 @@ export function ratePrice(rate: Pick<TariffRate, "amount" | "priceType">, q: num
   }
 }
 
-/** The least the next band charges: its flat amount, or its rate at its own lower limit. */
+/** The least a higher band charges: its flat amount, or its rate at its own lower limit. */
 const bandMinimum = (rate: TariffRate, band: TariffBand) => (rate.priceType === "FLAT" ? rate.amount : ratePrice(rate, band.fromExcl));
+
+/**
+ * The break-point candidate among the bands above the shipment's: the one charging least (the
+ * nearest on a tie). Every higher band counts - a narrow next band must not hide a cheaper one
+ * two steps up.
+ */
+export function cheapestHigherBand<T extends { rate: TariffRate; band: TariffBand }>(higher: T[]): T | null {
+  let best: T | null = null;
+  for (const x of higher) if (!best || bandMinimum(x.rate, x.band) < bandMinimum(best.rate, best.band)) best = x;
+  return best;
+}
 
 // ---- 5. surcharges -----------------------------------------------------------------------------
 
@@ -279,7 +290,7 @@ export function rateOnVersion(
   const where = `${level}, zone ${zone.code}, ${bandLabel(band)}`;
   let freight: PriceLine;
   const own = ratePrice(rate, ch.quantity);
-  const next = priced[at + 1];
+  const next = cheapestHigherBand(priced.slice(at + 1));
   if (next && bandMinimum(next.rate, next.band) < own) {
     const amount = bandMinimum(next.rate, next.band);
     freight = { code: "FREIGHT", label: `Freight ${where} — charged at the ${bandLabel(next.band)} price (break-point, cheaper)`, qty: 1, unit: "shipment", unitPrice: amount, amount };
@@ -305,6 +316,7 @@ export function rateOnVersion(
   const kgForSurcharges = () => chargeableKg(s, v).kg;
   const declaredValue = s.extras.declaredValueCzk === null ? 0 : tariff.currency === "CZK" ? s.extras.declaredValueCzk : fx ? s.extras.declaredValueCzk / fx.rate : 0;
   let amountSurcharges = 0;
+  const findings: string[] = [];
   for (const x of applicable) {
     const line = surchargeLine(x, {
       freight: freight.amount,
@@ -316,6 +328,7 @@ export function rateOnVersion(
       currency: tariff.currency,
       fuel: () => fuelIndexFor(fuel, s.pickupDate),
     });
+    if (x.calc === "FUEL_INDEX") findings.push(...fuelFindings(fuel, s.pickupDate));
     line.amount = roundToStep(line.amount, step);
     if (x.calc !== "PCT" && x.calc !== "FUEL_INDEX") amountSurcharges = clean(amountSurcharges + line.amount);
     lines.push(line);
@@ -341,7 +354,20 @@ export function rateOnVersion(
     totalCzk: toCzk(total, tariff.currency, fx),
     fx: tariff.currency === "CZK" ? null : fx,
     preferred: false,
+    ...(findings.length ? { findings } : {}),
   };
+}
+
+/**
+ * What a fuel-index surcharge was priced with that someone should look at: no index at all (the
+ * surcharge is 0), or an earlier month's index because the pick-up month has none.
+ */
+export function fuelFindings(months: FuelIndexMonth[], pickupDate: string): string[] {
+  const month = pickupDate.slice(0, 7);
+  const idx = fuelIndexFor(months, pickupDate);
+  if (!idx) return [`No fuel index for ${month}: the fuel surcharge is priced at 0`];
+  const used = months.filter((m) => m.month <= month).sort((a, b) => b.month.localeCompare(a.month))[0]!;
+  return used.month === month ? [] : [`Fuel index for ${month} not set: the ${used.month} index (${fmt(used.percent)} %) was used`];
 }
 
 const toCzk = (amount: number, currency: "CZK" | "EUR", fx: FxRate) => (currency === "CZK" || !fx ? amount : roundToStep(amount * fx.rate, 0.01));

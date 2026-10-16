@@ -604,15 +604,22 @@ export function haulierScores(input: HaulierInput): HaulierScore[] {
 
 // ---------- department result ----------
 
-export function departmentResult(groups: DeliveredGroup[], internal: InternalGroup[]): DepartmentResult {
+/**
+ * The department's result: what Road customers pay (consignments and the exceptions charged to
+ * them, EUR at the ČNB rate of the delivery day - an amount without a rate is left out), what other
+ * departments pay internally, less every haulier cost.
+ */
+export function departmentResult(groups: DeliveredGroup[], internal: InternalGroup[], charged: HaulierAmount[] = [], eur: Map<string, number | null> = new Map()): DepartmentResult {
   const externalSellCzk = money(sum(groups.filter((g) => !g.internal), (g) => g.sellCzk));
+  const exceptionChargesCzk = money(sum(charged, (c) => czkOf(c.amount, c.currency, c.day, eur) ?? 0));
   const internalChargesCzk = money(sum(internal, (g) => g.amountCzk));
   const haulierCostCzk = money(sum(groups, (g) => g.costCzk));
   return {
     externalSellCzk,
+    exceptionChargesCzk,
     internalChargesCzk,
     haulierCostCzk,
-    resultCzk: money(externalSellCzk + internalChargesCzk - haulierCostCzk),
+    resultCzk: money(externalSellCzk + exceptionChargesCzk + internalChargesCzk - haulierCostCzk),
     internalByDepartment: internal
       .map((g) => ({ department: g.department, amountCzk: money(g.amountCzk), consignments: g.consignments }))
       .sort((a, b) => b.amountCzk - a.amountCzk || a.department.localeCompare(b.department, "cs")),
