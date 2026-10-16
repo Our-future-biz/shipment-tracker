@@ -15,8 +15,9 @@ import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
-import { useConsignments } from "@/hooks/useTruckingConsignments";
-import { isTruckingCost, truckingCostTag } from "@/app/trucking/_lib/truckingCosts";
+import { useConsignments, useTrips } from "@/hooks/useTruckingConsignments";
+import { isTruckingCost, parseTruckingRef, truckingCostTag } from "@/app/trucking/_lib/truckingCosts";
+import { TruckingCostTagLink } from "@/app/trucking/_components/TruckingCostTagLink";
 
 interface CurrencyPickerProps {
   value: string;
@@ -87,6 +88,8 @@ const SPLIT = "border-l-[3px] border-l-slate-900";
 const FIELD =
   "w-full h-[30px] px-2 text-[13px] border border-slate-200 rounded-md outline-none " +
   "focus:border-indigo-500 bg-white";
+/** A Trucking row's value: plain text (read-only, readable by screen readers), as tall as a field. */
+const READ = "block min-h-[30px] px-2 py-[5px] text-[13px] text-slate-800";
 const TH =
   "text-[11.5px] font-bold tracking-[.04em] uppercase text-slate-500 px-[6px] py-2 " +
   "border-b border-slate-200 whitespace-nowrap";
@@ -174,16 +177,17 @@ export function CostsTab({ shipment }: CostsTabProps) {
   // shows exactly the same figures as this tab.
   const { data, billingCur, fx, rates, ratesLoading, ratesError, buyRows, sellRows, totals: t } = useCostsData(shipment);
 
-  // Rows Trucking writes (a consignment's sell, its trip's buy) are kept by Trucking: read-only
-  // here, tagged with the consignment they come from.
+  // Rows Trucking writes (a consignment's sell, its trips' buy, …) are kept by Trucking: shown
+  // read-only here (plain text, so screen readers and the keyboard reach them), tagged with the
+  // consignment or trip they come from and linked to it.
   const truckingRefs = new Map(
     [...(data?.costs ?? []), ...(data?.sellingCosts ?? [])].filter((c) => isTruckingCost(c.sourceTruckingRef)).map((c) => [c.id, c.sourceTruckingRef ?? ""]),
   );
+  const hasTripRows = [...truckingRefs.values()].some((ref) => parseTruckingRef(ref)?.kind === "trip");
   const { consignments: jobConsignments } = useConsignments({ shipmentId: shipment.id }, { enabled: truckingRefs.size > 0 });
-  const truckingTagOf = (id: string): string | null => {
-    const ref = truckingRefs.get(id);
-    return ref ? truckingCostTag(ref, jobConsignments) : null;
-  };
+  const { trips } = useTrips({}, { enabled: hasTripRows });
+  const tripRefs = new Map(trips.map((trip) => [trip.id, trip.ref]));
+  const truckingTagOf = (id: string) => truckingCostTag(truckingRefs.get(id), { consignments: jobConsignments, tripRefs, shipmentId: shipment.id });
 
   // Costs feed the shipment's totals (list rows, the customer's rollups), so those refresh too.
   const invalidate = () => {
@@ -459,6 +463,18 @@ export function CostsTab({ shipment }: CostsTabProps) {
   const missingFor = (...currencies: string[]) =>
     [...new Set([...currencies, billingCur].filter((c) => c && c !== "CZK" && !rates[c]))].join(", ");
 
+  /** A row's total in the billing currency, or a dash that says which rate is missing. */
+  const rowTotal = (total: number | null | undefined, ...currencies: string[]) =>
+    total == null ? (
+      <Tooltip title={`No exchange rate for ${missingFor(...currencies)} — this row is left out of the totals`}>
+        <span className="text-warn cursor-help">—</span>
+      </Tooltip>
+    ) : (
+      money(total)
+    );
+  const buyRowTotal = (r: BuyingRow) => rowTotal(t.buyRowTotals[r.id], r.estCurrency, r.realCurrency);
+  const sellRowTotal = (r: SellingRow) => rowTotal(t.sellRowTotals[r.id], r.currency);
+
   // No blocking screen: the cards always render. Until the data arrives the tables are
   // empty and a thin progress bar runs at the top.
 
@@ -514,13 +530,38 @@ export function CostsTab({ shipment }: CostsTabProps) {
             <tbody>
               {buyRows.map((r, rowIndex) => {
                 const truckingTag = truckingTagOf(r.id);
-                const locked = !!truckingTag || buyLocked(r);
+                if (truckingTag) {
+                  return (
+                    <tr key={r.id} className="bg-indigo-50/40">
+                      <td className={CELL}><span className={READ}>{r.category ? chargeLabel(r.category) : "—"}</span></td>
+                      <td className={CELL}>
+                        <span className={READ}>{r.description}</span>
+                        <TruckingCostTagLink tag={truckingTag} />
+                      </td>
+                      <td className={CELL}><span className={READ}>{r.vendor}</span></td>
+                      <td className={CELL}><span className={`${READ} text-center`}>{r.estQty}</span></td>
+                      <td className={CELL}><span className={`${READ} text-right tabular-nums`}>{r.estAmount}</span></td>
+                      <td className={CELL}><span className={READ}>{r.estCurrency}</span></td>
+                      <td className={`${CELL} ${SPLIT}`}><span className={`${READ} text-center`}>{r.realQty}</span></td>
+                      <td className={`${CELL} ${t.buyRowOver[r.id] ? "bg-danger-soft" : t.buyRowUnder[r.id] ? "bg-ok-soft" : ""}`}>
+                        <span className={`${READ} text-right tabular-nums`}>{r.realAmount}</span>
+                      </td>
+                      <td className={CELL}><span className={READ}>{r.realCurrency}</span></td>
+                      <td className={CELL}><span className={READ}>{r.invoiceNumber}</span></td>
+                      <td className={`${CELL} text-center`}>
+                        <Checkbox checked={r.received} disabled aria-label="Supplier invoice received" />
+                      </td>
+                      <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>{buyRowTotal(r)}</td>
+                      <td className={CELL} />
+                    </tr>
+                  );
+                }
+                const locked = buyLocked(r);
                 const fld = lockedField(locked);
                 return (
                 <tr
                   key={r.id}
-                  inert={!!truckingTag}
-                  className={`hover:bg-slate-50/60 ${truckingTag ? "bg-indigo-50/40" : locked ? "cursor-pointer" : ""}`}
+                  className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
                   onDoubleClick={() => unlock(r.id)}
                   onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLElement).blur(); lock(r.id); } }}
                 >
@@ -544,7 +585,6 @@ export function CostsTab({ shipment }: CostsTabProps) {
                       defaultValue={r.description}
                       onBlur={(e) => e.target.value !== r.description && updateBuy.mutate({ id: r.id, description: e.target.value })}
                     />
-                    {truckingTag && <div className="px-[7px] text-[10.5px] font-semibold text-indigo-600" title="Kept by Trucking — change it there">{truckingTag}</div>}
                   </td>
                   <td className={CELL}>
                     <input
@@ -611,17 +651,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
                       </span>
                     </Tooltip>
                   </td>
-                  <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>
-                    {t.buyRowTotals[r.id] == null ? (
-                      <Tooltip title={`No exchange rate for ${missingFor(r.estCurrency, r.realCurrency)} — this row is left out of the totals`}>
-                        <span className="text-warn cursor-help">—</span>
-                      </Tooltip>
-                    ) : (
-                      money(t.buyRowTotals[r.id]!)
-                    )}
-                  </td>
+                  <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums text-slate-800`}>{buyRowTotal(r)}</td>
                   <td className={`${CELL} text-center whitespace-nowrap`}>
-                    {!truckingTag && (<>
                     <Tooltip title="Duplicate row">
                       <button
                         onClick={guarded("Could not duplicate the row", () => duplicateBuy(r, rowIndex))}
@@ -642,7 +673,6 @@ export function CostsTab({ shipment }: CostsTabProps) {
                         <DeleteOutlined />
                       </button>
                     </Tooltip>
-                    </>)}
                   </td>
                 </tr>
                 );
@@ -720,13 +750,32 @@ export function CostsTab({ shipment }: CostsTabProps) {
             <tbody>
               {sellRows.map((r, rowIndex) => {
                 const truckingTag = truckingTagOf(r.id);
-                const locked = !!truckingTag || sellLocked(r);
+                if (truckingTag) {
+                  return (
+                    <tr key={r.id} className="bg-indigo-50/40">
+                      <td className={CELL}><span className={READ}>{r.category ? chargeLabel(r.category) : "—"}</span></td>
+                      <td className={CELL}>
+                        <span className={READ}>{r.description}</span>
+                        <TruckingCostTagLink tag={truckingTag} />
+                      </td>
+                      <td className={CELL}><span className={READ}>{r.customer}</span></td>
+                      <td className={CELL}><span className={`${READ} text-center`}>{r.qty}</span></td>
+                      <td className={CELL}><span className={`${READ} text-right tabular-nums`}>{r.amount}</span></td>
+                      <td className={CELL}><span className={READ}>{r.currency}</span></td>
+                      <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums ${r.invoice ? "text-slate-800" : "text-slate-400 line-through"}`}>{sellRowTotal(r)}</td>
+                      <td className={`${CELL} text-center`}>
+                        <Checkbox checked={r.invoice} disabled aria-label="Include in the invoice" />
+                      </td>
+                      <td className={CELL} />
+                    </tr>
+                  );
+                }
+                const locked = sellLocked(r);
                 const fld = lockedField(locked);
                 return (
                 <tr
                   key={r.id}
-                  inert={!!truckingTag}
-                  className={`hover:bg-slate-50/60 ${truckingTag ? "bg-indigo-50/40" : locked ? "cursor-pointer" : ""}`}
+                  className={`hover:bg-slate-50/60 ${locked ? "cursor-pointer" : ""}`}
                   onDoubleClick={() => unlock(r.id)}
                   onKeyDown={(e) => { if (e.key === "Enter") { (e.target as HTMLElement).blur(); lock(r.id); } }}
                 >
@@ -750,7 +799,6 @@ export function CostsTab({ shipment }: CostsTabProps) {
                       defaultValue={r.description}
                       onBlur={(e) => e.target.value !== r.description && updateSell.mutate({ id: r.id, description: e.target.value })}
                     />
-                    {truckingTag && <div className="px-[7px] text-[10.5px] font-semibold text-indigo-600" title="Kept by Trucking — change it there">{truckingTag}</div>}
                   </td>
                   <td className={CELL}>
                     <input
@@ -779,15 +827,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                   <td className={CELL}>
                     <CurrencyPicker value={r.currency} onChange={(v) => updateSell.mutate({ id: r.id, currency: v })} />
                   </td>
-                  <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums ${r.invoice ? "text-slate-800" : "text-slate-400 line-through"}`}>
-                    {t.sellRowTotals[r.id] == null ? (
-                      <Tooltip title={`No exchange rate for ${missingFor(r.currency)} — this row is left out of the totals`}>
-                        <span className="text-warn cursor-help">—</span>
-                      </Tooltip>
-                    ) : (
-                      money(t.sellRowTotals[r.id]!)
-                    )}
-                  </td>
+                  <td className={`${CELL} text-right text-[13px] font-semibold tabular-nums ${r.invoice ? "text-slate-800" : "text-slate-400 line-through"}`}>{sellRowTotal(r)}</td>
                   <td className={`${CELL} text-center`}>
                     <Checkbox
                       checked={r.invoice}
@@ -795,7 +835,6 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     />
                   </td>
                   <td className={`${CELL} text-center whitespace-nowrap`}>
-                    {!truckingTag && (<>
                     <Tooltip title="Duplicate row">
                       <button
                         onClick={guarded("Could not duplicate the row", () => duplicateSell(r, rowIndex))}
@@ -816,7 +855,6 @@ export function CostsTab({ shipment }: CostsTabProps) {
                         <DeleteOutlined />
                       </button>
                     </Tooltip>
-                    </>)}
                   </td>
                 </tr>
                 );

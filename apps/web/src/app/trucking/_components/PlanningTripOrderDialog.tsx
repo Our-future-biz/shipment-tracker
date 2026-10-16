@@ -10,7 +10,7 @@ interface PlanningTripOrderDialogProps {
   onClose: () => void;
 }
 
-// The Phase 4 Print… / Send… transport-order dialogs for a trip card: the trip is read first.
+// The Print… / Record as sent… transport-order dialogs for a trip card: the trip is read first.
 export const PlanningTripOrderDialog = ({ tripId, mode, onClose }: PlanningTripOrderDialogProps) => {
   const { trip } = useTrip(tripId);
   if (!trip) {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { GLOSSARY, TERMS } from "./glossary";
-import { TRUCKING_TABS } from "./tabs";
+import { TRUCKING_TABS, tabSearch } from "./tabs";
 
 describe("trucking glossary", () => {
   it("explains every term once", () => {
@@ -80,22 +80,38 @@ describe("Phase 7 terms", () => {
 });
 
 describe("trucking tabs", () => {
-  it("follow the work and name the phase that brings each", () => {
-    expect(TRUCKING_TABS.map((t) => `${t.label}:${t.phase}`)).toEqual([
-      "Consignments:4",
-      "Planning:5",
-      "Trips:4",
-      "Haulier invoices:6",
-      "Internal billing:6",
-      "Hauliers:1",
-      "Tariffs:2",
-      "Rate calculator:2",
-      "Reports:7",
-    ]);
+  it("follow the work, each with its purpose for the Read me", () => {
+    expect(TRUCKING_TABS.map((t) => t.label)).toEqual(["Consignments", "Planning", "Trips", "Haulier invoices", "Internal billing", "Hauliers", "Tariffs", "Rate calculator", "Reports"]);
+    expect(TRUCKING_TABS.every((t) => t.purpose.length > 0)).toBe(true);
   });
 
-  it("mark the built ones live", () => {
-    expect(TRUCKING_TABS.filter((t) => "live" in t && t.live).map((t) => t.key)).toEqual(["consignments", "planning", "trips", "haulierInvoices", "internalBilling", "hauliers", "tariffs", "calculator", "reports"]);
+  it("carry no phase scaffolding: every tab is live", () => {
+    for (const t of TRUCKING_TABS) expect(Object.keys(t).sort()).toEqual(["key", "label", "purpose"]);
+  });
+
+  it("drop a tab's own filters, the planning day and the job filter included, when another tab opens", () => {
+    expect(tabSearch("tab=planning&date=2026-10-23&kind=LINEHAUL", "trips")).toBe("tab=trips");
+    expect(tabSearch("job=abc&view=attention&status=BOOKED", "planning")).toBe("tab=planning");
+    expect(tabSearch("tab=trips&view=draft", "consignments")).toBe("");
+  });
+});
+
+describe("glossary gaps", () => {
+  it("explain every word the screens use without an entry before", () => {
+    const meaning = (term: string) => GLOSSARY.find((g) => g.term === term)?.meaning;
+    expect(meaning(TERMS.partnerDelivery)).toMatch(/per consignment/);
+    expect(meaning(TERMS.gateIn)).toMatch(/Only the warehouse stamps it/);
+    expect(meaning(TERMS.readyToBill)).toMatch(/Billing/);
+    expect(meaning(TERMS.exception)).toMatch(/who bears it/);
+    expect(meaning(TERMS.scope)).toMatch(/LTL .* FTL .* line haul/);
+    expect(meaning(TERMS.domesticOrder)).toMatch(/creates its Road job/);
+    expect(meaning(TERMS.planTrip)).toMatch(/FTL/);
+    expect(meaning(TERMS.newTrip)).toMatch(/Planning tab/);
+    expect(meaning(TERMS.liabilityInsurance)).toMatch(/industry term/);
+  });
+
+  it("call the internal side another department, and the pick-up stamp Picked up", () => {
+    expect(GLOSSARY.map((g) => g.meaning).join(" ")).not.toMatch(/Operations|stamp Loaded/);
   });
 });
 

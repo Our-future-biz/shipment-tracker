@@ -68,6 +68,14 @@ export const TERMS = {
   haulierPortal: "Haulier portal",
   portalUser: "Portal user",
   invitationLink: "Invitation link",
+  partnerDelivery: "Partner delivery",
+  gateIn: "Gate-in",
+  readyToBill: "Ready to bill",
+  exception: "Exception",
+  scope: "Scope",
+  domesticOrder: "Domestic order",
+  planTrip: "Plan trip",
+  newTrip: "New trip",
 } as const;
 
 // What each term means, for the glossary in the Read me.
@@ -113,7 +121,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   },
   { term: TERMS.buyTariff, meaning: "What a haulier charges us, by zone, weight, pallet places or trip.", replaces: "nákupní ceník" },
   { term: TERMS.sellTariff, meaning: "What we charge a customer for carrying a consignment, by zone and chargeable weight, with surcharges.", replaces: "prodejní ceník" },
-  { term: TERMS.internalTariff, meaning: "The prices Trucking charges Operations for transport it runs for their shipments.", replaces: "interní ceník" },
+  { term: TERMS.internalTariff, meaning: "The prices Trucking charges another department for transport it runs for their jobs.", replaces: "interní ceník" },
   {
     term: TERMS.internalCharge,
     meaning:
@@ -141,7 +149,8 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   },
   {
     term: TERMS.liabilityInsurance,
-    meaning: "The haulier's insurance for damage to or loss of the goods it carries, up to its limit. Without a valid one the haulier is blocked.",
+    meaning:
+      "The haulier's insurance for damage to or loss of the goods it carries, up to its limit (\"carrier liability insurance\" is the industry term; under CMR it covers the haulier's liability for the goods). Without a valid one the haulier is blocked.",
     replaces: "pojištění odpovědnosti dopravce",
   },
   {
@@ -213,18 +222,18 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: TERMS.pickupPin,
     meaning:
-      "The code the driver gives at pick-up, made in Shipments (Warehouse → Pick-up) and shown there only once. To print it on a transport order it is typed into the Print / Send dialog; it is printed and never stored or logged (the history says only \"PIN printed\").",
+      "The code the driver gives at pick-up, made in Shipments (Warehouse → Pick-up) and shown there only once. To print it on a transport order it is typed into the Print / Record as sent dialog; it is printed and never stored or logged (the history says only \"PIN printed\").",
     replaces: "PIN pro vyzvednutí, výdejní kód",
   },
   {
     term: TERMS.recordedOnly,
-    meaning: "E-mail sending is off in this app: \"Mark as sent\" records that the transport order went out and downloads its PDF; nothing is e-mailed — the user sends it to the haulier.",
+    meaning: "E-mail sending is off in this app: \"Record as sent…\" records that the transport order went out and downloads its PDF; nothing is e-mailed — the user sends it to the haulier.",
     replaces: "jen zaznamenáno, odesláno ručně",
   },
   {
     term: TERMS.haulierLink,
     meaning:
-      "The link printed on a sent transport order. Without signing in, the haulier opens the order (no customer prices, only the agreed price), confirms or rejects it once and uploads the POD. It is valid 30 days after the planned pick-up; sending the order again renews it.",
+      "The link printed on a transport order recorded as sent. Without signing in, the haulier opens the order (no customer prices, only the agreed price), confirms or rejects it once and uploads the POD. It is valid 30 days after the planned pick-up; recording the order as sent again renews it.",
     replaces: "odkaz pro dopravce",
   },
   {
@@ -326,7 +335,7 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
   {
     term: TERMS.haulierPortal,
     meaning:
-      "The haulier's own pages at /haulier/portal, outside the app: its staff sign in with their e-mail and password and see only the trips and partner deliveries given to their haulier (no customer prices, no other hauliers). They confirm or reject orders, stamp Loaded, Departed and Arrived, mark each stop delivered with its POD and download the transport order (without the PIN). Every action is in the history as the haulier's.",
+      "The haulier's own pages at /haulier/portal, outside the app: its staff sign in with their e-mail and password and see only the trips and partner deliveries given to their haulier (no customer prices, no other hauliers). They confirm or reject orders, stamp Picked up, Departed and Arrived, mark each stop delivered with its POD and download the transport order (without the PIN). Every action is in the history as the haulier's.",
     replaces: "portál dopravce, dopravní portál",
   },
   {
@@ -340,5 +349,49 @@ export const GLOSSARY: { term: string; meaning: string; replaces?: string }[] = 
     meaning:
       "The one-time link a manager gets when adding a portal user or resetting its password, to send on by hand (e-mail sending is off). It is shown once and never again, works once and is valid 72 hours; the user sets a password of at least 12 characters with it.",
     replaces: "pozvánka, odkaz pro nastavení hesla",
+  },
+  {
+    term: TERMS.partnerDelivery,
+    meaning:
+      "The last leg of an LTL consignment run by a partner of our partner network instead of our own delivery run: the partner collects it at our warehouse or its depot and delivers it, paid per consignment from its buy tariff or at an agreed price. A haulier invoice bills it like a trip.",
+    replaces: "partnerský rozvoz, doručení partnerem",
+  },
+  {
+    term: TERMS.gateIn,
+    meaning:
+      "The stamp in the warehouse's Gate Log when an LTL consignment arrives at our warehouse. Only the warehouse stamps it; it moves the consignment to At our warehouse and starts its service-level clock.",
+    replaces: "příjezd do skladu, gate-in",
+  },
+  {
+    term: TERMS.readyToBill,
+    meaning: "Every consignment of the job has its POD and no open exception: Trucking moves the job to Billing in Shipments, and the consignment is no longer edited.",
+    replaces: "k fakturaci",
+  },
+  {
+    term: TERMS.exception,
+    meaning:
+      "Something that went wrong on a delivery — failed delivery, damage, shortage, waiting time … — raised on the consignment with its cost. It stays open until someone decides who bears it (see Exception decision) and closes it.",
+    replaces: "reklamace, škodní událost, mimořádnost",
+  },
+  {
+    term: TERMS.scope,
+    meaning: "What a tariff or haulier price covers: LTL (groupage through our warehouse), FTL (a whole truck, direct) or line haul (between our warehouse and a depot).",
+    replaces: "rozsah, druh přepravy",
+  },
+  {
+    term: TERMS.domesticOrder,
+    meaning:
+      "A consignment booked without an existing job — for a customer who buys only domestic road transport. Trucking creates its Road job in Shipments when it is booked.",
+    replaces: "tuzemská objednávka, vnitrostátní přeprava",
+  },
+  {
+    term: TERMS.planTrip,
+    meaning: "The step on an FTL consignment that orders its one truck: a haulier from the buy tariffs (or at an agreed price) and the trip that carries it.",
+    replaces: "naplánovat jízdu, objednat auto",
+  },
+  {
+    term: TERMS.newTrip,
+    meaning: "On the Planning tab: an LTL pick-up run, line haul or delivery run made from the ticked legs of the day, with its haulier and vehicle. More legs go on it later.",
+    replaces: "nová jízda, nový svoz / rozvoz",
   },
 ];

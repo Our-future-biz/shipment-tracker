@@ -1,7 +1,7 @@
 "use client";
 
 import { Tooltip } from "antd";
-import { Badge } from "@/app/warehouse/gate-log/_lib/gate";
+import { Badge } from "@/components/Badge";
 import type { StatusChip } from "../_lib/consignments";
 
 interface TruckingStatusChipProps {

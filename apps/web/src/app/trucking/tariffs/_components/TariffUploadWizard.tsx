@@ -34,7 +34,7 @@ interface TariffUploadWizardProps {
   tariffId: string;
 }
 
-// Uploading a price list (manager), step by step: the file, what was read from each sheet, the
+// Uploading a tariff file (manager), step by step: the file, what was read from each sheet, the
 // findings, the comparison with the active version, a test lane and activation. The upload is
 // saved as a draft at once, so leaving the wizard from step 2 on keeps it on the tariff page.
 export const TariffUploadWizard = ({ tariffId }: TariffUploadWizardProps) => {
@@ -126,7 +126,7 @@ export const TariffUploadWizard = ({ tariffId }: TariffUploadWizardProps) => {
             <ArrowLeftOutlined />
           </Link>
           <div className="min-w-0 flex-1">
-            <h1 className="text-[22px] font-bold text-slate-800 m-0">Upload a price list · {tariff.name}</h1>
+            <h1 className="text-[22px] font-bold text-slate-800 m-0">Upload a tariff file · {tariff.name}</h1>
             <div className="text-xs text-slate-500 mt-1">
               {version
                 ? `Saved as draft ${versionLabel(version)}. Leaving the wizard keeps it as a draft on the tariff page.`
@@ -138,7 +138,7 @@ export const TariffUploadWizard = ({ tariffId }: TariffUploadWizardProps) => {
 
       <div className="max-w-[1200px] mx-auto p-4 sm:p-6 flex flex-col gap-4">
         {isDiscount && <Alert type="info" showIcon message={DISCOUNT_NO_FILE} description="Its prices come from the Standard sell list active on the rating day, with the discount." />}
-        {!isDiscount && !canUpload && <Alert type="info" showIcon message="Only a manager uploads a price list." />}
+        {!isDiscount && !canUpload && <Alert type="info" showIcon message="Only a manager uploads a tariff file." />}
 
         {canUpload && (
           <>

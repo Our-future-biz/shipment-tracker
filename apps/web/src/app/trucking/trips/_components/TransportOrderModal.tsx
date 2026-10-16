@@ -19,9 +19,9 @@ interface TransportOrderModalProps {
 }
 
 
-// Print… and Send… of a transport order. The pick-up PIN is typed here because Shipments shows it
-// only once: it travels with this one request, is printed on the PDF and is never stored or logged.
-// E-mail is off in this app, so Send records the order as sent (recorded only) and hands over the
+// Print… and Record as sent… of a transport order. The pick-up PIN is typed here because Shipments
+// shows it only once: it travels with this one request, is printed on the PDF and is never stored or logged.
+// E-mail is off in this app, so Record as sent records the order as sent (recorded only) and hands over the
 // PDF — with the haulier's link to confirm it and upload the POD — to send by hand.
 export const TransportOrderModal = ({ mode, trip, onClose, onPrint, onSend }: TransportOrderModalProps) => {
   const toast = useToast();
@@ -48,17 +48,17 @@ export const TransportOrderModal = ({ mode, trip, onClose, onPrint, onSend }: Tr
       } else {
         const res = await onSend({ pickupPin: pinValue(pin), language, to: recipients, note: note.trim() });
         savePdf(res.file, orderFileName(orderNumber));
-        toast.success(res.recordedOnly ? "Marked as sent (recorded only) — the PDF is downloaded; send it to the haulier yourself" : `Sent to ${recipients.join(", ")}`);
+        toast.success(res.recordedOnly ? "Recorded as sent — the PDF is downloaded; send it to the haulier yourself" : `Sent to ${recipients.join(", ")}`);
       }
       onClose();
     } catch (e) {
-      setRefusal(`${mode === "print" ? "Not printed" : "Not marked as sent"} — ${apiErrorMessage(e)}.`);
+      setRefusal(`${mode === "print" ? "Not printed" : "Not recorded as sent"} — ${apiErrorMessage(e)}.`);
     } finally {
       setBusy(false);
     }
   };
 
-  const title = mode === "print" ? `Print ${TERMS.transportOrder.toLowerCase()}` : `${resend ? "Send again" : "Send"} ${TERMS.transportOrder.toLowerCase()}`;
+  const title = mode === "print" ? `Print ${TERMS.transportOrder.toLowerCase()}` : `Record ${TERMS.transportOrder.toLowerCase()} as sent${resend ? " again" : ""}`;
 
   return (
     <Modal open title={`${title} · ${trip.haulierName}`} width={560} onCancel={busy ? undefined : onClose} maskClosable={false} footer={null} destroyOnHidden>
@@ -68,7 +68,7 @@ export const TransportOrderModal = ({ mode, trip, onClose, onPrint, onSend }: Tr
             type="info"
             showIcon
             message="E-mail sending is off in this app"
-            description="The order is recorded as sent — nothing is e-mailed — and its PDF downloads for you to send to the haulier. The PDF carries the haulier's link to confirm the order and upload the POD; sending again renews the link."
+            description="The order is recorded as sent — nothing is e-mailed — and its PDF downloads for you to send to the haulier. The PDF carries the haulier's link to confirm the order and upload the POD; recording it as sent again renews the link."
           />
         )}
         <TruckingField label="Pick-up PIN" hint={PIN_EXPLANATION}>
@@ -104,7 +104,7 @@ export const TransportOrderModal = ({ mode, trip, onClose, onPrint, onSend }: Tr
             Cancel
           </Button>
           <Button type="primary" onClick={handleSubmit} loading={busy} disabled={!!pinError || badRecipients.length > 0}>
-            {mode === "print" ? "Download PDF" : "Mark as sent (recorded only)"}
+            {mode === "print" ? "Download PDF" : "Record as sent and download PDF"}
           </Button>
         </div>
       </div>

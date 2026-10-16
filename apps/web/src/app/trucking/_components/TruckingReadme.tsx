@@ -2,13 +2,10 @@
 
 import type { ReactNode } from "react";
 import { GLOSSARY, TERMS } from "../_lib/glossary";
-import { TRUCKING_TABS, type TruckingTabInfo } from "../_lib/tabs";
+import { TRUCKING_TABS } from "../_lib/tabs";
 
-const LIVE_TABS = TRUCKING_TABS.filter((t: TruckingTabInfo) => t.live);
-const PLANNED_TABS = TRUCKING_TABS.filter((t: TruckingTabInfo) => !t.live);
-
-// Read me of the Trucking module, shown in the "?" help drawer: what the module is for and how
-// it is being built. Keep it in step with the code as each phase lands.
+// Read me of the Trucking module, shown in the "?" help drawer: what the module is for and how it
+// works. Keep it in step with the code.
 
 interface PartProps {
   title: string;
@@ -34,14 +31,14 @@ export const TruckingReadme = () => (
         <b>{TERMS.haulier.toLowerCase()}</b> under a <b>{TERMS.transportOrder.toLowerCase()}</b>. Each lot of goods a customer buys transport for is a{" "}
         <b>{TERMS.consignment.toLowerCase()}</b>; each truck we order from one haulier is a <b>{TERMS.trip.toLowerCase()}</b>.
       </p>
-      <p>
-        The tabs follow the work: {TRUCKING_TABS.map((t) => t.label).join(" · ")}. This Read me sits behind the <b>?</b> button at the right of the tab bar.
-      </p>
-      <p>
-        The module is built in phases. Live today: {LIVE_TABS.map((t) => t.label).join(", ")} and the Trucking settings (the gear at the right of the tab bar).
-        {PLANNED_TABS.length > 0 &&
-          ` Every other tab says what it will hold and which phase brings it — ${PLANNED_TABS.map((t) => `${t.label}: Phase ${t.phase}`).join(", ")}.`}
-      </p>
+      <p>The tabs follow the work; the Trucking settings sit behind the gear and this Read me behind the <b>?</b> at the right of the tab bar.</p>
+      <ul>
+        {TRUCKING_TABS.map((t) => (
+          <li key={t.key}>
+            <b>{t.label}</b> — {t.purpose}
+          </li>
+        ))}
+      </ul>
     </Part>
 
     <Part title="A direct delivery (FTL), end to end">
@@ -64,17 +61,17 @@ export const TruckingReadme = () => (
           promised delivery and tractor plate are written to the job.
         </li>
         <li>
-          <b>{TERMS.transportOrder}</b> — <b>Print…</b> downloads the PDF; <b>Send…</b> records the order as sent and downloads the PDF. E-mail is off in this
-          app, so it says <b>Mark as sent ({TERMS.recordedOnly.toLowerCase()})</b>: nothing is e-mailed, you send the PDF to the haulier. Refused while the
+          <b>{TERMS.transportOrder}</b> — <b>Print…</b> downloads the PDF; <b>Record as sent…</b> records the order as sent and downloads the PDF. E-mail
+          is off in this app ({TERMS.recordedOnly.toLowerCase()}): nothing is e-mailed, you send the PDF to the haulier. Refused while the
           margin waits for approval or the haulier is blocked.
         </li>
         <li>
           <b>The {TERMS.pickupPin} rule</b> — the PIN is made in Shipments and shown there only once (Shipments keeps only a hash). To have it on the order,
-          type it into the Print / Send dialog: it is printed on the PDF and <b>never stored or logged</b> — the history says only &quot;PIN printed&quot;.
+          type it into the Print / Record as sent dialog: it is printed on the PDF and <b>never stored or logged</b> — the history says only &quot;PIN printed&quot;.
           Leave it empty to print none.
         </li>
         <li>
-          <b>The {TERMS.haulierLink.toLowerCase()}</b> — a sent order carries a link (valid 30 days after the planned pick-up; sending again renews it).
+          <b>The {TERMS.haulierLink.toLowerCase()}</b> — an order recorded as sent carries a link (valid 30 days after the planned pick-up; recording it as sent again renews it).
           The haulier opens it on a phone without signing in, sees the order in Czech and English with only the agreed price, <b>confirms or rejects</b> it
           once and later <b>uploads the {TERMS.pod}</b> (photo or PDF, receiver&apos;s name, delivery time). A confirmation by phone or e-mail is entered with{" "}
           <b>Record confirmation…</b>.
@@ -93,8 +90,10 @@ export const TruckingReadme = () => (
       <p>
         A manager can <b>cancel</b> a consignment (with a reason) until it is picked up — its Trucking cost lines leave the job — or cancel a trip, which
         sends its consignment back to Booked. The Consignments tab tiles count open FTL consignments without a haulier and today&apos;s pick-ups and
-        deliveries; its chips show what needs attention, POD missing and ready to bill. The Trips tab lists every trip with its haulier, vehicle and
-        order.
+        deliveries, and each opens exactly the consignments it counts; its chips show what needs attention, POD missing and ready to bill. The Trips tab
+        lists every trip with its haulier, vehicle and order, with tiles for <b>Draft</b>, <b>Ordered, not confirmed</b> and <b>In transit today</b>. The
+        tab bar counts the work waiting: consignments that need attention and trips not confirmed yet. A margin below the floor says{" "}
+        <b>Needs approval</b> or <b>Approved</b> in words. Times are shown in Prague time everywhere.
       </p>
     </Part>
 
@@ -114,7 +113,7 @@ export const TruckingReadme = () => (
       </p>
       <ul>
         <li>
-          <b>Status</b>: Booked → Planned (every leg needed is on a trip) → Ordered (the first transport order is sent) → Picked up → <b>At our warehouse</b>{" "}
+          <b>Status</b>: Booked → Planned (every leg needed is on a trip) → Ordered (the first transport order is recorded as sent) → Picked up → <b>At our warehouse</b>{" "}
           → On line haul / Out for delivery → Delivered → POD received → Ready to bill.
         </li>
         <li>
@@ -127,7 +126,8 @@ export const TruckingReadme = () => (
         </li>
       </ul>
       <p>
-        <b>Planning</b> (the Planning tab): pick the day and the kind — Pick-up runs, Line hauls or Delivery runs. The open legs are on the left, by{" "}
+        <b>Planning</b> (the Planning tab): pick the day and the kind — Pick-up runs, Line hauls or Delivery runs; both stay in the address, so a shared
+        link opens the same day. The open legs are on the left, by{" "}
         {TERMS.zone.toLowerCase()}, with a deadline badge (overdue and today red, tomorrow amber). The day&apos;s trips are cards with the haulier, vehicle, the{" "}
         <b>{TERMS.fill.toLowerCase()}</b> as two bars (LDM and kg — the fuller sets the colour), the stops, the cost and the warnings.
       </p>
@@ -145,7 +145,7 @@ export const TruckingReadme = () => (
           {TERMS.tailLift.toLowerCase()} needed but missing. If someone changed the trip meanwhile the board reloads — make the change again.
         </li>
         <li>
-          Card actions: <b>{TERMS.transportOrder}</b> (the same Print / Send dialogs as FTL, listing every stop), <b>{TERMS.manifest} PDF</b>,{" "}
+          Card actions: <b>{TERMS.transportOrder}</b> (the same Print / Record as sent dialogs as FTL, listing every stop), <b>{TERMS.manifest} PDF</b>,{" "}
           <b>Labels PDF</b> (100 × 150 mm, also from the Consignments grid for ticked rows) and <b>Open trip</b>.
         </li>
         <li>
@@ -199,7 +199,7 @@ export const TruckingReadme = () => (
         </li>
         <li>
           <b>In the portal</b> the user sees Open and Done orders (each says what still needs doing), confirms or rejects an order once, stamps{" "}
-          <b>Loaded</b>, <b>Departed</b> and <b>Arrived</b> (the same rules as in the app — a line haul cannot depart before its goods&apos; gate-in), marks each
+          <b>Picked up</b>, <b>Departed</b> and <b>Arrived</b> (the same rules as in the app — a line haul cannot depart before its goods&apos; gate-in), marks each
           stop <b>Delivered</b> and uploads its {TERMS.pod} (photo or PDF), and downloads the {TERMS.transportOrder.toLowerCase()} — printed without the{" "}
           {TERMS.pickupPin}. Everything lands in the history as the haulier&apos;s, with the user&apos;s name.
         </li>
@@ -212,8 +212,8 @@ export const TruckingReadme = () => (
 
     <Part title="Tariffs">
       <p>
-        A tariff is a price list on one of three sides: <b>Buy</b> (what a {TERMS.haulier.toLowerCase()} charges us, one tariff per haulier and scope),{" "}
-        <b>Sell</b> (what we charge — the <b>{TERMS.standardList}</b> for everyone, or a customer&apos;s own) and <b>Internal</b> (what Trucking charges Operations).
+        A tariff is one set of prices on one of three sides: <b>Buy</b> (what a {TERMS.haulier.toLowerCase()} charges us, one tariff per haulier and scope),{" "}
+        <b>Sell</b> (what we charge — the <b>{TERMS.standardList}</b> for everyone, or a customer&apos;s own) and <b>Internal</b> (what Trucking charges another department).
         Each has a scope ({TERMS.ltl}, {TERMS.ftl} or {TERMS.lineHaul.toLowerCase()}) and a currency, CZK or EUR.
       </p>
       <p>
@@ -427,14 +427,15 @@ export const TruckingReadme = () => (
       <ul>
         <li>
           <b>Customer Database</b>: customers, their addresses and contacts. The postcode (PSČ) of an address gives its <b>{TERMS.zone.toLowerCase()}</b>.
-          Each company&apos;s <b>Trucking</b> tab shows the price list it is priced with (its own or the {TERMS.standardList}), lets a manager give it a
-          discount or its own list, and for a haulier lists its {TERMS.buyTariff.toLowerCase()}s.
+          Each company&apos;s <b>Trucking</b> tab shows the tariff it is priced with (its own or the {TERMS.standardList}), lets a manager give it a
+          discount or its own tariff, and for a haulier lists its {TERMS.buyTariff.toLowerCase()}s.
         </li>
         <li>
           <b>Shipments</b>: every consignment belongs to a shipment job; an order for a domestic-only customer gets its job created automatically. What Trucking
           learns is written back to the job through an outbox (retried when Shipments is briefly unavailable): the planned pick-up, promised delivery and
           tractor plate when the trip is planned, the actual delivery date, and the step to <b>Billing</b> once every POD is in. The job&apos;s{" "}
-          <b>Trucking</b> tab shows its consignments (kept by Trucking — view only) and <b>Order trucking</b> books a new one on the job.
+          <b>Trucking</b> tab shows its consignments (view-only there; <b>Open in Trucking</b> lists just this job&apos;s consignments) and{" "}
+          <b>Order trucking</b> books a new one on the job.
         </li>
         <li>
           <b>Sales</b>: the <b>Rate calculator</b> and the <b>{TERMS.sellTariff.toLowerCase()}s</b> price trucking in quotes (Price from tariff, Copy to
@@ -442,7 +443,7 @@ export const TruckingReadme = () => (
         </li>
         <li>
           <b>Invoicing</b>: a consignment&apos;s sell price and its trip&apos;s buy price are lines of the job&apos;s Costs Breakdown, tagged{" "}
-          <b>From Trucking · TCZ…</b> and read-only there (they change in Trucking). Customers are invoiced at the {TERMS.sellTariff.toLowerCase()}. An approved{" "}
+          <b>Kept by Trucking · TCZ…</b> (a trip&apos;s buy line: <b>· LCZ…</b>), read-only there and linked to the consignment or trip where they change. Customers are invoiced at the {TERMS.sellTariff.toLowerCase()}. An approved{" "}
           {TERMS.haulierInvoice.toLowerCase()} writes the real cost (amount and invoice number) onto the job&apos;s buying lines. A job owned by another department gets
           no customer selling lines and no haulier costs from Trucking — only one internal buying line per consignment, numbered with the month&apos;s{" "}
           {TERMS.internalStatement.toLowerCase()} once the month is closed.

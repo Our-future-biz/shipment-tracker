@@ -4,12 +4,12 @@ import Link from "next/link";
 import type { TripDetail } from "@/hooks/useTruckingConsignments";
 import { consignmentHref } from "../../_lib/consignments";
 import { TERMS } from "../../_lib/glossary";
-import { formatPsc } from "../../_lib/hauliers";
 import { formatMoney, formatQty } from "../../_lib/tariffs";
+import { place } from "../../_lib/format";
 
 const th = "text-left px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 whitespace-nowrap";
 const td = "px-3 py-1.5 align-middle";
-const place = (psc: string, city: string) => [psc ? formatPsc(psc) : "", city].filter(Boolean).join(" ") || "—";
+const placeOrDash = (psc: string, city: string) => place(psc, city) || "—";
 
 interface TripLegsTableProps {
   trip: TripDetail;
@@ -52,8 +52,8 @@ export const TripLegsTable = ({ trip }: TripLegsTableProps) => {
                 </Link>
               </td>
               <td className={`${td} text-slate-700`}>{l.customerName}</td>
-              <td className={`${td} text-slate-600`}>{place(l.fromPostcode, l.fromCity)}</td>
-              <td className={`${td} text-slate-600`}>{place(l.toPostcode, l.toCity)}</td>
+              <td className={`${td} text-slate-600`}>{placeOrDash(l.fromPostcode, l.fromCity)}</td>
+              <td className={`${td} text-slate-600`}>{placeOrDash(l.toPostcode, l.toCity)}</td>
               <td className={`${td} text-right tabular-nums`}>{formatQty(l.palletPlaces)}</td>
               <td className={`${td} text-right tabular-nums`}>{formatQty(l.ldm)}</td>
               <td className={`${td} text-right tabular-nums`}>{formatQty(l.weightKg)}</td>

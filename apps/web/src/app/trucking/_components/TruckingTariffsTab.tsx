@@ -11,16 +11,16 @@ import { PillTabs } from "@/components/SectionCard";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { formatDate } from "@/lib/date";
 import { useTariffs, type TariffListItem, type TariffSide, type TariffVersionSummary } from "@/hooks/useTrucking";
-import { isTruckingManager } from "../_lib/roles";
+import { isTruckingManager, managerOnlyReason } from "../_lib/roles";
 import { SCOPE_LABELS, TARIFF_SIDES, ZONE_BY_LABELS, modeLabel, ownerLabel, tariffListStatus, validityLabel, versionLabel } from "../_lib/tariffs";
 import { TariffCreateModal } from "./TariffCreateModal";
+import { byText } from "../_lib/format";
 
 export const tariffHref = (id: string) => `/trucking/tariffs/${id}`;
 
 const SIDE_PARAM: Record<string, TariffSide> = { buy: "BUY", sell: "SELL", internal: "INTERNAL" };
 const DEFAULT_SIDE: TariffSide = "SELL";
 
-const byText = (a: string, b: string) => a.localeCompare(b, "cs");
 
 const VersionCell = ({ version }: { version: TariffVersionSummary | null }) => {
   if (!version) return <span className="text-slate-400">—</span>;
@@ -99,6 +99,7 @@ export const TruckingTariffsTab = () => {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user } = useAuth();
+  const createReason = managerOnlyReason(user, "create a tariff");
   const { tariffs, isLoading, create, isCreating } = useTariffs();
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -137,16 +138,17 @@ export const TruckingTariffsTab = () => {
         emptyText={`No ${sideInfo.label.toLowerCase()} tariffs yet.${isTruckingManager(user) ? " Create one with “New tariff”." : ""}`}
         resetKey={side}
         actions={
-          isTruckingManager(user) && (
+          <Tooltip title={createReason || undefined}>
             <button
               type="button"
+              disabled={!!createReason}
               onClick={() => setCreateOpen(true)}
-              className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors"
+              className="flex items-center gap-1.5 shrink-0 rounded-lg bg-indigo-600 px-3 h-8 text-[13px] font-semibold text-white hover:bg-indigo-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               <PlusOutlined />
               New tariff
             </button>
-          )
+          </Tooltip>
         }
       />
       <TariffCreateModal

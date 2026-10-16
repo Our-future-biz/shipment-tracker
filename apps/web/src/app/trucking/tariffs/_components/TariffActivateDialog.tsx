@@ -62,7 +62,7 @@ export const TariffActivateDialog = ({ version, loading, onClose, onActivate }: 
                 type="error"
                 showIcon
                 message={`This version has ${errors} error${errors === 1 ? "" : "s"} and cannot be activated.`}
-                description="Fix them in the price list file and upload it again as a new version."
+                description="Fix them in the tariff file and upload it again as a new version."
               />
               <TariffFindingList findings={detail.findings.filter((f) => f.severity === "error")} limit={8} />
             </>

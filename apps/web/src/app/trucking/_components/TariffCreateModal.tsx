@@ -6,7 +6,7 @@ import { apiErrorMessage } from "@/lib/api";
 import { useHauliers, type TariffCreate, type TariffSide } from "@/hooks/useTrucking";
 import { TERMS } from "../_lib/glossary";
 import { CURRENCIES } from "../_lib/hauliers";
-import { SCOPE_LABELS, TARIFF_SIDES, ZONE_BY_LABELS, discountLabel, type TariffScope } from "../_lib/tariffs";
+import { INTERNAL_OWNER, SCOPE_LABELS, TARIFF_SIDES, ZONE_BY_LABELS, discountLabel, type TariffScope } from "../_lib/tariffs";
 import { TruckingCustomerSelect } from "./TruckingCustomerSelect";
 import { TruckingField } from "./TruckingField";
 
@@ -58,7 +58,7 @@ const CURRENCY_OPTIONS = CURRENCIES.map((c) => ({ value: c, label: c }));
 /** The name offered when none is typed: "ACME s.r.o. — LTL buy", "Standard — LTL sell". */
 const suggestedName = (d: CreateDraft) => {
   const side = TARIFF_SIDES.find((s) => s.key === d.side)!.label.toLowerCase();
-  const owner = d.side === "INTERNAL" ? "Operations" : d.side === "SELL" && d.standard ? "Standard" : (d.ownerName ?? "");
+  const owner = d.side === "INTERNAL" ? INTERNAL_OWNER : d.side === "SELL" && d.standard ? "Standard" : (d.ownerName ?? "");
   return owner ? `${owner} — ${SCOPE_LABELS[d.scope]} ${side}` : "";
 };
 

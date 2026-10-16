@@ -1,7 +1,20 @@
 import type { TransportOrderLanguage } from "@/hooks/useTruckingConsignments";
 
-// Pure helpers of the transport-order dialogs (Print… / Send…): the pick-up PIN typed by the user,
-// the language and the recipients. Tested in transportOrder.test.ts.
+// Pure helpers of the transport-order dialogs (Print… / Record as sent…): the pick-up PIN typed by
+// the user, the language, the recipients and the words of each entry point. Tested in
+// transportOrder.test.ts.
+
+/**
+ * E-mail is off in this app: the order is never sent from here, only recorded as sent while its PDF
+ * downloads. Every entry point (consignment, trip page, planning card) says so the same way.
+ */
+export const recordAsSentLabel = (alreadySent: boolean) => (alreadySent ? "Record as sent again…" : "Record as sent…");
+
+/** The column of the Trips list and the line of the trip page that show when the order was recorded as sent. */
+export const RECORDED_AS_SENT = "Recorded as sent";
+
+/** Why Print / Record as sent are not offered on a trip that is on the road, done or cancelled. */
+export const ORDER_LOCKED_TEXT = "The trip is on the road, done or cancelled — its transport order no longer changes";
 
 /**
  * The pick-up PIN is made in Shipments (Warehouse → Pick-up) and shown there once; Shipments keeps

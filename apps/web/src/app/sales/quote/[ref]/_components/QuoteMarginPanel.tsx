@@ -1,7 +1,7 @@
 "use client";
 
 import { CheckCircleFilled, WarningFilled } from "@ant-design/icons";
-import { formatDateTime } from "@/lib/date";
+import { businessDateTime } from "@/lib/date";
 import { formatMoney } from "@/app/trucking/_lib/tariffs";
 import { floorText, marginState, marginText, type RoadMargin } from "../../../_lib/roadQuote";
 import { MiniButton } from "./QuoteButtons";
@@ -52,7 +52,7 @@ export const QuoteMarginPanel = ({ margin, canApprove, onApprove }: QuoteMarginP
         <div className="mt-2 flex items-start gap-1.5 text-[12.5px] text-green-800">
           <CheckCircleFilled className="mt-0.5" aria-hidden />
           <span>
-            Approved by {margin.approval.byName} on {formatDateTime(margin.approval.at)}: {margin.approval.reason}
+            Approved by {margin.approval.byName} on {businessDateTime(margin.approval.at)}: {margin.approval.reason}
           </span>
         </div>
       )}

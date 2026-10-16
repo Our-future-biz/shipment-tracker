@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PIN_EXPLANATION, invalidRecipients, parseRecipients, pinProblem, pinValue } from "./transportOrder";
+import { PIN_EXPLANATION, RECORDED_AS_SENT, invalidRecipients, parseRecipients, pinProblem, pinValue, recordAsSentLabel } from "./transportOrder";
 
 describe("pick-up PIN field", () => {
   it("prints no PIN when the field is empty", () => {
@@ -26,5 +26,13 @@ describe("recipients", () => {
   });
   it("finds what is not an e-mail address", () => {
     expect(invalidRecipients(["a@x.cz", "dispecink", "b@y"])).toEqual(["dispecink", "b@y"]);
+  });
+});
+
+describe("recording a transport order as sent", () => {
+  it("never says Send: e-mail is off, the order is recorded as sent", () => {
+    expect(recordAsSentLabel(false)).toBe("Record as sent…");
+    expect(recordAsSentLabel(true)).toBe("Record as sent again…");
+    expect(RECORDED_AS_SENT).toBe("Recorded as sent");
   });
 });

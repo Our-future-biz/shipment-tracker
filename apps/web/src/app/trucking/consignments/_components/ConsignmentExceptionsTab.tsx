@@ -6,9 +6,9 @@ import { Tooltip } from "antd";
 import { CameraOutlined, PaperClipOutlined, PlusOutlined } from "@ant-design/icons";
 import type { DeliveryException } from "@/hooks/useTruckingControl";
 import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
-import { formatDateTime } from "@/lib/date";
+import { businessDateTime } from "@/lib/date";
 import { remeasurementHref } from "@/app/warehouse/_components/remeasurementLinks";
-import { btnDefault, btnPrimary } from "@/app/warehouse/gate-log/_components/job/fields";
+import { btnDefault, btnPrimary } from "@/components/buttons";
 import { CAUSE_LABELS, DECISION_LABELS, EXCEPTION_KIND_LABELS, FAILED_REASON_LABELS, closeState, decideState, exceptionChip } from "../../_lib/exceptions";
 import type { ActionState } from "../../_lib/consignments";
 import { formatMoney } from "../../_lib/tariffs";
@@ -43,7 +43,7 @@ const ExceptionCard = ({ e, legText, onAction }: { e: DeliveryException; legText
           {e.failedReason ? ` — ${FAILED_REASON_LABELS[e.failedReason]}` : ""}
         </span>
         <span className="text-xs text-slate-400">
-          raised {formatDateTime(e.createdAt)}
+          raised {businessDateTime(e.createdAt)}
           {e.createdBy ? ` by ${e.createdBy}` : ""}
         </span>
         {open && (
@@ -62,8 +62,8 @@ const ExceptionCard = ({ e, legText, onAction }: { e: DeliveryException; legText
         {e.pieces != null && <Fact k="Pieces" v={e.pieces} />}
         {e.waitingMinutes != null && <Fact k="Waited" v={`${e.waitingMinutes} min`} />}
         {legText && <Fact k="Leg" v={legText} />}
-        {e.decidedAt && <Fact k="Decided" v={`${formatDateTime(e.decidedAt)}${e.decidedBy ? ` · ${e.decidedBy}` : ""}`} />}
-        {e.closedAt && <Fact k="Closed" v={formatDateTime(e.closedAt)} />}
+        {e.decidedAt && <Fact k="Decided" v={`${businessDateTime(e.decidedAt)}${e.decidedBy ? ` · ${e.decidedBy}` : ""}`} />}
+        {e.closedAt && <Fact k="Closed" v={businessDateTime(e.closedAt)} />}
         {e.warehouseExceptionId && <Fact k="From" v="a Warehouse exception" />}
       </div>
       {e.photos.length > 0 && (
@@ -139,7 +139,7 @@ export const ConsignmentExceptionsTab = ({ c, onCreate, onAction }: ConsignmentE
                   <td className="py-1.5 pr-3 tabular-nums">{w.pieces ?? "—"}</td>
                   <td className="py-1.5 pr-3">{w.note || "—"}</td>
                   <td className="py-1.5 pr-3">{w.status}</td>
-                  <td className="py-1.5">{formatDateTime(w.createdAt)}</td>
+                  <td className="py-1.5">{businessDateTime(w.createdAt)}</td>
                 </tr>
               ))}
             </tbody>

@@ -1,7 +1,7 @@
 import type { AvizaceChannel, AvizaceTemplate } from "@/hooks/useTruckingControl";
 import type { ConsignmentDetail, TripKind } from "@/hooks/useTruckingConsignments";
 import { businessDateTime, businessTime } from "@/lib/date";
-import type { Tone } from "@/app/warehouse/gate-log/_lib/gate";
+import type { Tone } from "@/components/Badge";
 
 // Avizace: agreeing the delivery with the consignee. The app prepares the text to copy and staff
 // record how it was agreed; nothing is sent from here. Tested in avizace.test.ts.

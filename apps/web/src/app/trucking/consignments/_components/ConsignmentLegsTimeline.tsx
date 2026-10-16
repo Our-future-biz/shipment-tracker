@@ -7,7 +7,7 @@ import { CheckCircleFilled, ClockCircleOutlined, MinusCircleOutlined, RightOutli
 import { SectionCard } from "@/components/SectionCard";
 import type { ConsignmentDetail, Leg } from "@/hooks/useTruckingConsignments";
 import { businessDateTime } from "@/lib/date";
-import { btnInline } from "@/app/warehouse/gate-log/_components/job/fields";
+import { btnInline } from "@/components/buttons";
 import { tripHref } from "../../_lib/consignments";
 import { TERMS } from "../../_lib/glossary";
 import { legTimeline, promisedText, type LegTimelineState } from "../../_lib/planning";

@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Alert, Spin } from "antd";
 import { FileExcelOutlined } from "@ant-design/icons";
 import { KpiCard, KpiPeriodBar } from "@/app/warehouse/_components/kpi/KpiCards";
-import { btnDefault } from "@/app/warehouse/gate-log/_components/job/fields";
+import { btnDefault } from "@/components/buttons";
 import { useKpiPeriod } from "@/hooks/useKpis";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { fetchTruckingReportExport, useTruckingReport } from "@/hooks/useTruckingReports";

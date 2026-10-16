@@ -1,7 +1,7 @@
 "use client";
 
 import type { PriceSnapshot } from "@/hooks/useTruckingConsignments";
-import { formatDateTime } from "@/lib/date";
+import { businessDateTime } from "@/lib/date";
 import { formatMoney, formatQty } from "../_lib/tariffs";
 
 const SOURCE_TEXT: Record<PriceSnapshot["source"], string> = { TARIFF: "From the tariff", QUOTE: "From the quote", MANUAL: "Agreed price" };
@@ -22,7 +22,7 @@ export const PriceSnapshotTable = ({ price }: PriceSnapshotTableProps) => (
           {price.versionNo != null ? ` v${price.versionNo}` : ""}
         </span>
       )}
-      <span>· priced {formatDateTime(price.ratedAt)}</span>
+      <span>· priced {businessDateTime(price.ratedAt)}</span>
       {price.overrideReason && <span className="basis-full text-amber-700">Why: {price.overrideReason}</span>}
     </div>
     <table className="w-full border-collapse text-[12px] tabular-nums">

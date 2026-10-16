@@ -130,6 +130,12 @@ export function listItem(
     avizaceDone: !!c.avizace,
     openExceptions,
     internal: c.internal,
+    pickedUpAt: iso(c.pickedUpAt),
+    deliveredAt: iso(c.deliveredAt),
+    tractorPlate: liveTrip?.tractorPlate ?? "",
+    trailerPlate: liveTrip?.trailerPlate ?? "",
+    driverName: liveTrip?.driverName ?? "",
+    driverPhone: liveTrip?.driverPhone ?? "",
   };
 }
 

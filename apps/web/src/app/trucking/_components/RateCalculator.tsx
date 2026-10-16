@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { Alert, Button, Tooltip } from "antd";
 import { CalculatorOutlined, CopyOutlined } from "@ant-design/icons";
 import { apiErrorMessage } from "@/lib/api";
-import { businessToday, formatDateTime } from "@/lib/date";
+import { businessToday, businessDateTime } from "@/lib/date";
 import { useRate, useTruckingSettings, type RateRequest } from "@/hooks/useTrucking";
 import { emptyRateForm, rateFormProblems, toRateRequest, type RateForm } from "../_lib/rateCalculator";
 import { RateCalculatorForm } from "./RateCalculatorForm";
@@ -17,15 +17,6 @@ interface RateCalculatorProps {
   /** The customer's name for an `initial.customerId`. */
   initialCustomerName?: string | null;
 }
-
-/** A button of a later phase: shown so people know it is coming, never clickable yet. */
-const LaterButton = ({ label, phase }: { label: string; phase: number }) => (
-  <Tooltip title={`Arrives in Phase ${phase}`}>
-    <span>
-      <Button disabled>{label}</Button>
-    </span>
-  </Tooltip>
-);
 
 // The rate calculator: prices a consignment from the tariffs for every active service level —
 // sell, the hauliers that can run it, margin and internal. Nothing is stored. Self-contained, so a
@@ -92,9 +83,8 @@ export const RateCalculator = ({ initial, initialCustomerName = null }: RateCalc
         <section className="bg-white border border-slate-200 rounded-xl shadow-sm">
           <div className="flex flex-wrap items-center gap-3 px-4 py-2.5 border-b border-slate-100">
             <h3 className="m-0 text-[13px] font-bold uppercase tracking-wider text-slate-800">Prices</h3>
-            <span className="text-[11.5px] text-slate-500">rated {formatDateTime(result.ratedAt)} · click a row for the price lines and every haulier</span>
+            <span className="text-[11.5px] text-slate-500">rated {businessDateTime(result.ratedAt)} · click a row for the price lines and every haulier</span>
             <span className="ml-auto flex flex-wrap gap-2">
-              <LaterButton label="Create consignment" phase={4} />
               <Tooltip title={changed ? "Calculate again first: the inputs changed" : undefined}>
                 <span>
                   <Button icon={<CopyOutlined />} disabled={changed || !askedForm} onClick={() => setCopyOpen(true)}>

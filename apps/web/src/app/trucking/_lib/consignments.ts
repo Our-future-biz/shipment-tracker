@@ -7,10 +7,10 @@ import type {
   TripDetail,
   TripStatus,
 } from "@/hooks/useTruckingConsignments";
-import type { Tone } from "@/app/warehouse/gate-log/_lib/gate";
+import type { Tone } from "@/components/Badge";
 import type { interfaces } from "@/lib/api/client";
-import { formatDateTime } from "@/lib/date";
-import { formatMoney, formatPercent } from "./tariffs";
+import { businessDateTime } from "@/lib/date";
+import { formatMoney, formatPercent, formatQty } from "./tariffs";
 
 // Pure helpers of the consignment and trip screens: status words and colours, the lifecycle, what
 // needs attention, and which actions a consignment allows now (and why not). Tested in
@@ -24,10 +24,10 @@ export interface StatusChip {
 
 export const CONSIGNMENT_STATUS_CHIP: Record<ConsignmentStatus, StatusChip> = {
   BOOKED: { label: "Booked", tone: "", hint: "Waiting for a trip and a haulier" },
-  PLANNED: { label: "Planned", tone: "b", hint: "On a trip with a haulier; the transport order is not sent yet" },
-  ORDERED: { label: "Ordered", tone: "a", hint: "Transport order sent; waiting for the haulier to confirm" },
+  PLANNED: { label: "Planned", tone: "b", hint: "On a trip with a haulier; the transport order is not recorded as sent yet" },
+  ORDERED: { label: "Ordered", tone: "a", hint: "Transport order recorded as sent (you send the PDF to the haulier); waiting for the haulier to confirm" },
   CONFIRMED: { label: "Confirmed", tone: "i", hint: "The haulier confirmed the transport order" },
-  PICKED_UP: { label: "Picked up", tone: "i", hint: "Loaded at the pick-up site, on its way" },
+  PICKED_UP: { label: "Picked up", tone: "i", hint: "Picked up at the pick-up site, on its way" },
   AT_HUB: { label: "At our warehouse", tone: "i", hint: "Gated in at our warehouse (confirmed by the warehouse)" },
   ON_LINEHAUL: { label: "On line haul", tone: "b", hint: "Gone out of our warehouse on the line haul to the partner's depot" },
   OUT_FOR_DELIVERY: { label: "Out for delivery", tone: "b", hint: "Gone out of our warehouse for delivery" },
@@ -38,8 +38,8 @@ export const CONSIGNMENT_STATUS_CHIP: Record<ConsignmentStatus, StatusChip> = {
 };
 
 export const TRIP_STATUS_CHIP: Record<TripStatus, StatusChip> = {
-  DRAFT: { label: "Draft", tone: "", hint: "Haulier chosen; the transport order is not sent yet" },
-  ORDERED: { label: "Ordered", tone: "a", hint: "Transport order sent; waiting for the haulier to confirm" },
+  DRAFT: { label: "Draft", tone: "", hint: "Haulier chosen; the transport order is not recorded as sent yet" },
+  ORDERED: { label: "Ordered", tone: "a", hint: "Transport order recorded as sent (you send the PDF to the haulier); waiting for the haulier to confirm" },
   CONFIRMED: { label: "Confirmed", tone: "i", hint: "The haulier confirmed the transport order" },
   IN_TRANSIT: { label: "In transit", tone: "b", hint: "Picked up, not yet delivered" },
   DONE: { label: "Done", tone: "g", hint: "Delivered" },
@@ -149,8 +149,11 @@ export function attentionSummary(reasons: readonly string[]): { first: string; m
   return { first: reasons[0]!, more: reasons.length - 1 };
 }
 
+/** The views the chips filter by; "openFtl" belongs to its tile. */
+export type ChipView = Exclude<ConsignmentView, "openFtl">;
+
 /** Quick filters of the Consignments tab (?view=); the server counts and filters them. */
-export const CONSIGNMENT_CHIPS: { id: ConsignmentView; label: string; hint: string; danger?: boolean }[] = [
+export const CONSIGNMENT_CHIPS: { id: ChipView; label: string; hint: string; danger?: boolean }[] = [
   { id: "attention", label: "Needs attention", hint: "Something is late or missing: no trip close to the pick-up, no confirmation, no POD, a margin waiting for approval", danger: true },
   { id: "pickupToday", label: "Pick-up today", hint: "Planned to be picked up today (Prague)" },
   { id: "deliveryToday", label: "Delivery today", hint: "Promised for delivery today (Prague)" },
@@ -160,12 +163,27 @@ export const CONSIGNMENT_CHIPS: { id: ConsignmentView; label: string; hint: stri
   { id: "readyToBill", label: "Ready to bill", hint: "Every consignment of the job has its POD" },
 ];
 
-/** The tiles over the Consignments grid: counts from the server, each opening its view. */
-export const CONSIGNMENT_TILES: { id: "openFtlWithoutHaulier" | "pickupToday" | "deliveryToday"; label: string; hint: string; view: ConsignmentView | null; status: ConsignmentStatus | null }[] = [
-  { id: "openFtlWithoutHaulier", label: "Open FTL without haulier", hint: "Booked FTL consignments not yet on a trip", view: null, status: "BOOKED" },
-  { id: "pickupToday", label: "Pick-up today", hint: "Planned to be picked up today (Prague)", view: "pickupToday", status: null },
-  { id: "deliveryToday", label: "Delivery today", hint: "Promised for delivery today (Prague)", view: "deliveryToday", status: null },
+/** The tiles over the Consignments grid: counts from the server, each opening the server view that counted it. */
+export const CONSIGNMENT_TILES: { id: "openFtlWithoutHaulier" | "pickupToday" | "deliveryToday"; label: string; hint: string; view: ConsignmentView }[] = [
+  { id: "openFtlWithoutHaulier", label: "Open FTL without haulier", hint: "Booked FTL consignments not yet on a trip", view: "openFtl" },
+  { id: "pickupToday", label: "Pick-up today", hint: "Planned to be picked up today (Prague)", view: "pickupToday" },
+  { id: "deliveryToday", label: "Delivery today", hint: "Promised for delivery today (Prague)", view: "deliveryToday" },
 ];
+
+/** The view a ?view= value names (a chip's or a tile's), or null for none or an unknown one. */
+export function consignmentViewOf(param: string | null): ConsignmentView | null {
+  const views: ConsignmentView[] = [...CONSIGNMENT_CHIPS.map((c) => c.id), ...CONSIGNMENT_TILES.map((t) => t.view)];
+  return views.find((v) => v === param) ?? null;
+}
+
+/** "12 pallet places · 1 250.5 kg · ADR": a consignment's load in a line, numbers formatted. */
+export function loadText(c: Pick<ConsignmentListItem, "palletPlaces" | "weightKg" | "adr">): string {
+  const places = `${formatQty(c.palletPlaces)} ${c.palletPlaces === 1 ? "pallet place" : "pallet places"}`;
+  return [places, `${formatQty(c.weightKg)} kg`, c.adr ? "ADR" : ""].filter(Boolean).join(" · ");
+}
+
+/** The Consignments tab showing only one job's consignments (?job= is the job's shipment id). */
+export const jobConsignmentsHref = (shipmentId: string) => `/trucking?job=${encodeURIComponent(shipmentId)}`;
 
 /** The margin as a line: "1 250 CZK · 12.5 %"; "—" when not known yet (no buy price). */
 export function marginText(c: Pick<ConsignmentListItem, "marginCzk" | "marginPercent">): string {
@@ -195,6 +213,17 @@ export function buyLabel(c: BuyFacts): string {
 export const marginBlocks = (c: Pick<ConsignmentListItem, "belowFloor" | "marginApproved">) => c.belowFloor && !c.marginApproved;
 
 export const MARGIN_BLOCK_TEXT = "The margin is below the floor — a manager must approve it before the transport order goes out.";
+
+/** The margin's state in words, so it is not told by colour alone: "Needs approval" or "Approved" below the floor, else null. */
+export function marginState(c: Pick<ConsignmentListItem, "belowFloor" | "marginApproved">): { label: "Needs approval" | "Approved"; tone: Tone; hint: string } | null {
+  if (!c.belowFloor) return null;
+  return c.marginApproved
+    ? { label: "Approved", tone: "a", hint: "Below the margin floor — approved by a manager" }
+    : { label: "Needs approval", tone: "r", hint: "Below the margin floor — needs a manager's approval before the transport order goes out" };
+}
+
+/** Why a step waits for the transport order: e-mail is off, so the order is recorded as sent. */
+export const RECORD_ORDER_FIRST = "Record the transport order as sent first";
 
 /** Whether an action can be taken now; when not, the sentence that says why (for a tooltip). */
 export interface ActionState {
@@ -246,11 +275,11 @@ export function consignmentActions(
   };
   const order = orderState();
 
-  let recordConfirmation = no("Send the transport order first");
+  let recordConfirmation = no(RECORD_ORDER_FIRST);
   if (c.status === "ORDERED") recordConfirmation = yes;
   else if (rank >= statusRank("CONFIRMED")) recordConfirmation = no("Already confirmed");
 
-  let pickedUpState = no("Send the transport order first");
+  let pickedUpState = no(RECORD_ORDER_FIRST);
   if (c.status === "ORDERED" || c.status === "CONFIRMED") pickedUpState = yes;
   else if (pickedUp) pickedUpState = no("Already stamped");
 
@@ -298,7 +327,7 @@ function ltlActions(c: Pick<ConsignmentDetail, "status" | "belowFloor" | "margin
   const pickedUp = rank >= statusRank("PICKED_UP");
   const ifLive = (state: ActionState) => (cancelled ? no("The consignment is cancelled") : state);
 
-  let pickedUpState = no("Send the pick-up run's transport order first");
+  let pickedUpState = no("Record the pick-up run's transport order as sent first");
   if (c.selfDelivered) pickedUpState = no("The customer brings the goods to our warehouse");
   else if (pickedUp) pickedUpState = no("Already stamped");
   else if (c.status === "ORDERED") pickedUpState = yes;
@@ -376,7 +405,7 @@ export function stampTimeProblem(at: string | null, now: Date = new Date()): str
 }
 
 /** "Picked up 15.10.2026 14:05 · Jana Nováková" for a stamp tag. */
-export const stampText = (kind: StampKind, stamp: { at: string; by: string }) => `${STAMP_LABELS[kind]} ${formatDateTime(stamp.at)}${stamp.by ? ` · ${stamp.by}` : ""}`;
+export const stampText = (kind: StampKind, stamp: { at: string; by: string }) => `${STAMP_LABELS[kind]} ${businessDateTime(stamp.at)}${stamp.by ? ` · ${stamp.by}` : ""}`;
 
 /** A route in one line: "110 00 Praha → 602 00 Brno". */
 export function routeText(c: Pick<ConsignmentListItem, "pickupPostcode" | "pickupCity" | "deliveryPostcode" | "deliveryCity">, formatPsc: (psc: string) => string): string {

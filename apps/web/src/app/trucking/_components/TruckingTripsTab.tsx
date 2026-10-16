@@ -3,13 +3,13 @@
 import { useMemo } from "react";
 import Link from "next/link";
 import { Tooltip } from "antd";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { useTrips, type TripListItem, type TripStatus } from "@/hooks/useTruckingConsignments";
 import { useAvizacePending } from "@/hooks/useTruckingControl";
 import { avizaceWarning } from "../_lib/avizace";
-import { formatDate, formatDateTime } from "@/lib/date";
+import { businessDateTime, businessToday, formatDate } from "@/lib/date";
 import { TRIP_STATUS_CHIP, tripHref } from "../_lib/consignments";
 import { HAULIER_STATUS_CHIP } from "../_lib/hauliers";
 import { TRIP_KIND_LABEL, tripFillPercent, vehicleCapacity, warningSummary } from "../_lib/planning";
@@ -17,16 +17,20 @@ import { formatMoney } from "../_lib/tariffs";
 import { HaulierStatusChip } from "./HaulierStatusChip";
 import { TripFillBars } from "./TripFillBars";
 import { TruckingStatusChip } from "./TruckingStatusChip";
+import { TripTiles } from "./TripTiles";
+import { inTripView, tripViewCounts, tripViewOf, type TripView } from "../_lib/trips";
+import { RECORDED_AS_SENT } from "../_lib/transportOrder";
+import { byText, dash } from "../_lib/format";
 
 const STATUSES = Object.keys(TRIP_STATUS_CHIP) as TripStatus[];
-const byText = (a: string, b: string) => a.localeCompare(b, "cs");
-const dash = <span className="text-slate-400">—</span>;
 
-const orderText = (t: TripListItem) => {
-  const o = t.transportOrder;
-  if (!o?.sentAt) return "";
-  return `${formatDateTime(o.sentAt)}${o.recordedOnly ? " (recorded only)" : ""}`;
+const tripsEmptyText = (isError: boolean, filtered: boolean) => {
+  if (isError) return "The trips could not be loaded.";
+  if (filtered) return "No trips in this queue.";
+  return "No trips yet. An FTL trip is made from its consignment (Plan trip), LTL trips on the Planning tab.";
 };
+
+const orderText = (t: TripListItem) => businessDateTime(t.transportOrder?.sentAt);
 
 type Capacity = Parameters<typeof TripFillBars>[0]["capacity"];
 const KIND_LABELS = Object.values(TRIP_KIND_LABEL);
@@ -106,12 +110,12 @@ const buildColumns = (
   { key: "trailer", title: "Trailer plate", text: (t) => t.trailerPlate, defaultVisible: false },
   { key: "driver", title: "Driver", text: (t) => [t.driverName, t.driverPhone].filter(Boolean).join(" · ") },
   { key: "buy", title: "Buy", text: (t) => (t.buy ? formatMoney(t.buy.total, t.buy.currency) : ""), sorter: (a, b) => (a.buy?.totalCzk ?? 0) - (b.buy?.totalCzk ?? 0) },
-  { key: "order", title: "Order sent", text: orderText, render: (_, t) => orderText(t) || dash },
+  { key: "order", title: RECORDED_AS_SENT, text: orderText, render: (_, t) => orderText(t) || dash },
   {
     key: "confirmed",
     title: "Confirmed",
-    text: (t) => formatDateTime(t.transportOrder?.confirmedAt),
-    render: (_, t) => (t.transportOrder?.confirmedAt ? formatDateTime(t.transportOrder.confirmedAt) : t.transportOrder?.rejectedAt ? <span className="text-red-600">Rejected</span> : dash),
+    text: (t) => businessDateTime(t.transportOrder?.confirmedAt),
+    render: (_, t) => (t.transportOrder?.confirmedAt ? businessDateTime(t.transportOrder.confirmedAt) : t.transportOrder?.rejectedAt ? <span className="text-red-600">Rejected</span> : dash),
   },
 ];
 
@@ -119,7 +123,20 @@ const buildColumns = (
 // and delivery runs (many legs) — with their fill and warnings; a row opens the trip page.
 export const TruckingTripsTab = () => {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { trips, isLoading, isError } = useTrips();
+  // Work queues (?view=), filtered here: the list carries status, pick-up day and the order.
+  const view = tripViewOf(searchParams.get("view"));
+  const today = businessToday();
+  const counts = isLoading ? null : tripViewCounts(trips, today);
+  const rows = useMemo(() => (view ? trips.filter((t) => inTripView(t, view, today)) : trips), [trips, view, today]);
+  const handleView = (next: TripView | null) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next) params.set("view", next);
+    else params.delete("view");
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
   const { settings } = useTruckingSettings();
   const pending = useAvizacePending();
   const columns = useMemo(() => {
@@ -134,15 +151,17 @@ export const TruckingTripsTab = () => {
 
   return (
     <AppGrid<TripListItem>
+      subHeader={<TripTiles active={view} counts={counts} onSelect={handleView} />}
       searchPlaceholder="Search trip, consignment, haulier, plate, driver…"
       columns={columns}
-      rows={trips}
+      rows={rows}
       rowKey={(t) => t.id}
       loading={isLoading}
       onRowClick={(t) => router.push(tripHref(t.id))}
       storageKey="trucking:trips:v1"
       exportFilePrefix="trips"
-      emptyText={isError ? "The trips could not be loaded." : "No trips yet. An FTL trip is made from its consignment (Plan trip), LTL trips on the Planning tab."}
+      emptyText={tripsEmptyText(isError, !!view)}
+      resetKey={view ?? ""}
     />
   );
 };

@@ -13,9 +13,8 @@ import { INVOICE_STATUS_CHIP, INVOICE_STATUS_ORDER, differenceText, haulierInvoi
 import { formatMoney } from "../_lib/tariffs";
 import { HaulierInvoiceEntryModal } from "../haulier-invoices/_components/HaulierInvoiceEntryModal";
 import { TruckingStatusChip } from "./TruckingStatusChip";
+import { byText, dash, pragueDate } from "../_lib/format";
 
-const byText = (a: string, b: string) => a.localeCompare(b, "cs");
-const dash = <span className="text-slate-400">—</span>;
 
 const COLUMNS: AppGridColumn<HaulierInvoice>[] = [
   {
@@ -60,7 +59,7 @@ const COLUMNS: AppGridColumn<HaulierInvoice>[] = [
     render: (_, i) => <span className={i.difference ? "font-semibold text-amber-700" : "text-emerald-700"}>{differenceText(i.difference, i.currency)}</span>,
   },
   { key: "lines", title: "Lines", text: (i) => i.lines.map((l) => l.target.ref).join(", "), render: (_, i) => <span className="font-mono">{i.lines.map((l) => l.target.ref).join(", ")}</span> },
-  { key: "created", title: "Entered", text: (i) => `${formatDate(i.createdAt)}${i.createdBy ? ` · ${i.createdBy}` : ""}`, sorter: (a, b) => byText(a.createdAt, b.createdAt) },
+  { key: "created", title: "Entered", text: (i) => `${pragueDate(i.createdAt)}${i.createdBy ? ` · ${i.createdBy}` : ""}`, sorter: (a, b) => byText(a.createdAt, b.createdAt) },
 ];
 
 // The invoices hauliers sent us, matched against their trips and partner deliveries. Status chips

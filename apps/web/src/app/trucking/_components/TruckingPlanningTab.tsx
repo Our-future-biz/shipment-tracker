@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import dayjs from "dayjs";
 import { Alert, DatePicker, Segmented, Spin } from "antd";
 import { LeftOutlined, PlusOutlined, ReloadOutlined, RightOutlined } from "@ant-design/icons";
@@ -11,10 +12,10 @@ import { useToast } from "@/lib/toast";
 import { useHauliers, useTruckingSettings } from "@/hooks/useTrucking";
 import type { LtlTripKind, PlanningLeg, PlanningTrip, TripAssignLegs, TripDetail } from "@/hooks/useTruckingConsignments";
 import { usePlanningBoard } from "@/hooks/useTruckingPlanning";
-import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
-import { btnDefault, btnPrimary } from "@/app/warehouse/gate-log/_components/job/fields";
+import { useUrlParam } from "@/hooks/useUrlParam";
+import { btnDefault, btnPrimary } from "@/components/buttons";
 import { TERMS } from "../_lib/glossary";
-import { PLANNING_CONFLICT_TEXT, TRIP_KIND_LABEL, TRIP_KIND_OPTIONS, addLegsWarnings, groupLegsByZone, openTrips, warningSummary } from "../_lib/planning";
+import { PLANNING_CONFLICT_TEXT, TRIP_KIND_LABEL, TRIP_KIND_OPTIONS, addLegsWarnings, groupLegsByZone, openTrips, planningDayOf, warningSummary } from "../_lib/planning";
 import { isVersionConflict } from "../_lib/saveConflict";
 import { HUB_MISSING_TEXT, hubIsSet } from "../_lib/settings";
 import { LabelsModal } from "./LabelsModal";
@@ -36,7 +37,17 @@ type Dialog = { kind: "new" } | { kind: "order"; tripId: string; mode: "print" |
 export const TruckingPlanningTab = () => {
   const toast = useToast();
   const [kind, setKind] = useUrlParam<LtlTripKind>("kind", KINDS, "PICKUP_RUN");
-  const [date, setDate] = useState(businessToday);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // The day is in the address (?date=, today left out), so a link to "line hauls on Friday" opens Friday.
+  const date = planningDayOf(searchParams.get("date"), businessToday());
+  const setDate = (next: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next === businessToday()) params.delete("date");
+    else params.set("date", next);
+    router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+  };
   const [selected, setSelected] = useState<string[]>([]);
   const [draggingLeg, setDraggingLeg] = useState<string | null>(null);
   const [dialog, setDialog] = useState<Dialog>(null);

@@ -6,11 +6,11 @@ import { Alert, Spin, Tooltip } from "antd";
 import { ArrowLeftOutlined, DownloadOutlined } from "@ant-design/icons";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatDate, formatDateTime } from "@/lib/date";
+import { formatDate, businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useHaulier } from "@/hooks/useTrucking";
 import { fetchHaulierInvoiceFile, useHaulierInvoice, type HaulierInvoiceLine } from "@/hooks/useTruckingMoney";
-import { btnDefault, btnPrimary } from "@/app/warehouse/gate-log/_components/job/fields";
+import { btnDefault, btnPrimary } from "@/components/buttons";
 import { downloadDataUrl } from "@/lib/files";
 import { formatBankAccount } from "../../_lib/bankAccounts";
 import { tripHref } from "../../_lib/consignments";
@@ -112,7 +112,7 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
                 <Link href={`/trucking/hauliers/${inv.haulierCustomerId}`} className="font-semibold text-indigo-500 hover:underline">
                   {inv.haulierName}
                 </Link>{" "}
-                · entered {formatDateTime(inv.createdAt)}
+                · entered {businessDateTime(inv.createdAt)}
                 {inv.createdBy ? ` by ${inv.createdBy}` : ""}
               </div>
             </div>
@@ -171,7 +171,7 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
             className="mt-3"
             type={inv.status === "REJECTED" ? "error" : "success"}
             showIcon
-            message={`${inv.status === "REJECTED" ? "Rejected" : "Approved"} by ${inv.approval.byName} on ${formatDateTime(inv.approval.at)}${inv.approval.reason ? `: “${inv.approval.reason}”` : ""}`}
+            message={`${inv.status === "REJECTED" ? "Rejected" : "Approved"} by ${inv.approval.byName} on ${businessDateTime(inv.approval.at)}${inv.approval.reason ? `: “${inv.approval.reason}”` : ""}`}
           />
         )}
 

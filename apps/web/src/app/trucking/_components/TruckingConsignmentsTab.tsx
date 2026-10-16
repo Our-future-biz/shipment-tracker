@@ -6,24 +6,33 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Button, Tooltip } from "antd";
 import { PlusOutlined, TagsOutlined } from "@ant-design/icons";
 import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
-import { Badge } from "@/app/warehouse/gate-log/_lib/gate";
+import { Badge } from "@/components/Badge";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { useConsignments, type ConsignmentListItem, type ConsignmentStatus } from "@/hooks/useTruckingConsignments";
 import { formatDate } from "@/lib/date";
-import { CONSIGNMENT_CHIPS, CONSIGNMENT_STATUS_CHIP, CONSIGNMENT_TILES, attentionSummary, buyLabel, buySource, consignmentHref, marginBlocks, marginText, tripHref } from "../_lib/consignments";
-import { formatPsc } from "../_lib/hauliers";
+import {
+  CONSIGNMENT_CHIPS,
+  CONSIGNMENT_STATUS_CHIP,
+  CONSIGNMENT_TILES,
+  attentionSummary,
+  buyLabel,
+  buySource,
+  consignmentHref,
+  consignmentViewOf,
+  marginBlocks,
+  marginState,
+  marginText,
+  tripHref,
+} from "../_lib/consignments";
 import { formatMoney, formatQty } from "../_lib/tariffs";
 import { ConsignmentCreateModal } from "./ConsignmentCreateModal";
 import { ConsignmentQuickChips } from "./ConsignmentQuickChips";
 import { ConsignmentTiles, type ConsignmentTileId } from "./ConsignmentTiles";
 import { LabelsModal } from "./LabelsModal";
 import { TruckingStatusChip } from "./TruckingStatusChip";
+import { byNumber, byText, dash, place, pragueDate } from "../_lib/format";
 
 const STATUSES = Object.keys(CONSIGNMENT_STATUS_CHIP) as ConsignmentStatus[];
-const byText = (a: string, b: string) => a.localeCompare(b, "cs");
-const byNumber = (a: number | null, b: number | null) => (a ?? -Infinity) - (b ?? -Infinity);
-const place = (psc: string, city: string) => [psc ? formatPsc(psc) : "", city].filter(Boolean).join(" ");
-const dash = <span className="text-slate-400">—</span>;
 const stop = (e: React.MouseEvent) => e.stopPropagation();
 
 const buildColumns = (levelLabel: (code: string | null) => string): AppGridColumn<ConsignmentListItem>[] => [
@@ -145,28 +154,27 @@ const buildColumns = (levelLabel: (code: string | null) => string): AppGridColum
   {
     key: "margin",
     title: "Margin",
-    text: (c) => marginText(c),
+    text: (c) => [marginText(c), marginState(c)?.label ?? ""].filter(Boolean).join(" · "),
     sorter: (a, b) => byNumber(a.marginCzk, b.marginCzk),
-    render: (_, c) => (
-      <Tooltip
-        title={[
-          c.belowFloor ? (c.marginApproved ? "Below the margin floor — approved by a manager" : "Below the margin floor — needs a manager's approval") : "",
-          c.marginCzk != null && buySource(c) ? `With the ${buySource(c)} buy` : "",
-        ]
-          .filter(Boolean)
-          .join(" · ") || undefined}
-      >
-        <span className={marginBlocks(c) ? "font-semibold text-red-600" : c.belowFloor ? "text-amber-700" : undefined}>{marginText(c)}</span>
-      </Tooltip>
-    ),
+    render: (_, c) => {
+      const state = marginState(c);
+      return (
+        <Tooltip title={[state?.hint ?? "", c.marginCzk != null && buySource(c) ? `With the ${buySource(c)} buy` : ""].filter(Boolean).join(" · ") || undefined}>
+          <span className="inline-flex items-center gap-1.5">
+            <span className={marginBlocks(c) ? "font-semibold text-red-600" : c.belowFloor ? "text-amber-700" : undefined}>{marginText(c)}</span>
+            {state && <Badge tone={state.tone}>{state.label}</Badge>}
+          </span>
+        </Tooltip>
+      );
+    },
   },
   {
     key: "pod",
     title: "POD",
-    text: (c) => formatDate(c.podReceivedAt),
-    render: (_, c) => (c.podReceivedAt ? <span className="text-emerald-700">{formatDate(c.podReceivedAt)}</span> : dash),
+    text: (c) => pragueDate(c.podReceivedAt),
+    render: (_, c) => (c.podReceivedAt ? <span className="text-emerald-700">{pragueDate(c.podReceivedAt)}</span> : dash),
   },
-  { key: "created", title: "Created", text: (c) => formatDate(c.createdAt), sorter: (a, b) => byText(a.createdAt, b.createdAt), defaultVisible: false },
+  { key: "created", title: "Created", text: (c) => pragueDate(c.createdAt), sorter: (a, b) => byText(a.createdAt, b.createdAt), defaultVisible: false },
 ];
 
 // The consignments we carry, from order to POD: tiles and chips filter on the server (?status=,
@@ -179,12 +187,16 @@ export const TruckingConsignmentsTab = () => {
   const [createOpen, setCreateOpen] = useState(false);
   const [labelsFor, setLabelsFor] = useState<ConsignmentListItem[] | null>(null);
 
-  const view = CONSIGNMENT_CHIPS.find((c) => c.id === searchParams.get("view"))?.id ?? null;
+  const view = consignmentViewOf(searchParams.get("view"));
   const status = STATUSES.find((s) => s === searchParams.get("status")) ?? null;
-  const { consignments, counts, isLoading, isError } = useConsignments({ view: view ?? undefined, status: status ?? undefined });
-  const activeTile: ConsignmentTileId | null = CONSIGNMENT_TILES.find((t) => (t.view ? t.view === view : t.status === status && !view))?.id ?? null;
+  // ?job= (a job's shipment id): the consignments of one job, as Shipments and the Costs tab link here.
+  const job = searchParams.get("job");
+  const { consignments, counts, isLoading, isError } = useConsignments({ view: view ?? undefined, status: status ?? undefined, shipmentId: job ?? undefined });
+  const activeTile: ConsignmentTileId | null = CONSIGNMENT_TILES.find((t) => t.view === view)?.id ?? null;
+  const chipView = CONSIGNMENT_CHIPS.find((c) => c.id === view)?.id ?? null;
+  const jobNumber = job ? (consignments[0]?.jobNumber ?? null) : null;
 
-  const setFilter = (next: { view: string | null; status: string | null }) => {
+  const setFilter = (next: { view?: string | null; status?: string | null; job?: string | null }) => {
     const params = new URLSearchParams(searchParams.toString());
     for (const [key, value] of Object.entries(next)) {
       if (value) params.set(key, value);
@@ -194,7 +206,7 @@ export const TruckingConsignmentsTab = () => {
   };
   const handleTile = (id: ConsignmentTileId | null) => {
     const tile = CONSIGNMENT_TILES.find((t) => t.id === id);
-    setFilter({ view: tile?.view ?? null, status: tile?.status ?? null });
+    setFilter({ view: tile?.view ?? null, status: null });
   };
 
   const columns = useMemo(() => {
@@ -204,7 +216,7 @@ export const TruckingConsignmentsTab = () => {
 
   let emptyText = "No consignments yet. Create one from a job, a quote or as a new domestic order.";
   if (isError) emptyText = "The consignments could not be loaded.";
-  else if (view || status) emptyText = "No consignments match this filter.";
+  else if (view || status || job) emptyText = "No consignments match this filter.";
 
   return (
     <>
@@ -212,7 +224,17 @@ export const TruckingConsignmentsTab = () => {
         subHeader={
           <>
             <ConsignmentTiles active={activeTile} counts={counts} onSelect={handleTile} />
-            <ConsignmentQuickChips active={view} counts={counts} onSelect={(id) => setFilter({ view: id, status: null })} />
+            <ConsignmentQuickChips active={chipView} counts={counts} onSelect={(id) => setFilter({ view: id, status: null })} />
+            {job && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-[12.5px] text-slate-600">
+                <span>
+                  Only the consignments of job <span className="font-mono font-semibold text-slate-800">{jobNumber ?? "…"}</span>
+                </span>
+                <button type="button" className="font-semibold text-indigo-600 hover:underline" onClick={() => setFilter({ job: null })}>
+                  Show all consignments
+                </button>
+              </div>
+            )}
           </>
         }
         searchPlaceholder="Search consignment, job, customer, city, haulier…"
@@ -224,7 +246,7 @@ export const TruckingConsignmentsTab = () => {
         storageKey="trucking:consignments:v1"
         exportFilePrefix="consignments"
         emptyText={emptyText}
-        resetKey={`${view ?? ""}|${status ?? ""}`}
+        resetKey={`${view ?? ""}|${status ?? ""}|${job ?? ""}`}
         bulkActions={(selected) => (
           <Button size="small" icon={<TagsOutlined />} onClick={() => setLabelsFor(selected)}>
             Labels PDF…

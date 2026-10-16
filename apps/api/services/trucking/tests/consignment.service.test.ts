@@ -16,6 +16,7 @@ vi.mock("../repositories/consignment.repository", async (orig) => ({
   consignmentRepository: (await import("./truckingFakes")).consignmentRepository,
 }));
 vi.mock("../repositories/trip.repository", async () => ({ tripRepository: (await import("./truckingFakes")).tripRepository }));
+vi.mock("../repositories/leg.repository", async () => ({ legRepository: (await import("./truckingFakes")).legRepository }));
 vi.mock("../repositories/truckingDocument.repository", async () => ({ truckingDocumentRepository: (await import("./truckingFakes")).truckingDocumentRepository }));
 vi.mock("../repositories/truckingOutbox.repository", async () => ({ truckingOutboxRepository: (await import("./truckingFakes")).truckingOutboxRepository }));
 vi.mock("../repositories/event.repository", async () => (await import("./truckingFakes")).eventModule);
@@ -444,5 +445,20 @@ describe("list", () => {
     expect((await consignmentService.list(user, { view: "podMissing" })).consignments.map((c) => c.deliveryCity)).toEqual(["Brno"]);
     expect((await consignmentService.list(user, { search: "brno" })).consignments).toHaveLength(4);
     expect((await consignmentService.list(user, { search: "nothing" })).consignments).toHaveLength(0);
+  });
+
+  it("opens exactly the booked FTL consignments the 'Open FTL without haulier' tile counts", async () => {
+    const ftl = await seed({});
+    await seed({ scope: "LTL" });
+    await seed({}, { trip: true });
+    const { consignments, counts } = await consignmentService.list(user, { view: "openFtl" });
+    expect(consignments.map((c) => c.id)).toEqual([ftl.c.id]);
+    expect(counts.openFtlWithoutHaulier).toBe(consignments.length);
+  });
+  it("gives each row its stamp times and the trip's truck and driver, so the job's Trucking tab needs no call per card", async () => {
+    const { c, trip } = await seed({ status: "PICKED_UP", pickedUpAt: new Date("2026-10-15T06:00:00Z") }, { trip: true, sent: true });
+    await tripRepository.update(TX as never, COMPANY, trip!.id, { tractorPlate: "1AB2345", driverName: "Petr Novák" } as never);
+    const [item] = (await consignmentService.list(user, { shipmentId: SHIPMENT })).consignments.filter((x) => x.id === c.id);
+    expect(item).toMatchObject({ pickedUpAt: "2026-10-15T06:00:00.000Z", deliveredAt: null, tractorPlate: "1AB2345", trailerPlate: "", driverName: "Petr Novák", driverPhone: "" });
   });
 });

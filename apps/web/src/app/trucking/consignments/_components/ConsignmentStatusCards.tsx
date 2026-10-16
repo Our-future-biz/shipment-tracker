@@ -3,8 +3,8 @@
 import type { ReactNode } from "react";
 import { Tooltip } from "antd";
 import type { ConsignmentDetail, TripDetail } from "@/hooks/useTruckingConsignments";
-import { formatDate, formatDateTime } from "@/lib/date";
-import { btnInline } from "@/app/warehouse/gate-log/_components/job/fields";
+import { formatDate, businessDateTime } from "@/lib/date";
+import { btnInline } from "@/components/buttons";
 import { buyLabel, marginBlocks, marginText, type ActionState } from "../../_lib/consignments";
 import { promisedText } from "../../_lib/planning";
 import { TERMS } from "../../_lib/glossary";
@@ -24,7 +24,7 @@ const Line = ({ k, v, tone = "" }: { k: string; v: ReactNode; tone?: string }) =
 );
 
 const place = (s: Stop) => [s.postcode && s.country === "CZ" ? formatPsc(s.postcode) : s.postcode, s.city].filter(Boolean).join(" ");
-const windowText = (s: Stop) => (s.windowFrom || s.windowTo ? `${formatDateTime(s.windowFrom) || "…"} – ${formatDateTime(s.windowTo) || "…"}` : "");
+const windowText = (s: Stop) => (s.windowFrom || s.windowTo ? `${businessDateTime(s.windowFrom) || "…"} – ${businessDateTime(s.windowTo) || "…"}` : "");
 
 interface ConsignmentStatusCardsProps {
   c: ConsignmentDetail;
@@ -64,7 +64,7 @@ export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onA
               )
             }
           />
-          {ltl && c.gateInAt && <Line k="Gate-in" v={formatDateTime(c.gateInAt)} />}
+          {ltl && c.gateInAt && <Line k="Gate-in" v={businessDateTime(c.gateInAt)} />}
           {windowText(c.delivery) && <Line k="Delivery window" v={windowText(c.delivery)} />}
           {ltl ? (
             <Line k="Last mile" v={`${c.selfDelivered ? "Brought by the customer · " : ""}${c.lastMile === "PARTNER" ? TERMS.partnerNetwork : `Own ${TERMS.deliveryRun.toLowerCase()}`}`} />
@@ -115,7 +115,7 @@ export const ConsignmentStatusCards = ({ c, trip, levelLabel, approveMargin, onA
           <div className={`mt-2 rounded-md px-2.5 py-1.5 text-[11.5px] ${c.marginApproved ? "bg-amber-50 text-amber-800" : "bg-red-50 text-red-700"}`}>
             {c.marginApproval ? (
               <>
-                Below the {TERMS.marginFloor.toLowerCase()} — approved by {c.marginApproval.byName} on {formatDateTime(c.marginApproval.at)} at {formatMoney(c.marginApproval.marginCzk, "CZK")}: “{c.marginApproval.reason}”
+                Below the {TERMS.marginFloor.toLowerCase()} — approved by {c.marginApproval.byName} on {businessDateTime(c.marginApproval.at)} at {formatMoney(c.marginApproval.marginCzk, "CZK")}: “{c.marginApproval.reason}”
               </>
             ) : (
               <>

@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 import type { ConsignmentDetail, ConsignmentStatus, TripDetail } from "@/hooks/useTruckingConsignments";
 import {
+  CONSIGNMENT_CHIPS,
   CONSIGNMENT_FLOW,
   CONSIGNMENT_STATUS_CHIP,
+  CONSIGNMENT_TILES,
   TRIP_STATUS_CHIP,
   attentionSummary,
   consignmentActions,
   consignmentLifecycle,
+  consignmentViewOf,
+  jobConsignmentsHref,
+  loadText,
+  marginState,
   buyLabel,
   buySource,
   marginText,
@@ -85,7 +91,7 @@ describe("consignmentActions", () => {
   });
 
   it("allows the stamps in order", () => {
-    expect(consignmentActions(consignment("PLANNED"), trip(), false).pickedUp.reason).toBe("Send the transport order first");
+    expect(consignmentActions(consignment("PLANNED"), trip(), false).pickedUp.reason).toBe("Record the transport order as sent first");
     expect(consignmentActions(consignment("ORDERED"), trip(), false).pickedUp.allowed).toBe(true);
     expect(consignmentActions(consignment("ORDERED"), trip(), false).recordConfirmation.allowed).toBe(true);
     expect(consignmentActions(consignment("CONFIRMED"), trip(), false).recordConfirmation.reason).toBe("Already confirmed");
@@ -200,5 +206,47 @@ describe("LTL consignments", () => {
     expect(l.at).toBe("2026-10-15T07:00:00Z");
     const withLinehaul = consignmentLifecycle({ ...base, status: "BOOKED", legs: [{ kind: "LINEHAUL" } as ConsignmentDetail["legs"][number]] });
     expect(withLinehaul.steps.map((s) => s.stage)).toContain("ON_LINEHAUL");
+  });
+});
+
+describe("worklist tiles and chips", () => {
+  it("open exactly the server view a tile counts: Open FTL without haulier is the openFtl view, not every booked one", () => {
+    expect(CONSIGNMENT_TILES.map((t) => [t.id, t.view])).toEqual([
+      ["openFtlWithoutHaulier", "openFtl"],
+      ["pickupToday", "pickupToday"],
+      ["deliveryToday", "deliveryToday"],
+    ]);
+    expect(consignmentViewOf("openFtl")).toBe("openFtl");
+    expect(consignmentViewOf("attention")).toBe("attention");
+    expect(consignmentViewOf("BOOKED")).toBeNull();
+    expect(CONSIGNMENT_CHIPS.map((c) => c.id)).not.toContain("openFtl");
+  });
+
+  it("link to one job's consignments", () => {
+    expect(jobConsignmentsHref("0000-d1")).toBe("/trucking?job=0000-d1");
+  });
+});
+
+describe("margin state", () => {
+  it("says in words whether a margin below the floor needs approval or is approved, not by colour alone", () => {
+    expect(marginState({ belowFloor: false, marginApproved: false })).toBeNull();
+    expect(marginState({ belowFloor: true, marginApproved: false })).toMatchObject({ label: "Needs approval", tone: "r" });
+    expect(marginState({ belowFloor: true, marginApproved: true })).toMatchObject({ label: "Approved", tone: "a" });
+  });
+});
+
+describe("recorded-as-sent wording", () => {
+  it("says the transport order is recorded as sent, never sent", () => {
+    expect(CONSIGNMENT_STATUS_CHIP.ORDERED.hint).toMatch(/recorded as sent/);
+    expect(TRIP_STATUS_CHIP.ORDERED.hint).toMatch(/recorded as sent/);
+    expect(Object.values(CONSIGNMENT_STATUS_CHIP).map((c) => c.hint).join(" ")).not.toMatch(/order sent|Loaded/);
+  });
+});
+
+
+describe("load in a line", () => {
+  it("formats the numbers instead of printing them raw", () => {
+    expect(loadText({ palletPlaces: 12, weightKg: 1250.5, adr: true })).toBe("12 pallet places · 1 250.5 kg · ADR");
+    expect(loadText({ palletPlaces: 1, weightKg: 800, adr: false })).toBe("1 pallet place · 800 kg");
   });
 });

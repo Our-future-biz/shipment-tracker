@@ -3,18 +3,18 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import dayjs from "dayjs";
-import { Alert, Button, DatePicker, Input, InputNumber, Select, Spin, Switch } from "antd";
+import { Alert, Button, DatePicker, Input, InputNumber, Select, Spin, Switch, Tooltip } from "antd";
 import { ArrowLeftOutlined, LockOutlined, UnlockOutlined } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { businessToday, formatDate, formatDateTime } from "@/lib/date";
+import { businessToday, formatDate, businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useHaulier, useTruckingSettings, type HaulierDetail, type HaulierUpdate } from "@/hooks/useTrucking";
 import { useUnsavedGuard } from "@/app/warehouse/_lib/useUnsavedGuard";
 import { TERMS } from "../../_lib/glossary";
 import { COST_SPLIT_LABELS, CURRENCIES, profileProblems, type LaneDraft } from "../../_lib/hauliers";
-import { isTruckingManager } from "../../_lib/roles";
+import { isTruckingManager, managerOnlyReason } from "../../_lib/roles";
 import { HAULIER_CONFLICT_TEXT, isVersionConflict } from "../../_lib/saveConflict";
 import { HaulierIssueList } from "../../_components/HaulierIssueList";
 import { HaulierStatusChip } from "../../_components/HaulierStatusChip";
@@ -137,6 +137,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
 
   const p = haulier.profile;
   const canBlock = isTruckingManager(user);
+  const blockReason = managerOnlyReason(user, "block or unblock a haulier");
   const set = <K extends keyof ProfileDraft>(key: K, value: ProfileDraft[K]) => setDraft((d) => (d ? { ...d, [key]: value } : d));
 
   const handleSave = async () => {
@@ -189,16 +190,17 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
             <Link href={`/customers/${customerId}`} className="text-[13px] font-semibold text-indigo-600 hover:underline">
               Open in Customer Database
             </Link>
-            {canBlock &&
-              (p.blocked ? (
-                <Button icon={<UnlockOutlined />} onClick={() => setBlockMode("unblock")}>
+            <Tooltip title={blockReason || undefined}>
+              {p.blocked ? (
+                <Button icon={<UnlockOutlined />} disabled={!canBlock} onClick={() => setBlockMode("unblock")}>
                   Unblock…
                 </Button>
               ) : (
-                <Button danger icon={<LockOutlined />} onClick={() => setBlockMode("block")}>
+                <Button danger icon={<LockOutlined />} disabled={!canBlock} onClick={() => setBlockMode("block")}>
                   Block…
                 </Button>
-              ))}
+              )}
+            </Tooltip>
           </div>
         </div>
         <div className="mt-3 max-w-[900px]">
@@ -206,7 +208,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
           {p.blocked && (
             <p className="mt-1 mb-0 text-xs text-slate-500">
               Blocked{p.blockedBy ? ` by ${p.blockedBy}` : ""}
-              {p.blockedAt ? ` on ${formatDateTime(p.blockedAt)}` : ""}
+              {p.blockedAt ? ` on ${businessDateTime(p.blockedAt)}` : ""}
               {p.blockReason ? `: “${p.blockReason}”` : ""}
             </p>
           )}
@@ -352,7 +354,7 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
           {problems.length > 0 && <span className="text-xs text-red-600">{problems.join(" · ")}</span>}
         </div>
 
-        <HaulierPortalUsers customerId={customerId} canManage={canBlock} />
+        <HaulierPortalUsers customerId={customerId} manageReason={managerOnlyReason(user, "add, reset or disable portal users")} />
       </div>
 
       <HaulierBlockDialog
