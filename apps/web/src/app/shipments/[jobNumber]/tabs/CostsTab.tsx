@@ -190,8 +190,8 @@ export function CostsTab({ shipment }: CostsTabProps) {
     const parsed = parseTruckingRef(ref);
     return parsed?.kind === "trip" ? [parsed.id] : [];
   }))];
-  // With the Trucking Concept hidden for the company the rows stay (they are costs), tagged
-  // without a link, and nothing is asked of Trucking (the server would refuse it).
+  // Trucking Concept is for superadmins only: everyone else still sees the rows (they are costs),
+  // tagged without a link, and nothing is asked of Trucking.
   const truckingOn = canSeeConcepts;
   const { consignments: jobConsignments } = useConsignments({ shipmentId: shipment.id }, { enabled: truckingOn && truckingRefs.size > 0 });
   const tripRefs = useTripRefs(truckingOn ? tripIds : []);
