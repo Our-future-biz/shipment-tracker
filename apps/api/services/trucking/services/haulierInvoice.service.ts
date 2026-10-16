@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import log from "encore.dev/log";
 import { APIError } from "encore.dev/api";
 import { customers, shipments } from "~encore/clients";
 import { inTx, type Tx } from "../db/db";
@@ -26,7 +27,17 @@ import { isUuid } from "../../../lib/uuid";
 import { businessDay } from "../../../lib/businessDate";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { servedFileType } from "../../warehouse/services/fileType";
-import { bankAccountCheck, cleanInvoiceInput, cleanReason, currentStatus, invoiceBlockReasons, matchInvoice, OPEN_STATUSES, type CleanInvoice } from "../lib/haulierInvoiceRules";
+import {
+  autoApprovalHolds,
+  bankAccountCheck,
+  cleanInvoiceInput,
+  cleanReason,
+  currentStatus,
+  invoiceBlockReasons,
+  matchInvoice,
+  OPEN_STATUSES,
+  type CleanInvoice,
+} from "../lib/haulierInvoiceRules";
 import { realCosts, type RealTarget, type TargetJob } from "../lib/haulierInvoiceReal";
 import { haulierClaims } from "../lib/haulierClaims";
 import { isInternalDepartment } from "../lib/internalRules";
@@ -60,6 +71,10 @@ interface ResolvedLine {
   claimed: number;
   expected: number;
   currency: "CZK" | "EUR";
+  /** The cost matched against (buy total), to see it did not change before the save */
+  buyTotal: number;
+  /** A manager changed the price after the order went out (owner decision 7) */
+  repriced: boolean;
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -98,6 +113,7 @@ function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile
     difference: r.difference,
     status,
     blockReasons,
+    holdReasons: open || r.status === "APPROVED" ? (r.holdReasons ?? []) : [],
     approval: r.approvedAt ? { byName: r.approvedBy ?? "", at: r.approvedAt.toISOString(), reason: r.approvalReason ?? "" } : null,
     fileName: r.fileName,
     createdAt: r.createdAt.toISOString(),
@@ -144,6 +160,7 @@ class HaulierInvoiceService {
       const n = i + 1;
       let ref: string;
       let buy: PriceSnapshot | null;
+      let repriced: boolean;
       if (input.targetKind === "TRIP") {
         const t = tripOf.get(input.targetId);
         if (!t) throw bad(`Line ${n}: trip not found`);
@@ -151,6 +168,7 @@ class HaulierInvoiceService {
         if (t.haulierCustomerId !== haulierId) throw bad(`Line ${n}: trip ${ref} was run by another haulier`);
         if (t.cancelledAt || t.status !== "DONE") throw bad(`Line ${n}: trip ${ref} is not done`);
         buy = t.buy;
+        repriced = !!t.buyRepricedAt;
       } else {
         const l = legOf.get(input.targetId);
         const c = l ? consignmentOf.get(l.consignmentId) : undefined;
@@ -159,11 +177,12 @@ class HaulierInvoiceService {
         if (l.haulierCustomerId !== haulierId) throw bad(`Line ${n}: ${ref} was made by another haulier`);
         if (c.cancelledAt || l.status !== "DONE") throw bad(`Line ${n}: ${ref} is not delivered`);
         buy = l.buy;
+        repriced = !!l.buyRepricedAt;
       }
       if (!buy) throw bad(`Line ${n}: ${ref} has no price to match against`);
       if (buy.currency !== currency) throw bad(`Line ${n}: ${ref} is priced in ${buy.currency}; enter it on a ${buy.currency} invoice`);
       const claimed = round2(claims.get(input.targetId) ?? 0);
-      return { input, ref, cost: buy.total, claimed, expected: round2(buy.total - claimed), currency: buy.currency };
+      return { input, ref, cost: buy.total, claimed, expected: round2(buy.total - claimed), currency: buy.currency, buyTotal: buy.total, repriced };
     });
   }
 
@@ -250,9 +269,20 @@ class HaulierInvoiceService {
 
   // ---- saving -----------------------------------------------------------------------------------
 
-  /** The checks a save must pass in its transaction (haulier locked): no duplicate number, no target on another live invoice. */
+  /**
+   * The checks a save must pass in its transaction (haulier locked - a manager's reprice takes the
+   * same lock): no duplicate number, no target on another live invoice, no target repriced since
+   * it was read.
+   */
   private async assertFree(tx: Tx, companyId: string, haulierId: string, clean: CleanInvoice, resolved: ResolvedLine[], exceptId?: string): Promise<void> {
     await haulierInvoiceRepository.lockHaulier(tx, companyId, haulierId);
+    const [trips, legs] = await Promise.all([
+      tripRepository.findMany(companyId, resolved.filter((r) => r.input.targetKind === "TRIP").map((r) => r.input.targetId), tx),
+      legRepository.findMany(companyId, resolved.filter((r) => r.input.targetKind === "PARTNER_LEG").map((r) => r.input.targetId), tx),
+    ]);
+    const buyNow = new Map([...trips, ...legs].map((x) => [x.id, x.buy?.total ?? null]));
+    const moved = resolved.find((r) => buyNow.get(r.input.targetId) !== r.buyTotal);
+    if (moved) throw APIError.aborted(`The price of ${moved.ref} was changed meanwhile. Reload and try again.`);
     const dup = await haulierInvoiceRepository.findByNumber(tx, companyId, haulierId, clean.invoiceNumberKey, exceptId);
     if (dup) throw APIError.alreadyExists(`Invoice ${dup.invoiceNumber} of this haulier is already entered`);
     const uses = await haulierInvoiceRepository.targetUses(
@@ -292,6 +322,22 @@ class HaulierInvoiceService {
     return { file, key };
   }
 
+  /** Removes a stored copy whose save failed (best effort: a leftover is only logged). */
+  private async dropFile(stored: { key: string } | null): Promise<void> {
+    if (!stored) return;
+    await truckingDocumentBucket.remove(stored.key).catch((err: unknown) => log.warn(err, "trucking: an unsaved haulier invoice copy was not removed", { key: stored.key }));
+  }
+
+  /** Runs a save; the copy stored for it is removed when the save fails. */
+  private async keepingFile<T>(stored: { key: string } | null, work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (err) {
+      await this.dropFile(stored);
+      throw err;
+    }
+  }
+
   private fileValues(stored: { file: CheckedFile; key: string } | null) {
     if (!stored) return {};
     return {
@@ -318,15 +364,20 @@ class HaulierInvoiceService {
     });
   }
 
-  /** The status and figures of a save, worked out against the haulier's profile now. */
-  private assess(profile: HaulierProfile | null, clean: CleanInvoice, resolved: ResolvedLine[]) {
+  /**
+   * The status and figures of a save, worked out against the haulier's profile now. `enteredBy`:
+   * the users entering or saving it (an exact match they could have arranged waits for a manager).
+   */
+  private assess(profile: HaulierProfile | null, clean: CleanInvoice, resolved: ResolvedLine[], enteredBy: (string | null)[]) {
     const blockReasons = invoiceBlockReasons(profile, clean.bankAccount);
+    const holdReasons = autoApprovalHolds(profile, enteredBy, new Date(), resolved.filter((r) => r.repriced).map((r) => r.ref));
     const match = matchInvoice(
       clean.totalNet,
       resolved.map((r) => ({ expected: r.expected, invoiced: r.input.invoiced })),
       blockReasons,
+      holdReasons,
     );
-    return { blockReasons, match, published: profile ? bankAccountCheck(profile, clean.bankAccount).published : null };
+    return { blockReasons, holdReasons, match, published: profile ? bankAccountCheck(profile, clean.bankAccount).published : null };
   }
 
   private autoApproval(status: HaulierInvoiceStatus, actor: Actor) {
@@ -334,7 +385,7 @@ class HaulierInvoiceService {
     return { approvedAt: new Date(), approvedByUserId: actor.userID || null, approvedBy: AUTO_APPROVER, approvalReason: AUTO_REASON };
   }
 
-  /** Any user. Enters a haulier invoice; an exact match not blocked is approved at once. */
+  /** Any user. Enters a haulier invoice; an exact match not blocked and not held (autoApprovalHolds) is approved at once. */
   async create(actor: Actor, input: HaulierInvoiceInput): Promise<HaulierInvoice> {
     const companyId = actor.companyID;
     const haulierId = input.haulierCustomerId;
@@ -342,15 +393,15 @@ class HaulierInvoiceService {
     const clean = cleanInvoiceInput(input);
     const profile = await this.profile(companyId, haulierId);
     const resolved = await this.resolve(companyId, haulierId, clean.currency, clean.lines);
-    const { blockReasons, match, published } = this.assess(profile, clean, resolved);
+    const { blockReasons, holdReasons, match, published } = this.assess(profile, clean, resolved, [actor.userID || null]);
     const by = await userName(actor.userID);
-    const file = await this.storeFile(companyId, input.fileName, input.fileBase64);
     const approved = match.status === "APPROVED";
     const plans = approved
       ? await this.planReal(companyId, clean, resolved.map((r, n) => ({ id: String(n), targetKind: r.input.targetKind, targetId: r.input.targetId, invoiced: r.input.invoiced })), actor)
       : [];
+    const file = await this.storeFile(companyId, input.fileName, input.fileBase64);
 
-    const { saved, owed } = await this.guardUnique(() =>
+    const { saved, owed } = await this.keepingFile(file, () => this.guardUnique(() =>
       inTx(async (tx) => {
         await this.assertFree(tx, companyId, haulierId, clean, resolved);
         const { lines: _lines, ...header } = clean;
@@ -364,6 +415,7 @@ class HaulierInvoiceService {
             bankAccountPublished: published,
             status: match.status,
             blockReasons,
+            holdReasons,
             difference: match.difference,
             ...this.autoApproval(match.status, actor),
             ...this.fileValues(file),
@@ -378,7 +430,7 @@ class HaulierInvoiceService {
         if (approved) await this.event(tx, companyId, actor, by, "haulier_invoice_approved", saved.invoice, `Haulier invoice ${saved.invoice.invoiceNumber} approved automatically (exact match)`, AUTO_REASON);
         return { saved, owed };
       }),
-    );
+    ));
     await this.deliver(owed);
     return toInvoice(await this.load(companyId, saved.invoice.id), profile);
   }
@@ -395,15 +447,15 @@ class HaulierInvoiceService {
     const clean = cleanInvoiceInput(input);
     const profile = await this.profile(companyId, haulierId);
     const resolved = await this.resolve(companyId, haulierId, clean.currency, clean.lines);
-    const { blockReasons, match, published } = this.assess(profile, clean, resolved);
+    const { blockReasons, holdReasons, match, published } = this.assess(profile, clean, resolved, [actor.userID || null, cur.invoice.createdByUserId]);
     const by = await userName(actor.userID);
-    const file = await this.storeFile(companyId, input.fileName, input.fileBase64);
     const approved = match.status === "APPROVED";
     const plans = approved
       ? await this.planReal(companyId, clean, resolved.map((r, n) => ({ id: String(n), targetKind: r.input.targetKind, targetId: r.input.targetId, invoiced: r.input.invoiced })), actor)
       : [];
+    const file = await this.storeFile(companyId, input.fileName, input.fileBase64);
 
-    const owed = await this.guardUnique(() =>
+    const owed = await this.keepingFile(file, () => this.guardUnique(() =>
       inTx(async (tx) => {
         await this.assertFree(tx, companyId, haulierId, clean, resolved, cur.invoice.id);
         const { lines: _lines, ...header } = clean;
@@ -412,6 +464,7 @@ class HaulierInvoiceService {
           bankAccountPublished: published,
           status: match.status,
           blockReasons,
+          holdReasons,
           difference: match.difference,
           ...this.autoApproval(match.status, actor),
           ...this.fileValues(file),
@@ -424,7 +477,7 @@ class HaulierInvoiceService {
         await this.event(tx, companyId, actor, by, "haulier_invoice_approved", row, `Haulier invoice ${row.invoiceNumber} approved automatically (exact match)`, AUTO_REASON);
         return owed;
       }),
-    );
+    ));
     await this.deliver(owed);
     return toInvoice(await this.load(companyId, cur.invoice.id), profile);
   }
@@ -570,14 +623,15 @@ class HaulierInvoiceService {
 }
 
 /** The status in words for the history. */
-function statusText(r: Pick<TruckingHaulierInvoiceRecord, "status" | "difference" | "currency" | "blockReasons">): string {
+function statusText(r: Pick<TruckingHaulierInvoiceRecord, "status" | "difference" | "currency" | "blockReasons" | "holdReasons">): string {
   switch (r.status) {
     case "APPROVED":
       return "exact match";
     case "BLOCKED":
       return `blocked - ${r.blockReasons.join("; ")}`;
     case "NEEDS_APPROVAL":
-      return `difference ${r.difference.toFixed(2)} ${r.currency}, needs a manager's approval`;
+      if (r.difference === 0 && r.holdReasons?.length) return `exact match held for a manager's approval - ${r.holdReasons.join("; ")}`;
+      return `difference ${r.difference.toFixed(2)} ${r.currency}, needs a manager's approval${r.holdReasons?.length ? ` (also: ${r.holdReasons.join("; ")})` : ""}`;
     default:
       return r.status.toLowerCase();
   }

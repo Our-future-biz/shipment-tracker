@@ -10,6 +10,14 @@ export const MIN_PASSWORD = 12;
 export const MAX_PASSWORD = 200;
 export const MAX_FAILED_LOGINS = 5;
 export const LOCK_MS = 15 * 60 * 1000;
+/** An account's lock doubles with each lock in a row (15 min, 30 min, 1 h), never longer: a stranger knowing the e-mail cannot shut it out for days. */
+export const ACCOUNT_MAX_LOCK_MS = 60 * 60 * 1000;
+/** Failed logins from one IP (any e-mail, any company) in IP_WINDOW_MS before the IP is locked. */
+export const IP_MAX_FAILURES = 20;
+export const IP_WINDOW_MS = 15 * 60 * 1000;
+export const IP_MAX_LOCK_MS = 24 * 60 * 60 * 1000;
+/** A lock that ended longer ago than this starts the progression again. */
+export const LOCK_MEMORY_MS = 24 * 60 * 60 * 1000;
 export const SESSION_IDLE_MS = 12 * 60 * 60 * 1000;
 export const SESSION_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 export const LINK_VALID_MS = 72 * 60 * 60 * 1000;
@@ -21,6 +29,8 @@ export const LOG_IN_AGAIN = "Please log in again";
 /** The one answer to an unknown, used or expired set-password link. */
 export const SET_PASSWORD_LINK_INVALID = "This link is no longer valid. Ask the dispatcher for a new one.";
 export const HAULIER_BLOCKED = "Your company's access to the portal is blocked. Please call the dispatcher.";
+/** An IP with too many failed logins (it says nothing about any e-mail). */
+export const TOO_MANY_ATTEMPTS = "Too many failed logins from your network. Please wait and try again later.";
 
 const bad = (message: string) => APIError.invalidArgument(message);
 
@@ -38,7 +48,58 @@ export function passwordRefusal(password: unknown, email: string): string | null
   return null;
 }
 
-export const isLocked = (u: Pick<PortalUserRecord, "lockedUntil">, now: Date) => !!u.lockedUntil && u.lockedUntil.getTime() > now.getTime();
+export const isLocked = (u: { lockedUntil: Date | null }, now: Date) => !!u.lockedUntil && u.lockedUntil.getTime() > now.getTime();
+
+/** A login failure counter (an account's or an IP's). */
+export interface FailureState {
+  failures: number;
+  /** When the counting window began (IP); null = counted without a window (account) */
+  windowStartedAt: Date | null;
+  lockedUntil: Date | null;
+  lockLevel: number;
+}
+
+export interface FailureRule {
+  max: number;
+  /** Failures older than this are forgotten; null = kept until a lock or a login */
+  windowMs: number | null;
+  baseLockMs: number;
+  maxLockMs: number;
+}
+
+export const ACCOUNT_RULE: FailureRule = { max: MAX_FAILED_LOGINS, windowMs: null, baseLockMs: LOCK_MS, maxLockMs: ACCOUNT_MAX_LOCK_MS };
+export const IP_RULE: FailureRule = { max: IP_MAX_FAILURES, windowMs: IP_WINDOW_MS, baseLockMs: LOCK_MS, maxLockMs: IP_MAX_LOCK_MS };
+
+/**
+ * The counter after one more failure at `now`. At `max` failures it locks - 15 minutes, doubled
+ * for each lock that follows within 24 h of the previous one's end, capped - and counts from 0 again.
+ */
+export function nextFailure(st: FailureState, now: Date, rule: FailureRule): FailureState {
+  const t = now.getTime();
+  const windowOver = rule.windowMs !== null && (!st.windowStartedAt || t - st.windowStartedAt.getTime() >= rule.windowMs);
+  const failures = (windowOver ? 0 : st.failures) + 1;
+  const windowStartedAt = rule.windowMs === null ? null : windowOver ? now : st.windowStartedAt;
+  if (failures < rule.max) return { failures, windowStartedAt, lockedUntil: st.lockedUntil, lockLevel: st.lockLevel };
+  const recent = !!st.lockedUntil && t - st.lockedUntil.getTime() < LOCK_MEMORY_MS;
+  const lockLevel = recent ? st.lockLevel + 1 : 0;
+  const ms = Math.min(rule.baseLockMs * 2 ** Math.min(lockLevel, 20), rule.maxLockMs);
+  return { failures: 0, windowStartedAt, lockedUntil: new Date(t + ms), lockLevel };
+}
+
+/**
+ * The client's IP from X-Forwarded-For as the last `trustedHops` proxies saw it: each trusted
+ * proxy appends the address it was called from, so the client's own entries (which it may forge)
+ * come first and the one our nearest trusted proxy appended is counted from the end. "" when the
+ * header has fewer entries (a direct call).
+ */
+export function clientIp(forwardedFor: string | undefined, trustedHops: number): string {
+  const hops = (forwardedFor ?? "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const n = Math.max(1, Math.floor(trustedHops));
+  return (hops[hops.length - n] ?? "").slice(0, 100);
+}
 
 /** A new session's expiry and its absolute end. */
 export function sessionTimes(now: Date): { expiresAt: Date; absoluteExpiresAt: Date } {

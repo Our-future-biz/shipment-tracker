@@ -20,7 +20,7 @@ vi.mock("../repositories/internal.repository", async () => ({ internalRepository
 vi.mock("../services/rate.service", () => ({ rateService: { rate: vi.fn() }, eurRate: vi.fn() }));
 vi.mock("../services/settings.service", async () => ({ settingsService: { get: vi.fn(async () => (await import("./truckingFakes")).settings()) } }));
 vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })) }));
-vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: { upload: vi.fn(async () => undefined), download: vi.fn() } }));
+vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: { upload: vi.fn(async () => undefined), remove: vi.fn(async () => undefined), download: vi.fn() } }));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "") }));
 
 import { publicOrderService, LINK_INVALID } from "../services/publicOrder.service";
@@ -155,25 +155,60 @@ describe("POD through the link", () => {
     expect(eventsOf("stamp_set").map((e) => (e.payload as { facts: { kind: string } }).facts.kind)).toEqual(["pickedUp", "delivered", "podReceived"]);
   });
 
-  it("a second POD is kept as a file, the stamps stay as they are", async () => {
+  it("one POD per stop: a second is refused before anything is stored (a manager replaces it in the app)", async () => {
     const { token } = await ordered({ confirmed: true });
     await publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: null, receiverName: "" });
-    await publicOrderService.pod(token, { fileName: "pod2.pdf", fileBase64: PDF, deliveredAt: null, receiverName: "" });
-    expect(store.documents).toHaveLength(2);
+    vi.mocked(truckingDocumentBucket.upload).mockClear();
+    await expect(publicOrderService.pod(token, { fileName: "pod2.pdf", fileBase64: PDF, deliveredAt: null, receiverName: "" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: expect.stringContaining("A POD for this stop is already uploaded"),
+    });
+    expect(truckingDocumentBucket.upload).not.toHaveBeenCalled();
+    expect(store.documents).toHaveLength(1);
     expect(eventsOf("stamp_set")).toHaveLength(3);
     expect(outboxOf("billing")).toHaveLength(1);
   });
 
-  it("takes photos and PDFs only, at most 10 MB, and not on a rejected order", async () => {
+  it("only once the order is confirmed: nothing is stamped or stored before", async () => {
     const { token } = await ordered();
+    await expect(publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: null, receiverName: "" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Confirm the transport order first: the POD can be uploaded once the order is confirmed.",
+    });
+    expect(truckingDocumentBucket.upload).not.toHaveBeenCalled();
+    expect(eventsOf("stamp_set")).toHaveLength(0);
+  });
+
+  it("runs the portal's stamp rules before storing, and removes the file when the transaction fails", async () => {
+    const { token, c } = await ordered({ confirmed: true });
+    // The trip's order is taken back meanwhile: the pick-up may not be stamped.
+    const row = store.trips[0]!;
+    row.orderSentAt = null;
+    await expect(publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: null, receiverName: "" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Send the transport order before stamping the pick-up",
+    });
+    expect(truckingDocumentBucket.upload).not.toHaveBeenCalled();
+    row.orderSentAt = new Date("2026-10-14T08:00:00Z");
+    // A stamp refused inside the transaction (the consignment changed meanwhile): the stored file goes.
+    vi.spyOn(consignmentRepository, "update").mockResolvedValueOnce(null);
+    await expect(publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: null, receiverName: "" })).rejects.toBeTruthy();
+    const key = vi.mocked(truckingDocumentBucket.upload).mock.calls[0]![0];
+    expect(key).toMatch(new RegExp(`^${COMPANY}/${c.id}/`));
+    expect(truckingDocumentBucket.remove).toHaveBeenCalledWith(key);
+  });
+
+  it("takes photos and PDFs only, at most 10 MB, and not on a rejected order", async () => {
+    const { token } = await ordered({ confirmed: true });
     await expect(publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: HTML, deliveredAt: null, receiverName: "" })).rejects.toMatchObject({ code: "invalid_argument" });
     const big = Buffer.alloc(10 * 1024 * 1024 + 1, 0);
     big.write("%PDF-");
     await expect(publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: big.toString("base64"), deliveredAt: null, receiverName: "" })).rejects.toMatchObject({
       message: "The file is larger than 10 MB",
     });
-    await publicOrderService.respond(token, { action: "REJECT", name: "Eva", reason: "No truck" });
-    await expect(publicOrderService.pod(token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: null, receiverName: "" })).rejects.toMatchObject({
+    const rejected = await ordered();
+    await publicOrderService.respond(rejected.token, { action: "REJECT", name: "Eva", reason: "No truck" });
+    await expect(publicOrderService.pod(rejected.token, { fileName: "pod.pdf", fileBase64: PDF, deliveredAt: null, receiverName: "" })).rejects.toMatchObject({
       message: "This transport order was rejected",
     });
     expect(store.documents).toHaveLength(0);

@@ -14,7 +14,7 @@ interface PublicTransportOrderResponse {
 }
 
 export const publicTransportOrderGet = api(
-  { expose: true, auth: false, method: "GET", path: "/public/transport-orders/:token" },
+  { expose: true, auth: false, method: "GET", path: "/public/transport-orders/:token", sensitive: true },
   async ({ token }: PublicTransportOrderRequest): Promise<PublicTransportOrderResponse> => {
     return { order: await publicOrderService.get(token) };
   },
@@ -31,7 +31,7 @@ interface PublicTransportOrderRespondRequest {
 
 // Confirm or reject the order, once.
 export const publicTransportOrderRespond = api(
-  { expose: true, auth: false, method: "POST", path: "/public/transport-orders/:token/respond" },
+  { expose: true, auth: false, method: "POST", path: "/public/transport-orders/:token/respond", sensitive: true },
   async ({ token, ...input }: PublicTransportOrderRespondRequest): Promise<PublicTransportOrderResponse> => {
     return { order: await publicOrderService.respond(token, input) };
   },
@@ -49,7 +49,7 @@ interface PublicTransportOrderPodRequest {
 
 // Uploads the POD: stamps delivered (when missing) and POD received.
 export const publicTransportOrderPod = api(
-  { expose: true, auth: false, method: "POST", path: "/public/transport-orders/:token/pod", bodyLimit: 15 * 1024 * 1024 },
+  { expose: true, auth: false, method: "POST", path: "/public/transport-orders/:token/pod", bodyLimit: 15 * 1024 * 1024, sensitive: true },
   async ({ token, ...input }: PublicTransportOrderPodRequest): Promise<PublicTransportOrderResponse> => {
     return { order: await publicOrderService.pod(token, { ...input, deliveredAt: input.deliveredAt ?? null }) };
   },

@@ -42,6 +42,8 @@ export interface HaulierInvoice {
   status: HaulierInvoiceStatus;
   /** Why payment may not be approved (BLOCKED); nobody can override these */
   blockReasons: string[];
+  /** Why an exact match was not approved automatically (NEEDS_APPROVAL): a recent bank-account change, the same user, a repriced trip; a manager decides */
+  holdReasons: string[];
   approval: { byName: string; at: string; reason: string } | null;
   fileName: string | null;
   createdAt: string;

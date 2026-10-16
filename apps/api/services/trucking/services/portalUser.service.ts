@@ -12,12 +12,12 @@ import { cleanText, LINK_VALID_MS, normaliseEmail, portalUserItem, setPasswordUr
 import { isManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { haulierService } from "./haulier.service";
+import { appUrl } from "../../../lib/appUrl";
 
 // The app's side of the haulier portal: a haulier's portal users. Any user sees them; a manager
 // adds one, resets a password, disables or enables. E-mail sending is off, so an invitation or a
 // reset gives the manager a one-time link to pass on - shown once, only its SHA-256 is stored.
 
-const APP_URL = process.env.APP_URL || "http://localhost:3001";
 const MAX_REASON = 500;
 export const PORTAL_USER_CONFLICT = "The portal user was changed by someone else. Reload and try again.";
 const EMAIL_TAKEN = "A portal user with this e-mail already exists";
@@ -53,7 +53,7 @@ class PortalUserService {
     const { token, hash } = newToken();
     const expiresAt = new Date(Date.now() + LINK_VALID_MS);
     await portalRepository.newToken(tx, { companyId: actor.companyID, userId: u.id, kind, tokenHash: hash, expiresAt, createdBy: actor.userID });
-    return { link: setPasswordUrl(APP_URL, token), expiresAt: expiresAt.toISOString() };
+    return { link: setPasswordUrl(appUrl(), token), expiresAt: expiresAt.toISOString() };
   }
 
   /** Any user: the haulier's portal users. */

@@ -29,7 +29,10 @@ import type {
 import type { Actor } from "../../../lib/rbac";
 import { addDays, businessDay, isRealYmd } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
-import { cleanPrice, stampTime, truckingRefYear } from "../lib/consignmentRules";
+import { cleanPrice, cleanReason, stampTime, truckingRefYear } from "../lib/consignmentRules";
+import { assertBuyChangeAllowed } from "../lib/buyPriceLock";
+import { isManager } from "../lib/roles";
+import { haulierInvoiceRepository } from "../repositories/haulierInvoice.repository";
 import {
   gateChange,
   HUB_MISSING,
@@ -92,6 +95,8 @@ export interface LegPartnerInput {
   haulierCustomerId: string;
   depotSiteId: string | null;
   price: TripPriceInput;
+  /** Why the partner or price changes after the partner was given the delivery (a manager only) */
+  reason?: string;
 }
 
 const ids = (v: unknown, what: string): string[] => {
@@ -453,9 +458,11 @@ class LtlService {
     const after = [...kept, ...added.legs];
     const changed = add.length > 0 || remove.length > 0;
 
-    // A tariff price follows the legs: priced again before the transaction (other services), checked inside.
+    // A tariff price follows the legs: priced again before the transaction (other services), checked
+    // inside - until the transport order is sent: then the agreed price stays (a manager reprices).
+    const followsLegs = changed && trip.buy?.source === "TARIFF" && !trip.orderSentAt;
     let repriced: { buy: PriceSnapshot; candidates: PricedSide[] | null } | null = null;
-    if (changed && trip.buy?.source === "TARIFF" && after.length) {
+    if (followsLegs && after.length) {
       const all = await consignmentRepository.findMany(companyId, [...new Set(after.map((l) => l.consignmentId))]);
       const ordered = stopOrder ?? [...trip.stopOrder.filter((id) => after.some((l) => l.id === id)), ...add];
       const legsInOrder = [...after].sort((a, b) => ordered.indexOf(a.id) - ordered.indexOf(b.id));
@@ -476,7 +483,7 @@ class LtlService {
       let row = locked;
       if (repriced) {
         row = (await tripRepository.update(tx, companyId, trip.id, { buy: repriced.buy, buyCzk: repriced.buy.totalCzk, ...(repriced.candidates ? { buyCandidates: repriced.candidates } : {}) }, { live: true })) ?? locked;
-      } else if (changed && trip.buy?.source === "TARIFF" && !after.length) {
+      } else if (followsLegs && !after.length) {
         row = (await tripRepository.update(tx, companyId, trip.id, { buy: null, buyCzk: null }, { live: true })) ?? locked;
       }
       const allById = new Map([...added.byId, ...(await consignmentRepository.findMany(companyId, [...new Set(removed.map((l) => l.consignmentId))], tx)).map((c) => [c.id, c] as const)]);
@@ -489,7 +496,7 @@ class LtlService {
         byName: by,
         payload: {
           changes: { legs: { before: onTrip.length, after: after.length } },
-          summary: `${trip.ref}: ${[add.length ? `${add.length} leg${add.length === 1 ? "" : "s"} added` : "", remove.length ? `${remove.length} removed` : "", stopOrder ? "stops reordered" : ""].filter(Boolean).join(", ") || "no change"}${repriced ? `; priced again ${repriced.buy.total} ${repriced.buy.currency}` : ""}`,
+          summary: `${trip.ref}: ${[add.length ? `${add.length} leg${add.length === 1 ? "" : "s"} added` : "", remove.length ? `${remove.length} removed` : "", stopOrder ? "stops reordered" : ""].filter(Boolean).join(", ") || "no change"}${repriced ? `; priced again ${repriced.buy.total} ${repriced.buy.currency}` : ""}${changed && trip.orderSentAt && trip.buy ? `; the agreed price ${trip.buy.total} ${trip.buy.currency} stays (the transport order is sent: a manager may reprice)` : ""}`,
         },
       });
       await ltlTrips.settle(tx, actor, row, stopOrder);
@@ -498,13 +505,21 @@ class LtlService {
     return tripService.get(actor, trip.id);
   }
 
-  /** Any user. A new buy price (the tariff's now, or an agreed price) split again over the legs. */
-  async reprice(actor: Actor, tripId: string, rawPrice: TripPriceInput): Promise<TripDetail> {
+  /**
+   * A new buy price (the tariff's now, or an agreed price) split again over the legs. Any user
+   * until the transport order is sent; then a manager with a reason (the trip is flagged as
+   * repriced: its invoice is never approved automatically, and the haulier sees the change in the
+   * portal's history); never once the trip is on a haulier invoice that is not rejected.
+   */
+  async reprice(actor: Actor, tripId: string, rawPrice: TripPriceInput, rawReason?: string): Promise<TripDetail> {
     const companyId = actor.companyID;
     const trip = await tripService.load(companyId, tripId);
     if (trip.kind === "FTL") throw APIError.failedPrecondition("An FTL trip's price is set when it is planned");
     if (trip.cancelledAt) throw APIError.failedPrecondition("The trip is cancelled");
     const price = cleanPrice(rawPrice, false) as TripPriceInput;
+    const given = typeof rawReason === "string" && rawReason.trim() ? rawReason : price.source === "MANUAL" ? price.reason : "";
+    const lock = await this.buyLock(companyId, "TRIP", trip.id, `Trip ${trip.ref}`, !!trip.orderSentAt, actor, given);
+    const reason = lock.afterOrder ? cleanReason(given, "the reason for the new price") : "";
     const settings = await settingsService.get(companyId);
     const legs = await legRepository.forTrips(companyId, [trip.id]);
     const ordered = [...legs].sort((a, b) => trip.stopOrder.indexOf(a.id) - trip.stopOrder.indexOf(b.id));
@@ -521,11 +536,17 @@ class LtlService {
     );
     const by = await userName(actor.userID);
     await inTx(async (tx) => {
+      // The haulier's invoice lock first (an invoice save takes it too), then the trip.
+      await haulierInvoiceRepository.lockHaulier(tx, companyId, trip.haulierCustomerId);
       const locked = await tripRepository.lock(tx, companyId, trip.id);
       if (!locked || locked.cancelledAt) throw APIError.aborted(TRIP_CONFLICT);
+      if (!!locked.orderSentAt !== !!trip.orderSentAt) throw APIError.aborted(TRIP_CONFLICT);
+      const [use] = await haulierInvoiceRepository.targetUses(companyId, [{ kind: "TRIP", id: trip.id }], undefined, tx);
+      if (use) throw APIError.failedPrecondition(`Trip ${trip.ref} is on haulier invoice ${use.invoiceNumber}: its price can no longer change`);
       const now = await legRepository.forTrips(companyId, [trip.id], tx);
       if (now.length !== legs.length || now.some((l) => !legs.some((x) => x.id === l.id))) throw APIError.aborted(TRIP_CONFLICT);
-      const row = await tripRepository.update(tx, companyId, trip.id, { buy, buyCzk: buy.totalCzk, ...(candidates ? { buyCandidates: candidates } : {}) }, { live: true });
+      const flag = lock.afterOrder ? { buyRepricedAt: new Date(), buyRepricedBy: by || null } : {};
+      const row = await tripRepository.update(tx, companyId, trip.id, { buy, buyCzk: buy.totalCzk, ...flag, ...(candidates ? { buyCandidates: candidates } : {}) }, { live: true });
       if (!row) throw APIError.aborted(TRIP_CONFLICT);
       await appendEvent(tx, companyId, {
         kind: "trip_repriced",
@@ -535,14 +556,22 @@ class LtlService {
         byName: by,
         payload: {
           changes: { buy: { before: trip.buy?.total ?? null, after: buy.total } },
-          reason: buy.overrideReason ?? undefined,
-          summary: `${trip.ref} priced ${buy.total} ${buy.currency} (${buy.source === "MANUAL" ? `agreed price: ${buy.overrideReason}` : "tariff"})`,
+          reason: reason || buy.overrideReason || undefined,
+          summary: `${trip.ref} priced ${buy.total} ${buy.currency} (${buy.source === "MANUAL" ? `agreed price: ${buy.overrideReason}` : "tariff"})${lock.afterOrder ? ` after the transport order was sent, by a manager: ${reason}` : ""}`,
+          // The haulier's history shows an agreed price that changed after the order (never the reason).
+          facts: { afterOrder: lock.afterOrder, priceBefore: trip.buy ? { total: trip.buy.total, currency: trip.buy.currency } : null, priceAfter: { total: buy.total, currency: buy.currency } },
         },
       });
       await ltlTrips.settle(tx, actor, row);
     });
     await deliverDue();
     return tripService.get(actor, trip.id);
+  }
+
+  /** The buy-price lock of a trip or partner delivery (lib/buyPriceLock.ts), with its invoice read now. */
+  private async buyLock(companyId: string, kind: "TRIP" | "PARTNER_LEG", id: string, what: string, orderOut: boolean, actor: Actor, reason: string) {
+    const [use] = await haulierInvoiceRepository.targetUses(companyId, [{ kind, id }]);
+    return assertBuyChangeAllowed({ what, orderOut, invoiceNumber: use?.invoiceNumber ?? null, manager: isManager(actor.role), reason });
   }
 
   /**
@@ -628,11 +657,14 @@ class LtlService {
   // ---- a partner's delivery --------------------------------------------------------------------------
 
   /**
-   * Any user. The partner who delivers an LTL consignment (last mile PARTNER), from its depot (a
-   * delivery site of the partner; null = it collects at our warehouse) and its price - the
-   * partner's BUY tariff (scope LTL) from the depot to the consignee, or an agreed price. A depot
-   * that is not our warehouse needs a line haul leg (added; removed when the depot is our
-   * warehouse again, unless it is already on a trip).
+   * The partner who delivers an LTL consignment (last mile PARTNER), from its depot (a delivery
+   * site of the partner; null = it collects at our warehouse) and its price - the partner's BUY
+   * tariff (scope LTL) from the depot to the consignee, or an agreed price. A depot that is not our
+   * warehouse needs a line haul leg (added; removed when the depot is our warehouse again, unless
+   * it is already on a trip). Any user gives the delivery to a partner; once given (it is in the
+   * partner's portal - the partner's "order"), a change of partner or price is a manager's with a
+   * reason (flagged as repriced), and none once it is on a haulier invoice that is not rejected.
+   * After the delivery only the price may change (manager, same partner and depot).
    */
   async legPartner(actor: Actor, legId: string, input: LegPartnerInput): Promise<ConsignmentDetail> {
     const companyId = actor.companyID;
@@ -642,12 +674,18 @@ class LtlService {
     const { c } = await consignmentService.load(companyId, leg.consignmentId);
     if (c.scope !== "LTL" || c.lastMile !== "PARTNER") throw APIError.failedPrecondition("The consignment is not delivered by a partner network");
     if (c.cancelledAt) throw APIError.failedPrecondition("The consignment is cancelled");
-    if (leg.status === "DONE" || c.deliveredAt) throw APIError.failedPrecondition("The consignment is delivered");
     const price = cleanPrice(input.price, false) as TripPriceInput;
+    const given = typeof input.reason === "string" && input.reason.trim() ? input.reason : price.source === "MANUAL" ? price.reason : "";
+    const lock = await this.buyLock(companyId, "PARTNER_LEG", leg.id, `${c.ref} partner delivery`, !!leg.buy && leg.status !== "OPEN", actor, given);
+    const reason = lock.afterOrder ? cleanReason(given, "the reason for the change") : "";
+    const delivered = leg.status === "DONE" || !!c.deliveredAt;
     const settings = await settingsService.get(companyId);
     if (!hubIsSet(settings.hub)) throw APIError.failedPrecondition(HUB_MISSING);
-    const haulier = await this.usableHaulier(companyId, input.haulierCustomerId);
+    const haulier = delivered ? await haulierService.get(companyId, String(input.haulierCustomerId)) : await this.usableHaulier(companyId, input.haulierCustomerId);
     const depot = await this.depotOf(haulier.customerId, haulier.companyName, input.depotSiteId);
+    if (delivered && (haulier.customerId !== leg.haulierCustomerId || (depot?.siteId ?? null) !== leg.depotSiteId)) {
+      throw APIError.failedPrecondition("The consignment is delivered: only the partner's price can still change (by a manager)");
+    }
     const hub = hubPlace(settings.hub);
     const from = depot?.place ?? hub;
 
@@ -661,48 +699,63 @@ class LtlService {
       buy = snapshotOf(side, c.serviceLevel, rated.ratedAt);
     }
     const by = await userName(actor.userID);
+    const conflict = () => APIError.aborted("The delivery was changed by someone else. Reload and try again.");
 
     await inTx(async (tx) => {
-      const legs = ltlLegsOf(c.id, await legRepository.forConsignments(companyId, [c.id], tx));
-      const linehaul = legs.find((l) => l.kind === "LINEHAUL");
-      if (!depot && linehaul) {
-        if (linehaul.tripId) throw APIError.failedPrecondition("The line haul to the depot is on a trip: take it off the trip first");
-        await legRepository.retire(tx, companyId, [linehaul.id]);
-      }
-      if (depot) {
-        const ends = legEnds("LINEHAUL", c, hub, depot.place);
-        if (linehaul && linehaul.tripId && linehaul.toPostcode !== depot.place.postcode) {
-          throw APIError.failedPrecondition("The line haul to the old depot is on a trip: take it off the trip first");
+      // The invoice lock of the partner that had the delivery (an invoice save takes it too).
+      if (leg.haulierCustomerId) await haulierInvoiceRepository.lockHaulier(tx, companyId, leg.haulierCustomerId);
+      const [use] = await haulierInvoiceRepository.targetUses(companyId, [{ kind: "PARTNER_LEG", id: leg.id }], undefined, tx);
+      if (use) throw APIError.failedPrecondition(`${c.ref} partner delivery is on haulier invoice ${use.invoiceNumber}: its price can no longer change`);
+      const [now] = await legRepository.findMany(companyId, [leg.id], tx);
+      if (!now || now.status !== leg.status || now.haulierCustomerId !== leg.haulierCustomerId || JSON.stringify(now.buy) !== JSON.stringify(leg.buy)) throw conflict();
+      const flag = lock.afterOrder ? { buyRepricedAt: new Date(), buyRepricedBy: by || null } : {};
+      let row: TruckingLegRecord | null;
+      if (delivered) {
+        row = await legRepository.update(tx, companyId, leg.id, { buy, ...flag }, { tripId: null });
+        if (!row) throw conflict();
+      } else {
+        const legs = ltlLegsOf(c.id, await legRepository.forConsignments(companyId, [c.id], tx));
+        const linehaul = legs.find((l) => l.kind === "LINEHAUL");
+        if (!depot && linehaul) {
+          if (linehaul.tripId) throw APIError.failedPrecondition("The line haul to the depot is on a trip: take it off the trip first");
+          await legRepository.retire(tx, companyId, [linehaul.id]);
         }
-        if (linehaul) await legRepository.update(tx, companyId, linehaul.id, { toText: ends.to.text, toPostcode: ends.to.postcode, depotSiteId: depot.siteId });
-        else {
-          await legRepository.insertMany(tx, [
-            {
-              companyId,
-              consignmentId: c.id,
-              seq: LEG_SEQ.LINEHAUL,
-              kind: "LINEHAUL",
-              status: "OPEN",
-              fromText: ends.from.text,
-              toText: ends.to.text,
-              fromPostcode: ends.from.postcode,
-              toPostcode: ends.to.postcode,
-              depotSiteId: depot.siteId,
-            },
-          ]);
+        if (depot) {
+          const ends = legEnds("LINEHAUL", c, hub, depot.place);
+          if (linehaul && linehaul.tripId && linehaul.toPostcode !== depot.place.postcode) {
+            throw APIError.failedPrecondition("The line haul to the old depot is on a trip: take it off the trip first");
+          }
+          if (linehaul) await legRepository.update(tx, companyId, linehaul.id, { toText: ends.to.text, toPostcode: ends.to.postcode, depotSiteId: depot.siteId });
+          else {
+            await legRepository.insertMany(tx, [
+              {
+                companyId,
+                consignmentId: c.id,
+                seq: LEG_SEQ.LINEHAUL,
+                kind: "LINEHAUL",
+                status: "OPEN",
+                fromText: ends.from.text,
+                toText: ends.to.text,
+                fromPostcode: ends.from.postcode,
+                toPostcode: ends.to.postcode,
+                depotSiteId: depot.siteId,
+              },
+            ]);
+          }
         }
+        row = await legRepository.update(
+          tx,
+          companyId,
+          leg.id,
+          { haulierCustomerId: haulier.customerId, depotSiteId: depot?.siteId ?? null, buy, ...flag, status: "PLANNED", fromText: from.text, fromPostcode: from.postcode },
+          { tripId: null },
+        );
+        if (!row || row.status === "DONE") throw conflict();
+        await consignmentRepository.update(tx, companyId, c.id, { partnerHaulierCustomerId: haulier.customerId }, { live: true });
       }
-      const row = await legRepository.update(
-        tx,
-        companyId,
-        leg.id,
-        { haulierCustomerId: haulier.customerId, depotSiteId: depot?.siteId ?? null, buy, status: "PLANNED", fromText: from.text, fromPostcode: from.postcode },
-        { tripId: null },
-      );
-      if (!row || row.status === "DONE") throw APIError.aborted("The delivery was changed by someone else. Reload and try again.");
-      await consignmentRepository.update(tx, companyId, c.id, { partnerHaulierCustomerId: haulier.customerId }, { live: true });
       // A job of another department is billed internally: the partner's price stays in Trucking's ledger.
       if (!c.internal) await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "costs", partnerLegCosts(row, c.ref, { id: haulier.customerId, name: haulier.companyName }))]);
+      const priceBefore = leg.buy ? { total: leg.buy.total, currency: leg.buy.currency } : null;
       await appendEvent(tx, companyId, {
         kind: "partner_delivery_set",
         consignmentId: c.id,
@@ -710,12 +763,17 @@ class LtlService {
         byUserId: actor.userID || null,
         byName: by,
         payload: {
-          changes: { partner: { before: leg.haulierCustomerId, after: haulier.customerId } },
-          reason: buy.overrideReason ?? undefined,
-          summary: `Delivered by ${haulier.companyName} from ${from.text}, ${buy.total} ${buy.currency} (${buy.source === "MANUAL" ? "agreed price" : "partner tariff"})`,
+          changes: {
+            partner: { before: leg.haulierCustomerId, after: haulier.customerId },
+            ...(priceBefore ? { buy: { before: priceBefore.total, after: buy.total } } : {}),
+          },
+          reason: reason || buy.overrideReason || undefined,
+          summary: `Delivered by ${haulier.companyName} from ${from.text}, ${buy.total} ${buy.currency} (${buy.source === "MANUAL" ? "agreed price" : "partner tariff"})${lock.afterOrder ? `, changed by a manager after the partner was given it: ${reason}` : ""}`,
+          // The partner's history shows its agreed price changing (never the reason).
+          facts: { legId: leg.id, partner: haulier.customerId, afterOrder: lock.afterOrder, priceBefore, priceAfter: { total: buy.total, currency: buy.currency } },
         },
       });
-      await ltlTrips.refreshStatuses(tx, companyId, [c.id]);
+      if (!delivered) await ltlTrips.refreshStatuses(tx, companyId, [c.id]);
     });
     await deliverDue(c.id);
     return consignmentService.get(actor, c.id);

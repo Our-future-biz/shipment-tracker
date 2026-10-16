@@ -1,11 +1,14 @@
-import { and, asc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, sql } from "drizzle-orm";
 import { db, type Tx } from "../db/db";
+import { nextFailure, type FailureRule } from "../lib/portalRules";
 import {
+  truckingPortalLoginThrottleTable,
   truckingPortalSessionTable,
   truckingPortalTokenTable,
   truckingPortalUserTable,
   type NewPortalSessionRecord,
   type NewPortalUserRecord,
+  type PortalLoginThrottleRecord,
   type PortalSessionRecord,
   type PortalTokenKind,
   type PortalTokenRecord,
@@ -15,6 +18,9 @@ import {
 const u = truckingPortalUserTable;
 const s = truckingPortalSessionTable;
 const t = truckingPortalTokenTable;
+const th = truckingPortalLoginThrottleTable;
+/** Throttle rows quiet this long are pruned. */
+const THROTTLE_KEEP_MS = 2 * 24 * 60 * 60 * 1000;
 
 export type PortalUserValues = Partial<Omit<NewPortalUserRecord, "id" | "companyId" | "version" | "createdAt" | "createdBy">>;
 
@@ -63,21 +69,44 @@ class PortalRepository {
   }
 
   /**
-   * One more failed login, counted in the database (two wrong passwords at once both count); at
-   * `max` the user is locked until `lockUntil` and the count starts again.
+   * One more failed login on this account, counted under a row lock (two wrong passwords at once
+   * both count); at the rule's max it is locked (progressive, lib/portalRules nextFailure).
    */
-  async failLogin(companyId: string, id: string, max: number, lockUntil: Date): Promise<PortalUserRecord | null> {
-    const next = sql`${u.failedAttempts} + 1`;
-    const [row] = await db
-      .update(u)
-      .set({
-        failedAttempts: sql`CASE WHEN ${next} >= ${max} THEN 0 ELSE ${next} END`,
-        lockedUntil: sql`CASE WHEN ${next} >= ${max} THEN ${lockUntil.toISOString()}::timestamptz ELSE ${u.lockedUntil} END`,
-        updatedAt: new Date(),
-      })
-      .where(and(eq(u.companyId, companyId), eq(u.id, id), isNull(u.deletedAt)))
-      .returning();
+  async failLogin(companyId: string, id: string, now: Date, rule: FailureRule): Promise<PortalUserRecord | null> {
+    return db.transaction(async (tx) => {
+      const [cur] = await tx.select().from(u).where(and(eq(u.companyId, companyId), eq(u.id, id), isNull(u.deletedAt))).for("update");
+      if (!cur) return null;
+      const next = nextFailure({ failures: cur.failedAttempts, windowStartedAt: null, lockedUntil: cur.lockedUntil, lockLevel: cur.lockLevel }, now, rule);
+      const [row] = await tx
+        .update(u)
+        .set({ failedAttempts: next.failures, lockedUntil: next.lockedUntil, lockLevel: next.lockLevel, updatedAt: now })
+        .where(eq(u.id, cur.id))
+        .returning();
+      return row ?? null;
+    });
+  }
+
+  // ---- the per-IP login throttle ----------------------------------------------------------------
+
+  async throttleOf(key: string): Promise<PortalLoginThrottleRecord | null> {
+    const [row] = await db.select().from(th).where(eq(th.key, key));
     return row ?? null;
+  }
+
+  /** One more failed login from `key`, counted under a row lock; rows quiet for 2 days are pruned. */
+  async failThrottle(key: string, now: Date, rule: FailureRule): Promise<PortalLoginThrottleRecord> {
+    return db.transaction(async (tx) => {
+      await tx.insert(th).values({ key, failures: 0, windowStartedAt: now, updatedAt: now }).onConflictDoNothing();
+      const [cur] = await tx.select().from(th).where(eq(th.key, key)).for("update");
+      const next = nextFailure({ failures: cur!.failures, windowStartedAt: cur!.windowStartedAt, lockedUntil: cur!.lockedUntil, lockLevel: cur!.lockLevel }, now, rule);
+      const [row] = await tx
+        .update(th)
+        .set({ failures: next.failures, windowStartedAt: next.windowStartedAt ?? now, lockedUntil: next.lockedUntil, lockLevel: next.lockLevel, updatedAt: now })
+        .where(eq(th.key, key))
+        .returning();
+      await tx.delete(th).where(and(lt(th.updatedAt, new Date(now.getTime() - THROTTLE_KEEP_MS)), sql`(${th.lockedUntil} IS NULL OR ${th.lockedUntil} < ${now.toISOString()}::timestamptz)`));
+      return row!;
+    });
   }
 
   // ---- sessions ------------------------------------------------------------------------------

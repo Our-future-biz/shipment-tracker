@@ -34,11 +34,12 @@ vi.mock("../services/haulier.service", async (orig) => ({ ...(await orig<object>
 vi.mock("../services/rate.service", () => ({ rateService: { rate: vi.fn() }, eurRate: vi.fn() }));
 vi.mock("../services/settings.service", async () => ({ settingsService: { get: vi.fn(async () => (await import("./truckingFakes")).settings()) } }));
 vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })) }));
-vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: { upload: vi.fn(async () => undefined), download: vi.fn() } }));
+vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: { upload: vi.fn(async () => undefined), remove: vi.fn(async () => undefined), download: vi.fn() } }));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
 vi.mock("../lib/transportOrderPdf", () => ({ buildTransportOrderPdf: vi.fn(async () => new Uint8Array([37, 80, 68, 70])) }));
 vi.mock("../lib/ltlTransportOrderPdf", () => ({ buildLtlTransportOrderPdf: vi.fn(async () => new Uint8Array([37, 80, 68, 70])) }));
 
+import { truckingDocumentBucket } from "../storage/documentBucket";
 import { customers } from "~encore/clients";
 import { portalOrderService, ORDER_NOT_FOUND } from "../services/portalOrder.service";
 import type { PortalCaller } from "../services/portalAuth.service";
@@ -456,13 +457,44 @@ describe("stamps through the trucking services' own checks", () => {
     expect(outboxOf("billing")).toEqual([expect.objectContaining({ shipmentId: SHIPMENT2, actingUserId: SERVICE_USER })]);
   });
 
-  it("FTL POD: a photo or PDF only; stamps the pick-up and delivery it proves, POD received, and Billing", async () => {
+  it("FTL POD: only once the order is confirmed; a photo or PDF only; stamps the pick-up and delivery it proves, POD received, and Billing", async () => {
     const { trip: t, c } = await ftl();
+    await expect(portalOrderService.pod(eva, t.id, c.id, { fileName: "pod.pdf", fileBase64: PDF, receiverName: "", deliveredAt: null })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Confirm the transport order first: the POD can be uploaded once the order is confirmed.",
+    });
+    await portalOrderService.respond(eva, t.id, { action: "CONFIRM", reason: "" });
     await expect(portalOrderService.pod(eva, t.id, c.id, { fileName: "x.html", fileBase64: HTML, receiverName: "", deliveredAt: null })).rejects.toMatchObject({ code: "invalid_argument" });
     expect(store.documents).toHaveLength(0);
     await portalOrderService.pod(eva, t.id, c.id, { fileName: "pod.pdf", fileBase64: PDF, receiverName: "", deliveredAt: null });
     expect(cOf(c.id)).toMatchObject({ pickedUpBy: "Eva Malá (haulier)", deliveredBy: "Eva Malá (haulier)", podSource: "HAULIER", status: "READY_TO_BILL" });
     expect(outboxOf("billing")).toEqual([expect.objectContaining({ actingUserId: SERVICE_USER })]);
+  });
+
+  it("one POD per stop: a second is refused before anything is stored", async () => {
+    const { trip: t, c } = await ftl({ confirmedAt: new Date("2026-10-14T09:00:00Z"), status: "CONFIRMED" });
+    await portalOrderService.pod(eva, t.id, c.id, { fileName: "pod.pdf", fileBase64: PDF, receiverName: "", deliveredAt: null });
+    vi.mocked(truckingDocumentBucket.upload).mockClear();
+    await expect(portalOrderService.pod(eva, t.id, c.id, { fileName: "pod2.pdf", fileBase64: PDF, receiverName: "", deliveredAt: null })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: expect.stringContaining("A POD for this stop is already uploaded"),
+    });
+    expect(truckingDocumentBucket.upload).not.toHaveBeenCalled();
+    expect(store.documents).toHaveLength(1);
+  });
+
+  it("the history shows an agreed price changed after the order went out, never the reason", async () => {
+    const { trip: t } = await ftl();
+    store.events.push({
+      kind: "trip_repriced",
+      tripId: t.id,
+      at: new Date("2026-10-14T12:00:00Z"),
+      id: "e9",
+      payload: { changes: {}, reason: "secret deal", summary: "priced by a manager: secret deal", facts: { afterOrder: true, priceBefore: { total: 9000, currency: "CZK" }, priceAfter: { total: 9500, currency: "CZK" } } },
+    } as never);
+    const { history } = await portalOrderService.get(eva, t.id);
+    expect(history.map((h) => h.text)).toContain("Agreed price changed: 9000.00 CZK → 9500.00 CZK");
+    expect(JSON.stringify(history)).not.toContain("secret");
   });
 });
 

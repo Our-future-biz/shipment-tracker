@@ -31,6 +31,7 @@ export type TruckingEventKind =
   | "transport_order_rejected"
   | "cmr_printed"
   | "document_uploaded"
+  | "document_replaced"
   | "shipment_deleted"
   | "shipment_update_failed"
   | "costs_update_failed"

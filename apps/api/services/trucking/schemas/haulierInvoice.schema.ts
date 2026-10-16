@@ -31,6 +31,8 @@ export const truckingHaulierInvoiceTable = pgTable(
     bankAccountPublished: boolean("bank_account_published"),
     status: text("status").$type<HaulierInvoiceStatus>().notNull().default("DRAFT"),
     blockReasons: jsonb("block_reasons").$type<string[]>().notNull().default([]),
+    /** Why an exact match was not approved automatically (a recent bank-account change, a repriced trip); a manager decides */
+    holdReasons: jsonb("hold_reasons").$type<string[]>().notNull().default([]),
     /** totalNet − Σ expected */
     difference: numeric("difference", { precision: 14, scale: 2, mode: "number" }).notNull().default(0),
     approvedAt: timestamp("approved_at", { withTimezone: true }),

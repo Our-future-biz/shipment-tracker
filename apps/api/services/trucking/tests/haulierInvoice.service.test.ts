@@ -5,12 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // the VAT block nobody can override, manager approval / rejection with reasons, duplicates, a
 // trip on two invoices, the real cost to Road jobs (and not to internal ones), and candidates.
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
+vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   customers: { _internalHaulierList: vi.fn() },
   shipments: { _internalShipmentBasics: vi.fn() },
 }));
 vi.mock("../db/db", () => ({ db: {}, inTx: async <T>(work: (tx: unknown) => Promise<T>) => work({ fake: "tx" }) }));
-vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: { upload: vi.fn(async () => undefined), download: vi.fn(async () => Buffer.from("%PDF-1.4 x")) } }));
+vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: { upload: vi.fn(async () => undefined), remove: vi.fn(async () => undefined), download: vi.fn(async () => Buffer.from("%PDF-1.4 x")) } }));
 vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })) }));
 vi.mock("../services/settings.service", () => ({ settingsService: { get: vi.fn(), vehicleCodes: vi.fn(async () => []) } }));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
@@ -528,5 +529,57 @@ describe("file and reading", () => {
     await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 2", totalNet: 1001, lines: [{ targetKind: "TRIP", targetId: LTL, invoiced: 1001, note: "" }] }));
     expect((await haulierInvoiceService.list(user, { status: "NEEDS_APPROVAL" })).map((i) => i.invoiceNumber)).toEqual(["FV 2"]);
     expect(await haulierInvoiceService.list(user, { haulierCustomerId: H2 })).toEqual([]);
+  });
+});
+
+describe("no automatic approval after a bank-account change or a reprice (decisions 6 and 7)", () => {
+  const OTHER = "00000000-0000-0000-0000-000000000009";
+  const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000);
+
+  it("holds an exact match for a manager within 30 days after the haulier's bank accounts changed", async () => {
+    mem.profiles.set(H, profile({ bankAccountsChangedAt: daysAgo(5), bankAccountsChangedBy: "Petr", bankAccountsChangedByUserId: OTHER }));
+    const inv = await haulierInvoiceService.create(user, invoice());
+    expect(inv).toMatchObject({ status: "NEEDS_APPROVAL", difference: 0, approval: null });
+    expect(inv.holdReasons).toEqual([expect.stringContaining("bank accounts were changed by Petr")]);
+    expect(mem.outbox).toHaveLength(0);
+    // A manager approves it with a reason.
+    expect((await haulierInvoiceService.approve(manager, inv.id, "Account confirmed by phone")).status).toBe("APPROVED");
+  });
+
+  it("approves an exact match again once the 30 days are over", async () => {
+    mem.profiles.set(H, profile({ bankAccountsChangedAt: daysAgo(31), bankAccountsChangedBy: "Petr", bankAccountsChangedByUserId: OTHER }));
+    expect((await haulierInvoiceService.create(user, invoice())).status).toBe("APPROVED");
+  });
+
+  it("holds it when the user entering it is the one who changed the accounts, however long ago", async () => {
+    mem.profiles.set(H, profile({ bankAccountsChangedAt: daysAgo(90), bankAccountsChangedBy: "Jana", bankAccountsChangedByUserId: U }));
+    const inv = await haulierInvoiceService.create(user, invoice());
+    expect(inv.status).toBe("NEEDS_APPROVAL");
+    expect(inv.holdReasons).toEqual([expect.stringContaining("also entered this invoice")]);
+  });
+
+  it("holds an exact match on a trip repriced after its order went out", async () => {
+    Object.assign(mem.trips.find((t) => t.id === FTL)!, { buyRepricedAt: daysAgo(1), buyRepricedBy: "Petr" });
+    const inv = await haulierInvoiceService.create(user, invoice());
+    expect(inv.status).toBe("NEEDS_APPROVAL");
+    expect(inv.holdReasons).toEqual(["LCZ2026000001: the price was changed after the order went out: a manager must approve the payment"]);
+  });
+
+  it("refuses a save whose trip was repriced after it was read", async () => {
+    const { tripRepository } = await import("../repositories/trip.repository");
+    const real = vi.mocked(tripRepository.findMany).getMockImplementation()!;
+    vi.mocked(tripRepository.findMany)
+      .mockImplementationOnce(real)
+      .mockImplementationOnce(async (c, ids) => (await real(c, ids)).map((t) => ({ ...t, buy: snapshot([12000]) })) as never);
+    await expect(haulierInvoiceService.create(user, invoice())).rejects.toMatchObject({ code: "aborted", message: expect.stringContaining("LCZ2026000001") });
+    expect(mem.invoices).toHaveLength(0);
+  });
+
+  it("removes the uploaded copy when the save is refused", async () => {
+    const { truckingDocumentBucket } = await import("../storage/documentBucket");
+    await haulierInvoiceService.create(user, invoice());
+    await expect(haulierInvoiceService.create(user, invoice({ fileName: "inv.pdf", fileBase64: Buffer.from("%PDF-1.4 x").toString("base64") }))).rejects.toMatchObject({ code: "already_exists" });
+    const key = vi.mocked(truckingDocumentBucket.upload).mock.calls[0]![0];
+    expect(truckingDocumentBucket.remove).toHaveBeenCalledWith(key);
   });
 });

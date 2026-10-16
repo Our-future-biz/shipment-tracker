@@ -28,13 +28,15 @@ vi.mock("../repositories/event.repository", async () => (await import("./truckin
 vi.mock("../repositories/exception.repository", async () => ({ exceptionRepository: (await import("./truckingFakes")).exceptionRepository }));
 vi.mock("../repositories/internal.repository", async () => ({ internalRepository: (await import("./truckingFakes")).internalRepository }));
 vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: { findMany: vi.fn(async () => []) } }));
+const invoices = vi.hoisted(() => ({ lockHaulier: vi.fn(async () => undefined), targetUses: vi.fn(async (): Promise<{ invoiceNumber: string }[]> => []) }));
+vi.mock("../repositories/haulierInvoice.repository", () => ({ haulierInvoiceRepository: invoices }));
 vi.mock("../repositories/tariff.repository", () => ({ tariffRepository: { list: vi.fn(async () => []), bindingOn: vi.fn(async () => []) } }));
 vi.mock("../services/haulier.service", async (orig) => ({ ...(await orig<object>()), haulierService: { get: vi.fn() } }));
 vi.mock("../services/rate.service", () => ({ rateService: { rate: vi.fn() }, eurRate: vi.fn() }));
 vi.mock("../services/settings.service", () => ({ settingsService: { get: vi.fn(), vehicleCodes: vi.fn(async () => ["van", "solo_72", "tautliner_136"]) } }));
 vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })) }));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
-vi.mock("../../../lib/email", () => ({ sendMail: vi.fn(async () => ({ sent: false, error: "E-mail sending is disabled", providerId: "" })) }));
+vi.mock("../../../lib/email", () => ({ emailConfigured: vi.fn(() => false), sendMail: vi.fn(async () => ({ sent: false, error: "E-mail sending is disabled", providerId: "" })) }));
 vi.mock("../lib/ltlTransportOrderPdf", () => ({ buildLtlTransportOrderPdf: vi.fn(async () => new Uint8Array([37, 80, 68, 70])) }));
 vi.mock("../lib/manifestPdf", () => ({ buildManifestPdf: vi.fn(async () => new Uint8Array([37, 80, 68, 70])) }));
 vi.mock("../lib/labelsPdf", () => ({ buildLabelsPdf: vi.fn(async () => new Uint8Array([37, 80, 68, 70])) }));
@@ -167,6 +169,7 @@ beforeEach(() => {
   vi.mocked(rateService.rate).mockImplementation(rate);
   vi.mocked(haulierService.get).mockImplementation(async (_c, id) => (id === HAULIER ? haulier(HAULIER, "Bravo") : haulier(HAULIER2, "Gama")));
   vi.mocked(haulierRepository.findMany).mockResolvedValue([]);
+  invoices.targetUses.mockResolvedValue([]);
   vi.mocked(customers.customerGet).mockResolvedValue({ customer: { companyName: "Alfa s.r.o.", registeredAddress: "", country: "CZ" } } as never);
   vi.mocked(shipments._internalShipmentBasics).mockResolvedValue({ shipments: [{ id: SHIPMENT, jobNumber: "CZ00000042", customerId: CUSTOMER }] } as never);
 });
@@ -385,6 +388,37 @@ describe("pick-up runs: legs, cost split and costs per job", () => {
     const repriced = await ltlService.reprice(user, trip.id, manual(2000));
     expect(repriced.legs.map((l) => l.costShareCzk)).toEqual([500, 1500]);
     expect(eventsOf("trip_repriced")).toHaveLength(1);
+    expect(store.trips.find((t) => t.id === trip.id)!.buyRepricedAt ?? null).toBeNull();
+  });
+
+  it("locks the price once the transport order is sent: a manager with a reason (flagged), never once on a haulier invoice (decision 7)", async () => {
+    const a = await ltl({ weightKg: 500 });
+    const trip = await pickupRun([legOf(a.id, "PICKUP")], manual(1000));
+    store.trips.find((t) => t.id === trip.id)!.orderSentAt = new Date("2026-10-15T07:00:00Z");
+    await expect(ltlService.reprice(user, trip.id, manual(2000))).rejects.toMatchObject({ code: "permission_denied" });
+    await expect(ltlService.reprice(manager, trip.id, { source: "TARIFF" })).rejects.toMatchObject({ code: "invalid_argument" });
+    await ltlService.reprice(manager, trip.id, manual(1200), "waiting time agreed");
+    expect(store.trips.find((t) => t.id === trip.id)).toMatchObject({ buy: expect.objectContaining({ total: 1200 }), buyRepricedAt: expect.any(Date), buyRepricedBy: "Jana Nováková" });
+    expect(eventsOf("trip_repriced").at(-1)!.payload).toMatchObject({
+      reason: "waiting time agreed",
+      facts: { afterOrder: true, priceBefore: { total: 1000, currency: "CZK" }, priceAfter: { total: 1200, currency: "CZK" } },
+    });
+    invoices.targetUses.mockResolvedValue([{ invoiceNumber: "FV-12" }]);
+    await expect(ltlService.reprice(manager, trip.id, manual(1500), "more")).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: `Trip ${trip.ref} is on haulier invoice FV-12: its price can no longer change`,
+    });
+  });
+
+  it("after the transport order is sent, legs on or off keep the agreed tariff price", async () => {
+    const a = await ltl({ weightKg: 500 });
+    const b = await ltl({ weightKg: 700 });
+    const trip = await pickupRun([legOf(a.id, "PICKUP"), legOf(b.id, "PICKUP")], { source: "TARIFF" });
+    const row = store.trips.find((t) => t.id === trip.id)!;
+    row.orderSentAt = new Date("2026-10-15T07:00:00Z");
+    const fewer = await ltlService.assignLegs(user, trip.id, { add: [], remove: [legOf(b.id, "PICKUP").id], stopOrder: null, version: row.version });
+    expect(fewer.buy!.total).toBe(1200);
+    expect(eventsOf("trip_legs_changed").at(-1)!.payload).toMatchObject({ summary: expect.stringContaining("the agreed price 1200 CZK stays") });
   });
 
   it("warns (never blocks) about ADR on a haulier without ADR and an overloaded van", async () => {
@@ -599,12 +633,47 @@ describe("a partner's delivery", () => {
     expect(delivery).toMatchObject({ haulierCustomerId: HAULIER2, depotSiteId: DEPOT, fromText: "Gama depot, 702 00 Ostrava" });
     expect(delivery.buy).toMatchObject({ source: "TARIFF", total: 800 });
     expect(lastCostsOf(`trucking:leg:${delivery.id}`)!.buying[0]).toMatchObject({ amount: 800, description: `${a.ref} partner delivery · Freight` });
-    // Back to collecting at our warehouse: the line haul goes.
-    const again = await ltlService.legPartner(user, delivery.id, { haulierCustomerId: HAULIER2, depotSiteId: null, price: manual(500) });
+    // Back to collecting at our warehouse (a manager: the partner already has it): the line haul goes.
+    const again = await ltlService.legPartner(manager, delivery.id, { haulierCustomerId: HAULIER2, depotSiteId: null, price: manual(500) });
     expect(again.legs.map((l) => l.kind)).toEqual(["PICKUP", "DELIVERY"]);
     await expect(
-      ltlService.legPartner(user, delivery.id, { haulierCustomerId: HAULIER2, depotSiteId: "00000000-0000-0000-0000-0000000000e2", price: manual(500) }),
+      ltlService.legPartner(manager, delivery.id, { haulierCustomerId: HAULIER2, depotSiteId: "00000000-0000-0000-0000-0000000000e2", price: manual(500) }),
     ).rejects.toThrow(/must be a delivery site of Gama/);
+  });
+
+  it("once given to the partner its price is a manager's, with a reason, flagged; never once on a haulier invoice (decision 7)", async () => {
+    const a = await ltl({ lastMileOf: "PARTNER" });
+    const leg = legOf(a.id, "DELIVERY");
+    await ltlService.legPartner(user, leg.id, { haulierCustomerId: HAULIER2, depotSiteId: null, price: manual(500) });
+    await expect(ltlService.legPartner(user, leg.id, { haulierCustomerId: HAULIER2, depotSiteId: null, price: manual(900) })).rejects.toMatchObject({
+      code: "permission_denied",
+      message: `The order for ${a.ref} partner delivery went out to the haulier: only a manager can change its price, with a reason`,
+    });
+    await ltlService.legPartner(manager, leg.id, { haulierCustomerId: HAULIER2, depotSiteId: null, price: manual(900), reason: "fuel surcharge agreed" });
+    const row = store.ltlLegs.find((l) => l.id === leg.id)!;
+    expect(row.buy).toMatchObject({ total: 900 });
+    expect(row.buyRepricedAt).toBeInstanceOf(Date);
+    expect(eventsOf("partner_delivery_set").at(-1)!.payload).toMatchObject({
+      reason: "fuel surcharge agreed",
+      facts: { legId: leg.id, afterOrder: true, priceBefore: { total: 500, currency: "CZK" }, priceAfter: { total: 900, currency: "CZK" } },
+    });
+    invoices.targetUses.mockResolvedValue([{ invoiceNumber: "FV-77" }]);
+    await expect(ltlService.legPartner(manager, leg.id, { haulierCustomerId: HAULIER2, depotSiteId: null, price: manual(950), reason: "again" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: `${a.ref} partner delivery is on haulier invoice FV-77: its price can no longer change`,
+    });
+  });
+
+  it("after the delivery only its price may change, by a manager (same partner and depot)", async () => {
+    const a = await ltl({ lastMileOf: "PARTNER" });
+    const leg = legOf(a.id, "DELIVERY");
+    await ltlService.legPartner(user, leg.id, { haulierCustomerId: HAULIER2, depotSiteId: null, price: manual(500) });
+    store.ltlLegs.find((l) => l.id === leg.id)!.status = "DONE";
+    await expect(ltlService.legPartner(manager, leg.id, { haulierCustomerId: HAULIER, depotSiteId: null, price: manual(600), reason: "wrong partner" })).rejects.toMatchObject({
+      code: "failed_precondition",
+    });
+    await ltlService.legPartner(manager, leg.id, { haulierCustomerId: HAULIER2, depotSiteId: null, price: manual(600), reason: "waiting time" });
+    expect(store.ltlLegs.find((l) => l.id === leg.id)).toMatchObject({ status: "DONE", buy: expect.objectContaining({ total: 600 }) });
   });
 
   it("only for a delivery leg of a partner last mile", async () => {

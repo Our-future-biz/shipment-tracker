@@ -32,7 +32,7 @@ vi.mock("../services/truckingOutbox.service", () => ({
   deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })),
   addUnsentReasons: vi.fn(async (_companyId: string, items: unknown[]) => items),
 }));
-vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: { upload: vi.fn(async () => undefined), download: vi.fn() } }));
+vi.mock("../storage/documentBucket", () => ({ truckingDocumentBucket: { upload: vi.fn(async () => undefined), remove: vi.fn(async () => undefined), download: vi.fn() } }));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
 
 import { avizaceService } from "../services/avizace.service";

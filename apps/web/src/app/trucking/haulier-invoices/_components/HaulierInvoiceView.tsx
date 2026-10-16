@@ -163,7 +163,20 @@ export const HaulierInvoiceView = ({ invoiceId }: HaulierInvoiceViewProps) => {
             className="mt-3"
             type="warning"
             showIcon
-            message={`Not an exact match: ${differenceText(inv.difference, inv.currency)} — a manager approves it with a reason, or rejects it.`}
+            message={
+              inv.difference === 0 && inv.holdReasons.length
+                ? "An exact match, held for a manager — approve it with a reason, or reject it."
+                : `Not an exact match: ${differenceText(inv.difference, inv.currency)} — a manager approves it with a reason, or rejects it.`
+            }
+            description={
+              inv.holdReasons.length ? (
+                <ul className="m-0 pl-5">
+                  {inv.holdReasons.map((r) => (
+                    <li key={r}>{r}</li>
+                  ))}
+                </ul>
+              ) : undefined
+            }
           />
         )}
         {inv.approval && (

@@ -31,6 +31,9 @@ import type {
 // the file into plain tables (exceljs) and the pure parse of those tables.
 
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
+/** What an .xlsx may unpack to (its parts as its zip directory declares them); a tariff file is a few MB. */
+export const MAX_UNPACKED_BYTES = 50 * 1024 * 1024;
+const MAX_ZIP_ENTRIES = 2000;
 export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 const READ_ME = "Read me";
@@ -313,6 +316,40 @@ function plain(v: ExcelJS.CellValue): unknown {
   return String(v);
 }
 
+/**
+ * The total size an .xlsx (a zip) unpacks to, as its central directory declares it, read without
+ * unpacking anything; null when the directory cannot be read (or needs ZIP64, which no tariff
+ * file does). A cheap first guard against a zip bomb: the sizes are what the file declares (the
+ * zip reader of exceljs refuses a part whose unpacked size differs, but only once it is unpacked).
+ */
+export function zipUnpackedBytes(buf: Buffer): number | null {
+  const EOCD = 0x06054b50;
+  const CEN = 0x02014b50;
+  const from = Math.max(0, buf.length - 22 - 0xffff);
+  let eocd = -1;
+  for (let i = buf.length - 22; i >= from; i--) {
+    if (buf.readUInt32LE(i) === EOCD) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) return null;
+  const entries = buf.readUInt16LE(eocd + 10);
+  const dirSize = buf.readUInt32LE(eocd + 12);
+  const dirStart = buf.readUInt32LE(eocd + 16);
+  if (entries === 0xffff || dirStart === 0xffffffff || entries > MAX_ZIP_ENTRIES || dirStart + dirSize > eocd) return null;
+  let total = 0;
+  let p = dirStart;
+  for (let n = 0; n < entries; n++) {
+    if (p + 46 > eocd || buf.readUInt32LE(p) !== CEN) return null;
+    const size = buf.readUInt32LE(p + 24);
+    if (size === 0xffffffff) return null;
+    total += size;
+    p += 46 + buf.readUInt16LE(p + 28) + buf.readUInt16LE(p + 30) + buf.readUInt16LE(p + 32);
+  }
+  return total;
+}
+
 /** The sheets of an .xlsx file as tables; throws UnreadableFileError with a plain reason. */
 export async function loadWorkbookTables(buffer: Buffer): Promise<SheetTable[]> {
   if (buffer.length > MAX_FILE_BYTES) throw new UnreadableFileError("The file is larger than 5 MB. A tariff file is normally well under 1 MB: remove pictures or extra sheets.");
@@ -321,6 +358,11 @@ export async function loadWorkbookTables(buffer: Buffer): Promise<SheetTable[]> 
   }
   if (buffer.length < 4 || buffer.readUInt32BE(0) !== 0x504b0304) {
     throw new UnreadableFileError("This is not an Excel .xlsx file. Use the tariff template (Download template) and upload it as .xlsx.");
+  }
+  const unpacked = zipUnpackedBytes(buffer);
+  if (unpacked === null) throw new UnreadableFileError("The file could not be opened as an Excel workbook. Open it in Excel, save it as .xlsx and try again.");
+  if (unpacked > MAX_UNPACKED_BYTES) {
+    throw new UnreadableFileError("The workbook unpacks to more than 50 MB. A tariff file is normally well under 1 MB: remove pictures or extra sheets and save it again.");
   }
   const wb = new ExcelJS.Workbook();
   try {

@@ -31,6 +31,11 @@ export const truckingHaulierProfileTable = pgTable(
     vatCheckedAt: date("vat_checked_at", { mode: "string" }),
     /** Phase 6: the accounts published in the VAT register (normalised, lib/bankAccount.ts), entered and checked manually for now */
     bankAccounts: jsonb("bank_accounts").$type<string[]>().notNull().default([]),
+    /** When an account was last added to bankAccounts, and by whom: an exact-match invoice is not auto-approved for 30 days after, nor when entered by that user */
+    bankAccountsChangedAt: timestamp("bank_accounts_changed_at", { withTimezone: true }),
+    bankAccountsChangedByUserId: uuid("bank_accounts_changed_by_user_id"),
+    /** Display name of who changed them */
+    bankAccountsChangedBy: text("bank_accounts_changed_by"),
     costSplitBasis: text("cost_split_basis").$type<CostSplitBasis>().notNull().default("chargeable_weight"),
     blocked: boolean("blocked").notNull().default(false),
     blockReason: text("block_reason").notNull().default(""),

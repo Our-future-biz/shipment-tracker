@@ -138,6 +138,8 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
   const p = haulier.profile;
   const canBlock = isTruckingManager(user);
   const blockReason = managerOnlyReason(user, "block or unblock a haulier");
+  // The 30-day hold after a bank-account change (owner decision 6), while it runs.
+  const bankHold = p.bankChangeHoldUntil && Date.parse(p.bankChangeHoldUntil) > Date.now() ? p.bankChangeHoldUntil : null;
   const set = <K extends keyof ProfileDraft>(key: K, value: ProfileDraft[K]) => setDraft((d) => (d ? { ...d, [key]: value } : d));
 
   const handleSave = async () => {
@@ -277,25 +279,44 @@ export const HaulierView = ({ customerId }: HaulierViewProps) => {
           <div id="vat-register" className="scroll-mt-4">
             <SectionCard title="VAT register">
               <div className="flex flex-col gap-3">
+                {!canBlock && (
+                  <Alert
+                    type="info"
+                    showIcon
+                    icon={<LockOutlined />}
+                    message="Only a manager can change the VAT register and bank-account details. Every change is logged with before and after."
+                  />
+                )}
                 <div className="flex items-center gap-2">
-                  <Switch size="small" checked={draft.vatUnreliable} aria-label={TERMS.unreliableVatPayer} onChange={(on) => set("vatUnreliable", on)} />
+                  <Switch size="small" checked={draft.vatUnreliable} disabled={!canBlock} aria-label={TERMS.unreliableVatPayer} onChange={(on) => set("vatUnreliable", on)} />
                   <span className={`text-[13px] ${draft.vatUnreliable ? "font-semibold text-red-700" : "text-slate-700"}`}>{TERMS.unreliableVatPayer}</span>
                   {draft.vatUnreliable && <span className="text-[11px] text-red-600">— blocks the haulier</span>}
                 </div>
                 <div className="flex items-center gap-2">
-                  <Switch size="small" checked={draft.bankAccountPublished} aria-label="Bank account published" onChange={(on) => set("bankAccountPublished", on)} />
+                  <Switch size="small" checked={draft.bankAccountPublished} disabled={!canBlock} aria-label="Bank account published" onChange={(on) => set("bankAccountPublished", on)} />
                   <span className="text-[13px] text-slate-700">Bank account published in the VAT register</span>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-[13px] text-slate-700">
                   <span>Last checked: {draft.vatCheckedAt ? formatDate(draft.vatCheckedAt) : "never"}</span>
-                  <Button size="small" onClick={() => set("vatCheckedAt", businessToday())} disabled={draft.vatCheckedAt === businessToday()}>
-                    Mark checked today
-                  </Button>
+                  {canBlock && (
+                    <Button size="small" onClick={() => set("vatCheckedAt", businessToday())} disabled={draft.vatCheckedAt === businessToday()}>
+                      Mark checked today
+                    </Button>
+                  )}
                 </div>
-                <HaulierBankAccounts accounts={draft.bankAccounts ?? []} onChange={(v) => set("bankAccounts", v)} />
+                <HaulierBankAccounts accounts={draft.bankAccounts ?? []} onChange={(v) => set("bankAccounts", v)} readOnly={!canBlock} />
+                {bankHold && (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message={`Bank accounts changed${p.bankAccountsChangedBy ? ` by ${p.bankAccountsChangedBy}` : ""} on ${businessDateTime(p.bankAccountsChangedAt!)}`}
+                    description={`Until ${businessDateTime(bankHold)} an invoice from this haulier is never approved automatically, even on an exact match: a manager approves it.`}
+                  />
+                )}
                 <p className="m-0 text-[11px] text-slate-400">
                   Checked by hand in the VAT register for now; a check older than 30 days shows a warning. A haulier invoice is blocked while the haulier is an unreliable VAT
-                  payer, its account is not published, or the invoice&apos;s account is not one listed here.
+                  payer, its account is not published, or the invoice&apos;s account is not one listed here. For 30 days after an account is added - and always when the
+                  user who added it enters the invoice - an exact match waits for a manager&apos;s approval.
                 </p>
               </div>
             </SectionCard>

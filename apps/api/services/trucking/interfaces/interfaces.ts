@@ -152,6 +152,12 @@ export interface HaulierProfile {
   vatCheckedAt: string | null;
   /** Phase 6: the accounts published in the VAT register, normalised ("19-2000145399/0800" or an IBAN); manual for now */
   bankAccounts: string[];
+  /** When an account was last added to bankAccounts (ISO) and by whom (name, user id); null = never. Set by the server. */
+  bankAccountsChangedAt: string | null;
+  bankAccountsChangedBy: string | null;
+  bankAccountsChangedByUserId: string | null;
+  /** ISO: 30 days after the last bank-account change; until then an exact-match invoice waits for a manager. null = never changed */
+  bankChangeHoldUntil: string | null;
   /** Default chargeable_weight */
   costSplitBasis: CostSplitBasis;
   blocked: boolean;
@@ -217,6 +223,7 @@ export interface HaulierProfileInput {
   vehicleTypes: string[];
   paymentDays: number;
   currency: string;
+  /** vatUnreliable, bankAccountPublished, vatCheckedAt and bankAccounts: a manager only (another user's save must send them as stored) */
   vatUnreliable: boolean;
   bankAccountPublished: boolean;
   vatCheckedAt: string | null;

@@ -5,7 +5,7 @@ import { isNotFound, apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { usePublicTransportOrder } from "@/hooks/useTruckingConsignments";
 import { formatMoney, formatQty } from "@/app/trucking/_lib/tariffs";
-import { LINK_INVALID, PUBLIC_STATUS, canRespond, canUploadPod } from "../_lib/publicOrder";
+import { LINK_INVALID, LINK_POD_RULE, PUBLIC_STATUS, canRespond, canUploadPod } from "../_lib/publicOrder";
 import { Bi } from "./Bi";
 import { HaulierPodForm } from "./HaulierPodForm";
 import { HaulierRespondForm } from "./HaulierRespondForm";
@@ -64,6 +64,11 @@ export const HaulierOrderView = ({ token }: HaulierOrderViewProps) => {
 
         {canRespond(order) && <HaulierRespondForm busy={isResponding} onRespond={respond} />}
         {canUploadPod(order) && <HaulierPodForm busy={isUploading} onUpload={uploadPod} />}
+        {!order.podUploaded && order.status !== "REJECTED" && (
+          <p className="m-0 text-[13px] text-slate-600">
+            <Bi text={LINK_POD_RULE} />
+          </p>
+        )}
         {order.podUploaded && (
           <div className="rounded-xl bg-emerald-50 p-4 text-[15px] font-semibold text-emerald-800">
             <Bi text={{ cs: "POD jsme obdrželi. Děkujeme!", en: "We have received the POD. Thank you!" }} />

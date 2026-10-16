@@ -53,3 +53,20 @@ export const truckingDocumentContent = api(
     return { file: await truckingDocumentService.content(requireRole(), docId) };
   },
 );
+
+interface TruckingDocumentReplacePodRequest {
+  docId: string;
+  fileName: string;
+  /** A photo or a PDF, at most 10 MB */
+  fileBase64: string;
+  /** Why the POD is replaced (3 to 500 characters) */
+  reason: string;
+}
+
+// Manager: replaces a consignment's POD (one per consignment) with the reason; the stamps stay.
+export const truckingDocumentReplacePod = api(
+  { expose: true, auth: true, method: "POST", path: "/trucking/documents/:docId/replace", bodyLimit: 15 * 1024 * 1024 },
+  async ({ docId, ...input }: TruckingDocumentReplacePodRequest): Promise<TruckingDocumentUploadResponse> => {
+    return { document: await truckingDocumentService.replacePod(requireRole(), docId, input) };
+  },
+);

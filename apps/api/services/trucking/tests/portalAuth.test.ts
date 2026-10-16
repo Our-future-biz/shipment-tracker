@@ -25,7 +25,7 @@ import { portalAuthService } from "../services/portalAuth.service";
 import { portalUserService } from "../services/portalUser.service";
 import { haulierService } from "../services/haulier.service";
 import { hashToken } from "../lib/haulierToken";
-import { HAULIER_BLOCKED, LOG_IN_AGAIN, LOGIN_FAILED, SET_PASSWORD_LINK_INVALID } from "../lib/portalRules";
+import { clientIp, HAULIER_BLOCKED, LOG_IN_AGAIN, LOGIN_FAILED, SET_PASSWORD_LINK_INVALID, TOO_MANY_ATTEMPTS } from "../lib/portalRules";
 import { portalStore, resetPortalStore } from "./portalFakes";
 import { COMPANY, HAULIER, HAULIER2, SERVICE_USER, eventsOf, manager, resetStore, store, user } from "./truckingFakes";
 
@@ -213,6 +213,84 @@ describe("login", () => {
     hauliers.find.mockResolvedValue({ profile: { blocked: true }, lanes: [] });
     await expect(login()).rejects.toMatchObject({ code: "permission_denied", message: HAULIER_BLOCKED });
     expect(portalStore.sessions).toHaveLength(0);
+  });
+});
+
+describe("login throttle per IP and per account (C20)", () => {
+  const COMPANY_B = "00000000-0000-0000-0000-00000000000b";
+  const managerB = { userID: "00000000-0000-0000-0000-0000000000b2", companyID: COMPANY_B, role: "manager" };
+  const from = (ip: string, email = "eva@bravo.cz", password = PASSWORD) => portalAuthService.login({ email, password }, { ip, userAgent: "Phone" });
+
+  /** The same e-mail as a portal user of another company, with its own password. */
+  async function inCompanyB(password: string) {
+    const created = await portalUserService.create(managerB, HAULIER, { email: "eva@bravo.cz", name: "Eva B", phone: "" });
+    await portalAuthService.setPassword({ token: tokenOf(created.inviteLink), password });
+    return portalStore.users.find((u) => u.companyId === COMPANY_B)!;
+  }
+
+  it("locks an IP after 20 failed logins in 15 minutes, whatever the e-mails; other IPs and later attempts get in", async () => {
+    await active();
+    for (let i = 0; i < 20; i += 1) await expect(from("203.0.113.9", `x${i}@spray.cz`, "guess guess guess")).rejects.toMatchObject({ message: LOGIN_FAILED });
+    await expect(from("203.0.113.9")).rejects.toMatchObject({ code: "resource_exhausted", message: TOO_MANY_ATTEMPTS });
+    expect(portalStore.sessions).toHaveLength(0);
+    // The account itself was not touched, and another IP logs in.
+    expect(portalStore.users[0]).toMatchObject({ failedAttempts: 0, lockedUntil: null });
+    await from("198.51.100.7");
+    vi.setSystemTime(new Date("2026-10-15T10:15:01Z"));
+    await from("203.0.113.9");
+    // A second lock within a day lasts twice as long.
+    for (let i = 0; i < 20; i += 1) await expect(from("203.0.113.9", `y${i}@spray.cz`, "guess guess guess")).rejects.toMatchObject({ message: LOGIN_FAILED });
+    expect(portalStore.throttle[0]!.lockedUntil!.toISOString()).toBe("2026-10-15T10:45:01.000Z");
+  });
+
+  it("an account's lock grows with each lock in a row (15 min, 30 min, at most 1 hour)", async () => {
+    await active();
+    const lockAfterFive = async () => {
+      for (let i = 0; i < 5; i += 1) await expect(from(`10.0.1.${i}`, "eva@bravo.cz", "wrong password!")).rejects.toMatchObject({ message: LOGIN_FAILED });
+      return portalStore.users[0]!.lockedUntil!.toISOString();
+    };
+    expect(await lockAfterFive()).toBe("2026-10-15T10:15:00.000Z");
+    vi.setSystemTime(new Date("2026-10-15T10:16:00Z"));
+    expect(await lockAfterFive()).toBe("2026-10-15T10:46:00.000Z");
+    vi.setSystemTime(new Date("2026-10-15T10:47:00Z"));
+    expect(await lockAfterFive()).toBe("2026-10-15T11:47:00.000Z");
+    vi.setSystemTime(new Date("2026-10-15T11:48:00Z"));
+    expect(await lockAfterFive()).toBe("2026-10-15T12:48:00.000Z");
+    // A login starts the progression again.
+    vi.setSystemTime(new Date("2026-10-15T12:49:00Z"));
+    await from("10.0.2.1");
+    expect(portalStore.users[0]).toMatchObject({ failedAttempts: 0, lockLevel: 0 });
+  });
+
+  it("one e-mail in two companies: the account the password matches logs in, the other is not charged a failure", async () => {
+    await active();
+    const b = await inCompanyB("battery staple horse correct");
+    const out = await from("10.0.0.1", "eva@bravo.cz", "battery staple horse correct");
+    expect(portalStore.sessions.find((x) => x.tokenHash === hashToken(out.session))!.companyId).toBe(COMPANY_B);
+    expect(portalStore.users.find((u) => u.companyId === COMPANY)!.failedAttempts).toBe(0);
+    // A password matching neither counts on both accounts tried.
+    await expect(from("10.0.0.1", "eva@bravo.cz", "wrong password!")).rejects.toMatchObject({ message: LOGIN_FAILED });
+    expect(portalStore.users.map((u) => u.failedAttempts)).toEqual([1, 1]);
+    expect(b.id).toBeTruthy();
+  });
+
+  it("a blocked haulier in one company does not stop the same e-mail's account in another", async () => {
+    await active();
+    await inCompanyB(PASSWORD);
+    hauliers.find.mockImplementation(async (companyId: string) => ({ profile: { blocked: companyId === COMPANY }, lanes: [] }));
+    const out = await from("10.0.0.1");
+    expect(portalStore.sessions.find((x) => x.tokenHash === hashToken(out.session))!.companyId).toBe(COMPANY_B);
+    hauliers.find.mockResolvedValue({ profile: { blocked: true }, lanes: [] });
+    await expect(from("10.0.0.1")).rejects.toMatchObject({ code: "permission_denied", message: HAULIER_BLOCKED });
+  });
+});
+
+describe("the client's IP for the throttle", () => {
+  it("is the entry the last trusted proxy appended, never the client's own first entry", () => {
+    expect(clientIp("6.6.6.6, 203.0.113.9", 1)).toBe("203.0.113.9");
+    expect(clientIp("6.6.6.6, 203.0.113.9, 10.0.0.2", 2)).toBe("203.0.113.9");
+    expect(clientIp(undefined, 1)).toBe("");
+    expect(clientIp("203.0.113.9", 2)).toBe("");
   });
 });
 

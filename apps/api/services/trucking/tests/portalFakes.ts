@@ -4,12 +4,14 @@
 
 import { randomUUID } from "node:crypto";
 import { vi } from "vitest";
-import type { PortalSessionRecord, PortalTokenRecord, PortalUserRecord } from "../schemas/portal.schema";
+import type { PortalLoginThrottleRecord, PortalSessionRecord, PortalTokenRecord, PortalUserRecord } from "../schemas/portal.schema";
+import { nextFailure, type FailureRule } from "../lib/portalRules";
 
 export const portalStore = {
   users: [] as PortalUserRecord[],
   sessions: [] as PortalSessionRecord[],
   tokens: [] as PortalTokenRecord[],
+  throttle: [] as PortalLoginThrottleRecord[],
   written: [] as string[],
 };
 
@@ -17,6 +19,7 @@ export function resetPortalStore() {
   portalStore.users = [];
   portalStore.sessions = [];
   portalStore.tokens = [];
+  portalStore.throttle = [];
   portalStore.written = [];
 }
 
@@ -38,6 +41,7 @@ export const portalRepository = {
       status: "ACTIVE",
       failedAttempts: 0,
       lockedUntil: null,
+      lockLevel: 0,
       lastLoginAt: null,
       version: 1,
       ...values,
@@ -56,12 +60,22 @@ export const portalRepository = {
     Object.assign(row, values, { version: row.version + 1, updatedAt: new Date() });
     return copy(row);
   }),
-  failLogin: vi.fn(async (companyId: string, id: string, max: number, lockUntil: Date) => {
+  failLogin: vi.fn(async (companyId: string, id: string, now: Date, rule: FailureRule) => {
     const row = liveUser(companyId, id);
     if (!row) return null;
-    const next = row.failedAttempts + 1;
-    if (next >= max) Object.assign(row, { failedAttempts: 0, lockedUntil: lockUntil });
-    else row.failedAttempts = next;
+    const next = nextFailure({ failures: row.failedAttempts, windowStartedAt: null, lockedUntil: row.lockedUntil, lockLevel: row.lockLevel ?? 0 }, now, rule);
+    Object.assign(row, { failedAttempts: next.failures, lockedUntil: next.lockedUntil, lockLevel: next.lockLevel });
+    return copy(row);
+  }),
+  throttleOf: vi.fn(async (key: string) => copy(portalStore.throttle.find((t) => t.key === key) ?? null)),
+  failThrottle: vi.fn(async (key: string, now: Date, rule: FailureRule) => {
+    let row = portalStore.throttle.find((t) => t.key === key);
+    if (!row) {
+      row = { key, failures: 0, windowStartedAt: now, lockedUntil: null, lockLevel: 0, updatedAt: now };
+      portalStore.throttle.push(row);
+    }
+    const next = nextFailure(row, now, rule);
+    Object.assign(row, { ...next, windowStartedAt: next.windowStartedAt ?? now, updatedAt: now });
     return copy(row);
   }),
   insertSession: vi.fn(async (_tx: unknown, values: Partial<PortalSessionRecord>) => {

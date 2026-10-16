@@ -8,8 +8,9 @@ export type PortalTokenKind = "INVITE" | "RESET";
 // The haulier portal's own identities: staff of one haulier (a Customer Database company with the
 // role haulier) who log in with e-mail and password. They are not app users (not in the auth
 // service, never an Encore auth token). The password is stored only as an argon2id hash and is
-// null until the invitation link was used. failed_attempts / locked_until throttle the login per
-// e-mail. `version` is bumped by every write.
+// null until the invitation link was used. failed_attempts / locked_until / lock_level throttle the
+// login per account (progressive lock); trucking_portal_login_throttle throttles it per IP.
+// `version` is bumped by every write.
 export const truckingPortalUserTable = pgTable(
   "trucking_portal_user",
   {
@@ -23,7 +24,10 @@ export const truckingPortalUserTable = pgTable(
     passwordHash: text("password_hash"),
     status: text("status").$type<PortalUserStatus>().notNull().default("ACTIVE"),
     failedAttempts: integer("failed_attempts").notNull().default(0),
+    /** The end of the last lock (kept after it ends: a new lock within 24 h of it is longer) */
     lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    /** How many locks in a row (progressive lock: 15 min, 30 min, 1 h); 0 after a login */
+    lockLevel: integer("lock_level").notNull().default(0),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     /** The app user (manager) who created the portal user */
     createdBy: uuid("created_by").notNull(),
@@ -96,7 +100,24 @@ export const truckingPortalTokenTable = pgTable(
   ],
 );
 
+// The portal login's throttle per client IP (key "ip:<address>"), across every e-mail and company:
+// failures counted in a 15-minute window; at 20 the IP is locked, longer each time (15 min doubling
+// to 24 h). Not a tenant table: a login knows no company. Rows quiet for 2 days are pruned.
+export const truckingPortalLoginThrottleTable = pgTable(
+  "trucking_portal_login_throttle",
+  {
+    key: text("key").primaryKey(),
+    failures: integer("failures").notNull().default(0),
+    windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull().defaultNow(),
+    lockedUntil: timestamp("locked_until", { withTimezone: true }),
+    lockLevel: integer("lock_level").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("trucking_portal_login_throttle_updated_idx").on(table.updatedAt), check("trucking_portal_login_throttle_failures_check", sql`${table.failures} >= 0`)],
+);
+
 export type PortalUserRecord = typeof truckingPortalUserTable.$inferSelect;
+export type PortalLoginThrottleRecord = typeof truckingPortalLoginThrottleTable.$inferSelect;
 export type NewPortalUserRecord = typeof truckingPortalUserTable.$inferInsert;
 export type PortalSessionRecord = typeof truckingPortalSessionTable.$inferSelect;
 export type NewPortalSessionRecord = typeof truckingPortalSessionTable.$inferInsert;

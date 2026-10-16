@@ -65,13 +65,16 @@ export const truckingTripAssignLegs = api(
 interface TruckingTripRepriceRequest {
   id: string;
   price: TripPriceInput;
+  /** Required once the transport order is sent (a manager only); an agreed price's own reason stands in when left out */
+  reason?: string;
 }
 
 // An LTL trip priced again (the tariff now, or an agreed price with the reason), split over its legs.
+// Once the transport order is sent: a manager with a reason; never once the trip is on a haulier invoice.
 export const truckingTripReprice = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/trips/:id/price" },
-  async ({ id, price }: TruckingTripRepriceRequest): Promise<TruckingTripResponse> => {
-    return { trip: await ltlService.reprice(requireRole(), id, price) };
+  async ({ id, price, reason }: TruckingTripRepriceRequest): Promise<TruckingTripResponse> => {
+    return { trip: await ltlService.reprice(requireRole(), id, price, reason) };
   },
 );
 
@@ -81,6 +84,8 @@ interface TruckingLegPartnerRequest {
   /** A delivery site of the partner; null = it collects at our warehouse */
   depotSiteId: string | null;
   price: TripPriceInput;
+  /** Required to change the partner or price once the partner was given the delivery (a manager only) */
+  reason?: string;
 }
 
 interface TruckingConsignmentResponse {

@@ -13,7 +13,7 @@ import { hashToken, looksLikeToken, tokenMatches } from "../lib/haulierToken";
 import { checkUpload } from "../lib/truckingFiles";
 import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { consignmentService } from "./consignment.service";
-import { insertDocument, storeFile } from "./truckingDocument.service";
+import { assertNoPod, insertDocument, POD_ON_FILE_HAULIER, withStoredFile } from "./truckingDocument.service";
 import { deliverDue } from "./truckingOutbox.service";
 
 // The haulier's page (no login): the transport order without the customer's prices, Confirm /
@@ -22,6 +22,8 @@ import { deliverDue } from "./truckingOutbox.service";
 // nothing can be learnt by trying tokens.
 
 export const LINK_INVALID = "This link is no longer valid";
+/** A POD before the order is confirmed (link and portal, owner decision 13). */
+export const CONFIRM_BEFORE_POD = "Confirm the transport order first: the POD can be uploaded once the order is confirmed.";
 const MAX_NAME = 100;
 const MAX_REASON = 500;
 
@@ -136,32 +138,42 @@ class PublicOrderService {
   }
 
   /**
-   * The POD through the link: a photo or a PDF of at most 10 MB. Stamps the pick-up and the
-   * delivery when they are missing (at deliveredAt, default now) and POD received (source
-   * HAULIER); a POD already stamped keeps its stamp and the file is added.
+   * The POD through the link: a photo or a PDF of at most 10 MB, once the order is confirmed and
+   * only one (a manager replaces it in the app). Runs the stamp rules the portal runs before
+   * anything is stored; then stamps the pick-up and the delivery when they are missing (at
+   * deliveredAt, default now) and POD received (source HAULIER). The file is removed again when
+   * the transaction fails.
    */
   async pod(token: string, input: { fileName: unknown; fileBase64: unknown; deliveredAt: string | null; receiverName: unknown }): Promise<PublicTransportOrder> {
     const o = await this.open(token);
     const { trip } = o;
     if (trip.rejectedAt && !trip.confirmedAt) throw APIError.failedPrecondition("This transport order was rejected");
+    if (!trip.confirmedAt) throw APIError.failedPrecondition(CONFIRM_BEFORE_POD);
+    const companyId = trip.companyId;
+    if (await truckingDocumentRepository.hasPod(companyId, o.c.id)) throw APIError.failedPrecondition(POD_ON_FILE_HAULIER);
+    if (!o.c.deliveredAt) {
+      const refusal = await consignmentService.stampRefusalOf(o.c, trip, o.c.pickedUpAt ? "delivered" : "pickedUp", false);
+      if (refusal) throw APIError.failedPrecondition(refusal);
+    }
     const file = checkUpload(input.fileName, input.fileBase64, true);
     const receiver = typeof input.receiverName === "string" ? input.receiverName.trim().slice(0, MAX_NAME) : "";
     const now = new Date();
     const deliveredAt = stampTime(input.deliveredAt, now);
-    const companyId = trip.companyId;
     const by = `${trip.haulierName} (haulier)`;
-    const key = await storeFile(companyId, o.c.id, file);
     // What the haulier causes is sent to the job as the service identity ("Trucking (system)");
     // the haulier is named in the events.
     const actor = await serviceActor(companyId);
-    await inTx(async (tx) => {
-      await insertDocument(tx, companyId, o.c.id, file, key, { kind: "POD", source: "HAULIER", userId: null, name: receiver ? `${by}, received by ${receiver}` : by });
-      // The stamps the POD proves, in order; each one guarded, each on the row the previous one left.
-      let c = (await consignmentRepository.find(companyId, o.c.id, tx))!;
-      if (!c.pickedUpAt) c = await consignmentService.stampInTx(tx, actor, c, trip, "pickedUp", deliveredAt, by, "HAULIER");
-      if (!c.deliveredAt) c = await consignmentService.stampInTx(tx, actor, c, trip, "delivered", deliveredAt < c.pickedUpAt! ? c.pickedUpAt! : deliveredAt, by, "HAULIER");
-      if (!c.podReceivedAt) await consignmentService.stampInTx(tx, actor, c, trip, "podReceived", now, by, "HAULIER");
-    });
+    await withStoredFile(companyId, o.c.id, file, (key) =>
+      inTx(async (tx) => {
+        await assertNoPod(tx, companyId, o.c.id, POD_ON_FILE_HAULIER);
+        await insertDocument(tx, companyId, o.c.id, file, key, { kind: "POD", source: "HAULIER", userId: null, name: receiver ? `${by}, received by ${receiver}` : by });
+        // The stamps the POD proves, in order; each one guarded, each on the row the previous one left.
+        let c = (await consignmentRepository.find(companyId, o.c.id, tx))!;
+        if (!c.pickedUpAt) c = await consignmentService.stampInTx(tx, actor, c, trip, "pickedUp", deliveredAt, by, "HAULIER");
+        if (!c.deliveredAt) c = await consignmentService.stampInTx(tx, actor, c, trip, "delivered", deliveredAt < c.pickedUpAt! ? c.pickedUpAt! : deliveredAt, by, "HAULIER");
+        if (!c.podReceivedAt) await consignmentService.stampInTx(tx, actor, c, trip, "podReceived", now, by, "HAULIER");
+      }),
+    );
     await deliverDue(o.c.id);
     return this.get(token);
   }

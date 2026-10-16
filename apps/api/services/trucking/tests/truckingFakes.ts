@@ -378,10 +378,17 @@ export const truckingDocumentRepository = {
     store.documents.push(row);
     return copy(row);
   }),
-  list: vi.fn(async (_companyId: string, consignmentId: string) => store.documents.filter((d) => d.consignmentId === consignmentId).map(copy)),
-  find: vi.fn(async (_companyId: string, id: string) => copy(store.documents.find((d) => d.id === id) ?? null)),
-  hasPod: vi.fn(async (_companyId: string, consignmentId: string) => store.documents.some((d) => d.consignmentId === consignmentId && d.kind === "POD")),
-  withPod: vi.fn(async (_companyId: string, ids: string[]) => new Set(store.documents.filter((d) => ids.includes(d.consignmentId) && d.kind === "POD").map((d) => d.consignmentId))),
+  list: vi.fn(async (_companyId: string, consignmentId: string) => store.documents.filter((d) => d.consignmentId === consignmentId && !d.deletedAt).map(copy)),
+  find: vi.fn(async (_companyId: string, id: string) => copy(store.documents.find((d) => d.id === id && !d.deletedAt) ?? null)),
+  hasPod: vi.fn(async (_companyId: string, consignmentId: string) => store.documents.some((d) => d.consignmentId === consignmentId && d.kind === "POD" && !d.deletedAt)),
+  withPod: vi.fn(async (_companyId: string, ids: string[]) => new Set(store.documents.filter((d) => ids.includes(d.consignmentId) && d.kind === "POD" && !d.deletedAt).map((d) => d.consignmentId))),
+  lockPod: vi.fn(async () => undefined),
+  retire: vi.fn(async (_tx: unknown, _companyId: string, id: string) => {
+    const row = store.documents.find((d) => d.id === id && !d.deletedAt);
+    if (!row) return null;
+    row.deletedAt = new Date();
+    return copy(row);
+  }),
 };
 
 export const truckingOutboxRepository = {
