@@ -7,6 +7,7 @@ import { consignmentRepository, type ConsignmentValues } from "../repositories/c
 import { tripRepository } from "../repositories/trip.repository";
 import { legRepository } from "../repositories/leg.repository";
 import { tariffRepository } from "../repositories/tariff.repository";
+import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { truckingOutboxRepository } from "../repositories/truckingOutbox.repository";
 import { appendEvent } from "../repositories/event.repository";
 import type { TruckingConsignmentRecord, TruckingLegRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
@@ -751,7 +752,6 @@ class LtlService {
     const companyId = event.companyId;
     const shipmentId = event.shipmentId && isUuid(event.shipmentId) ? event.shipmentId : null;
     const day = businessDay(at);
-    const actor = { userID: isUuid(event.userId) ? event.userId : "", role: "user", companyID: companyId };
     const [settings, extra] = await Promise.all([
       settingsService.get(companyId),
       czHolidays(companyId, addDays(day, -10), addDays(day, HOLIDAY_WINDOW_DAYS)),
@@ -820,8 +820,10 @@ class LtlService {
             facts: { positionId: event.positionId, wczRef: event.wczRef, kind: event.kind, stampKind: event.stampKind },
           },
         });
-        if (values.promisedDate && values.promisedDate !== c.promisedDate && actor.userID) {
-          await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, c, "planned", { plannedDeliveryDate: values.promisedDate })]);
+        // The promised date goes to the job as the service identity ("Trucking (system)"): the
+        // warehouse's stamp caused it, not a Trucking user.
+        if (values.promisedDate && values.promisedDate !== c.promisedDate) {
+          await truckingOutboxRepository.enqueue(tx, companyId, [owed(await serviceActor(companyId), c, "planned", { plannedDeliveryDate: values.promisedDate })]);
         }
       }
     });

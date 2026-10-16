@@ -13,9 +13,12 @@ import { db } from "../db/db";
 
 // Delivery of what consignments and trips owe their job: dates and plate (ShipmentUpdate), the
 // Billing step (shipments), the Trucking lines of Costs Breakdown (invoicing) and an LTL trip's
-// announcement to our warehouse (warehouse). Each row is sent
-// as the user who caused it. Rows are sent right after the change; what fails is retried by the
-// trucking-shipment-outbox cron (and the local timer, see startOutboxTimer) with a growing wait.
+// announcement to our warehouse (warehouse). Each row is sent as the user who caused it - what
+// the system or a haulier caused, as the service identity "Trucking (system)"
+// (lib/outbox/serviceIdentity). Rows are sent right after the change; what fails is retried by
+// the trucking-shipment-outbox cron (and the local timer, see startOutboxTimer) with a growing
+// wait. Only a pending row holds back the later rows of its job; one that failed for good is
+// shown as needing attention and a manager can send it again (truckingSendAgain.service).
 // The retry rules and the delivery loop are shared (lib/outbox).
 
 const TICK_MS = 60_000;
@@ -59,7 +62,7 @@ export async function sendRow(row: TruckingOutboxRecord): Promise<void> {
     return;
   }
   const authData = await actingAuthNow(row);
-  // Our warehouse (lib/warehouseLink: not wired to the warehouse service until the branches meet).
+  // Our warehouse (lib/warehouseLink).
   if (row.kind === "expect_arrival") {
     await expectArrival(row.payload as unknown as ExpectArrivalInput, authData);
     return;
@@ -85,7 +88,7 @@ export async function sendRow(row: TruckingOutboxRecord): Promise<void> {
   await invoicing._internalInvoicingTruckingLines({ shipmentId: row.shipmentId, ...costs }, { authData });
 }
 
-const what = (row: TruckingOutboxRecord) => OUTBOX_WHAT[row.kind] ?? row.kind;
+const what = (row: Pick<TruckingOutboxRecord, "kind">) => OUTBOX_WHAT[row.kind] ?? row.kind;
 
 const handlers: OutboxHandlers<TruckingOutboxRecord> = {
   send: sendRow,
@@ -124,19 +127,42 @@ export async function deliverDue(consignmentId?: string): Promise<{ sent: number
   });
 }
 
-/** A pending update older than this is reported as a warning. */
+/** A pending update older than this is reported as a warning (and as needing attention). */
 export const STALE_PENDING_MINUTES = 10;
 
-/** Logs a warning when updates wait longer than STALE_PENDING_MINUTES. Never throws. */
+/**
+ * Logs a warning when updates failed for good or wait longer than STALE_PENDING_MINUTES (the
+ * consignments show it as needing attention, see unsentReasons). Returns how many. Never throws.
+ */
 export async function warnStaleOutbox(): Promise<number> {
   try {
-    const { count, oldest } = await truckingOutboxRepository.stalePending(STALE_PENDING_MINUTES);
-    if (count) log.warn("trucking: updates of jobs are waiting longer than expected", { count, oldest, minutes: STALE_PENDING_MINUTES });
-    return count;
+    const { failed, stalePending, oldestPending } = await truckingOutboxRepository.unsentHealth(STALE_PENDING_MINUTES);
+    if (failed) log.warn("trucking: updates of jobs failed for good and wait for a manager to send them again", { failed });
+    if (stalePending) log.warn("trucking: updates of jobs are waiting longer than expected", { count: stalePending, oldest: oldestPending, minutes: STALE_PENDING_MINUTES });
+    return failed + stalePending;
   } catch (err) {
     log.error(err, "trucking: outbox health check failed");
     return 0;
   }
+}
+
+/** The Needs-attention reason of each consignment whose job updates failed or wait too long. */
+export function unsentReasonsOf(rows: Pick<TruckingOutboxRecord, "consignmentId" | "kind" | "status">[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const id of new Set(rows.map((r) => r.consignmentId))) {
+    const mine = rows.filter((r) => r.consignmentId === id);
+    const failed = mine.filter((r) => r.status === "failed");
+    const shown = failed.length ? failed : mine;
+    const whats = [...new Set(shown.map(what))].join(", ");
+    out.set(id, failed.length ? `Not sent to the job: ${whats} — a manager can send it again` : `Not sent to the job yet: ${whats} (retrying)`);
+  }
+  return out;
+}
+
+/** Adds "Not sent to the job" to the Needs-attention reasons of the consignments listed. */
+export async function addUnsentReasons<T extends { id: string; needsAttention: string[] }>(companyId: string, items: T[]): Promise<T[]> {
+  const reasons = unsentReasonsOf(await truckingOutboxRepository.unsentFor(companyId, items.map((i) => i.id), STALE_PENDING_MINUTES));
+  return reasons.size ? items.map((i) => (reasons.has(i.id) ? { ...i, needsAttention: [...i.needsAttention, reasons.get(i.id)!] } : i)) : items;
 }
 
 let started = false;

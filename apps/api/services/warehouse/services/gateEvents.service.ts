@@ -1,5 +1,6 @@
 import log from "encore.dev/log";
 import { gateEventOutboxRepository } from "../repositories/gateEventOutbox.repository";
+import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import type { GateEventOutboxRecord, NewGateEventOutboxRecord } from "../schemas/gateEventOutbox.schema";
 import type { Tx } from "../repositories/warehouseSection.repository";
 import { warehouseGateStamped } from "../topics";
@@ -13,6 +14,12 @@ import { gateStampedEvents, type GateStampedChange } from "./gateEvents";
 // the warehouse-shipment-outbox cron (and the local minute timer). A rolled-back stamp leaves no
 // row, so nothing is ever published for it.
 
+/** The gate history event of an event that could not be published for good. */
+export const GATE_EVENT_FAILED = "shipmentUpdateGateEventFailed";
+
+/** What a gate event tells Trucking, in words. */
+export const GATE_EVENT_WHAT: Record<string, string> = { gateIn: "gate-in", gateOut: "gate-out", voided: "stamp voided" };
+
 const handlers: OutboxHandlers<GateEventOutboxRecord> = {
   async send(row) {
     await warehouseGateStamped.publish(row.event);
@@ -20,6 +27,10 @@ const handlers: OutboxHandlers<GateEventOutboxRecord> = {
   errorText: () => "The gate event could not be published",
   async onFailed(row, error, err) {
     await gateEventOutboxRepository.markFailed(row.id, row.attempts, error);
+    // Shown in the record's history ("Not sent"); a manager can send it again.
+    await gateMovementRepository.appendEvents(row.movementId, row.companyId, [
+      { kind: GATE_EVENT_FAILED, label: `Not sent to Trucking: ${GATE_EVENT_WHAT[row.event.kind] ?? row.event.kind}`, at: new Date().toISOString(), by: "Warehouse", detail: error },
+    ]);
     log.error(err, "warehouse: gate event not published for good", { outboxId: row.id, movementId: row.movementId, kind: row.event.kind });
   },
   async onRetry(row, error, nextAttemptAt, err) {

@@ -5,6 +5,12 @@ import { userTable } from "../schemas/user.schema";
 
 export type UserPatch = Partial<typeof userTable.$inferInsert>;
 
+// People only: the service identity (is_system) is never listed, edited or deactivated.
+const person = eq(userTable.isSystem, false);
+
+/** The service identity's name, shown wherever user names are resolved. */
+export const SYSTEM_USER_NAME = "Trucking (system)";
+
 class UserRepository extends BaseRepository<typeof userTable> {
   constructor() {
     super(db, userTable, "app_user");
@@ -25,7 +31,7 @@ class UserRepository extends BaseRepository<typeof userTable> {
     return this.db
       .select()
       .from(userTable)
-      .where(and(eq(userTable.companyId, companyId), isNull(userTable.deletedAt)))
+      .where(and(eq(userTable.companyId, companyId), isNull(userTable.deletedAt), person))
       .limit(limit);
   }
 
@@ -51,7 +57,7 @@ class UserRepository extends BaseRepository<typeof userTable> {
     const [row] = await this.db
       .select()
       .from(userTable)
-      .where(and(eq(userTable.id, id), eq(userTable.companyId, companyId), isNull(userTable.deletedAt)))
+      .where(and(eq(userTable.id, id), eq(userTable.companyId, companyId), isNull(userTable.deletedAt), person))
       .limit(1);
     return row ?? null;
   }
@@ -60,7 +66,7 @@ class UserRepository extends BaseRepository<typeof userTable> {
     const [row] = await this.db
       .update(userTable)
       .set({ ...patch, updatedAt: new Date() })
-      .where(and(eq(userTable.id, id), eq(userTable.companyId, companyId), isNull(userTable.deletedAt)))
+      .where(and(eq(userTable.id, id), eq(userTable.companyId, companyId), isNull(userTable.deletedAt), person))
       .returning();
     return row ?? null;
   }
@@ -84,9 +90,32 @@ class UserRepository extends BaseRepository<typeof userTable> {
     const [row] = await this.db
       .update(userTable)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(userTable.id, id), eq(userTable.companyId, companyId), isNull(userTable.deletedAt)))
+      .where(and(eq(userTable.id, id), eq(userTable.companyId, companyId), isNull(userTable.deletedAt), person))
       .returning();
     return row ?? null;
+  }
+
+  // The company's service identity, created on first use. Idempotent under concurrent calls: the
+  // partial unique index (one live system user per company) makes a second insert do nothing.
+  // No password hash: it can never sign in (and login refuses it anyway).
+  async ensureSystemUser(companyId: string): Promise<string> {
+    const live = and(eq(userTable.companyId, companyId), eq(userTable.isSystem, true), isNull(userTable.deletedAt));
+    const [found] = await this.db.select({ id: userTable.id }).from(userTable).where(live).limit(1);
+    if (found) return found.id;
+    await this.db
+      .insert(userTable)
+      .values({
+        companyId,
+        email: `trucking-system+${companyId}@system.invalid`,
+        passwordHash: "",
+        displayName: SYSTEM_USER_NAME,
+        role: "user",
+        isSystem: true,
+      } as never)
+      .onConflictDoNothing();
+    const [row] = await this.db.select({ id: userTable.id }).from(userTable).where(live).limit(1);
+    if (!row) throw new Error("service identity could not be created");
+    return row.id;
   }
 }
 

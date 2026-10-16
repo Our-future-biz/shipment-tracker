@@ -15,6 +15,7 @@ vi.mock("~encore/clients", () => ({
   holidays: { _internalHolidaysCzNational: vi.fn(async () => ({ dates: [] })) },
 }));
 vi.mock("../db/db", async () => (await import("./truckingFakes")).dbModule);
+vi.mock("../../../lib/outbox/serviceIdentity", async () => (await import("./truckingFakes")).serviceIdentityModule);
 vi.mock("../repositories/consignment.repository", async (orig) => ({
   ...(await orig<object>()),
   consignmentRepository: (await import("./truckingFakes")).consignmentRepository,
@@ -56,7 +57,7 @@ import { buildLabelsPdf } from "../lib/labelsPdf";
 import type { HaulierDetail, HubAddress, LastMile, LoadInput, PricedSide, RateRequest, RateResponse, TruckingSettings } from "../interfaces/interfaces";
 import type { TruckingConsignmentRecord, TruckingLegRecord } from "../schemas/truckingConsignment.schema";
 import type { GateStampedEvent } from "../lib/warehouseLink";
-import { COMPANY, CUSTOMER, HAULIER, HAULIER2, SHIPMENT, TX, eventsOf, load, manager, outboxOf, resetStore, settings, stop, store, user } from "./truckingFakes";
+import { COMPANY, CUSTOMER, HAULIER, HAULIER2, SERVICE_USER, SHIPMENT, TX, eventsOf, load, manager, outboxOf, resetStore, settings, stop, store, user } from "./truckingFakes";
 
 const SHIPMENT2 = "00000000-0000-0000-0000-0000000000d2";
 const DEPOT = "00000000-0000-0000-0000-0000000000e1";
@@ -503,6 +504,13 @@ describe("the warehouse's gate", () => {
     expect(eventsOf("gate_in")).toHaveLength(events);
     const detail = await consignmentService.get(user, a.id);
     expect(detail).toMatchObject({ gateInAt: "2026-10-15T11:00:00.000Z", promisedFinal: true });
+  });
+
+  it("gate-in without a stamping user: the promised date still goes to the job, as the service identity", async () => {
+    const a = await ltl({ promisedDate: "2026-10-16" });
+    await pickupRun([legOf(a.id, "PICKUP")]);
+    await ltlService.handleGateStamped({ ...gate("gateIn", "2026-10-15T11:00:00.000Z"), userId: "" });
+    expect(outboxOf("planned").at(-1)).toMatchObject({ payload: { plannedDeliveryDate: "2026-10-19" }, actingUserId: SERVICE_USER, actingRole: "user" });
   });
 
   it("gate event: the holidays read names the company itself (a pub/sub message carries no login)", async () => {

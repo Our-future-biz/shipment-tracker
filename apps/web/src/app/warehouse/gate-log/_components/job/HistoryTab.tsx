@@ -9,6 +9,7 @@ import { Badge, hhmm, type Tone } from "../../_lib/gate";
 import { HISTORY_CATEGORIES, categoryCounts, historyDays, isCurrentStamp, type HistoryCategory } from "../../_lib/history";
 import { gateSteps, voidBlocked, type GateStep } from "../../_lib/steps";
 import { btnInline, Section } from "./fields";
+import { GateSendAgain } from "./GateSendAgain";
 
 // History of the gate job: every logged event, newest first, by Prague day — stamps, voids with
 // their reasons, release-gate ticks, PIN checks, overrides, refusals, exceptions, archive /
@@ -27,7 +28,7 @@ const CATEGORY_TONE: Record<HistoryCategory, Tone> = {
 };
 const CATEGORY_LABEL = Object.fromEntries(HISTORY_CATEGORIES.map((c) => [c.id, c.label])) as Record<HistoryCategory, string>;
 
-export function HistoryTab({ m, onVoid }: { m: GateMovement; onVoid?: (step: GateStep) => void }) {
+export function HistoryTab({ m, onVoid, manager = false }: { m: GateMovement; onVoid?: (step: GateStep) => void; manager?: boolean }) {
   const [only, setOnly] = useState<HistoryCategory[]>([]);
   const counts = useMemo(() => categoryCounts(m.events), [m.events]);
   const days = useMemo(() => historyDays(m.events, only), [m.events, only]);
@@ -62,6 +63,9 @@ export function HistoryTab({ m, onVoid }: { m: GateMovement; onVoid?: (step: Gat
           );
         })}
       </div>
+
+      {/* What failed for good (shipment updates, events for Trucking): managers send it again. */}
+      {(!only.length || only.includes("shipment")) && <GateSendAgain movementId={m.id} manager={manager} />}
 
       {/* The shipment update the gate still owes, live (not an event yet). */}
       {upd && (!only.length || only.includes("shipment")) && (

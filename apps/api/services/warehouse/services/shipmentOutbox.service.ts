@@ -1,6 +1,7 @@
 import log from "encore.dev/log";
 import { gateMovementRepository } from "../repositories/gateMovement.repository";
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
+import { gateEventOutboxRepository } from "../repositories/gateEventOutbox.repository";
 import type { OutboxKind, ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
 import type { GateShipmentUpdateState } from "../interfaces/gate.interfaces";
 import { OUTBOX_MAX_ATTEMPTS, outboxErrorCode } from "../../../lib/outbox/outboxRetry";
@@ -11,8 +12,9 @@ import { deliverGateEvents } from "./gateEvents.service";
 // Delivery of the shipment updates the gate stamps owe (the outbox). Each row is sent as the
 // user who stamped (sendShipmentUpdateAs). Rows are sent right after the stamp; what fails is
 // retried by the warehouse-shipment-outbox cron (and the local timer, see startOutboxTimer) with
-// a growing wait. The retry rules and the delivery loop are shared (lib/outbox); what a gate
-// stamp records about its delivery is here.
+// a growing wait; what fails for good is shown on the record and a manager can send it again
+// (gateSendAgain.service). The retry rules and the delivery loop are shared (lib/outbox); what a
+// gate stamp records about its delivery is here.
 
 /** Attempts after which a row stops retrying and is reported as failed. */
 export const MAX_ATTEMPTS = OUTBOX_MAX_ATTEMPTS;
@@ -121,16 +123,28 @@ export function shipmentUpdateState(rows: ShipmentOutboxRecord[]): GateShipmentU
 /** A pending update older than this is reported as a warning (it should have reached Shipments). */
 export const STALE_PENDING_MINUTES = 10;
 
-/** Logs a warning when shipment updates wait longer than STALE_PENDING_MINUTES. Never throws. */
+/**
+ * Logs a warning when shipment updates or gate events (for Trucking) failed for good or wait
+ * longer than STALE_PENDING_MINUTES. The records show them ("Not sent") and a manager can send
+ * them again. Returns how many. Never throws.
+ */
 export async function warnStaleOutbox(): Promise<number> {
-  try {
-    const { count, oldest } = await shipmentOutboxRepository.stalePending(STALE_PENDING_MINUTES);
-    if (count) log.warn("warehouse: shipment updates from the gate are waiting longer than expected", { count, oldest, minutes: STALE_PENDING_MINUTES });
-    return count;
-  } catch (err) {
-    log.error(err, "warehouse: shipment update health check failed");
-    return 0;
+  let n = 0;
+  const outboxes = [
+    { repo: shipmentOutboxRepository, what: "shipment updates from the gate" },
+    { repo: gateEventOutboxRepository, what: "gate events for Trucking" },
+  ];
+  for (const { repo, what } of outboxes) {
+    try {
+      const { failed, stalePending, oldestPending } = await repo.unsentHealth(STALE_PENDING_MINUTES);
+      if (failed) log.warn(`warehouse: ${what} failed for good and wait for a manager to send them again`, { failed });
+      if (stalePending) log.warn(`warehouse: ${what} are waiting longer than expected`, { count: stalePending, oldest: oldestPending, minutes: STALE_PENDING_MINUTES });
+      n += failed + stalePending;
+    } catch (err) {
+      log.error(err, `warehouse: health check of ${what} failed`);
+    }
   }
+  return n;
 }
 
 let started = false;

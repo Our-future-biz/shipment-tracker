@@ -29,6 +29,7 @@ import { recordAsSentLabel } from "../../_lib/transportOrder";
 import { LabelsModal } from "../../_components/LabelsModal";
 import { MenuLabel } from "../../_components/MenuLabel";
 import { TruckingHistory } from "../../_components/TruckingHistory";
+import { TruckingSendAgain } from "../../_components/TruckingSendAgain";
 import { TruckingStatusChip } from "../../_components/TruckingStatusChip";
 import { TruckingTextModal } from "../../_components/TruckingTextModal";
 import { TripDialogs, type TripDialog } from "../../trips/_components/TripDialogs";
@@ -344,6 +345,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
         {tab === "documents" && <ConsignmentDocumentsTab c={c} documents={documents} isLoading={docsLoading} onUpload={() => setDialog({ kind: "upload" })} />}
         {tab === "history" && (
           <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <TruckingSendAgain consignmentId={c.id} manager={isTruckingManager(user)} />
             <TruckingHistory events={c.events} />
             {trip && trip.events.length > 0 && (
               <>

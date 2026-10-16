@@ -24,6 +24,7 @@ import {
   slidExpiry,
 } from "../lib/portalRules";
 import { ourCompany } from "./transportOrder.service";
+import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 
 // The haulier portal's own login, separate from the app's: e-mail + password (argon2id, the
 // parameters the app's login uses), a session token of 32 random bytes of which only the SHA-256
@@ -48,10 +49,11 @@ export interface PortalClient {
 }
 
 /**
- * The identity internal calls of the portal are made as: the app user who created the portal
- * user, with the least role. The portal user never has an app identity of their own.
+ * The identity internal calls of the portal are made as: the company's service identity
+ * ("Trucking (system)", the least role), so nothing fails once the app user who invited the
+ * portal user leaves. The portal user never has an app identity of their own.
  */
-export const actingFor = (u: Pick<PortalUserRecord, "createdBy" | "companyId">) => ({ userID: u.createdBy, companyID: u.companyId, role: "user" });
+export const actingFor = (u: Pick<PortalUserRecord, "companyId">) => serviceActor(u.companyId);
 
 let dummy: Promise<string> | null = null;
 /** The same argon2 work as a real check, for an e-mail that has no password to check. */
@@ -170,7 +172,7 @@ class PortalAuthService {
 
   /** The portal user, their haulier and our company as printed (names only; "" when not readable). */
   async me(u: PortalUserRecord): Promise<PortalMe> {
-    const authData = actingFor(u);
+    const authData = await actingFor(u);
     const [haulierName, our] = await Promise.all([
       customers
         ._internalHaulierList({ ids: [u.haulierCustomerId] }, { authData })

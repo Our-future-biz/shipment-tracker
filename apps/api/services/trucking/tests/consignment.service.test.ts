@@ -11,6 +11,7 @@ vi.mock("~encore/clients", () => ({
   holidays: { _internalHolidaysCzNational: vi.fn(async () => ({ dates: [] })) },
 }));
 vi.mock("../db/db", async () => (await import("./truckingFakes")).dbModule);
+vi.mock("../../../lib/outbox/serviceIdentity", async () => (await import("./truckingFakes")).serviceIdentityModule);
 vi.mock("../repositories/consignment.repository", async (orig) => ({
   ...(await orig<object>()),
   consignmentRepository: (await import("./truckingFakes")).consignmentRepository,
@@ -24,7 +25,10 @@ vi.mock("../repositories/exception.repository", async () => ({ exceptionReposito
 vi.mock("../repositories/internal.repository", async () => ({ internalRepository: (await import("./truckingFakes")).internalRepository }));
 vi.mock("../services/rate.service", () => ({ rateService: { rate: vi.fn() }, eurRate: vi.fn() }));
 vi.mock("../services/settings.service", async () => ({ settingsService: { get: vi.fn(async () => (await import("./truckingFakes")).settings()) } }));
-vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })) }));
+vi.mock("../services/truckingOutbox.service", () => ({
+  deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })),
+  addUnsentReasons: vi.fn(async (_companyId: string, items: unknown[]) => items),
+}));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
 
 import { customers, quotes, shipments } from "~encore/clients";
@@ -33,7 +37,7 @@ import { eurRate, rateService } from "../services/rate.service";
 import { consignmentRepository } from "../repositories/consignment.repository";
 import type { PricedSide, RateLevelResult, RateResponse } from "../interfaces/interfaces";
 import type { TruckingConsignmentRecord } from "../schemas/truckingConsignment.schema";
-import { COMPANY, CUSTOMER, HAULIER, SHIPMENT, eventsOf, load, manager, outboxOf, resetStore, stop, store, tripRepository, user, TX } from "./truckingFakes";
+import { COMPANY, CUSTOMER, HAULIER, SERVICE_USER, SHIPMENT, eventsOf, load, manager, outboxOf, resetStore, stop, store, tripRepository, user, TX } from "./truckingFakes";
 
 const side = (total: number, over: Partial<PricedSide> = {}): PricedSide => ({
   tariffId: "t-sell",
@@ -422,6 +426,10 @@ describe("the job was deleted in Shipments", () => {
     const picked = await seed({ pickedUpAt: new Date(), status: "PICKED_UP" });
     store.outbox.push({ shipmentId: SHIPMENT, kind: "planned", status: "pending" });
     await consignmentService.retireShipment(SHIPMENT, COMPANY);
+    // What the cancellation owes (re-settled trips, cost lines) is written as the service identity, never as nobody.
+    const owed = store.outbox.filter((r) => r.kind === "costs");
+    expect(owed.length).toBeGreaterThan(0);
+    expect(owed.every((r) => r.actingUserId === SERVICE_USER && r.actingRole === "user")).toBe(true);
     expect(row(open.c.id).status).toBe("CANCELLED");
     expect(row(picked.c.id).status).toBe("PICKED_UP");
     expect(eventsOf("shipment_deleted")).toEqual([expect.objectContaining({ consignmentId: picked.c.id })]);

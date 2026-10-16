@@ -11,6 +11,7 @@ import { ltlTripStatus } from "../lib/ltlRules";
 import { factsOf } from "../lib/consignmentView";
 import { hashToken, looksLikeToken, tokenMatches } from "../lib/haulierToken";
 import { checkUpload } from "../lib/truckingFiles";
+import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { consignmentService } from "./consignment.service";
 import { insertDocument, storeFile } from "./truckingDocument.service";
 import { deliverDue } from "./truckingOutbox.service";
@@ -31,9 +32,6 @@ interface Opened {
 }
 
 const publicStop = ({ id: _id, siteId: _siteId, ...s }: Stop): PublicTransportOrder["pickup"] => s;
-
-/** Updates the haulier causes are sent to the job as the user who sent the transport order. */
-export const senderOf = (trip: TruckingTripRecord) => ({ userID: trip.orderSentByUserId ?? "", role: trip.orderSentByRole ?? "", companyID: trip.companyId });
 
 export function publicOrder(o: Opened, podUploaded: boolean): PublicTransportOrder {
   const { trip, c, link } = o;
@@ -153,11 +151,13 @@ class PublicOrderService {
     const companyId = trip.companyId;
     const by = `${trip.haulierName} (haulier)`;
     const key = await storeFile(companyId, o.c.id, file);
+    // What the haulier causes is sent to the job as the service identity ("Trucking (system)");
+    // the haulier is named in the events.
+    const actor = await serviceActor(companyId);
     await inTx(async (tx) => {
       await insertDocument(tx, companyId, o.c.id, file, key, { kind: "POD", source: "HAULIER", userId: null, name: receiver ? `${by}, received by ${receiver}` : by });
       // The stamps the POD proves, in order; each one guarded, each on the row the previous one left.
       let c = (await consignmentRepository.find(companyId, o.c.id, tx))!;
-      const actor = senderOf(trip);
       if (!c.pickedUpAt) c = await consignmentService.stampInTx(tx, actor, c, trip, "pickedUp", deliveredAt, by, "HAULIER");
       if (!c.deliveredAt) c = await consignmentService.stampInTx(tx, actor, c, trip, "delivered", deliveredAt < c.pickedUpAt! ? c.pickedUpAt! : deliveredAt, by, "HAULIER");
       if (!c.podReceivedAt) await consignmentService.stampInTx(tx, actor, c, trip, "podReceived", now, by, "HAULIER");

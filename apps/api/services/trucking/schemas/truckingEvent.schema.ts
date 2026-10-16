@@ -34,6 +34,8 @@ export type TruckingEventKind =
   | "shipment_deleted"
   | "shipment_update_failed"
   | "costs_update_failed"
+  // A manager sent failed job updates again (truckingOutbox.service sendAgain)
+  | "outbox_sent_again"
   // Phase 5: LTL legs, runs and the warehouse's gate
   | "legs_planned"
   | "trip_legs_changed"

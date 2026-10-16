@@ -48,7 +48,8 @@ interface OrgPlacement {
 class AuthService {
   async login(email: string, password: string): Promise<{ token: string; user: AuthUserInfo }> {
     const found = await userRepository.findByEmail(email.toLowerCase().trim());
-    if (!found) {
+    // The service identity ("Trucking (system)") never signs in: it has no password.
+    if (!found || found.isSystem || !found.passwordHash) {
       throw APIError.unauthenticated("Invalid email or password");
     }
     const valid = await verify(found.passwordHash, password);
@@ -170,7 +171,7 @@ class AuthService {
   async me(token: string): Promise<AuthUserInfo> {
     const { userId } = await this.verifyToken(token);
     const found = await userRepository.getById(userId);
-    if (!found) throw APIError.unauthenticated("User not found");
+    if (!found || found.isSystem) throw APIError.unauthenticated("User not found");
     return this.#toInfo(found);
   }
 
@@ -248,7 +249,16 @@ class AuthService {
     return userRepository.listAdmins();
   }
 
-  /** Live users of the company among `ids` (deactivated or unknown ids are left out). */
+  /**
+   * The company's service identity ("Trucking (system)", role user), created on first use: what
+   * the system or a haulier causes in other services is sent as this user, so it never fails
+   * because a staff user left. It cannot sign in and is not listed.
+   */
+  async serviceUser(companyId: string): Promise<string> {
+    return userRepository.ensureSystemUser(companyId);
+  }
+
+  /** Live users of the company among `ids` (deactivated or unknown ids are left out); the service identity is named "Trucking (system)". */
   async userRefs(companyId: string, ids: string[]): Promise<UserRef[]> {
     const rows = await userRepository.listByIdsInCompany([...new Set(ids)], companyId);
     return rows.map((u) => ({ id: u.id, name: u.displayName || u.email || "", role: u.role }));

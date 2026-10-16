@@ -1944,6 +1944,7 @@ export namespace trucking {
             this.truckingConsignmentCreate = this.truckingConsignmentCreate.bind(this)
             this.truckingConsignmentGet = this.truckingConsignmentGet.bind(this)
             this.truckingConsignmentList = this.truckingConsignmentList.bind(this)
+            this.truckingConsignmentSendAgain = this.truckingConsignmentSendAgain.bind(this)
             this.truckingConsignmentStamp = this.truckingConsignmentStamp.bind(this)
             this.truckingConsignmentUpdate = this.truckingConsignmentUpdate.bind(this)
             this.truckingConsignmentVoidStamp = this.truckingConsignmentVoidStamp.bind(this)
@@ -1978,6 +1979,7 @@ export namespace trucking {
             this.truckingLabelsPdf = this.truckingLabelsPdf.bind(this)
             this.truckingLegPartner = this.truckingLegPartner.bind(this)
             this.truckingManifestPdf = this.truckingManifestPdf.bind(this)
+            this.truckingOutboxFailed = this.truckingOutboxFailed.bind(this)
             this.truckingPlanningBoard = this.truckingPlanningBoard.bind(this)
             this.truckingPortalUserCreate = this.truckingPortalUserCreate.bind(this)
             this.truckingPortalUserDisable = this.truckingPortalUserDisable.bind(this)
@@ -2012,6 +2014,7 @@ export namespace trucking {
             this.truckingTripGet = this.truckingTripGet.bind(this)
             this.truckingTripList = this.truckingTripList.bind(this)
             this.truckingTripReprice = this.truckingTripReprice.bind(this)
+            this.truckingTripSendAgain = this.truckingTripSendAgain.bind(this)
             this.truckingTripStamp = this.truckingTripStamp.bind(this)
             this.truckingTripUpdate = this.truckingTripUpdate.bind(this)
         }
@@ -2290,6 +2293,12 @@ export namespace trucking {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/consignments`, undefined, {query})
             return await resp.json() as controllers.TruckingConsignmentListResponse
+        }
+
+        public async truckingConsignmentSendAgain(id: string): Promise<controllers.TruckingSendAgainResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/${encodeURIComponent(id)}/send-again`)
+            return await resp.json() as controllers.TruckingSendAgainResponse
         }
 
         /**
@@ -2589,6 +2598,18 @@ export namespace trucking {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/${encodeURIComponent(id)}/manifest`, JSON.stringify(params))
             return await resp.json() as controllers.TruckingFileResponse
+        }
+
+        public async truckingOutboxFailed(params: controllers.TruckingOutboxFailedRequest): Promise<controllers.TruckingOutboxFailedResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                consignmentId: params.consignmentId,
+                tripId:        params.tripId,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/trucking/outbox/failed`, undefined, {query})
+            return await resp.json() as controllers.TruckingOutboxFailedResponse
         }
 
         /**
@@ -2944,6 +2965,12 @@ export namespace trucking {
             return await resp.json() as controllers.TruckingTripResponse
         }
 
+        public async truckingTripSendAgain(id: string): Promise<controllers.TruckingSendAgainResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/${encodeURIComponent(id)}/send-again`)
+            return await resp.json() as controllers.TruckingSendAgainResponse
+        }
+
         /**
          * The departure / arrival of an LTL trip (a pick-up run's arrival is not the gate-in: the warehouse stamps that).
          */
@@ -2994,9 +3021,11 @@ export namespace warehouse {
             this.gateMovementRestore = this.gateMovementRestore.bind(this)
             this.gateMovementReweigh = this.gateMovementReweigh.bind(this)
             this.gateMovementSaveSurvey = this.gateMovementSaveSurvey.bind(this)
+            this.gateMovementSendAgain = this.gateMovementSendAgain.bind(this)
             this.gateMovementShipmentUpdateDismiss = this.gateMovementShipmentUpdateDismiss.bind(this)
             this.gateMovementShipmentUpdateRetry = this.gateMovementShipmentUpdateRetry.bind(this)
             this.gateMovementStamp = this.gateMovementStamp.bind(this)
+            this.gateMovementUnsent = this.gateMovementUnsent.bind(this)
             this.gateMovementUpdate = this.gateMovementUpdate.bind(this)
             this.gateMovementUseRemeasured = this.gateMovementUseRemeasured.bind(this)
             this.gateMovementVerifyPin = this.gateMovementVerifyPin.bind(this)
@@ -3308,6 +3337,12 @@ export namespace warehouse {
             return await resp.json() as controllers.GateSurveySaveResponse
         }
 
+        public async gateMovementSendAgain(id: string): Promise<controllers.GateSendAgainResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/send-again`)
+            return await resp.json() as controllers.GateSendAgainResponse
+        }
+
         /**
          * A failed shipment update that was set in Shipments by hand is dismissed; any user, logged.
          */
@@ -3330,6 +3365,12 @@ export namespace warehouse {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/stamp`, JSON.stringify(params))
             return await resp.json() as controllers.GateStampResponse
+        }
+
+        public async gateMovementUnsent(id: string): Promise<controllers.GateUnsentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}/unsent`)
+            return await resp.json() as controllers.GateUnsentResponse
         }
 
         public async gateMovementUpdate(id: string, params: controllers.GateMovementUpdateRequest): Promise<controllers.GateMovementResponse> {
@@ -5275,6 +5316,14 @@ export namespace controllers {
         clientRequestId?: string
     }
 
+    export interface GateSendAgainResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * What is still failed afterwards; null when nothing
+         */
+        unsent: services.GateUnsent | null
+    }
+
     export interface GateStampResponse {
         movement: interfaces.GateMovementItem
         /**
@@ -5310,6 +5359,13 @@ export namespace controllers {
         outcome: "saved" | "already_saved" | "newer_exists"
 
         notice: string
+    }
+
+    export interface GateUnsentResponse {
+        /**
+         * What the record failed to send for good; null when nothing
+         */
+        unsent: services.GateUnsent | null
     }
 
     export interface GateVoidStampResponse {
@@ -7456,6 +7512,21 @@ export namespace controllers {
         kind: interfaces.LtlTripKind
     }
 
+    export interface TruckingOutboxFailedRequest {
+        /**
+         * Only this consignment's updates
+         */
+        consignmentId?: string
+        /**
+         * Only the updates of the consignments on this trip
+         */
+        tripId?: string
+    }
+
+    export interface TruckingOutboxFailedResponse {
+        updates: interfaces.TruckingUnsentUpdate[]
+    }
+
     export interface TruckingPortalUserCreateRequest {
         email: string
         name: string
@@ -7518,6 +7589,17 @@ export namespace controllers {
          * YYYY-MM-DD (Prague), last day included; default today. At most 366 days.
          */
         to?: string
+    }
+
+    export interface TruckingSendAgainResponse {
+        /**
+         * How many failed updates were sent again
+         */
+        requeued: number
+        /**
+         * What is still failed afterwards
+         */
+        unsent: interfaces.TruckingUnsentUpdate[]
     }
 
     export interface TruckingSettingsResponse {
@@ -13479,6 +13561,34 @@ export namespace interfaces {
         department: DepartmentResult
     }
 
+    /**
+     * A job update Trucking owes and has not delivered: failed for good, or still being retried.
+     */
+    export interface TruckingUnsentUpdate {
+        id: string
+        consignmentId: string
+        /**
+         * The consignment's reference (e.g. "FTL2026-0042")
+         */
+        consignmentRef: string
+        shipmentId: string
+        jobNumber: string
+        /**
+         * What it owes the job, in words (e.g. "Trucking lines in Costs Breakdown")
+         */
+        what: string
+        state: "failed" | "pending"
+        attempts: number
+        /**
+         * Our own wording of the last error ("" when none)
+         */
+        lastError: string
+        /**
+         * When the update was written (ISO)
+         */
+        since: string
+    }
+
     export interface TruckingSettings {
         /**
          * Always all 8 codes, in the order of ServiceLevelCode
@@ -14583,6 +14693,24 @@ export namespace interfaces {
 }
 
 export namespace services {
+    /**
+     * What a gate record failed to send for good.
+     */
+    export interface GateUnsent {
+        /**
+         * Shipment updates, in words (e.g. "warehouse received date")
+         */
+        shipmentUpdates: string[]
+        /**
+         * Events for Trucking, in words (e.g. "gate-in")
+         */
+        gateEvents: string[]
+        /**
+         * The latest error, in our own wording
+         */
+        lastError: string
+    }
+
     export interface AnnouncementAttachmentContent {
         fileName: string
         fileType: string

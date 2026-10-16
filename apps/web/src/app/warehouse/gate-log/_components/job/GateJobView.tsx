@@ -609,7 +609,7 @@ export function GateJobView({ id }: { id: string }) {
         )}
         {tab === "survey" && <SurveyTab m={m} saveSurvey={(survey) => saveSurvey.mutateAsync(survey)} />}
         {tab === "shipman" && <ShipmentManagementTab m={m} save={save} />}
-        {tab === "history" && <HistoryTab m={m} onVoid={manager && !archived ? setVoidStep : undefined} />}
+        {tab === "history" && <HistoryTab m={m} onVoid={manager && !archived ? setVoidStep : undefined} manager={manager} />}
       </div>
 
       {confirmStamp && (

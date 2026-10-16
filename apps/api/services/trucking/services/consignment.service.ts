@@ -8,6 +8,7 @@ import { consignmentRepository, STAMP_COLUMNS, type ConsignmentValues } from "..
 import { tripRepository } from "../repositories/trip.repository";
 import { legRepository } from "../repositories/leg.repository";
 import { truckingDocumentRepository } from "../repositories/truckingDocument.repository";
+import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { truckingOutboxRepository, type TruckingOutboxInput } from "../repositories/truckingOutbox.repository";
 import { appendEvent, listEvents } from "../repositories/event.repository";
 import { exceptionRepository } from "../repositories/exception.repository";
@@ -63,7 +64,7 @@ import { isManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { eurRate, rateService } from "./rate.service";
 import { settingsService } from "./settings.service";
-import { deliverDue } from "./truckingOutbox.service";
+import { addUnsentReasons, deliverDue } from "./truckingOutbox.service";
 import { ltlTrips } from "./ltlTrips";
 import { internalBillingService } from "./internalBilling.service";
 
@@ -313,7 +314,7 @@ class ConsignmentService {
       podMissing: new Set(rows.filter((c) => podMissing(c, day, extraHolidays)).map((c) => c.id)),
       avizacePending: new Set(rows.filter(avizacePending).map((c) => c.id)),
     };
-    const items = rows
+    const listed = rows
       .map((c) => listItem(c, tripFor(c), settings.marginFloor, day, now, ltl.legs, openExceptions.get(c.id) ?? 0, real))
       .filter(
         (i) =>
@@ -322,6 +323,8 @@ class ConsignmentService {
             v.toLowerCase().includes(search),
           ),
       );
+    // Job updates that failed or wait too long need attention too.
+    const items = await addUnsentReasons(actor.companyID, listed);
     const counts = countsOf(items, day, flags);
     return { consignments: q.view ? items.filter((i) => inView(i, q.view!, day, flags)) : items, counts };
   }
@@ -1011,15 +1014,16 @@ class ConsignmentService {
   /**
    * Shipments deleted the job: its open consignments are cancelled (with their trips, links and
    * cost lines), those already picked up are kept with an event, and what is still owed to the
-   * job is cancelled. Runs without a user (the subscription); idempotent.
+   * job is cancelled. Runs without a user (the subscription): what the re-settled trips owe other
+   * jobs is sent as the service identity ("Trucking (system)"); idempotent.
    */
   async retireShipment(shipmentId: string, companyId: string): Promise<void> {
-    const rows = await consignmentRepository.list(companyId, { shipmentId });
-    const system = { userID: "", role: "", companyID: companyId };
-    for (const c of rows.filter((x) => !x.cancelledAt)) {
+    const rows = (await consignmentRepository.list(companyId, { shipmentId })).filter((x) => !x.cancelledAt);
+    const system = rows.length ? await serviceActor(companyId) : null;
+    for (const c of rows) {
       const trip = c.tripId ? await tripRepository.find(companyId, c.tripId) : null;
       await inTx(async (tx) => {
-        const cancelled = !c.pickedUpAt && !c.gateInAt && (await this.cancelInTx(tx, system, c, trip, "Shipments", "The job was deleted in Shipments", "Cancelled: the job was deleted in Shipments"));
+        const cancelled = !c.pickedUpAt && !c.gateInAt && (await this.cancelInTx(tx, system!, c, trip, "Shipments", "The job was deleted in Shipments", "Cancelled: the job was deleted in Shipments"));
         if (!cancelled) {
           await appendEvent(tx, companyId, {
             kind: "shipment_deleted",
