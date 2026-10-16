@@ -3,7 +3,7 @@
 import { createContext, useContext, useState, useCallback, useEffect } from "react";
 import type { ReactNode } from "react";
 import { API_BASE } from "@/lib/api";
-import { isModuleEnabled, type AppModule } from "@/lib/modules";
+import { canSeeConcepts } from "@/lib/concepts";
 
 
 export interface AuthUser {
@@ -14,8 +14,6 @@ export interface AuthUser {
   role: string;
   departmentId: string | null;
   branchId: string | null;
-  /** Modules the user's company has hidden (always none for a superadmin). */
-  hiddenModules?: AppModule[];
 }
 
 interface AuthContextValue {
@@ -135,8 +133,8 @@ export const useCanManageCustomers = (): boolean => {
   return !!user && (CUSTOMER_MANAGER_ROLES as readonly string[]).includes(user.role);
 };
 
-/** Whether a module is on for the signed-in user's company (a superadmin sees every module). */
-export const useModules = () => {
+/** Whether the signed-in user sees the concept modules (Warehouse Concept, Trucking Concept): superadmins only. */
+export const useCanSeeConcepts = (): boolean => {
   const { user } = useAuth();
-  return { isEnabled: (module: AppModule) => isModuleEnabled(user, module) };
+  return canSeeConcepts(user);
 };

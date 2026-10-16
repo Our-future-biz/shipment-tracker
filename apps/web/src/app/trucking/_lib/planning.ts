@@ -1,7 +1,7 @@
 import type { RateRequest } from "@/hooks/useTrucking";
 import type { ConsignmentDetail, LtlTripKind, PlanningLeg, PlanningTrip, TripDetail, TripFill } from "@/hooks/useTruckingConsignments";
 import type { Tone } from "@/components/Badge";
-import { dropHouse, fillTone, moveHouse } from "@/app/warehouse/_lib/containerPlan";
+import { dropHouse, fillTone, moveHouse } from "@/app/warehouse-concept/_lib/containerPlan";
 import { formatDate } from "@/lib/date";
 import { TERMS } from "./glossary";
 import { formatQty } from "./tariffs";

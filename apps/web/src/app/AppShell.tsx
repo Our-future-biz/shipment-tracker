@@ -14,7 +14,7 @@ const PUBLIC_PATHS = ["/login"];
 // portal sends its own portal session instead).
 const OPEN_PATHS = ["/haulier/"];
 // Signed-in pages shown full screen, without the sidebar and top bar (the warehouse phone floor mode).
-const FULL_SCREEN_PATHS = ["/warehouse/floor"];
+const FULL_SCREEN_PATHS = ["/warehouse-concept/floor"];
 
 interface AppShellProps {
   children: React.ReactNode;

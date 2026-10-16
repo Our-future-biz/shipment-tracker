@@ -44,6 +44,7 @@ export default class Client {
     public readonly shipments: shipments.ServiceClient
     public readonly trucking: trucking.ServiceClient
     public readonly warehouse: warehouse.ServiceClient
+    public readonly warehouseConcept: warehouseConcept.ServiceClient
     private readonly options: ClientOptions
     private readonly target: string
 
@@ -70,6 +71,7 @@ export default class Client {
         this.shipments = new shipments.ServiceClient(base)
         this.trucking = new trucking.ServiceClient(base)
         this.warehouse = new warehouse.ServiceClient(base)
+        this.warehouseConcept = new warehouseConcept.ServiceClient(base)
     }
 
     /**
@@ -139,7 +141,6 @@ export namespace auth {
             this.columnTemplatesList = this.columnTemplatesList.bind(this)
             this.columnTemplatesUpsert = this.columnTemplatesUpsert.bind(this)
             this.companyList = this.companyList.bind(this)
-            this.companyModulesUpdate = this.companyModulesUpdate.bind(this)
             this.companyProvision = this.companyProvision.bind(this)
             this.companyUserCreate = this.companyUserCreate.bind(this)
             this.companyUserDelete = this.companyUserDelete.bind(this)
@@ -295,17 +296,6 @@ export namespace auth {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/companies`)
             return await resp.json() as controllers.CompanyListResponse
-        }
-
-        /**
-         * Platform-only: which modules a company's users get. Superadmins always see every module. Other
-         * services cache a company's hidden modules for up to a minute (lib/modules), so a change can take
-         * that long to reach them.
-         */
-        public async companyModulesUpdate(id: string, params: controllers.CompanyModulesUpdateRequest): Promise<controllers.CompanyModulesUpdateResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/companies/${encodeURIComponent(id)}/modules`, JSON.stringify(params))
-            return await resp.json() as controllers.CompanyModulesUpdateResponse
         }
 
         /**
@@ -3117,6 +3107,86 @@ export namespace warehouse {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.warehouseCreate = this.warehouseCreate.bind(this)
+            this.warehouseDelete = this.warehouseDelete.bind(this)
+            this.warehouseEnsureRefs = this.warehouseEnsureRefs.bind(this)
+            this.warehouseList = this.warehouseList.bind(this)
+            this.warehouseSectionGet = this.warehouseSectionGet.bind(this)
+            this.warehouseSectionUpsert = this.warehouseSectionUpsert.bind(this)
+            this.warehouseTruckCreate = this.warehouseTruckCreate.bind(this)
+            this.warehouseUpdate = this.warehouseUpdate.bind(this)
+        }
+
+        public async warehouseCreate(params: controllers.WarehouseCreateRequest): Promise<controllers.WarehouseCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseCreateResponse
+        }
+
+        public async warehouseDelete(taskId: string): Promise<controllers.WarehouseDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse/${encodeURIComponent(taskId)}`)
+            return await resp.json() as controllers.WarehouseDeleteResponse
+        }
+
+        /**
+         * A shipment gets its warehouse reference the moment it shows up in the warehouse;
+         * calling this again returns the reference it already has.
+         */
+        public async warehouseEnsureRefs(params: controllers.EnsureRefsRequest): Promise<controllers.EnsureRefsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-refs`, JSON.stringify(params))
+            return await resp.json() as controllers.EnsureRefsResponse
+        }
+
+        public async warehouseList(params: controllers.WarehouseListRequest): Promise<controllers.WarehouseListResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                shipmentId: params.shipmentId,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse`, undefined, {query})
+            return await resp.json() as controllers.WarehouseListResponse
+        }
+
+        public async warehouseSectionGet(shipmentId: string, section: string): Promise<controllers.WarehouseSectionGetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`)
+            return await resp.json() as controllers.WarehouseSectionGetResponse
+        }
+
+        public async warehouseSectionUpsert(shipmentId: string, section: string, params: controllers.WarehouseSectionUpsertRequest): Promise<controllers.WarehouseSectionUpsertResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseSectionUpsertResponse
+        }
+
+        /**
+         * Shipments released from Stock leave on a truck. A new truck gets the next TCZ reference;
+         * the shipments put on it carry that reference.
+         */
+        public async warehouseTruckCreate(): Promise<controllers.TruckCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-trucks`)
+            return await resp.json() as controllers.TruckCreateResponse
+        }
+
+        public async warehouseUpdate(taskId: string, params: controllers.WarehouseUpdateRequest): Promise<controllers.WarehouseUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse/${encodeURIComponent(taskId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseUpdateResponse
+        }
+    }
+}
+
+export namespace warehouseConcept {
+
+    export class ServiceClient {
+        private baseClient: BaseClient
+
+        constructor(baseClient: BaseClient) {
+            this.baseClient = baseClient
             this.gateExceptionCreate = this.gateExceptionCreate.bind(this)
             this.gateExceptionResolve = this.gateExceptionResolve.bind(this)
             this.gateFileContent = this.gateFileContent.bind(this)
@@ -3224,7 +3294,7 @@ export namespace warehouse {
     exception: interfaces.GateExceptionInput
 }): Promise<controllers.GateExceptionCreateResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/exceptions`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/exceptions`, JSON.stringify(params))
             return await resp.json() as controllers.GateExceptionCreateResponse
         }
 
@@ -3235,13 +3305,13 @@ export namespace warehouse {
     note: string
 }): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/exceptions/${encodeURIComponent(exceptionId)}/resolve`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/exceptions/${encodeURIComponent(exceptionId)}/resolve`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
         public async gateFileContent(id: string, fileId: string): Promise<controllers.GateFileContentResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}/content`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/gate/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}/content`)
             return await resp.json() as controllers.GateFileContentResponse
         }
 
@@ -3249,7 +3319,7 @@ export namespace warehouse {
     ok: boolean
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-gate/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}`)
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/gate/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}`)
             return await resp.json() as {
     ok: boolean
 }
@@ -3259,7 +3329,7 @@ export namespace warehouse {
     files: interfaces.GateFileItem[]
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}/files`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/gate/${encodeURIComponent(id)}/files`)
             return await resp.json() as {
     files: interfaces.GateFileItem[]
 }
@@ -3269,7 +3339,7 @@ export namespace warehouse {
     file: interfaces.GateFileItem
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/files`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/files`, JSON.stringify(params))
             return await resp.json() as {
     file: interfaces.GateFileItem
 }
@@ -3282,13 +3352,13 @@ export namespace warehouse {
     reason: string
 }): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/archive`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/archive`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
         public async gateMovementCreate(params: controllers.GateMovementCreateRequest): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -3300,7 +3370,7 @@ export namespace warehouse {
     ok: boolean
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-gate/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/gate/${encodeURIComponent(id)}`)
             return await resp.json() as {
     ok: boolean
 }
@@ -3314,7 +3384,7 @@ export namespace warehouse {
     changed: number
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/follow`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/follow`, JSON.stringify(params))
             return await resp.json() as {
     changed: number
 }
@@ -3325,7 +3395,7 @@ export namespace warehouse {
          */
         public async gateMovementGet(id: string): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/gate/${encodeURIComponent(id)}`)
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -3336,7 +3406,7 @@ export namespace warehouse {
     copies: number
 }): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/label-printed`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/label-printed`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -3352,7 +3422,7 @@ export namespace warehouse {
             })
 
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate`, undefined, {query})
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/gate`, undefined, {query})
             return await resp.json() as {
     movements: interfaces.GateMovementItem[]
 }
@@ -3365,7 +3435,7 @@ export namespace warehouse {
     reason: string
 }): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/override`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/override`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -3374,7 +3444,7 @@ export namespace warehouse {
          */
         public async gateMovementRefreshFromShipment(id: string): Promise<controllers.GateRefreshFromShipmentResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/refresh-from-shipment`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/refresh-from-shipment`)
             return await resp.json() as controllers.GateRefreshFromShipmentResponse
         }
 
@@ -3382,7 +3452,7 @@ export namespace warehouse {
     reason: string
 }): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/refuse`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/refuse`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -3394,7 +3464,7 @@ export namespace warehouse {
     ok: boolean
 }): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/release-gate`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/release-gate`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -3404,7 +3474,7 @@ export namespace warehouse {
          */
         public async gateMovementRepairMissing(): Promise<controllers.GateRepairMissingResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/repair-missing`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/repair-missing`)
             return await resp.json() as controllers.GateRepairMissingResponse
         }
 
@@ -3413,7 +3483,7 @@ export namespace warehouse {
          */
         public async gateMovementRequestMrn(id: string): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/request-mrn`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/request-mrn`)
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -3422,7 +3492,7 @@ export namespace warehouse {
          */
         public async gateMovementRequestRelease(id: string): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/request-release`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/request-release`)
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -3433,7 +3503,7 @@ export namespace warehouse {
     reason: string
 }): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/restore`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/restore`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -3446,13 +3516,13 @@ export namespace warehouse {
     reweigh: interfaces.GateReweighInput
 }): Promise<controllers.GateReweighResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/reweigh`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/reweigh`, JSON.stringify(params))
             return await resp.json() as controllers.GateReweighResponse
         }
 
         public async gateMovementSaveSurvey(id: string, params: controllers.GateSurveySaveRequest): Promise<controllers.GateSurveySaveResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse-gate/${encodeURIComponent(id)}/survey`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse-concept/gate/${encodeURIComponent(id)}/survey`, JSON.stringify(params))
             return await resp.json() as controllers.GateSurveySaveResponse
         }
 
@@ -3461,7 +3531,7 @@ export namespace warehouse {
          */
         public async gateMovementSendAgain(id: string): Promise<controllers.GateSendAgainResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/send-again`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/send-again`)
             return await resp.json() as controllers.GateSendAgainResponse
         }
 
@@ -3470,7 +3540,7 @@ export namespace warehouse {
          */
         public async gateMovementShipmentUpdateDismiss(id: string): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/shipment-update/dismiss`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/shipment-update/dismiss`)
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -3479,13 +3549,13 @@ export namespace warehouse {
          */
         public async gateMovementShipmentUpdateRetry(id: string): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/shipment-update/retry`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/shipment-update/retry`)
             return await resp.json() as controllers.GateMovementResponse
         }
 
         public async gateMovementStamp(id: string, params: controllers.GateStampRequest): Promise<controllers.GateStampResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/stamp`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/stamp`, JSON.stringify(params))
             return await resp.json() as controllers.GateStampResponse
         }
 
@@ -3494,13 +3564,13 @@ export namespace warehouse {
          */
         public async gateMovementUnsent(id: string): Promise<controllers.GateUnsentResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}/unsent`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/gate/${encodeURIComponent(id)}/unsent`)
             return await resp.json() as controllers.GateUnsentResponse
         }
 
         public async gateMovementUpdate(id: string, params: controllers.GateMovementUpdateRequest): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-gate/${encodeURIComponent(id)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/gate/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -3513,7 +3583,7 @@ export namespace warehouse {
     sectionVersion: number
 }): Promise<controllers.GateMovementResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/use-remeasured`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/use-remeasured`, JSON.stringify(params))
             return await resp.json() as controllers.GateMovementResponse
         }
 
@@ -3521,7 +3591,7 @@ export namespace warehouse {
     pin: string
 }): Promise<controllers.GatePinVerifyResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/verify-pin`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/verify-pin`, JSON.stringify(params))
             return await resp.json() as controllers.GatePinVerifyResponse
         }
 
@@ -3533,7 +3603,7 @@ export namespace warehouse {
     reason: string
 }): Promise<controllers.GateVoidStampResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/void-stamp`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/gate/${encodeURIComponent(id)}/void-stamp`, JSON.stringify(params))
             return await resp.json() as controllers.GateVoidStampResponse
         }
 
@@ -3544,7 +3614,7 @@ export namespace warehouse {
          */
         public async pickupPinGenerate(shipmentId: string): Promise<controllers.PickupPinGenerateResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse/pickup-pin/${encodeURIComponent(shipmentId)}`)
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/pickup-pin/${encodeURIComponent(shipmentId)}`)
             return await resp.json() as controllers.PickupPinGenerateResponse
         }
 
@@ -3552,7 +3622,7 @@ export namespace warehouse {
     entry: interfaces.WarehouseBondedEntryItem
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-bonded`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/bonded`, JSON.stringify(params))
             return await resp.json() as {
     entry: interfaces.WarehouseBondedEntryItem
 }
@@ -3562,7 +3632,7 @@ export namespace warehouse {
     ok: boolean
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-bonded/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/bonded/${encodeURIComponent(id)}`)
             return await resp.json() as {
     ok: boolean
 }
@@ -3572,7 +3642,7 @@ export namespace warehouse {
     entries: interfaces.WarehouseBondedEntryItem[]
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-bonded`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/bonded`)
             return await resp.json() as {
     entries: interfaces.WarehouseBondedEntryItem[]
 }
@@ -3582,7 +3652,7 @@ export namespace warehouse {
     entry: interfaces.WarehouseBondedEntryItem
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-bonded/${encodeURIComponent(id)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/bonded/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as {
     entry: interfaces.WarehouseBondedEntryItem
 }
@@ -3590,7 +3660,7 @@ export namespace warehouse {
 
         public async warehouseClaimCreate(params: interfaces.WarehouseClaimInput): Promise<controllers.ClaimResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-claims`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/claims`, JSON.stringify(params))
             return await resp.json() as controllers.ClaimResponse
         }
 
@@ -3598,7 +3668,7 @@ export namespace warehouse {
     ok: boolean
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-claims/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/claims/${encodeURIComponent(id)}`)
             return await resp.json() as {
     ok: boolean
 }
@@ -3606,13 +3676,13 @@ export namespace warehouse {
 
         public async warehouseClaimList(): Promise<controllers.ClaimListResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-claims`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/claims`)
             return await resp.json() as controllers.ClaimListResponse
         }
 
         public async warehouseClaimUpdate(id: string, params: controllers.WarehouseClaimUpdateRequest): Promise<controllers.ClaimResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-claims/${encodeURIComponent(id)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/claims/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.ClaimResponse
         }
 
@@ -3624,7 +3694,7 @@ export namespace warehouse {
     movementIds: string[]
 }): Promise<controllers.ContainerResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/containers/${encodeURIComponent(id)}/positions`, JSON.stringify(params))
             return await resp.json() as controllers.ContainerResponse
         }
 
@@ -3633,7 +3703,7 @@ export namespace warehouse {
          */
         public async warehouseContainerCreate(params: interfaces.WarehouseContainerInput): Promise<controllers.ContainerResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/containers`, JSON.stringify(params))
             return await resp.json() as controllers.ContainerResponse
         }
 
@@ -3641,7 +3711,7 @@ export namespace warehouse {
     ok: boolean
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-containers/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/containers/${encodeURIComponent(id)}`)
             return await resp.json() as {
     ok: boolean
 }
@@ -3652,13 +3722,13 @@ export namespace warehouse {
          */
         public async warehouseContainerGet(id: string): Promise<controllers.ContainerResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-containers/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/containers/${encodeURIComponent(id)}`)
             return await resp.json() as controllers.ContainerResponse
         }
 
         public async warehouseContainerList(): Promise<controllers.ContainerListResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-containers`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/containers`)
             return await resp.json() as controllers.ContainerListResponse
         }
 
@@ -3667,7 +3737,7 @@ export namespace warehouse {
          */
         public async warehouseContainerRemovePosition(id: string, movementId: string): Promise<controllers.ContainerResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}`)
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}`)
             return await resp.json() as controllers.ContainerResponse
         }
 
@@ -3678,13 +3748,13 @@ export namespace warehouse {
     movementIds: string[]
 }): Promise<controllers.ContainerResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions-order`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/containers/${encodeURIComponent(id)}/positions-order`, JSON.stringify(params))
             return await resp.json() as controllers.ContainerResponse
         }
 
         public async warehouseContainerSetStuffed(id: string, movementId: string, params: controllers.ContainerStuffedRequest): Promise<controllers.ContainerActionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}/stuffed`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}/stuffed`, JSON.stringify(params))
             return await resp.json() as controllers.ContainerActionResponse
         }
 
@@ -3695,7 +3765,7 @@ export namespace warehouse {
          */
         public async warehouseContainerStamp(id: string, params: controllers.ContainerStampRequest): Promise<controllers.ContainerActionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/stamp`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/containers/${encodeURIComponent(id)}/stamp`, JSON.stringify(params))
             return await resp.json() as controllers.ContainerActionResponse
         }
 
@@ -3706,7 +3776,7 @@ export namespace warehouse {
          */
         public async warehouseContainerTally(id: string, movementId: string, params: controllers.ContainerTallyRequest): Promise<controllers.ContainerTallyResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}/tally`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}/tally`, JSON.stringify(params))
             return await resp.json() as controllers.ContainerTallyResponse
         }
 
@@ -3716,7 +3786,7 @@ export namespace warehouse {
          */
         public async warehouseContainerUpdate(id: string, params: controllers.ContainerUpdateRequest): Promise<controllers.ContainerResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-containers/${encodeURIComponent(id)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/containers/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.ContainerResponse
         }
 
@@ -3729,7 +3799,7 @@ export namespace warehouse {
     reason: string
 }): Promise<controllers.ContainerVoidResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/void-stamp`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/containers/${encodeURIComponent(id)}/void-stamp`, JSON.stringify(params))
             return await resp.json() as controllers.ContainerVoidResponse
         }
 
@@ -3741,7 +3811,7 @@ export namespace warehouse {
     reason: string
 }): Promise<controllers.ContainerVoidResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}/void-tally`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}/void-tally`, JSON.stringify(params))
             return await resp.json() as controllers.ContainerVoidResponse
         }
 
@@ -3749,25 +3819,25 @@ export namespace warehouse {
          * Adds one shipment to the warehouse; the server assigns its WCZ reference and makes its gate
          * record in the same transaction. (Several at once: warehouseImport.)
          */
-        public async warehouseCreate(params: controllers.WarehouseCreateRequest): Promise<controllers.WarehouseCreateResponse> {
+        public async warehouseCreate(params: controllers.WarehouseConceptCreateRequest): Promise<controllers.WarehouseConceptCreateResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse`, JSON.stringify(params))
-            return await resp.json() as controllers.WarehouseCreateResponse
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseConceptCreateResponse
         }
 
         /**
          * Removes a position the gate never stamped; its gate records are archived with it (kept).
          * A position whose gate record has stamps needs a manager and a reason: warehousePositionRemove.
          */
-        public async warehouseDelete(taskId: string): Promise<controllers.WarehouseDeleteResponse> {
+        public async warehouseDelete(taskId: string): Promise<controllers.WarehouseConceptDeleteResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse/${encodeURIComponent(taskId)}`)
-            return await resp.json() as controllers.WarehouseDeleteResponse
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/${encodeURIComponent(taskId)}`)
+            return await resp.json() as controllers.WarehouseConceptDeleteResponse
         }
 
         public async warehouseDockSlotCreate(params: interfaces.WarehouseDockSlotInput): Promise<controllers.DockSlotResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-dock-slots`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/dock-slots`, JSON.stringify(params))
             return await resp.json() as controllers.DockSlotResponse
         }
 
@@ -3775,7 +3845,7 @@ export namespace warehouse {
     ok: boolean
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-dock-slots/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/dock-slots/${encodeURIComponent(id)}`)
             return await resp.json() as {
     ok: boolean
 }
@@ -3783,19 +3853,19 @@ export namespace warehouse {
 
         public async warehouseDockSlotList(): Promise<controllers.DockSlotListResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-dock-slots`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/dock-slots`)
             return await resp.json() as controllers.DockSlotListResponse
         }
 
         public async warehouseDockSlotUpdate(id: string, params: controllers.DockSlotUpdateRequest): Promise<controllers.DockSlotResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-dock-slots/${encodeURIComponent(id)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/dock-slots/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.DockSlotResponse
         }
 
         public async warehouseEquipmentCreate(params: interfaces.WarehouseEquipmentInput): Promise<controllers.EquipmentResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-equipment`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/equipment`, JSON.stringify(params))
             return await resp.json() as controllers.EquipmentResponse
         }
 
@@ -3803,7 +3873,7 @@ export namespace warehouse {
     ok: boolean
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-equipment/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/equipment/${encodeURIComponent(id)}`)
             return await resp.json() as {
     ok: boolean
 }
@@ -3811,13 +3881,13 @@ export namespace warehouse {
 
         public async warehouseEquipmentList(): Promise<controllers.EquipmentListResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-equipment`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/equipment`)
             return await resp.json() as controllers.EquipmentListResponse
         }
 
         public async warehouseEquipmentUpdate(id: string, params: controllers.EquipmentUpdateRequest): Promise<controllers.EquipmentResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-equipment/${encodeURIComponent(id)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/equipment/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.EquipmentResponse
         }
 
@@ -3827,7 +3897,7 @@ export namespace warehouse {
          */
         public async warehouseImport(params: controllers.WarehouseImportRequest): Promise<controllers.WarehouseImportResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse/import`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/import`, JSON.stringify(params))
             return await resp.json() as controllers.WarehouseImportResponse
         }
 
@@ -3845,7 +3915,7 @@ export namespace warehouse {
             })
 
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-kpis`, undefined, {query})
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/kpis`, undefined, {query})
             return await resp.json() as {
     report: interfaces.WarehouseKpiReport
 }
@@ -3855,15 +3925,15 @@ export namespace warehouse {
          * One shipment's positions (the Shipments → Warehouse tab) are there for every company; the whole
          * list is the Warehouse Concept's Positions screen.
          */
-        public async warehouseList(params: controllers.WarehouseListRequest): Promise<controllers.WarehouseListResponse> {
+        public async warehouseList(params: controllers.WarehouseConceptListRequest): Promise<controllers.WarehouseConceptListResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
                 shipmentId: params.shipmentId,
             })
 
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse`, undefined, {query})
-            return await resp.json() as controllers.WarehouseListResponse
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept`, undefined, {query})
+            return await resp.json() as controllers.WarehouseConceptListResponse
         }
 
         /**
@@ -3873,7 +3943,7 @@ export namespace warehouse {
          */
         public async warehousePositionCreate(params: controllers.WarehousePositionCreateRequest): Promise<controllers.WarehousePositionCreateResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/positions`, JSON.stringify(params))
             return await resp.json() as controllers.WarehousePositionCreateResponse
         }
 
@@ -3882,12 +3952,12 @@ export namespace warehouse {
          * position. Nothing is e-mailed. A resend is allowed and kept in the history; logged.
          */
         public async warehousePositionMarkSent(taskId: string, params: controllers.PositionMarkSentRequest): Promise<{
-    section: interfaces.WarehouseSectionItem
+    section: interfaces.WarehouseConceptSectionItem
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions/${encodeURIComponent(taskId)}/mark-sent`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/positions/${encodeURIComponent(taskId)}/mark-sent`, JSON.stringify(params))
             return await resp.json() as {
-    section: interfaces.WarehouseSectionItem
+    section: interfaces.WarehouseConceptSectionItem
 }
         }
 
@@ -3896,10 +3966,10 @@ export namespace warehouse {
          * with it (kept, with the reason). A position whose gate record has stamps is removed only by a
          * manager with a reason.
          */
-        public async warehousePositionRemove(taskId: string, params: controllers.WarehousePositionRemoveRequest): Promise<controllers.WarehouseDeleteResponse> {
+        public async warehousePositionRemove(taskId: string, params: controllers.WarehousePositionRemoveRequest): Promise<controllers.WarehouseConceptDeleteResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions/${encodeURIComponent(taskId)}/remove`, JSON.stringify(params))
-            return await resp.json() as controllers.WarehouseDeleteResponse
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/positions/${encodeURIComponent(taskId)}/remove`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseConceptDeleteResponse
         }
 
         /**
@@ -3907,7 +3977,7 @@ export namespace warehouse {
          */
         public async warehousePositionSectionGet(taskId: string, section: string): Promise<controllers.PositionSectionResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-positions/${encodeURIComponent(taskId)}/sections/${encodeURIComponent(section)}`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/positions/${encodeURIComponent(taskId)}/sections/${encodeURIComponent(section)}`)
             return await resp.json() as controllers.PositionSectionResponse
         }
 
@@ -3918,18 +3988,18 @@ export namespace warehouse {
          * gate records.
          */
         public async warehousePositionSectionPatch(taskId: string, section: string, params: controllers.PositionSectionPatchRequest): Promise<{
-    section: interfaces.WarehouseSectionItem
+    section: interfaces.WarehouseConceptSectionItem
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-positions/${encodeURIComponent(taskId)}/sections/${encodeURIComponent(section)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/positions/${encodeURIComponent(taskId)}/sections/${encodeURIComponent(section)}`, JSON.stringify(params))
             return await resp.json() as {
-    section: interfaces.WarehouseSectionItem
+    section: interfaces.WarehouseConceptSectionItem
 }
         }
 
         public async warehousePositionSendToSupplier(taskId: string, params: controllers.SendToSupplierRequest): Promise<controllers.SendToSupplierResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions/${encodeURIComponent(taskId)}/send-to-supplier`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/positions/${encodeURIComponent(taskId)}/send-to-supplier`, JSON.stringify(params))
             return await resp.json() as controllers.SendToSupplierResponse
         }
 
@@ -3940,7 +4010,7 @@ export namespace warehouse {
     emails: interfaces.SupplierEmailItem[]
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-positions/${encodeURIComponent(taskId)}/supplier-emails`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/positions/${encodeURIComponent(taskId)}/supplier-emails`)
             return await resp.json() as {
     emails: interfaces.SupplierEmailItem[]
 }
@@ -3953,7 +4023,7 @@ export namespace warehouse {
     summary: interfaces.WarehouseReportSummary
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-reports/summary`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/reports/summary`)
             return await resp.json() as {
     summary: interfaces.WarehouseReportSummary
 }
@@ -3961,7 +4031,7 @@ export namespace warehouse {
 
         public async warehouseSavedReportCreate(params: interfaces.WarehouseSavedReportInput): Promise<controllers.SavedReportResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-saved-reports`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/saved-reports`, JSON.stringify(params))
             return await resp.json() as controllers.SavedReportResponse
         }
 
@@ -3969,7 +4039,7 @@ export namespace warehouse {
     ok: boolean
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-saved-reports/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/saved-reports/${encodeURIComponent(id)}`)
             return await resp.json() as {
     ok: boolean
 }
@@ -3977,20 +4047,20 @@ export namespace warehouse {
 
         public async warehouseSavedReportList(): Promise<controllers.SavedReportListResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-saved-reports`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/saved-reports`)
             return await resp.json() as controllers.SavedReportListResponse
         }
 
         public async warehouseSavedReportUpdate(id: string, params: controllers.SavedReportUpdateRequest): Promise<controllers.SavedReportResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-saved-reports/${encodeURIComponent(id)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/saved-reports/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.SavedReportResponse
         }
 
-        public async warehouseSectionGet(shipmentId: string, section: string): Promise<controllers.WarehouseSectionGetResponse> {
+        public async warehouseSectionGet(shipmentId: string, section: string): Promise<controllers.WarehouseConceptSectionGetResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`)
-            return await resp.json() as controllers.WarehouseSectionGetResponse
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`)
+            return await resp.json() as controllers.WarehouseConceptSectionGetResponse
         }
 
         /**
@@ -4000,7 +4070,7 @@ export namespace warehouse {
          */
         public async warehouseSectionPatch(shipmentId: string, section: string, params: controllers.WarehouseSectionPatchRequest): Promise<controllers.WarehouseSectionPatchResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
             return await resp.json() as controllers.WarehouseSectionPatchResponse
         }
 
@@ -4011,7 +4081,7 @@ export namespace warehouse {
     positions: interfaces.WarehouseSectionSummaryItem[]
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-section-summary`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/section-summary`)
             return await resp.json() as {
     positions: interfaces.WarehouseSectionSummaryItem[]
 }
@@ -4023,17 +4093,17 @@ export namespace warehouse {
          * several people and screens never overwrite each other; a whole-section save of them would
          * replace what others saved meanwhile and is refused.
          */
-        public async warehouseSectionUpsert(shipmentId: string, section: string, params: controllers.WarehouseSectionUpsertRequest): Promise<controllers.WarehouseSectionUpsertResponse> {
+        public async warehouseSectionUpsert(shipmentId: string, section: string, params: controllers.WarehouseConceptSectionUpsertRequest): Promise<controllers.WarehouseConceptSectionUpsertResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
-            return await resp.json() as controllers.WarehouseSectionUpsertResponse
+            const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse-concept/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseConceptSectionUpsertResponse
         }
 
         public async warehouseSettingsGet(): Promise<{
     settings: interfaces.WarehouseSettingsItem
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-settings`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/settings`)
             return await resp.json() as {
     settings: interfaces.WarehouseSettingsItem
 }
@@ -4047,7 +4117,7 @@ export namespace warehouse {
     settings: interfaces.WarehouseSettingsItem
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-settings`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/settings`, JSON.stringify(params))
             return await resp.json() as {
     settings: interfaces.WarehouseSettingsItem
 }
@@ -4055,7 +4125,7 @@ export namespace warehouse {
 
         public async warehouseStaffCreate(params: interfaces.WarehouseStaffInput): Promise<controllers.StaffResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-staff`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/staff`, JSON.stringify(params))
             return await resp.json() as controllers.StaffResponse
         }
 
@@ -4063,7 +4133,7 @@ export namespace warehouse {
     ok: boolean
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-staff/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/staff/${encodeURIComponent(id)}`)
             return await resp.json() as {
     ok: boolean
 }
@@ -4071,13 +4141,13 @@ export namespace warehouse {
 
         public async warehouseStaffList(): Promise<controllers.StaffListResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-staff`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/staff`)
             return await resp.json() as controllers.StaffListResponse
         }
 
         public async warehouseStaffUpdate(id: string, params: controllers.StaffUpdateRequest): Promise<controllers.StaffResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-staff/${encodeURIComponent(id)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/staff/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as controllers.StaffResponse
         }
 
@@ -4085,7 +4155,7 @@ export namespace warehouse {
     line: interfaces.WarehouseStockLineItem
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-stock`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/stock`, JSON.stringify(params))
             return await resp.json() as {
     line: interfaces.WarehouseStockLineItem
 }
@@ -4095,7 +4165,7 @@ export namespace warehouse {
     ok: boolean
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-stock/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/stock/${encodeURIComponent(id)}`)
             return await resp.json() as {
     ok: boolean
 }
@@ -4108,7 +4178,7 @@ export namespace warehouse {
     lines: interfaces.WarehouseStockLineItem[]
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-stock`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/stock`)
             return await resp.json() as {
     lines: interfaces.WarehouseStockLineItem[]
 }
@@ -4118,7 +4188,7 @@ export namespace warehouse {
     line: interfaces.WarehouseStockLineItem
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-stock/${encodeURIComponent(id)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/stock/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as {
     line: interfaces.WarehouseStockLineItem
 }
@@ -4128,7 +4198,7 @@ export namespace warehouse {
     movement: interfaces.WarehouseStockMovementItem
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-stock-movements`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/stock-movements`, JSON.stringify(params))
             return await resp.json() as {
     movement: interfaces.WarehouseStockMovementItem
 }
@@ -4138,7 +4208,7 @@ export namespace warehouse {
     movements: interfaces.WarehouseStockMovementItem[]
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-stock-movements`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/stock-movements`)
             return await resp.json() as {
     movements: interfaces.WarehouseStockMovementItem[]
 }
@@ -4152,23 +4222,23 @@ export namespace warehouse {
     result: interfaces.WarehouseStockSyncResult
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-stock/sync`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/stock/sync`, JSON.stringify(params))
             return await resp.json() as {
     result: interfaces.WarehouseStockSyncResult
 }
         }
 
-        public async warehouseUpdate(taskId: string, params: controllers.WarehouseUpdateRequest): Promise<controllers.WarehouseUpdateResponse> {
+        public async warehouseUpdate(taskId: string, params: controllers.WarehouseConceptUpdateRequest): Promise<controllers.WarehouseConceptUpdateResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse/${encodeURIComponent(taskId)}`, JSON.stringify(params))
-            return await resp.json() as controllers.WarehouseUpdateResponse
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/${encodeURIComponent(taskId)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseConceptUpdateResponse
         }
 
         public async warehouseZoneCreate(params: interfaces.WarehouseZoneInput): Promise<{
     zone: interfaces.WarehouseZoneItem
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-zones`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-concept/zones`, JSON.stringify(params))
             return await resp.json() as {
     zone: interfaces.WarehouseZoneItem
 }
@@ -4178,7 +4248,7 @@ export namespace warehouse {
     ok: boolean
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-zones/${encodeURIComponent(id)}`)
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-concept/zones/${encodeURIComponent(id)}`)
             return await resp.json() as {
     ok: boolean
 }
@@ -4188,7 +4258,7 @@ export namespace warehouse {
     zones: interfaces.WarehouseZoneItem[]
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-zones`)
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-concept/zones`)
             return await resp.json() as {
     zones: interfaces.WarehouseZoneItem[]
 }
@@ -4198,7 +4268,7 @@ export namespace warehouse {
     zone: interfaces.WarehouseZoneItem
 }> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-zones/${encodeURIComponent(id)}`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-concept/zones/${encodeURIComponent(id)}`, JSON.stringify(params))
             return await resp.json() as {
     zone: interfaces.WarehouseZoneItem
 }
@@ -4608,17 +4678,6 @@ export namespace controllers {
 
     export interface CompanyListResponse {
         companies: services.CompanyInfo[]
-    }
-
-    export interface CompanyModulesUpdateRequest {
-        /**
-         * The modules the company's users do not get; [] shows everything
-         */
-        hiddenModules: interfaces.AppModule[]
-    }
-
-    export interface CompanyModulesUpdateResponse {
-        company: services.CompanyInfo
     }
 
     export interface CompanyProvisionRequest {
@@ -5199,6 +5258,17 @@ export namespace controllers {
 
     export interface DocumentListResponse {
         data: interfaces.DocumentItem[]
+    }
+
+    export interface EnsureRefsRequest {
+        /**
+         * Shipments shown in a warehouse section; each gets its WHCZ reference.
+         */
+        shipmentIds: string[]
+    }
+
+    export interface EnsureRefsResponse {
+        refs: interfaces.WarehouseRef[]
     }
 
     export interface EquipmentListResponse {
@@ -6049,7 +6119,7 @@ export namespace controllers {
         /**
          * The pick-up section, without the PIN.
          */
-        section: interfaces.WarehouseSectionItem
+        section: interfaces.WarehouseConceptSectionItem
 
         /**
          * The new PIN — shown only in this answer; only its hash is stored.
@@ -6220,7 +6290,7 @@ export namespace controllers {
     }
 
     export interface PositionSectionResponse {
-        section: interfaces.WarehouseSectionItem | null
+        section: interfaces.WarehouseConceptSectionItem | null
     }
 
     export interface PrefGetResponse {
@@ -6703,7 +6773,7 @@ export namespace controllers {
         /**
          * The saved Shipment Details (null for a preview).
          */
-        section: interfaces.WarehouseSectionItem | null
+        section: interfaces.WarehouseConceptSectionItem | null
 
         /**
          * The attempt that was sent (null for a preview).
@@ -7383,6 +7453,10 @@ export namespace controllers {
 
     export interface TermsUpdateResponse {
         terms: interfaces.TermsConditionItem
+    }
+
+    export interface TruckCreateResponse {
+        reference: string
     }
 
     export interface TruckingAvizaceRecordRequest {
@@ -8387,16 +8461,69 @@ export namespace controllers {
         status?: string
     }
 
-    export interface WarehouseCreateRequest {
+    export interface WarehouseConceptCreateRequest {
         shipmentId: string
     }
 
-    export interface WarehouseCreateResponse {
-        task: interfaces.WarehouseTaskItem
+    export interface WarehouseConceptCreateResponse {
+        task: interfaces.WarehouseConceptTaskItem
         /**
          * False when the shipment was already in the warehouse and its existing task is returned.
          */
         created: boolean
+    }
+
+    export interface WarehouseConceptDeleteResponse {
+        ok: boolean
+    }
+
+    export interface WarehouseConceptListRequest {
+        shipmentId?: string
+    }
+
+    export interface WarehouseConceptListResponse {
+        tasks: interfaces.WarehouseConceptTaskItem[]
+    }
+
+    export interface WarehouseConceptSectionGetResponse {
+        section: interfaces.WarehouseConceptSectionItem | null
+    }
+
+    export interface WarehouseConceptSectionUpsertRequest {
+        data: any
+    }
+
+    export interface WarehouseConceptSectionUpsertResponse {
+        section: interfaces.WarehouseConceptSectionItem
+    }
+
+    export interface WarehouseConceptUpdateRequest {
+        type?: string
+        priority?: string
+        status?: string
+        assignee?: string
+        /**
+         * yyyy-mm-dd; "" clears it
+         */
+        dueDate?: string
+
+        cargo?: string
+        weight?: string
+        notes?: string
+        data?: any
+    }
+
+    export interface WarehouseConceptUpdateResponse {
+        task: interfaces.WarehouseConceptTaskItem
+    }
+
+    export interface WarehouseCreateRequest {
+        taskId: string
+        shipmentId?: string
+    }
+
+    export interface WarehouseCreateResponse {
+        task: interfaces.WarehouseTaskItem
     }
 
     export interface WarehouseDeleteResponse {
@@ -8472,7 +8599,7 @@ export namespace controllers {
     }
 
     export interface WarehousePositionCreateResponse {
-        task: interfaces.WarehouseTaskItem
+        task: interfaces.WarehouseConceptTaskItem
         movement: interfaces.GateMovementItem
     }
 
@@ -8496,7 +8623,7 @@ export namespace controllers {
     }
 
     export interface WarehouseSectionPatchResponse {
-        section: interfaces.WarehouseSectionItem
+        section: interfaces.WarehouseConceptSectionItem
     }
 
     export interface WarehouseSectionUpsertRequest {
@@ -8606,11 +8733,6 @@ export namespace interfaces {
     export type AddressType = "Registered" | "Billing" | "Pickup" | "Delivery" | "Warehouse"
 
     export type AdrPackingGroup = "I" | "II" | "III"
-
-    /**
-     * A part of the app a company can have hidden (superadmin sets it per company; superadmins always see everything).
-     */
-    export type AppModule = "warehouse_concept" | "trucking_concept"
 
     export interface AresResult {
         ico: string
@@ -14303,6 +14425,50 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    export interface WarehouseConceptSectionItem {
+        id: string
+        /**
+         * The warehouse position the section belongs to; null for the pick-up section and for shipments with no position.
+         */
+        taskId: string | null
+
+        /**
+         * The shipment of the section (for information); null for a stand-alone position.
+         */
+        shipmentId: string | null
+
+        section: string
+        data: any
+        /**
+         * Bumped by every save of the section.
+         */
+        version: number
+
+        createdAt: string
+        updatedAt: string
+    }
+
+    export interface WarehouseConceptTaskItem {
+        id: string
+        taskId: string
+        shipmentId: string | null
+        type: string
+        priority: string
+        status: string
+        assignee: string
+        /**
+         * yyyy-mm-dd, or null when not set
+         */
+        dueDate: string | null
+
+        cargo: string
+        weight: string
+        notes: string
+        data: any
+        createdAt: string
+        updatedAt: string
+    }
+
     /**
      * One position (house) in a container.
      */
@@ -14825,6 +14991,11 @@ export namespace interfaces {
         docks: KpiDockSettings
     }
 
+    export interface WarehouseRef {
+        shipmentId: string
+        reference: string
+    }
+
     export interface WarehouseReportSummary {
         throughput: ThroughputWeek[]
         topCustomers: TopCustomer[]
@@ -14856,23 +15027,9 @@ export namespace interfaces {
 
     export interface WarehouseSectionItem {
         id: string
-        /**
-         * The warehouse position the section belongs to; null for the pick-up section and for shipments with no position.
-         */
-        taskId: string | null
-
-        /**
-         * The shipment of the section (for information); null for a stand-alone position.
-         */
-        shipmentId: string | null
-
+        shipmentId: string
         section: string
         data: any
-        /**
-         * Bumped by every save of the section.
-         */
-        version: number
-
         createdAt: string
         updatedAt: string
     }
@@ -15302,10 +15459,6 @@ export namespace services {
         name: string
         slug: string
         createdAt: string
-        /**
-         * Modules the company's users do not get (superadmins still see them)
-         */
-        hiddenModules: interfaces.AppModule[]
     }
 
     export interface CountryInfo {
@@ -15390,22 +15543,9 @@ export namespace services {
     }
 
     /**
-     * The signed-in user (login, /auth/me): their info and the modules hidden from them.
+     * The signed-in user (login, /auth/me).
      */
-    export interface SessionUser {
-        /**
-         * Modules the user's company hides; always [] for a superadmin
-         */
-        hiddenModules: interfaces.AppModule[]
-
-        id: string
-        companyId: string
-        email: string
-        displayName: string
-        role: string
-        departmentId: string | null
-        branchId: string | null
-    }
+    export type SessionUser = AuthUserInfo
 
     export type StampKind = "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt"
 }

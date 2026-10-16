@@ -93,16 +93,28 @@ export function nextFailure(st: FailureState, now: Date, rule: FailureRule): Fai
  * come first and the one our nearest trusted proxy appended is counted from the end. "" when the
  * header has fewer entries (a direct call).
  */
-export function clientIp(forwardedFor: string | undefined, trustedHops: number): string {
+export function clientIp(forwardedFor: string | undefined, trustedHops: number): { ip: string; trusted: boolean } {
   const hops = (forwardedFor ?? "")
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
-  if (!hops.length) return "";
+  if (!hops.length) return { ip: "", trusted: false };
   const n = Math.max(1, Math.floor(trustedHops));
-  // Fewer entries than proxies expected: take the leftmost one there is rather than none, so a
-  // short header can never switch the per-IP throttle off.
-  return hops[Math.max(0, hops.length - n)]!.slice(0, 100);
+  // Fewer entries than proxies expected: the leftmost one there is, but not trusted as the client's
+  // own address (it may be a proxy that every user shares).
+  return { ip: hops[Math.max(0, hops.length - n)]!.slice(0, 100), trusted: hops.length >= n };
+}
+
+/**
+ * The login throttle bucket. A trusted client IP gets its own bucket. An untrusted one (a header
+ * shorter than expected) is combined with the e-mail, so an address all users may share can never
+ * lock the portal for everybody, and a short header still never turns the throttle off. No IP at
+ * all (local dev): the e-mail alone. Null only without an e-mail (nothing to log in as).
+ */
+export function throttleKey(client: { ip: string; ipTrusted: boolean }, email: string): string | null {
+  if (client.ip && client.ipTrusted) return `ip:${client.ip}`;
+  if (!email) return null;
+  return client.ip ? `ipmail:${client.ip}|${email}` : `mail:${email}`;
 }
 
 /** A new session's expiry and its absolute end. */

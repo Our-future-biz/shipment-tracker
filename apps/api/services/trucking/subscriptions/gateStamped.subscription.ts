@@ -1,5 +1,5 @@
 import { Subscription } from "encore.dev/pubsub";
-import { warehouseGateStamped } from "../../warehouse/topics";
+import { warehouseGateStamped } from "../../warehouseConcept/topics";
 import { ltlService } from "../services/ltl.service";
 
 // Warehouse owns the gate; Trucking listens. A gate-in at our warehouse puts an LTL consignment

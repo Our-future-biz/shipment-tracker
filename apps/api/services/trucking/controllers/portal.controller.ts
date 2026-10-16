@@ -70,7 +70,8 @@ export const portalLogin = api(
   { expose: true, auth: false, method: "POST", path: "/portal/login", sensitive: true },
   async ({ email, password, userAgent, forwardedFor }: PortalLoginRequest): Promise<PortalLoginResponse> => {
     log.info("trucking portal: login attempt", { forwardedHops: (forwardedFor ?? "").split(",").filter((x) => x.trim()).length });
-    return portalAuthService.login({ email, password }, { ip: clientIp(forwardedFor, TRUSTED_PROXY_HOPS), userAgent: userAgent ?? "" });
+    const client = clientIp(forwardedFor, TRUSTED_PROXY_HOPS);
+    return portalAuthService.login({ email, password }, { ip: client.ip, ipTrusted: client.trusted, userAgent: userAgent ?? "" });
   },
 );
 

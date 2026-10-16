@@ -11,7 +11,7 @@ import { EditableText } from "./EditableText";
 import { SELECT_PROPS, SELECT_WRAPPER_CLASS } from "./inlineSelect";
 import { useCustomerEdits } from "./useCustomerEdits";
 import { useCanManageCustomers } from "@/lib/auth/AuthContext";
-import { useModules } from "@/lib/auth/AuthContext";
+import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 
 const toOptions = (values: readonly string[]) => values.map((value) => ({ value, label: value }));
 
@@ -25,7 +25,7 @@ interface CustomerCrmCardProps {
 // The CRM fields of a customer: roles (customer / haulier), status, account type and website (currency and payment terms are on the Finance
 // tab). Every change saves itself.
 export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
-  const { isEnabled: isModuleOn } = useModules();
+  const canSeeConcepts = useCanSeeConcepts();
   const { shown, save } = useCustomerEdits(customer);
   // The account type is a manager's decision; the server refuses anyone else.
   const canManage = useCanManageCustomers();
@@ -44,7 +44,7 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
     <SectionCard title="CRM">
       <div>
         {/* Roles say who is a haulier: a Trucking matter, shown only with the Trucking Concept. */}
-        {isModuleOn("trucking_concept") && (
+        {canSeeConcepts && (
           <CustomerInfoRow label="Roles" narrow>
             <div className={SELECT_WRAPPER_CLASS}>
               <Select

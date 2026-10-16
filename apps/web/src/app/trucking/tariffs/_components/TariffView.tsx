@@ -11,7 +11,7 @@ import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { fetchTariffTemplate, useTariff, useTruckingSettings, type TariffDetail, type TariffUpdate, type TariffVersionSummary } from "@/hooks/useTrucking";
-import { useUnsavedGuard } from "@/app/warehouse/_lib/useUnsavedGuard";
+import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
 import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
 import { SCOPE_LABELS, TARIFF_SIDES, ZONE_BY_LABELS, discountLabel, modeLabel, ownerLabel, versionLabel } from "../../_lib/tariffs";

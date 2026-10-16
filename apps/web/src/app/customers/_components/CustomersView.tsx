@@ -42,7 +42,7 @@ import { CustomerColumnPicker, type ColumnTemplate } from "./CustomerColumnPicke
 import { CustomerFiltersPopover, type FilterTemplate, type StoredFilter } from "./CustomerFiltersPopover";
 import { TOOLBAR_BUTTON_CLASS, matchesGridFilters, storedGridFilters, withFilterId, type GridFilter } from "@/components/gridFilters";
 import { filtersFromSearchParams, writeFiltersToSearchParams } from "../_lib/customerListFilters";
-import { useModules } from "@/lib/auth/AuthContext";
+import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 
 const STATUS_PILLS = [
   { key: "all", label: "All" },
@@ -112,7 +112,7 @@ function upsertByName<T extends { id: string; name: string }>(list: T[], item: O
 }
 
 export function CustomersView() {
-  const { isEnabled: isModuleOn } = useModules();
+  const canSeeConcepts = useCanSeeConcepts();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -419,7 +419,7 @@ export function CustomersView() {
               allowClear
               className="w-44"
             />
-            {isModuleOn("trucking_concept") && (
+            {canSeeConcepts && (
               <Select
                 value={role || undefined}
                 onChange={handleRoleChange}

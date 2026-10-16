@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { czHolidays } from "../lib/czHolidays";
 import { APIError, ErrCode } from "encore.dev/api";
 import log from "encore.dev/log";
-import { customers, quotes, shipments, warehouse } from "~encore/clients";
+import { customers, quotes, shipments, warehouseConcept } from "~encore/clients";
 import { db, inTx, type Tx } from "../db/db";
 import { consignmentRepository, STAMP_COLUMNS, type ConsignmentValues } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
@@ -1385,7 +1385,7 @@ export function countsOf(items: ConsignmentListItem[], day: string, flags: ViewF
 /** The Warehouse's OSD exceptions of a job (read-only); [] when the warehouse cannot be read. */
 async function warehouseExceptionsOf(shipmentId: string): Promise<WarehouseExceptionItem[]> {
   try {
-    return (await warehouse._internalWarehouseExceptionsForShipments({ shipmentIds: [shipmentId] })).exceptions;
+    return (await warehouseConcept._internalWarehouseExceptionsForShipments({ shipmentIds: [shipmentId] })).exceptions;
   } catch (err) {
     log.warn("trucking: warehouse exceptions not read", { shipmentId, error: err instanceof Error ? err.message : String(err) });
     return [];

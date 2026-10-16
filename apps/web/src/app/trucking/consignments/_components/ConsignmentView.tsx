@@ -14,7 +14,7 @@ import { useConsignment, useConsignmentDocuments, useTrip, type ConsignmentDetai
 import { useConsignmentControl, type DeliveryException } from "@/hooks/useTruckingControl";
 import { useInternalCharges } from "@/hooks/useTruckingMoney";
 import { Badge } from "@/components/Badge";
-import { LifecycleStrip } from "@/app/warehouse/_components/LifecycleStrip";
+import { LifecycleStrip } from "@/app/warehouse-concept/_components/LifecycleStrip";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { btnDefault, btnPrimary } from "@/components/buttons";
 import { CONSIGNMENT_STATUS_CHIP, STAMP_LABELS, consignmentActions, consignmentLifecycle, reasonsBesideNotices, stampOf, statusRank, tripHref, type ActionState } from "../../_lib/consignments";

@@ -8,7 +8,6 @@ import type {
   HaulierInvoiceLineInput,
   HaulierInvoiceStatus,
 } from "../interfaces/haulierInvoice.interfaces";
-import { requireModule } from "../../../lib/modules";
 
 // Haulier invoices (Phase 6 B). Any user enters and corrects them; a manager approves one with a
 // difference or rejects one, with a reason. Approval is refused for everyone while the haulier
@@ -41,7 +40,6 @@ interface HaulierInvoiceResponse {
 export const truckingHaulierInvoiceCreate = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/haulier-invoices", bodyLimit: 15 * 1024 * 1024 },
   async (req: HaulierInvoiceBody): Promise<HaulierInvoiceResponse> => {
-    await requireModule("trucking_concept");
     return { invoice: await haulierInvoiceService.create(requireRole(), req) };
   },
 );
@@ -56,7 +54,6 @@ interface HaulierInvoiceUpdateRequest extends HaulierInvoiceBody {
 export const truckingHaulierInvoiceUpdate = api(
   { expose: true, auth: true, method: "PUT", path: "/trucking/haulier-invoices/:id", bodyLimit: 15 * 1024 * 1024 },
   async ({ id, ...req }: HaulierInvoiceUpdateRequest): Promise<HaulierInvoiceResponse> => {
-    await requireModule("trucking_concept");
     return { invoice: await haulierInvoiceService.update(requireRole(), id, req) };
   },
 );
@@ -68,7 +65,6 @@ interface HaulierInvoiceIdRequest {
 export const truckingHaulierInvoiceGet = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/haulier-invoices/:id" },
   async ({ id }: HaulierInvoiceIdRequest): Promise<HaulierInvoiceResponse> => {
-    await requireModule("trucking_concept");
     return { invoice: await haulierInvoiceService.get(requireRole(), id) };
   },
 );
@@ -85,7 +81,6 @@ interface HaulierInvoiceListResponse {
 export const truckingHaulierInvoiceList = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/haulier-invoices" },
   async (req: HaulierInvoiceListRequest): Promise<HaulierInvoiceListResponse> => {
-    await requireModule("trucking_concept");
     return { invoices: await haulierInvoiceService.list(requireRole(), req) };
   },
 );
@@ -102,7 +97,6 @@ interface HaulierInvoiceCandidatesResponse {
 export const truckingHaulierInvoiceCandidates = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/haulier-invoices/candidates" },
   async ({ haulierCustomerId }: HaulierInvoiceCandidatesRequest): Promise<HaulierInvoiceCandidatesResponse> => {
-    await requireModule("trucking_concept");
     return { targets: await haulierInvoiceService.candidates(requireRole(), haulierCustomerId) };
   },
 );
@@ -116,7 +110,6 @@ interface HaulierInvoiceReasonRequest {
 export const truckingHaulierInvoiceApprove = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/haulier-invoices/:id/approve" },
   async ({ id, reason }: HaulierInvoiceReasonRequest): Promise<HaulierInvoiceResponse> => {
-    await requireModule("trucking_concept");
     return { invoice: await haulierInvoiceService.approve(requireRole(), id, reason) };
   },
 );
@@ -125,7 +118,6 @@ export const truckingHaulierInvoiceApprove = api(
 export const truckingHaulierInvoiceReject = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/haulier-invoices/:id/reject" },
   async ({ id, reason }: HaulierInvoiceReasonRequest): Promise<HaulierInvoiceResponse> => {
-    await requireModule("trucking_concept");
     return { invoice: await haulierInvoiceService.reject(requireRole(), id, reason) };
   },
 );
@@ -137,7 +129,6 @@ interface HaulierInvoiceFileResponse {
 export const truckingHaulierInvoiceFile = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/haulier-invoices/:id/file" },
   async ({ id }: HaulierInvoiceIdRequest): Promise<HaulierInvoiceFileResponse> => {
-    await requireModule("trucking_concept");
     return { file: await haulierInvoiceService.file(requireRole(), id) };
   },
 );

@@ -7,7 +7,7 @@ import { CameraOutlined, PaperClipOutlined, PlusOutlined } from "@ant-design/ico
 import type { DeliveryException } from "@/hooks/useTruckingControl";
 import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
 import { businessDateTime } from "@/lib/date";
-import { remeasurementHref } from "@/app/warehouse/_components/remeasurementLinks";
+import { remeasurementHref } from "@/app/warehouse-concept/_components/remeasurementLinks";
 import { btnDefault, btnPrimary } from "@/components/buttons";
 import { CAUSE_LABELS, DECISION_LABELS, EXCEPTION_KIND_LABELS, FAILED_REASON_LABELS, closeState, decideState, exceptionChip } from "../../_lib/exceptions";
 import type { ActionState } from "../../_lib/consignments";

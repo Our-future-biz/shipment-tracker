@@ -10,7 +10,7 @@ import { STOCK_RECORD_KEYS, warehouseRecordKeys } from "./warehouseKeys";
 export function useStockSync() {
   const queryClient = useQueryClient();
   const mutation = useMutation({
-    mutationFn: async (dryRun: boolean) => (await api.warehouse.warehouseStockSync({ dryRun })).result,
+    mutationFn: async (dryRun: boolean) => (await api.warehouseConcept.warehouseStockSync({ dryRun })).result,
     onSuccess: (_r, dryRun) => {
       if (dryRun) return;
       for (const key of STOCK_RECORD_KEYS) {

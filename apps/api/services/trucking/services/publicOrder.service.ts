@@ -15,7 +15,6 @@ import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { consignmentService } from "./consignment.service";
 import { assertNoPod, insertDocument, POD_ON_FILE_HAULIER, withStoredFile } from "./truckingDocument.service";
 import { deliverDue } from "./truckingOutbox.service";
-import { moduleHidden } from "../../../lib/modules";
 
 // The haulier's page (no login): the transport order without the customer's prices, Confirm /
 // Reject once, and the POD upload. The link's token is 32 random bytes; only its SHA-256 is
@@ -113,8 +112,6 @@ class PublicOrderService {
     if (!looksLikeToken(token)) throw invalid();
     const link = await tripRepository.linkByHash(hashToken(token));
     if (!link || !tokenMatches(link.tokenHash, token) || link.revokedAt || link.expiresAt.getTime() < Date.now()) throw invalid();
-    // A company that hides Trucking has no live links either (same 404, nothing told about why).
-    if (await moduleHidden(link.companyId, "trucking_concept")) throw invalid();
     const trip = await tripRepository.find(link.companyId, link.tripId);
     if (!trip || trip.cancelledAt) throw invalid();
     const c = await consignmentRepository.findByTrip(link.companyId, trip.id);

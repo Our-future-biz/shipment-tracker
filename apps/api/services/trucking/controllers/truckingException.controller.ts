@@ -9,7 +9,6 @@ import type {
   ExceptionKind,
   FailedReason,
 } from "../interfaces/avizace.interfaces";
-import { requireModule } from "../../../lib/modules";
 
 interface TruckingExceptionResponse {
   exception: DeliveryException;
@@ -37,7 +36,6 @@ interface TruckingExceptionCreateRequest {
 export const truckingExceptionCreate = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/consignments/:id/exceptions" },
   async ({ id, ...input }: TruckingExceptionCreateRequest): Promise<TruckingExceptionResponse> => {
-    await requireModule("trucking_concept");
     return { exception: await exceptionService.create(requireRole(), id, input) };
   },
 );
@@ -57,7 +55,6 @@ interface TruckingExceptionDecideRequest {
 export const truckingExceptionDecide = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/exceptions/:id/decide" },
   async ({ id, ...input }: TruckingExceptionDecideRequest): Promise<TruckingExceptionResponse> => {
-    await requireModule("trucking_concept");
     return { exception: await exceptionService.decide(requireRole(), id, input) };
   },
 );
@@ -71,7 +68,6 @@ interface TruckingExceptionCloseRequest {
 export const truckingExceptionClose = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/exceptions/:id/close" },
   async ({ id, note }: TruckingExceptionCloseRequest): Promise<TruckingExceptionResponse> => {
-    await requireModule("trucking_concept");
     return { exception: await exceptionService.close(requireRole(), id, note) };
   },
 );
@@ -86,7 +82,6 @@ interface TruckingExceptionPhotoRequest {
 export const truckingExceptionPhoto = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/exceptions/:id/photos" },
   async ({ id, fileName, fileBase64 }: TruckingExceptionPhotoRequest): Promise<TruckingExceptionResponse> => {
-    await requireModule("trucking_concept");
     return { exception: await exceptionService.addPhoto(requireRole(), id, { fileName, fileBase64 }) };
   },
 );
@@ -105,7 +100,6 @@ interface TruckingExceptionListResponse {
 export const truckingExceptionList = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/exceptions" },
   async (q: TruckingExceptionListRequest): Promise<TruckingExceptionListResponse> => {
-    await requireModule("trucking_concept");
     return { exceptions: await exceptionService.list(requireRole(), q) };
   },
 );

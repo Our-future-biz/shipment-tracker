@@ -18,7 +18,7 @@ import { TruckingTab } from "./_tabs/TruckingTab";
 import { FinanceTab } from "./_tabs/FinanceTab";
 import { DocumentsTab } from "./_tabs/DocumentsTab";
 import { CommunicationTab } from "./_tabs/CommunicationTab";
-import { useModules } from "@/lib/auth/AuthContext";
+import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 
 const DEFAULT_TAB = "overview";
 
@@ -35,8 +35,9 @@ export function CustomerDetailContent() {
   const rawTab = searchParams.get("tab") ?? DEFAULT_TAB;
   const tabKey = CUSTOMER_TAB_ALIASES[rawTab] ?? rawTab;
   // The Trucking tab only while the company has the Trucking Concept (Platform → Companies).
-  const { isEnabled: isModuleOn } = useModules();
-  const detailTabs = CUSTOMER_DETAIL_TABS.filter((t) => t.key !== "trucking" || isModuleOn("trucking_concept"));
+  const canSeeConcepts = useCanSeeConcepts();
+  // Trucking and its loading/unloading Sites belong to Trucking Concept (superadmins only).
+  const detailTabs = CUSTOMER_DETAIL_TABS.filter((t) => canSeeConcepts || (t.key !== "trucking" && t.key !== "sites"));
   const activeTab = detailTabs.some((t) => t.key === tabKey) ? tabKey : DEFAULT_TAB;
 
   const handleSelectTab = (key: string) => {

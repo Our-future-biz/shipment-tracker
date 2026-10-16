@@ -1,17 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { navItemVisible } from "./AppSidebar";
+import { navItemVisible, visibleNavItems } from "./AppSidebar";
 
-describe("navItemVisible", () => {
-  const user = { role: "user", hiddenModules: ["trucking_concept"] };
+const labels = (role: string) => visibleNavItems({ role }).map((i) => i.label);
 
-  it("hides the items of a hidden module, keeps the rest", () => {
-    expect(navItemVisible({ module: "trucking_concept" }, user)).toBe(false);
-    expect(navItemVisible({ module: "warehouse_concept" }, user)).toBe(true);
-    expect(navItemVisible({}, user)).toBe(true);
+describe("the menu", () => {
+  it("shows the normal Warehouse to everyone and the concepts to superadmins only", () => {
+    for (const role of ["user", "manager", "admin"]) {
+      expect(labels(role)).toContain("Warehouse");
+      expect(labels(role)).not.toContain("Warehouse Concept");
+      expect(labels(role)).not.toContain("Trucking Concept");
+    }
+    expect(labels("superadmin")).toEqual(expect.arrayContaining(["Warehouse", "Warehouse Concept", "Trucking Concept"]));
   });
 
-  it("keeps role rules and shows a superadmin every module", () => {
-    expect(navItemVisible({ roles: ["admin"] }, user)).toBe(false);
-    expect(navItemVisible({ module: "trucking_concept" }, { role: "superadmin", hiddenModules: ["trucking_concept"] })).toBe(true);
+  it("keeps role rules", () => {
+    expect(navItemVisible({ roles: ["admin"] }, { role: "user" })).toBe(false);
+    expect(navItemVisible({}, { role: "user" })).toBe(true);
+    expect(navItemVisible({ roles: ["superadmin"] }, null)).toBe(false);
   });
 });

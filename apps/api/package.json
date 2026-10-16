@@ -15,6 +15,7 @@
     "db:generate:invoicing": "drizzle-kit generate --config=services/invoicing/db/drizzle.config.ts",
     "db:generate:automation": "drizzle-kit generate --config=services/automation/db/drizzle.config.ts",
     "db:generate:warehouse": "drizzle-kit generate --config=services/warehouse/db/drizzle.config.ts",
+    "db:generate:warehouseConcept": "drizzle-kit generate --config=services/warehouseConcept/db/drizzle.config.ts",
     "db:generate:holidays": "drizzle-kit generate --config=services/holidays/db/drizzle.config.ts",
     "db:generate:customers": "drizzle-kit generate --config=services/customers/db/drizzle.config.ts",
     "db:generate:sales": "drizzle-kit generate --config=services/sales/db/drizzle.config.ts",

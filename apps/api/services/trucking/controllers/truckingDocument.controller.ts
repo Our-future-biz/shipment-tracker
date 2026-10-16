@@ -2,7 +2,6 @@ import { api } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
 import { truckingDocumentService } from "../services/truckingDocument.service";
 import type { FileDownload, TruckingDocumentItem, TruckingDocumentKind } from "../interfaces/interfaces";
-import { requireModule } from "../../../lib/modules";
 
 interface TruckingDocumentListRequest {
   id: string;
@@ -15,7 +14,6 @@ interface TruckingDocumentListResponse {
 export const truckingDocumentList = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/consignments/:id/documents" },
   async ({ id }: TruckingDocumentListRequest): Promise<TruckingDocumentListResponse> => {
-    await requireModule("trucking_concept");
     return { documents: await truckingDocumentService.list(requireRole(), id) };
   },
 );
@@ -37,7 +35,6 @@ export const truckingDocumentUpload = api(
   // 15 MiB: a 10 MB file is ~13.4 MB as base64.
   { expose: true, auth: true, method: "POST", path: "/trucking/consignments/:id/documents", bodyLimit: 15 * 1024 * 1024 },
   async ({ id, ...input }: TruckingDocumentUploadRequest): Promise<TruckingDocumentUploadResponse> => {
-    await requireModule("trucking_concept");
     return { document: await truckingDocumentService.upload(requireRole(), id, input) };
   },
 );
@@ -53,7 +50,6 @@ interface TruckingDocumentContentResponse {
 export const truckingDocumentContent = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/documents/:docId" },
   async ({ docId }: TruckingDocumentContentRequest): Promise<TruckingDocumentContentResponse> => {
-    await requireModule("trucking_concept");
     return { file: await truckingDocumentService.content(requireRole(), docId) };
   },
 );
@@ -71,7 +67,6 @@ interface TruckingDocumentReplacePodRequest {
 export const truckingDocumentReplacePod = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/documents/:docId/replace", bodyLimit: 15 * 1024 * 1024 },
   async ({ docId, ...input }: TruckingDocumentReplacePodRequest): Promise<TruckingDocumentUploadResponse> => {
-    await requireModule("trucking_concept");
     return { document: await truckingDocumentService.replacePod(requireRole(), docId, input) };
   },
 );

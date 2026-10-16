@@ -48,7 +48,7 @@ export function useKpiPeriod(): { preset: KpiPreset; range: KpiRange; setPreset:
 export function useKpiReport(range: KpiRange) {
   const query = useQuery({
     queryKey: warehouseRecordKeys.kpis(range.from, range.to),
-    queryFn: async () => (await api.warehouse.warehouseKpis({ from: range.from, to: range.to })).report,
+    queryFn: async () => (await api.warehouseConcept.warehouseKpis({ from: range.from, to: range.to })).report,
     placeholderData: (prev) => prev,
   });
   return { report: query.data, isLoading: query.isLoading, isFetching: query.isFetching, error: query.error };

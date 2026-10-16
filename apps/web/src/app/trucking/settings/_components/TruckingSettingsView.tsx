@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useTruckingSettings, type TruckingSettings } from "@/hooks/useTrucking";
-import { useUnsavedGuard } from "@/app/warehouse/_lib/useUnsavedGuard";
+import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
 import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
 import { CONFLICT_TEXT, isVersionConflict } from "../../_lib/saveConflict";

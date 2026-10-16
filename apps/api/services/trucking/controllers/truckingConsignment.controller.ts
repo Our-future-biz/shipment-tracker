@@ -15,7 +15,6 @@ import type {
   StampKind,
   StopInput,
 } from "../interfaces/interfaces";
-import { requireModule } from "../../../lib/modules";
 
 interface TruckingConsignmentListRequest {
   status?: ConsignmentStatus;
@@ -35,7 +34,6 @@ interface TruckingConsignmentListResponse {
 export const truckingConsignmentList = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/consignments" },
   async (req: TruckingConsignmentListRequest): Promise<TruckingConsignmentListResponse> => {
-    await requireModule("trucking_concept");
     return consignmentService.list(requireRole(), req);
   },
 );
@@ -73,7 +71,6 @@ interface TruckingConsignmentCreateRequest {
 export const truckingConsignmentCreate = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/consignments" },
   async (req: TruckingConsignmentCreateRequest): Promise<TruckingConsignmentResponse> => {
-    await requireModule("trucking_concept");
     return { consignment: await consignmentService.create(requireRole(), req) };
   },
 );
@@ -85,7 +82,6 @@ interface TruckingConsignmentGetRequest {
 export const truckingConsignmentGet = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/consignments/:id" },
   async ({ id }: TruckingConsignmentGetRequest): Promise<TruckingConsignmentResponse> => {
-    await requireModule("trucking_concept");
     return { consignment: await consignmentService.get(requireRole(), id) };
   },
 );
@@ -118,7 +114,6 @@ interface TruckingConsignmentUpdateRequest {
 export const truckingConsignmentUpdate = api(
   { expose: true, auth: true, method: "PUT", path: "/trucking/consignments/:id" },
   async ({ id, ...input }: TruckingConsignmentUpdateRequest): Promise<TruckingConsignmentResponse> => {
-    await requireModule("trucking_concept");
     return { consignment: await consignmentService.update(requireRole(), id, input) };
   },
 );
@@ -133,7 +128,6 @@ interface TruckingConsignmentReasonRequest {
 export const truckingConsignmentCancel = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/consignments/:id/cancel" },
   async ({ id, reason }: TruckingConsignmentReasonRequest): Promise<TruckingConsignmentResponse> => {
-    await requireModule("trucking_concept");
     return { consignment: await consignmentService.cancel(requireRole(), id, reason) };
   },
 );
@@ -142,7 +136,6 @@ export const truckingConsignmentCancel = api(
 export const truckingConsignmentApproveMargin = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/consignments/:id/margin-approval" },
   async ({ id, reason }: TruckingConsignmentReasonRequest): Promise<TruckingConsignmentResponse> => {
-    await requireModule("trucking_concept");
     return { consignment: await consignmentService.approveMargin(requireRole(), id, reason) };
   },
 );
@@ -159,7 +152,6 @@ interface TruckingConsignmentStampRequest {
 export const truckingConsignmentStamp = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/consignments/:id/stamps/:kind" },
   async ({ id, kind, at }: TruckingConsignmentStampRequest): Promise<TruckingConsignmentResponse> => {
-    await requireModule("trucking_concept");
     return { consignment: await consignmentService.stamp(requireRole(), id, kind as StampKind, at ?? null) };
   },
 );
@@ -174,7 +166,6 @@ interface TruckingConsignmentVoidStampRequest {
 export const truckingConsignmentVoidStamp = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/consignments/:id/stamps/:kind/void" },
   async ({ id, kind, reason }: TruckingConsignmentVoidStampRequest): Promise<TruckingConsignmentResponse> => {
-    await requireModule("trucking_concept");
     return { consignment: await consignmentService.voidStamp(requireRole(), id, kind as StampKind, reason) };
   },
 );
@@ -191,7 +182,6 @@ interface TruckingConsignmentClearNoticeRequest {
 export const truckingConsignmentClearNotice = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/consignments/:id/notices/clear" },
   async ({ id, key, reason }: TruckingConsignmentClearNoticeRequest): Promise<TruckingConsignmentResponse> => {
-    await requireModule("trucking_concept");
     return { consignment: await consignmentService.clearNotice(requireRole(), id, key, reason) };
   },
 );
@@ -208,7 +198,6 @@ interface TruckingDepartmentRefreshResponse {
 export const truckingDepartmentRefresh = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/departments/refresh" },
   async (): Promise<TruckingDepartmentRefreshResponse> => {
-    await requireModule("trucking_concept");
     return consignmentService.refreshAllDepartments(requireRole());
   },
 );

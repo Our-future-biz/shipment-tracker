@@ -12,7 +12,6 @@ import type {
   VehicleTypeSetting,
   WaitingFreeTime,
 } from "../interfaces/interfaces";
-import { requireModule } from "../../../lib/modules";
 
 interface TruckingSettingsResponse {
   settings: TruckingSettings;
@@ -24,7 +23,6 @@ interface TruckingSettingsResponse {
 export const truckingSettingsGet = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/settings" },
   async (): Promise<TruckingSettingsResponse> => {
-    await requireModule("trucking_concept");
     return { settings: await settingsService.get(getAuthData()!.companyID) };
   },
 );
@@ -47,7 +45,6 @@ interface TruckingSettingsUpdateRequest {
 export const truckingSettingsUpdate = api(
   { expose: true, auth: true, method: "PUT", path: "/trucking/settings" },
   async ({ version, ...input }: TruckingSettingsUpdateRequest): Promise<TruckingSettingsResponse> => {
-    await requireModule("trucking_concept");
     const { userID, companyID, role } = requireRole("superadmin", "admin", "manager");
     return { settings: await settingsService.update(companyID, userID, role, input, version) };
   },

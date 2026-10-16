@@ -2,7 +2,6 @@ import { api } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
 import { tariffService } from "../services/tariff.service";
 import type { TariffDetail, TariffMode, TariffScope, TariffSide, ZoneBy } from "../interfaces/interfaces";
-import { requireModule } from "../../../lib/modules";
 
 interface TruckingTariffCreateRequest {
   side: TariffSide;
@@ -25,7 +24,6 @@ interface TruckingTariffResponse {
 export const truckingTariffCreate = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/tariffs" },
   async (input: TruckingTariffCreateRequest): Promise<TruckingTariffResponse> => {
-    await requireModule("trucking_concept");
     const { userID, companyID, role } = requireRole("superadmin", "admin", "manager");
     return { tariff: await tariffService.create(companyID, userID, role, input) };
   },

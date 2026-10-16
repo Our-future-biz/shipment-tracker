@@ -1,5 +1,5 @@
 {
-  "id": "bc7ea3c3-3ad2-4ad9-a693-6e206422fdd1",
+  "id": "9a0c37da-c8d2-4dfa-b8c9-e2f7e6152893",
   "prevId": "eb62fb6f-eacb-4e5b-914b-0f34fda1f07c",
   "version": "7",
   "dialect": "postgresql",
@@ -43,7 +43,7 @@
         },
         "shipment_id": {
           "name": "shipment_id",
-          "type": "text",
+          "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
@@ -144,6 +144,7 @@
             }
           ],
           "isUnique": true,
+          "where": "deleted_at IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -235,10 +236,9 @@
         },
         "due_date": {
           "name": "due_date",
-          "type": "text",
+          "type": "date",
           "primaryKey": false,
-          "notNull": true,
-          "default": "''"
+          "notNull": false
         },
         "cargo": {
           "name": "cargo",
@@ -347,28 +347,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "warehouse_task_company_shipment_unique": {
-          "name": "warehouse_task_company_shipment_unique",
-          "columns": [
-            {
-              "expression": "company_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "shipment_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "deleted_at IS NULL AND shipment_id IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

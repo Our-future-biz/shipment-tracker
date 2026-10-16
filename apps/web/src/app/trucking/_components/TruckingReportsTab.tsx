@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Alert, Spin } from "antd";
 import { FileExcelOutlined } from "@ant-design/icons";
-import { KpiCard, KpiPeriodBar } from "@/app/warehouse/_components/kpi/KpiCards";
+import { KpiCard, KpiPeriodBar } from "@/app/warehouse-concept/_components/kpi/KpiCards";
 import { btnDefault } from "@/components/buttons";
 import { useKpiPeriod } from "@/hooks/useKpis";
 import { useTruckingSettings } from "@/hooks/useTrucking";

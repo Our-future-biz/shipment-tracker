@@ -18,7 +18,7 @@ const attemptsKey = supplierEmailAttemptsKey;
 export function useSupplierEmails(taskId: string | null | undefined) {
   const query = useQuery({
     queryKey: attemptsKey(taskId ?? ""),
-    queryFn: () => api.warehouse.warehousePositionSupplierEmails(taskId!),
+    queryFn: () => api.warehouseConcept.warehousePositionSupplierEmails(taskId!),
     enabled: !!taskId,
   });
   return { emails: query.data?.emails ?? [], isLoading: query.isLoading };
@@ -27,7 +27,7 @@ export function useSupplierEmails(taskId: string | null | undefined) {
 export function useSupplierEmailPreview(taskId: string | null | undefined, what: SupplierKind | null) {
   return useQuery({
     queryKey: supplierEmailPreviewKey(taskId ?? "", what ?? ""),
-    queryFn: async () => (await api.warehouse.warehousePositionSendToSupplier(taskId!, { what: what!, previewOnly: true })).preview,
+    queryFn: async () => (await api.warehouseConcept.warehousePositionSendToSupplier(taskId!, { what: what!, previewOnly: true })).preview,
     enabled: !!taskId && !!what,
     staleTime: 0,
     gcTime: 0,
@@ -47,10 +47,10 @@ export function useSendToSupplier(taskId: string | null | undefined) {
   };
   return useMutation({
     mutationFn: ({ what, note, clientRequestId }: { what: SupplierKind; note: string; clientRequestId: string }) =>
-      api.warehouse.warehousePositionSendToSupplier(taskId!, { what, note, clientRequestId }),
+      api.warehouseConcept.warehousePositionSendToSupplier(taskId!, { what, note, clientRequestId }),
     onSuccess: (res) => {
       if (res.section) {
-        queryClient.setQueryData<controllers.WarehouseSectionGetResponse>(sectionKeys.ofTask(taskId ?? "", "job"), { section: res.section });
+        queryClient.setQueryData<controllers.WarehouseConceptSectionGetResponse>(sectionKeys.ofTask(taskId ?? "", "job"), { section: res.section });
       }
       refresh();
     },

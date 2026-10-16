@@ -11,7 +11,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { businessToday, formatDate, businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useHaulier, useTruckingSettings, type HaulierDetail, type HaulierUpdate } from "@/hooks/useTrucking";
-import { useUnsavedGuard } from "@/app/warehouse/_lib/useUnsavedGuard";
+import { useUnsavedGuard } from "@/app/warehouse-concept/_lib/useUnsavedGuard";
 import { TERMS } from "../../_lib/glossary";
 import { COST_SPLIT_LABELS, CURRENCIES, profileProblems, type LaneDraft } from "../../_lib/hauliers";
 import { isTruckingManager, managerOnlyReason } from "../../_lib/roles";

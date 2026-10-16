@@ -3,7 +3,6 @@ import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
 import { tariffFileService } from "../services/tariffFile.service";
 import type { FileDownload, TariffImportResult } from "../interfaces/interfaces";
-import { requireModule } from "../../../lib/modules";
 
 interface TruckingFileResponse {
   file: FileDownload;
@@ -21,7 +20,6 @@ interface TruckingTariffTemplateRequest {
 export const truckingTariffTemplate = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/tariffs/:id/template" },
   async ({ id, versionId }: TruckingTariffTemplateRequest): Promise<TruckingFileResponse> => {
-    await requireModule("trucking_concept");
     return { file: await tariffFileService.template(getAuthData()!.companyID, id, versionId || undefined) };
   },
 );
@@ -41,7 +39,6 @@ export const truckingTariffImport = api(
   // get the plain "larger than 5 MB" answer from the service.
   { expose: true, auth: true, method: "POST", path: "/trucking/tariffs/:id/import", bodyLimit: 10 * 1024 * 1024 },
   async ({ id, fileName, fileBase64 }: TruckingTariffImportRequest): Promise<TariffImportResult> => {
-    await requireModule("trucking_concept");
     const { userID, companyID, role } = requireRole("superadmin", "admin", "manager");
     return tariffFileService.import(companyID, userID, role, id, fileName, fileBase64);
   },
@@ -55,7 +52,6 @@ interface TruckingTariffVersionSourceRequest {
 export const truckingTariffVersionSource = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/tariff-versions/:id/source" },
   async ({ id }: TruckingTariffVersionSourceRequest): Promise<TruckingFileResponse> => {
-    await requireModule("trucking_concept");
     return { file: await tariffFileService.source(getAuthData()!.companyID, id) };
   },
 );

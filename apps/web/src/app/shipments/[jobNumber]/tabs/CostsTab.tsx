@@ -18,7 +18,7 @@ import { useCostsData } from "./useCostsData";
 import { useConsignments, useTripRefs } from "@/hooks/useTruckingConsignments";
 import { isTruckingCost, parseTruckingRef, truckingCostTag } from "@/lib/truckingCosts";
 import { TruckingCostTagLink } from "@/components/TruckingCostTagLink";
-import { useModules } from "@/lib/auth/AuthContext";
+import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 
 interface CurrencyPickerProps {
   value: string;
@@ -177,7 +177,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
   // Rows, rates and totals come from the shared hook, so the Quote card on the detail page
   // shows exactly the same figures as this tab.
   const { data, billingCur, fx, rates, ratesLoading, ratesError, buyRows, sellRows, totals: t } = useCostsData(shipment);
-  const { isEnabled: isModuleOn } = useModules();
+  const canSeeConcepts = useCanSeeConcepts();
 
   // Rows Trucking writes (a consignment's sell, its trips' buy, …) are kept by Trucking: shown
   // read-only here (plain text, so screen readers and the keyboard reach them), tagged with the
@@ -192,7 +192,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
   }))];
   // With the Trucking Concept hidden for the company the rows stay (they are costs), tagged
   // without a link, and nothing is asked of Trucking (the server would refuse it).
-  const truckingOn = isModuleOn("trucking_concept");
+  const truckingOn = canSeeConcepts;
   const { consignments: jobConsignments } = useConsignments({ shipmentId: shipment.id }, { enabled: truckingOn && truckingRefs.size > 0 });
   const tripRefs = useTripRefs(truckingOn ? tripIds : []);
   const truckingTagOf = (id: string) =>

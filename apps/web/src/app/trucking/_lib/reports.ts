@@ -1,5 +1,5 @@
 import type { interfaces } from "@/lib/api/client";
-import type { KpiRange } from "@/app/warehouse/_components/kpi/kpiPeriod";
+import type { KpiRange } from "@/app/warehouse-concept/_components/kpi/kpiPeriod";
 import { formatPsc, HAULIER_STATUS_CHIP } from "./hauliers";
 import { formatMoney, formatPercent, formatQty, SCOPE_LABELS } from "./tariffs";
 

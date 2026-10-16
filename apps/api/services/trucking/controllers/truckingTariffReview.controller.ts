@@ -2,7 +2,6 @@ import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { tariffReviewService } from "../services/tariffReview.service";
 import type { TariffVersionDiff, TestLaneLevel, TestLaneRequest } from "../interfaces/interfaces";
-import { requireModule } from "../../../lib/modules";
 
 interface TruckingTariffVersionDiffRequest {
   id: string;
@@ -19,7 +18,6 @@ interface TruckingTariffVersionDiffResponse {
 export const truckingTariffVersionDiff = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/tariff-versions/:id/diff" },
   async ({ id, againstVersionId }: TruckingTariffVersionDiffRequest): Promise<TruckingTariffVersionDiffResponse> => {
-    await requireModule("trucking_concept");
     return { diff: await tariffReviewService.diff(getAuthData()!.companyID, id, againstVersionId || undefined) };
   },
 );
@@ -36,7 +34,6 @@ interface TruckingTariffVersionTestLaneResponse {
 export const truckingTariffVersionTestLane = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/tariff-versions/:id/test-lane" },
   async ({ id, ...request }: TruckingTariffVersionTestLaneRequest): Promise<TruckingTariffVersionTestLaneResponse> => {
-    await requireModule("trucking_concept");
     return { levels: await tariffReviewService.testLane(getAuthData()!.companyID, id, request) };
   },
 );

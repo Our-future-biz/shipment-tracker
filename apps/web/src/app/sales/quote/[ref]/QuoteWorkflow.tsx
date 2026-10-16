@@ -76,7 +76,7 @@ import { QuoteRoadCard } from "./_components/QuoteRoadCard";
 import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
 import { QuoteMarginPanel } from "./_components/QuoteMarginPanel";
 import { QuoteMarginApproveDialog } from "./_components/QuoteMarginApproveDialog";
-import { useModules } from "@/lib/auth/AuthContext";
+import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 
 // A new package has no dimensions and no weight: made-up ones would print as real cargo and drive
 // the chargeable weight.
@@ -111,8 +111,8 @@ const FIELD_LABEL_CLASS = "shrink-0 text-[11px] font-bold text-slate-500 upperca
 const SMALL_LINK_CLASS = `shrink-0 text-xs font-semibold whitespace-nowrap ${LINK_CLASS}`;
 
 export function QuoteWorkflow() {
-  const { isEnabled: isModuleOn } = useModules();
-  const truckingOn = isModuleOn("trucking_concept");
+  const canSeeConcepts = useCanSeeConcepts();
+  const truckingOn = canSeeConcepts;
   const { ref } = useParams<{ ref: string }>();
   const router = useRouter();
   const toast = useToast();

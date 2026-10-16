@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
-import { ModuleGate } from "@/components/ModuleGate";
+import { SuperadminOnly } from "@/components/SuperadminOnly";
 
-// A company with the Trucking Concept hidden is sent to the dashboard (ModuleGate).
+// Trucking Concept is shown to superadmins only (SuperadminOnly).
 export default function TruckingLayout({ children }: { children: ReactNode }) {
-  return <ModuleGate module="trucking_concept">{children}</ModuleGate>;
+  return <SuperadminOnly>{children}</SuperadminOnly>;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { interfaces } from "@/lib/api/client";
-import { periodRange } from "@/app/warehouse/_components/kpi/kpiPeriod";
+import { periodRange } from "@/app/warehouse-concept/_components/kpi/kpiPeriod";
 import {
   affectedText,
   belowFloorText,

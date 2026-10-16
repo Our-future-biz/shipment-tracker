@@ -10,7 +10,7 @@ import { CustomerMainContactCard } from "../_components/CustomerMainContactCard"
 import { CustomerRecentShipmentsCard } from "../_components/CustomerRecentShipmentsCard";
 import { CustomerRegistryCard } from "../_components/CustomerRegistryCard";
 import { CustomerSnapshotTiles } from "../_components/CustomerSnapshotTiles";
-import { useModules } from "@/lib/auth/AuthContext";
+import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 
 interface OverviewTabProps {
   customerId: string;
@@ -22,7 +22,7 @@ interface OverviewTabProps {
 // column: who to call, a haulier's Trucking status, the credit position, and the CRM record. The all-time totals stay in the header and every
 // full list in its own tab; the cards here are summaries that lead there.
 export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
-  const { isEnabled: isModuleOn } = useModules();
+  const canSeeConcepts = useCanSeeConcepts();
   const { customer } = useCustomer(customerId);
 
   if (!customer) return null;
@@ -41,7 +41,7 @@ export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
       <div className="space-y-5">
         <CustomerMainContactCard customerId={customerId} onSelectTab={onSelectTab} />
         {/* Only for a company we subcontract trucking to; its profile lives in Trucking. */}
-        {customer.roles.includes("haulier") && isModuleOn("trucking_concept") && <CustomerHaulierCard customerId={customerId} />}
+        {customer.roles.includes("haulier") && canSeeConcepts && <CustomerHaulierCard customerId={customerId} />}
         <CustomerCreditSummaryCard customerId={customerId} onSelectTab={onSelectTab} />
         {/* Keyed so an edit still being saved never carries over to another customer. */}
         <CustomerCrmCard key={customer.id} customer={customer} />

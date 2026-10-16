@@ -13,7 +13,7 @@ import { useToast } from "@/lib/toast";
 import { ContactPhoneInput, isPossiblePhone } from "../[id]/_components/ContactPhoneInput";
 import { CustomerInfoRow } from "../[id]/_components/CustomerInfoRow";
 import { CONTACT_ROLES, CUSTOMER_ROLE_OPTIONS } from "../_lib/constants";
-import { useModules } from "@/lib/auth/AuthContext";
+import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
 
 const ICO_LENGTH = 8;
 // ARES is searched by name from this many characters, once typing has paused.
@@ -71,7 +71,7 @@ export function AddCustomerModal({
   isCreating,
   defaultRoles = CUSTOMER_ONLY,
 }: AddCustomerModalProps) {
-  const { isEnabled: isModuleOn } = useModules();
+  const canSeeConcepts = useCanSeeConcepts();
   const toast = useToast();
   const submitting = useRef(false);
   const [manualForm] = Form.useForm<ManualCustomerValues>();
@@ -294,7 +294,7 @@ export function AddCustomerModal({
             onChange={handleCountryChange}
           />
         </Form.Item>
-        {isModuleOn("trucking_concept") && (
+        {canSeeConcepts && (
           <Form.Item
             label="Roles"
             extra="A haulier is a company we subcontract trucking to. A company can be both."

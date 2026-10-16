@@ -2,7 +2,6 @@ import { api } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
 import { failedUpdates, sendAgain } from "../services/truckingSendAgain.service";
 import type { TruckingUnsentUpdate } from "../interfaces/outbox.interfaces";
-import { requireModule } from "../../../lib/modules";
 
 interface TruckingOutboxFailedRequest {
   /** Only this consignment's updates */
@@ -19,7 +18,6 @@ interface TruckingOutboxFailedResponse {
 export const truckingOutboxFailed = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/outbox/failed" },
   async (req: TruckingOutboxFailedRequest): Promise<TruckingOutboxFailedResponse> => {
-    await requireModule("trucking_concept");
     return { updates: await failedUpdates(requireRole(), { consignmentId: req.consignmentId, tripId: req.tripId }) };
   },
 );
@@ -39,7 +37,6 @@ interface TruckingSendAgainResponse {
 export const truckingConsignmentSendAgain = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/consignments/:id/send-again" },
   async ({ id }: TruckingSendAgainRequest): Promise<TruckingSendAgainResponse> => {
-    await requireModule("trucking_concept");
     return sendAgain(requireRole(), { consignmentId: id });
   },
 );
@@ -48,7 +45,6 @@ export const truckingConsignmentSendAgain = api(
 export const truckingTripSendAgain = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/trips/:id/send-again" },
   async ({ id }: TruckingSendAgainRequest): Promise<TruckingSendAgainResponse> => {
-    await requireModule("trucking_concept");
     return sendAgain(requireRole(), { tripId: id });
   },
 );

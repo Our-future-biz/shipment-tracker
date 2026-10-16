@@ -10,23 +10,23 @@ export const useWarehouse = () => {
 
   const query = useQuery({
     queryKey: warehouseTaskKeys.list(),
-    queryFn: () => api.warehouse.warehouseList({}),
+    queryFn: () => api.warehouseConcept.warehouseList({}),
   });
 
   const createMutation = useMutation({
-    mutationFn: (params: controllers.WarehouseCreateRequest) => api.warehouse.warehouseCreate(params),
+    mutationFn: (params: controllers.WarehouseConceptCreateRequest) => api.warehouseConcept.warehouseCreate(params),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: warehouseTaskKeys.all }),
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: controllers.WarehouseUpdateRequest }) => api.warehouse.warehouseUpdate(id, data),
+    mutationFn: ({ id, data }: { id: string; data: controllers.WarehouseConceptUpdateRequest }) => api.warehouseConcept.warehouseUpdate(id, data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: warehouseTaskKeys.all }),
   });
 
   // A position whose gate record has stamps is removed only by a manager with a reason; its gate
   // records are archived with it. The reason travels in the request body (not the URL).
   const deleteMutation = useMutation({
-    mutationFn: ({ id, reason }: { id: string; reason?: string }) => api.warehouse.warehousePositionRemove(id, reason ? { reason } : {}),
+    mutationFn: ({ id, reason }: { id: string; reason?: string }) => api.warehouseConcept.warehousePositionRemove(id, reason ? { reason } : {}),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: warehouseTaskKeys.all });
       queryClient.invalidateQueries({ queryKey: gateKeys.all });
@@ -35,7 +35,7 @@ export const useWarehouse = () => {
 
   // Several shipments in one request; one result per shipment (created / already / failed).
   const importMutation = useMutation({
-    mutationFn: (shipmentIds: string[]) => api.warehouse.warehouseImport({ shipmentIds }),
+    mutationFn: (shipmentIds: string[]) => api.warehouseConcept.warehouseImport({ shipmentIds }),
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: warehouseTaskKeys.all });
       queryClient.invalidateQueries({ queryKey: gateKeys.all });
@@ -73,7 +73,7 @@ export const useCopyQuotes = (enabled: boolean) =>
 export const useCreatePosition = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (values: controllers.WarehousePositionCreateRequest) => api.warehouse.warehousePositionCreate(values),
+    mutationFn: (values: controllers.WarehousePositionCreateRequest) => api.warehouseConcept.warehousePositionCreate(values),
     onSuccess: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: warehouseTaskKeys.all }),

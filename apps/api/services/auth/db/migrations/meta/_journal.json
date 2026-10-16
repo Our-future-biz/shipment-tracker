@@ -127,6 +127,13 @@
       "when": 1792139454890,
       "tag": "0017_company_hidden_modules",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1792143170115,
+      "tag": "0018_drop_company_hidden_modules",
+      "breakpoints": true
     }
   ]
 }

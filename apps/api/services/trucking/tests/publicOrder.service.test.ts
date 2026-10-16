@@ -5,8 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ customers: {}, shipments: {}, quotes: {}, holidays: {} }));
-const modules = vi.hoisted(() => ({ moduleHidden: vi.fn(async (_companyId: string, _module: string) => false) }));
-vi.mock("../../../lib/modules", () => modules);
 vi.mock("../db/db", async () => (await import("./truckingFakes")).dbModule);
 vi.mock("../../../lib/outbox/serviceIdentity", async () => (await import("./truckingFakes")).serviceIdentityModule);
 vi.mock("../repositories/consignment.repository", async (orig) => ({
@@ -214,18 +212,5 @@ describe("POD through the link", () => {
       message: "This transport order was rejected",
     });
     expect(store.documents).toHaveLength(0);
-  });
-});
-
-describe("a company that hides Trucking", () => {
-  it("answers its links with the same 404 as an unknown link", async () => {
-    const { token } = await ordered();
-    modules.moduleHidden.mockImplementation(async (companyId) => companyId === COMPANY);
-    try {
-      await expect(publicOrderService.get(token)).rejects.toMatchObject({ code: "not_found", message: LINK_INVALID });
-      expect(modules.moduleHidden).toHaveBeenCalledWith(COMPANY, "trucking_concept");
-    } finally {
-      modules.moduleHidden.mockImplementation(async () => false);
-    }
   });
 });

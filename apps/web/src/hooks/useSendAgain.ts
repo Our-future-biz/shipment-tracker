@@ -35,11 +35,11 @@ export function useGateUnsent(movementId: string, manager: boolean) {
   const key = [...gateKeys.one(movementId), "unsent"] as const;
   const query = useQuery({
     queryKey: key,
-    queryFn: () => api.warehouse.gateMovementUnsent(movementId),
+    queryFn: () => api.warehouseConcept.gateMovementUnsent(movementId),
     enabled: manager,
   });
   const sendAgain = useMutation({
-    mutationFn: () => api.warehouse.gateMovementSendAgain(movementId),
+    mutationFn: () => api.warehouseConcept.gateMovementSendAgain(movementId),
     onSuccess: (res) => {
       queryClient.setQueryData(gateKeys.one(movementId), { movement: res.movement });
       queryClient.setQueryData(key, { unsent: res.unsent });

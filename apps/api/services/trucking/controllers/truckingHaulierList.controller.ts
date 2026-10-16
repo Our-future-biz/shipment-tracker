@@ -2,7 +2,6 @@ import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { haulierService } from "../services/haulier.service";
 import type { HaulierListItem, HaulierStatus } from "../interfaces/interfaces";
-import { requireModule } from "../../../lib/modules";
 
 interface TruckingHaulierListRequest {
   status?: HaulierStatus;
@@ -19,7 +18,6 @@ interface TruckingHaulierListResponse {
 export const truckingHaulierList = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/hauliers" },
   async ({ status, search }: TruckingHaulierListRequest): Promise<TruckingHaulierListResponse> => {
-    await requireModule("trucking_concept");
     return { hauliers: await haulierService.list(getAuthData()!.companyID, { status, search }) };
   },
 );

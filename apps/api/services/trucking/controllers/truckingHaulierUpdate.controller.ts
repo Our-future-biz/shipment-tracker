@@ -2,7 +2,6 @@ import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { haulierService } from "../services/haulier.service";
 import type { CostSplitBasis, HaulierCurrency, TruckingHaulierResponse, PreferredLaneInput } from "../interfaces/interfaces";
-import { requireModule } from "../../../lib/modules";
 
 interface TruckingHaulierUpdateRequest {
   customerId: string;
@@ -40,7 +39,6 @@ interface TruckingHaulierUpdateRequest {
 export const truckingHaulierUpdate = api(
   { expose: true, auth: true, method: "PUT", path: "/trucking/hauliers/:customerId" },
   async ({ customerId, version, ...input }: TruckingHaulierUpdateRequest): Promise<TruckingHaulierResponse> => {
-    await requireModule("trucking_concept");
     const { userID, companyID, role } = getAuthData()!;
     return { haulier: await haulierService.update(companyID, userID, role, customerId, input, version) };
   },

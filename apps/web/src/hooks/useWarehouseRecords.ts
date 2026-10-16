@@ -47,7 +47,7 @@ function useRecords<Item, Input>({ key, list, create, update, remove }: RecordAp
   };
 }
 
-const w = api.warehouse;
+const w = api.warehouseConcept;
 
 export const useWarehouseContainers = () =>
   useRecords<WarehouseContainer, interfaces.WarehouseContainerInput>({

@@ -29,7 +29,6 @@ import { useSidebarState } from "@/hooks/useSidebarState";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { SALES_NAV, SALES_PAGES, type SalesNavItem } from "@/app/sales/_lib/tabs";
 import type { ReactNode } from "react";
-import { isModuleEnabled, type AppModule, type ModuleUser } from "@/lib/modules";
 
 // An item of a submenu. Its shape is defined with the Sales menu, the one that uses all of it.
 type NavChild = SalesNavItem;
@@ -44,8 +43,6 @@ interface NavItem {
   home?: string;
   // If set, the item only shows for these roles.
   roles?: string[];
-  // If set, the item only shows while the company has this module (Platform → Companies).
-  module?: AppModule;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -59,9 +56,10 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/invoicing", label: "Invoicing", icon: <DollarOutlined /> },
   { path: "/exchange", label: "Exchange", icon: <SwapOutlined /> },
   { path: "/customs", label: "Customs", icon: <SafetyCertificateOutlined /> },
-  // Gate Log is a tab of the Warehouse page.
-  { path: "/warehouse", label: "Warehouse Concept", icon: <InboxOutlined />, module: "warehouse_concept" },
-  { path: "/trucking", label: "Trucking Concept", icon: <CarOutlined />, module: "trucking_concept" },
+  { path: "/warehouse", label: "Warehouse", icon: <InboxOutlined /> },
+  // The concept modules are prototypes shown to superadmins only (Gate Log is a tab of Warehouse Concept).
+  { path: "/warehouse-concept", label: "Warehouse Concept", icon: <InboxOutlined />, roles: ["superadmin"] },
+  { path: "/trucking", label: "Trucking Concept", icon: <CarOutlined />, roles: ["superadmin"] },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
   {
@@ -76,11 +74,13 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/platform/companies", label: "Platform", icon: <ApartmentOutlined />, roles: ["superadmin"] },
 ];
 
-/** Hide role-restricted items the user can't access and items of modules the company has hidden. */
-export function navItemVisible(item: Pick<NavItem, "roles" | "module">, user: ModuleUser | null): boolean {
-  if (item.roles && !(user != null && item.roles.includes(user.role))) return false;
-  return !item.module || isModuleEnabled(user, item.module);
+/** Hide role-restricted items the user can't access. */
+export function navItemVisible(item: Pick<NavItem, "roles">, user: { role: string } | null): boolean {
+  return !item.roles || (user != null && item.roles.includes(user.role));
 }
+
+/** The menu items `user` sees. */
+export const visibleNavItems = (user: { role: string } | null) => NAV_ITEMS.filter((item) => navItemVisible(item, user));
 
 const EXPANDED_WIDTH = 260;
 const COLLAPSED_WIDTH = 64;

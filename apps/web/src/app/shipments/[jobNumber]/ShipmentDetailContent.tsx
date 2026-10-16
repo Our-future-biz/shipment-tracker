@@ -44,8 +44,7 @@ import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
 import { CargoDetailsTab } from "./tabs/CargoDetailsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
-import { ShipmentWarehouseTab } from "./tabs/WarehouseTab";
-import { ShipmentTruckingTab } from "./tabs/TruckingTab";
+import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsTab } from "./tabs/CustomsTab";
 import { EditableCell, TradeDirectionContext } from "./_components/EditableCell";
 import { FadeText } from "@/components/FadeText";
@@ -60,7 +59,6 @@ import { MasterJobDialog } from "../_components/MasterJobDialog";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
 import { NotesDrawer } from "../_components/NotesDrawer";
 import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
-import { useModules } from "@/lib/auth/AuthContext";
 
 export type CommitFn = (fieldKey: string, value: string) => void;
 
@@ -73,7 +71,6 @@ const TABS = [
   { key: "customs", label: "Customs" },
   { key: "documents", label: "Documents" },
   { key: "warehouse", label: "Warehouse" },
-  { key: "trucking", label: "Trucking" },
   { key: "tracking", label: "Tracking" },
   { key: "claim", label: "Claim" },
 ];
@@ -923,12 +920,10 @@ export function ShipmentDetailContent() {
   const costsQuoteRef = (invoicingData?.billingSettings?.quoteRef ?? "").trim();
 
   // Totals of the Costs Breakdown tab, shown on the Quote card.
-  const { isEnabled: isModuleOn } = useModules();
   const costs = useCostsData(shipment);
 
 
-  // The Trucking tab only while the company has the Trucking Concept (Platform → Companies).
-  const visibleTabs = TABS.filter((t) => t.key !== "trucking" || isModuleOn("trucking_concept"));
+  const visibleTabs = TABS;
   const TAB_KEYS = visibleTabs.map((t) => t.key);
   const rawTab = searchParams.get("tab");
   const activeTab = rawTab && TAB_KEYS.includes(rawTab) ? rawTab : "details";
@@ -1592,9 +1587,7 @@ export function ShipmentDetailContent() {
 
         {activeTab === "documents" && <DocumentsTab shipment={shipment} />}
 
-        {activeTab === "warehouse" && <ShipmentWarehouseTab shipment={shipment} />}
-
-        {activeTab === "trucking" && <ShipmentTruckingTab shipment={shipment} />}
+        {activeTab === "warehouse" && <WarehouseTab shipment={shipment} />}
 
         {activeTab === "tracking" && <TrackingTab shipment={shipment} />}
 

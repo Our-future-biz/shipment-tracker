@@ -16,7 +16,7 @@ export type GateStampKind = "gateIn" | "gateOut" | "impRelease" | "expDraft" | "
 export const useGateLog = ({ archived = false }: { archived?: boolean } = {}) => {
   const query = useQuery({
     queryKey: archived ? gateKeys.archived() : gateKeys.list(),
-    queryFn: () => api.warehouse.gateMovementList(archived ? { archived: true } : {}),
+    queryFn: () => api.warehouseConcept.gateMovementList(archived ? { archived: true } : {}),
   });
   return { movements: query.data?.movements ?? [], isLoading: query.isLoading };
 };
@@ -44,7 +44,7 @@ export const useGateMovement = (id: string | undefined) => {
 
   const query = useQuery({
     queryKey: gateKeys.one(id),
-    queryFn: () => api.warehouse.gateMovementGet(id!),
+    queryFn: () => api.warehouseConcept.gateMovementGet(id!),
     enabled: !!id,
   });
 
@@ -61,35 +61,35 @@ export const useGateMovement = (id: string | undefined) => {
   };
 
   const update = useMutation({
-    mutationFn: (data: controllers.GateMovementUpdateRequest) => api.warehouse.gateMovementUpdate(id!, data),
+    mutationFn: (data: controllers.GateMovementUpdateRequest) => api.warehouseConcept.gateMovementUpdate(id!, data),
     onSuccess: onRow,
   });
   const stamp = useMutation({
-    mutationFn: (kind: GateStampKind) => api.warehouse.gateMovementStamp(id!, { kind }),
+    mutationFn: (kind: GateStampKind) => api.warehouseConcept.gateMovementStamp(id!, { kind }),
     onSuccess: onGateEvent,
   });
   const requestRelease = useMutation({
-    mutationFn: () => api.warehouse.gateMovementRequestRelease(id!),
+    mutationFn: () => api.warehouseConcept.gateMovementRequestRelease(id!),
     onSuccess: onRow,
   });
   const requestMrn = useMutation({
-    mutationFn: () => api.warehouse.gateMovementRequestMrn(id!),
+    mutationFn: () => api.warehouseConcept.gateMovementRequestMrn(id!),
     onSuccess: onRow,
   });
   const refuse = useMutation({
-    mutationFn: (reason: string) => api.warehouse.gateMovementRefuse(id!, { reason }),
+    mutationFn: (reason: string) => api.warehouseConcept.gateMovementRefuse(id!, { reason }),
     onSuccess: onRow,
   });
   const override = useMutation({
-    mutationFn: (reason: string) => api.warehouse.gateMovementOverride(id!, { reason }),
+    mutationFn: (reason: string) => api.warehouseConcept.gateMovementOverride(id!, { reason }),
     onSuccess: onRow,
   });
   const setReleaseGate = useMutation({
-    mutationFn: ({ gate, ok }: { gate: string; ok: boolean }) => api.warehouse.gateMovementReleaseGate(id!, { gate, ok }),
+    mutationFn: ({ gate, ok }: { gate: string; ok: boolean }) => api.warehouseConcept.gateMovementReleaseGate(id!, { gate, ok }),
     onSuccess: onRow,
   });
   const verifyPin = useMutation({
-    mutationFn: (pin: string) => api.warehouse.gateMovementVerifyPin(id!, { pin }),
+    mutationFn: (pin: string) => api.warehouseConcept.gateMovementVerifyPin(id!, { pin }),
     // Failed attempts count towards the lock, so refresh the row either way — and the pick-up
     // section, whose tries a linked outbound movement uses.
     onSettled: () => {
@@ -98,60 +98,60 @@ export const useGateMovement = (id: string | undefined) => {
     },
   });
   const saveSurvey = useMutation({
-    mutationFn: (survey: interfaces.GateSurveyInput) => api.warehouse.gateMovementSaveSurvey(id!, { survey }),
+    mutationFn: (survey: interfaces.GateSurveyInput) => api.warehouseConcept.gateMovementSaveSurvey(id!, { survey }),
     onSuccess: onRow,
   });
   const remove = useMutation({
-    mutationFn: () => api.warehouse.gateMovementDelete(id!),
+    mutationFn: () => api.warehouseConcept.gateMovementDelete(id!),
     onSuccess: () => void invalidateAfterGateEvent(queryClient),
   });
   // Manager only: archive / restore with a reason, void a wrong stamp (the shipment is not changed back).
   const archive = useMutation({
-    mutationFn: (reason: string) => api.warehouse.gateMovementArchive(id!, { reason }),
+    mutationFn: (reason: string) => api.warehouseConcept.gateMovementArchive(id!, { reason }),
     onSuccess: onGateEvent,
   });
   const restore = useMutation({
-    mutationFn: (reason: string) => api.warehouse.gateMovementRestore(id!, { reason }),
+    mutationFn: (reason: string) => api.warehouseConcept.gateMovementRestore(id!, { reason }),
     onSuccess: onGateEvent,
   });
   const voidStamp = useMutation({
-    mutationFn: ({ kind, reason }: { kind: GateStampKind; reason: string }) => api.warehouse.gateMovementVoidStamp(id!, { kind, reason }),
+    mutationFn: ({ kind, reason }: { kind: GateStampKind; reason: string }) => api.warehouseConcept.gateMovementVoidStamp(id!, { kind, reason }),
     onSuccess: onGateEvent,
   });
   // Customs status read from the shipment now (instead of after the 30 s cache): the follow
   // writes it on the server, then the row is read back.
   const refreshCustoms = useMutation({
     mutationFn: async () => {
-      await api.warehouse.gateMovementFollow({ id: id!, force: true });
-      return api.warehouse.gateMovementGet(id!);
+      await api.warehouseConcept.gateMovementFollow({ id: id!, force: true });
+      return api.warehouseConcept.gateMovementGet(id!);
     },
     onSuccess: onRow,
   });
   const refreshFromShipment = useMutation({
-    mutationFn: () => api.warehouse.gateMovementRefreshFromShipment(id!),
+    mutationFn: () => api.warehouseConcept.gateMovementRefreshFromShipment(id!),
     onSuccess: onRow,
   });
   const retryShipmentUpdate = useMutation({
-    mutationFn: () => api.warehouse.gateMovementShipmentUpdateRetry(id!),
+    mutationFn: () => api.warehouseConcept.gateMovementShipmentUpdateRetry(id!),
     onSuccess: onRow,
   });
   const dismissShipmentUpdate = useMutation({
-    mutationFn: () => api.warehouse.gateMovementShipmentUpdateDismiss(id!),
+    mutationFn: () => api.warehouseConcept.gateMovementShipmentUpdateDismiss(id!),
     onSuccess: onRow,
   });
   // Gate figures (pieces, kg, cbm) from the position's saved remeasured lines — never the shipment.
   const applyRemeasured = useMutation({
-    mutationFn: (sectionVersion: number) => api.warehouse.gateMovementUseRemeasured(id!, { sectionVersion }),
+    mutationFn: (sectionVersion: number) => api.warehouseConcept.gateMovementUseRemeasured(id!, { sectionVersion }),
     onSuccess: onRow,
   });
   // Damage / short / over: an open exception holds the release until resolved with a note.
   const createException = useMutation({
-    mutationFn: (exception: interfaces.GateExceptionInput) => api.warehouse.gateExceptionCreate(id!, { exception }),
+    mutationFn: (exception: interfaces.GateExceptionInput) => api.warehouseConcept.gateExceptionCreate(id!, { exception }),
     onSuccess: onRow,
   });
   // LCL cargo is re-weighed before its receipt / tally tick; a correction is a new weighing (the latest counts).
   const reweigh = useMutation({
-    mutationFn: (input: interfaces.GateReweighInput) => api.warehouse.gateMovementReweigh(id!, { reweigh: input }),
+    mutationFn: (input: interfaces.GateReweighInput) => api.warehouseConcept.gateMovementReweigh(id!, { reweigh: input }),
     onSuccess: (res) => {
       onRow(res);
       // A container's house list shows the re-weighed weight.
@@ -159,7 +159,7 @@ export const useGateMovement = (id: string | undefined) => {
     },
   });
   const resolveException = useMutation({
-    mutationFn: ({ exceptionId, note }: { exceptionId: string; note: string }) => api.warehouse.gateExceptionResolve(id!, exceptionId, { note }),
+    mutationFn: ({ exceptionId, note }: { exceptionId: string; note: string }) => api.warehouseConcept.gateExceptionResolve(id!, exceptionId, { note }),
     onSuccess: onRow,
   });
 
@@ -199,15 +199,15 @@ export const useGateFiles = (movementId: string) => {
   const queryClient = useQueryClient();
   const key = gateKeys.files(movementId);
 
-  const query = useQuery({ queryKey: key, queryFn: () => api.warehouse.gateFileList(movementId) });
+  const query = useQuery({ queryKey: key, queryFn: () => api.warehouseConcept.gateFileList(movementId) });
 
   const upload = useMutation({
     mutationFn: (input: { fileName: string; fileType: string; contentBase64: string; container?: string; tag?: string }) =>
-      api.warehouse.gateFileUpload(movementId, input),
+      api.warehouseConcept.gateFileUpload(movementId, input),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: key }),
   });
   const remove = useMutation({
-    mutationFn: (fileId: string) => api.warehouse.gateFileDelete(movementId, fileId),
+    mutationFn: (fileId: string) => api.warehouseConcept.gateFileDelete(movementId, fileId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: key }),
   });
 
@@ -220,7 +220,7 @@ const useGateFileBlob = (movementId: string, file: GateFile | undefined, enabled
   useQuery({
     queryKey: gateKeys.fileBlob(movementId, file?.id),
     queryFn: async () => {
-      const res = await api.warehouse.gateFileContent(movementId, file!.id);
+      const res = await api.warehouseConcept.gateFileContent(movementId, file!.id);
       const bytes = Uint8Array.from(atob(res.contentBase64), (c) => c.charCodeAt(0));
       return new Blob([bytes], { type: res.fileType || "application/octet-stream" });
     },
@@ -248,14 +248,14 @@ export const useGateFileUrl = (movementId: string, file: GateFile | undefined, e
 /** The Gate Log list as query options, for code that reads it outside a component (scanners). */
 export const gateListQuery = {
   queryKey: gateKeys.list(),
-  queryFn: () => api.warehouse.gateMovementList({}),
+  queryFn: () => api.warehouseConcept.gateMovementList({}),
 };
 
 /** An unannounced truck recorded at the gate (walk-in). */
 export const useCreateWalkIn = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (note: string) => api.warehouse.gateMovementCreate({ walkIn: true, note }),
+    mutationFn: (note: string) => api.warehouseConcept.gateMovementCreate({ walkIn: true, note }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: gateKeys.all }),
   });
 };
@@ -270,7 +270,7 @@ export const useStampMovement = () => {
   const writeRow = useGateRowCache();
   const stamp = useCallback(
     async (movementId: string, request: controllers.GateStampRequest) => {
-      const res = await api.warehouse.gateMovementStamp(movementId, request);
+      const res = await api.warehouseConcept.gateMovementStamp(movementId, request);
       writeRow(res.movement);
       return res;
     },
@@ -283,7 +283,7 @@ export const useStampMovement = () => {
 /** Logs printed labels on each movement (copies per movement); `refresh()` once after a batch. */
 export const useLogLabelPrints = () => {
   const queryClient = useQueryClient();
-  const logPrint = useCallback((movementId: string, copies: number) => api.warehouse.gateMovementLabelPrinted(movementId, { copies }), []);
+  const logPrint = useCallback((movementId: string, copies: number) => api.warehouseConcept.gateMovementLabelPrinted(movementId, { copies }), []);
   const refresh = useCallback(() => queryClient.invalidateQueries({ queryKey: gateKeys.all }), [queryClient]);
   return { logPrint, refresh };
 };
@@ -293,7 +293,7 @@ export const useCreateGateException = () => {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ movementId, exception }: { movementId: string; exception: interfaces.GateExceptionInput }) =>
-      api.warehouse.gateExceptionCreate(movementId, { exception }),
+      api.warehouseConcept.gateExceptionCreate(movementId, { exception }),
     onSuccess: () => invalidateAfterGateEvent(queryClient),
   });
 };
@@ -302,7 +302,7 @@ export const useCreateGateException = () => {
 export const useRepairMissingGate = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => api.warehouse.gateMovementRepairMissing(),
+    mutationFn: () => api.warehouseConcept.gateMovementRepairMissing(),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: gateKeys.all }),
   });
 };

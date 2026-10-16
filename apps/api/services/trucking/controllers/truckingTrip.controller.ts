@@ -2,7 +2,6 @@ import { api } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
 import { tripService } from "../services/trip.service";
 import type { ConsignmentDetail, TripDetail, TripListItem, TripPriceInput, TripStatus } from "../interfaces/interfaces";
-import { requireModule } from "../../../lib/modules";
 
 interface TruckingTripCreateFtlRequest {
   consignmentId: string;
@@ -21,7 +20,6 @@ interface TruckingTripCreateFtlResponse {
 export const truckingTripCreateFtl = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/trips/ftl" },
   async (req: TruckingTripCreateFtlRequest): Promise<TruckingTripCreateFtlResponse> => {
-    await requireModule("trucking_concept");
     return tripService.createFtl(requireRole(), req);
   },
 );
@@ -37,7 +35,6 @@ interface TruckingTripGetRequest {
 export const truckingTripGet = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/trips/:id" },
   async ({ id }: TruckingTripGetRequest): Promise<TruckingTripResponse> => {
-    await requireModule("trucking_concept");
     return { trip: await tripService.get(requireRole(), id) };
   },
 );
@@ -55,7 +52,6 @@ interface TruckingTripListResponse {
 export const truckingTripList = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/trips" },
   async (req: TruckingTripListRequest): Promise<TruckingTripListResponse> => {
-    await requireModule("trucking_concept");
     return { trips: await tripService.list(requireRole(), req) };
   },
 );
@@ -75,7 +71,6 @@ interface TruckingTripUpdateRequest {
 export const truckingTripUpdate = api(
   { expose: true, auth: true, method: "PUT", path: "/trucking/trips/:id" },
   async ({ id, ...input }: TruckingTripUpdateRequest): Promise<TruckingTripResponse> => {
-    await requireModule("trucking_concept");
     return { trip: await tripService.update(requireRole(), id, input) };
   },
 );
@@ -89,7 +84,6 @@ interface TruckingTripCancelRequest {
 export const truckingTripCancel = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/trips/:id/cancel" },
   async ({ id, reason }: TruckingTripCancelRequest): Promise<TruckingTripResponse> => {
-    await requireModule("trucking_concept");
     return { trip: await tripService.cancel(requireRole(), id, reason) };
   },
 );

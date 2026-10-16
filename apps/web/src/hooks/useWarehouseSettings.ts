@@ -18,7 +18,7 @@ export function useWarehouseSettings(enabled = true) {
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: WAREHOUSE_SETTINGS_KEY,
-    queryFn: () => api.warehouse.warehouseSettingsGet(),
+    queryFn: () => api.warehouseConcept.warehouseSettingsGet(),
     enabled,
     staleTime: 30_000,
   });
@@ -26,7 +26,7 @@ export function useWarehouseSettings(enabled = true) {
   // A save on top of a newer version is refused (aborted); the settings are reloaded then.
   const update = useMutation({
     mutationFn: (req: { expectedVersion: number; supplierEmail?: Partial<Record<SupplierKind, SupplierRecipients>>; docks?: interfaces.DockSettingsItem }) =>
-      api.warehouse.warehouseSettingsUpdate(req),
+      api.warehouseConcept.warehouseSettingsUpdate(req),
     onSuccess: (res) => queryClient.setQueryData(WAREHOUSE_SETTINGS_KEY, res),
     onError: () => queryClient.invalidateQueries({ queryKey: WAREHOUSE_SETTINGS_KEY }),
   });

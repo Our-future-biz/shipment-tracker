@@ -9,7 +9,7 @@ import { appendEvent } from "../repositories/event.repository";
 import type { PortalSessionRecord, PortalUserRecord } from "../schemas/portal.schema";
 import type { PortalMe } from "../interfaces/portal.interfaces";
 import { hashToken, looksLikeToken, newToken, tokenMatches } from "../lib/haulierToken";
-import {
+import { throttleKey,
   ACCOUNT_RULE,
   HAULIER_BLOCKED,
   IP_RULE,
@@ -27,7 +27,6 @@ import {
 } from "../lib/portalRules";
 import { ourCompany } from "./transportOrder.service";
 import { serviceActor } from "../../../lib/outbox/serviceIdentity";
-import { moduleHidden } from "../../../lib/modules";
 
 // The haulier portal's own login, separate from the app's: e-mail + password (argon2id, the
 // parameters the app's login uses), a session token of 32 random bytes of which only the SHA-256
@@ -48,6 +47,8 @@ export interface PortalCaller {
 /** Where the login comes from (stored with the session). */
 export interface PortalClient {
   ip: string;
+  /** The IP is the client's own (the forwarded header held every expected proxy hop). */
+  ipTrusted: boolean;
   userAgent: string;
 }
 
@@ -91,8 +92,6 @@ class PortalAuthService {
     const now = new Date();
     if (!session || !tokenMatches(session.tokenHash, token) || session.revokedAt) throw again();
     if (session.expiresAt.getTime() <= now.getTime() || session.absoluteExpiresAt.getTime() <= now.getTime()) throw again();
-    // A company that hides Trucking has no portal: its sessions answer like an unknown one.
-    if (await moduleHidden(session.companyId, "trucking_concept")) throw again();
     const user = await portalRepository.findUser(session.companyId, session.userId);
     if (!user || user.status !== "ACTIVE" || !user.passwordHash) {
       await portalRepository.revokeSessionsOf(db, session.companyId, [session.userId]);
@@ -119,14 +118,13 @@ class PortalAuthService {
   async login(input: { email: unknown; password: unknown }, client: PortalClient): Promise<{ session: string; expiresAt: string; me: PortalMe }> {
     const fail = () => APIError.unauthenticated(LOGIN_FAILED);
     const now = new Date();
-    // An unknown client IP is not throttled per IP (one shared bucket would let anyone lock the
-    // portal for everybody); the per-account lockout still applies.
-    const ipKey = client.ip ? `ip:${client.ip}` : null;
+    const email = normaliseEmail(input.email);
+    // See throttleKey: never a bucket everybody shares, never no throttle when an e-mail is given.
+    const ipKey = throttleKey(client, email ?? "");
     const failed = async () => {
       if (ipKey) await portalRepository.failThrottle(ipKey, now, IP_RULE);
       return fail();
     };
-    const email = normaliseEmail(input.email);
     const password = typeof input.password === "string" ? input.password : "";
     const throttle = ipKey ? await portalRepository.throttleOf(ipKey) : null;
     if (throttle && isLocked(throttle, now)) {
@@ -138,10 +136,7 @@ class PortalAuthService {
       await burn("");
       throw await failed();
     }
-    // Accounts of a company that hides Trucking count as unknown (that company has no portal).
-    const accounts = await portalRepository.usersByEmail(email);
-    const hidden = await Promise.all(accounts.map((u) => moduleHidden(u.companyId, "trucking_concept")));
-    const candidates = accounts.filter((_, n) => !hidden[n]);
+    const candidates = await portalRepository.usersByEmail(email);
     if (!candidates.length) {
       await burn(password);
       log.info("trucking portal: login with an unknown e-mail refused");
@@ -248,7 +243,6 @@ class PortalAuthService {
     const link = await portalRepository.tokenByHash(hashToken(token));
     const now = new Date();
     if (!link || !tokenMatches(link.tokenHash, token) || link.usedAt || link.expiresAt.getTime() <= now.getTime()) throw invalid();
-    if (await moduleHidden(link.companyId, "trucking_concept")) throw invalid();
     const user = await portalRepository.findUser(link.companyId, link.userId);
     if (!user || user.status !== "ACTIVE") throw invalid();
     const refusal = passwordRefusal(input.password, user.email);

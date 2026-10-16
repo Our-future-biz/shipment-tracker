@@ -1,5 +1,5 @@
 import { APIError } from "encore.dev/api";
-import { warehouse } from "~encore/clients";
+import { warehouseConcept } from "~encore/clients";
 import type { Actor } from "../../../lib/rbac";
 
 // Trucking's calls to the Warehouse service (our warehouse = the hub of every line haul) and the
@@ -84,13 +84,13 @@ const authOf = (as: WarehouseCaller | undefined) => {
 };
 
 export async function expectArrival(input: ExpectArrivalInput, as?: WarehouseCaller): Promise<ExpectArrivalResult | null> {
-  return warehouse._internalWarehouseExpectArrival(input, authOf(as));
+  return warehouseConcept._internalWarehouseExpectArrival(input, authOf(as));
 }
 
 export async function expectDeparture(input: ExpectDepartureInput, as?: WarehouseCaller): Promise<WarehouseOk | null> {
-  return warehouse._internalWarehouseExpectDeparture(input, authOf(as));
+  return warehouseConcept._internalWarehouseExpectDeparture(input, authOf(as));
 }
 
 export async function cancelExpected(input: CancelExpectedInput, as?: WarehouseCaller): Promise<WarehouseOk | null> {
-  return warehouse._internalWarehouseCancelExpected(input, authOf(as));
+  return warehouseConcept._internalWarehouseCancelExpected(input, authOf(as));
 }

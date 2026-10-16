@@ -5,8 +5,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { isCompanyRole, isAdminLevel } from "../../../lib/rbac";
 import { userRepository, type UserPatch } from "../repositories/user.repository";
 import { companyRepository } from "../repositories/company.repository";
-import type { AdminContact, AppModule, UserRef } from "../interfaces/interfaces";
-import { companyService } from "./company.service";
+import type { AdminContact, UserRef } from "../interfaces/interfaces";
 import { departmentRepository, branchRepository } from "../repositories/orgUnit.repository";
 
 // The signing key comes from the Encore secret store (set via `encore secret set JWT_SECRET`).
@@ -41,11 +40,8 @@ export function assertNotSelf(targetId: string, actorId: string): void {
 /** What #toInfo reads of a user row. */
 type UserFields = Pick<AuthUserInfo, "id" | "companyId" | "email" | "displayName" | "role" | "departmentId" | "branchId">;
 
-/** The signed-in user (login, /auth/me): their info and the modules hidden from them. */
-export interface SessionUser extends AuthUserInfo {
-  /** Modules the user's company hides; always [] for a superadmin */
-  hiddenModules: AppModule[];
-}
+/** The signed-in user (login, /auth/me). */
+export type SessionUser = AuthUserInfo;
 
 const userNotFound = () => APIError.notFound("User not found");
 
@@ -185,10 +181,8 @@ class AuthService {
     return this.#session(found);
   }
 
-  // A superadmin sees every module, whatever their company hides.
   async #session(u: UserFields): Promise<SessionUser> {
-    const hiddenModules = u.role === "superadmin" ? [] : await companyService.hiddenModulesOf(u.companyId);
-    return { ...this.#toInfo(u), hiddenModules };
+    return this.#toInfo(u);
   }
 
   // Scoped to the caller's company — the users directory never spans companies.
