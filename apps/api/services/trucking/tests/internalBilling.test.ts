@@ -30,7 +30,10 @@ vi.mock("../repositories/haulier.repository", () => ({ haulierRepository: { find
 vi.mock("../services/haulier.service", async (orig) => ({ ...(await orig<object>()), haulierService: { get: vi.fn() } }));
 vi.mock("../services/rate.service", () => ({ rateService: { rate: vi.fn() }, eurRate: vi.fn() }));
 vi.mock("../services/settings.service", async () => ({ settingsService: { get: vi.fn(async () => (await import("./truckingFakes")).settings()) } }));
-vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })) }));
+vi.mock("../services/truckingOutbox.service", () => ({
+  deliverDue: vi.fn(async () => ({ sent: 0, retry: 0, failed: 0 })),
+  addUnsentReasons: vi.fn(async (_companyId: string, items: unknown[]) => items),
+}));
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
 
 import { customers, shipments } from "~encore/clients";

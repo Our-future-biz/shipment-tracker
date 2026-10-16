@@ -317,11 +317,11 @@ class ConsignmentService {
 
   async list(actor: Actor, q: ConsignmentListQuery): Promise<{ consignments: ConsignmentListItem[]; counts: ConsignmentCounts }> {
     if (q.shipmentId && !isUuid(q.shipmentId)) return { consignments: [], counts: emptyCounts() };
-    const listed = await consignmentRepository.list(actor.companyID, { status: q.status, shipmentId: q.shipmentId });
+    const found = await consignmentRepository.list(actor.companyID, { status: q.status, shipmentId: q.shipmentId });
     // Before the POD a consignment follows its job's department as Shipments has it now (C7).
-    const rows = (await this.refreshDepartments(actor, listed, { warn: false }))
+    const rows = (await this.refreshDepartments(actor, found, { warn: false }))
       ? await consignmentRepository.list(actor.companyID, { status: q.status, shipmentId: q.shipmentId })
-      : listed;
+      : found;
     const tripIds = [...new Set(rows.map((r) => r.tripId).filter((x): x is string => !!x))];
     const day = today();
     const [trips, settings, ltl, openExceptions, real, extraHolidays] = await Promise.all([
