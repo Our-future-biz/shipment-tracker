@@ -1328,7 +1328,8 @@ const NO_FLAGS: ViewFlags = { podMissing: new Set(), avizacePending: new Set() }
 
 /** Whether a consignment is in a worklist view. */
 export function inView(i: ConsignmentListItem, view: ConsignmentView, day: string, flags: ViewFlags = NO_FLAGS): boolean {
-  if (i.status === "CANCELLED") return false;
+  // A cancelled consignment is in no worklist - except Needs attention while a notice is on it (a cancel after the invoice).
+  if (i.status === "CANCELLED") return view === "attention" && i.needsAttention.length > 0;
   switch (view) {
     case "attention":
       return i.needsAttention.length > 0;

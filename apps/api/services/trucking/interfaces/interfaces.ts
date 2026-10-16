@@ -659,7 +659,7 @@ export interface PriceSnapshot {
 }
 
 /** Why a notice is on a consignment. */
-export type ConsignmentNoticeCode = "PRICE_CHANGE_AFTER_INVOICE" | "HAULIER_CREDIT";
+export type ConsignmentNoticeCode = "PRICE_CHANGE_AFTER_INVOICE" | "HAULIER_CREDIT" | "INTERNAL_NOT_PRICED";
 
 /** Something that needs someone's look and no state shows; it stays in Needs attention until a manager clears it. */
 export interface ConsignmentNotice {

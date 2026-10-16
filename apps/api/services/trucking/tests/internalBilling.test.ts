@@ -359,6 +359,10 @@ describe("internal charges", () => {
     const c = await delivered();
     await consignmentService.stamp(manager, c.id, "podReceived", null);
     expect(store.internalCharges).toEqual([expect.objectContaining({ amount: 0, notPriced: true, description: "Not priced: No internal FTL tariff" })]);
+    // Never silent: it is in Needs attention until the charge is reversed.
+    expect((await consignmentService.get(user, c.id)).needsAttention).toContain("Internal charge not priced (No internal FTL tariff): 2026-09 cannot be closed until it is reversed and charged again");
+    await consignmentService.voidStamp(manager, c.id, "podReceived", "Tariff fixed");
+    expect((await consignmentService.get(user, c.id)).needsAttention.some((r) => r.startsWith("Internal charge not priced"))).toBe(false);
   });
 });
 

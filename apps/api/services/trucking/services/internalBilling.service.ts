@@ -1,5 +1,6 @@
 import { type Tx } from "../db/db";
 import { internalRepository } from "../repositories/internal.repository";
+import { consignmentRepository } from "../repositories/consignment.repository";
 import { truckingOutboxRepository, type TruckingOutboxInput } from "../repositories/truckingOutbox.repository";
 import { appendEvent } from "../repositories/event.repository";
 import type { TruckingConsignmentRecord } from "../schemas/truckingConsignment.schema";
@@ -21,6 +22,9 @@ import { rateService } from "./rate.service";
 // internalMonth.service.ts.
 
 type BillingActor = Pick<Actor, "userID" | "role" | "companyID">;
+
+/** The notice a charge no Internal tariff priced puts in Needs attention (taken off by its reversal). */
+const NOT_PRICED_NOTICE = "internal-not-priced";
 type Charged = Pick<TruckingConsignmentRecord, "id" | "ref" | "shipmentId" | "jobNumber" | "department" | "deliveredAt" | "serviceLevel" | "chargeableKg">;
 
 /** What the Internal tariff gives a consignment: the CZK amount, or why it could not be priced. */
@@ -93,6 +97,15 @@ class InternalBillingService {
         facts: { month, amount: price.amount, notPriced: price.notPriced },
       },
     });
+    // A charge at 0 must not pass unseen: it stays in Needs attention until it is reversed.
+    if (price.notPriced) {
+      await consignmentRepository.addNotice(tx, companyId, c.id, {
+        key: NOT_PRICED_NOTICE,
+        code: "INTERNAL_NOT_PRICED",
+        text: `Internal charge not priced (${price.text.slice(NOT_PRICED.length + 2)}): ${month} cannot be closed until it is reversed and charged again`,
+        at: new Date().toISOString(),
+      });
+    }
     await this.sendLine(tx, actor, c);
   }
 
@@ -120,6 +133,7 @@ class InternalBillingService {
       };
     });
     await internalRepository.insertCharges(tx, reversals);
+    await consignmentRepository.removeNotices(tx, companyId, c.id, [NOT_PRICED_NOTICE]);
     await appendEvent(tx, companyId, {
       kind: "internal_reversed",
       consignmentId: c.id,
