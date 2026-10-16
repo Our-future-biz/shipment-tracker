@@ -1171,6 +1171,8 @@ export function inView(i: ConsignmentListItem, view: ConsignmentView, day: strin
       return flags.avizacePending.has(i.id);
     case "openExceptions":
       return i.openExceptions > 0;
+    case "openFtl":
+      return i.scope === "FTL" && i.status === "BOOKED" && !i.tripId;
   }
 }
 
@@ -1182,7 +1184,7 @@ export function countsOf(items: ConsignmentListItem[], day: string, flags: ViewF
     deliveryToday: n("deliveryToday"),
     podMissing: n("podMissing"),
     readyToBill: n("readyToBill"),
-    openFtlWithoutHaulier: items.filter((i) => i.scope === "FTL" && i.status === "BOOKED" && !i.tripId).length,
+    openFtlWithoutHaulier: n("openFtl"),
     avizacePending: n("avizacePending"),
     openExceptions: n("openExceptions"),
   };

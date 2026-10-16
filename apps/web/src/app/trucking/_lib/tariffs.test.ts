@@ -106,10 +106,10 @@ describe("tariff labels", () => {
     expect(modeLabel({ mode: "DISCOUNT", discountPercent: 5 })).toBe("−5 % on Standard");
   });
 
-  it("names the owner, Standard or Operations", () => {
+  it("names the owner, Standard or the other departments", () => {
     expect(ownerLabel(item({ ownerCustomerId: "c1", ownerName: "ACME" }))).toBe("ACME");
     expect(ownerLabel(item({}))).toBe("Standard");
-    expect(ownerLabel(item({ side: "INTERNAL" }))).toBe("Operations");
+    expect(ownerLabel(item({ side: "INTERNAL" }))).toBe("Other departments");
   });
 
   it("gives the list status from what prices today", () => {

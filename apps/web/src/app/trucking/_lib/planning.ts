@@ -1,6 +1,6 @@
 import type { RateRequest } from "@/hooks/useTrucking";
 import type { ConsignmentDetail, LtlTripKind, PlanningLeg, PlanningTrip, TripDetail, TripFill } from "@/hooks/useTruckingConsignments";
-import type { Tone } from "@/app/warehouse/gate-log/_lib/gate";
+import type { Tone } from "@/components/Badge";
 import { dropHouse, fillTone, moveHouse } from "@/app/warehouse/_lib/containerPlan";
 import { formatDate } from "@/lib/date";
 import { TERMS } from "./glossary";
@@ -178,6 +178,16 @@ export const openTrips = (trips: readonly PlanningTrip[]) => trips.filter((t) =>
 
 // ── 409 ──
 
+/** The planning day a ?date= value names (a real YYYY-MM-DD day), else `today`: a shared link opens that day. */
+export function planningDayOf(param: string | null, today: string): string {
+  if (!param || !/^\d{4}-\d{2}-\d{2}$/.test(param)) return today;
+  const d = new Date(`${param}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === param ? param : today;
+}
+
+/** The Planning tab on a day (?date=; today keeps the address clean). */
+export const planningHref = (day: string | null) => (day ? `/trucking?tab=planning&date=${day}` : "/trucking?tab=planning");
+
 export const PLANNING_CONFLICT_TEXT = "Someone changed this trip meanwhile — the board is reloaded, try again.";
 
 // ── Legs timeline of a consignment ──
@@ -349,7 +359,7 @@ export function ltlTripOrderActions(trip: Pick<TripDetail, "status" | "haulierSt
   else if (trip.haulierStatus === "blocked") order = refused("The haulier is blocked — see its page");
   let send = order;
   if (order.allowed && trip.status === "IN_TRANSIT") send = refused("Already on its way");
-  let confirm = refused("Send the transport order first");
+  let confirm = refused("Record the transport order as sent first");
   if (trip.status === "ORDERED") confirm = allowed;
   else if (trip.status === "CONFIRMED" || trip.status === "IN_TRANSIT") confirm = refused("Already confirmed");
   return { printOrder: order, sendOrder: send, recordConfirmation: confirm };

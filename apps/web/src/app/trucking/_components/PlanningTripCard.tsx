@@ -5,13 +5,15 @@ import Link from "next/link";
 import { Dropdown } from "antd";
 import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined, DownOutlined, HolderOutlined, WarningOutlined } from "@ant-design/icons";
 import type { PlanningTrip } from "@/hooks/useTruckingConsignments";
-import { Badge } from "@/app/warehouse/gate-log/_lib/gate";
-import { btnDefault } from "@/app/warehouse/gate-log/_components/job/fields";
+import { Badge } from "@/components/Badge";
+import { btnDefault } from "@/components/buttons";
 import { TRIP_STATUS_CHIP, tripHref } from "../_lib/consignments";
 import { TERMS } from "../_lib/glossary";
 import { formatPsc } from "../_lib/hauliers";
 import { DEADLINE_BADGE, dropStop, moveStop, orderChanged, stopDeadline } from "../_lib/planning";
 import { formatMoney, formatQty } from "../_lib/tariffs";
+import { ORDER_LOCKED_TEXT, recordAsSentLabel } from "../_lib/transportOrder";
+import { MenuLabel } from "./MenuLabel";
 import { TripFillBars } from "./TripFillBars";
 import { TruckingStatusChip } from "./TruckingStatusChip";
 
@@ -79,10 +81,15 @@ export const PlanningTripCard = ({ trip, vehicleLabel, avizaceWarning, legDraggi
           trigger={["click"]}
           menu={{
             items: [
-              { key: "print", label: `Print ${TERMS.transportOrder.toLowerCase()}…`, disabled: locked, onClick: () => onAction(trip, "print") },
-              { key: "send", label: `Send ${TERMS.transportOrder.toLowerCase()}…`, disabled: locked, onClick: () => onAction(trip, "send") },
+              { key: "print", label: <MenuLabel label={`Print ${TERMS.transportOrder.toLowerCase()}…`} reason={locked ? ORDER_LOCKED_TEXT : ""} />, disabled: locked, onClick: () => onAction(trip, "print") },
+              {
+                key: "send",
+                label: <MenuLabel label={recordAsSentLabel(trip.transportOrderSent)} reason={locked ? ORDER_LOCKED_TEXT : ""} />,
+                disabled: locked,
+                onClick: () => onAction(trip, "send"),
+              },
               { key: "manifest", label: `${TERMS.manifest} PDF…`, onClick: () => onAction(trip, "manifest") },
-              { key: "labels", label: "Labels PDF…", disabled: !trip.stops.length, onClick: () => onAction(trip, "labels") },
+              { key: "labels", label: <MenuLabel label="Labels PDF…" reason={trip.stops.length ? "" : "No consignments on the trip yet"} />, disabled: !trip.stops.length, onClick: () => onAction(trip, "labels") },
               { type: "divider" },
               { key: "open", label: <Link href={tripHref(trip.id)}>Open trip</Link> },
             ],

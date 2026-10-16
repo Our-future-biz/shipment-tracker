@@ -22,6 +22,8 @@ import {
   tripFillTone,
   vehicleCapacity,
   warningSummary,
+  planningDayOf,
+  planningHref,
 } from "./planning";
 
 const leg = (id: string, extra: Partial<PlanningLeg> = {}): PlanningLeg => ({
@@ -260,7 +262,7 @@ describe("ltlTripOrderActions", () => {
     expect(ltlTripOrderActions(t())).toEqual({
       printOrder: { allowed: true, reason: "" },
       sendOrder: { allowed: true, reason: "" },
-      recordConfirmation: { allowed: false, reason: "Send the transport order first" },
+      recordConfirmation: { allowed: false, reason: "Record the transport order as sent first" },
     });
     expect(ltlTripOrderActions(t({ status: "ORDERED" })).recordConfirmation.allowed).toBe(true);
     expect(ltlTripOrderActions(t({ status: "IN_TRANSIT" })).sendOrder.reason).toBe("Already on its way");
@@ -270,5 +272,19 @@ describe("ltlTripOrderActions", () => {
     expect(ltlTripOrderActions(t({ legs: [] })).printOrder.reason).toBe("No legs on the trip");
     expect(ltlTripOrderActions(t({ haulierStatus: "blocked" })).sendOrder.allowed).toBe(false);
     expect(ltlTripOrderActions(t({ status: "DONE" })).printOrder.reason).toBe("The trip is closed");
+  });
+});
+
+describe("planning day in the address", () => {
+  it("opens the day a link names and falls back to today for anything else", () => {
+    expect(planningDayOf("2026-10-23", "2026-10-16")).toBe("2026-10-23");
+    expect(planningDayOf(null, "2026-10-16")).toBe("2026-10-16");
+    expect(planningDayOf("2026-02-30", "2026-10-16")).toBe("2026-10-16");
+    expect(planningDayOf("friday", "2026-10-16")).toBe("2026-10-16");
+  });
+
+  it("links to the Planning tab on a day", () => {
+    expect(planningHref("2026-10-23")).toBe("/trucking?tab=planning&date=2026-10-23");
+    expect(planningHref(null)).toBe("/trucking?tab=planning");
   });
 });

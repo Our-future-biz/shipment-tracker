@@ -17,6 +17,7 @@ import { HAULIER_CHIPS, HAULIER_STATUS_CHIP, issueSummary, type HaulierChipId, t
 import { HaulierFilterBubbles } from "./HaulierFilterBubbles";
 import { HaulierQuickChips } from "./HaulierQuickChips";
 import { HaulierStatusChip } from "./HaulierStatusChip";
+import { byText } from "../_lib/format";
 
 const HAULIER_ROLE: interfaces.CustomerRole[] = ["haulier"];
 const STATUSES: HaulierStatus[] = ["blocked", "warning", "ok"];
@@ -24,7 +25,6 @@ const STATUS_RANK: Record<HaulierStatus, number> = { blocked: 0, warning: 1, ok:
 
 export const haulierHref = (customerId: string) => `/trucking/hauliers/${customerId}`;
 
-const byText = (a: string, b: string) => a.localeCompare(b, "cs");
 const byDate = (a: string | null, b: string | null) => (a ?? "9999").localeCompare(b ?? "9999");
 
 const buildColumns = (vehicleLabel: (code: string) => string): AppGridColumn<HaulierListItem>[] => [

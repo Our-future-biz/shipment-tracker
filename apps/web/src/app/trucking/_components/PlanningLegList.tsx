@@ -4,12 +4,12 @@ import { Checkbox, Dropdown, Tooltip } from "antd";
 import { DownOutlined, HolderOutlined } from "@ant-design/icons";
 import type { PlanningLeg, PlanningTrip } from "@/hooks/useTruckingConsignments";
 import { formatDate } from "@/lib/date";
-import { Badge } from "@/app/warehouse/gate-log/_lib/gate";
-import { btnInline } from "@/app/warehouse/gate-log/_components/job/fields";
+import { Badge } from "@/components/Badge";
+import { btnInline } from "@/components/buttons";
 import { TERMS } from "../_lib/glossary";
-import { formatPsc } from "../_lib/hauliers";
 import { DEADLINE_BADGE, type ZoneGroup } from "../_lib/planning";
 import { formatQty } from "../_lib/tariffs";
+import { place } from "../_lib/format";
 
 interface PlanningLegListProps {
   groups: ZoneGroup[];
@@ -23,7 +23,6 @@ interface PlanningLegListProps {
   busy: boolean;
 }
 
-const place = (psc: string, city: string) => [psc ? formatPsc(psc) : "", city].filter(Boolean).join(" ");
 
 // The open legs of the day, by zone, the most urgent first. A leg is dragged onto a trip card, or
 // put on one with "Add to trip…" (the keyboard way); ticked legs make a new trip.

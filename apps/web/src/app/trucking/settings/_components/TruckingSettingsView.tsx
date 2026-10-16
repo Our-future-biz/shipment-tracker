@@ -7,7 +7,7 @@ import { ArrowLeftOutlined } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatDateTime } from "@/lib/date";
+import { businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useTruckingSettings, type TruckingSettings } from "@/hooks/useTrucking";
 import { useUnsavedGuard } from "@/app/warehouse/_lib/useUnsavedGuard";
@@ -110,7 +110,7 @@ export const TruckingSettingsView = () => {
             <div className="text-xs text-slate-500 mt-1">
               {TERMS.serviceLevel}s, vehicle types, {TERMS.chargeableWeight.toLowerCase()}, margin floor, our warehouse ({TERMS.hub.toLowerCase()}), the {TERMS.transportOrder.toLowerCase()} e-mail and the {TERMS.fuelIndex.toLowerCase()}.
               {settings.updatedAt
-                ? ` Last changed${settings.updatedBy ? ` by ${settings.updatedBy}` : ""} on ${formatDateTime(settings.updatedAt)}.`
+                ? ` Last changed${settings.updatedBy ? ` by ${settings.updatedBy}` : ""} on ${businessDateTime(settings.updatedAt)}.`
                 : " Nothing saved yet — the defaults are shown."}
             </div>
           </div>

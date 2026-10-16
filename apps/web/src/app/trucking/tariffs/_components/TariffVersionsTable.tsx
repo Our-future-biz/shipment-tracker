@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Button, Table, Tooltip } from "antd";
 import type { ColumnsType } from "antd/es/table";
-import { formatDateTime } from "@/lib/date";
+import { businessDateTime } from "@/lib/date";
 import { fetchTariffTemplate, fetchTariffVersionSource, type TariffVersionSummary } from "@/hooks/useTrucking";
 import { validityLabel, versionLabel } from "../../_lib/tariffs";
 import { TariffVersionStatusChip } from "../../_components/TariffVersionStatusChip";
@@ -57,7 +57,7 @@ export const TariffVersionsTable = ({ tariffId, versions, hasFile, canManage, le
       title: "Created",
       render: (_, v) => (
         <span className="text-[12px] text-slate-600 whitespace-nowrap">
-          {formatDateTime(v.createdAt)}
+          {businessDateTime(v.createdAt)}
           {v.createdBy ? ` · ${v.createdBy}` : ""}
         </span>
       ),
@@ -68,7 +68,7 @@ export const TariffVersionsTable = ({ tariffId, versions, hasFile, canManage, le
       render: (_, v) =>
         v.activatedAt ? (
           <span className="text-[12px] text-slate-600 whitespace-nowrap">
-            {formatDateTime(v.activatedAt)}
+            {businessDateTime(v.activatedAt)}
             {v.activatedBy ? ` · ${v.activatedBy}` : ""}
           </span>
         ) : (

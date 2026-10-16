@@ -18,13 +18,14 @@ import { PortalUserDisableDialog } from "./PortalUserDisableDialog";
 
 interface HaulierPortalUsersProps {
   customerId: string;
-  /** Managers add users, reset passwords and disable or enable; everyone else only sees the list. */
-  canManage: boolean;
+  /** "" = the user is a manager and may add users, reset passwords, disable or enable; otherwise why the buttons are disabled. */
+  manageReason: string;
 }
 
 // The haulier's portal users: who at the haulier signs in to the haulier portal, and their state.
 // Adding one or resetting a password gives a one-time link, shown once in PortalLinkDialog.
-export const HaulierPortalUsers = ({ customerId, canManage }: HaulierPortalUsersProps) => {
+export const HaulierPortalUsers = ({ customerId, manageReason }: HaulierPortalUsersProps) => {
+  const canManage = !manageReason;
   const toast = useToast();
   const p = usePortalUsers(customerId);
   const [adding, setAdding] = useState(false);
@@ -79,11 +80,11 @@ export const HaulierPortalUsers = ({ customerId, canManage }: HaulierPortalUsers
       extra={
         <>
           <CountChip count={p.users.length} />
-          {canManage && (
-            <Button size="small" icon={<PlusOutlined />} onClick={() => setAdding(true)}>
+          <Tooltip title={manageReason || undefined}>
+            <Button size="small" icon={<PlusOutlined />} disabled={!canManage} onClick={() => setAdding(true)}>
               Add user
             </Button>
-          )}
+          </Tooltip>
         </>
       }
     >
@@ -115,24 +116,26 @@ export const HaulierPortalUsers = ({ customerId, canManage }: HaulierPortalUsers
                     {u.phone ? ` · ${u.phone}` : ""} · {u.lastLoginAt ? `last signed in ${businessDateTime(u.lastLoginAt)}` : "never signed in"}
                   </div>
                 </div>
-                {canManage && (
-                  <div className="flex flex-wrap gap-2">
-                    {u.status !== "DISABLED" && (
-                      <Button size="small" onClick={() => setResetting(u)}>
+                <div className="flex flex-wrap gap-2">
+                  {u.status !== "DISABLED" && (
+                    <Tooltip title={manageReason || undefined}>
+                      <Button size="small" disabled={!canManage} onClick={() => setResetting(u)}>
                         Reset password…
                       </Button>
-                    )}
+                    </Tooltip>
+                  )}
+                  <Tooltip title={manageReason || undefined}>
                     {u.status === "DISABLED" ? (
-                      <Button size="small" onClick={() => setEnabling(u)}>
+                      <Button size="small" disabled={!canManage} onClick={() => setEnabling(u)}>
                         Enable…
                       </Button>
                     ) : (
-                      <Button size="small" danger onClick={() => setDisabling(u)}>
+                      <Button size="small" danger disabled={!canManage} onClick={() => setDisabling(u)}>
                         Disable…
                       </Button>
                     )}
-                  </div>
-                )}
+                  </Tooltip>
+                </div>
               </li>
             );
           })}

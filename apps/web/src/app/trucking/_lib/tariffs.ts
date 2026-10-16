@@ -15,7 +15,7 @@ export type ChipTone = "green" | "amber" | "red" | "slate";
 export const TARIFF_SIDES: { key: TariffSide; label: string; hint: string }[] = [
   { key: "BUY", label: "Buy", hint: "What hauliers charge us" },
   { key: "SELL", label: "Sell", hint: "What we charge customers; the Standard list and customer tariffs" },
-  { key: "INTERNAL", label: "Internal", hint: "What Trucking charges Operations" },
+  { key: "INTERNAL", label: "Internal", hint: "What Trucking charges another department" },
 ];
 
 export const SCOPE_LABELS: Record<TariffScope, string> = { LTL: "LTL", FTL: "FTL", LINEHAUL: "Line haul" };
@@ -92,11 +92,14 @@ export function modeLabel(t: Pick<interfaces.TariffListItem, "mode" | "discountP
   return t.mode === "MATRIX" ? "Matrix" : discountLabel(t.discountPercent);
 }
 
-/** Whose tariff it is: the haulier or customer, "Standard" for the sell list everyone else gets, "Operations" for the internal one. */
+/** Whose tariff it is: the haulier or customer, "Standard" for the sell list everyone else gets, "Other departments" for the internal one. */
+/** Who an internal tariff charges: whichever department a job belongs to, never one named one. */
+export const INTERNAL_OWNER = "Other departments";
+
 export function ownerLabel(t: Pick<interfaces.TariffListItem, "side" | "ownerCustomerId" | "ownerName">): string {
   if (t.ownerCustomerId) return t.ownerName ?? "Unknown company";
   if (t.side === "SELL") return "Standard";
-  if (t.side === "INTERNAL") return "Operations";
+  if (t.side === "INTERNAL") return INTERNAL_OWNER;
   return "—";
 }
 

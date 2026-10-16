@@ -11,7 +11,7 @@ import { Pill } from "@/components/Pill";
 import { CountChip, PillTabs, SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { formatDateTime } from "@/lib/date";
+import { businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { fetchTariffTemplate, fetchTariffVersionSource, useTariff, useTariffVersion, useTruckingSettings } from "@/hooks/useTrucking";
 import { isTruckingManager } from "../../_lib/roles";
@@ -109,9 +109,9 @@ export const TariffVersionView = ({ tariffId, versionId }: TariffVersionViewProp
               {errors > 0 && <Pill tone="red">{`${errors} error${errors === 1 ? "" : "s"}`}</Pill>}
             </div>
             <div className="text-xs text-slate-500 mt-1">
-              Valid {validityLabel(version.validFrom, version.validTo)} · created {formatDateTime(version.createdAt)}
+              Valid {validityLabel(version.validFrom, version.validTo)} · created {businessDateTime(version.createdAt)}
               {version.createdBy ? ` by ${version.createdBy}` : ""}
-              {version.activatedAt ? ` · activated ${formatDateTime(version.activatedAt)}${version.activatedBy ? ` by ${version.activatedBy}` : ""}` : ""}
+              {version.activatedAt ? ` · activated ${businessDateTime(version.activatedAt)}${version.activatedBy ? ` by ${version.activatedBy}` : ""}` : ""}
             </div>
             <div className="flex flex-wrap items-center gap-2 mt-2 text-xs text-slate-500">
               <span>{version.sourceFileName ? `Uploaded from ${version.sourceFileName}` : "Not uploaded from a file"}</span>

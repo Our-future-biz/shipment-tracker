@@ -7,16 +7,16 @@ import { ArrowLeftOutlined, DownOutlined, UploadOutlined } from "@ant-design/ico
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { businessToday, formatDateTime } from "@/lib/date";
+import { businessToday, businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { useConsignment, useConsignmentDocuments, useTrip, type DocumentUpload, type Leg, type StampKind } from "@/hooks/useTruckingConsignments";
 import { useConsignmentControl, type DeliveryException } from "@/hooks/useTruckingControl";
 import { useInternalCharges } from "@/hooks/useTruckingMoney";
-import { Badge } from "@/app/warehouse/gate-log/_lib/gate";
+import { Badge } from "@/components/Badge";
 import { LifecycleStrip } from "@/app/warehouse/_components/LifecycleStrip";
-import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
-import { btnDefault, btnPrimary } from "@/app/warehouse/gate-log/_components/job/fields";
+import { useUrlParam } from "@/hooks/useUrlParam";
+import { btnDefault, btnPrimary } from "@/components/buttons";
 import { CONSIGNMENT_STATUS_CHIP, STAMP_LABELS, consignmentActions, consignmentLifecycle, stampOf, statusRank, tripHref, type ActionState } from "../../_lib/consignments";
 import { isExceptionOpen } from "../../_lib/exceptions";
 import { consignmentInternalAmount, monthOf } from "../../_lib/internalBilling";
@@ -24,7 +24,10 @@ import { podWait } from "../../_lib/podMissing";
 import { waitingFreeOf } from "../../_lib/settings";
 import { TERMS } from "../../_lib/glossary";
 import { isTruckingManager } from "../../_lib/roles";
+import { planningHref } from "../../_lib/planning";
+import { recordAsSentLabel } from "../../_lib/transportOrder";
 import { LabelsModal } from "../../_components/LabelsModal";
+import { MenuLabel } from "../../_components/MenuLabel";
 import { TruckingHistory } from "../../_components/TruckingHistory";
 import { TruckingStatusChip } from "../../_components/TruckingStatusChip";
 import { TruckingTextModal } from "../../_components/TruckingTextModal";
@@ -161,19 +164,19 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
     { key: "history", label: "History", count: c.events.length || undefined },
   ];
   const moreItems = [
-    { key: "edit", label: actions.edit.allowed ? "Edit…" : <Tooltip title={actions.edit.reason}>Edit…</Tooltip>, disabled: !actions.edit.allowed, onClick: () => setDialog({ kind: "edit" }) },
+    { key: "edit", label: <MenuLabel label="Edit…" reason={actions.edit.reason} />, disabled: !actions.edit.allowed, onClick: () => setDialog({ kind: "edit" }) },
     { key: "upload", label: "Upload document…", onClick: () => setDialog({ kind: "upload" }) },
     { key: "labels", label: "Labels PDF…", onClick: () => setDialog({ kind: "labels" }) },
     {
       key: "approve",
-      label: actions.approveMargin.allowed ? "Approve margin…" : <Tooltip title={actions.approveMargin.reason}>Approve margin…</Tooltip>,
+      label: <MenuLabel label="Approve margin…" reason={actions.approveMargin.reason} />,
       disabled: !actions.approveMargin.allowed,
       onClick: () => setDialog({ kind: "approve" }),
     },
     {
       key: "cancel",
       danger: true,
-      label: actions.cancel.allowed ? "Cancel consignment…" : <Tooltip title={actions.cancel.reason}>Cancel consignment…</Tooltip>,
+      label: <MenuLabel label="Cancel consignment…" reason={actions.cancel.reason} />,
       disabled: !actions.cancel.allowed,
       onClick: () => setDialog({ kind: "cancel" }),
     },
@@ -181,7 +184,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
   const cancelledEvent = c.status === "CANCELLED" ? c.events.find((e) => /cancel/i.test(e.kind)) : undefined;
   const podWaiting = c.status === "DELIVERED" ? podWait(stampOf(c.stamps, "delivered")?.at, c.podReceivedAt, businessToday()) : null;
   const internalPrice = c.internal ? consignmentInternalAmount(internalCharges, c.id) : null;
-  const internalDepartment = internalCharges.find((x) => x.consignmentId === c.id)?.department || "Operations";
+  const internalDepartment = internalCharges.find((x) => x.consignmentId === c.id)?.department || "another department";
   const handleExceptionAction = (exception: DeliveryException, action: ExceptionAction) => setDialog({ kind: "exception", action, exception });
 
   return (
@@ -230,7 +233,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
           <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
             {ltl ? (
               <Tooltip title={actions.planTrip.reason}>
-                <Link href="/trucking?tab=planning" className={c.status === "BOOKED" ? btnPrimary : btnDefault}>
+                <Link href={planningHref(c.pickupDate)} className={c.status === "BOOKED" ? btnPrimary : btnDefault}>
                   Planning
                 </Link>
               </Tooltip>
@@ -241,8 +244,13 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
                 trigger={["click"]}
                 menu={{
                   items: [
-                    { key: "print", label: "Print…", disabled: !actions.printOrder.allowed, onClick: () => setTripDialog("print") },
-                    { key: "send", label: liveTrip.transportOrder?.sentAt ? "Send again…" : "Send…", disabled: !actions.sendOrder.allowed, onClick: () => setTripDialog("send") },
+                    { key: "print", label: <MenuLabel label="Print…" reason={actions.printOrder.reason} />, disabled: !actions.printOrder.allowed, onClick: () => setTripDialog("print") },
+                    {
+                      key: "send",
+                      label: <MenuLabel label={recordAsSentLabel(!!liveTrip.transportOrder?.sentAt)} reason={actions.sendOrder.reason} />,
+                      disabled: !actions.sendOrder.allowed,
+                      onClick: () => setTripDialog("send"),
+                    },
                   ],
                 }}
               >
@@ -270,7 +278,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
             className="mt-3"
             type="warning"
             showIcon
-            message={cancelledEvent ? `Cancelled ${formatDateTime(cancelledEvent.at)}${cancelledEvent.by ? ` by ${cancelledEvent.by}` : ""} — ${cancelledEvent.summary}` : "Cancelled"}
+            message={cancelledEvent ? `Cancelled ${businessDateTime(cancelledEvent.at)}${cancelledEvent.by ? ` by ${cancelledEvent.by}` : ""} — ${cancelledEvent.summary}` : "Cancelled"}
             description="Its Trucking cost lines were removed from the job. Nothing can be changed here."
           />
         )}

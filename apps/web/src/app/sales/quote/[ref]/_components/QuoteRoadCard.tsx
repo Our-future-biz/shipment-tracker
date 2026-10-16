@@ -3,7 +3,7 @@
 import { Select } from "antd";
 import { CalculatorOutlined } from "@ant-design/icons";
 import { useCustomerSites, type CustomerSiteItem } from "@/hooks/useCustomerSites";
-import { businessToday, formatDateTime } from "@/lib/date";
+import { businessToday, businessDateTime } from "@/lib/date";
 import { siteAddressLine } from "@/app/customers/_lib/customerSites";
 import { RateCalculatorForm } from "@/app/trucking/_components/RateCalculatorForm";
 import { TruckingField } from "@/app/trucking/_components/TruckingField";
@@ -106,7 +106,7 @@ export const QuoteRoadCard = ({ road, customerId, pricing, problems, onChange, o
               <span className="font-semibold">Promised delivery:</span> {promisedLabel(pricing)}
               {pricing.promiseNote && <span className="text-slate-500"> — {pricing.promiseNote}</span>}
             </div>
-            <div className="text-[11.5px] text-slate-500">Rated {formatDateTime(pricing.ratedAt)}</div>
+            <div className="text-[11.5px] text-slate-500">Rated {businessDateTime(pricing.ratedAt)}</div>
           </div>
         )}
       </div>

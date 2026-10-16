@@ -1,13 +1,13 @@
 "use client";
 
 import { Tooltip } from "antd";
-import type { ConsignmentCounts, ConsignmentView } from "@/hooks/useTruckingConsignments";
-import { CONSIGNMENT_CHIPS } from "../_lib/consignments";
+import type { ConsignmentCounts } from "@/hooks/useTruckingConsignments";
+import { CONSIGNMENT_CHIPS, type ChipView } from "../_lib/consignments";
 
 interface ConsignmentQuickChipsProps {
-  active: ConsignmentView | null;
+  active: ChipView | null;
   counts: ConsignmentCounts | null;
-  onSelect: (id: ConsignmentView | null) => void;
+  onSelect: (id: ChipView | null) => void;
 }
 
 // Quick filters of the Consignments worklist (?view=), with the server's counts; one at a time.

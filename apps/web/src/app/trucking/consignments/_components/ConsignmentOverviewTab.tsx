@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { SectionCard } from "@/components/SectionCard";
 import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
-import { formatDate, formatDateTime } from "@/lib/date";
+import { businessDateTime } from "@/lib/date";
 import { quoteHref } from "@/app/sales/_lib/quoteHref";
 import { formatPsc } from "../../_lib/hauliers";
 import { PriceSnapshotTable } from "../../_components/PriceSnapshotTable";
 import { TERMS } from "../../_lib/glossary";
+import { pragueDate } from "../../_lib/format";
 
 type Stop = ConsignmentDetail["pickup"];
 
@@ -22,12 +23,12 @@ const StopCard = ({ title, stop }: { title: string; stop: Stop }) => (
   <SectionCard title={title}>
     <Line k="Name" v={stop.name} />
     <Line k="Address" v={[stop.street, [stop.country === "CZ" ? formatPsc(stop.postcode) : stop.postcode, stop.city].filter(Boolean).join(" "), stop.country].filter(Boolean).join(", ")} />
-    <Line k="Time window" v={stop.windowFrom || stop.windowTo ? `${formatDateTime(stop.windowFrom) || "…"} – ${formatDateTime(stop.windowTo) || "…"}` : ""} />
+    <Line k="Time window" v={stop.windowFrom || stop.windowTo ? `${businessDateTime(stop.windowFrom) || "…"} – ${businessDateTime(stop.windowTo) || "…"}` : ""} />
     <Line k="Contact" v={[stop.contactName, stop.contactPhone].filter(Boolean).join(" · ")} />
     <Line k="Avizace" v={stop.avizaceRequired ? "Call before arriving" : "Not needed"} />
     <Line k="Reference" v={stop.reference} />
     <Line k="Notes" v={stop.notes} />
-    <Line k="Arrived / left" v={[formatDateTime(stop.actualArrival), formatDateTime(stop.actualDeparture)].filter(Boolean).join(" → ")} />
+    <Line k="Arrived / left" v={[businessDateTime(stop.actualArrival), businessDateTime(stop.actualDeparture)].filter(Boolean).join(" → ")} />
   </SectionCard>
 );
 
@@ -62,7 +63,7 @@ export const ConsignmentOverviewTab = ({ c }: ConsignmentOverviewTabProps) => (
           )}
         </div>
         <Line k="Goods" v={c.load.description} />
-        <Line k="Booked" v={formatDate(c.createdAt)} />
+        <Line k="Booked" v={pragueDate(c.createdAt)} />
       </SectionCard>
       <SectionCard title="Sell price">
         {c.internal ? (

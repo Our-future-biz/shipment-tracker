@@ -160,7 +160,7 @@ export const TariffView = ({ tariffId }: TariffViewProps) => {
             message={`No price sheet of its own: prices come from the Standard sell list active on the rating day, ${discountLabel(tariff.discountPercent)}.`}
           />
         ) : (
-          <SectionCard title="Price list file">
+          <SectionCard title="Tariff file">
             <p className="mt-0 mb-3 text-[13px] text-slate-600">
               Prices are kept in the Excel {TERMS.template.toLowerCase()}: download it ({tariff.activeVersion ? "as the current version" : "empty"}), change it and
               upload it. Each upload becomes a {TERMS.draftVersion.toLowerCase()}, checked and compared with the active one before it is activated.
@@ -171,7 +171,7 @@ export const TariffView = ({ tariffId }: TariffViewProps) => {
               </TariffDownloadButton>
               {canManage && (
                 <Button type="primary" icon={<UploadOutlined />} onClick={() => router.push(`/trucking/tariffs/${tariff.id}/upload`)}>
-                  Upload price list…
+                  Upload tariff file…
                 </Button>
               )}
             </div>

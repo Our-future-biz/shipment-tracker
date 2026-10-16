@@ -2,8 +2,8 @@
 
 import { Tooltip } from "antd";
 import type { ConsignmentDetail } from "@/hooks/useTruckingConsignments";
-import { Badge } from "@/app/warehouse/gate-log/_lib/gate";
-import { btnDefault, btnPrimary } from "@/app/warehouse/gate-log/_components/job/fields";
+import { Badge } from "@/components/Badge";
+import { btnDefault, btnPrimary } from "@/components/buttons";
 import { businessDateTime } from "@/lib/date";
 import { AVIZACE_BADGE, AVIZACE_CHANNEL_LABELS, agreedWindowText, avizaceState } from "../../_lib/avizace";
 import { TERMS } from "../../_lib/glossary";

@@ -4,9 +4,10 @@ import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Drawer } from "antd";
 import { useHauliers, useTariffs } from "@/hooks/useTrucking";
-import { TRUCKING_TABS, type TruckingTab } from "../_lib/tabs";
+import { useConsignments, useTrips } from "@/hooks/useTruckingConsignments";
+import { TRUCKING_TABS, tabSearch, type TruckingTab } from "../_lib/tabs";
+import { tripsNotConfirmed } from "../_lib/trips";
 import { TruckingConsignmentsTab } from "./TruckingConsignmentsTab";
-import { TruckingEmptyTab } from "./TruckingEmptyTab";
 import { TruckingHaulierInvoicesTab } from "./TruckingHaulierInvoicesTab";
 import { TruckingHauliersTab } from "./TruckingHauliersTab";
 import { TruckingInternalBillingTab } from "./TruckingInternalBillingTab";
@@ -18,10 +19,8 @@ import { TruckingTabs } from "./TruckingTabs";
 import { TruckingTariffsTab } from "./TruckingTariffsTab";
 import { TruckingTripsTab } from "./TruckingTripsTab";
 
-const FIRST_TAB: TruckingTab = TRUCKING_TABS[0].key;
-
-// The Trucking module: tabs in work order (?tab=, the first tab keeps the address clean) and the
-// Read me in the "?" help drawer.
+// The Trucking module: tabs in work order (?tab=, the first tab keeps the address clean), the work
+// queues counted on their tabs, and the Read me in the "?" help drawer.
 export const TruckingView = () => {
   const router = useRouter();
   const pathname = usePathname();
@@ -31,21 +30,18 @@ export const TruckingView = () => {
   const [helpOpen, setHelpOpen] = useState(false);
   const { hauliers, isLoading: hauliersLoading } = useHauliers();
   const { tariffs, isLoading: tariffsLoading } = useTariffs();
+  // Work queues count what waits: consignments that need attention, trips ordered but not confirmed.
+  const { counts: consignmentCounts } = useConsignments();
+  const { trips, isLoading: tripsLoading } = useTrips();
+  const tabCounts: Partial<Record<TruckingTab, number>> = {
+    ...(consignmentCounts ? { consignments: consignmentCounts.attention } : {}),
+    ...(tripsLoading ? {} : { trips: tripsNotConfirmed(trips) }),
+    ...(hauliersLoading ? {} : { hauliers: hauliers.length }),
+    ...(tariffsLoading ? {} : { tariffs: tariffs.length }),
+  };
 
   const handleTabChange = (tab: TruckingTab) => {
-    const params = new URLSearchParams(searchParams.toString());
-    // A tab's own filters (?status=, ?view=, ?side=, ?kind=, ?month=, the Reports ?period=, ?from=, ?to=) do not follow the user into another tab.
-    params.delete("status");
-    params.delete("month");
-    params.delete("view");
-    params.delete("side");
-    params.delete("kind");
-    params.delete("period");
-    params.delete("from");
-    params.delete("to");
-    if (tab === FIRST_TAB) params.delete("tab");
-    else params.set("tab", tab);
-    const qs = params.toString();
+    const qs = tabSearch(searchParams.toString(), tab);
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
@@ -54,10 +50,10 @@ export const TruckingView = () => {
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Trucking</h1>
-          {/* Counts only for the tabs whose phase is built. */}
           <TruckingTabs
             active={activeTab.key}
-            counts={{ ...(hauliersLoading ? {} : { hauliers: hauliers.length }), ...(tariffsLoading ? {} : { tariffs: tariffs.length }) }}
+            counts={tabCounts}
+            queues={{ consignments: "need attention", trips: "ordered, not confirmed" }}
             onChange={handleTabChange}
             onHelp={() => setHelpOpen(true)}
           />
@@ -71,7 +67,6 @@ export const TruckingView = () => {
         {activeTab.key === "tariffs" && <TruckingTariffsTab />}
         {activeTab.key === "calculator" && <TruckingRateCalculatorTab />}
         {activeTab.key === "reports" && <TruckingReportsTab />}
-        {!("live" in activeTab && activeTab.live) && <TruckingEmptyTab tab={activeTab} />}
       </div>
       <Drawer title="Read me" width={760} open={helpOpen} onClose={() => setHelpOpen(false)}>
         <TruckingReadme />

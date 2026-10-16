@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Button, Drawer, Spin } from "antd";
 import { apiErrorMessage } from "@/lib/api";
-import { businessToday, formatDateTime } from "@/lib/date";
+import { businessToday, businessDateTime } from "@/lib/date";
 import { useRate, useTruckingSettings } from "@/hooks/useTrucking";
 import { RateResultsTable } from "@/app/trucking/_components/RateResultsTable";
 import { toRateRequest } from "@/app/trucking/_lib/rateCalculator";
@@ -85,7 +85,7 @@ export const QuoteRoadPriceDrawer = ({ open, road, customerId, previousLevel, on
         {result && (
           <>
             <div className="text-[12px] text-slate-500">
-              Rated {formatDateTime(result.ratedAt)} for {customerId ? "the quote's customer (their own list, else Standard)" : "the Standard list"} · click a row
+              Rated {businessDateTime(result.ratedAt)} for {customerId ? "the quote's customer (their own tariff, else the Standard list)" : "the Standard list"} · click a row
               for the price lines and every haulier
             </div>
             <div className="rounded-xl border border-slate-200 bg-white">

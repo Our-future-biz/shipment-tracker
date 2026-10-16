@@ -8,11 +8,11 @@ import { AppGrid, type AppGridColumn } from "@/components/AppGrid";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { apiErrorMessage } from "@/lib/api";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { businessDateTime, businessToday, formatDateTime } from "@/lib/date";
+import { businessDateTime, businessToday } from "@/lib/date";
 import { downloadDataUrl } from "@/lib/files";
 import { useToast } from "@/lib/toast";
 import { fetchInternalMonthExport, fetchInternalStatementPdf, useInternalCharges, type InternalCharge, type InternalMonth } from "@/hooks/useTruckingMoney";
-import { btnDefault, btnPrimary } from "@/app/warehouse/gate-log/_components/job/fields";
+import { btnDefault, btnPrimary } from "@/components/buttons";
 import { consignmentHref } from "../_lib/consignments";
 import { TERMS } from "../_lib/glossary";
 import { CHARGE_KIND_LABELS, MONTH_STATUS_CHIP, closeMonthState, isNotPriced, monthLabel, monthTotal } from "../_lib/internalBilling";
@@ -21,8 +21,8 @@ import { isTruckingManager } from "../_lib/roles";
 import { formatMoney, formatQty } from "../_lib/tariffs";
 import { fileDataUrl } from "../_lib/tariffUpload";
 import { TruckingStatusChip } from "./TruckingStatusChip";
+import { byText } from "../_lib/format";
 
-const byText = (a: string, b: string) => a.localeCompare(b, "cs");
 const stop = (e: React.MouseEvent) => e.stopPropagation();
 
 const COLUMNS: AppGridColumn<InternalCharge>[] = [
@@ -113,7 +113,7 @@ export const InternalMonthDetail = ({ month }: InternalMonthDetailProps) => {
         <TruckingStatusChip chip={MONTH_STATUS_CHIP[month.status]} />
         <span className="text-xs text-slate-500">
           {formatMoney(monthTotal(month), "CZK")}
-          {month.closedAt ? ` · closed ${formatDateTime(month.closedAt)}${month.closedBy ? ` by ${month.closedBy}` : ""}` : ""}
+          {month.closedAt ? ` · closed ${businessDateTime(month.closedAt)}${month.closedBy ? ` by ${month.closedBy}` : ""}` : ""}
         </span>
         <span className="ml-auto flex flex-wrap gap-2">
           {month.statementNumbers.map((n) => (

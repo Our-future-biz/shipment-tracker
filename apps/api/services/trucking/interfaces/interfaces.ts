@@ -702,6 +702,14 @@ export interface ConsignmentListItem {
   openExceptions: number;
   /** The job belongs to another department: billed internally (no customer selling lines) */
   internal: boolean;
+  /** When the goods were picked up and delivered (the stamps), for the job's Trucking tab */
+  pickedUpAt: string | null;
+  deliveredAt: string | null;
+  /** The truck and driver of the trip shown (FTL: its trip; LTL: the leg under way); "" when not known */
+  tractorPlate: string;
+  trailerPlate: string;
+  driverName: string;
+  driverPhone: string;
 }
 
 export interface TruckingEventItem {
@@ -833,8 +841,8 @@ export interface PublicTransportOrder {
   linkExpiresAt: string;
 }
 
-/** podMissing = delivered more than 2 working days ago without POD */
-export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill" | "avizacePending" | "openExceptions";
+/** podMissing = delivered more than 2 working days ago without POD; openFtl = booked FTL not yet on a trip */
+export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill" | "avizacePending" | "openExceptions" | "openFtl";
 
 export interface ConsignmentCounts {
   attention: number;

@@ -170,10 +170,11 @@ export function useConsignment(id: string) {
 /** The CMR of a consignment, made on click. */
 export const fetchConsignmentCmr = async (id: string): Promise<TruckingFile> => (await api.trucking.truckingCmrPdf(id)).file;
 
-export function useTrips(filters: Parameters<typeof api.trucking.truckingTripList>[0] = {}) {
+export function useTrips(filters: Parameters<typeof api.trucking.truckingTripList>[0] = {}, { enabled = true } = {}) {
   const query = useQuery({
     queryKey: truckingKeys.tripList({ status: filters.status, search: filters.search }),
     queryFn: () => api.trucking.truckingTripList(filters),
+    enabled,
   });
   return { trips: query.data?.trips ?? NO_TRIPS, isLoading: query.isLoading, isError: query.isError };
 }

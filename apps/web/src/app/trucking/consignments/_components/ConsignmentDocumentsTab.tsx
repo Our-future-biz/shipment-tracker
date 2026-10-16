@@ -4,9 +4,9 @@ import { Spin } from "antd";
 import { UploadOutlined } from "@ant-design/icons";
 import { SectionCard, CountChip } from "@/components/SectionCard";
 import { fetchConsignmentCmr, fetchTruckingDocument, type ConsignmentDetail, type TruckingDocument } from "@/hooks/useTruckingConsignments";
-import { formatDateTime } from "@/lib/date";
-import { btnDefault } from "@/app/warehouse/gate-log/_components/job/fields";
-import { Badge } from "@/app/warehouse/gate-log/_lib/gate";
+import { businessDateTime } from "@/lib/date";
+import { btnDefault } from "@/components/buttons";
+import { Badge } from "@/components/Badge";
 import { TERMS } from "../../_lib/glossary";
 import { TariffDownloadButton } from "../../tariffs/_components/TariffDownloadButton";
 import { DOCUMENT_KIND_LABELS } from "./DocumentUploadModal";
@@ -59,7 +59,7 @@ export const ConsignmentDocumentsTab = ({ c, documents, isLoading, onUpload }: C
               <tr key={d.id} className="border-b border-slate-100 last:border-b-0">
                 <td className="px-4 py-2 font-semibold text-slate-800">{DOCUMENT_KIND_LABELS[d.kind]}</td>
                 <td className="px-4 py-2 break-all text-slate-700">{d.fileName}</td>
-                <td className="px-4 py-2 whitespace-nowrap font-mono text-slate-500">{formatDateTime(d.uploadedAt)}</td>
+                <td className="px-4 py-2 whitespace-nowrap font-mono text-slate-500">{businessDateTime(d.uploadedAt)}</td>
                 <td className="px-4 py-2">
                   {d.source === "HAULIER" ? <Badge tone="b">Haulier</Badge> : null} <span className="text-slate-600">{d.uploadedBy}</span>
                 </td>

@@ -11,7 +11,7 @@ interface TariffFindingListProps {
 }
 
 // What the server found when the version was saved: errors (it cannot be activated) first, then
-// warnings, each with where in the price list it is.
+// warnings, each with where in the tariff file it is.
 export const TariffFindingList = ({ findings, limit }: TariffFindingListProps) => {
   const sorted = sortFindings(findings);
   if (!sorted.length) return <p className="m-0 text-[13px] text-slate-500">No errors or warnings.</p>;

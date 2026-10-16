@@ -6,11 +6,11 @@ import { CheckCircleOutlined, WarningOutlined } from "@ant-design/icons";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { SectionCard } from "@/components/SectionCard";
 import { apiErrorMessage } from "@/lib/api";
-import { formatDateTime } from "@/lib/date";
+import { businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useTruckingSettings } from "@/hooks/useTrucking";
 import { useTrip, type TripDetail, type TripStampKind } from "@/hooks/useTruckingConsignments";
-import { btnDefault } from "@/app/warehouse/gate-log/_components/job/fields";
+import { btnDefault } from "@/components/buttons";
 import { TERMS } from "../../_lib/glossary";
 import { vehicleCapacity } from "../../_lib/planning";
 import { formatQty } from "../../_lib/tariffs";
@@ -91,7 +91,7 @@ export const TripLtlSections = ({ trip }: TripLtlSectionsProps) => {
               if (s) {
                 return (
                   <Tag key={kind} color="success" icon={<CheckCircleOutlined />} className="m-0 !px-2 !py-1 !text-[12px]">
-                    <span className="font-semibold">{STAMP_LABEL[kind]}</span> <span className="font-mono">{formatDateTime(s.at)}</span>
+                    <span className="font-semibold">{STAMP_LABEL[kind]}</span> <span className="font-mono">{businessDateTime(s.at)}</span>
                     {s.by ? ` · ${s.by}` : ""}
                   </Tag>
                 );

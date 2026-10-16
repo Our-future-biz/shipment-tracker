@@ -9,7 +9,7 @@ interface TariffFindingGroupsProps {
   findings: readonly interfaces.ValidationFinding[];
 }
 
-// The check of an uploaded price list: what must be fixed in the file and uploaded again, then what
+// The check of an uploaded tariff file: what must be fixed in the file and uploaded again, then what
 // can be accepted, each grouped by the sheet it is on, with the row and column.
 export const TariffFindingGroups = ({ findings }: TariffFindingGroupsProps) => {
   const sections = groupFindings(findings);

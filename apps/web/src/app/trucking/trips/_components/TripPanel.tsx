@@ -5,8 +5,8 @@ import { Tooltip } from "antd";
 import { StarFilled } from "@ant-design/icons";
 import { SectionCard } from "@/components/SectionCard";
 import type { TripDetail } from "@/hooks/useTruckingConsignments";
-import { formatDate, formatDateTime } from "@/lib/date";
-import { btnDefault, btnPrimary } from "@/app/warehouse/gate-log/_components/job/fields";
+import { formatDate, businessDateTime } from "@/lib/date";
+import { btnDefault, btnPrimary } from "@/components/buttons";
 import { TRIP_STATUS_CHIP, tripHref, type ActionState, type ConsignmentActions } from "../../_lib/consignments";
 import { TERMS } from "../../_lib/glossary";
 import { formatMoney, versionLabel } from "../../_lib/tariffs";
@@ -16,6 +16,8 @@ import { PriceSnapshotTable } from "../../_components/PriceSnapshotTable";
 import { TruckingStatusChip } from "../../_components/TruckingStatusChip";
 import type { TripDialog } from "./TripDialogs";
 import { TripVehicleForm } from "./TripVehicleForm";
+import { pragueDate } from "../../_lib/format";
+import { RECORDED_AS_SENT, recordAsSentLabel } from "../../_lib/transportOrder";
 
 const Line = ({ k, v }: { k: string; v: string }) => (
   <div className="flex items-baseline gap-2 border-b border-slate-100 py-1 text-xs last:border-b-0">
@@ -64,9 +66,9 @@ export const TripPanel = ({ trip, actions, manager, linkToTrip = false, onDialog
   const confirm = actions?.recordConfirmation ?? waiting;
   const sent = !!order?.sentAt;
 
-  let orderState = "Not sent yet";
-  if (order?.rejectedAt) orderState = `Rejected by the haulier ${formatDateTime(order.rejectedAt)}${order.rejectReason ? `: “${order.rejectReason}”` : ""}`;
-  else if (order?.confirmedAt) orderState = `Confirmed ${formatDateTime(order.confirmedAt)} ${order.confirmedVia === "LINK" ? "by the haulier through the link" : "— recorded by a user"}`;
+  let orderState = "Not recorded as sent yet";
+  if (order?.rejectedAt) orderState = `Rejected by the haulier ${businessDateTime(order.rejectedAt)}${order.rejectReason ? `: “${order.rejectReason}”` : ""}`;
+  else if (order?.confirmedAt) orderState = `Confirmed ${businessDateTime(order.confirmedAt)} ${order.confirmedVia === "LINK" ? "by the haulier through the link" : "— recorded by a user"}`;
   else if (sent) orderState = "Waiting for the haulier to confirm";
 
   return (
@@ -111,14 +113,14 @@ export const TripPanel = ({ trip, actions, manager, linkToTrip = false, onDialog
           <div>
             <Line k="Number" v={order?.number ?? ""} />
             <Line k="State" v={orderState} />
-            <Line k="Sent" v={sent ? `${formatDateTime(order?.sentAt)}${order?.sentBy ? ` · ${order.sentBy}` : ""}${order?.recordedOnly ? " · recorded only (not e-mailed)" : ""}` : ""} />
+            <Line k={RECORDED_AS_SENT} v={sent ? `${businessDateTime(order?.sentAt)}${order?.sentBy ? ` · ${order.sentBy}` : ""}${order?.recordedOnly ? " · not e-mailed" : ""}` : ""} />
             <Line k="Pick-up PIN" v={order ? (order.pinPrinted ? "Printed on the order (not kept)" : "Not printed") : ""} />
-            <Line k="Haulier's link" v={order?.podLinkExpiresAt ? `In the PDF · valid to ${formatDate(order.podLinkExpiresAt)}` : sent ? "" : "Made when the order is sent"} />
+            <Line k="Haulier's link" v={order?.podLinkExpiresAt ? `In the PDF · valid to ${pragueDate(order.podLinkExpiresAt)}` : sent ? "" : "Made when the order is recorded as sent"} />
           </div>
           {!closed && (
             <div className="flex flex-wrap gap-2">
               <ActionButton state={print} label="Print…" onClick={() => onDialog("print")} />
-              <ActionButton state={send} label={sent ? "Send again…" : "Send…"} primary={!sent} onClick={() => onDialog("send")} />
+              <ActionButton state={send} label={recordAsSentLabel(sent)} primary={!sent} onClick={() => onDialog("send")} />
               <ActionButton state={confirm} label="Record confirmation…" primary={sent && confirm.allowed} onClick={() => onDialog("confirm")} />
             </div>
           )}
