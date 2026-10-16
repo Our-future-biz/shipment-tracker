@@ -53,6 +53,9 @@ const CASES: [string, StockSyncMovement, HouseCtx | null][] = [
   ["outbound, typed date, export container (odd)", movement({ visit: "výdej", loadInDate: "2026-10-02" }), house("Loading")],
   ["outbound, released", movement({ visit: "výdej", receivedAt: T0, impRelease: T1 }), house("Unloading", "u", { tallyOutcome: "received" })],
   ["outbound, released without receipt", movement({ visit: "výdej", impRelease: T1 }), null],
+  ["domestic, gate-in is the receipt", movement({ handling: "Domestic", gateIn: T0 }), null],
+  ["domestic, released", movement({ handling: "Domestic", gateIn: T0, impRelease: T1, gateOut: T1 }), null],
+  ["domestic, expected", movement({ handling: "Domestic" }), null],
 ];
 
 describe("Reports KPIs and Stock on Hand use the same receipt and leaving", () => {

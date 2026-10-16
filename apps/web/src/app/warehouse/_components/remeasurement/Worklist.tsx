@@ -12,12 +12,13 @@ import { TERMS, directionOf, releaseGatesText } from "../../_lib/glossary";
 import { inWarehouse } from "../../_lib/worklist";
 import { freeTimeSort, freeTimeText, freeTimeTone } from "../../_lib/storageText";
 import { Badge } from "../../gate-log/_lib/gate";
-import { waitingGates } from "../../gate-log/_lib/steps";
+import { isDomestic, isOutbound, leavesByRelease, waitingGates } from "../../gate-log/_lib/steps";
 import { positionRemeasurementHref } from "../remeasurementLinks";
 
 // Block G — when no position is open: the positions waiting for the warehouse here. Waiting for
 // remeasurement = cargo in the warehouse with no remeasured lines saved; waiting for release =
-// outbound cargo not released yet (and not refused). Click a row to open it.
+// outbound or Domestic cargo not released yet (and not refused; Domestic once it has arrived).
+// Click a row to open it.
 
 type Reason = "remeasure" | "release";
 type Item = { task: interfaces.WarehouseTaskItem; m: GateMovement; reasons: Reason[]; summary?: interfaces.WarehouseSectionSummaryItem };
@@ -42,7 +43,8 @@ export function Worklist() {
       const s = summary.get(task.id);
       const reasons: Reason[] = [];
       if (inWarehouse(m) && !s?.hasLines) reasons.push("remeasure");
-      if (m.visit === "výdej" && !m.impRelease && !m.gateOut && m.status !== "Refused") reasons.push("release");
+      const releaseDue = isOutbound(m) || (isDomestic(m) && !!m.gateIn);
+      if (releaseDue && !m.impRelease && !m.gateOut && m.status !== "Refused") reasons.push("release");
       return reasons.length ? [{ task, m, reasons, summary: s }] : [];
     });
   }, [tasks, movements, positions]);
@@ -101,7 +103,7 @@ export function Worklist() {
       width: 260,
       text: (r) => releaseGatesText(r.m),
       render: (_, r) =>
-        r.m.visit !== "výdej" ? (
+        !leavesByRelease(r.m) ? (
           <span className="text-slate-300">n/a — inbound</span>
         ) : r.m.armed ? (
           <span className="font-medium text-emerald-600">{TERMS.clear}</span>

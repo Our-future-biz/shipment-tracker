@@ -9660,6 +9660,10 @@ export namespace interfaces {
         cfsCustomsNumber: string
         cfsCustomsProcedure: string
         transportLegs: GateTransportLeg[]
+        /**
+         * Gate figures written by a Trucking trip; null when none.
+         */
+        tripFigures: GateTripFigures | null
         containers: GateContainer[]
         surveys: GateSurvey[]
         subPositions: GateSubPosition[]
@@ -10101,6 +10105,17 @@ export namespace interfaces {
          * Set when a Trucking trip filled the leg ("From trip LCZ…"): read-only, cleared only by the trip.
          */
         source?: GateTripSource | null
+
+        /**
+         * IN leg of a trip: the gate figures that trip wrote (see `GateMovementItem.tripFigures`).
+         */
+        figures?: GateLegFigures | null
+    }
+
+    export interface GateLegFigures {
+        colli?: number
+        weightKg?: number
+        measureCbm?: number
     }
 
     /**
@@ -10109,6 +10124,24 @@ export namespace interfaces {
     export interface GateTripSource {
         kind: "trucking"
         tripRef: string
+        /**
+         * Trucking's trip kind (PICKUP_RUN, LINEHAUL, DELIVERY_RUN), when the trip sent it.
+         */
+        tripKind?: string
+        /**
+         * Trucking's trip id, when the trip sent it: the marker links to the trip.
+         */
+        tripId?: string
+    }
+
+    /**
+     * Gate figures a Trucking trip wrote (pieces / kg / cbm), with the trip: "From trip LCZ…" while unchanged.
+     */
+    export interface GateTripFigures {
+        source: GateTripSource
+        colli?: number
+        weightKg?: number
+        measureCbm?: number
     }
 
     /**

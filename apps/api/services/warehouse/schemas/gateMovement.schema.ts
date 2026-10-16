@@ -27,12 +27,26 @@ export interface GateTransportLeg {
   // Filled by a Trucking trip (expect-arrival / expect-departure): read-only in Warehouse and
   // Shipments, cleared only by that trip's cancel. Absent on legs typed by hand.
   source?: GateTripSource | null;
+  // The gate figures (pieces / kg / cbm) the trip of this leg wrote into blank gate figures
+  // (expect-arrival, IN leg only). A figure still equal to its value here shows "From trip LCZ…";
+  // the trip's cancel clears those still untouched while nothing is stamped.
+  figures?: GateLegFigures | null;
+}
+
+export interface GateLegFigures {
+  colli?: number;
+  weightKg?: number;
+  measureCbm?: number;
 }
 
 /** What a Trucking trip filled (transport leg, pick-up row, dock slot): "From trip LCZ…". */
 export interface GateTripSource {
   kind: "trucking";
   tripRef: string;
+  /** Trucking's trip kind (PICKUP_RUN, LINEHAUL, DELIVERY_RUN), when the trip sent it. */
+  tripKind?: string;
+  /** Trucking's trip id, when the trip sent it: the marker links to the trip. */
+  tripId?: string;
 }
 
 // Cargo survey — one record per container ("" = position level when there is none).

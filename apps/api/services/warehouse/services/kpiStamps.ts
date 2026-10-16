@@ -4,7 +4,8 @@ import { isIsoDate, pragueDate } from "./storage";
 // When a position was RECEIVED and when it LEFT, from its stamps — the start and stop points the
 // Reports KPIs (and the stock sync) read. Pure, no imports from the services (no import cycle).
 //
-//   received   inbound (příjem): the WH receipt stamp (expReceipt).
+//   received   inbound (příjem): the WH receipt stamp (expReceipt); Domestic cargo: its gate-in
+//              (the gate-in is the receipt — no draft receipt / receipt).
 //              outbound (výdej): ticked received at the stripping tally of its import container
 //              (receivedAt); without a container tally, the typed "Received in warehouse" date
 //              (loadInDate, a day only). The truck's gate-in of an outbound position is the
@@ -23,6 +24,8 @@ export interface StampPoint {
 
 export interface ReceiptMovement {
   visit: string;
+  handling?: string;
+  gateIn?: Date | null;
   expReceipt: Date | null;
   receivedAt: Date | null;
   loadInDate: string;
@@ -51,6 +54,10 @@ const point = (at: Date, source: string): StampPoint => ({ at, day: pragueDate(a
 const tallyDue = (h: ReceiptHouse | null | undefined) => !!h && (containerKind(h.containerDirection) === "export" || h.addedBy !== LEGACY_LINK);
 
 export function receiptOf(m: ReceiptMovement, house?: ReceiptHouse | null): StampPoint | null {
+  if (m.visit !== "výdej" && m.handling === "Domestic") {
+    const at = m.gateIn ?? m.expReceipt;
+    return at ? point(at, m.gateIn ? "Gate-in" : "WH receipt") : null;
+  }
   if (m.visit !== "výdej") return m.expReceipt ? point(m.expReceipt, "WH receipt") : null;
   if (m.receivedAt) return point(m.receivedAt, "Stripping tally");
   if (!tallyDue(house) && isIsoDate(m.loadInDate)) return { at: null, day: m.loadInDate, source: "Received date (typed)" };

@@ -218,9 +218,16 @@ class WarehouseSectionRepository extends TenantRepository<typeof warehouseSectio
   // Saves only the haulier / plate / driver rows. The PIN fields are the server's: the rows key
   // is replaced inside the stored data and everything else is kept as it is in the database.
   // Rows a Trucking trip filled stay as stored (read-only in Shipments): the user's rows are saved
-  // after them (tripSource.mergeUserPickupRows).
-  async upsertPickupRows(shipmentId: string, companyId: string, rows: PickupRow[]): Promise<WarehouseSectionRecord> {
-    return this.withPickupLock(shipmentId, companyId, (tx) => this.writePickupRows(tx, shipmentId, companyId, (stored) => mergeUserPickupRows(stored, rows)));
+  // after them (tripSource.mergeUserPickupRows). `check` sees the merged rows before they are
+  // written (and may refuse them by throwing).
+  async upsertPickupRows(shipmentId: string, companyId: string, rows: PickupRow[], check?: (merged: PickupRow[]) => void): Promise<WarehouseSectionRecord> {
+    return this.withPickupLock(shipmentId, companyId, (tx) =>
+      this.writePickupRows(tx, shipmentId, companyId, (stored) => {
+        const merged = mergeUserPickupRows(stored, rows);
+        check?.(merged);
+        return merged;
+      }),
+    );
   }
 
   // Replaces the rows with `change(stored rows)`, keeping every other key; makes the section when

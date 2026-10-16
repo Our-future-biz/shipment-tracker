@@ -4,6 +4,9 @@ import { TERMS } from "../../_lib/glossary";
 // The gate stamps as steps in process order, per direction:
 //   inbound (příjem):  Gate-in → Draft receipt → Receipt → Gate-out
 //   outbound (výdej):  Gate-in (truck) → WH release → Gate-out (stamped with the WH release)
+//   domestic (příjem, Trucking's LTL through our hub): Gate-in (the receipt) → WH release (release
+//                      gates clear, no open exception) → Gate-out (stamped with the WH release).
+//                      No Draft receipt, no Receipt, no re-weigh.
 // Done steps carry the stamp time and who stamped it (from the movement's events). The first
 // step not done is the next one; later steps wait for the one before. A refused movement takes
 // no stamps here, and WH release waits for the release gates to be clear.
@@ -30,7 +33,7 @@ type StepMovement = Pick<
   interfaces.GateMovementItem,
   "visit" | "status" | "armed" | "releaseGates" | "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt" | "events"
 > &
-  Partial<Pick<interfaces.GateMovementItem, "needsReweigh" | "reweigh" | "container" | "leftAt">>;
+  Partial<Pick<interfaces.GateMovementItem, "needsReweigh" | "reweigh" | "container" | "leftAt" | "handling">>;
 
 /** LCL cargo is re-weighed before its receipt (the server refuses the Receipt stamp without it). */
 export const REWEIGH_FIRST = "Re-weigh the cargo first — LCL cargo is re-weighed before the receipt";
@@ -85,7 +88,24 @@ export const waitingGates = (m: Pick<interfaces.GateMovementItem, "releaseGates"
 
 export const isOutbound = (m: Pick<interfaces.GateMovementItem, "visit">) => m.visit === "výdej";
 
-const SEQUENCE: Record<"in" | "out", { kind: StepKind; label: string }[]> = {
+/** Domestic cargo (Trucking's LTL through our hub): in at the gate-in (its receipt), out through the WH release. Must match the API's DOMESTIC. */
+export const isDomestic = (m: { handling?: string }) => m.handling === "Domestic";
+
+/** The cargo leaves through the WH release, which stamps the gate-out too: outbound and Domestic cargo. */
+export const leavesByRelease = (m: Pick<interfaces.GateMovementItem, "visit"> & { handling?: string }) => isOutbound(m) || isDomestic(m);
+
+/**
+ * The leg the cargo moves on at the gate now (as the server's grid follows it): outbound cargo the
+ * OUT leg; Domestic cargo the IN leg (its pick-up run) until the gate-in, then the OUT leg (the line
+ * haul it leaves on); other inbound cargo the IN leg.
+ */
+export const cargoLeg = (m: Pick<interfaces.GateMovementItem, "visit" | "gateIn"> & { handling?: string }): "IN" | "OUT" =>
+  isOutbound(m) || (isDomestic(m) && !!m.gateIn) ? "OUT" : "IN";
+
+type Flow = "in" | "out" | "domestic";
+const flowOf = (m: Pick<StepMovement, "visit" | "handling">): Flow => (isOutbound(m) ? "out" : isDomestic(m) ? "domestic" : "in");
+
+const SEQUENCE: Record<Flow, { kind: StepKind; label: string }[]> = {
   in: [
     { kind: "gateIn", label: TERMS.gateIn },
     { kind: "expDraft", label: TERMS.draftReceipt },
@@ -97,17 +117,26 @@ const SEQUENCE: Record<"in" | "out", { kind: StepKind; label: string }[]> = {
     { kind: "impRelease", label: TERMS.whRelease },
     { kind: "gateOut", label: TERMS.gateOut },
   ],
+  domestic: [
+    { kind: "gateIn", label: TERMS.gateIn },
+    { kind: "impRelease", label: TERMS.whRelease },
+    { kind: "gateOut", label: TERMS.gateOut },
+  ],
 };
-const LEGACY: Record<"in" | "out", { kind: StepKind; label: string }[]> = {
+const LEGACY: Record<Flow, { kind: StepKind; label: string }[]> = {
   in: [{ kind: "impRelease", label: TERMS.whRelease }],
   out: [
+    { kind: "expDraft", label: TERMS.draftReceipt },
+    { kind: "expReceipt", label: TERMS.receipt },
+  ],
+  domestic: [
     { kind: "expDraft", label: TERMS.draftReceipt },
     { kind: "expReceipt", label: TERMS.receipt },
   ],
 };
 
 export function gateSteps(m: StepMovement): GateStep[] {
-  const dir = isOutbound(m) ? "out" : "in";
+  const dir = flowOf(m);
   const lastEvent = (kind: string) => [...m.events].reverse().find((e) => e.kind === kind);
   const refused = m.status === "Refused";
   let seenOpen = false;
@@ -117,8 +146,8 @@ export function gateSteps(m: StepMovement): GateStep[] {
     if (at) {
       let evt = lastEvent(kind);
       let note: string | undefined;
-      // Outbound gate-out is stamped by the WH release; there is no gate-out event of its own.
-      if (!evt && kind === "gateOut" && dir === "out") {
+      // Outbound / Domestic gate-out is stamped by the WH release; there is no gate-out event of its own.
+      if (!evt && kind === "gateOut" && dir !== "in") {
         evt = lastEvent("impRelease");
         note = `Stamped with ${TERMS.whRelease}`;
       }
@@ -153,7 +182,7 @@ export function gateSteps(m: StepMovement): GateStep[] {
   const legacy = LEGACY[dir].flatMap(({ kind, label }): GateStep[] => {
     const at = m[kind];
     return at
-      ? [{ kind, label, state: "done", at, by: lastEvent(kind)?.by ?? "", reason: "", note: "Stamp of the other direction, kept from before", legacy: true }]
+      ? [{ kind, label, state: "done", at, by: lastEvent(kind)?.by ?? "", reason: "", note: dir === "domestic" ? "Not a Domestic step — kept from before" : "Stamp of the other direction, kept from before", legacy: true }]
       : [];
   });
   return [...steps, ...legacy];
@@ -190,7 +219,7 @@ export const voidsGateOutToo = (m: Pick<interfaces.GateMovementItem, "impRelease
 
 // ─── Stamp confirmation (gate job and floor mode) ──────────────
 
-type StampFields = Pick<interfaces.GateMovementItem, "visit" | "gateIn" | "impRelease">;
+type StampFields = Pick<interfaces.GateMovementItem, "visit" | "gateIn" | "impRelease"> & { handling?: string };
 
 /**
  * What the stamp writes to the linked shipment, for the confirmation text; null when nothing.
@@ -216,6 +245,8 @@ export function stampConfirmText(m: StampFields & { gateRef: string }, kind: Ste
 export function stampPrecheck(m: StampFields, kind: StepKind, label: string, at: string | null, fmt: (iso: string) => string): string | null {
   if (at) return `${label} was already stamped ${fmt(at)}`;
   if (kind === "gateOut" && isOutbound(m) && !m.impRelease) return `Outbound cargo leaves through ${TERMS.whRelease} — it stamps the gate-out too.`;
+  if (kind === "gateOut" && isDomestic(m) && !m.impRelease) return `Domestic cargo leaves through ${TERMS.whRelease} — it stamps the gate-out too.`;
+  if ((kind === "expDraft" || kind === "expReceipt") && isDomestic(m)) return `Domestic cargo has no ${label} — its ${TERMS.gateIn} is the receipt.`;
   return null;
 }
 
@@ -225,5 +256,5 @@ export function stampPrecheck(m: StampFields, kind: StepKind, label: string, at:
  * gate-out it stamps) needs the server's answer — release gates and the PIN — so never waits.
  */
 export const QUEUEABLE_STAMPS: readonly StepKind[] = ["gateIn", "expDraft", "expReceipt", "gateOut"];
-export const isQueueableStamp = (m: Pick<interfaces.GateMovementItem, "visit">, kind: StepKind) =>
-  QUEUEABLE_STAMPS.includes(kind) && !(kind === "gateOut" && isOutbound(m));
+export const isQueueableStamp = (m: Pick<interfaces.GateMovementItem, "visit"> & { handling?: string }, kind: StepKind) =>
+  QUEUEABLE_STAMPS.includes(kind) && !(kind === "gateOut" && leavesByRelease(m));

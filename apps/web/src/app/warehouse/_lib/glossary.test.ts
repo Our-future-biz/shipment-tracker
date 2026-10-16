@@ -96,13 +96,16 @@ describe("glossary — stock, KPIs and supplier e-mail", () => {
 });
 
 describe("Domestic positions", () => {
-  it("show as Domestic and map back to the stored handling", () => {
-    expect(directionOf({ visit: "příjem", handling: "Domestic" })).toBe("Domestic");
+  it("show as Domestic (in → out) and map back to the stored handling", () => {
+    expect(directionOf({ visit: "příjem", handling: "Domestic" })).toBe("Domestic (in → out)");
     expect(directionOf({ visit: "příjem", handling: "Export" })).toBe("Inbound");
     expect(directionOf({ visit: "výdej", handling: "Import" })).toBe("Outbound");
-    expect(directionOfHandling("Domestic")).toBe("Domestic");
-    expect(handlingOfDirection("Domestic")).toBe("Domestic");
-    expect(DIRECTIONS).toContain("Domestic");
+    expect(directionOfHandling("Domestic")).toBe("Domestic (in → out)");
+    expect(handlingOfDirection("Domestic (in → out)")).toBe("Domestic");
+    expect(DIRECTIONS).toContain("Domestic (in → out)");
+    // The Direction filter offers the same words the grid shows.
+    expect(DIRECTIONS.map(handlingOfDirection)).toEqual(["Export", "Import", "Domestic"]);
+    expect(GLOSSARY.find((g) => g.term.includes(TERMS.domestic))?.meaning).toMatch(/gate-in is its receipt/);
   });
 
   it("count their release gates (they leave through the WH release); other inbound cargo stays n/a", () => {

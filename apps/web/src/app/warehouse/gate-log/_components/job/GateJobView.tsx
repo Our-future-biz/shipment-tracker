@@ -19,7 +19,7 @@ import { CustomsDeadlineChip } from "@/app/warehouse/_lib/customsDeadline";
 import { movementCustomsClock } from "@/app/warehouse/_lib/customsClock";
 import { dockSlotText } from "@/app/warehouse/_lib/worklist";
 import { errorMessage, hasAnyStamp, hasSurvey, isManager, nf, requiredSurveyPhase, surveyTargets } from "../../_lib/gate";
-import { gateSteps, isOutbound, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, type GateStep } from "../../_lib/steps";
+import { cargoLeg, gateSteps, isOutbound, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, type GateStep } from "../../_lib/steps";
 import { PrintLabelsModal } from "../PrintLabelsModal";
 import { btnDefault, btnPrimary } from "./fields";
 import { OverviewTab } from "./OverviewTab";
@@ -59,8 +59,9 @@ function StatusCards({ m, onRefreshCustoms, refreshing }: { m: GateMovement; onR
       ? { value: `+${s.chargeableDays}`, tone: "text-red-600", sub: `Day ${s.daysInWarehouse} · ${freeTimeText(s)} · est. CZK ${nf(s.estimatedCzk)}` }
       : { value: String(s.freeDaysLeft), tone: s.state === "Expiring" ? "text-amber-600" : "text-emerald-600", sub: `Day ${s.daysInWarehouse} · ${freeTimeText(s)}` };
 
-  const out = isOutbound(m);
-  const leg = m.transportLegs.find((l) => l.leg === (out ? "OUT" : "IN"));
+  // The truck the cargo moves on now: Domestic cargo leaves on its OUT leg once it has arrived.
+  const out = cargoLeg(m) === "OUT";
+  const leg = m.transportLegs.find((l) => l.leg === cargoLeg(m));
   const driver = leg?.driver || m.driver;
   const plate = leg?.plate || m.plate;
   const stampAt = out ? m.gateOut : m.gateIn;

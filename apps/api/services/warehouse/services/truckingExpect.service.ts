@@ -7,7 +7,7 @@ import { gateMovementRepository, hasStamp, type GateMovementRow } from "../repos
 import { warehouseTaskRepository } from "../repositories/warehouseTask.repository";
 import { warehouseSectionRepository, type Tx } from "../repositories/warehouseSection.repository";
 import { dockSlotRepository } from "../repositories/warehouseRecords.repository";
-import type { GateEvent, GateTransportLeg, NewGateMovementRecord } from "../schemas/gateMovement.schema";
+import type { GateEvent, NewGateMovementRecord } from "../schemas/gateMovement.schema";
 import type { WarehouseTaskRecord } from "../schemas/warehouseTask.schema";
 import { normalizeLegs } from "./gateMovement.service";
 import { gateAdminService } from "./gateAdmin.service";
@@ -19,7 +19,21 @@ import { pragueDate } from "./storage";
 import { readPickup } from "./pickupPin";
 import { slotWindow } from "./dockSlots";
 import type { DockSettings } from "./settingsRules";
-import { clearTripLeg, clearTripPickupRows, fillTripLeg, fromTrip, MAX_TRIP_REF, sameLeg, setTripPickupRow, tripSlotWindow } from "./tripSource";
+import {
+  clearedTripFigures,
+  clearTripLeg,
+  clearTripPickupRows,
+  fillTripLeg,
+  fromTrip,
+  markTripFigures,
+  MAX_TRIP_REF,
+  sameLeg,
+  setTripPickupRow,
+  tripSlotWindow,
+  type TripInfo,
+} from "./tripSource";
+import { cargoLeg } from "./direction";
+import { houseContexts } from "./houses";
 import { isExclusionViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 
@@ -52,6 +66,8 @@ export interface ExpectArrivalInput {
   pieces: number;
   weightKg: number;
   cbm: number;
+  /** Trucking's trip id (optional): the "From trip LCZ…" markers link to the trip with it. */
+  tripId?: string;
 }
 
 export type ExpectDepartureInput = Omit<ExpectArrivalInput, "pieces" | "weightKg" | "cbm">;
@@ -62,6 +78,10 @@ export interface ExpectArrivalResult {
   gateMovementId: string;
   dockSlotId: string | null;
 }
+
+// Why a position made for a cancelled trip is kept after all (removePosition refused it).
+const KEPT: ErrCode[] = [ErrCode.PermissionDenied, ErrCode.NotFound, ErrCode.FailedPrecondition];
+const FIGURE_TEXT: Record<string, string> = { colli: "pieces", weightKg: "kg", measureCbm: "cbm" };
 
 /** Event on a gate record whose position was made for a trip (detail = the trip ref). */
 export const CREATED_FOR_TRIP = "createdForTrip";
@@ -81,7 +101,7 @@ function checkExpected(input: ExpectDepartureInput): { tripRef: string; at: Date
   if (!/^\d{4}-\d{2}-\d{2}T/.test(input.expectedAt ?? "") || Number.isNaN(at.getTime())) {
     throw APIError.invalidArgument("expectedAt must be an ISO date-time");
   }
-  for (const [k, v] of Object.entries({ haulierName: input.haulierName, plate: input.plate, driver: input.driver, driverPhone: input.driverPhone, tripKind: input.tripKind })) {
+  for (const [k, v] of Object.entries({ haulierName: input.haulierName, plate: input.plate, driver: input.driver, driverPhone: input.driverPhone, tripKind: input.tripKind, tripId: input.tripId })) {
     if (v !== undefined && v !== null && (typeof v !== "string" || v.length > MAX_FIELD)) throw APIError.invalidArgument(`${k} must be text of at most ${MAX_FIELD} characters`);
   }
   return { tripRef, at };
@@ -89,8 +109,7 @@ function checkExpected(input: ExpectDepartureInput): { tripRef: string; at: Date
 
 const positive = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : 0);
 
-// The leg the cargo moves on at this gate; the grid's carrier / plate / driver follow it.
-const cargoLeg = (m: Pick<GateMovementRow, "visit">): GateTransportLeg["leg"] => (m.visit === "výdej" ? "OUT" : "IN");
+const tripInfo = (input: ExpectDepartureInput): TripInfo => ({ tripKind: input.tripKind, tripId: input.tripId });
 
 class TruckingExpectService {
   // One trip of one shipment at a time (two calls of the same trip, or its cancel, never interleave).
@@ -131,7 +150,13 @@ class TruckingExpectService {
   private legPatch(m: GateMovementRow, leg: "IN" | "OUT", tripRef: string, input: ExpectDepartureInput, at: Date): Partial<NewGateMovementRecord> | null {
     if (leg === "IN" ? m.gateIn : m.gateOut || m.impRelease) return null;
     const legs = normalizeLegs(m.transportLegs);
-    const next = fillTripLeg(legs, leg, tripRef, { company: input.haulierName ?? "", plate: input.plate ?? "", driver: input.driver ?? "", phone: input.driverPhone ?? "", gateTime: at.toISOString() });
+    const next = fillTripLeg(
+      legs,
+      leg,
+      tripRef,
+      { company: input.haulierName ?? "", plate: input.plate ?? "", driver: input.driver ?? "", phone: input.driverPhone ?? "", gateTime: at.toISOString() },
+      tripInfo(input),
+    );
     const filled = next.find((l) => l.leg === leg)!;
     if (sameLeg(legs.find((l) => l.leg === leg), filled)) return null;
     return { transportLegs: next, ...(cargoLeg(m) === leg ? { carrier: filled.company, plate: filled.plate, driver: filled.driver } : {}) };
@@ -196,12 +221,17 @@ class TruckingExpectService {
       await this.lockTrip(tx, companyId, shipmentId, tripRef);
       const m = await this.lockMovement(tx, movementId, companyId);
       const patch: Partial<NewGateMovementRecord> = this.legPatch(m, "IN", tripRef, input, at) ?? {};
-      // The trip's cargo figures fill the gate figures only while they are blank and nothing is stamped.
+      // The trip's cargo figures fill the gate figures only while they are blank and nothing is
+      // stamped — marked on the trip's IN leg, so its cancel can clear them again.
       const figures: string[] = [];
       if (!hasStamp(m)) {
         if (!m.colli && positive(input.pieces)) figures.push(`pieces ${(patch.colli = Math.round(positive(input.pieces)))}`);
         if (!m.weightKg && positive(input.weightKg)) figures.push(`kg ${(patch.weightKg = Math.round(positive(input.weightKg) * 1000) / 1000)}`);
         if (!m.measureCbm && positive(input.cbm)) figures.push(`cbm ${(patch.measureCbm = Math.round(positive(input.cbm) * 1000) / 1000)}`);
+        if (figures.length) {
+          const written = Object.fromEntries((["colli", "weightKg", "measureCbm"] as const).filter((k) => patch[k] !== undefined).map((k) => [k, patch[k]]));
+          patch.transportLegs = markTripFigures(patch.transportLegs ?? normalizeLegs(m.transportLegs), tripRef, written);
+        }
       }
       if (Object.keys(patch).length) {
         const event: GateEvent = {
@@ -254,7 +284,7 @@ class TruckingExpectService {
       if (!gone) {
         const stored = await warehouseSectionRepository.findPickup(shipmentId, companyId, tx);
         const rows = readPickup(stored?.data).rows;
-        const next = setTripPickupRow(rows, tripRef, { haulier: input.haulierName ?? "", licensePlate: input.plate ?? "", driver: input.driver ?? "" });
+        const next = setTripPickupRow(rows, tripRef, { haulier: input.haulierName ?? "", licensePlate: input.plate ?? "", driver: input.driver ?? "" }, tripInfo(input));
         if (JSON.stringify(next) !== JSON.stringify(rows)) await warehouseSectionRepository.writePickupRows(tx, shipmentId, companyId, () => next);
       }
       if (!gone) await this.bookSlot(tx, companyId, m, tripRef, "OUT", at, docks, input.plate ?? "");
@@ -293,11 +323,17 @@ class TruckingExpectService {
         const own = cleared.find((l) => l.leg === cargoLeg(m));
         if (own && m.carrier === own.company && m.plate === own.plate && m.driver === own.driver) Object.assign(patch, { carrier: "", plate: "", driver: "" });
       }
+      // The gate figures the trip wrote: back to blank while untouched and nothing is stamped (the
+      // IN leg with their marker is cleared above in that case).
+      const figures = hasStamp(m) ? {} : clearedTripFigures(m, tripRef);
+      const clearedFigures = Object.keys(figures);
+      Object.assign(patch, figures);
       const slots = await dockSlotRepository.cancelTripSlots(tx, companyId, m.id, tripRef, `trip ${tripRef} cancelled`);
-      if (cleared.length || slots.length || rowsLeft.length !== rows.length) {
+      if (cleared.length || slots.length || rowsLeft.length !== rows.length || clearedFigures.length) {
         const what = [
           ...cleared.map((l) => `${l.leg} leg`),
           ...(rowsLeft.length !== rows.length ? ["pick-up row"] : []),
+          ...(clearedFigures.length ? [`gate figures (${clearedFigures.map((k) => FIGURE_TEXT[k]).join(", ")})`] : []),
           ...(slots.length ? [`${slots.length} dock slot${slots.length === 1 ? "" : "s"}`] : []),
         ];
         await gateMovementRepository.conditionalUpdate(
@@ -310,12 +346,14 @@ class TruckingExpectService {
         );
       }
       // A position made for this trip goes again only when nothing else holds it: no stamp, no
-      // other trip's leg, pick-up row or slot.
+      // other trip's leg, pick-up row or slot, and no container (planned, stuffed or tallied there:
+      // the container plan keeps it — a cancel never takes a house out of a container).
       const madeForTrip = m.events.some((e) => e.kind === CREATED_FOR_TRIP && e.detail === tripRef);
       const otherLegs = next.some((l) => fromTrip(l));
       const otherRows = rowsLeft.some((r) => fromTrip(r));
       const otherSlots = (await dockSlotRepository.liveSlotsOtherThanTrip(tx, companyId, m.id, tripRef)).length > 0;
-      return madeForTrip && !hasStamp(m) && !otherLegs && !otherRows && !otherSlots;
+      const inContainer = (await houseContexts([m.id], companyId, tx)).has(m.id);
+      return madeForTrip && !hasStamp(m) && !otherLegs && !otherRows && !otherSlots && !inContainer;
     });
     if (removable && task) {
       try {
@@ -323,7 +361,9 @@ class TruckingExpectService {
         // own locks), so a stamped position is never removed here.
         await gateAdminService.removePosition(task.id, companyId, userId, "user", `Trucking trip ${tripRef} cancelled`);
       } catch (err) {
-        if (!(err instanceof APIError && (err.code === ErrCode.PermissionDenied || err.code === ErrCode.NotFound))) throw err;
+        // The trip's data is already cleared (committed): whatever keeps the position now — a stamp
+        // or a container house made meanwhile, or it is gone — the cancel itself has succeeded.
+        if (!(err instanceof APIError && KEPT.includes(err.code))) throw err;
         log.info("warehouse: position kept after a trip cancel", { tripRef, taskId: task.id, reason: err.message });
       }
     }

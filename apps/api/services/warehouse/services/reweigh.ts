@@ -6,7 +6,7 @@ import { warehouseReweighTable } from "../schemas/warehouseReweigh.schema";
 // shipment on receipt. Pure rules, no imports from the services (no import cycle).
 //
 //   who needs it   LCL positions: operation type LCL… or load type Consolidation — never FCL /
-//                  container yard positions.
+//                  container yard positions, never Domestic (its gate-in is the receipt).
 //   when           inbound (export) before the WH receipt; import before its house is ticked
 //                  received at the stripping tally.
 //   comparison     against the declared gross weight, with the remeasurement tolerance: more
@@ -19,15 +19,18 @@ export const MAX_REWEIGH_KG = 100_000;
 
 const isFcl = (operationType: string) => /^(FCL|Container yard)/.test(operationType);
 
-/** The position is LCL cargo, so the warehouse re-weighs it before its receipt. */
-export const needsReweigh = (m: { operationType: string; loadType: string }) =>
-  !isFcl(m.operationType) && (/^LCL/.test(m.operationType) || m.loadType === "Consolidation");
+/**
+ * The position is LCL cargo, so the warehouse re-weighs it before its receipt. Never Domestic
+ * cargo: its gate-in is the receipt (a cross-dock does not re-weigh every pallet).
+ */
+export const needsReweigh = (m: { operationType: string; loadType: string; handling?: string }) =>
+  m.handling !== "Domestic" && !isFcl(m.operationType) && (/^LCL/.test(m.operationType) || m.loadType === "Consolidation");
 
 const t = gateMovementTable;
 const r = warehouseReweighTable;
 
 /** needsReweigh in SQL, on the gate movement being updated. */
-export const needsReweighSql = sql`(${t.operationType} !~ '^(FCL|Container yard)' AND (${t.operationType} ~ '^LCL' OR ${t.loadType} = 'Consolidation'))`;
+export const needsReweighSql = sql`(${t.handling} <> 'Domestic' AND ${t.operationType} !~ '^(FCL|Container yard)' AND (${t.operationType} ~ '^LCL' OR ${t.loadType} = 'Consolidation'))`;
 
 /** The movement has a re-weighing (checked at the moment of the UPDATE). */
 export const hasReweighSql = sql`EXISTS (SELECT 1 FROM ${r} rw WHERE rw.movement_id = ${t.id} AND rw.deleted_at IS NULL)`;

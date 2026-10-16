@@ -7,7 +7,8 @@ import type { MessageInstance } from "antd/es/message/interface";
 import { useGeneratePickupPin, useWarehouseSection } from "@/hooks/useWarehouseSection";
 import { APIError } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
-import { splitPickupRows, tripLabel, type PickupRowData } from "@/lib/tripSource";
+import { splitPickupRows, type PickupRowData } from "@/lib/tripSource";
+import { TripMarker } from "@/app/warehouse/_components/TripMarker";
 import { SaveStatus } from "./JobExtras";
 
 // The PIN and its fields are written by the server only; this page sends the rows. The server
@@ -159,9 +160,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
                 );
               })}
               <td className="p-0.5 px-1.5">
-                <span className="whitespace-nowrap rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700" title="Planned in Trucking — change it on the trip">
-                  {tripLabel(row)}
-                </span>
+                <TripMarker x={row} />
               </td>
             </tr>
           ))}

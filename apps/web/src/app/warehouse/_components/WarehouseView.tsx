@@ -348,8 +348,8 @@ const BUBBLES: { id: BubbleId; label: string; hint: string; match: (m: GateMovem
   },
   {
     id: "shuttle",
-    label: "Open Shuttle Trucks",
-    hint: "Freight mode Road Freight · not yet done",
+    label: "Open road positions",
+    hint: "Freight mode Road Freight (Trucking's pick-up runs, line hauls and delivery runs) · not yet done",
     match: (m) => isOpen(m) && m.freightMode === "Road Freight",
   },
 ];

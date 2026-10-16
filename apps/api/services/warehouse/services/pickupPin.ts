@@ -63,7 +63,7 @@ export function stripPickupSecrets(data: unknown): unknown {
 export const isLinkedOutbound = (m: { shipmentId: string | null; visit: string }) => !!m.shipmentId && m.visit === "výdej";
 
 /** A row a Trucking trip filled carries `source` (read-only "From trip LCZ…"); rows typed in Shipments have none. */
-export type PickupRow = { haulier: string; licensePlate: string; driver: string; source?: { kind: "trucking"; tripRef: string } };
+export type PickupRow = { haulier: string; licensePlate: string; driver: string; source?: { kind: "trucking"; tripRef: string; tripKind?: string; tripId?: string } };
 export type PickupHistoryEntry = { kind: "created" | "renewed"; at: string; by: string };
 export type PickupData = {
   /** Plain PIN of a PIN stored before hashing; "" otherwise. */
@@ -95,7 +95,12 @@ export function parsePickupRows(raw: unknown): PickupRow[] {
       const row: PickupRow = { haulier: str(r.haulier), licensePlate: str(r.licensePlate), driver: str(r.driver) };
       const src = r.source as Record<string, unknown> | null | undefined;
       if (src && typeof src === "object" && src.kind === "trucking" && typeof src.tripRef === "string" && src.tripRef.trim()) {
-        row.source = { kind: "trucking", tripRef: src.tripRef };
+        row.source = {
+          kind: "trucking",
+          tripRef: src.tripRef,
+          ...(typeof src.tripKind === "string" && src.tripKind ? { tripKind: src.tripKind } : {}),
+          ...(typeof src.tripId === "string" && src.tripId ? { tripId: src.tripId } : {}),
+        };
       }
       return row;
     });

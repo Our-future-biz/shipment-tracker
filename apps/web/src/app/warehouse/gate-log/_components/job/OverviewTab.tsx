@@ -15,7 +15,8 @@ import {
 import type { GateMovement } from "@/hooks/useGateLog";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
-import { tripLabel } from "@/lib/tripSource";
+import { figureFromTrip, tripLabel } from "@/lib/tripSource";
+import { TripMarker } from "@/app/warehouse/_components/TripMarker";
 import { TERMS, directionOfHandling } from "@/app/warehouse/_lib/glossary";
 import {
   Badge,
@@ -323,7 +324,10 @@ export function OverviewTab({
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6">
               <div>
                 <FieldRow label={TERMS.pieces}>
-                  <InlineNumber value={m.colli} onSave={(v) => save({ colli: v })} />
+                  <span className="flex items-center gap-2">
+                    <InlineNumber value={m.colli} onSave={(v) => save({ colli: v })} />
+                    {figureFromTrip(m.tripFigures, "colli", m.colli) && <TripMarker x={m.tripFigures} />}
+                  </span>
                 </FieldRow>
                 <FieldRow label="Type of packages">
                   <InlineSelect
@@ -345,16 +349,23 @@ export function OverviewTab({
                 </FieldRow>
               </div>
               <div>
+                {/* Figures a Trucking trip wrote show it while unchanged; the warehouse may correct them. */}
                 <FieldRow label={TERMS.weightKg}>
-                  <InlineNumber value={m.weightKg} onSave={(v) => save({ weightKg: v })} />
+                  <span className="flex items-center gap-2">
+                    <InlineNumber value={m.weightKg} onSave={(v) => save({ weightKg: v })} />
+                    {figureFromTrip(m.tripFigures, "weightKg", m.weightKg) && <TripMarker x={m.tripFigures} />}
+                  </span>
                 </FieldRow>
                 <FieldRow label={TERMS.volumeCbm}>
-                  <InlineNumber
-                    value={m.measureCbm}
-                    step={0.1}
-                    suffix="cbm"
-                    onSave={(v) => save({ measureCbm: v })}
-                  />
+                  <span className="flex items-center gap-2">
+                    <InlineNumber
+                      value={m.measureCbm}
+                      step={0.1}
+                      suffix="cbm"
+                      onSave={(v) => save({ measureCbm: v })}
+                    />
+                    {figureFromTrip(m.tripFigures, "measureCbm", m.measureCbm) && <TripMarker x={m.tripFigures} />}
+                  </span>
                 </FieldRow>
                 <FieldRow label="IMO / DG">
                   <YesNo
@@ -401,8 +412,7 @@ export function OverviewTab({
                   .filter((l) => l.leg !== "CFS")
                   .map((l) => {
                     // Filled by a Trucking trip: read-only here, changed only by the trip.
-                    const fromTrip = tripLabel(l);
-                    if (fromTrip) {
+                    if (tripLabel(l)) {
                       const shown = (v: string, cls = "") => <span className={`block py-1 ${v ? "text-slate-900" : "text-slate-300"} ${cls}`}>{v || "—"}</span>;
                       const stamp = parseStamp(gateTimeOf(l));
                       return (
@@ -412,9 +422,7 @@ export function OverviewTab({
                               <i className={`w-2 h-2 rounded-sm ${LEG_DOT[l.leg]}`} />
                               {l.leg}
                             </span>
-                            <Tooltip title="Planned in Trucking — change it on the trip">
-                              <span className="ml-2 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700">{fromTrip}</span>
-                            </Tooltip>
+                            <TripMarker x={l} className="ml-2" />
                           </td>
                           <td className="px-4 py-1.5">{shown(l.company)}</td>
                           <td className="px-4 py-1.5">{shown(l.plate, "font-mono")}</td>

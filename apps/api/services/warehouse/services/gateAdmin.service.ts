@@ -15,6 +15,8 @@ import { syncStockForMovement } from "./warehouseStockSync";
 import { dockSlotRepository } from "../repositories/warehouseRecords.repository";
 import { gateExceptionRepository } from "../repositories/gateException.repository";
 import { deliverGateEvents, enqueueGateEvents } from "./gateEvents.service";
+import { publishedSteps, voidedSteps } from "./gateEvents";
+import type { GateMovementRecord } from "../schemas/gateMovement.schema";
 
 // Manager actions on gate records — voiding a wrong stamp, archiving a stamped record and
 // restoring an archived one — and removing a position with its gate records. Every one needs a
@@ -90,6 +92,38 @@ export function statusAfterVoid(status: string, after: Pick<GateMovementRow, Sta
 // The column holds exactly `v` (as read), so nothing stamped or voided it meanwhile.
 const sameStamp = (col: AnyPgColumn, v: Date | null) =>
   v ? sql`date_trunc('milliseconds', ${col}) = ${v.toISOString()}::timestamptz` : sql`${col} IS NULL`;
+
+/**
+ * A stamped record leaves the Gate Log (archived, or removed with its position): every step its
+ * stamps published on warehouse-gate-stamped is taken back with a "voided" event, in the caller's
+ * transaction (the event outbox; published after the commit). Returns how many were written.
+ */
+async function takeBackPublished(
+  tx: Tx,
+  r: GateMovementRecord,
+  link: { positionRef: string | null; shipmentId: string | null },
+  companyId: string,
+  userId: string,
+  role: string,
+): Promise<number> {
+  const steps = publishedSteps(r);
+  if (!steps.gateIn && !steps.gateOut) return 0;
+  return enqueueGateEvents(
+    tx,
+    {
+      companyId,
+      movementId: r.id,
+      positionId: link.positionRef ? r.warehouseTaskId : null,
+      wczRef: link.positionRef ?? "",
+      shipmentId: link.shipmentId,
+      userId,
+      stampKind: "archived",
+      at: new Date(),
+      voided: steps,
+    },
+    role,
+  );
+}
 
 class GateAdminService {
   // Voids a wrong stamp (manager, with reason): the stamp column is cleared and the status
@@ -184,8 +218,10 @@ class GateAdminService {
         tx,
       );
       if (!row) throw APIError.aborted("The record changed meanwhile — reload and try again");
-      // A voided gate-in / gate-out is told on the warehouse-gate-stamped topic ("voided"), after
-      // the commit through the event outbox, as the stamp itself was.
+      // A voided step is told on the warehouse-gate-stamped topic ("voided"), after the commit
+      // through the event outbox, as the stamp itself was — built from what the stamp published
+      // (gateEvents.voidedSteps), not from the columns cleared: a voided WH release always takes
+      // back its gateOut, also when an export truck's own gate-out stays stamped.
       published = await enqueueGateEvents(
         tx,
         {
@@ -197,12 +233,7 @@ class GateAdminService {
           userId,
           stampKind: kind,
           at: now,
-          // Only what was told: an inbound arrival, and a departure (the WH release with its
-          // gate-out, or an outbound gate-out).
-          voided: {
-            gateIn: cleared.includes("gateIn") && m.visit !== "výdej",
-            gateOut: cleared.includes("gateOut") && (kind === "impRelease" || m.visit === "výdej"),
-          },
+          voided: voidedSteps(m, kind),
         },
         role,
       );
@@ -217,18 +248,25 @@ class GateAdminService {
   }
 
   // Archives a gate record (manager, with reason): it leaves the Gate Log but is kept, with who
-  // and why, and can be restored. Its position is not touched.
+  // and why, and can be restored. Its position is not touched. Every step its stamps told Trucking
+  // (arrival, departure) is taken back ("voided"), as a void would.
   async archive(id: string, companyId: string, userId: string, role: string, reason: string) {
     needManager(role);
     const why = needReason(reason, "archive a record");
     const by = await userName(userId);
+    const m = await gateMovementRepository.findById(id, companyId);
+    let published = 0;
     const row = await db.transaction(async (tx) => {
       await releaseHousesForArchive(tx, [id], companyId, by, `the position was archived: ${why}`);
       const archived = await gateMovementRepository.archive(id, companyId, by, why, { kind: "archived", label: "Archived", at: new Date().toISOString(), by, detail: why }, undefined, tx);
-      if (archived) await syncStockForMovement(tx, companyId, id, { by, why: `position archived: ${why}` });
+      if (archived) {
+        await syncStockForMovement(tx, companyId, id, { by, why: `position archived: ${why}` });
+        if (m) published = await takeBackPublished(tx, archived, { positionRef: m.positionRef, shipmentId: m.shipmentId }, companyId, userId, role);
+      }
       return archived;
     });
     if (!row) throw APIError.notFound("Gate movement not found");
+    if (published) await deliverGateEvents(id);
     return gateMovementService.get(id, companyId);
   }
 
@@ -283,6 +321,7 @@ class GateAdminService {
     if (!task) throw APIError.notFound("Warehouse position not found");
     const by = actor ?? (await userName(userId));
     const why = (reason ?? "").trim();
+    const published: string[] = [];
     await db.transaction(async (tx) => {
       // The containers' houses first (containers are locked before positions), then the records.
       const liveIds = (await gateMovementRepository.liveForTaskLocked(tx, taskId, companyId, false)).map((r) => r.id);
@@ -306,11 +345,17 @@ class GateAdminService {
         detail: archiveReason,
       });
       for (const r of rows) await syncStockForMovement(tx, companyId, r.id, { by, why: `position removed: ${archiveReason}` });
+      // What the stamps told Trucking is taken back, as a void would (a stamped position is
+      // removed only by a manager).
+      for (const r of rows) {
+        if (await takeBackPublished(tx, r, { positionRef: task.taskId, shipmentId: task.shipmentId ?? null }, companyId, userId, role)) published.push(r.id);
+      }
       // Its booked dock slots stop holding the door; its open exceptions are closed.
       const ids = rows.map((r) => r.id);
       await dockSlotRepository.cancelForMovements(tx, ids, companyId, `position ${task.taskId} removed`);
       await gateExceptionRepository.closeForMovements(tx, ids, companyId, by, `Closed: position ${task.taskId} removed — ${archiveReason}`);
     });
+    for (const id of published) await deliverGateEvents(id);
   }
 
   // A shipment deleted in Shipments (warehouseService.retireShipment; runs as the system, safe to

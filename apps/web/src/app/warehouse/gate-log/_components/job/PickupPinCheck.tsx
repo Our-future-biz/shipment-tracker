@@ -5,7 +5,7 @@ import { Input } from "antd";
 import { KeyOutlined } from "@ant-design/icons";
 import type { GateMovement } from "@/hooks/useGateLog";
 import { formatDateTime } from "@/lib/date";
-import { tripLabel } from "@/lib/tripSource";
+import { TripMarker } from "@/app/warehouse/_components/TripMarker";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { Badge } from "../../_lib/gate";
 import { MAX_PIN_TRIES, PICKUP_PIN_GATE, pinCheckMessage, type PinCheckResult } from "../../_lib/steps";
@@ -80,7 +80,7 @@ export function PickupPinCheck({ m, verifyPin }: { m: GateMovement; verifyPin: (
             <tr key={i} className="border-b border-slate-100">
               <td className="py-1 pr-2 text-slate-800 break-words">
                 {r.haulier || "—"}
-                {tripLabel(r) && <span className="ml-1.5 rounded bg-sky-100 px-1 py-0.5 text-[10px] font-semibold text-sky-700">{tripLabel(r)}</span>}
+                <TripMarker x={r} className="ml-1.5" />
               </td>
               <td className="py-1 pr-2 font-mono text-slate-800">{r.licensePlate || "—"}</td>
               <td className="py-1 text-slate-800 break-words">{r.driver || "—"}</td>

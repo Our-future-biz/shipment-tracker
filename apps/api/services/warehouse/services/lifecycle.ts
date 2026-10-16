@@ -1,10 +1,14 @@
 // The in-and-out lifecycle of a position: ONE derivation from its stamps, the stripping tally and
-// the stuffing of its container, shown on Positions, the gate job, floor mode and History. Pure,
-// no imports from the services (no import cycle). Nothing here is stored.
+// the stuffing of its container, shown on Positions, the gate job, floor mode and History; Stock on
+// Hand opens its line at the same receipt (warehouseStockPlan.ts) and the storage clock starts
+// there too (storage.ts). Pure, no imports from the services (no import cycle). Nothing here is stored.
 //
 //   inbound (příjem, export cargo arriving by truck)
 //     Expected → Arrived (gate-in / draft receipt) → Received (WH receipt) → In warehouse
 //     → Stuffed (in an export container) → Left (that container's gate-out, or the WH release)
+//   domestic (příjem, Trucking's LTL through our hub — the gate-in IS the receipt)
+//     Expected → Received (gate-in: arrived, received and in the warehouse at once)
+//     → Ready for release (release box armed) → Left (WH release)
 //   outbound (výdej, import cargo stripped from a container, leaving by truck)
 //     Expected → Arrived (its container's gate-in; without a container the received date)
 //     → Received (ticked off at the stripping tally; without a container the received date)
@@ -42,6 +46,8 @@ export interface PositionLifecycle {
 
 export interface LifecycleMovement {
   visit: string;
+  /** Import / Export / Domestic; Domestic cargo is received at its gate-in. */
+  handling?: string;
   status: string;
   createdAt: Date;
   gateIn: Date | null;
@@ -69,7 +75,20 @@ export function positionLifecycle(m: LifecycleMovement, armed: boolean, link?: L
   const step = (stage: LifecycleStage, at: string | null, done: boolean): LifecycleStep => ({ stage, label: LIFECYCLE_LABEL[stage], at: done ? at : null, done });
   const manualDate = DATE.test(m.loadInDate) ? m.loadInDate : null;
   let steps: LifecycleStep[];
-  if (m.visit !== "výdej") {
+  if (m.visit !== "výdej" && m.handling === "Domestic") {
+    // The gate-in is the receipt (a draft receipt / receipt kept from before still counts).
+    const received = iso(m.gateIn ?? m.expReceipt);
+    const left = iso(m.leftAt ?? m.impRelease);
+    steps = [
+      step("expected", iso(m.createdAt), true),
+      step("arrived", received, !!received),
+      step("received", received, !!received),
+      step("in_warehouse", received, !!received),
+      ...(link ? [step("stuffed", iso(link.stuffedAt), !!link.stuffedAt)] : []),
+      step("ready", null, !!left || (!!received && armed)),
+      step("left", left, !!left),
+    ];
+  } else if (m.visit !== "výdej") {
     const arrived = iso(m.gateIn ?? m.expDraft);
     const received = iso(m.expReceipt);
     const left = iso(m.leftAt ?? m.impRelease);

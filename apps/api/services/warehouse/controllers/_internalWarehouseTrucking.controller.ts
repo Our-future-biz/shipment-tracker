@@ -23,6 +23,8 @@ interface ExpectArrivalRequest {
   pieces: number;
   weightKg: number;
   cbm: number;
+  /** The trip's id in Trucking (optional): the "From trip LCZ…" markers link to the trip. */
+  tripId?: string;
 }
 
 interface ExpectArrivalResponse {
@@ -58,6 +60,8 @@ interface ExpectDepartureRequest {
   driverPhone: string;
   /** ISO */
   expectedAt: string;
+  /** The trip's id in Trucking (optional): the "From trip LCZ…" markers link to the trip. */
+  tripId?: string;
 }
 
 interface OkResponse {

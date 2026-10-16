@@ -168,20 +168,21 @@ const BUBBLES: { id: BubbleId; label: string; hint: string; danger?: boolean; ma
 
 // Bulk stamps follow the same step order as the gate job (see _lib/steps): a movement is
 // stamped only when this stamp is its next step — inbound: Gate-in, Draft receipt, Receipt,
-// Gate-out; outbound: Gate-in (truck), WH release (once the release gates are clear), Gate-out.
+// Gate-out; outbound: Gate-in (truck), WH release (once the release gates are clear), Gate-out;
+// Domestic: Gate-in (the receipt), WH release, Gate-out (gateSteps).
 // Everything else is skipped, with the reason. `shipment` says what the stamp writes to the
 // linked shipment.
 type StampAction = { kind: GateStampKind; label: string; primary?: boolean; skipHint: string; shipment?: string };
 
 const STAMP_ACTIONS: StampAction[] = [
   { kind: "gateIn", label: TERMS.gateIn, skipHint: "already gated in", shipment: "received date (inbound cargo only)" },
-  { kind: "expDraft", label: TERMS.draftReceipt, skipHint: "outbound, already stamped, or not gated in yet" },
-  { kind: "expReceipt", label: TERMS.receipt, skipHint: "outbound, already stamped, or without a draft receipt" },
+  { kind: "expDraft", label: TERMS.draftReceipt, skipHint: "outbound or Domestic, already stamped, or not gated in yet" },
+  { kind: "expReceipt", label: TERMS.receipt, skipHint: "outbound or Domestic, already stamped, or without a draft receipt" },
   {
     kind: "impRelease",
     label: TERMS.whRelease,
     primary: true,
-    skipHint: "inbound, already released, not gated in yet, or release gates blocked",
+    skipHint: "inbound (not Domestic), already released, not gated in yet, or release gates blocked",
     shipment: "released date and plate",
   },
   { kind: "gateOut", label: TERMS.gateOut, skipHint: "already gated out, or an earlier step is not stamped yet" },

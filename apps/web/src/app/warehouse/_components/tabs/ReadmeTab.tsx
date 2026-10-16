@@ -84,7 +84,7 @@ export function ReadmeTab() {
             are mapped again only before the first stamp. After a stamp, pieces, weight, measure, packing, container and seal the gate may have corrected are
             only filled when blank — a different value is kept and shown as &ldquo;differs from shipment&rdquo;.
           </li>
-          <li>The tiles above the grid filter it (open consol outbound / inbound containers, open shuttle trucks), and so does the FCL / LCL switch.</li>
+          <li>The tiles above the grid filter it (open consol outbound / inbound containers, open road positions), and so does the FCL / LCL switch.</li>
           <li>
             Tick rows to <b>Print labels</b> or <b>Remove from warehouse</b>. A removed position&rsquo;s reference is retired, not reused; its Gate Log records are
             archived with it; the shipment is not affected. A position whose gate record has stamps is removed only by a manager, with a reason.

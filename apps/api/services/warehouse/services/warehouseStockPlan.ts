@@ -10,6 +10,7 @@ import type { HouseCtx } from "./houses";
 import { containerKind, LEGACY_LINK } from "./containerRules";
 import { CUSTOMS_CLEARED } from "./customs";
 import { positionLifecycle } from "./lifecycle";
+import { isDomestic, releasePlate } from "./direction";
 import { DEFAULT_FREE_DAYS, isIsoDate, movementStorage, pragueDate } from "./storage";
 import { customsDeadline, customsRegime, type CustomsRegime } from "./warehouseStockCustoms";
 
@@ -17,7 +18,8 @@ import { customsDeadline, customsRegime, type CustomsRegime } from "./warehouseS
 // transaction of every stamp / tally / stuffing / gate-out / void / archive that changes whether
 // a position is in the warehouse, after the caller has updated (and so locked) the gate record:
 //
-//   received   inbound (příjem): the WH receipt stamp; outbound (výdej): the tick-off at the
+//   received   inbound (příjem): the WH receipt stamp — Domestic cargo: its gate-in (no draft
+//              receipt / receipt; the storage clock starts there too); outbound (výdej): the tick-off at the
 //              stripping tally of its container, else (no container tally) the "Received in
 //              warehouse" date — the same receipt as the lifecycle (lifecycle.ts).
 //   left       inbound: the gate-out of the export container it was stuffed in, or the WH
@@ -221,12 +223,19 @@ export function planStockSync(s: StockSyncState, opts: StockSyncOptions): StockS
   if (before !== after) {
     const location = linePlan?.insert?.location ?? line?.location ?? "";
     if (before === "none" && after === "open") {
-      movements.push(mv("Receipt", tally ? `Ticked off at the stripping tally — ${house!.container.number}` : m.visit === "výdej" ? "Received in warehouse" : "WH receipt", { toLocation: location }));
+      const receiptText = tally
+        ? `Ticked off at the stripping tally — ${house!.container.number}`
+        : m.visit === "výdej"
+          ? "Received in warehouse"
+          : isDomestic(m.handling) && !m.expReceipt
+            ? "Gate-in (Domestic: the gate-in is the receipt)"
+            : "WH receipt";
+      movements.push(mv("Receipt", receiptText, { toLocation: location }));
     } else if (after === "left") {
       movements.push(
         m.leftContainerId
           ? mv("Load", leftReason, { fromLocation: location, toLocation: s.leftContainerNumber })
-          : mv("Pick", leftReason, { fromLocation: location, toLocation: m.plate ? `truck ${m.plate}` : "" }),
+          : mv("Pick", leftReason, { fromLocation: location, toLocation: releasePlate(m) ? `truck ${releasePlate(m)}` : "" }),
       );
     } else if (after === "voided") {
       movements.push(mv("Adjustment", `Voided — ${archived ? "position archived" : reason || "receipt voided"}`, { fromLocation: location, pieces: line?.pieces ?? pieces }));

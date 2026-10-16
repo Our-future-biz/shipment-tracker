@@ -71,8 +71,11 @@ describe("expect-arrival", () => {
       driver: "Jan Novák",
       phone: "+420 777 111 222",
       gateTime: AT,
-      source: { kind: "trucking", tripRef: "LCZ26-0001" },
+      source: { kind: "trucking", tripRef: "LCZ26-0001", tripKind: "PICKUP_RUN" },
+      // The gate figures this trip wrote, marked on its leg.
+      figures: { colli: 4, weightKg: 1250.5, measureCbm: 3.2 },
     });
+    expect(m.tripFigures).toEqual({ source: { kind: "trucking", tripRef: "LCZ26-0001", tripKind: "PICKUP_RUN" }, colli: 4, weightKg: 1250.5, measureCbm: 3.2 });
     // Blank gate figures take the trip's; nothing is stamped.
     expect(m).toMatchObject({ colli: 4, weightKg: 1250.5, measureCbm: 3.2, gateIn: null, gateOut: null, status: "Expected" });
     // One slot, at the expected time, shown on the gate job (Expected today reads it).
@@ -113,7 +116,7 @@ describe("expect-arrival", () => {
     expect(r.dockSlotId).toBeNull();
     expect(await liveSlots(r.gateMovementId)).toEqual([]);
     const m = await gateMovementService.get(r.gateMovementId, c);
-    expect(m.transportLegs.find((l) => l.leg === "IN")?.source).toEqual({ kind: "trucking", tripRef: "LCZ26-0001" });
+    expect(m.transportLegs.find((l) => l.leg === "IN")?.source).toEqual({ kind: "trucking", tripRef: "LCZ26-0001", tripKind: "PICKUP_RUN" });
   });
 
   it("books no slot outside the dock hours", async () => {
@@ -155,7 +158,7 @@ describe("trip legs and pick-up rows are read-only for people", () => {
     await svc.expectDeparture(c, user, dep);
     const rows = readPickup((await warehouseSectionRepository.findPickup(shipmentId, c))?.data).rows;
     expect(rows).toEqual([
-      { haulier: "Rapid Trans s.r.o.", licensePlate: "1AB 2345", driver: "Jan Novák", source: { kind: "trucking", tripRef: "LCZ26-0002" } },
+      { haulier: "Rapid Trans s.r.o.", licensePlate: "1AB 2345", driver: "Jan Novák", source: { kind: "trucking", tripRef: "LCZ26-0002", tripKind: "LINEHAUL" } },
       { haulier: "Typed", licensePlate: "9Z9 9999", driver: "" },
     ]);
     // The page sends the trip row back (edited) and its own rows: the trip row stays as stored.
@@ -168,7 +171,7 @@ describe("trip legs and pick-up rows are read-only for people", () => {
     const task = (await warehouseTaskRepository.listByShipmentId(shipmentId, c))[0]!;
     const movementId = (await gateMovementRepository.liveIdForTask(task.id, c))!;
     const m = await gateMovementService.get(movementId, c);
-    expect(m.transportLegs.find((l) => l.leg === "OUT")?.source).toEqual({ kind: "trucking", tripRef: "LCZ26-0002" });
+    expect(m.transportLegs.find((l) => l.leg === "OUT")?.source).toEqual({ kind: "trucking", tripRef: "LCZ26-0002", tripKind: "LINEHAUL" });
     expect((await liveSlots(movementId)).filter((s) => s.direction === "OUT")).toHaveLength(1);
   });
 });
@@ -183,7 +186,7 @@ describe("cancel-expected", () => {
     await svc.cancelExpected(c, user, { shipmentId, tripRef: "LCZ26-0001" });
     const m = await gateMovementService.get(r.gateMovementId, c);
     expect(m.transportLegs.find((l) => l.leg === "IN")).toEqual({ leg: "IN", company: "", plate: "", driver: "", phone: "", gateTime: "" });
-    expect(m.transportLegs.find((l) => l.leg === "OUT")?.source).toEqual({ kind: "trucking", tripRef: "LCZ26-0009" });
+    expect(m.transportLegs.find((l) => l.leg === "OUT")?.source).toEqual({ kind: "trucking", tripRef: "LCZ26-0009", tripKind: "PICKUP_RUN" });
     expect((await liveSlots(r.gateMovementId)).map((s) => s.tripRef)).toEqual(["LCZ26-0009"]);
     expect(m.archivedAt).toBeNull();
 
