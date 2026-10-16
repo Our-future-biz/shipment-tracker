@@ -17,8 +17,8 @@ const contacts = vi.hoisted(() => ({
 vi.mock("../repositories/customer.repository", () => ({ customerRepository: customers }));
 vi.mock("../repositories/contact.repository", () => ({ contactRepository: contacts }));
 vi.mock("../services/ares.service", () => ({ aresService: { lookup: vi.fn() } }));
-const usersList = vi.hoisted(() => vi.fn());
-vi.mock("~encore/clients", () => ({ auth: { usersList } }));
+const userLookup = vi.hoisted(() => vi.fn());
+vi.mock("~encore/clients", () => ({ auth: { userLookup } }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
 vi.mock("encore.dev/api", () => ({
@@ -26,6 +26,7 @@ vi.mock("encore.dev/api", () => ({
     notFound: (msg: string) => new Error(msg),
     invalidArgument: (msg: string) => new Error(msg),
     alreadyExists: (msg: string) => new Error(msg),
+    permissionDenied: (msg: string) => new Error(msg),
   },
 }));
 
@@ -101,43 +102,55 @@ describe("contacts of a customer", () => {
 
 describe("sales owner", () => {
   const LUKAS = "5d1f6b0e-2c3a-4f4a-9a53-5d0d3a2b6c11";
-  const USERS = [{ id: LUKAS, displayName: "Lukáš Novák", email: "lukas@example.cz" }];
+  const USERS = [{ id: LUKAS, name: "Lukáš Novák", role: "user" }];
 
   it("is a user of the company, stored with the user's name", async () => {
-    usersList.mockResolvedValue({ users: USERS });
+    userLookup.mockResolvedValue({ users: USERS });
     customers.updateForCompany.mockResolvedValue({ id: "c1", createdAt: now, updatedAt: now });
-    await customerService.update("c1", COMPANY, { salesOwnerUserId: LUKAS, status: "Active" });
+    await customerService.update("c1", COMPANY, "manager", { salesOwnerUserId: LUKAS, status: "Active" });
     expect(customers.updateForCompany).toHaveBeenCalledWith("c1", COMPANY, { status: "Active", salesOwner: "Lukáš Novák", salesOwnerUserId: LUKAS });
   });
 
   it("can be removed", async () => {
     customers.updateForCompany.mockResolvedValue({ id: "c1", createdAt: now, updatedAt: now });
-    await customerService.update("c1", COMPANY, { salesOwnerUserId: null });
+    await customerService.update("c1", COMPANY, "manager", { salesOwnerUserId: null });
     expect(customers.updateForCompany).toHaveBeenCalledWith("c1", COMPANY, { salesOwner: "", salesOwnerUserId: null });
-    expect(usersList).not.toHaveBeenCalled();
+    expect(userLookup).not.toHaveBeenCalled();
   });
 
   it("refuses somebody who is not a user of the company", async () => {
-    usersList.mockResolvedValue({ users: USERS });
-    await expect(customerService.update("c1", COMPANY, { salesOwnerUserId: "9d1f6b0e-2c3a-4f4a-9a53-5d0d3a2b6c11" })).rejects.toThrow(
+    userLookup.mockResolvedValue({ users: USERS });
+    await expect(customerService.update("c1", COMPANY, "manager", { salesOwnerUserId: "9d1f6b0e-2c3a-4f4a-9a53-5d0d3a2b6c11" })).rejects.toThrow(
       "salesOwnerUserId must be a user of the company",
     );
-    await expect(customerService.update("c1", COMPANY, { salesOwnerUserId: "Lukáš" })).rejects.toThrow("salesOwnerUserId must be the id of a user");
+    await expect(customerService.update("c1", COMPANY, "manager", { salesOwnerUserId: "Lukáš" })).rejects.toThrow("salesOwnerUserId must be the id of a user");
     expect(customers.updateForCompany).not.toHaveBeenCalled();
+  });
+});
+
+describe("manager-only fields", () => {
+  it("lets a plain user edit the record but not the commercial fields", async () => {
+    customers.updateForCompany.mockResolvedValue({ id: "c1", createdAt: now, updatedAt: now });
+    await customerService.update("c1", COMPANY, "user", { companyWebsite: "https://x.cz" });
+    expect(customers.updateForCompany).toHaveBeenCalledWith("c1", COMPANY, { companyWebsite: "https://x.cz" });
+    for (const patch of [{ salesOwnerUserId: null }, { creditLimit: 1000 }, { label: "KEY ACCOUNT" as const }, { paymentTerms: "30 days" }, { riskLevel: "High" as const }, { industry: "Steel" }]) {
+      await expect(customerService.update("c1", COMPANY, "user", patch)).rejects.toThrow(/Only a manager can change/);
+    }
+    expect(customers.updateForCompany).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("company analysis set by hand", () => {
   it("stores the overrides trimmed and the registration date as a date, \"\" clearing it", async () => {
     customers.updateForCompany.mockResolvedValue({ id: "c1", createdAt: now, updatedAt: now });
-    await customerService.update("c1", COMPANY, { industry: " Machinery ", riskLevel: "High", registrationDate: "1990-05-12" });
+    await customerService.update("c1", COMPANY, "manager", { industry: " Machinery ", riskLevel: "High", registrationDate: "1990-05-12" });
     expect(customers.updateForCompany).toHaveBeenCalledWith("c1", COMPANY, { industry: "Machinery", riskLevel: "High", registrationDate: "1990-05-12" });
-    await customerService.update("c1", COMPANY, { registrationDate: "" });
+    await customerService.update("c1", COMPANY, "manager", { registrationDate: "" });
     expect(customers.updateForCompany).toHaveBeenLastCalledWith("c1", COMPANY, { registrationDate: null });
   });
 
   it("refuses a registration date that is not a date", async () => {
-    await expect(customerService.update("c1", COMPANY, { registrationDate: "12.5.1990" })).rejects.toThrow("registrationDate must be a date (yyyy-mm-dd)");
+    await expect(customerService.update("c1", COMPANY, "manager", { registrationDate: "12.5.1990" })).rejects.toThrow("registrationDate must be a date (yyyy-mm-dd)");
     expect(customers.updateForCompany).not.toHaveBeenCalled();
   });
 });
@@ -183,6 +196,12 @@ describe("customerService.createManual", () => {
     await expect(customerService.createManual(COMPANY, SIEMENS)).rejects.toThrow("A customer with this registration number already exists");
     await expect(customerService.createManual(COMPANY, { ...SIEMENS, country: "CZ" })).rejects.toThrow("A Czech company is added from ARES by its IČO");
     expect(customers.createWithContact).not.toHaveBeenCalled();
+  });
+
+  it("answers a create that races past the check like the check would, not with a 500", async () => {
+    customers.findByIco.mockResolvedValue(null);
+    customers.createWithContact.mockRejectedValueOnce(Object.assign(new Error("Failed query"), { cause: { code: "23505" } }));
+    await expect(customerService.createManual(COMPANY, SIEMENS)).rejects.toThrow("A customer with this registration number already exists");
   });
 
   it("needs a contact person with a name and an email or a phone", async () => {

@@ -9,7 +9,13 @@ const requireLive = vi.hoisted(() => vi.fn());
 vi.mock("../repositories/customerAddress.repository", () => ({ customerAddressRepository: addresses }));
 vi.mock("../services/customer.service", () => ({ customerService: { requireLive } }));
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
-vi.mock("encore.dev/api", () => ({ APIError: { notFound: (msg: string) => new Error(msg) } }));
+vi.mock("encore.dev/api", () => ({
+  APIError: {
+    notFound: (msg: string) => new Error(msg),
+    invalidArgument: (msg: string) => new Error(msg),
+    alreadyExists: (msg: string) => new Error(msg),
+  },
+}));
 
 import { customerAddressService } from "../services/customerAddress.service";
 
@@ -50,5 +56,18 @@ describe("customer addresses", () => {
     await customerAddressService.update("a1", COMPANY, { city: " Praha " });
     expect(addresses.updateForCompany).toHaveBeenCalledWith("a1", COMPANY, { city: "Praha" });
     await expect(customerAddressService.update("a1", COMPANY, { city: "Brno" })).rejects.toThrow("Address not found");
+  });
+
+  it("refuses a field of only spaces instead of storing it empty", async () => {
+    await expect(customerAddressService.update("a1", COMPANY, { street: "   " })).rejects.toThrow("street is required");
+    expect(addresses.updateForCompany).not.toHaveBeenCalled();
+  });
+
+  it("answers a second registered address plainly instead of with a 500", async () => {
+    requireLive.mockResolvedValue({ id: "c1" });
+    addresses.createForCompany.mockRejectedValueOnce(Object.assign(new Error("Failed query"), { cause: { code: "23505" } }));
+    await expect(
+      customerAddressService.create(COMPANY, "c1", { type: "Registered", street: "A 1", city: "Praha", postalCode: "110 00", country: "CZ" }),
+    ).rejects.toThrow("already has a registered address");
   });
 });

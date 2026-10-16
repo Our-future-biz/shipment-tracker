@@ -9,7 +9,7 @@ import { useCustomerNotes } from "@/hooks/useCustomerNotes";
 import type { NoteItem } from "@/hooks/useCustomerNotes";
 import { formatDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
-import { NOTE_TYPES, NOTE_TYPE_COLORS } from "../../_lib/constants";
+import { NOTE_TYPES, noteTypeColor } from "../../_lib/constants";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
 import { CustomerNoteDialog } from "../_components/CustomerNoteDialog";
 import type { CustomerNoteFormValues } from "../_components/CustomerNoteDialog";
@@ -95,7 +95,7 @@ export function CommunicationTab({ customerId }: { customerId: string }) {
           return (
             <li key={note.id} className="border border-slate-200 rounded-lg px-3 py-2">
               <div className="flex items-center gap-2">
-                <Tag color={NOTE_TYPE_COLORS[note.type] ?? "default"} className="!m-0">
+                <Tag color={noteTypeColor(note.type)} className="!m-0">
                   {note.type}
                 </Tag>
                 {note.author ? (

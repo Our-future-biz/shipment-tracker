@@ -3,7 +3,7 @@
 import { Button, Form, Input, Modal, Select } from "antd";
 import type { AddressItem } from "@/hooks/useCustomerAddresses";
 import type { interfaces } from "@/lib/api/client";
-import { COUNTRIES, flagOf } from "@/lib/countries";
+import { COUNTRY_OPTIONS } from "@/components/countryOptions";
 import { ADDRESS_TYPES } from "../../_lib/constants";
 
 export interface CustomerAddressFormValues {
@@ -24,27 +24,22 @@ interface CustomerAddressDialogProps {
   saving: boolean;
   onCancel: () => void;
   onSubmit: (values: CustomerAddressFormValues) => void;
+  // A customer has one Registered address; with one on file, the type is not offered for another address.
+  hasRegistered: boolean;
 }
-
-const TYPE_OPTIONS = ADDRESS_TYPES.map((type) => ({ value: type, label: type }));
-
-const COUNTRY_OPTIONS = COUNTRIES.map((country) => ({
-  value: country.code,
-  search: `${country.name} ${country.code}`,
-  label: (
-    <span className="flex items-center gap-2">
-      <span aria-hidden>{flagOf(country.code)}</span>
-      <span className="truncate">{country.name}</span>
-    </span>
-  ),
-}));
 
 const required = (message: string) => [{ required: true, whitespace: true, message }];
 
 // Add / edit dialog of a customer address. Like the contact dialog, it is mounted anew (a new React key) for
 // every opening, so the form starts from `address`.
-export function CustomerAddressDialog({ open, address, defaultCountry, saving, onCancel, onSubmit }: CustomerAddressDialogProps) {
+export function CustomerAddressDialog({ open, address, defaultCountry, saving, onCancel, onSubmit, hasRegistered }: CustomerAddressDialogProps) {
   const [form] = Form.useForm<CustomerAddressFormValues>();
+  const registeredTaken = hasRegistered && address?.type !== "Registered";
+  const typeOptions = ADDRESS_TYPES.map((type) => ({
+    value: type,
+    label: type === "Registered" && registeredTaken ? "Registered (already on file)" : type,
+    disabled: type === "Registered" && registeredTaken,
+  }));
 
   const initialValues: CustomerAddressFormValues = address
     ? { type: address.type, label: address.label, street: address.street, city: address.city, postalCode: address.postalCode, country: address.country }
@@ -103,7 +98,7 @@ export function CustomerAddressDialog({ open, address, defaultCountry, saving, o
       >
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
           <Form.Item name="type" label="Type" rules={[{ required: true, message: "Type is required" }]}>
-            <Select options={TYPE_OPTIONS} />
+            <Select options={typeOptions} />
           </Form.Item>
           <Form.Item name="label" label="Name">
             <Input placeholder="e.g. Plant Kolín" onPressEnter={handleSubmit} />

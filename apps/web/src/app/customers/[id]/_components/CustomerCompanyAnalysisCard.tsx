@@ -19,6 +19,7 @@ import { CustomerInfoRow } from "./CustomerInfoRow";
 import { EditableText } from "./EditableText";
 import { SELECT_PROPS, SELECT_WRAPPER_CLASS } from "./inlineSelect";
 import { useCustomerEdits } from "./useCustomerEdits";
+import { useCanManageCustomers } from "@/lib/auth/AuthContext";
 
 const MAX_SECONDARY_ACTIVITIES = 6;
 
@@ -44,6 +45,8 @@ function RiskPill({ level }: { level: RiskLevel }) {
 // until then (and comes back when the typed value is cleared). The age and stability follow the registration date.
 export function CustomerCompanyAnalysisCard({ customer }: CustomerCompanyAnalysisCardProps) {
   const { shown, save } = useCustomerEdits(customer);
+  // The analysis overrides are a manager's call; the server refuses anyone else, so for others they are shown, not edited.
+  const lockedReason = useCanManageCustomers() ? undefined : "Only a manager can change the company analysis";
   const naceInfo = getNaceInfo(parseNaceCodes(shown.nace));
   const { primary } = naceInfo;
   const risk = calcRisk(shown.registrationDate, naceInfo);
@@ -79,6 +82,7 @@ export function CustomerCompanyAnalysisCard({ customer }: CustomerCompanyAnalysi
               placeholder={primary?.label ?? "add…"}
               onCommit={(value) => save({ industry: value })}
               label="Primary industry"
+              readOnlyReason={lockedReason}
             />
           </CustomerInfoRow>
           <CustomerInfoRow label="Typical cargo">
@@ -87,6 +91,7 @@ export function CustomerCompanyAnalysisCard({ customer }: CustomerCompanyAnalysi
               placeholder={primary?.cargo ?? "add…"}
               onCommit={(value) => save({ typicalCargo: value })}
               label="Typical cargo"
+              readOnlyReason={lockedReason}
             />
           </CustomerInfoRow>
           {secondaryLabels.length > 0 && (
@@ -133,6 +138,7 @@ export function CustomerCompanyAnalysisCard({ customer }: CustomerCompanyAnalysi
               placeholder={derivedStability || "add…"}
               onCommit={(value) => save({ stability: value })}
               label="Stability"
+              readOnlyReason={lockedReason}
             />
           </CustomerInfoRow>
           <CustomerInfoRow label="Risk level">
@@ -140,6 +146,8 @@ export function CustomerCompanyAnalysisCard({ customer }: CustomerCompanyAnalysi
               <Select
                 {...SELECT_PROPS}
                 aria-label="Risk level"
+                disabled={!!lockedReason}
+                title={lockedReason}
                 value={shown.riskLevel}
                 options={riskOptions}
                 labelRender={({ value }) =>

@@ -21,28 +21,37 @@ export function useCustomerListPref<T>(prefKey: CustomerListPrefKey, fallback: T
     staleTime: 5 * 60 * 1000,
   });
 
-  let value = fallback;
-  if (query.data?.value) {
+  const parse = (stored: { value?: string | null } | undefined): T => {
+    if (!stored?.value) return fallback;
     try {
-      const parsed: unknown = JSON.parse(query.data.value);
-      if (guard(parsed)) value = parsed;
+      const parsed: unknown = JSON.parse(stored.value);
+      return guard(parsed) ? parsed : fallback;
     } catch {
-      // A value that is not JSON is not used.
+      return fallback; // A value that is not JSON is not used.
     }
-  }
+  };
+  const value = parse(query.data);
 
+  // A failed save puts back what the server holds (refetched), not a snapshot taken before some
+  // earlier save, which would also undo a later change that did go through.
   const mutation = useMutation({
-    mutationFn: ({ next }: { next: T; previous: unknown }) => api.customers.customerListPrefSet(prefKey, { value: JSON.stringify(next) }),
-    onError: (_err, { previous }) => queryClient.setQueryData(queryKey, previous),
+    mutationFn: (next: T) => api.customers.customerListPrefSet(prefKey, { value: JSON.stringify(next) }),
     onSettled: () => queryClient.invalidateQueries({ queryKey }),
   });
 
   // The new value is in place at once, before the request goes out, so a second change right after builds on it.
   const save = (next: T) => {
     void queryClient.cancelQueries({ queryKey });
-    const previous = queryClient.getQueryData(queryKey);
     queryClient.setQueryData(queryKey, { value: JSON.stringify(next) });
-    return mutation.mutateAsync({ next, previous });
+    return mutation.mutateAsync(next);
+  };
+
+  // A change built on the value as the server holds it now (read again first), so a template
+  // another tab saved meanwhile is kept, not overwritten by this tab's older list. Two saves at
+  // the very same moment can still race; the last one wins.
+  const update = async (change: (current: T) => T) => {
+    const fresh = await queryClient.fetchQuery({ queryKey, queryFn: () => api.customers.customerListPrefGet(prefKey), staleTime: 0 });
+    return save(change(parse(fresh)));
   };
 
   return {
@@ -50,6 +59,7 @@ export function useCustomerListPref<T>(prefKey: CustomerListPrefKey, fallback: T
     // Known once the stored value has been read (or found missing); until then `value` is only the fallback.
     loaded: query.isSuccess,
     save,
+    update,
     isSaving: mutation.isPending,
   };
 }

@@ -189,3 +189,20 @@ export interface CustomerRollups {
   /** yyyy-mm-dd, or "" when the customer has no shipments */
   lastActivityDate: string;
 }
+
+/** A shipment's revenue, cost and profit as its Costs Breakdown works them out. */
+export interface ShipmentFinancials {
+  shipmentId: string;
+  /** The currency of revenue / cost / profit (the one asked for). */
+  currency: string;
+  /** In CZK; null when an amount (or the billing currency) has no ČNB rate, or the job's rates can't be read. */
+  revenueCzk: number | null;
+  costCzk: number | null;
+  profitCzk: number | null;
+  /** In `currency` at the job's own rate; null also when that currency has no rate. */
+  revenue: number | null;
+  cost: number | null;
+  profit: number | null;
+  /** Currencies without a rate that made the totals unknown. */
+  missingCurrencies: string[];
+}

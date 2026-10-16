@@ -30,7 +30,8 @@ export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
         <CustomerAttentionCard customerId={customerId} onSelectTab={onSelectTab} />
         <CustomerSnapshotTiles customerId={customerId} onSelectTab={onSelectTab} />
         <CustomerRecentShipmentsCard customerId={customerId} onSelectTab={onSelectTab} />
-        <CustomerCompanyAnalysisCard customer={customer} />
+        {/* Keyed: a pending edit of one customer must not carry over to the next one opened. */}
+        <CustomerCompanyAnalysisCard key={customer.id} customer={customer} />
         <CustomerRegistryCard customer={customer} />
       </div>
 

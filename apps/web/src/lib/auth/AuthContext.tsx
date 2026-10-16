@@ -122,3 +122,12 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     </AuthContext.Provider>
   );
 };
+
+/** Roles that may change a customer's commercial fields (sales owner, credit, label, terms, risk); the server enforces the same. */
+export const CUSTOMER_MANAGER_ROLES = ["superadmin", "admin", "manager"] as const;
+
+/** Whether the signed-in user may change a customer's commercial fields. */
+export const useCanManageCustomers = (): boolean => {
+  const { user } = useAuth();
+  return !!user && (CUSTOMER_MANAGER_ROLES as readonly string[]).includes(user.role);
+};

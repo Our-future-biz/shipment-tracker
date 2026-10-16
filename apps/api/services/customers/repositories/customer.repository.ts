@@ -1,4 +1,4 @@
-import { and, eq, or, ilike, desc, isNull } from "drizzle-orm";
+import { and, eq, or, ilike, desc, isNull, ne } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { customerTable, type CustomerRecord, type NewCustomerRecord } from "../schemas/customer.schema";
@@ -20,6 +20,23 @@ export interface CustomerListFilters {
 class CustomerRepository extends TenantRepository<typeof customerTable> {
   constructor() {
     super(db, customerTable, "customer");
+  }
+
+  /** Active when it is not already, live and of this company; true when a row changed. */
+  async activate(id: string, companyId: string): Promise<boolean> {
+    const rows = await this.db
+      .update(customerTable)
+      .set({ status: "Active", updatedAt: new Date() })
+      .where(
+        and(
+          eq(customerTable.id, id),
+          eq(customerTable.companyId, companyId),
+          isNull(customerTable.deletedAt),
+          ne(customerTable.status, "Active"),
+        ),
+      )
+      .returning({ id: customerTable.id });
+    return rows.length > 0;
   }
 
   // Every live customer of the company with what the sales pipeline shows of it. All of them -

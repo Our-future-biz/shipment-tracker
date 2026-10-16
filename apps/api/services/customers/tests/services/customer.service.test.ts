@@ -5,7 +5,7 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("../../db/db", () => ({ db: {} }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() } }));
-vi.mock("../../repositories/customer.repository", () => ({ customerRepository: { pipelineList: vi.fn(), getByIdForCompany: vi.fn(), updateForCompany: vi.fn() } }));
+vi.mock("../../repositories/customer.repository", () => ({ customerRepository: { pipelineList: vi.fn(), getByIdForCompany: vi.fn(), updateForCompany: vi.fn(), activate: vi.fn() } }));
 
 import { customerRepository } from "../../repositories/customer.repository";
 import { customerService } from "../../services/customer.service";
@@ -33,21 +33,13 @@ describe("pipelineList", () => {
 });
 
 describe("activate", () => {
-  const row = (status: string) => ({ id: "customer-1", status }) as never;
-
-  it("makes a Prospect or Inactive customer Active", async () => {
-    for (const status of ["Prospect", "Inactive"]) {
-      repository.getByIdForCompany.mockResolvedValue(row(status));
-      repository.updateForCompany.mockResolvedValue(row("Active"));
-      await expect(customerService.activate("customer-1", COMPANY)).resolves.toBe(true);
-    }
-    expect(repository.updateForCompany).toHaveBeenCalledWith("customer-1", COMPANY, { status: "Active" });
-  });
-
-  it("writes nothing for an Active customer or one that no longer exists", async () => {
-    repository.getByIdForCompany.mockResolvedValueOnce(row("Active")).mockResolvedValueOnce(null);
+  it("is one conditional write in the repository: true when a row changed", async () => {
+    repository.activate.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    await expect(customerService.activate("customer-1", COMPANY)).resolves.toBe(true);
+    // Already Active, deleted or of another company: nothing matched, nothing written.
     await expect(customerService.activate("customer-1", COMPANY)).resolves.toBe(false);
-    await expect(customerService.activate("customer-1", COMPANY)).resolves.toBe(false);
+    expect(repository.activate).toHaveBeenCalledWith("customer-1", COMPANY);
+    expect(repository.getByIdForCompany).not.toHaveBeenCalled();
     expect(repository.updateForCompany).not.toHaveBeenCalled();
   });
 });

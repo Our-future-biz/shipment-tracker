@@ -419,3 +419,24 @@ export interface QuoteImportResult {
   buying: number;
   selling: number;
 }
+
+/** A job and the ČNB rates it is valued at (CZK per 1 unit). */
+export interface JobCostInput {
+  shipmentId: string;
+  rates: { currency: string; rate: number }[];
+}
+
+/** A job's revenue, cost and profit as Costs Breakdown works them out (lib/jobCostTotals). */
+export interface ShipmentCostTotals {
+  shipmentId: string;
+  /** In CZK; null when an amount (or the billing currency) has no rate. */
+  revenueCzk: number | null;
+  costCzk: number | null;
+  profitCzk: number | null;
+  /** In the asked currency at the job's rate; null also when that currency has no rate. */
+  revenue: number | null;
+  cost: number | null;
+  profit: number | null;
+  /** Currencies without a rate that made the totals unknown. */
+  missingCurrencies: string[];
+}

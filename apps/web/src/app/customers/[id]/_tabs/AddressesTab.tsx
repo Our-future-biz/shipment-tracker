@@ -11,11 +11,12 @@ import type { AddressItem } from "@/hooks/useCustomerAddresses";
 import { useCustomer } from "@/hooks/useCustomers";
 import { COUNTRIES, flagOf } from "@/lib/countries";
 import { useToast } from "@/lib/toast";
-import { ADDRESS_TYPE_COLORS, ADDRESS_TYPES } from "../../_lib/constants";
+import { addressTypeColor, ADDRESS_TYPES } from "../../_lib/constants";
 import { CustomerAddressDialog } from "../_components/CustomerAddressDialog";
 import type { CustomerAddressFormValues } from "../_components/CustomerAddressDialog";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
+import { apiErrorMessage } from "@/lib/api";
 
 const COUNTRY_NAME = new Map(COUNTRIES.map((country) => [country.code, country.name]));
 
@@ -31,8 +32,13 @@ interface AddressDialogState {
 }
 
 // Where the customer is: its seat, where invoices go, where goods are picked up and delivered.
-export function AddressesTab({ customerId }: { customerId: string }) {
-  const { addresses, isLoading, createAddress, updateAddress, deleteAddress } = useCustomerAddresses(customerId);
+interface AddressesTabProps {
+  customerId: string;
+}
+
+export function AddressesTab({ customerId }: AddressesTabProps) {
+  const { addresses, isLoading, isError, createAddress, updateAddress, deleteAddress } = useCustomerAddresses(customerId);
+  const hasRegistered = addresses.some((a) => a.type === "Registered");
   const { customer } = useCustomer(customerId);
   const toast = useToast();
   const [dialog, setDialog] = useState<AddressDialogState>({ key: 0, open: false, address: null });
@@ -54,8 +60,9 @@ export function AddressesTab({ customerId }: { customerId: string }) {
       else await createAddress(values);
       toast.success(address ? "Address updated" : "Address added");
       handleCloseDialog();
-    } catch {
-      toast.error(address ? "Failed to update the address" : "Failed to add the address");
+    } catch (err) {
+      // e.g. "already has a registered address", or a blank street.
+      toast.error(`${address ? "Failed to update the address" : "Failed to add the address"}: ${apiErrorMessage(err)}`);
     } finally {
       setSaving(false);
     }
@@ -70,8 +77,8 @@ export function AddressesTab({ customerId }: { customerId: string }) {
       await deleteAddress(deleteTarget.id);
       toast.success("Address deleted");
       setDeleteTarget(null);
-    } catch {
-      toast.error("Failed to delete the address");
+    } catch (err) {
+      toast.error(`Failed to delete the address: ${apiErrorMessage(err)}`);
     } finally {
       setDeleting(false);
     }
@@ -83,7 +90,7 @@ export function AddressesTab({ customerId }: { customerId: string }) {
       dataIndex: "type",
       width: 130,
       render: (v: string) => (
-        <Tag color={ADDRESS_TYPE_COLORS[v] ?? "default"} className="!m-0">
+        <Tag color={addressTypeColor(v)} className="!m-0">
           {v}
         </Tag>
       ),
@@ -117,7 +124,10 @@ export function AddressesTab({ customerId }: { customerId: string }) {
             menu={{
               items: [
                 { key: "edit", label: "Edit", icon: <EditOutlined />, onClick: () => handleOpenDialog(r) },
-                { key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true, onClick: () => setDeleteTarget(r) },
+                // The Registered address is the company's seat: it is corrected, not removed.
+                ...(r.type === "Registered"
+                  ? []
+                  : [{ key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true, onClick: () => setDeleteTarget(r) }]),
               ],
             }}
           >
@@ -156,7 +166,7 @@ export function AddressesTab({ customerId }: { customerId: string }) {
           columns={columns}
           scroll={{ x: "max-content" }}
           pagination={TABLE_PAGINATION}
-          locale={{ emptyText: "No addresses yet" }}
+          locale={{ emptyText: isError ? "Could not load the addresses." : "No addresses yet" }}
         />
       </SectionCard>
 
@@ -165,7 +175,8 @@ export function AddressesTab({ customerId }: { customerId: string }) {
         key={dialog.key}
         open={dialog.open}
         address={dialog.address}
-        defaultCountry={customer?.country ?? "CZ"}
+        defaultCountry={customer?.country || "CZ"}
+        hasRegistered={hasRegistered}
         saving={saving}
         onCancel={handleCloseDialog}
         onSubmit={handleSubmit}

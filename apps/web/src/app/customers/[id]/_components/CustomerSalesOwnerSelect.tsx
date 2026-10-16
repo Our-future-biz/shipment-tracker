@@ -7,6 +7,8 @@ import { useCustomer } from "@/hooks/useCustomers";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { useUsers } from "@/hooks/useUsers";
 import { useToast } from "@/lib/toast";
+import { apiErrorMessage } from "@/lib/api";
+import { useCanManageCustomers } from "@/lib/auth/AuthContext";
 import { SALES_OWNER_FIELD_ID } from "../../_lib/customerAttention";
 
 // First letters of the first and the last word of a name ("Martin Koubek" -> "MK"); one word gives two letters.
@@ -19,7 +21,11 @@ function initialsOf(name: string): string {
   return letters.toUpperCase() || "?";
 }
 
-function OwnerName({ name }: { name: string }) {
+interface OwnerNameProps {
+  name: string;
+}
+
+function OwnerName({ name }: OwnerNameProps) {
   return (
     <span className="flex items-center gap-2 min-w-0">
       <span
@@ -36,8 +42,14 @@ function OwnerName({ name }: { name: string }) {
 // Who owns the customer: one of the company's users, picked in the page header. Locked against a stray click:
 // a double click (or Enter) opens the list, and picking or leaving it locks the field again. The choice shows
 // at once and is saved straight away; a failed save puts the previous owner back.
-export function CustomerSalesOwnerSelect({ customer }: { customer: CustomerItem }) {
+interface CustomerSalesOwnerSelectProps {
+  customer: CustomerItem;
+}
+
+// Only a manager (or admin) may change it — the server refuses anyone else — so for others it stays locked.
+export function CustomerSalesOwnerSelect({ customer }: CustomerSalesOwnerSelectProps) {
   const toast = useToast();
+  const canChange = useCanManageCustomers();
   const { users, isLoading } = useUsers();
   const { updateCustomer } = useCustomer(customer.id);
   // The owner picked here while its save is on the way; undefined when the loaded customer is shown.
@@ -57,7 +69,7 @@ export function CustomerSalesOwnerSelect({ customer }: { customer: CustomerItem 
   const placeholder = unlinked ? `${unlinked} (not linked)` : "Select a user";
 
   const handleUnlockKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== "Enter" && e.key !== " ") return;
+    if (!canChange || (e.key !== "Enter" && e.key !== " ")) return;
     e.preventDefault();
     setEditing(true);
   };
@@ -66,11 +78,12 @@ export function CustomerSalesOwnerSelect({ customer }: { customer: CustomerItem 
     const next = userId ?? null;
     setEditing(false);
     setPicked(next);
+    // The saved customer goes straight into the cache (useCustomer), so dropping the pick shows it.
     updateCustomer({ salesOwnerUserId: next }).then(
       () => setPicked(undefined),
-      () => {
+      (err: unknown) => {
         setPicked(undefined);
-        toast.error("Failed to save the sales owner");
+        toast.error(`Failed to save the sales owner: ${apiErrorMessage(err)}`);
       },
     );
   };
@@ -85,9 +98,13 @@ export function CustomerSalesOwnerSelect({ customer }: { customer: CustomerItem 
           id={SALES_OWNER_FIELD_ID}
           role="button"
           tabIndex={0}
-          aria-label={`Sales owner: ${ownerName || "none"}. Double-click or press Enter to change.`}
-          title="Double-click to change"
-          onDoubleClick={() => setEditing(true)}
+          aria-label={
+            canChange
+              ? `Sales owner: ${ownerName || "none"}. Double-click or press Enter to change.`
+              : `Sales owner: ${ownerName || "none"}.`
+          }
+          title={canChange ? "Double-click to change" : "Only a manager can change the sales owner"}
+          onDoubleClick={() => canChange && setEditing(true)}
           onKeyDown={handleUnlockKey}
           className="flex items-center h-6 mb-0.5 pr-2 rounded cursor-default select-none outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
         >

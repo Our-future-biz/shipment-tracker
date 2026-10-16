@@ -143,11 +143,39 @@ async function lookupRegisterEntry(ico: string): Promise<string> {
   }
 }
 
+/**
+ * Whether ARES refused a search because the name fits too many companies. ARES answers with a
+ * JSON error whose code/description names it ("…PRILIS_MNOHO…", "příliš mnoho"); matched loosely,
+ * so a reworded description still counts. Pure, so it is unit-tested.
+ */
+export function isTooManyAnswer(body: string): boolean {
+  return /PRILIS_MNOHO|p[řr][íi]li[šs]\s+mnoho|too many/i.test(body);
+}
+
+/**
+ * Registry searches per company per minute. Kept in this process only: with several instances
+ * each allows this many - a brake on runaway typing loops, not an exact quota.
+ */
+export const SEARCHES_PER_MINUTE = 30;
+const searchLog = new Map<string, number[]>();
+
+export function searchAllowed(companyId: string, now = Date.now()): boolean {
+  const recent = (searchLog.get(companyId) ?? []).filter((t) => now - t < 60_000);
+  if (recent.length >= SEARCHES_PER_MINUTE) {
+    searchLog.set(companyId, recent);
+    return false;
+  }
+  recent.push(now);
+  searchLog.set(companyId, recent);
+  return true;
+}
+
 class AresService {
   // Companies whose name contains the text, to pick one before its record is read by IČO.
-  async search(name: string): Promise<{ companies: AresSearchHit[]; tooMany: boolean }> {
+  async search(companyId: string, name: string): Promise<{ companies: AresSearchHit[]; tooMany: boolean }> {
     const text = name.trim();
     if (text.length < 3) throw APIError.invalidArgument("Type at least 3 characters of the company name");
+    if (!searchAllowed(companyId)) throw APIError.resourceExhausted("Too many registry searches — wait a minute and try again");
     let res: Response;
     try {
       res = await fetchJson(`${ARES_BASE}/vyhledat`, 8000, { obchodniJmeno: text, pocet: ARES_SEARCH_LIMIT, start: 0 });
@@ -155,13 +183,26 @@ class AresService {
       log.warn("ARES search failed", { name: text, error: err instanceof Error ? err.message : String(err) });
       throw APIError.unavailable("ARES registry unavailable");
     }
-    // A name too general for ARES (over 1,000 companies) is refused with 400 rather than listed.
-    if (res.status === 400) return { companies: [], tooMany: true };
+    if (res.status === 400) {
+      // A name too general for ARES (over 1,000 companies) is refused with 400 rather than listed;
+      // any other 400 (e.g. characters ARES does not take) is not "too many".
+      const body = await res.text().catch(() => "");
+      if (isTooManyAnswer(body)) return { companies: [], tooMany: true };
+      log.warn("ARES search refused the name", { name: text, body: body.slice(0, 300) });
+      throw APIError.invalidArgument("The registry cannot search for this name — try other words");
+    }
     if (!res.ok) {
       log.warn("ARES search returned an error", { name: text, status: res.status });
       throw APIError.unavailable("ARES registry is not answering, try again later");
     }
-    return { companies: parseAresSearch((await res.json()) as AresSearchResponse), tooMany: false };
+    let json: AresSearchResponse;
+    try {
+      json = (await res.json()) as AresSearchResponse;
+    } catch (err) {
+      log.error(err, "ARES search response is not JSON", { name: text });
+      throw APIError.internal("Failed to parse ARES response");
+    }
+    return { companies: parseAresSearch(json), tooMany: false };
   }
 
   async lookup(ico: string): Promise<AresResult> {

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { CustomerItem } from "@/hooks/useCustomers";
-import { formatDate } from "@/lib/date";
+import { businessDayOf, formatDate } from "@/lib/date";
 import { CustomerAccountTypeBadge } from "../_components/CustomerAccountTypeBadge";
 import { CustomerStatusDot } from "../_components/CustomerStatusDot";
 import { CUSTOMER_LABELS, CUSTOMER_STATUSES, PAYMENT_TERMS } from "./constants";
@@ -111,24 +111,28 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
     width: 116,
     align: "right",
     render: (c) => (c.creditLimit > 0 ? money(c.creditLimit, c.currency) : EMPTY_CELL),
-    text: (c) => (c.creditLimit > 0 ? String(c.creditLimit) : ""),
+    // Filters match the text as shown ("12 500,00 EUR"), so what the user reads is what they can type.
+    text: (c) => (c.creditLimit > 0 ? fmtMoney(c.creditLimit, c.currency) : ""),
   },
+  // Revenue / Profit here are the stored rollups (summed from the shipments' selling and buying figures as
+  // entered, not converted). They are labelled as such and sorted per currency; the per-job figures worked
+  // out from Costs at ČNB rates are on the customer's Shipments tab.
   {
     key: "totalRevenue",
-    title: "Revenue",
+    title: "Revenue (rollup)",
     width: 116,
     align: "right",
     sort: { key: "revenue", firstClick: "descend" },
     render: (c) => money(c.totalRevenue, c.currency),
-    text: (c) => String(c.totalRevenue),
+    text: (c) => fmtMoney(c.totalRevenue, c.currency),
   },
   {
     key: "totalProfit",
-    title: "Profit",
+    title: "Profit (rollup)",
     width: 116,
     align: "right",
     render: (c) => money(c.totalProfit, c.currency),
-    text: (c) => String(c.totalProfit),
+    text: (c) => fmtMoney(c.totalProfit, c.currency),
   },
   {
     key: "margin",
@@ -163,8 +167,9 @@ export const CUSTOMER_LIST_COLUMNS: CustomerListColumn[] = [
     key: "createdAt",
     title: "Created",
     width: 110,
-    render: (c) => formatDate(c.createdAt) || EMPTY_CELL,
-    text: (c) => formatDate(c.createdAt),
+    // A timestamp: its day on the company's (Prague) calendar, not the viewer's.
+    render: (c) => formatDate(businessDayOf(c.createdAt)) || EMPTY_CELL,
+    text: (c) => formatDate(businessDayOf(c.createdAt)),
   },
   {
     key: "companyWebsite",

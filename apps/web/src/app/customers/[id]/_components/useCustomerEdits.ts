@@ -5,6 +5,7 @@ import { useCustomer } from "@/hooks/useCustomers";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import type { controllers } from "@/lib/api/client";
 import { useToast } from "@/lib/toast";
+import { apiErrorMessage } from "@/lib/api";
 
 export type CustomerPatch = Omit<controllers.CustomerUpdateRequest, "id">;
 
@@ -33,9 +34,10 @@ export function useCustomerEdits(customer: CustomerItem) {
     setEdits((current) => [...current.filter(isPending), edit]);
     updateCustomer(patch).then(
       (saved) => setEdits((current) => current.map((e) => (e === edit ? { ...edit, savedAt: saved.customer.updatedAt } : e))),
-      () => {
+      (err: unknown) => {
         setEdits((current) => current.filter((e) => e !== edit));
-        toast.error("Failed to save");
+        // e.g. a field only a manager may change: the server's reason is shown.
+        toast.error(`Failed to save: ${apiErrorMessage(err)}`);
       },
     );
   };

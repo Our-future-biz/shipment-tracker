@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { billingSettingsTable as t, type BillingSettingsRecord, type NewBillingSettingsRecord } from "../schemas/billingSettings.schema";
@@ -12,6 +12,15 @@ class BillingSettingsRepository extends TenantRepository<typeof t> {
 
   async getByShipmentId(shipmentId: string, companyId: string): Promise<BillingSettingsRecord | null> {
     return this.getByColumnForCompany(t.shipmentId, shipmentId, companyId);
+  }
+
+  /** Billing currency of these shipments' live settings (a shipment without settings bills in CZK). */
+  async currenciesOf(companyId: string, shipmentIds: string[]): Promise<{ shipmentId: string; billingCurrency: string }[]> {
+    if (!shipmentIds.length) return [];
+    return this.db
+      .select({ shipmentId: t.shipmentId, billingCurrency: t.billingCurrency })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), inArray(t.shipmentId, shipmentIds), isNull(t.deletedAt)));
   }
 
   /** Billing currency of every live shipment setting in the company (for the billing queue). */

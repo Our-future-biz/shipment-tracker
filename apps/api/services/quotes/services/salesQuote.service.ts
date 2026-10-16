@@ -148,10 +148,11 @@ const notFound = () => APIError.notFound("Quote not found");
 
 // A won quote makes its customer Active. After the quote is written and outside its lock: the win stands
 // even when the customer cannot be updated, which is logged rather than undoing the user's change.
-async function activateCustomer(customerId: string | null): Promise<void> {
+async function activateCustomer(companyId: string, customerId: string | null): Promise<void> {
   if (!customerId) return;
   try {
-    await customers.customerActivate({ id: customerId });
+    // The company is passed along: the hourly reconcile runs without a login.
+    await customers.customerActivate({ id: customerId, companyId });
   } catch (err) {
     log.warn("could not make the customer of a won quote Active", { customerId, error: err instanceof Error ? err.message : String(err) });
   }
@@ -337,7 +338,7 @@ class SalesQuoteService {
       return { quote: written, changed: true };
     });
     if (!result) throw notFound();
-    if (result.changed && request.to === "won") await activateCustomer(result.quote.customerId);
+    if (result.changed && request.to === "won") await activateCustomer(actor.companyID, result.quote.customerId);
     return { quote: await this.item(result.quote, names, actor, at), changed: result.changed };
   }
 
@@ -404,7 +405,7 @@ class SalesQuoteService {
         }
         return { ...change, customerId: quote.customerId };
       });
-      if (synced?.becameWon) await activateCustomer(synced.customerId);
+      if (synced?.becameWon) await activateCustomer(actor.companyID, synced.customerId);
       results.push({
         quoteNumber: item.quoteNumber,
         found: synced !== null,

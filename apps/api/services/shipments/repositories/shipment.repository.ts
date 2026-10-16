@@ -1,4 +1,4 @@
-import { and, eq, or, ilike, isNotNull, isNull, like, desc, asc, count, sql } from "drizzle-orm";
+import { and, eq, or, ilike, inArray, isNotNull, isNull, like, desc, asc, count, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
@@ -324,6 +324,23 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       if (!Number.isNaN(num) && num > max) max = num;
     }
     return max;
+  }
+
+  /** Of the given ids, those of live shipments of this customer in this company. */
+  async idsOfCustomer(companyId: string, customerId: string, ids: string[]): Promise<string[]> {
+    if (!ids.length) return [];
+    const rows = await this.db
+      .select({ id: shipmentTable.id })
+      .from(shipmentTable)
+      .where(
+        and(
+          eq(shipmentTable.companyId, companyId),
+          eq(shipmentTable.customerId, customerId),
+          isNull(shipmentTable.deletedAt),
+          inArray(shipmentTable.id, ids),
+        ),
+      );
+    return rows.map((r) => r.id);
   }
 
   async findByCustomerId(customerId: string, companyId: string) {

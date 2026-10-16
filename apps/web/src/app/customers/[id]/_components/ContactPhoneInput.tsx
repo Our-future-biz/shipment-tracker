@@ -4,12 +4,13 @@ import { useState } from "react";
 import { Input, Select, Space } from "antd";
 import { getCountries, getCountryCallingCode, parsePhoneNumberFromString } from "libphonenumber-js";
 import type { CountryCode } from "libphonenumber-js";
-import { flagOf } from "@/lib/countries";
+import { COUNTRIES, flagOf } from "@/lib/countries";
 
 // Numbers saved without a country code are Czech; a new number starts there too.
 export const DEFAULT_PHONE_COUNTRY: CountryCode = "CZ";
 
-const regionNames = new Intl.DisplayNames(["en"], { type: "region" });
+// Country names as everywhere else in the app (lib/countries); a calling-code region it lacks keeps its code.
+const COUNTRY_NAMES = new Map(COUNTRIES.map((c) => [c.code, c.name]));
 
 interface CountryOption {
   value: CountryCode;
@@ -18,7 +19,7 @@ interface CountryOption {
 }
 
 const COUNTRY_OPTIONS: CountryOption[] = getCountries()
-  .map((country) => ({ value: country, dialCode: getCountryCallingCode(country), name: regionNames.of(country) ?? country }))
+  .map((country) => ({ value: country, dialCode: getCountryCallingCode(country), name: COUNTRY_NAMES.get(country) ?? country }))
   .sort((a, b) => a.name.localeCompare(b.name));
 
 interface PhoneParts {
@@ -35,9 +36,15 @@ export function splitPhone(value: string): PhoneParts {
 
 // The number as it is stored: in international format ("+420 774 237 000") when it can be read, otherwise the
 // country code and the digits as typed. No digits give "".
+// A number typed with its own code ("+44 20 …") is taken as typed, whatever country is picked,
+// so it never becomes "+420 +44 …".
 export function joinPhone({ country, national }: PhoneParts): string {
   const digits = national.trim();
   if (!digits) return "";
+  if (digits.startsWith("+")) {
+    const own = parsePhoneNumberFromString(digits);
+    return own?.isPossible() ? own.formatInternational() : digits;
+  }
   const parsed = parsePhoneNumberFromString(digits, country);
   return parsed?.isPossible() ? parsed.formatInternational() : `+${getCountryCallingCode(country)} ${digits}`;
 }
@@ -57,12 +64,21 @@ interface ContactPhoneInputProps {
 
 // Country (flag and dialling code) and the number. The parts are kept here as typed: read back from the joined
 // value, a code shared by several countries (+1) would jump to another one.
+// A value set from outside (the form reset or filled) is split again; the echo of this field's own
+// change is not, so the country picked stays.
 export function ContactPhoneInput({ value = "", onChange, onPressEnter, id }: ContactPhoneInputProps) {
   const [parts, setParts] = useState<PhoneParts>(() => splitPhone(value));
+  const [known, setKnown] = useState(value);
+  if (value !== known) {
+    setKnown(value);
+    if (value !== joinPhone(parts)) setParts(splitPhone(value));
+  }
 
   const update = (next: PhoneParts) => {
+    const joined = joinPhone(next);
     setParts(next);
-    onChange?.(joinPhone(next));
+    setKnown(joined);
+    onChange?.(joined);
   };
 
   return (

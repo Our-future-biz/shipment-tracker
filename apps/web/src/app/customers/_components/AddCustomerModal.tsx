@@ -8,7 +8,7 @@ import { CheckCircleFilled, InfoCircleOutlined, SearchOutlined } from "@ant-desi
 import { useDebounced } from "@/hooks/useDebounced";
 import { api, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
-import { COUNTRIES, flagOf } from "@/lib/countries";
+import { COUNTRY_OPTIONS } from "@/components/countryOptions";
 import { useToast } from "@/lib/toast";
 import { ContactPhoneInput, isPossiblePhone } from "../[id]/_components/ContactPhoneInput";
 import { CustomerInfoRow } from "../[id]/_components/CustomerInfoRow";
@@ -21,17 +21,6 @@ const SEARCH_DELAY_MS = 400;
 const ICO_INPUT_ID = "add-customer-ico";
 // Czech companies are read from ARES; any other country is typed in by hand.
 const REGISTRY_COUNTRY = "CZ";
-
-const COUNTRY_OPTIONS = COUNTRIES.map((country) => ({
-  value: country.code,
-  search: `${country.name} ${country.code}`,
-  label: (
-    <span className="flex items-center gap-2">
-      <span aria-hidden>{flagOf(country.code)}</span>
-      <span className="truncate">{country.name}</span>
-    </span>
-  ),
-}));
 
 type ManualCustomerValues = Omit<controllers.CustomerCreateManualRequest, "country" | "contact">;
 type ContactValues = interfaces.CustomerContactRequest;
@@ -77,6 +66,7 @@ export function AddCustomerModal({
   isCreating,
 }: AddCustomerModalProps) {
   const toast = useToast();
+  const submitting = useRef(false);
   const [manualForm] = Form.useForm<ManualCustomerValues>();
   const [contactForm] = Form.useForm<ContactValues>();
   const [country, setCountry] = useState(REGISTRY_COUNTRY);
@@ -177,8 +167,19 @@ export function AddCustomerModal({
   });
 
   // Both forms are checked at once, so every missing field shows; nothing is sent until all pass.
+  // A double click must not create the customer twice: `isCreating` only turns true once the
+  // request is out, after the forms were checked, so the click is held off here from the start.
   const handleCreate = async () => {
-    if (isCreating || (fromRegistry && !preview)) return;
+    if (submitting.current || isCreating || (fromRegistry && !preview)) return;
+    submitting.current = true;
+    try {
+      await create();
+    } finally {
+      submitting.current = false;
+    }
+  };
+
+  const create = async () => {
     let contact: ContactValues;
     let company: ManualCustomerValues | null = null;
     try {
@@ -192,10 +193,10 @@ export function AddCustomerModal({
       return;
     }
     try {
-      const res =
-        fromRegistry && preview
-          ? await createCustomer({ ico: preview.ico, contact })
-          : await createManualCustomer({ ...company!, country, contact });
+      let res: { customer: interfaces.CustomerItem };
+      if (fromRegistry && preview) res = await createCustomer({ ico: preview.ico, contact });
+      else if (company) res = await createManualCustomer({ ...company, country, contact });
+      else return;
       created(res.customer);
     } catch (err) {
       toast.error(errorMessage(err, "Could not create the customer"));
@@ -229,8 +230,15 @@ export function AddCustomerModal({
     ),
   }));
   let nameSearchHelp: string | undefined;
-  if (nameSearch.isError && !isIco)
-    nameSearchHelp = errorMessage(nameSearch.error, "Could not search ARES. Please try again.");
+  if (nameSearch.isError && !isIco) {
+    const err = nameSearch.error;
+    // The server limits searches per company and refuses names ARES can't take.
+    if (isAPIError(err) && err.code === ErrCode.ResourceExhausted)
+      nameSearchHelp = "Too many ARES searches just now — wait a minute and try again.";
+    else if (isAPIError(err) && err.code === ErrCode.InvalidArgument)
+      nameSearchHelp = errorMessage(err, "ARES can't search for this name. Try other words or the IČO.");
+    else nameSearchHelp = errorMessage(err, "Could not search ARES. Please try again.");
+  }
   else if (nameResults?.tooMany)
     nameSearchHelp = "Too many companies match. Type more of the name.";
   else if (nameResults && nameResults.companies.length === 0)

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, index, check } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { customerTable } from "./customer.schema";
 import type { AddressType } from "../interfaces/interfaces";
@@ -27,6 +27,10 @@ export const customerAddressTable = pgTable(
     ...defaultTableIndexes("customer_address", table),
     tenantIndex("customer_address", table),
     index("customer_address_customer_id_idx").on(table.customerId),
+    // One seat per customer: at most one live Registered address.
+    uniqueIndex("customer_address_one_registered")
+      .on(table.customerId)
+      .where(sql`${table.type} = 'Registered' AND ${table.deletedAt} IS NULL`),
     check("customer_address_type_check", sql`${table.type} IN ('Registered', 'Billing', 'Pickup', 'Delivery', 'Warehouse')`),
   ],
 );

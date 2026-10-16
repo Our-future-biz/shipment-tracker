@@ -12,7 +12,7 @@ import { api } from "@/lib/api";
 import { formatDate } from "@/lib/date";
 import { downloadDataUrl, formatFileSize } from "@/lib/files";
 import { useToast } from "@/lib/toast";
-import { DOCUMENT_TYPES, DOCUMENT_TYPE_COLORS } from "../../_lib/constants";
+import { DOCUMENT_TYPES, documentTypeColor } from "../../_lib/constants";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
 import { CustomerDocumentDialog } from "../_components/CustomerDocumentDialog";
 import type { CustomerDocumentInput } from "../_components/CustomerDocumentDialog";
@@ -103,7 +103,7 @@ export function DocumentsTab({ customerId }: DocumentsTabProps) {
       title: "Type",
       dataIndex: "type",
       render: (v: string) => (
-        <Tag color={DOCUMENT_TYPE_COLORS[v] ?? "default"} className="!m-0">
+        <Tag color={documentTypeColor(v)} className="!m-0">
           {v}
         </Tag>
       ),

@@ -485,6 +485,7 @@ export namespace customers {
             this.customerList = this.customerList.bind(this)
             this.customerListPrefGet = this.customerListPrefGet.bind(this)
             this.customerListPrefSet = this.customerListPrefSet.bind(this)
+            this.customerShipmentFinancials = this.customerShipmentFinancials.bind(this)
             this.customerUpdate = this.customerUpdate.bind(this)
             this.documentContent = this.documentContent.bind(this)
             this.documentCreate = this.documentCreate.bind(this)
@@ -623,6 +624,15 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/customer-list-prefs/${encodeURIComponent(prefKey)}`, JSON.stringify(params))
             return await resp.json() as controllers.CustomerListPrefSetResponse
+        }
+
+        /**
+         * Revenue, cost and profit of the customer's shipments, as each job's Costs Breakdown works them out.
+         */
+        public async customerShipmentFinancials(id: string, params: controllers.CustomerShipmentFinancialsRequest): Promise<controllers.CustomerShipmentFinancialsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(id)}/shipment-financials`, JSON.stringify(params))
+            return await resp.json() as controllers.CustomerShipmentFinancialsResponse
         }
 
         public async customerUpdate(id: string, params: controllers.CustomerUpdateRequest): Promise<controllers.CustomerUpdateResponse> {
@@ -3687,9 +3697,30 @@ export namespace controllers {
         data: interfaces.CustomerItem[]
     }
 
+    export interface CustomerShipmentFinancialsRequest {
+        /**
+         * The shipments shown (a page of the customer's Shipments tab).
+         */
+        shipmentIds: string[]
+
+        /**
+         * Totals are also given in this currency (default CZK), e.g. the customer's.
+         */
+        currency?: string
+    }
+
+    export interface CustomerShipmentFinancialsResponse {
+        /**
+         * One per given shipment that is a live shipment of this customer, in the order given.
+         */
+        items: interfaces.ShipmentFinancials[]
+    }
+
     /**
      * The rollups (totalRevenue, totalProfit, totalShipments, lastActivityDate) are not here:
      * they are computed from shipments and written only through customerRollupsUpdate.
+     * Nor is the registered address: it lives in the customer's Registered address (the
+     * addresses endpoints); the copy on the customer comes from the registry when it is created.
      */
     export interface CustomerUpdateRequest {
         companyName?: string
@@ -3707,9 +3738,6 @@ export namespace controllers {
         freightPaymentTerms?: string
         dutyPaymentTerms?: string
         companyWebsite?: string
-        city?: string
-        country?: string
-        registeredAddress?: string
         nace?: string
         /**
          * yyyy-mm-dd, or "" to clear: the company age and stability follow it.
@@ -8486,6 +8514,36 @@ export namespace interfaces {
          * The dates that are due in that window, soonest first.
          */
         deadlines: ShipmentDeadline[]
+    }
+
+    /**
+     * A shipment's revenue, cost and profit as its Costs Breakdown works them out.
+     */
+    export interface ShipmentFinancials {
+        shipmentId: string
+        /**
+         * The currency of revenue / cost / profit (the one asked for).
+         */
+        currency: string
+
+        /**
+         * In CZK; null when an amount (or the billing currency) has no ČNB rate, or the job's rates can't be read.
+         */
+        revenueCzk: number | null
+
+        costCzk: number | null
+        profitCzk: number | null
+        /**
+         * In `currency` at the job's own rate; null also when that currency has no rate.
+         */
+        revenue: number | null
+
+        cost: number | null
+        profit: number | null
+        /**
+         * Currencies without a rate that made the totals unknown.
+         */
+        missingCurrencies: string[]
     }
 
     export interface ShipmentItem {

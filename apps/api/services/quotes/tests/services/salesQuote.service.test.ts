@@ -513,7 +513,7 @@ describe("transition", () => {
     it("makes the customer Active when the quote is won", async () => {
       stored = quote({ status: "quoted", customerId: CUSTOMER, data: { reference: REF, quoteStatus: "quoted" } });
       await expect(salesQuoteService.transition(martin, REF, { to: "won" })).resolves.toMatchObject({ changed: true });
-      expect(customerActivate).toHaveBeenCalledWith({ id: CUSTOMER });
+      expect(customerActivate).toHaveBeenCalledWith({ id: CUSTOMER, companyId: martin.companyID });
     });
 
     it("leaves the customer alone for any other status, and for a quote without a customer", async () => {
@@ -752,6 +752,15 @@ describe("syncShipments", () => {
     await salesQuoteService.syncShipments(martin, [{ quoteNumber: REF, shipments: [FIRST], wonByShipmentId: FIRST.id }]);
     expect(written().document).toEqual({ fx: { date: "2026-10-10", fixingDate: "2026-10-09", roePct: 102, rates: { EUR: 24.375 }, lockedAt: NOW.toISOString() } });
     expect(lockedWhenRead).toBe(false);
+  });
+
+  it("makes the customer Active when the hourly reconcile (no login) wins the quote", async () => {
+    const CUSTOMER = "c0ffee00-0000-4000-8000-000000000002";
+    stored = quoted({ customerId: CUSTOMER });
+    const system = { userID: "", companyID: martin.companyID, role: "system" };
+    await salesQuoteService.syncShipments(system, [{ quoteNumber: REF, shipments: [FIRST], wonByShipmentId: FIRST.id }]);
+    // The company goes along explicitly: customerActivate gets no login on this path.
+    expect(customerActivate).toHaveBeenCalledWith({ id: CUSTOMER, companyId: martin.companyID });
   });
 
   it("asks ČNB for nothing when no shipment was created from a quote", async () => {

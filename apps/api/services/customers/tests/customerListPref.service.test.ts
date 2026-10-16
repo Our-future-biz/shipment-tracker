@@ -25,6 +25,7 @@ describe("customer list preferences", () => {
   it("refuse an unknown key and a value that is not JSON", async () => {
     await expect(customerListPrefService.get(COMPANY, USER, "shipment-filter-templates")).rejects.toThrow("prefKey must be one of");
     await expect(customerListPrefService.set(COMPANY, USER, "columns", "{oops")).rejects.toThrow("value must be valid JSON");
+    await expect(customerListPrefService.set(COMPANY, USER, "columns", "null")).rejects.toThrow("value must not be null");
     expect(prefs.set).not.toHaveBeenCalled();
   });
 });

@@ -9,6 +9,7 @@ import { CustomerInfoRow } from "./CustomerInfoRow";
 import { EditableText } from "./EditableText";
 import { SELECT_PROPS, SELECT_WRAPPER_CLASS } from "./inlineSelect";
 import { useCustomerEdits } from "./useCustomerEdits";
+import { useCanManageCustomers } from "@/lib/auth/AuthContext";
 
 const toOptions = (values: readonly string[]) => values.map((value) => ({ value, label: value }));
 
@@ -23,6 +24,8 @@ interface CustomerCrmCardProps {
 // tab). Every change saves itself.
 export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
   const { shown, save } = useCustomerEdits(customer);
+  // The account type is a manager's decision; the server refuses anyone else.
+  const canManage = useCanManageCustomers();
 
   return (
     <SectionCard title="CRM">
@@ -43,6 +46,8 @@ export function CustomerCrmCard({ customer }: CustomerCrmCardProps) {
             <Select
               {...SELECT_PROPS}
               aria-label="Account type"
+              disabled={!canManage}
+              title={canManage ? undefined : "Only a manager can change the account type"}
               value={shown.label}
               options={ACCOUNT_TYPE_OPTIONS}
               onChange={(value: interfaces.CustomerLabel) => save({ label: value })}

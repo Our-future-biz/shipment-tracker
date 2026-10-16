@@ -6,7 +6,8 @@ import type { CustomerRecord, NewCustomerRecord } from "../schemas/customer.sche
 import type { CustomerItem, CustomerLabel, CustomerPipelineItem, CustomerRollups, CustomerStatus, NewCustomerContact, RiskLevelOverride } from "../interfaces/interfaces";
 import type { NewContactRecord } from "../schemas/contact.schema";
 import { iso } from "../../../lib/db/serialize";
-import { nameOf } from "../../../lib/userNames";
+import { canManageSales } from "../../../lib/salesPolicy";
+import { isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
@@ -50,9 +51,6 @@ export interface CustomerPatch {
   freightPaymentTerms?: string;
   dutyPaymentTerms?: string;
   companyWebsite?: string;
-  city?: string;
-  country?: string;
-  registeredAddress?: string;
   nace?: string;
   registrationDate?: string;
   industry?: string;
@@ -67,17 +65,60 @@ const NEW_CUSTOMER_PAYMENT_TERMS = "PREPAYMENT";
 const today = () => new Date().toISOString().slice(0, 10);
 
 // Only the fields actually sent are written.
-const definedOnly = <T extends object>(patch: T): Partial<T> =>
-  Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<T>;
+function definedOnly<T extends object>(patch: T): Partial<T> {
+  const out: Partial<T> = {};
+  for (const key of Object.keys(patch) as (keyof T)[]) {
+    if (patch[key] !== undefined) out[key] = patch[key];
+  }
+  return out;
+}
+
+/**
+ * Commercial fields of the whole company's relationship with a customer: who owns it, its
+ * credit, label, payment terms and the risk set by hand. Only a manager (or above) may change
+ * them; any user may edit the rest of the record.
+ */
+const MANAGER_FIELDS = [
+  "salesOwnerUserId",
+  "label",
+  "creditLimit",
+  "currency",
+  "paymentTerms",
+  "freightPaymentTerms",
+  "dutyPaymentTerms",
+  "industry",
+  "typicalCargo",
+  "stability",
+  "riskLevel",
+] as const satisfies readonly (keyof CustomerPatch)[];
+
+/** The manager-only fields a patch writes; empty when a plain user may make it. */
+export function managerFieldsIn(patch: CustomerPatch): string[] {
+  return MANAGER_FIELDS.filter((key) => patch[key] !== undefined);
+}
 
 // The owner columns for a picked user (its id and name), or for nobody.
 async function salesOwnerOf(userId: string | null): Promise<Pick<NewCustomerRecord, "salesOwner" | "salesOwnerUserId">> {
   if (userId === null) return { salesOwner: "", salesOwnerUserId: null };
   if (!isUuid(userId)) throw APIError.invalidArgument("salesOwnerUserId must be the id of a user");
-  const { users } = await auth.usersList();
+  // Only that user, of the caller's company and not deleted (auth looks it up by id).
+  const { users } = await auth.userLookup({ ids: [userId] });
   const user = users.find((u) => u.id === userId);
   if (!user) throw APIError.invalidArgument("salesOwnerUserId must be a user of the company");
-  return { salesOwner: nameOf(user), salesOwnerUserId: user.id };
+  return { salesOwner: user.name, salesOwnerUserId: user.id };
+}
+
+/**
+ * The insert of a new customer. The IČO check before it gives the friendly answer; two creates
+ * racing past it are stopped by the unique index, and the loser gets the same answer, not a 500.
+ */
+async function insertUnique<T>(insert: () => Promise<T>, what: string): Promise<T> {
+  try {
+    return await insert();
+  } catch (err) {
+    if (isUniqueViolation(err)) throw APIError.alreadyExists(`A customer with this ${what} already exists`);
+    throw err;
+  }
 }
 
 class CustomerService {
@@ -91,8 +132,7 @@ class CustomerService {
     return toCustomerItem(row);
   }
 
-  /** Throws not found unless the customer is live in this company (for writes under it). */
-  /** The live customer of this company; notFound otherwise. */
+  /** The live customer of this company (for writes under it); notFound otherwise. */
   async requireLive(id: string, companyId: string): Promise<CustomerRecord> {
     const customer = await customerRepository.getByIdForCompany(id, companyId);
     if (!customer) throw APIError.notFound("Customer not found");
@@ -131,7 +171,7 @@ class CustomerService {
       dutyPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
     };
     const registered = { type: "Registered" as const, street: ares.street, city: ares.postalCity || ares.city, postalCode: ares.postalCode, country: ares.country };
-    const row = await customerRepository.createWithContact(companyId, values, mainContact, registered);
+    const row = await insertUnique(() => customerRepository.createWithContact(companyId, values, mainContact, registered), "IČO");
     return toCustomerItem(row);
   }
 
@@ -162,11 +202,15 @@ class CustomerService {
       dutyPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
     };
     const registered = { type: "Registered" as const, street, city, postalCode, country };
-    const row = await customerRepository.createWithContact(companyId, values, mainContact, registered);
+    const row = await insertUnique(() => customerRepository.createWithContact(companyId, values, mainContact, registered), "registration number");
     return toCustomerItem(row);
   }
 
-  async update(id: string, companyId: string, patch: CustomerPatch): Promise<CustomerItem> {
+  async update(id: string, companyId: string, role: string, patch: CustomerPatch): Promise<CustomerItem> {
+    const restricted = managerFieldsIn(patch);
+    if (restricted.length && !canManageSales(role)) {
+      throw APIError.permissionDenied(`Only a manager can change: ${restricted.join(", ")}`);
+    }
     const { salesOwnerUserId, registrationDate, ...fields } = patch;
     const values: Partial<NewCustomerRecord> = definedOnly(fields);
     // A date column: "" clears it, anything but a date is refused.
@@ -195,10 +239,9 @@ class CustomerService {
   }
 
   // A won quote makes its customer Active, from Prospect or Inactive alike. A customer deleted meanwhile is skipped.
+  /** One statement, so a delete or a manual status change in between is never overwritten. */
   async activate(id: string, companyId: string): Promise<boolean> {
-    const customer = await customerRepository.getByIdForCompany(id, companyId);
-    if (!customer || customer.status === "Active") return false;
-    return !!(await customerRepository.updateForCompany(id, companyId, { status: "Active" }));
+    return customerRepository.activate(id, companyId);
   }
 
   async softDelete(id: string, companyId: string): Promise<void> {

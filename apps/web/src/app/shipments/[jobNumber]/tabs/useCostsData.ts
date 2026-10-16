@@ -11,7 +11,7 @@ import { buyRowsOf, jobFxDates, ratesOf, sellRowsOf } from "./costsRows";
  * The costs of one shipment: the rows of the Costs Breakdown tab with the exchange rates
  * that apply to them, and the totals computed from both. The Costs Breakdown tab and the
  * Quote card on the detail page share this, so they always show the same numbers. The
- * customer's Shipments tab computes its totals with the same functions (useJobCostTotals).
+ * customer's Shipments tab gets the same figures from the server (invoicing lib/jobCostTotals).
  */
 
 export function useCostsData(shipment: ShipmentItem | undefined) {

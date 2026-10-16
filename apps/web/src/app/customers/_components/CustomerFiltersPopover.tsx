@@ -2,48 +2,35 @@
 
 import { useState } from "react";
 import { Badge, Input, Modal, Popover, Select, Tooltip } from "antd";
-import { CloseOutlined, FilterOutlined, PlusOutlined } from "@ant-design/icons";
+import { CloseOutlined, FilterOutlined } from "@ant-design/icons";
 import { useToast } from "@/lib/toast";
+import { ColumnFilterRows } from "@/components/ColumnFilterRows";
+import {
+  TOOLBAR_BUTTON_CLASS,
+  newFilterId,
+  storedGridFilters,
+  withFilterId,
+  type GridFilter,
+  type GridFilterColumn,
+} from "@/components/gridFilters";
 
-/** One "Filter by column" row: the rows whose cell in `key` contains `value` (any case) are kept. */
-export type ColFilter = { key: string; value: string };
-
-/** A column a filter can be set on; with `options` its value is picked from them instead of typed. */
-export interface FilterColumn {
-  key: string;
-  title: string;
-  options?: readonly string[];
-}
+/** A filter as stored in a template and in the URL: column and value (rows on screen add an id). */
+export type StoredFilter = { key: string; value: string };
 
 /** A named set of filters a user saved. */
 export interface FilterTemplate {
   id: string;
   name: string;
-  filters: ColFilter[];
-}
-
-/** The filters that narrow anything: a column chosen and a value typed. */
-export const activeColumnFilters = (filters: ColFilter[]) =>
-  filters.filter((f) => f.key && f.value.trim());
-
-/** Whether a row passes every active filter; `cellText` gives the row's text in a column. */
-export function matchesColumnFilters<T>(
-  row: T,
-  filters: ColFilter[],
-  cellText: (row: T, key: string) => string,
-): boolean {
-  return activeColumnFilters(filters).every((f) =>
-    cellText(row, f.key).toLowerCase().includes(f.value.toLowerCase().trim()),
-  );
+  filters: StoredFilter[];
 }
 
 interface CustomerFiltersPopoverProps {
-  filters: ColFilter[];
-  onChange: (next: ColFilter[]) => void;
-  columns: FilterColumn[];
+  filters: GridFilter[];
+  onChange: (next: GridFilter[]) => void;
+  columns: GridFilterColumn[];
   templates: FilterTemplate[];
   /** Stores the active filters under a name; a template of that name is overwritten. */
-  onSaveTemplate: (name: string, filters: ColFilter[]) => Promise<void>;
+  onSaveTemplate: (name: string, filters: StoredFilter[]) => Promise<void>;
   onDeleteTemplate: (id: string) => void;
   isSaving: boolean;
   /** With no filters set, the panel offers one row on this column, ready for a value. */
@@ -69,23 +56,16 @@ export function CustomerFiltersPopover({
   // Template waiting for the user to confirm its deletion.
   const [toDelete, setToDelete] = useState<{ id: string; name: string } | null>(null);
 
-  const active = activeColumnFilters(filters);
-  const columnByKey = new Map(columns.map((c) => [c.key, c]));
-  const columnOptions = columns.map((c) => ({ value: c.key, label: c.title }));
+  const active = storedGridFilters(filters);
 
   // The template whose filters are exactly the ones applied now, if any.
-  const signature = (list: ColFilter[]) =>
-    JSON.stringify(activeColumnFilters(list).map((f) => [f.key, f.value.trim()]));
-  const activeTemplate = templates.find(
-    (t) => t.filters.length > 0 && signature(t.filters) === signature(filters),
-  );
+  const signature = (list: StoredFilter[]) => JSON.stringify(storedGridFilters(list).map((f) => [f.key, f.value]));
+  const activeTemplate = templates.find((t) => t.filters.length > 0 && signature(t.filters) === signature(filters));
 
   // The rows shown: the filters, or with none the one row on the default column, which becomes a filter once edited.
-  const rows: ColFilter[] =
-    filters.length === 0 && defaultColumn ? [{ key: defaultColumn, value: "" }] : filters;
-  const update = (i: number, patch: Partial<ColFilter>) =>
-    onChange(rows.map((f, idx) => (idx === i ? { ...f, ...patch } : f)));
-  const remove = (i: number) => onChange(rows.filter((_, idx) => idx !== i));
+  // Its id is kept for the panel's lifetime, so typing into it doesn't remount the input.
+  const [defaultRowId] = useState(newFilterId);
+  const rows: GridFilter[] = filters.length === 0 && defaultColumn ? [{ id: defaultRowId, key: defaultColumn, value: "" }] : filters;
 
   const openTemplateName = () => {
     setTemplateName(activeTemplate?.name ?? "");
@@ -128,7 +108,7 @@ export function CustomerFiltersPopover({
                 value={activeTemplate?.id}
                 onChange={(id) => {
                   const t = templates.find((x) => x.id === id);
-                  if (t) onChange(t.filters);
+                  if (t) onChange(t.filters.map(withFilterId));
                 }}
                 options={templates.map((t) => ({ value: t.id, label: t.name }))}
                 notFoundContent={
@@ -168,78 +148,13 @@ export function CustomerFiltersPopover({
                 Clear all
               </button>
             </div>
-            {rows.length === 0 ? (
-              <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-lg">
-                No filters yet — add one to narrow the list.
-              </div>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {rows.map((f, i) => {
-                  const options = columnByKey.get(f.key)?.options;
-                  return (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <Select
-                        showSearch
-                        placeholder="Column"
-                        value={f.key || undefined}
-                        onChange={(val) => update(i, { key: val, value: "" })}
-                        options={columnOptions}
-                        optionFilterProp="label"
-                        size="small"
-                        className="w-[150px] shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        {options ? (
-                          <Select
-                            showSearch
-                            allowClear
-                            placeholder="Select value"
-                            value={f.value || undefined}
-                            onChange={(val) => update(i, { value: val ?? "" })}
-                            options={options.map((o) => ({ value: o, label: o }))}
-                            optionFilterProp="label"
-                            size="small"
-                            className="w-full"
-                          />
-                        ) : (
-                          <Input
-                            // The default row is there to be typed into straight away.
-                            autoFocus={filters.length === 0}
-                            placeholder="Enter value"
-                            value={f.value}
-                            onChange={(e) => update(i, { value: e.target.value })}
-                            size="small"
-                            allowClear
-                          />
-                        )}
-                      </div>
-                      <button
-                        onClick={() => remove(i)}
-                        aria-label="Remove filter"
-                        className="shrink-0 flex items-center justify-center w-6 h-6 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 bg-transparent border-none cursor-pointer transition-colors"
-                      >
-                        <CloseOutlined className="text-[11px]" />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <button
-              onClick={() => onChange([...rows, { key: "", value: "" }])}
-              className="mt-2.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-dashed border-slate-300 text-xs font-medium text-slate-500 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/40 bg-transparent cursor-pointer transition-colors"
-            >
-              <PlusOutlined className="text-[10px]" /> Add filter
-            </button>
+            <ColumnFilterRows rows={rows} columns={columns} onChange={onChange} autoFocusFirst={filters.length === 0} />
           </div>
         }
       >
         <Tooltip title="Filters">
-          <Badge count={active.length} size="small" color="#4f46e5" offset={[-4, 4]}>
-            <button
-              aria-label="Filters"
-              className="flex items-center justify-center shrink-0 rounded-lg border border-slate-300 bg-white w-8 h-8 p-0 text-slate-700 hover:bg-slate-50 transition-colors"
-            >
+          <Badge count={active.length} size="small" offset={[-4, 4]} className="[&_.ant-badge-count]:!bg-indigo-600">
+            <button aria-label="Filters" className={TOOLBAR_BUTTON_CLASS}>
               <FilterOutlined />
             </button>
           </Badge>

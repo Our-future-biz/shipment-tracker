@@ -3,6 +3,27 @@
 /* The panel palette of the shipment detail tabs (documents, customs, costs). Use these
    names (text-ink, bg-accent-soft, border-line, …) instead of raw hex values. Colors that
    already match Tailwind's own (red-400, green-400, neutral-50) use those names instead. */
+/* Chart palette (Recharts takes colours as values, so charts use var(--color-chart-…)). Static,
+   so the variables are emitted even though no utility class uses them. */
+@theme static {
+  --color-chart-revenue: #6366f1;
+  --color-chart-cost: #f97316;
+  --color-chart-profit: #16a34a;
+  --color-chart-red: #dc2626;
+  --color-chart-amber: #d97706;
+  --color-chart-grid: #e2e8f0;
+  --color-chart-baseline: #94a3b8;
+  --color-chart-axis: #64748b;
+  --color-chart-label: #1e293b;
+  --color-chart-ink: #334155;
+  --color-chart-cursor: #f1f5f9;
+  --color-chart-cursor-line: #cbd5e1;
+  --color-chart-dot-ring: #ffffff;
+  --color-chart-bar-red: #ef4444;
+  --color-chart-bar-amber: #f59e0b;
+  --color-chart-bar-green: #22c55e;
+}
+
 @theme {
   --color-ink: #151b2b;
   --color-ink-strong: #10141f;

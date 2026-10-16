@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import Link from "next/link";
-import { Button, Input, Select, Table, Tag } from "antd";
+import { Button, Input, Select, Table, Tag, Tooltip } from "antd";
 import { DeleteOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -11,8 +11,8 @@ import { SectionCard } from "@/components/SectionCard";
 import { CUSTOMER_SHIPMENTS_LIMIT, useCustomerShipments } from "@/hooks/useCustomerShipments";
 import type { ShipmentItem } from "@/hooks/useCustomerShipments";
 import { useCustomer } from "@/hooks/useCustomers";
-import { useJobCostTotals } from "@/hooks/useJobCostTotals";
-import type { JobCostTotals } from "@/hooks/useJobCostTotals";
+import { useCustomerShipmentFinancials } from "@/hooks/useCustomerShipmentFinancials";
+import type { ShipmentFinancials } from "@/hooks/useCustomerShipmentFinancials";
 import { formatDate } from "@/lib/date";
 import { isCompletedStatus } from "@/lib/enums";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
@@ -70,15 +70,25 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
     });
   }, [shipments, search, status, mode, direction]);
 
-  // Revenue, cost and profit come from each job's Costs (Invoicing), worked out as its Costs Breakdown tab does.
-  // Only the rows on the page are fetched, so a long list does not load the costs of every job at once.
+  // Revenue, cost and profit come from each job's Costs (Invoicing), worked out on the server as its Costs
+  // Breakdown tab does — one request for the rows on the page, not one per job.
   const pageRows = filtered.slice((page - 1) * TABLE_PAGINATION.pageSize, page * TABLE_PAGINATION.pageSize);
-  const costs = useJobCostTotals(pageRows, currency ?? "CZK");
-  // A job whose figures are still loading shows "…"; one that cannot be worked out (a missing rate) a dash.
-  const money = (id: string, pick: (t: JobCostTotals) => number) => {
-    const totals = costs.totals.get(id);
-    if (!totals) return costs.isLoading ? "…" : EMPTY_CELL;
-    return fmtMoney(pick(totals), currency);
+  const pageIds = useMemo(() => pageRows.map((s) => s.id), [pageRows]);
+  const costs = useCustomerShipmentFinancials(customerId, pageIds, currency ?? "CZK");
+  // Still loading shows "…"; a failed request "!" with a tooltip; a missing rate a dash.
+  const money = (id: string, pick: (f: ShipmentFinancials) => number | null) => {
+    const item = costs.byShipment.get(id);
+    const value = item ? pick(item) : null;
+    if (value !== null) return fmtMoney(value, currency);
+    if (costs.isLoading) return "…";
+    if (costs.isError) {
+      return (
+        <Tooltip title="Could not load the figures">
+          <span className="text-red-500">!</span>
+        </Tooltip>
+      );
+    }
+    return item?.missingCurrencies.length ? <Tooltip title={`No ČNB rate for ${item.missingCurrencies.join(", ")}`}>{EMPTY_CELL}</Tooltip> : EMPTY_CELL;
   };
 
   // antd keeps the current page when the rows change, so a narrowed list would open on a later
@@ -188,9 +198,9 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       align: "right",
       className: "tabular-nums",
       render: (_: unknown, r) => {
-        const totals = costs.totals.get(r.id);
-        if (!totals) return costs.isLoading ? "…" : EMPTY_CELL;
-        return <span className={profitClassName(totals.profit)}>{fmtMoney(totals.profit, currency)}</span>;
+        const profit = costs.byShipment.get(r.id)?.profit ?? null;
+        if (profit === null) return money(r.id, (f) => f.profit);
+        return <span className={profitClassName(profit)}>{fmtMoney(profit, currency)}</span>;
       },
     },
     {
@@ -201,10 +211,10 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       align: "right",
       className: "tabular-nums",
       render: (_: unknown, r) => {
-        const totals = costs.totals.get(r.id);
+        const item = costs.byShipment.get(r.id);
         // Without revenue there is nothing to take a percentage of.
-        if (!totals || !totals.revenue) return totals || !costs.isLoading ? EMPTY_CELL : "…";
-        return `${marginPct(totals.revenue, totals.profit)}%`;
+        if (!item || item.revenue === null || item.profit === null || !item.revenue) return item || !costs.isLoading ? EMPTY_CELL : "…";
+        return `${marginPct(item.revenue, item.profit)}%`;
       },
     },
     {

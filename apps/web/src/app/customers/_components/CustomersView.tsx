@@ -38,13 +38,9 @@ import {
 } from "../_lib/customerListColumns";
 import { AddCustomerModal } from "./AddCustomerModal";
 import { CustomerColumnPicker, type ColumnTemplate } from "./CustomerColumnPicker";
-import {
-  CustomerFiltersPopover,
-  matchesColumnFilters,
-  activeColumnFilters,
-  type ColFilter,
-  type FilterTemplate,
-} from "./CustomerFiltersPopover";
+import { CustomerFiltersPopover, type FilterTemplate, type StoredFilter } from "./CustomerFiltersPopover";
+import { TOOLBAR_BUTTON_CLASS, matchesGridFilters, storedGridFilters, withFilterId, type GridFilter } from "@/components/gridFilters";
+import { filtersFromSearchParams, writeFiltersToSearchParams } from "../_lib/customerListFilters";
 
 const STATUS_PILLS = [
   { key: "all", label: "All" },
@@ -69,7 +65,8 @@ type SortDirection = "ascend" | "descend";
 const COMPARE: Record<SortKey, (a: CustomerItem, b: CustomerItem) => number> = {
   // Names come from the Czech registry, so they are ordered the Czech way (Č after C, CH after H).
   name: (a, b) => a.companyName.localeCompare(b.companyName, "cs", { sensitivity: "base" }),
-  revenue: (a, b) => a.totalRevenue - b.totalRevenue,
+  // Rollup amounts are not converted, so they are only compared within a currency: grouped by it first.
+  revenue: (a, b) => a.currency.localeCompare(b.currency) || a.totalRevenue - b.totalRevenue,
   margin: (a, b) =>
     marginPct(a.totalRevenue, a.totalProfit) - marginPct(b.totalRevenue, b.totalProfit),
   activity: (a, b) => (a.lastActivityDate || "").localeCompare(b.lastActivityDate || ""),
@@ -84,7 +81,7 @@ const FILTER_COLUMNS = CUSTOMER_LIST_COLUMNS.map((c) => ({
 
 const isStringList = (v: unknown): v is string[] =>
   Array.isArray(v) && v.every((k) => typeof k === "string");
-const isFilterList = (v: unknown): v is ColFilter[] =>
+const isFilterList = (v: unknown): v is StoredFilter[] =>
   Array.isArray(v) &&
   v.every(
     (f) => !!f && typeof f === "object" && typeof f.key === "string" && typeof f.value === "string",
@@ -101,6 +98,8 @@ const isColumnTemplates = (v: unknown): v is ColumnTemplate[] =>
   );
 
 const NO_FILTER_TEMPLATES: FilterTemplate[] = [];
+
+const isKnownColumn = (key: string) => CUSTOMER_COLUMN_MAP.has(key);
 const NO_COLUMN_TEMPLATES: ColumnTemplate[] = [];
 
 // A template of the same name (any case) is replaced; otherwise the new one is added.
@@ -158,23 +157,18 @@ export function CustomersView() {
   // "Filter by column" filters. The rows live here as typed (so a space between two words survives the typing)
   // and are copied to the URL as ?f.<column>=<value>, like the rest of the list's state, so they are still there
   // after opening a customer and coming back. They narrow the customers the server returned.
-  const urlFilters = useMemo(() => {
-    const out: ColFilter[] = [];
-    searchParams.forEach((value, key) => {
-      if (key.startsWith("f.")) out.push({ key: key.slice(2), value });
-    });
-    return out;
-  }, [searchParams]);
-  const [shownFilters, setShownFilters] = useState<ColFilter[]>(urlFilters);
+  // Several filters may be set on the same column (?f.city=a&f.city=b), so every value is read.
+  const urlFilters = useMemo(() => filtersFromSearchParams(searchParams, isKnownColumn), [searchParams]);
+  const [shownFilters, setShownFilters] = useState<GridFilter[]>(() => urlFilters.map(withFilterId));
   // The ?f. part this list last wrote; only a change from elsewhere (Back, a link) replaces the rows.
-  const writtenFilters = useRef(JSON.stringify(activeColumnFilters(urlFilters)));
+  const writtenFilters = useRef(JSON.stringify(urlFilters));
   useEffect(() => {
-    const fromUrl = JSON.stringify(activeColumnFilters(urlFilters));
+    const fromUrl = JSON.stringify(urlFilters);
     if (fromUrl === writtenFilters.current) return;
     writtenFilters.current = fromUrl;
-    setShownFilters(urlFilters);
+    setShownFilters(urlFilters.map(withFilterId));
   }, [urlFilters]);
-  const activeFilters = useMemo(() => activeColumnFilters(shownFilters), [shownFilters]);
+  const activeFilters = useMemo(() => storedGridFilters(shownFilters), [shownFilters]);
 
   // The user's own set-up of this list, kept in the customers service (not shared with the shipment grids).
   const columnPref = useCustomerListPref<string[]>(
@@ -196,6 +190,11 @@ export function CustomersView() {
     () => normalizeCustomerColumns(columnPref.value),
     [columnPref.value],
   );
+  // A saved filter on a column the list no longer has is dropped, not left to empty the list.
+  const knownFilterTemplates = useMemo(
+    () => filterTemplates.value.map((t) => ({ ...t, filters: t.filters.filter((f) => isKnownColumn(f.key)) })),
+    [filterTemplates.value],
+  );
 
   // The table shows one page at a time, so sorting has to happen here, over all rows, and
   // not in the table's own column sorters (they would only reorder the visible page).
@@ -203,7 +202,7 @@ export function CustomersView() {
     // After a failed request the rows still in memory may be out of date; the error is shown instead.
     if (isError) return [];
     const kept = activeFilters.length
-      ? customers.filter((c) => matchesColumnFilters(c, activeFilters, customerCellText))
+      ? customers.filter((c) => matchesGridFilters(c, activeFilters, customerCellText))
       : customers;
     if (!sortKey) return kept;
     const direction = sortDirection === "ascend" ? 1 : -1;
@@ -258,39 +257,36 @@ export function CustomersView() {
   };
 
   // A change of the filter rows: shown at once, and the ones that filter copied to the URL.
-  const handleFiltersChange = (next: ColFilter[]) => {
+  const handleFiltersChange = (next: GridFilter[]) => {
     setShownFilters(next);
-    const active = activeColumnFilters(next);
+    const active = storedGridFilters(next);
     writtenFilters.current = JSON.stringify(active);
-    const params = new URLSearchParams(searchParams.toString());
-    Array.from(params.keys()).forEach((k) => {
-      if (k.startsWith("f.")) params.delete(k);
-    });
-    active.forEach((f) => params.set(`f.${f.key}`, f.value));
+    const params = writeFiltersToSearchParams(new URLSearchParams(searchParams.toString()), active);
     const qs = params.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   };
 
-  const handleSaveFilterTemplate = async (name: string, active: ColFilter[]) => {
-    await filterTemplates.save(upsertByName(filterTemplates.value, { name, filters: active }));
+  // Templates are changed on the list as stored now (read again first), so one saved in another tab is kept.
+  const handleSaveFilterTemplate = async (name: string, active: StoredFilter[]) => {
+    await filterTemplates.update((list) => upsertByName(list, { name, filters: active }));
   };
 
   const handleDeleteFilterTemplate = (id: string) => {
-    void filterTemplates.save(filterTemplates.value.filter((t) => t.id !== id));
+    void filterTemplates.update((list) => list.filter((t) => t.id !== id));
   };
 
+  // Nothing is saved before the user's stored layout is read: a layout built on the defaults would replace it.
   const handleColumnsChange = (keys: string[]) => {
+    if (!columnPref.loaded) return;
     void columnPref.save(normalizeCustomerColumns(keys));
   };
 
   const handleSaveColumnTemplate = async (name: string) => {
-    await columnTemplates.save(
-      upsertByName(columnTemplates.value, { name, columns: visibleColumns }),
-    );
+    await columnTemplates.update((list) => upsertByName(list, { name, columns: visibleColumns }));
   };
 
   const handleDeleteColumnTemplate = (id: string) => {
-    void columnTemplates.save(columnTemplates.value.filter((t) => t.id !== id));
+    void columnTemplates.update((list) => list.filter((t) => t.id !== id));
   };
 
   // Reordering the columns: the pencil turns it on, and the column headers can then be dragged.
@@ -418,7 +414,7 @@ export function CustomersView() {
               filters={shownFilters}
               onChange={handleFiltersChange}
               columns={FILTER_COLUMNS}
-              templates={filterTemplates.value}
+              templates={knownFilterTemplates}
               onSaveTemplate={handleSaveFilterTemplate}
               onDeleteTemplate={handleDeleteFilterTemplate}
               isSaving={filterTemplates.isSaving}
@@ -430,18 +426,20 @@ export function CustomersView() {
               templates={columnTemplates.value}
               onSaveTemplate={handleSaveColumnTemplate}
               onDeleteTemplate={handleDeleteColumnTemplate}
+              ready={columnPref.loaded}
             />
             <Tooltip title={reordering ? "Done reordering" : "Reorder columns"}>
               <button
                 type="button"
                 aria-label="Reorder columns"
                 aria-pressed={reordering}
+                disabled={!columnPref.loaded}
                 onClick={() => setReordering((on) => !on)}
-                className={`flex items-center justify-center shrink-0 rounded-lg border w-8 h-8 p-0 transition-colors cursor-pointer ${
+                className={
                   reordering
-                    ? "border-indigo-500 bg-indigo-50 text-indigo-600"
-                    : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                }`}
+                    ? "flex items-center justify-center shrink-0 rounded-lg border w-8 h-8 p-0 transition-colors cursor-pointer border-indigo-500 bg-indigo-50 text-indigo-600"
+                    : `${TOOLBAR_BUTTON_CLASS} cursor-pointer disabled:cursor-not-allowed disabled:opacity-50`
+                }
               >
                 <EditOutlined />
               </button>

@@ -3,7 +3,7 @@
 import { Tag } from "antd";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerContacts } from "@/hooks/useCustomerContacts";
-import { CONTACT_ROLE_COLORS } from "../../_lib/constants";
+import { contactRoleColor } from "../../_lib/constants";
 import { CustomerInfoRow } from "./CustomerInfoRow";
 
 const TEXT_BUTTON_CLASS =
@@ -48,7 +48,7 @@ export function CustomerMainContactCard({ customerId, onSelectTab }: CustomerMai
           </CustomerInfoRow>
           <CustomerInfoRow label="Role" narrow>
             {contact.role && (
-              <Tag color={CONTACT_ROLE_COLORS[contact.role] ?? "default"} className="!m-0">
+              <Tag color={contactRoleColor(contact.role)} className="!m-0">
                 {contact.role}
               </Tag>
             )}

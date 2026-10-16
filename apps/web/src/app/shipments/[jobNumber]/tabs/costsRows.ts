@@ -2,8 +2,8 @@ import { getFieldValue, type ShipmentItem } from "@/hooks/useShipments";
 import type { api } from "@/lib/api";
 import type { BuyingRow, Rates, SellingRow } from "./costsCalc";
 
-// The pieces computeCosts needs, read from the API: shared by the Costs Breakdown tab (useCostsData) and the
-// customer's Shipments tab (useJobCostTotals), so both work out a job's figures the same way.
+// The pieces computeCosts needs, read from the API, for the Costs Breakdown tab (useCostsData). The customer's
+// Shipments tab gets the same figures from the server (invoicing lib/jobCostTotals), which follows these rules.
 
 type InvoicingData = Awaited<ReturnType<typeof api.invoicing.invoicingGet>>;
 type JobRates = Awaited<ReturnType<typeof api.fx.fxJobRates>>;

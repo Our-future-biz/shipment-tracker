@@ -6,7 +6,8 @@ import type { controllers, interfaces } from "@/lib/api/client";
 
 export type AddressItem = interfaces.AddressItem;
 
-const customerAddressesKey = (customerId: string) => ["customers", customerId, "addresses"] as const;
+/** One customer's addresses. Kept apart from the ["customers"] list key, so a list refresh doesn't refetch them. */
+export const customerAddressesKey = (customerId: string) => ["customer-addresses", customerId] as const;
 
 export const useCustomerAddresses = (customerId: string) => {
   const queryClient = useQueryClient();
@@ -18,7 +19,13 @@ export const useCustomerAddresses = (customerId: string) => {
     enabled: !!customerId,
   });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: key });
+  // The Registered address is also the customer's registered address (header, Registry card), so
+  // the customer and the list are refreshed with it.
+  const invalidate = () => {
+    void queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
+    void queryClient.invalidateQueries({ queryKey: ["customers"] });
+    return queryClient.invalidateQueries({ queryKey: key });
+  };
 
   const createMutation = useMutation({
     mutationFn: (params: Omit<controllers.AddressCreateRequest, "customerId">) => api.customers.addressCreate(customerId, params),
@@ -38,6 +45,7 @@ export const useCustomerAddresses = (customerId: string) => {
   return {
     addresses: query.data?.data ?? [],
     isLoading: query.isLoading,
+    isError: query.isError,
     createAddress: createMutation.mutateAsync,
     updateAddress: updateMutation.mutateAsync,
     deleteAddress: deleteMutation.mutateAsync,

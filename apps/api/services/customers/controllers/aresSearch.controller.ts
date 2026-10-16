@@ -1,4 +1,5 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
 import type { MaxLen } from "encore.dev/validate";
 import { aresService } from "../services/ares.service";
 import type { AresSearchHit } from "../interfaces/interfaces";
@@ -18,6 +19,6 @@ interface AresSearchResponse {
 export const aresSearch = api(
   { expose: true, auth: true, method: "GET", path: "/ares-search" },
   async ({ name }: AresSearchRequest): Promise<AresSearchResponse> => {
-    return aresService.search(name);
+    return aresService.search(getAuthData()!.companyID, name);
   },
 );

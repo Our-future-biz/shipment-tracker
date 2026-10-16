@@ -50,8 +50,11 @@ export const CUSTOMER_TAB_ALIASES: Record<string, string> = {
   payment: "finance",
 };
 
+// A map keyed by an API union, read with a stored string (an older value may be outside the union).
+const lookup = <V>(map: Partial<Record<string, V>>, key: string): V | undefined => map[key];
+
 // Account type (label) badge colours, as Tailwind background + text classes.
-const LABEL_CLASSES: Record<string, string> = {
+const LABEL_CLASSES: Record<interfaces.CustomerLabel, string> = {
   "KEY ACCOUNT": "bg-yellow-100 text-yellow-700",
   STANDARD: "bg-slate-100 text-slate-500",
   "TARGET CUSTOMER": "bg-purple-100 text-purple-700",
@@ -59,21 +62,21 @@ const LABEL_CLASSES: Record<string, string> = {
 };
 
 export function labelClass(label: string): string {
-  return LABEL_CLASSES[label] ?? "bg-slate-100 text-slate-500";
+  return lookup(LABEL_CLASSES, label) ?? "bg-slate-100 text-slate-500";
 }
 
-const STATUS_DOT: Record<string, string> = {
+const STATUS_DOT: Record<interfaces.CustomerStatus, string> = {
   Active: "bg-green-600",
   Prospect: "bg-blue-600",
   Inactive: "bg-red-500",
 };
 
 export function statusDotClass(status: string): string {
-  return STATUS_DOT[status] ?? "bg-slate-400";
+  return lookup(STATUS_DOT, status) ?? "bg-slate-400";
 }
 
 // antd Tag colours for the categorical values of the section; unknown values fall back to "default".
-export const CONTACT_ROLE_COLORS: Record<string, string> = {
+const CONTACT_ROLE_COLORS: Record<interfaces.ContactRole, string> = {
   "Purchasing / Procurement": "purple",
   "Customer Service": "cyan",
   "Logistics Manager": "green",
@@ -84,7 +87,7 @@ export const CONTACT_ROLE_COLORS: Record<string, string> = {
   Owner: "volcano",
 };
 
-export const ADDRESS_TYPE_COLORS: Record<string, string> = {
+const ADDRESS_TYPE_COLORS: Record<interfaces.AddressType, string> = {
   Registered: "blue",
   Billing: "gold",
   Pickup: "green",
@@ -92,7 +95,7 @@ export const ADDRESS_TYPE_COLORS: Record<string, string> = {
   Warehouse: "orange",
 };
 
-export const DOCUMENT_TYPE_COLORS: Record<string, string> = {
+const DOCUMENT_TYPE_COLORS: Partial<Record<interfaces.DocumentType, string>> = {
   Contract: "blue",
   NDA: "purple",
   "Power of attorney": "gold",
@@ -106,19 +109,32 @@ export const INVOICE_STATUS_COLORS: Record<interfaces.InvoiceStatus, string> = {
   Credited: "default",
 };
 
-export const NOTE_TYPE_COLORS: Record<string, string> = {
+const NOTE_TYPE_COLORS: Partial<Record<interfaces.NoteType, string>> = {
   Email: "blue",
   Call: "green",
   "Follow-up": "gold",
   Visit: "purple",
 };
 
-// Recharts palette of the customer finance charts.
+export const contactRoleColor = (role: string) => lookup(CONTACT_ROLE_COLORS, role) ?? "default";
+export const addressTypeColor = (type: string) => lookup(ADDRESS_TYPE_COLORS, type) ?? "default";
+export const documentTypeColor = (type: string) => lookup(DOCUMENT_TYPE_COLORS, type) ?? "default";
+export const noteTypeColor = (type: string) => lookup(NOTE_TYPE_COLORS, type) ?? "default";
+
+// Recharts palette of the customer finance charts (theme tokens in styles/globals.css).
 export const CHART_COLORS = {
-  revenue: "#6366f1",
-  cost: "#f97316",
-  profit: "#16a34a",
-  red: "#dc2626",
-  amber: "#d97706",
-  green: "#16a34a",
+  revenue: "var(--color-chart-revenue)",
+  cost: "var(--color-chart-cost)",
+  profit: "var(--color-chart-profit)",
+  red: "var(--color-chart-red)",
+  amber: "var(--color-chart-amber)",
+  green: "var(--color-chart-profit)",
+  grid: "var(--color-chart-grid)",
+  baseline: "var(--color-chart-baseline)",
+  axis: "var(--color-chart-axis)",
+  label: "var(--color-chart-label)",
+  ink: "var(--color-chart-ink)",
+  cursor: "var(--color-chart-cursor)",
+  cursorLine: "var(--color-chart-cursor-line)",
+  dotRing: "var(--color-chart-dot-ring)",
 };

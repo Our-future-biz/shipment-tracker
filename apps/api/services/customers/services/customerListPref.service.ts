@@ -3,24 +3,27 @@ import { customerListPrefRepository } from "../repositories/customerListPref.rep
 
 // The keys a user may store for the Customer Database list.
 export const CUSTOMER_LIST_PREF_KEYS = ["columns", "filter-templates", "column-templates"] as const;
+export type CustomerListPrefKey = (typeof CUSTOMER_LIST_PREF_KEYS)[number];
 
-function requireKnownKey(prefKey: string): void {
-  if (!(CUSTOMER_LIST_PREF_KEYS as readonly string[]).includes(prefKey)) {
-    throw APIError.invalidArgument(`prefKey must be one of: ${CUSTOMER_LIST_PREF_KEYS.join(", ")}`);
-  }
+const isKnownKey = (prefKey: string): prefKey is CustomerListPrefKey =>
+  (CUSTOMER_LIST_PREF_KEYS as readonly string[]).includes(prefKey);
+
+// The key arrives in the path, which Encore can only type as a string: narrowed here.
+function knownKey(prefKey: string): CustomerListPrefKey {
+  if (!isKnownKey(prefKey)) throw APIError.invalidArgument(`prefKey must be one of: ${CUSTOMER_LIST_PREF_KEYS.join(", ")}`);
+  return prefKey;
 }
 
 // The value travels as a JSON string: Encore can't carry a free-form object in a request or response.
 class CustomerListPrefService {
   /** The saved JSON; null while the user has saved nothing under this key. */
   async get(companyId: string, userId: string, prefKey: string): Promise<string | null> {
-    requireKnownKey(prefKey);
-    const row = await customerListPrefRepository.get(companyId, userId, prefKey);
+    const row = await customerListPrefRepository.get(companyId, userId, knownKey(prefKey));
     return row ? JSON.stringify(row.value) : null;
   }
 
   async set(companyId: string, userId: string, prefKey: string, json: string): Promise<void> {
-    requireKnownKey(prefKey);
+    const key = knownKey(prefKey);
     // Refuse malformed JSON instead of storing {}: a silent reset would wipe what the user was saving.
     let parsed: unknown;
     try {
@@ -28,7 +31,9 @@ class CustomerListPrefService {
     } catch {
       throw APIError.invalidArgument("value must be valid JSON");
     }
-    await customerListPrefRepository.set(companyId, userId, prefKey, parsed);
+    // The column is NOT NULL: "null" would fail in the database; nothing to save is not a value.
+    if (parsed === null) throw APIError.invalidArgument("value must not be null");
+    await customerListPrefRepository.set(companyId, userId, key, parsed);
   }
 }
 

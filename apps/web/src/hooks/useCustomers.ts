@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { customerQuotesKeys } from "@/hooks/salesQueryKeys";
+import { customerAddressesKey } from "@/hooks/useCustomerAddresses";
 
 export type CustomerItem = interfaces.CustomerItem;
 
@@ -23,6 +24,7 @@ const CUSTOMER_RECORD_KEYS = [
   "customer-documents",
   "customer-invoices",
   "customer-shipments",
+  customerAddressesKey("")[0],
   customerQuotesKeys.all[0],
 ];
 
@@ -99,9 +101,14 @@ export const useCustomer = (id: string | null) => {
     queryClient.invalidateQueries({ queryKey: ["customers"] });
   };
 
+  // The saved row is put in the cache straight away, so a field shows the new value without
+  // flicking back to the old one until the refetch lands.
   const updateMutation = useMutation({
     mutationFn: (params: controllers.CustomerUpdateRequest) => api.customers.customerUpdate(id as string, params),
-    onSuccess: invalidate,
+    onSuccess: (res) => {
+      queryClient.setQueryData<controllers.CustomerGetResponse>(["customer", id], (prev) => (prev ? { ...prev, customer: res.customer } : prev));
+      invalidate();
+    },
   });
 
   const uploadLogoMutation = useMutation({

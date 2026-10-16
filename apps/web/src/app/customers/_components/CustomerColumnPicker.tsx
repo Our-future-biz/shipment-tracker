@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Checkbox, Input, Modal, Popover, Select, Tooltip } from "antd";
+import { useState } from "react";
+import { Input, Modal, Popover, Select, Tooltip } from "antd";
 import { CloseOutlined, SettingOutlined } from "@ant-design/icons";
 import { useToast } from "@/lib/toast";
+import { ColumnChecklist } from "@/components/ColumnChecklist";
+import { TOOLBAR_BUTTON_CLASS } from "@/components/gridFilters";
 import { CUSTOMER_LIST_COLUMNS, NAME_COLUMN_KEY } from "../_lib/customerListColumns";
 
 /** A named set of columns a user saved. */
@@ -23,6 +25,8 @@ interface CustomerColumnPickerProps {
   /** Stores the shown columns under a name; a template of that name is overwritten. */
   onSaveTemplate: (name: string) => Promise<void>;
   onDeleteTemplate: (id: string) => void;
+  /** False until the user's stored layout is read; changes are not offered before that. */
+  ready: boolean;
 }
 
 // The "Columns" button of the Customer Database list: which columns are shown, and named templates of them.
@@ -33,31 +37,17 @@ export function CustomerColumnPicker({
   templates,
   onSaveTemplate,
   onDeleteTemplate,
+  ready,
 }: CustomerColumnPickerProps) {
   const toast = useToast();
   const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
   const [nameOpen, setNameOpen] = useState(false);
   const [templateName, setTemplateName] = useState("");
   const [saving, setSaving] = useState(false);
   // Template waiting for the user to confirm its deletion.
   const [toDelete, setToDelete] = useState<{ id: string; name: string } | null>(null);
-  const visibleSet = useMemo(() => new Set(visible), [visible]);
-
-  const shown = useMemo(() => {
-    const q = search.toLowerCase().trim();
-    return q
-      ? CUSTOMER_LIST_COLUMNS.filter((c) => c.title.toLowerCase().includes(q))
-      : CUSTOMER_LIST_COLUMNS;
-  }, [search]);
 
   const activeTemplate = templates.find((t) => t.columns.join("|") === visible.join("|")) ?? null;
-
-  const toggle = (key: string, checked: boolean) => {
-    if (key === NAME_COLUMN_KEY) return;
-    if (checked) onChange([...visible, key]);
-    else onChange(visible.filter((k) => k !== key));
-  };
 
   // Save asks for a name; it starts as the chosen template's, so confirming it unchanged updates that template.
   const openName = () => {
@@ -91,6 +81,7 @@ export function CustomerColumnPicker({
           aria-label="Column templates"
           className="flex-1 min-w-0"
           value={activeTemplate?.id}
+          disabled={!ready}
           onChange={(id) => {
             const t = templates.find((x) => x.id === id);
             if (t) onChange(t.columns);
@@ -126,51 +117,14 @@ export function CustomerColumnPicker({
         </button>
       </div>
 
-      <Input
-        size="small"
-        placeholder="Find a column…"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        allowClear
-        className="mb-2"
+      <ColumnChecklist
+        columns={CUSTOMER_LIST_COLUMNS}
+        visible={visible}
+        onChange={onChange}
+        fixedKeys={[NAME_COLUMN_KEY]}
+        allKeys={ALL_KEYS}
+        disabled={!ready}
       />
-
-      <div className="max-h-[320px] overflow-y-auto pr-1 flex flex-col gap-1">
-        {shown.length === 0 && <div className="text-xs text-slate-400 py-2">No columns found.</div>}
-        {shown.map((col) => {
-          const fixed = col.key === NAME_COLUMN_KEY;
-          return (
-            <label
-              key={col.key}
-              className={`flex items-center gap-2 text-xs py-0.5 ${fixed ? "text-slate-500 cursor-default" : "text-slate-700 cursor-pointer"}`}
-            >
-              <Checkbox
-                checked={fixed || visibleSet.has(col.key)}
-                disabled={fixed}
-                onChange={(e) => toggle(col.key, e.target.checked)}
-              />
-              {col.title}
-              {fixed && <span className="text-[10px] text-slate-400">· always shown</span>}
-            </label>
-          );
-        })}
-      </div>
-
-      <div className="flex items-center gap-3 mt-2 pt-2 border-t border-slate-100">
-        <button
-          onClick={() => onChange(ALL_KEYS)}
-          className="text-[11px] text-indigo-500 hover:underline bg-transparent border-none p-0 cursor-pointer"
-        >
-          Select all
-        </button>
-        <button
-          onClick={() => onChange([NAME_COLUMN_KEY])}
-          className="text-[11px] text-slate-400 hover:underline bg-transparent border-none p-0 cursor-pointer"
-        >
-          Clear
-        </button>
-        <span className="ml-auto text-[11px] text-slate-400">{visible.length} shown</span>
-      </div>
     </div>
   );
 
@@ -187,10 +141,7 @@ export function CustomerColumnPicker({
         }}
       >
         <Tooltip title="Columns">
-          <button
-            aria-label="Columns"
-            className="flex items-center justify-center shrink-0 rounded-lg border border-slate-300 bg-white w-8 h-8 p-0 text-slate-700 hover:bg-slate-50 transition-colors"
-          >
+          <button aria-label="Columns" className={TOOLBAR_BUTTON_CLASS}>
             <SettingOutlined />
           </button>
         </Tooltip>

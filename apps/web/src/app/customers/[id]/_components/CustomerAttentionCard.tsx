@@ -23,6 +23,7 @@ interface SeverityStyle {
   header: string;
   icon: string;
   count: string;
+  title: string;
 }
 
 const SEVERITY_STYLE: Record<AttentionSeverity, SeverityStyle> = {
@@ -33,6 +34,7 @@ const SEVERITY_STYLE: Record<AttentionSeverity, SeverityStyle> = {
     header: "bg-red-50 border-red-100",
     icon: "text-red-500",
     count: "text-red-600",
+    title: "text-red-600",
   },
   warning: {
     label: "Warning:",
@@ -41,6 +43,7 @@ const SEVERITY_STYLE: Record<AttentionSeverity, SeverityStyle> = {
     header: "bg-amber-50 border-amber-100",
     icon: "text-amber-500",
     count: "text-amber-700",
+    title: "text-amber-700",
   },
 };
 
@@ -65,7 +68,7 @@ interface CustomerAttentionCardProps {
 export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAttentionCardProps) {
   const { customer, isLoading: customerLoading } = useCustomer(customerId);
   const { invoices, isLoading: invoicesLoading } = useCustomerInvoices(customerId);
-  const { rates } = useLatestRates();
+  const { rates, isLoading: ratesLoading } = useLatestRates();
   const { contacts, isLoading: contactsLoading, isError: contactsError } = useCustomerContacts(customerId);
   const { documents, isLoading: documentsLoading, isError: documentsError } = useCustomerDocuments(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
@@ -73,7 +76,8 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
   const [expandedFor, setExpandedFor] = useState<string | null>(null);
 
   // Until every source is in, the list would appear half-built and then grow or reorder under the reader.
-  const isLoading = customerLoading || invoicesLoading || contactsLoading || documentsLoading || notesLoading;
+  // The rates too: without them a foreign invoice can't be weighed against the credit limit.
+  const isLoading = customerLoading || invoicesLoading || ratesLoading || contactsLoading || documentsLoading || notesLoading;
 
   const items = useMemo(() => {
     if (isLoading || !customer) return [];
@@ -118,7 +122,7 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
           <span className={`h-2 w-2 rounded-full ${style.dot}`} />
         </span>
         <span className="flex-1 min-w-0 [overflow-wrap:anywhere]">
-          <span className="sr-only">{style.label}</span> <span className="font-semibold text-red-600">{item.title}</span>
+          <span className="sr-only">{style.label}</span> <span className={`font-semibold ${style.title}`}>{item.title}</span>
           {item.detail && <span className="text-slate-600"> {item.detail}</span>}
         </span>
         {item.meta && <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums text-slate-800">{item.meta}</span>}

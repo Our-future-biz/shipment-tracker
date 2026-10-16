@@ -6,6 +6,8 @@ import type { CustomerItem, CustomerLabel, CustomerStatus, RiskLevelOverride } f
 
 // The rollups (totalRevenue, totalProfit, totalShipments, lastActivityDate) are not here:
 // they are computed from shipments and written only through customerRollupsUpdate.
+// Nor is the registered address: it lives in the customer's Registered address (the
+// addresses endpoints); the copy on the customer comes from the registry when it is created.
 interface CustomerUpdateRequest {
   id: string;
   companyName?: string & MinLen<1> & MaxLen<300>;
@@ -20,9 +22,6 @@ interface CustomerUpdateRequest {
   freightPaymentTerms?: string & MaxLen<100>;
   dutyPaymentTerms?: string & MaxLen<100>;
   companyWebsite?: string & MaxLen<300>;
-  city?: string & MaxLen<200>;
-  country?: string & MaxLen<100>;
-  registeredAddress?: string & MaxLen<500>;
   nace?: string & MaxLen<500>;
   /** yyyy-mm-dd, or "" to clear: the company age and stability follow it. */
   registrationDate?: string & MaxLen<10>;
@@ -40,6 +39,7 @@ interface CustomerUpdateResponse {
 export const customerUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/customers/:id" },
   async ({ id, ...patch }: CustomerUpdateRequest): Promise<CustomerUpdateResponse> => {
-    return { customer: await customerService.update(id, getAuthData()!.companyID, patch) };
+    const actor = getAuthData()!;
+    return { customer: await customerService.update(id, actor.companyID, actor.role, patch) };
   },
 );

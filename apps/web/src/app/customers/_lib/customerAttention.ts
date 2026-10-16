@@ -128,6 +128,19 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
   }
 
   // Warnings.
+  // Invoices in a currency without a ČNB rate can't be added to the outstanding sum, so the credit-limit
+  // check above leaves them out; that is said, not hidden.
+  if (summary.unconverted.length > 0) {
+    items.push({
+      key: "invoices-not-counted",
+      severity: "warning",
+      title: "Invoices not counted",
+      detail: `No ČNB rate for ${summary.unconverted.map((u) => u.currency).join(", ")}; those open invoices are left out of the outstanding sum and the credit check.`,
+      meta: summary.unconverted.map((u) => fmtMoney(u.amount, u.currency)).join(" + "),
+      tab: "finance",
+    });
+  }
+
   // An owner is a user; a name typed before owners were users counts as none, but is named so it can be found.
   if (!customer.salesOwnerUserId) {
     const typed = customer.salesOwner.trim();
@@ -184,13 +197,16 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
     });
   }
 
+  // A risk level or industry set by hand (company analysis) wins over the one read from the NACE codes.
   const { primary } = getNaceInfo(parseNaceCodes(customer.nace));
-  if (primary?.risk === "High") {
+  const risk = customer.riskLevel || primary?.risk || "";
+  if (risk === "High") {
+    const industry = customer.industry.trim() || primary?.label || "";
     items.push({
       key: "high-risk-industry",
       severity: "warning",
-      title: "High-risk industry",
-      detail: `${primary.label} — review before extending credit.`,
+      title: customer.riskLevel ? "High risk" : "High-risk industry",
+      detail: `${industry ? `${industry} — ` : ""}review before extending credit.`,
     });
   }
 

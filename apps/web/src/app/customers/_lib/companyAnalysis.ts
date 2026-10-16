@@ -1,6 +1,9 @@
 // Ported from the POC CustomerProfileDetail: derive cargo/industry/risk from ARES data.
 
-export type RiskLevel = "Low" | "Medium" | "High";
+import type { interfaces } from "@/lib/api/client";
+
+/** A risk level; the API's override adds "" for "not set by hand". */
+export type RiskLevel = Exclude<interfaces.RiskLevelOverride, "">;
 
 interface NaceEntry {
   label: string;

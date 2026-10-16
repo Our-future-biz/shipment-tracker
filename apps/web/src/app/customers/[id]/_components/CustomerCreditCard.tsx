@@ -8,6 +8,8 @@ import type { CustomerItem } from "@/hooks/useCustomers";
 import { useToast } from "@/lib/toast";
 import { fmtMoney, moneyInputParser } from "../../_lib/customerMoney";
 import type { KpiTone } from "./CustomerKpiTile";
+import { useCanManageCustomers } from "@/lib/auth/AuthContext";
+import { apiErrorMessage } from "@/lib/api";
 
 const AMBER_FROM_PCT = 70;
 const RED_FROM_PCT = 90;
@@ -20,11 +22,12 @@ export function utilizationTone(pct: number | null): KpiTone | undefined {
   return undefined;
 }
 
-// Tailwind's red-500 / amber-500 / green-500; antd's Progress takes its colour as a value.
+// Tailwind's red-500 / amber-500 / green-500 as theme tokens (styles/globals.css); antd's Progress
+// takes its colour as a value.
 export const BAR_COLOR: Record<KpiTone, string> = {
-  red: "#ef4444",
-  amber: "#f59e0b",
-  green: "#22c55e",
+  red: "var(--color-chart-bar-red)",
+  amber: "var(--color-chart-bar-amber)",
+  green: "var(--color-chart-bar-green)",
 };
 
 const LABEL_CLASS = "text-[11px] font-bold text-slate-500 uppercase tracking-wide";
@@ -42,6 +45,8 @@ export function CustomerCreditCard({ customer, outstanding, utilization }: Custo
   const toast = useToast();
   const inputId = useId();
   const { updateCustomer } = useCustomer(customer.id);
+  // The limit is a manager's decision; the server refuses anyone else.
+  const canManage = useCanManageCustomers();
   const { creditLimit, currency } = customer;
 
   const [draft, setDraft] = useState<number | null>(creditLimit);
@@ -70,8 +75,8 @@ export function CustomerCreditCard({ customer, outstanding, utilization }: Custo
       setSavedLimit(updated.creditLimit);
       setDraft(updated.creditLimit);
       toast.success("Credit limit saved");
-    } catch {
-      toast.error("Failed to save the credit limit");
+    } catch (err) {
+      toast.error(`Failed to save the credit limit: ${apiErrorMessage(err)}`);
     } finally {
       setSaving(false);
     }
@@ -118,7 +123,8 @@ export function CustomerCreditCard({ customer, outstanding, utilization }: Custo
               placeholder="0"
               suffix={currency}
               value={draft}
-              disabled={saving}
+              disabled={saving || !canManage}
+              title={canManage ? undefined : "Only a manager can change the credit limit"}
               onChange={setDraft}
               onPressEnter={handleSave}
             />

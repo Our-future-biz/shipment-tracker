@@ -815,6 +815,12 @@ class ShipmentService {
   // What the company's shipments say about its customers, for the pipeline of the sales service:
   // for each customer its first shipment - what "ordered" means there - its newest, and how many.
   /** The live shipments that name a quote reference in their Sales Number, the oldest first. */
+  /** Of the given ids, the live shipments of this customer (bad ids are simply not theirs). */
+  async idsOfCustomer(companyId: string, customerId: string, ids: string[]): Promise<string[]> {
+    if (!isUuid(customerId)) return [];
+    return shipmentRepository.idsOfCustomer(companyId, customerId, ids.filter(isUuid));
+  }
+
   async shipmentsNamingQuote(companyId: string, reference: string): Promise<{ id: string; jobNumber: string }[]> {
     return shipmentRepository.liveBySalesNumber(companyId, reference.trim());
   }

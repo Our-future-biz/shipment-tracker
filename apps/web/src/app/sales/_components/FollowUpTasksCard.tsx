@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Alert, Button, Checkbox, Table, Tag } from "antd";
 import { PlusOutlined, DeleteOutlined, EditOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
-import { NOTE_TYPE_COLORS } from "@/app/customers/_lib/constants";
+import { noteTypeColor } from "@/app/customers/_lib/constants";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { DataTableFooter, DEFAULT_PAGE_SIZE } from "@/components/DataTable";
 import { EMPTY_CELL } from "@/components/EmptyCell";
@@ -148,7 +148,7 @@ export function FollowUpTasksCard() {
       width: 72,
       // The colours the same words have among a customer's notes.
       render: (v: string) => (
-        <Tag color={NOTE_TYPE_COLORS[v] ?? "default"} className="!m-0">
+        <Tag color={noteTypeColor(v)} className="!m-0">
           {v}
         </Tag>
       ),

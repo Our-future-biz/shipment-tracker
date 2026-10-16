@@ -9,6 +9,7 @@ import { CustomerInfoRow } from "./CustomerInfoRow";
 import { SELECT_PROPS, SELECT_WRAPPER_CLASS } from "./inlineSelect";
 import { useCustomerEdits } from "./useCustomerEdits";
 import type { CustomerPatch } from "./useCustomerEdits";
+import { useCanManageCustomers } from "@/lib/auth/AuthContext";
 
 const CURRENCY_OPTIONS = CURRENCIES.map((currency) => ({ value: currency, label: currency }));
 // Prepayment means no credit at all, so it stands out in red both in the list and as the chosen value.
@@ -32,6 +33,9 @@ interface CustomerPaymentTermsCardProps {
 // How the customer is billed: its currency and its payment terms. Every change saves itself.
 export function CustomerPaymentTermsCard({ customer }: CustomerPaymentTermsCardProps) {
   const { shown, save } = useCustomerEdits(customer);
+  // Currency and payment terms are a manager's decision; the server refuses anyone else.
+  const canManage = useCanManageCustomers();
+  const lockedTitle = canManage ? undefined : "Only a manager can change this";
 
   // A customer always has payment terms — PREPAYMENT from the moment it is created — so they can
   // be changed to another option but not emptied.
@@ -48,6 +52,8 @@ export function CustomerPaymentTermsCard({ customer }: CustomerPaymentTermsCardP
           <Select
             {...SELECT_PROPS}
             aria-label="Currency"
+            disabled={!canManage}
+            title={lockedTitle}
             value={shown.currency}
             options={CURRENCY_OPTIONS}
             onChange={(value: string) => save({ currency: value })}
@@ -60,6 +66,8 @@ export function CustomerPaymentTermsCard({ customer }: CustomerPaymentTermsCardP
             <Select
               {...SELECT_PROPS}
               aria-label={`${label} payment terms`}
+              disabled={!canManage}
+              title={lockedTitle}
               placeholder="—"
               value={shown[field] || undefined}
               options={PAYMENT_TERM_OPTIONS}

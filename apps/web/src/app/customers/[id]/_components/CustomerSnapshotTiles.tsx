@@ -101,9 +101,13 @@ const paymentTermsTile = (customer: CustomerItem): TileContent => ({
 });
 
 // The other way round from the shipments tile: green when the customer owes nothing, red while it owes anything.
+// Invoices in a currency without a rate can't be added in; they are shown beside the sum ("+ 1 200,00 USD")
+// and the tile is never green while they are open.
 function outstandingTile(invoices: InvoiceItem[], currency: string, rates: Rates): TileContent {
-  const { outstanding } = summarizeInvoices(invoices, { currency, rates });
-  return { value: fmtMoney(outstanding, currency), tone: outstanding > 0 ? "red" : "green" };
+  const { outstanding, unconverted } = summarizeInvoices(invoices, { currency, rates });
+  const rest = unconverted.map((u) => `+ ${fmtMoney(u.amount, u.currency)}`).join(" ");
+  const owes = outstanding > 0 || unconverted.length > 0;
+  return { value: rest ? `${fmtMoney(outstanding, currency)} ${rest}` : fmtMoney(outstanding, currency), tone: owes ? "red" : "green" };
 }
 
 // Contact fresher than this many days shows green.
@@ -145,14 +149,14 @@ export function CustomerSnapshotTiles({ customerId, onSelectTab }: CustomerSnaps
   } = useCustomerInvoices(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
   // The outstanding invoices are summed in the customer's currency at today's rates.
-  const { rates } = useLatestRates();
+  const { rates, isLoading: ratesLoading } = useLatestRates();
 
   const shipmentsTile =
     placeholderTile(shipmentsLoading, shipmentsError) ?? activeShipmentsTile(shipments);
   const termsTile = placeholderTile(customerLoading, !customer) ?? paymentTermsTile(customer!);
   // The amounts are in the customer's currency, so this tile needs the customer as well as the invoices.
   const financeTile =
-    placeholderTile(customerLoading || invoicesLoading, invoicesError || !customer) ??
+    placeholderTile(customerLoading || invoicesLoading || ratesLoading, invoicesError || !customer) ??
     outstandingTile(invoices, customer!.currency, rates);
   const contactTile = placeholderTile(notesLoading, notesError) ?? lastContactTile(notes);
 
