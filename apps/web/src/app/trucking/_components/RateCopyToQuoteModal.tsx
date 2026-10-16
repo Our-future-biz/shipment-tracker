@@ -3,11 +3,10 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, Checkbox, Modal, Radio } from "antd";
-import { api, apiErrorMessage } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api";
 import { LINK_CLASS } from "@/components/linkClass";
-import { invalidateQuoteLists } from "@/hooks/useSalesQuotes";
+import { CopyToQuoteError, useCopyRateToQuote } from "@/hooks/useCopyRateToQuote";
 import type { RateLevelResult } from "@/hooks/useTrucking";
 import { QuotePicker } from "@/app/sales/_components/QuotePicker";
 import { RoadPricePicker } from "@/app/sales/_components/RoadPricePicker";
@@ -33,7 +32,7 @@ interface RateCopyToQuoteModalProps {
 // then opens. Rendered only while open, so every opening starts anew.
 export const RateCopyToQuoteModal = ({ form, customerName, results, onClose }: RateCopyToQuoteModalProps) => {
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const { copyToQuote } = useCopyRateToQuote();
   const [pick, setPick] = useState<RatePick | null>(() => defaultPick(results));
   const [target, setTarget] = useState<"existing" | "new">("existing");
   const [quote, setQuote] = useState<SalesQuote | null>(null);
@@ -46,21 +45,22 @@ export const RateCopyToQuoteModal = ({ form, customerName, results, onClose }: R
 
   const handleCopy = async () => {
     if (!pick) return;
+    if (target === "existing" && !quote) return;
     setSaving(true);
     setRefusal(null);
-    let quoteNumber: string | null = null;
     try {
-      const stored =
-        target === "new"
-          ? (await api.quotes.salesQuoteCreate({ data: { serviceType: "Road", ...(form.customerId ? { customerId: form.customerId, customerName } : {}) } })).quote
-          : (await api.quotes.salesQuoteGet(quote!.quoteNumber)).quote;
-      quoteNumber = stored.quoteNumber;
-      await api.quotes.salesQuoteRoadPrice(stored.quoteNumber, { road: rateFormToRoad(form), ...pick, expectedDataVersion: stored.dataVersion });
-      invalidateQuoteLists(queryClient);
-      router.push(quoteHref(stored.quoteNumber));
+      const quoteNumber = await copyToQuote({
+        target:
+          target === "new"
+            ? { kind: "new", customer: form.customerId ? { customerId: form.customerId, customerName } : null }
+            : { kind: "existing", quoteNumber: (quote as SalesQuote).quoteNumber },
+        price: { road: rateFormToRoad(form), ...pick },
+      });
+      router.push(quoteHref(quoteNumber));
     } catch (e) {
-      if (quoteNumber) invalidateQuoteLists(queryClient);
-      setRefusal({ message: `${quoteNumber ? `${quoteNumber} was not priced` : "Nothing was copied"} — ${apiErrorMessage(e)}.`, quoteNumber });
+      const quoteNumber = e instanceof CopyToQuoteError ? e.quoteNumber : null;
+      const cause = e instanceof CopyToQuoteError ? e.cause : e;
+      setRefusal({ message: `${quoteNumber ? `${quoteNumber} was not priced` : "Nothing was copied"} — ${apiErrorMessage(cause)}.`, quoteNumber });
       setSaving(false);
     }
   };
@@ -104,11 +104,11 @@ export const RateCopyToQuoteModal = ({ form, customerName, results, onClose }: R
                 Only quotes of {customerName ?? "this customer"}
               </Checkbox>
             )}
-            {otherCustomer && (
+            {otherCustomer && quote && (
               <Alert
                 type="info"
                 showIcon
-                message={`${quote!.quoteNumber} is for ${quote!.data.customerName || "no customer"}: its sell price comes from that customer's list (else Standard), not the calculator's.`}
+                message={`${quote.quoteNumber} is for ${quote.data.customerName || "no customer"}: its sell price comes from that customer's list (else Standard), not the calculator's.`}
               />
             )}
           </div>

@@ -2,6 +2,7 @@ import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { haulierService } from "../services/haulier.service";
 import type { TruckingHaulierResponse } from "../interfaces/interfaces";
+import { requireModule } from "../../../lib/modules";
 
 interface TruckingHaulierGetRequest {
   customerId: string;
@@ -12,6 +13,7 @@ interface TruckingHaulierGetRequest {
 export const truckingHaulierGet = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/hauliers/:customerId" },
   async ({ customerId }: TruckingHaulierGetRequest): Promise<TruckingHaulierResponse> => {
+    await requireModule("trucking_concept");
     return { haulier: await haulierService.get(getAuthData()!.companyID, customerId) };
   },
 );

@@ -66,7 +66,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
   async haulierList(
     companyId: string,
     ids?: string[],
-  ): Promise<Pick<CustomerRecord, "id" | "companyName" | "ico" | "dic" | "city">[]> {
+  ): Promise<Pick<CustomerRecord, "id" | "companyName" | "ico" | "dic" | "city" | "country">[]> {
     const clauses = [eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt), arrayContains(customerTable.roles, ["haulier"])];
     if (ids) clauses.push(inArray(customerTable.id, ids));
     return this.db
@@ -76,6 +76,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
         ico: customerTable.ico,
         dic: customerTable.dic,
         city: customerTable.city,
+        country: customerTable.country,
       })
       .from(customerTable)
       .where(and(...clauses))

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { APIError } from "encore.dev/api";
-import { sniffFileType, storedFileType } from "../../warehouse/services/fileType";
+import { sniffFileType, storedFileType } from "../../../lib/fileType";
 import type { TruckingDocumentKind } from "../interfaces/interfaces";
 
 // Consignment documents as uploaded: at most 10 MB, the type taken from the bytes (never from the

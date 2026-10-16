@@ -3,7 +3,7 @@ import { settingsRepository } from "../repositories/settings.repository";
 import type { TruckingSettingsRecord } from "../schemas/truckingSettings.schema";
 import type { TruckingSettings, TruckingSettingsInput } from "../interfaces/interfaces";
 import { cleanSettings, readSettings, settingsChanges } from "../lib/settingsRules";
-import { isManager } from "../lib/roles";
+import { requireManager } from "../lib/roles";
 import { userName } from "../lib/users";
 
 export const SETTINGS_CONFLICT = "Settings were changed by someone else. Reload and try again.";
@@ -36,7 +36,7 @@ class SettingsService {
     input: Omit<TruckingSettingsInput, "hub" | "waitingFreeTime"> & { hub?: TruckingSettingsInput["hub"]; waitingFreeTime?: TruckingSettingsInput["waitingFreeTime"] },
     version: number,
   ): Promise<TruckingSettings> {
-    if (!isManager(role)) throw APIError.permissionDenied("Only a manager can change the trucking settings");
+    requireManager(role, "change the trucking settings");
     if (!Number.isInteger(version) || version < 0) throw APIError.invalidArgument("version must be the version you read (0 when none is saved yet)");
     const row = await settingsRepository.find(companyId);
     const stored = readSettings(row);

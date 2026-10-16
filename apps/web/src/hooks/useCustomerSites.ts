@@ -1,12 +1,16 @@
 "use client";
 
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 
 export type CustomerSiteItem = interfaces.CustomerSiteItem;
 
 export const customerSitesKey = (customerId: string) => ["customer-sites", customerId] as const;
+
+/** A customer's sites through the shared cache (the dialogs that prefill stops read them once). */
+export const fetchCustomerSites = (queryClient: QueryClient, customerId: string) =>
+  queryClient.fetchQuery({ queryKey: customerSitesKey(customerId), queryFn: () => api.customers.customerSiteList(customerId) });
 
 export const useCustomerSites = (customerId: string) => {
   const queryClient = useQueryClient();

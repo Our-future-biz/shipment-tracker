@@ -3,6 +3,7 @@ import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
 import { settingsService } from "../services/settings.service";
 import type { DockSettingsItem, SupplierRecipientsItem, WarehouseSettingsItem } from "../interfaces/settings.interfaces";
+import { requireModule } from "../../../lib/modules";
 
 // Warehouse settings: who gets the supplier e-mails (VGM, Survey, Remeasurement) and the docks
 // with their opening hours. Everyone signed in may read them; only a manager changes them.
@@ -10,6 +11,7 @@ import type { DockSettingsItem, SupplierRecipientsItem, WarehouseSettingsItem } 
 export const warehouseSettingsGet = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-settings" },
   async (): Promise<{ settings: WarehouseSettingsItem }> => {
+    await requireModule("warehouse_concept");
     const { companyID, role } = getAuthData()!;
     return { settings: await settingsService.get(companyID, role) };
   },
@@ -32,6 +34,7 @@ interface WarehouseSettingsUpdateRequest {
 export const warehouseSettingsUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/warehouse-settings" },
   async ({ expectedVersion, supplierEmail, docks }: WarehouseSettingsUpdateRequest): Promise<{ settings: WarehouseSettingsItem }> => {
+    await requireModule("warehouse_concept");
     const { userID, companyID, role } = requireRole("superadmin", "admin", "manager");
     return { settings: await settingsService.update(companyID, userID, role, expectedVersion, { supplierEmail, docks }) };
   },

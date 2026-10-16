@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Alert, Button, Modal, Radio, Select, Spin } from "antd";
 import { StarFilled, WarningOutlined } from "@ant-design/icons";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
-import { useHauliers, useRate, useTruckingSettings } from "@/hooks/useTrucking";
+import { useHauliers, useRateQuery, useTruckingSettings } from "@/hooks/useTrucking";
 import type { LtlTripKind, PlanningLeg, TripCreateLtl } from "@/hooks/useTruckingConsignments";
 import { TERMS } from "../_lib/glossary";
 import { TRIP_KIND_LABEL, addLegsWarnings, emptyPriceForm, ltlTripRateRequest, priceInput, priceProblems, vehicleCapacity, type PriceForm } from "../_lib/planning";
@@ -30,7 +30,10 @@ interface NewLtlTripModalProps {
 // first, then cheapest; blocked ones apart with why — or another haulier (its tariff or an agreed
 // price), the vehicle type, and what the trip would bring up (shown, never blocking).
 export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCreate }: NewLtlTripModalProps) => {
-  const { rate, isRating, result, error } = useRate();
+  // The candidates are priced once per opening (the dialog mounts per opening).
+  const [round] = useState(() => Date.now());
+  const [request] = useState(() => ltlTripRateRequest(kind, legs, hubPostcode, date));
+  const { isRating, result, error } = useRateQuery(request, round);
   const { settings } = useTruckingSettings();
   const { hauliers } = useHauliers();
   const [choice, setChoice] = useState<string | null>(null);
@@ -38,12 +41,6 @@ export const NewLtlTripModal = ({ kind, date, legs, hubPostcode, onClose, onCrea
   const [otherPrice, setOtherPrice] = useState<PriceForm>(emptyPriceForm);
   const [vehicle, setVehicle] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  // The candidates are priced once, when the dialog opens.
-  useEffect(() => {
-    rate(ltlTripRateRequest(kind, legs, hubPostcode, date)).catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const level = result?.results[0] ?? null;
   const candidates = useMemo(() => level?.buy ?? [], [level]);

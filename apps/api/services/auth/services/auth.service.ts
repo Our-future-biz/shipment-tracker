@@ -5,7 +5,8 @@ import { SignJWT, jwtVerify } from "jose";
 import { isCompanyRole, isAdminLevel } from "../../../lib/rbac";
 import { userRepository, type UserPatch } from "../repositories/user.repository";
 import { companyRepository } from "../repositories/company.repository";
-import type { AdminContact, UserRef } from "../interfaces/interfaces";
+import type { AdminContact, AppModule, UserRef } from "../interfaces/interfaces";
+import { companyService } from "./company.service";
 import { departmentRepository, branchRepository } from "../repositories/orgUnit.repository";
 
 // The signing key comes from the Encore secret store (set via `encore secret set JWT_SECRET`).
@@ -37,6 +38,15 @@ export function assertNotSelf(targetId: string, actorId: string): void {
   if (targetId === actorId) throw APIError.invalidArgument("You cannot deactivate your own account");
 }
 
+/** What #toInfo reads of a user row. */
+type UserFields = Pick<AuthUserInfo, "id" | "companyId" | "email" | "displayName" | "role" | "departmentId" | "branchId">;
+
+/** The signed-in user (login, /auth/me): their info and the modules hidden from them. */
+export interface SessionUser extends AuthUserInfo {
+  /** Modules the user's company hides; always [] for a superadmin */
+  hiddenModules: AppModule[];
+}
+
 const userNotFound = () => APIError.notFound("User not found");
 
 // Org placement of a user; null clears it, undefined leaves it untouched.
@@ -46,7 +56,7 @@ interface OrgPlacement {
 }
 
 class AuthService {
-  async login(email: string, password: string): Promise<{ token: string; user: AuthUserInfo }> {
+  async login(email: string, password: string): Promise<{ token: string; user: SessionUser }> {
     const found = await userRepository.findByEmail(email.toLowerCase().trim());
     // The service identity ("Trucking (system)") never signs in: it has no password.
     if (!found || found.isSystem || !found.passwordHash) {
@@ -59,7 +69,7 @@ class AuthService {
     const token = await this.#createToken(found.id, found.companyId, found.role);
     return {
       token,
-      user: this.#toInfo(found),
+      user: await this.#session(found),
     };
   }
 
@@ -168,11 +178,17 @@ class AuthService {
   }
 
   // The signed-in user behind a token; a token of a user since removed is no longer valid.
-  async me(token: string): Promise<AuthUserInfo> {
+  async me(token: string): Promise<SessionUser> {
     const { userId } = await this.verifyToken(token);
     const found = await userRepository.getById(userId);
     if (!found || found.isSystem) throw APIError.unauthenticated("User not found");
-    return this.#toInfo(found);
+    return this.#session(found);
+  }
+
+  // A superadmin sees every module, whatever their company hides.
+  async #session(u: UserFields): Promise<SessionUser> {
+    const hiddenModules = u.role === "superadmin" ? [] : await companyService.hiddenModulesOf(u.companyId);
+    return { ...this.#toInfo(u), hiddenModules };
   }
 
   // Scoped to the caller's company — the users directory never spans companies.
@@ -212,15 +228,7 @@ class AuthService {
     return placement;
   }
 
-  #toInfo(u: {
-    id: string;
-    companyId: string;
-    email: string;
-    displayName: string;
-    role: string;
-    departmentId: string | null;
-    branchId: string | null;
-  }): AuthUserInfo {
+  #toInfo(u: UserFields): AuthUserInfo {
     return {
       id: u.id,
       companyId: u.companyId,

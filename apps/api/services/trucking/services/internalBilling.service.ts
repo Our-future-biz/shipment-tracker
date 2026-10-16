@@ -1,3 +1,4 @@
+import log from "encore.dev/log";
 import { type Tx } from "../db/db";
 import { internalRepository } from "../repositories/internal.repository";
 import { consignmentRepository } from "../repositories/consignment.repository";
@@ -53,7 +54,9 @@ class InternalBillingService {
         text: `Internal road freight, ${side.tariffName} v${side.versionNo}`,
         notPriced: false,
       };
-    } catch {
+    } catch (err) {
+      // Stored as "Not priced: …" (the month can't close until it is fixed); the cause is in the log.
+      log.warn(err, "trucking: internal charge not priced, the Internal tariff could not be rated", { companyId });
       return notPriced("the Internal tariff could not be rated");
     }
   }
@@ -179,7 +182,7 @@ class InternalBillingService {
       consignmentId: c.id,
       shipmentId: c.shipmentId,
       kind: "costs",
-      payload: internalCosts(c, consignmentLine(charges, statements)) as unknown as Record<string, unknown>,
+      payload: internalCosts(c, consignmentLine(charges, statements)),
       actingUserId: actor.userID,
       actingRole: actor.role,
     };

@@ -68,7 +68,7 @@ class ReportsService {
       ...marginTables(margins, levelLabels, zoneOf),
       hauliers: haulierScores({ perf, costs, podPairs, claims, invoicesBlocked, invoiceDifferences, holidays, eur, names: hauliers.names, statuses: hauliers.statuses }),
       coverageGaps: gaps,
-      department: departmentResult(delivered, internal, charged, eur),
+      department: departmentResult(delivered, internal, charged, eur, claims),
     };
   }
 

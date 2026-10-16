@@ -3,6 +3,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { truckingKeys } from "./truckingKeys";
+import { invalidateAfterTruckingWrite } from "./truckingRefresh";
 import type { TruckingFile } from "./useTruckingConsignments";
 
 // Haulier invoices and internal billing (Phase 6). Every shape is taken from the client methods,
@@ -29,8 +30,8 @@ function useRefreshInvoices() {
   return () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: truckingKeys.haulierInvoices() }),
-      queryClient.invalidateQueries({ queryKey: truckingKeys.trips() }),
-      queryClient.invalidateQueries({ queryKey: ["invoicing"] }),
+      // The real cost lands on the jobs: margins, costs, billing and the lists move.
+      invalidateAfterTruckingWrite(queryClient),
     ]);
 }
 
@@ -110,7 +111,7 @@ export function useInternalCharges(month: string | null) {
   const close = useMutation({
     mutationFn: () => api.trucking.truckingInternalMonthClose(month as string),
     // The statements set the jobs' internal lines' invoice number.
-    onSuccess: () => Promise.all([queryClient.invalidateQueries({ queryKey: truckingKeys.internal() }), queryClient.invalidateQueries({ queryKey: ["invoicing"] })]),
+    onSuccess: () => Promise.all([queryClient.invalidateQueries({ queryKey: truckingKeys.internal() }), invalidateAfterTruckingWrite(queryClient)]),
   });
   return {
     charges: query.data?.charges ?? NO_CHARGES,

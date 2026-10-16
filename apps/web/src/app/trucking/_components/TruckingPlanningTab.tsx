@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import dayjs from "dayjs";
@@ -88,7 +88,19 @@ export const TruckingPlanningTab = () => {
     if (summary) toast.warning(`${trip.ref}: ${summary}`);
   };
 
+  // A trip with a change on the way takes no other: a second drop would send the same version
+  // again and come back as "changed by someone else". Other trips stay usable meanwhile.
+  const pendingRef = useRef(new Set<string>());
+  const [pendingTrips, setPendingTrips] = useState<string[]>([]);
+  const markPending = (tripId: string, on: boolean) => {
+    if (on) pendingRef.current.add(tripId);
+    else pendingRef.current.delete(tripId);
+    setPendingTrips([...pendingRef.current]);
+  };
+
   const change = async (trip: PlanningTrip, req: Omit<TripAssignLegs, "version">, done: string) => {
+    if (pendingRef.current.has(trip.id)) return;
+    markPending(trip.id, true);
     try {
       const res = await assignLegs({ tripId: trip.id, req: { ...req, version: trip.version } });
       toast.success(done);
@@ -100,6 +112,8 @@ export const TruckingPlanningTab = () => {
       } else {
         toast.error(`${trip.ref} not changed: ${apiErrorMessage(e)}`);
       }
+    } finally {
+      markPending(trip.id, false);
     }
   };
 
@@ -202,7 +216,7 @@ export const TruckingPlanningTab = () => {
                     vehicleLabel={vehicleLabel(trip.vehicleTypeCode)}
                     avizaceWarning={avizaceWarning({ kind: trip.kind, consignmentIds: trip.stops.map((s) => s.consignmentId), warnings: trip.warnings }, avizacePending)}
                     legDragging={!!draggingLeg}
-                    busy={isAssigning}
+                    busy={pendingTrips.includes(trip.id)}
                     onDropLeg={(t, legId) => {
                       setDraggingLeg(null);
                       handleAdd(legId, t);

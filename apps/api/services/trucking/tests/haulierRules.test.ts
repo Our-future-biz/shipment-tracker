@@ -113,11 +113,14 @@ describe("preferred lanes", () => {
   });
 });
 
+// The rules still check what arrives untyped: a lower-case or unknown currency.
+const raw = (v: string) => v as HaulierProfileInput["currency"];
+
 const input = (over: Partial<HaulierProfileInput> = {}): HaulierProfileInput => ({
   insurer: " Kooperativa ",
   insurancePolicyNo: "P-1",
   insuranceLimit: 300000,
-  insuranceCurrency: "eur",
+  insuranceCurrency: raw("eur"),
   insuranceValidTo: "2027-06-30",
   licenceNo: "KON-1",
   licenceValidTo: "2030-01-01",
@@ -148,6 +151,6 @@ describe("profile save checks", () => {
     expect(() => cleanProfileInput(input({ vatCheckedAt: "2026-10-16" }), ["van"], TODAY)).toThrow(/cannot be in the future/);
     expect(() => cleanProfileInput(input({ paymentDays: -1 }), ["van"], TODAY)).toThrow(/Payment days/);
     expect(() => cleanProfileInput(input({ insuranceLimit: 0 }), ["van"], TODAY)).toThrow(/insurance limit/);
-    expect(() => cleanProfileInput(input({ currency: "USD" }), ["van"], TODAY)).toThrow("The payment currency must be CZK or EUR");
+    expect(() => cleanProfileInput(input({ currency: raw("USD") }), ["van"], TODAY)).toThrow("The payment currency must be CZK or EUR");
   });
 });

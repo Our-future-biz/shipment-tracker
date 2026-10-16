@@ -1,6 +1,7 @@
 import type { interfaces } from "@/lib/api/client";
 import { formatFileSize } from "@/lib/files";
 import { formatPercent, sortFindings } from "./tariffs";
+import { fileDataUrl as fileDataUrlAs } from "@/lib/files";
 
 // Pure helpers of the tariff Excel template, the upload wizard and the comparison of two versions:
 // the file check, how a downloaded file is saved, findings grouped by sheet and how a change reads.
@@ -22,7 +23,7 @@ export function tariffFileProblem(file: { name: string; size: number }): string 
 
 /** A file from the server as a data URL to save to disk (an .xlsx when the server names no type). */
 export function fileDataUrl(file: Pick<interfaces.FileDownload, "fileBase64" | "contentType">): string {
-  return `data:${file.contentType || XLSX_TYPE};base64,${file.fileBase64}`;
+  return fileDataUrlAs(file, XLSX_TYPE);
 }
 
 // ── Findings ──

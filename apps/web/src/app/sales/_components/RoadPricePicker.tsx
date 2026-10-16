@@ -3,7 +3,8 @@
 import { Select } from "antd";
 import type { RateLevelResult } from "@/hooks/useTrucking";
 import { promisedLabel } from "@/app/trucking/_lib/rateCalculator";
-import { formatMoney, isPriced } from "@/app/trucking/_lib/tariffs";
+import { isPriced } from "@/app/trucking/_lib/tariffs";
+import { formatAmount as formatMoney } from "@/lib/money";
 import { TruckingField } from "@/app/trucking/_components/TruckingField";
 import { defaultHaulier, pickableLevels, type RatePick } from "../_lib/roadQuote";
 

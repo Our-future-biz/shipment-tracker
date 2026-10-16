@@ -210,6 +210,21 @@ export function useFuelIndex() {
 }
 
 /** Prices a consignment; nothing is stored, so it is a mutation the calculator calls on demand. */
+/**
+ * The rating of `req`, as a query: nothing is asked while `req` is null. `round` changes on every
+ * opening of the dialog that shows it, so each opening rates the request as it is now.
+ */
+export function useRateQuery(req: RateRequest | null, round: number) {
+  const query = useQuery({
+    queryKey: truckingKeys.rate(req, round),
+    queryFn: () => api.trucking.truckingRate(req as RateRequest),
+    enabled: !!req,
+    retry: false,
+    staleTime: Infinity,
+  });
+  return { result: query.data ?? null, isRating: query.isFetching, error: query.error };
+}
+
 export function useRate() {
   const rate = useMutation({ mutationFn: (req: RateRequest) => api.trucking.truckingRate(req) });
   return { rate: rate.mutateAsync, isRating: rate.isPending, result: rate.data ?? null, error: rate.error, reset: rate.reset };

@@ -1,6 +1,6 @@
 import { api, APIError, Header } from "encore.dev/api";
 import { authService } from "../services/auth.service";
-import type { AuthUserInfo } from "../services/auth.service";
+import type { SessionUser } from "../services/auth.service";
 
 // auth:false with the token verified here (the same check the gateway does): the web passes
 // the header explicitly, so moving to auth:true would change the generated client call.
@@ -9,7 +9,7 @@ interface AuthMeRequest {
 }
 
 interface AuthMeResponse {
-  user: AuthUserInfo;
+  user: SessionUser;
 }
 
 export const authMe = api(

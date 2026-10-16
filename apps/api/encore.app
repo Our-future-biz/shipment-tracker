@@ -13,7 +13,7 @@
 	"global_cors": {
 		"allow_origins_with_credentials": [
 			"https://shipment-tracker-web.vercel.app",
-			"http://localhost:3001"
+			"https://*.vercel.app"
 		]
 	}
 }

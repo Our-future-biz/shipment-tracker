@@ -144,7 +144,7 @@ beforeEach(() => {
   tariffs.bindingOn.mockResolvedValue([version("std", 10), version("h1", 6), version("h2", 0.2), version("h3", 4), version("gone", 1)]);
   hauliers.findMany.mockResolvedValue([profile(H1), profile(H2), profile(H3, { blocked: true, blockReason: "Late twice" })]);
   vi.mocked(customers._internalHaulierList).mockResolvedValue({
-    hauliers: [H1, H2, H3].map((id, i) => ({ id, companyName: ["Alfa", "Bravo", "Cyril"][i], ico: "", dic: "", city: "" })),
+    hauliers: [H1, H2, H3].map((id, i) => ({ id, companyName: ["Alfa", "Bravo", "Cyril"][i], ico: "", dic: "", city: "", country: "CZ" })),
   });
   vi.mocked(customers._internalCustomerPipelineList).mockResolvedValue({ data: [{ id: CUST, companyName: "Acme s.r.o." }] } as never);
   vi.mocked(fx.fxResolve).mockResolvedValue({ currency: "EUR", date: "2026-10-15", rate: 25, fixingDate: "2026-10-15", carried: false, provisional: false, missing: false, roePct: 0, reason: "" });

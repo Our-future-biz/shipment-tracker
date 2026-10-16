@@ -25,16 +25,24 @@ describe("storedMaxSql", () => {
   it("reads the highest CZ number of the company over all its shipments, archived ones too - CZQ… and other text count as none", () => {
     const { sql, params } = sent(storedMaxSql(COMPANY, "CZ"));
     expect(flat(sql)).toBe(
-      `(SELECT coalesce(max(substring("shipment"."job_number" from '^CZ([0-9]+)')::bigint), 0) FROM "shipment" WHERE "shipment"."company_id" = $1 AND "shipment"."job_number" LIKE 'CZ%')`,
+      `(SELECT coalesce(max(substring("shipment"."job_number" from '^CZ([0-9]{1,12})([^0-9]|$)')::bigint), 0) FROM "shipment" WHERE "shipment"."company_id" = $1 AND "shipment"."job_number" LIKE 'CZ%')`,
     );
     expect(sql).not.toContain("deleted_at");
     expect(params).toEqual([COMPANY]);
   });
 
+  it("counts at most twelve digits, so a long number typed by hand cannot overflow bigint and block every create", () => {
+    const pattern = new RegExp(/from '([^']+)'/.exec(sent(storedMaxSql(COMPANY, "CZ")).sql)![1]!);
+    expect(pattern.exec("CZ00000123")?.[1]).toBe("00000123");
+    expect(pattern.exec("CZ00000123-A")?.[1]).toBe("00000123");
+    expect(pattern.exec("CZ1234567890123456789")).toBeNull();
+    expect(pattern.exec("CZQ1")).toBeNull();
+  });
+
   it("reads the highest MCZ number of the company over all its master jobs", () => {
     const { sql, params } = sent(storedMaxSql(COMPANY, "MCZ"));
     expect(flat(sql)).toBe(
-      `(SELECT coalesce(max(substring("master_job"."mcz_number" from '^MCZ([0-9]+)')::bigint), 0) FROM "master_job" WHERE "master_job"."company_id" = $1 AND "master_job"."mcz_number" LIKE 'MCZ%')`,
+      `(SELECT coalesce(max(substring("master_job"."mcz_number" from '^MCZ([0-9]{1,12})([^0-9]|$)')::bigint), 0) FROM "master_job" WHERE "master_job"."company_id" = $1 AND "master_job"."mcz_number" LIKE 'MCZ%')`,
     );
     expect(params).toEqual([COMPANY]);
   });

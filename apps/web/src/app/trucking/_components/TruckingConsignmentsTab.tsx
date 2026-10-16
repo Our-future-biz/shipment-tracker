@@ -191,7 +191,7 @@ export const TruckingConsignmentsTab = () => {
   const status = STATUSES.find((s) => s === searchParams.get("status")) ?? null;
   // ?job= (a job's shipment id): the consignments of one job, as Shipments and the Costs tab link here.
   const job = searchParams.get("job");
-  const { consignments, counts, isLoading, isError } = useConsignments({ view: view ?? undefined, status: status ?? undefined, shipmentId: job ?? undefined });
+  const { consignments, counts, isLoading, isError } = useConsignments({ view: view ?? undefined, status: status ?? undefined, shipmentId: job ?? undefined }, { keepPrevious: true });
   const activeTile: ConsignmentTileId | null = CONSIGNMENT_TILES.find((t) => t.view === view)?.id ?? null;
   const chipView = CONSIGNMENT_CHIPS.find((c) => c.id === view)?.id ?? null;
   const jobNumber = job ? (consignments[0]?.jobNumber ?? null) : null;

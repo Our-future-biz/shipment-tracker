@@ -2,8 +2,13 @@ import { api, type Header } from "encore.dev/api";
 import { portalAuthService } from "../services/portalAuth.service";
 import { clientIp } from "../lib/portalRules";
 
-/** How many proxies in front of the API append to X-Forwarded-For (the client's IP is the entry the last of them added). */
-const TRUSTED_PROXY_HOPS = Number(process.env.PORTAL_TRUSTED_PROXY_HOPS ?? "1") || 1;
+/**
+ * How many proxies in front of the API append to X-Forwarded-For. Assumption: on Encore Cloud the
+ * Google load balancer appends "<client>, <load balancer>", so the client is the second entry from
+ * the right. With fewer entries the IP is unknown ("") and only the per-account lockout applies -
+ * the IP throttle is never keyed on a shared "unknown" bucket.
+ */
+const TRUSTED_PROXY_HOPS = 2;
 import { portalOrderService } from "../services/portalOrder.service";
 import type { FileDownload } from "../interfaces/interfaces";
 import type { PortalMe, PortalOrder, PortalOrderItem } from "../interfaces/portal.interfaces";

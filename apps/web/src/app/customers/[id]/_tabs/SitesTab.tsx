@@ -8,7 +8,7 @@ import { ConfirmModal } from "@/components/ConfirmModal";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerSites } from "@/hooks/useCustomerSites";
 import type { CustomerSiteItem } from "@/hooks/useCustomerSites";
-import { ErrCode, isAPIError } from "@/lib/api";
+import { apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import { useToast } from "@/lib/toast";
 import { CUSTOMER_SITE_KIND_COLORS, CUSTOMER_SITE_KIND_LABELS } from "../../_lib/constants";
 import { siteAddressLine } from "../../_lib/customerSites";
@@ -69,8 +69,8 @@ export function SitesTab({ customerId }: { customerId: string }) {
       await deleteSite(deleteTarget.id);
       toast.success("Site deleted");
       setDeleteTarget(null);
-    } catch {
-      toast.error("Failed to delete site");
+    } catch (err) {
+      toast.error(`Failed to delete site — ${apiErrorMessage(err)}`);
     } finally {
       setDeleting(false);
     }

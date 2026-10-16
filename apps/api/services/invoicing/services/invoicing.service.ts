@@ -15,6 +15,7 @@ import { sellingCostRepository } from "../repositories/sellingCost.repository";
 import { customsInvoiceLineRepository, customsInvoiceRepository } from "../repositories/customsInvoice.repository";
 import { quoteCostImportRepository } from "../repositories/quoteCostImport.repository";
 import { truckingLinesRepository } from "../repositories/truckingLines.repository";
+import { sameCostCodes } from "../utils/truckingLines.utils";
 import { quoteLinesToCostRows } from "../utils/quoteCostImport.utils";
 import type { InvoiceCostRecord, NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import type { InvoiceSellingCostRecord, NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
@@ -171,8 +172,11 @@ export function chargeChanges(input: AdditionalChargeInput): Partial<NewInvoiceA
  * would be counted twice.
  */
 async function assertNotKeptByTrucking(companyId: string, shipmentIds: string[], code: string): Promise<void> {
+  // The road codes count as one cost: a hand-posted "pickup" on a job Trucking prices as
+  // "road_freight" is the same haulier cost twice.
+  const codes = sameCostCodes(code);
   for (const id of shipmentIds) {
-    if (await truckingLinesRepository.hasBuyingOfCategory(companyId, id, code)) {
+    if (await truckingLinesRepository.hasBuyingOfCategories(companyId, id, codes)) {
       const job = await assertShipmentExists(id);
       throw APIError.failedPrecondition(
         `Job ${job.jobNumber} has its ${code.replace(/_/g, " ")} cost from Trucking: enter the haulier's invoice in Trucking (Haulier invoices), not here, or it is counted twice`,
@@ -227,14 +231,19 @@ class InvoicingService {
     const code = toChargeCode(category);
     await assertNotKeptByTrucking(companyId, [shipmentId], code);
     const changes = buyingChanges(input);
-    const existing = await invoiceCostRepository.findByCategory(shipmentId, companyId, code);
-    if (existing) {
-      const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, changes);
-      if (!row) throw APIError.notFound("Buying cost not found");
-      return toCostItem(row);
-    }
-    await assertShipmentExists(shipmentId);
-    return toCostItem(await invoiceCostRepository.createForCompany(companyId, { shipmentId, category: code, ...changes }));
+    // Checked again under the shipment's trucking-lines lock, so a Trucking push running at the
+    // same moment can't slip its line in between the check and this write.
+    return truckingLinesRepository.withShipmentLock(shipmentId, async () => {
+      await assertNotKeptByTrucking(companyId, [shipmentId], code);
+      const existing = await invoiceCostRepository.findByCategory(shipmentId, companyId, code);
+      if (existing) {
+        const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, changes);
+        if (!row) throw APIError.notFound("Buying cost not found");
+        return toCostItem(row);
+      }
+      await assertShipmentExists(shipmentId);
+      return toCostItem(await invoiceCostRepository.createForCompany(companyId, { shipmentId, category: code, ...changes }));
+    });
   }
 
   /**

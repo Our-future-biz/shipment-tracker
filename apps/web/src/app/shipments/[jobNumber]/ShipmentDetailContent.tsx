@@ -60,6 +60,7 @@ import { MasterJobDialog } from "../_components/MasterJobDialog";
 import { AttachmentsPanel } from "../_components/AttachmentsPanel";
 import { NotesDrawer } from "../_components/NotesDrawer";
 import { CommercialInvoicesModal } from "../_components/CommercialInvoicesModal";
+import { useModules } from "@/lib/auth/AuthContext";
 
 export type CommitFn = (fieldKey: string, value: string) => void;
 
@@ -922,10 +923,13 @@ export function ShipmentDetailContent() {
   const costsQuoteRef = (invoicingData?.billingSettings?.quoteRef ?? "").trim();
 
   // Totals of the Costs Breakdown tab, shown on the Quote card.
+  const { isEnabled: isModuleOn } = useModules();
   const costs = useCostsData(shipment);
 
 
-  const TAB_KEYS = TABS.map((t) => t.key);
+  // The Trucking tab only while the company has the Trucking Concept (Platform → Companies).
+  const visibleTabs = TABS.filter((t) => t.key !== "trucking" || isModuleOn("trucking_concept"));
+  const TAB_KEYS = visibleTabs.map((t) => t.key);
   const rawTab = searchParams.get("tab");
   const activeTab = rawTab && TAB_KEYS.includes(rawTab) ? rawTab : "details";
 
@@ -1153,7 +1157,7 @@ export function ShipmentDetailContent() {
 
         {/* Tabs */}
         <div className="flex gap-0 mt-4">
-          {TABS.map((tab) => (
+          {visibleTabs.map((tab) => (
             <div
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}

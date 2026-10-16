@@ -14,6 +14,7 @@ import type {
   WarehouseZoneInput,
   WarehouseZoneItem,
 } from "../interfaces/stock.interfaces";
+import { requireModule } from "../../../lib/modules";
 
 // Stock tab of the warehouse module, always scoped to the caller's company. Movements are an
 // audit trail: they can be recorded and listed, never edited or deleted.
@@ -29,7 +30,10 @@ interface StockLineUpdateRequest extends WarehouseStockLineInput {
 // Every line, open and closed (Picked / Voided, `closed` true): the screen filters what is on hand.
 export const warehouseStockLineList = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-stock" },
-  async (): Promise<{ lines: WarehouseStockLineItem[] }> => ({ lines: await svc.listStockLines(company()) }),
+  async (): Promise<{ lines: WarehouseStockLineItem[] }> => {
+    await requireModule("warehouse_concept");
+    return { lines: await svc.listStockLines(company()) };
+  },
 );
 
 // "Build stock from gate records" (manager): runs the gate sync on every live gate record —
@@ -37,6 +41,7 @@ export const warehouseStockLineList = api(
 export const warehouseStockSync = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-stock/sync" },
   async ({ dryRun }: WarehouseStockSyncRequest): Promise<{ result: WarehouseStockSyncResult }> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = requireRole("superadmin", "admin", "manager");
     return { result: await svc.syncFromGate(companyID, userID, !!dryRun) };
   },
@@ -44,19 +49,24 @@ export const warehouseStockSync = api(
 
 export const warehouseStockLineCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-stock" },
-  async (req: WarehouseStockLineInput): Promise<{ line: WarehouseStockLineItem }> => ({ line: await svc.createStockLine(company(), req) }),
+  async (req: WarehouseStockLineInput): Promise<{ line: WarehouseStockLineItem }> => {
+    await requireModule("warehouse_concept");
+    return { line: await svc.createStockLine(company(), req) };
+  },
 );
 
 export const warehouseStockLineUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/warehouse-stock/:id" },
-  async ({ id, ...data }: StockLineUpdateRequest): Promise<{ line: WarehouseStockLineItem }> => ({
-    line: await svc.updateStockLine(id, company(), data),
-  }),
+  async ({ id, ...data }: StockLineUpdateRequest): Promise<{ line: WarehouseStockLineItem }> => {
+    await requireModule("warehouse_concept");
+    return { line: await svc.updateStockLine(id, company(), data) };
+  },
 );
 
 export const warehouseStockLineDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/warehouse-stock/:id" },
   async ({ id }: { id: string }): Promise<{ ok: boolean }> => {
+    await requireModule("warehouse_concept");
     await svc.deleteStockLine(id, company());
     return { ok: true };
   },
@@ -70,22 +80,32 @@ interface ZoneUpdateRequest extends WarehouseZoneInput {
 
 export const warehouseZoneList = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-zones" },
-  async (): Promise<{ zones: WarehouseZoneItem[] }> => ({ zones: await svc.listZones(company()) }),
+  async (): Promise<{ zones: WarehouseZoneItem[] }> => {
+    await requireModule("warehouse_concept");
+    return { zones: await svc.listZones(company()) };
+  },
 );
 
 export const warehouseZoneCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-zones" },
-  async (req: WarehouseZoneInput): Promise<{ zone: WarehouseZoneItem }> => ({ zone: await svc.createZone(company(), req) }),
+  async (req: WarehouseZoneInput): Promise<{ zone: WarehouseZoneItem }> => {
+    await requireModule("warehouse_concept");
+    return { zone: await svc.createZone(company(), req) };
+  },
 );
 
 export const warehouseZoneUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/warehouse-zones/:id" },
-  async ({ id, ...data }: ZoneUpdateRequest): Promise<{ zone: WarehouseZoneItem }> => ({ zone: await svc.updateZone(id, company(), data) }),
+  async ({ id, ...data }: ZoneUpdateRequest): Promise<{ zone: WarehouseZoneItem }> => {
+    await requireModule("warehouse_concept");
+    return { zone: await svc.updateZone(id, company(), data) };
+  },
 );
 
 export const warehouseZoneDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/warehouse-zones/:id" },
   async ({ id }: { id: string }): Promise<{ ok: boolean }> => {
+    await requireModule("warehouse_concept");
     await svc.deleteZone(id, company());
     return { ok: true };
   },
@@ -95,12 +115,16 @@ export const warehouseZoneDelete = api(
 
 export const warehouseStockMovementList = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-stock-movements" },
-  async (): Promise<{ movements: WarehouseStockMovementItem[] }> => ({ movements: await svc.listMovements(company()) }),
+  async (): Promise<{ movements: WarehouseStockMovementItem[] }> => {
+    await requireModule("warehouse_concept");
+    return { movements: await svc.listMovements(company()) };
+  },
 );
 
 export const warehouseStockMovementCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-stock-movements" },
   async (req: WarehouseStockMovementInput): Promise<{ movement: WarehouseStockMovementItem }> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { movement: await svc.recordMovement(companyID, userID, req) };
   },
@@ -114,24 +138,32 @@ interface BondedUpdateRequest extends WarehouseBondedEntryInput {
 
 export const warehouseBondedList = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-bonded" },
-  async (): Promise<{ entries: WarehouseBondedEntryItem[] }> => ({ entries: await svc.listBonded(company()) }),
+  async (): Promise<{ entries: WarehouseBondedEntryItem[] }> => {
+    await requireModule("warehouse_concept");
+    return { entries: await svc.listBonded(company()) };
+  },
 );
 
 export const warehouseBondedCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-bonded" },
-  async (req: WarehouseBondedEntryInput): Promise<{ entry: WarehouseBondedEntryItem }> => ({ entry: await svc.createBonded(company(), req) }),
+  async (req: WarehouseBondedEntryInput): Promise<{ entry: WarehouseBondedEntryItem }> => {
+    await requireModule("warehouse_concept");
+    return { entry: await svc.createBonded(company(), req) };
+  },
 );
 
 export const warehouseBondedUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/warehouse-bonded/:id" },
-  async ({ id, ...data }: BondedUpdateRequest): Promise<{ entry: WarehouseBondedEntryItem }> => ({
-    entry: await svc.updateBonded(id, company(), data),
-  }),
+  async ({ id, ...data }: BondedUpdateRequest): Promise<{ entry: WarehouseBondedEntryItem }> => {
+    await requireModule("warehouse_concept");
+    return { entry: await svc.updateBonded(id, company(), data) };
+  },
 );
 
 export const warehouseBondedDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/warehouse-bonded/:id" },
   async ({ id }: { id: string }): Promise<{ ok: boolean }> => {
+    await requireModule("warehouse_concept");
     await svc.deleteBonded(id, company());
     return { ok: true };
   },

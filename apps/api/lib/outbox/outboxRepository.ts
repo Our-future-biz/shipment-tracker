@@ -93,18 +93,16 @@ export abstract class OutboxRepository<TTable extends OutboxTable> extends Tenan
 
   async markRetry(id: string, attempts: number, error: string, nextAttemptAt: Date) {
     const o = this.table;
-    await this.db
-      .update(o)
-      .set({ nextAttemptAt, lockedUntil: null, lastError: error, updatedAt: new Date() } as never)
-      .where(and(eq(o.id, id), eq(o.attempts, attempts), eq(o.status, "pending")));
+    await this.db.execute(sql`
+      UPDATE ${o} SET next_attempt_at = ${nextAttemptAt.toISOString()}, locked_until = NULL, last_error = ${error}, updated_at = now()
+      WHERE id = ${id} AND attempts = ${attempts} AND status = 'pending'`);
   }
 
   async markFailed(id: string, attempts: number, error: string) {
     const o = this.table;
-    await this.db
-      .update(o)
-      .set({ status: "failed", lockedUntil: null, lastError: error, updatedAt: new Date() } as never)
-      .where(and(eq(o.id, id), eq(o.attempts, attempts), eq(o.status, "pending")));
+    await this.db.execute(sql`
+      UPDATE ${o} SET status = 'failed', locked_until = NULL, last_error = ${error}, updated_at = now()
+      WHERE id = ${id} AND attempts = ${attempts} AND status = 'pending'`);
   }
 
   /** The company's rows that failed for good, matching `where` (the table's own columns), oldest first. */
@@ -125,22 +123,21 @@ export abstract class OutboxRepository<TTable extends OutboxTable> extends Tenan
     if (!ids.length) return [];
     const o = this.table;
     const gone = replace?.gone.length ? replace.gone : null;
-    const actor = (col: PgColumn, value: string) =>
-      gone ? sql`CASE WHEN ${o.actingUserId} IN (${sql.join(gone.map((g) => sql`${g}`), sql`, `)}) THEN ${value} ELSE ${col} END` : sql`${col}`;
-    return (await this.db
-      .update(o)
-      .set({
-        status: "pending",
-        attempts: 0,
-        nextAttemptAt: new Date(),
-        lockedUntil: null,
-        lastError: "",
-        updatedAt: new Date(),
-        actingRole: actor(o.actingRole, replace?.role ?? ""),
-        actingUserId: actor(o.actingUserId, replace?.userId ?? ""),
-      } as never)
-      .where(and(eq(o.companyId, companyId), inArray(o.id, ids), eq(o.status, "failed"), isNull(o.deletedAt)))
-      .returning()) as InferSelectModel<TTable>[];
+    const actor = (col: string, value: string) =>
+      gone ? sql`CASE WHEN acting_user_id IN (${sql.join(gone.map((g) => sql`${g}`), sql`, `)}) THEN ${value} ELSE ${sql.identifier(col)} END` : sql.identifier(col);
+    const res = await this.db.execute(sql`
+      UPDATE ${o} SET status = 'pending', attempts = 0, next_attempt_at = now(), locked_until = NULL, last_error = '', updated_at = now(),
+        acting_role = ${actor("acting_role", replace?.role ?? "")}, acting_user_id = ${actor("acting_user_id", replace?.userId ?? "")}
+      WHERE company_id = ${companyId} AND id IN (${sql.join(ids.map((i) => sql`${i}`), sql`, `)}) AND status = 'failed' AND deleted_at IS NULL
+      RETURNING id`);
+    const requeued = (res.rows as { id: string }[]).map((r) => r.id);
+    if (!requeued.length) return [];
+    const rows = await this.db
+      .select()
+      .from(o as PgTable)
+      .where(inArray(o.id, requeued))
+      .orderBy(asc(o.createdAt), asc(o.id));
+    return rows as InferSelectModel<TTable>[];
   }
 
   // Rows (all companies) not delivered in time: failed for good, or still pending after `minutes`.

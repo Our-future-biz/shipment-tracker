@@ -15,6 +15,8 @@ import {
   roundToStep,
   roundUpToStep,
   sortBuy,
+  bandStart,
+  ratePrice,
   type RatingTariff,
   type Shipment,
 } from "../lib/rateEngine";
@@ -173,8 +175,9 @@ describe("band and freight", () => {
   });
 
   it("charges the next band's lower price at a break-point, and says so", () => {
-    const r = priced(rate({ weightKg: 480 })); // 480 × 4 = 1 920; the next band from 500 × 3 = 1 500
-    expect(line(r, "FREIGHT")).toMatchObject({ amount: 1500 });
+    // 480 × 4 = 1 920; the next band "501–1 000 kg" holds 501 kg at least: 501 × 3 = 1 503
+    const r = priced(rate({ weightKg: 480 }));
+    expect(line(r, "FREIGHT")).toMatchObject({ amount: 1503 });
     expect(line(r, "FREIGHT")!.label).toContain("break-point");
     expect(line(priced(rate({ weightKg: 300 })), "FREIGHT")).toMatchObject({ amount: 1200 }); // 300 × 4 is cheaper
   });
@@ -190,6 +193,15 @@ describe("band and freight", () => {
     };
     const r = priced(rate({ weightKg: 480 }, v));
     expect(line(r, "FREIGHT")).toMatchObject({ amount: 1700, label: expect.stringContaining("over 1 000 kg price (break-point") });
+  });
+
+  it("starts a higher band one step above its exclusive lower limit", () => {
+    expect(bandStart({ id: "x", basis: "KG", fromExcl: 1000, toIncl: 1500 }, 1)).toBe(1001);
+    expect(bandStart({ id: "x", basis: "KG", fromExcl: 1000, toIncl: 1500 }, 10)).toBe(1010);
+    expect(bandStart({ id: "x", basis: "LDM", fromExcl: 2.5, toIncl: 5 }, 1)).toBe(2.6);
+    expect(bandStart({ id: "x", basis: "PALLET", fromExcl: 3, toIncl: null }, 1)).toBe(4);
+    // PER_100KG at 1 001 kg charges 11 hundreds, not 10
+    expect(ratePrice({ amount: 100, priceType: "PER_100KG" }, bandStart({ id: "x", basis: "KG", fromExcl: 1000, toIncl: null }, 1))).toBe(1100);
   });
 
   it("prices pallets and loading metres on their own basis", () => {

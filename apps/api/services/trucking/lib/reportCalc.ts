@@ -606,20 +606,37 @@ export function haulierScores(input: HaulierInput): HaulierScore[] {
 
 /**
  * The department's result: what Road customers pay (consignments and the exceptions charged to
- * them, EUR at the ČNB rate of the delivery day - an amount without a rate is left out), what other
- * departments pay internally, less every haulier cost.
+ * them), what other departments pay internally, and what is claimed back from hauliers, less every
+ * haulier cost. EUR goes at the ČNB rate of the day; an amount without a rate can't be counted -
+ * it is left out and counted in `unconvertedAmounts`, so a missing rate never passes as 0.
  */
-export function departmentResult(groups: DeliveredGroup[], internal: InternalGroup[], charged: HaulierAmount[] = [], eur: Map<string, number | null> = new Map()): DepartmentResult {
+export function departmentResult(
+  groups: DeliveredGroup[],
+  internal: InternalGroup[],
+  charged: HaulierAmount[] = [],
+  eur: Map<string, number | null> = new Map(),
+  claims: HaulierAmount[] = [],
+): DepartmentResult {
+  let unconvertedAmounts = 0;
+  const inCzk = (rows: HaulierAmount[]) =>
+    sum(rows, (r) => {
+      const v = czkOf(r.amount, r.currency, r.day, eur);
+      if (v === null) unconvertedAmounts += 1;
+      return v ?? 0;
+    });
   const externalSellCzk = money(sum(groups.filter((g) => !g.internal), (g) => g.sellCzk));
-  const exceptionChargesCzk = money(sum(charged, (c) => czkOf(c.amount, c.currency, c.day, eur) ?? 0));
+  const exceptionChargesCzk = money(inCzk(charged));
   const internalChargesCzk = money(sum(internal, (g) => g.amountCzk));
   const haulierCostCzk = money(sum(groups, (g) => g.costCzk));
+  const haulierClaimsCzk = money(inCzk(claims));
   return {
     externalSellCzk,
     exceptionChargesCzk,
     internalChargesCzk,
     haulierCostCzk,
-    resultCzk: money(externalSellCzk + exceptionChargesCzk + internalChargesCzk - haulierCostCzk),
+    haulierClaimsCzk,
+    unconvertedAmounts,
+    resultCzk: money(externalSellCzk + exceptionChargesCzk + internalChargesCzk + haulierClaimsCzk - haulierCostCzk),
     internalByDepartment: internal
       .map((g) => ({ department: g.department, amountCzk: money(g.amountCzk), consignments: g.consignments }))
       .sort((a, b) => b.amountCzk - a.amountCzk || a.department.localeCompare(b.department, "cs")),

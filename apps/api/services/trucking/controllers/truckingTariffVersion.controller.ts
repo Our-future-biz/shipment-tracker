@@ -3,6 +3,7 @@ import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
 import { tariffService } from "../services/tariff.service";
 import type { TariffVersionDetail, TariffVersionInput } from "../interfaces/interfaces";
+import { requireModule } from "../../../lib/modules";
 
 interface TruckingTariffVersionResponse {
   version: TariffVersionDetail;
@@ -19,6 +20,7 @@ interface TruckingTariffVersionCreateRequest {
 export const truckingTariffVersionCreate = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/tariffs/:id/versions" },
   async ({ id, input }: TruckingTariffVersionCreateRequest): Promise<TruckingTariffVersionResponse> => {
+    await requireModule("trucking_concept");
     const { userID, companyID, role } = requireRole("superadmin", "admin", "manager");
     return { version: await tariffService.createVersion(companyID, userID, role, id, input) };
   },
@@ -32,6 +34,7 @@ interface TruckingTariffVersionGetRequest {
 export const truckingTariffVersionGet = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/tariff-versions/:id" },
   async ({ id }: TruckingTariffVersionGetRequest): Promise<TruckingTariffVersionResponse> => {
+    await requireModule("trucking_concept");
     return { version: await tariffService.getVersion(getAuthData()!.companyID, id) };
   },
 );
@@ -47,6 +50,7 @@ interface TruckingTariffVersionActivateRequest {
 export const truckingTariffVersionActivate = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/tariff-versions/:id/activate" },
   async ({ id, validFrom }: TruckingTariffVersionActivateRequest): Promise<TruckingTariffVersionResponse> => {
+    await requireModule("trucking_concept");
     const { userID, companyID, role } = requireRole("superadmin", "admin", "manager");
     return { version: await tariffService.activate(companyID, userID, role, id, validFrom) };
   },
@@ -60,6 +64,7 @@ interface TruckingTariffVersionDiscardResponse {
 export const truckingTariffVersionDiscard = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/tariff-versions/:id/discard" },
   async ({ id }: TruckingTariffVersionGetRequest): Promise<TruckingTariffVersionDiscardResponse> => {
+    await requireModule("trucking_concept");
     const { userID, companyID, role } = requireRole("superadmin", "admin", "manager");
     await tariffService.discard(companyID, userID, role, id);
     return { ok: true };

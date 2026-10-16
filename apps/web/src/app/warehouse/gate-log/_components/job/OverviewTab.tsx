@@ -16,7 +16,7 @@ import type { GateMovement } from "@/hooks/useGateLog";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { figureFromTrip, tripLabel } from "@/lib/tripSource";
-import { TripMarker } from "@/app/warehouse/_components/TripMarker";
+import { TripMarker } from "@/components/TripMarker";
 import { TERMS, directionOfHandling } from "@/app/warehouse/_lib/glossary";
 import {
   Badge,

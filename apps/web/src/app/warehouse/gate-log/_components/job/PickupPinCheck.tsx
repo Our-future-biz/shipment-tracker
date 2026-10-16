@@ -5,7 +5,7 @@ import { Input } from "antd";
 import { KeyOutlined } from "@ant-design/icons";
 import type { GateMovement } from "@/hooks/useGateLog";
 import { formatDateTime } from "@/lib/date";
-import { TripMarker } from "@/app/warehouse/_components/TripMarker";
+import { TripMarker } from "@/components/TripMarker";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
 import { Badge } from "../../_lib/gate";
 import { MAX_PIN_TRIES, PICKUP_PIN_GATE, pinCheckMessage, type PinCheckResult } from "../../_lib/steps";

@@ -142,7 +142,7 @@ beforeEach(() => {
   tariffs.list.mockResolvedValue([{ id: "std", scope: "LTL", side: "SELL", ownerCustomerId: null }]);
   tariffs.bindingOn.mockResolvedValue([{ tariffId: "std", input: { zones } }]);
   hauliers.findMany.mockResolvedValue([profile(H1)]);
-  vi.mocked(customers._internalHaulierList).mockResolvedValue({ hauliers: [{ id: H1, companyName: "Alfa s.r.o.", ico: "", dic: "", city: "" }] });
+  vi.mocked(customers._internalHaulierList).mockResolvedValue({ hauliers: [{ id: H1, companyName: "Alfa s.r.o.", ico: "", dic: "", city: "", country: "CZ" }] });
   vi.mocked(holidays._internalHolidaysCzNational).mockResolvedValue({ dates: [] });
   rates.eurRate.mockResolvedValue({ rate: 25, date: "2026-10-20" });
 });
@@ -183,7 +183,9 @@ describe("Trucking report", () => {
       exceptionChargesCzk: 1000,
       internalChargesCzk: 3000,
       haulierCostCzk: 10000,
-      resultCzk: 4000,
+      haulierClaimsCzk: 500,
+      unconvertedAmounts: 0,
+      resultCzk: 4500,
       internalByDepartment: [{ department: "Air", amountCzk: 3000, consignments: 2 }],
     });
   });
@@ -228,7 +230,8 @@ describe("Trucking report export", () => {
     expect([hauliers.getRow(2).getCell(3).value, hauliers.getRow(2).getCell(4).value]).toEqual([2, 1]);
     const dep = wb.getWorksheet("Department")!;
     expect(dep.getRow(3).values).toEqual([undefined, "+ Exceptions charged to customers", 1000]);
-    expect(dep.getRow(6).values).toEqual([undefined, "= Result", 4000]);
-    expect(dep.getRow(9).values).toEqual([undefined, "Air", 3000, 2]);
+    expect(dep.getRow(5).values).toEqual([undefined, "+ Claimed back from hauliers", 500]);
+    expect(dep.getRow(7).values).toEqual([undefined, "= Result", 4500]);
+    expect(dep.getRow(10).values).toEqual([undefined, "Air", 3000, 2]);
   });
 });

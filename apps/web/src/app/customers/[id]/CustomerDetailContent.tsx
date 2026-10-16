@@ -18,6 +18,7 @@ import { TruckingTab } from "./_tabs/TruckingTab";
 import { FinanceTab } from "./_tabs/FinanceTab";
 import { DocumentsTab } from "./_tabs/DocumentsTab";
 import { CommunicationTab } from "./_tabs/CommunicationTab";
+import { useModules } from "@/lib/auth/AuthContext";
 
 const DEFAULT_TAB = "overview";
 
@@ -33,7 +34,10 @@ export function CustomerDetailContent() {
   // The active tab lives in the URL (?tab=) so it survives a reload and can be linked to.
   const rawTab = searchParams.get("tab") ?? DEFAULT_TAB;
   const tabKey = CUSTOMER_TAB_ALIASES[rawTab] ?? rawTab;
-  const activeTab = CUSTOMER_DETAIL_TABS.some((t) => t.key === tabKey) ? tabKey : DEFAULT_TAB;
+  // The Trucking tab only while the company has the Trucking Concept (Platform → Companies).
+  const { isEnabled: isModuleOn } = useModules();
+  const detailTabs = CUSTOMER_DETAIL_TABS.filter((t) => t.key !== "trucking" || isModuleOn("trucking_concept"));
+  const activeTab = detailTabs.some((t) => t.key === tabKey) ? tabKey : DEFAULT_TAB;
 
   const handleSelectTab = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -80,7 +84,7 @@ export function CustomerDetailContent() {
       <div className="bg-white border-b border-slate-200 px-6 pt-4 pb-0">
         <CustomerHeader customer={customer} />
 
-        <RecordTabs label="Customer sections" tabs={CUSTOMER_DETAIL_TABS} active={activeTab} onChange={handleSelectTab} className="mt-4" />
+        <RecordTabs label="Customer sections" tabs={detailTabs} active={activeTab} onChange={handleSelectTab} className="mt-4" />
       </div>
 
       <div className="p-6">

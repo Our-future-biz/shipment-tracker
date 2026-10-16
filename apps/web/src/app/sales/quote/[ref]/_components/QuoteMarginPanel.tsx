@@ -2,7 +2,7 @@
 
 import { CheckCircleFilled, WarningFilled } from "@ant-design/icons";
 import { businessDateTime } from "@/lib/date";
-import { formatMoney } from "@/app/trucking/_lib/tariffs";
+import { formatAmount as formatMoney } from "@/lib/money";
 import { floorText, marginState, marginText, type RoadMargin } from "../../../_lib/roadQuote";
 import { MiniButton } from "./QuoteButtons";
 

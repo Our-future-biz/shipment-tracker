@@ -15,9 +15,10 @@ import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
-import { useConsignments, useTrips } from "@/hooks/useTruckingConsignments";
-import { isTruckingCost, parseTruckingRef, truckingCostTag } from "@/app/trucking/_lib/truckingCosts";
-import { TruckingCostTagLink } from "@/app/trucking/_components/TruckingCostTagLink";
+import { useConsignments, useTripRefs } from "@/hooks/useTruckingConsignments";
+import { isTruckingCost, parseTruckingRef, truckingCostTag } from "@/lib/truckingCosts";
+import { TruckingCostTagLink } from "@/components/TruckingCostTagLink";
+import { useModules } from "@/lib/auth/AuthContext";
 
 interface CurrencyPickerProps {
   value: string;
@@ -176,6 +177,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
   // Rows, rates and totals come from the shared hook, so the Quote card on the detail page
   // shows exactly the same figures as this tab.
   const { data, billingCur, fx, rates, ratesLoading, ratesError, buyRows, sellRows, totals: t } = useCostsData(shipment);
+  const { isEnabled: isModuleOn } = useModules();
 
   // Rows Trucking writes (a consignment's sell, its trips' buy, …) are kept by Trucking: shown
   // read-only here (plain text, so screen readers and the keyboard reach them), tagged with the
@@ -183,11 +185,18 @@ export function CostsTab({ shipment }: CostsTabProps) {
   const truckingRefs = new Map(
     [...(data?.costs ?? []), ...(data?.sellingCosts ?? [])].filter((c) => isTruckingCost(c.sourceTruckingRef)).map((c) => [c.id, c.sourceTruckingRef ?? ""]),
   );
-  const hasTripRows = [...truckingRefs.values()].some((ref) => parseTruckingRef(ref)?.kind === "trip");
-  const { consignments: jobConsignments } = useConsignments({ shipmentId: shipment.id }, { enabled: truckingRefs.size > 0 });
-  const { trips } = useTrips({}, { enabled: hasTripRows });
-  const tripRefs = new Map(trips.map((trip) => [trip.id, trip.ref]));
-  const truckingTagOf = (id: string) => truckingCostTag(truckingRefs.get(id), { consignments: jobConsignments, tripRefs, shipmentId: shipment.id });
+  // Only the trips these rows name are read (a few), not the whole trips list.
+  const tripIds = [...new Set([...truckingRefs.values()].flatMap((ref) => {
+    const parsed = parseTruckingRef(ref);
+    return parsed?.kind === "trip" ? [parsed.id] : [];
+  }))];
+  // With the Trucking Concept hidden for the company the rows stay (they are costs), tagged
+  // without a link, and nothing is asked of Trucking (the server would refuse it).
+  const truckingOn = isModuleOn("trucking_concept");
+  const { consignments: jobConsignments } = useConsignments({ shipmentId: shipment.id }, { enabled: truckingOn && truckingRefs.size > 0 });
+  const tripRefs = useTripRefs(truckingOn ? tripIds : []);
+  const truckingTagOf = (id: string) =>
+    truckingCostTag(truckingRefs.get(id), { consignments: jobConsignments, tripRefs, shipmentId: shipment.id, linkable: truckingOn });
 
   // Costs feed the shipment's totals (list rows, the customer's rollups), so those refresh too.
   const invalidate = () => {

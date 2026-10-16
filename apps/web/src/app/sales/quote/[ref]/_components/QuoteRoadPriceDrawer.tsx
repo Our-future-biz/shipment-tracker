@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Alert, Button, Drawer, Spin } from "antd";
 import { apiErrorMessage } from "@/lib/api";
 import { businessToday, businessDateTime } from "@/lib/date";
-import { useRate, useTruckingSettings } from "@/hooks/useTrucking";
+import { useRateQuery, useTruckingSettings } from "@/hooks/useTrucking";
 import { RateResultsTable } from "@/app/trucking/_components/RateResultsTable";
 import { toRateRequest } from "@/app/trucking/_lib/rateCalculator";
 import { RoadPricePicker } from "../../../_components/RoadPricePicker";
@@ -26,25 +26,26 @@ interface QuoteRoadPriceDrawerProps {
 // "Price from tariff": every active service level for the quote's road input and customer, as the
 // rate calculator shows them; the user picks a level and a haulier and puts them on the quote.
 export const QuoteRoadPriceDrawer = ({ open, road, customerId, previousLevel, onConfirm, onClose }: QuoteRoadPriceDrawerProps) => {
-  const { rate, isRating, result, error, reset } = useRate();
   const { settings } = useTruckingSettings();
-  const [pick, setPick] = useState<RatePick | null>(null);
+  // The user's own pick; until they choose, the level offered first (the one priced last).
+  const [chosen, setChosen] = useState<RatePick | null | undefined>(undefined);
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
-
-  // Each opening prices the road as it is now.
-  useEffect(() => {
-    if (!open) return;
-    setRefusal(null);
-    setPick(null);
-    reset();
-    rate(toRateRequest(roadToRateForm(road, businessToday(), customerId))).then(
-      (res) => setPick(defaultPick(res.results, previousLevel)),
-      () => undefined,
-    );
-    // Only on opening: the road cannot change while the drawer covers the card.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  // Each opening rates the road as it is now (a new round), and forgets the last opening's pick.
+  const [round, setRound] = useState(0);
+  const [wasOpen, setWasOpen] = useState(false);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setRound((r) => r + 1);
+      setChosen(undefined);
+      setRefusal(null);
+    }
+  }
+  const request = open ? toRateRequest(roadToRateForm(road, businessToday(), customerId)) : null;
+  const { result, isRating, error } = useRateQuery(request, round);
+  const pick = chosen !== undefined ? chosen : result ? defaultPick(result.results, previousLevel) : null;
+  const setPick = (p: RatePick | null) => setChosen(p);
 
   const handleConfirm = async () => {
     if (!pick) return;

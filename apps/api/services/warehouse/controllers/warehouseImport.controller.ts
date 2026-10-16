@@ -3,6 +3,7 @@ import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
 import { warehouseImportService } from "../services/warehouseImport.service";
 import type { GateMovementItem, WarehouseImportResult } from "../interfaces/gate.interfaces";
+import { requireModule } from "../../../lib/modules";
 
 interface WarehouseImportRequest {
   /** Shipments to bring into the warehouse (up to 200 per request; duplicates count once). */
@@ -19,6 +20,7 @@ interface WarehouseImportResponse {
 export const warehouseImport = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse/import" },
   async ({ shipmentIds }: WarehouseImportRequest): Promise<WarehouseImportResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { results: await warehouseImportService.importShipments(companyID, userID, shipmentIds) };
   },
@@ -34,6 +36,7 @@ interface GateRepairMissingResponse {
 export const gateMovementRepairMissing = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/repair-missing" },
   async (): Promise<GateRepairMissingResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID, role } = requireRole("superadmin", "admin", "manager");
     return warehouseImportService.repairMissingRows(companyID, userID, role);
   },
@@ -51,6 +54,7 @@ interface GateRefreshFromShipmentResponse {
 export const gateMovementRefreshFromShipment = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/refresh-from-shipment" },
   async ({ id }: { id: string }): Promise<GateRefreshFromShipmentResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return warehouseImportService.refreshFromShipment(id, companyID, userID);
   },

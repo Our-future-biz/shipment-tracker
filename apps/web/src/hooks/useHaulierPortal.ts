@@ -13,6 +13,9 @@ export function usePortalMe() {
   return { me: query.data?.me ?? null, isLoading: query.isLoading, error: query.error };
 }
 
+/** The order's transport order as a PDF file (read on click; the portal session only). */
+export const fetchPortalTransportOrderPdf = async (orderId: string) => (await portalApi.transportOrderPdf(orderId)).file;
+
 export function usePortalOrders(view: "open" | "done") {
   const query = useQuery({ queryKey: truckingKeys.portalOrders(view), queryFn: () => portalApi.orders(view), retry: false });
   return { orders: query.data?.orders ?? [], isLoading: query.isLoading, error: query.error, reload: query.refetch, isFetching: query.isFetching };

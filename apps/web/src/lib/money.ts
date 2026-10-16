@@ -1,3 +1,4 @@
+import { formatNumber } from "./number";
 /**
  * Shared money helpers: parsing what users type, rounding and formatting amounts.
  *
@@ -131,3 +132,12 @@ export function normalizeMoneyInput(text: string | undefined): string {
 // For antd InputNumber's `parser`. It is typed as returning the value type, but the component parses
 // the returned text itself (its default parser returns text too), which keeps an emptied field empty.
 export const moneyInputParser = (text: string | undefined) => normalizeMoneyInput(text) as unknown as number;
+
+/** "1 250 CZK", "1 250.50 EUR" (cents only when there are some); "—" for none. */
+export function formatAmount(amount: number | null | undefined, currency: string): string {
+  if (amount == null || !Number.isFinite(amount)) return "—";
+  const cents = Math.round(amount * 100);
+  const value = cents / 100 || 0;
+  const text = formatNumber(Math.abs(value), cents % 100 !== 0 ? 2 : 0);
+  return `${value < 0 ? "−" : ""}${text} ${currency}`;
+}

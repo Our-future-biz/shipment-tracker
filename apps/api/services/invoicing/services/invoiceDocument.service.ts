@@ -5,6 +5,7 @@ import { customers, fx, shipments } from "~encore/clients";
 import { invoiceRepository, type InvoiceLineInput } from "../repositories/invoice.repository";
 import { invoiceProfileRepository } from "../repositories/invoiceProfile.repository";
 import { sellingCostRepository } from "../repositories/sellingCost.repository";
+import { truckingLinesLock, truckingLinesRepository } from "../repositories/truckingLines.repository";
 import { billingSettingsRepository } from "../repositories/billingSettings.repository";
 import type { CustomerSnapshot, InvoiceLineRecord, InvoiceRecord, ShipmentSnapshot, SupplierSnapshot } from "../schemas/invoice.schema";
 import { missingForIssue, normaliseProfile } from "../lib/invoiceProfile";
@@ -476,10 +477,19 @@ class InvoiceDocumentService {
         {
           // Two invoices of one job share the series lock: whatever the other one billed while
           // this one was being prepared is checked again here, so no row is billed twice.
+          // The shipment's Trucking push takes the same trucking-lines lock: a push that replaced
+          // the rows while this invoice was prepared is seen here, so freight is never billed from
+          // rows that were just replaced (and then billed again from the new ones).
           beforeInsert: async (tx) => {
+            await truckingLinesLock(tx, shipmentId);
             const taken = await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId, tx);
             if (billed.some((id) => taken.has(id))) {
               throw APIError.failedPrecondition("Some of these selling rows were invoiced a moment ago — reload and check the invoice");
+            }
+            const sourceIds = billed.filter((id): id is string => !!id);
+            const live = await truckingLinesRepository.liveSellingIds(tx, companyId, shipmentId, sourceIds);
+            if (sourceIds.some((id) => !live.has(id))) {
+              throw APIError.failedPrecondition("Some of these selling rows were changed a moment ago — reload and check the invoice");
             }
           },
         },

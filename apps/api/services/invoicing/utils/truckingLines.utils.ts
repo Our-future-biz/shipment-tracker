@@ -16,6 +16,17 @@ const SOURCE_REF = new RegExp(`^trucking:((consignment|leg|internal|exception):$
 const CURRENCY = /^[A-Z]{3}$/;
 const MAX_LINES = 50;
 
+/**
+ * The charge codes that all mean "road transport" in Costs: a Trucking line of one of them and a
+ * hand-posted or quote-imported line of another are the same cost counted twice.
+ */
+export const ROAD_CODES = ["road_freight", "freight", "pickup", "delivery"] as const;
+
+/** The codes counted as the same cost as `code` (the road codes together; any other code alone). */
+export function sameCostCodes(code: string): string[] {
+  return (ROAD_CODES as readonly string[]).includes(code) ? [...ROAD_CODES] : [code];
+}
+
 /** A sourceRef as Trucking sends it; throws invalid_argument otherwise. */
 export function checkSourceRef(sourceRef: string): string {
   const ref = (sourceRef ?? "").trim().toLowerCase();

@@ -32,11 +32,12 @@ export const HaulierBankAccounts = ({ accounts, onChange, readOnly = false }: Ha
         <span className="text-[12px] text-amber-700">None yet — every invoice from this haulier is blocked until its account is listed here.</span>
       ) : (
         <ul className="m-0 flex list-none flex-col gap-1 p-0">
-          {accounts.map((a) => (
-            <li key={a} className="flex items-center gap-2 text-[13px]">
+          {/* Rows hold no input, so position + text is a stable key even for an account listed twice. */}
+          {accounts.map((a, i) => (
+            <li key={`${i}-${a}`} className="flex items-center gap-2 text-[13px]">
               <span className="font-mono text-slate-800">{formatBankAccount(a)}</span>
               {!readOnly && (
-                <Button size="small" type="text" aria-label={`Remove ${a}`} icon={<CloseOutlined />} onClick={() => onChange(accounts.filter((x) => x !== a))} />
+                <Button size="small" type="text" aria-label={`Remove ${a}`} icon={<CloseOutlined />} onClick={() => onChange(accounts.filter((_, j) => j !== i))} />
               )}
             </li>
           ))}

@@ -12,7 +12,7 @@ import { formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import type { controllers } from "@/lib/api/client";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
-import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
+import { useUrlParam } from "@/hooks/useUrlParam";
 import { positionRemeasurementHref } from "@/app/warehouse/_components/remeasurementLinks";
 import { freeTimeText, storageHint } from "@/app/warehouse/_lib/storageText";
 import { CustomsDeadlineChip } from "@/app/warehouse/_lib/customsDeadline";
@@ -524,8 +524,7 @@ export function GateJobView({ id }: { id: string }) {
         <Tabs
           activeKey={tab}
           onChange={(k) => setTab(k as Tab)}
-          className="mt-4 [&_.ant-tabs-nav::before]:!border-b-0"
-          tabBarStyle={{ marginBottom: 0 }}
+          className="mt-4 [&_.ant-tabs-nav::before]:!border-b-0 [&>.ant-tabs-nav]:!mb-0"
           items={tabs.map((t) => ({
             key: t.key,
             label: (

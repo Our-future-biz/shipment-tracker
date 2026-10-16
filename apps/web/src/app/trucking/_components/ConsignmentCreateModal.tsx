@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Alert, Button, Modal, Segmented } from "antd";
-import { api, apiErrorMessage } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api";
 import { businessToday } from "@/lib/date";
 import { useToast } from "@/lib/toast";
-import type { CustomerSiteItem } from "@/hooks/useCustomerSites";
+import { fetchCustomerSites, type CustomerSiteItem } from "@/hooks/useCustomerSites";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { useCreateConsignment } from "@/hooks/useTruckingConsignments";
 import { QuotePicker } from "@/app/sales/_components/QuotePicker";
@@ -32,21 +33,12 @@ interface ConsignmentCreateModalProps {
   onCreated: (consignmentId: string) => void;
 }
 
-const loadSites = async (customerId: string | null | undefined): Promise<CustomerSiteItem[]> => {
-  if (!customerId) return [];
-  try {
-    return (await api.customers.customerSiteList(customerId)).data;
-  } catch {
-    // Without the sites the stops are typed; nothing is lost.
-    return [];
-  }
-};
-
 // "Create new" consignment: from a job (its customer and stops), from a quote (its road transport
 // and price) or a new domestic order (a Road job is created for it). Rendered only while open, so
 // every opening starts anew.
 export const ConsignmentCreateModal = ({ shipment, onClose, onCreated }: ConsignmentCreateModalProps) => {
   const toast = useToast();
+  const queryClient = useQueryClient();
   const today = businessToday();
   const { create, isCreating } = useCreateConsignment();
   const [form, setForm] = useState<ConsignmentForm>(() => (shipment ? formFromShipment(shipment, [], today) : emptyConsignmentForm("job", today)));
@@ -56,38 +48,67 @@ export const ConsignmentCreateModal = ({ shipment, onClose, onCreated }: Consign
   const [refusal, setRefusal] = useState<string | null>(null);
   const problems = useMemo(() => consignmentFormProblems(form), [form]);
 
-  const applyShipment = async (s: ShipmentItem | null) => {
-    setPickedShipment(s);
-    if (!s) {
-      setForm(emptyConsignmentForm("job", today));
-      return;
-    }
-    setPrefilling(true);
-    setForm(formFromShipment(s, await loadSites(s.customerId), today));
-    setPrefilling(false);
-  };
+  // Only the latest pick fills the form: a slow answer for an earlier pick is dropped.
+  const pickSeq = useRef(0);
 
-  // A job handed in fills its stops from the customer's sites once they are read.
+  // Without the sites the stops are typed by hand; the user is told, nothing is lost.
+  const loadSites = useCallback(
+    async (customerId: string | null | undefined): Promise<CustomerSiteItem[]> => {
+      if (!customerId) return [];
+      try {
+        return (await fetchCustomerSites(queryClient, customerId)).data;
+      } catch (e) {
+        toast.warning(`The customer's sites could not be read — type the stops: ${apiErrorMessage(e)}`);
+        return [];
+      }
+    },
+    [queryClient, toast],
+  );
+
+  const applyShipment = useCallback(
+    async (s: ShipmentItem | null) => {
+      const seq = ++pickSeq.current;
+      setPickedShipment(s);
+      if (!s) {
+        setForm(emptyConsignmentForm("job", today));
+        return;
+      }
+      setPrefilling(true);
+      const sites = await loadSites(s.customerId);
+      if (seq !== pickSeq.current) return;
+      setForm(formFromShipment(s, sites, today));
+      setPrefilling(false);
+    },
+    [loadSites, today],
+  );
+
+  // A job handed in fills its stops from the customer's sites once they are read (once per opening).
+  const prefilled = useRef(false);
   useEffect(() => {
-    if (shipment) void applyShipment(shipment);
-    // Once, for the job the dialog was opened with.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!shipment || prefilled.current) return;
+    prefilled.current = true;
+    void applyShipment(shipment);
+  }, [shipment, applyShipment]);
 
   const applyQuote = async (q: SalesQuote | null) => {
+    const seq = ++pickSeq.current;
     setPickedQuote(q);
     if (!q) {
       setForm(emptyConsignmentForm("quote", today));
       return;
     }
     setPrefilling(true);
-    const next = formFromQuote(q.quoteNumber, q.data, await loadSites(q.data.customerId), today);
+    const sites = await loadSites(q.data.customerId);
+    if (seq !== pickSeq.current) return;
+    const next = formFromQuote(q.quoteNumber, q.data, sites, today);
     // A won quote has its job already; the consignment goes on it.
     setForm({ ...next, shipmentId: q.shipmentId ?? null, jobNumber: q.shipmentJobNumber ?? "" });
     setPrefilling(false);
   };
 
   const handleSource = (source: ConsignmentSource) => {
+    pickSeq.current++;
+    setPrefilling(false);
     setPickedShipment(null);
     setPickedQuote(null);
     setRefusal(null);

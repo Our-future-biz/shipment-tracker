@@ -25,7 +25,7 @@ import {
   NO_PROFILE_ISSUES,
   profileChanges,
 } from "../lib/haulierRules";
-import { isManager } from "../lib/roles";
+import { isManager, requireManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { settingsService } from "./settings.service";
 import type { Actor } from "../../../lib/rbac";
@@ -217,7 +217,7 @@ class HaulierService {
 
   /** Manager only: keeps the haulier off trips until unblocked, with the reason. */
   async block(companyId: string, userId: string, role: string, customerId: string, reason: string): Promise<HaulierDetail> {
-    if (!isManager(role)) throw APIError.permissionDenied("Only a manager can block a haulier");
+    requireManager(role, "block a haulier");
     const why = typeof reason === "string" ? reason.trim() : "";
     if (why.length < 3 || why.length > MAX_REASON) throw APIError.invalidArgument(`Give a reason for the block (3 to ${MAX_REASON} characters)`);
     return this.setBlocked(companyId, userId, customerId, true, why);
@@ -225,7 +225,7 @@ class HaulierService {
 
   /** Manager only: lets a blocked haulier be used again, with the reason. */
   async unblock(companyId: string, userId: string, role: string, customerId: string, reason: string): Promise<HaulierDetail> {
-    if (!isManager(role)) throw APIError.permissionDenied("Only a manager can unblock a haulier");
+    requireManager(role, "unblock a haulier");
     const why = typeof reason === "string" ? reason.trim() : "";
     if (!why) throw APIError.invalidArgument("Give a reason for lifting the block");
     if (why.length > MAX_REASON) throw APIError.invalidArgument(`The reason can be at most ${MAX_REASON} characters long`);

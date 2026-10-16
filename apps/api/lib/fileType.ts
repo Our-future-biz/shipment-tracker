@@ -1,4 +1,4 @@
-// Gate photos and documents: what a stored file is, from its own bytes. A file is served to the
+// Uploaded files (gate photos and documents, trucking PODs and haulier invoices): what a stored file is, from its own bytes. A file is served to the
 // browser only as one of the types below; anything else (HTML, SVG, scripts, unknown) is kept but
 // handed out as a download (application/octet-stream), so it can never run in the app's page.
 

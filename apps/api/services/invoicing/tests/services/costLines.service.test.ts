@@ -14,7 +14,10 @@ vi.mock("../../repositories/sellingCost.repository", () => ({ sellingCostReposit
 vi.mock("../../repositories/quoteCostImport.repository", () => ({ quoteCostImportRepository: {} }));
 const trucking = vi.hoisted(() => ({ kept: new Set<string>() }));
 vi.mock("../../repositories/truckingLines.repository", () => ({
-  truckingLinesRepository: { hasBuyingOfCategory: async (_c: string, shipmentId: string, category: string) => trucking.kept.has(`${shipmentId}|${category}`) },
+  truckingLinesRepository: {
+    hasBuyingOfCategories: async (_c: string, shipmentId: string, categories: string[]) => categories.some((c) => trucking.kept.has(`${shipmentId}|${c}`)),
+    withShipmentLock: async <T>(_s: string, work: () => Promise<T>) => work(),
+  },
 }));
 vi.mock("../../repositories/invoiceCost.repository", async () => {
   type Row = import("../../schemas/invoiceCost.schema").InvoiceCostRecord;
@@ -91,6 +94,8 @@ describe("guards against counting a Trucking cost twice", () => {
     });
     // Another code of the same job is fine.
     await invoicingService.upsertCost(SHIP_A, COMPANY, "customs", { realAmount: "50.00" });
+    // the road codes count as one cost: a "pickup" posted onto Trucking's "road_freight" is refused too
+    await expect(invoicingService.upsertCost(SHIP_A, COMPANY, "pickup", { realAmount: "120.00" })).rejects.toMatchObject({ code: "failed_precondition" });
     expect(rows).toHaveLength(1);
   });
 

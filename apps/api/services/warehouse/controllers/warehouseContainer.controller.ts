@@ -3,6 +3,7 @@ import { getAuthData } from "~encore/auth";
 import { requireRole } from "../../../lib/rbac";
 import { containerService } from "../services/container.service";
 import type { ContainerStampKind, ContainerTallyInput, WarehouseContainerItem } from "../interfaces/records.interfaces";
+import { requireModule } from "../../../lib/modules";
 
 // One container, many positions (houses): the stuffing plan of an export container, the
 // stripping tally of an import container and the container's own stamps. Every action is logged
@@ -35,7 +36,10 @@ interface OfflineFields {
 // One container with its houses, totals against its capacity and its log.
 export const warehouseContainerGet = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-containers/:id" },
-  async ({ id }: { id: string }): Promise<ContainerResponse> => ({ container: await containerService.detail(id, getAuthData()!.companyID) }),
+  async ({ id }: { id: string }): Promise<ContainerResponse> => {
+    await requireModule("warehouse_concept");
+    return { container: await containerService.detail(id, getAuthData()!.companyID) };
+  },
 );
 
 // Adds positions as houses. Export: inbound (příjem) positions in the warehouse, not on hold;
@@ -43,6 +47,7 @@ export const warehouseContainerGet = api(
 export const warehouseContainerAddPositions = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-containers/:id/positions" },
   async ({ id, movementIds }: { id: string; movementIds: string[] }): Promise<ContainerResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { container: await containerService.addPositions(id, companyID, userID, movementIds) };
   },
@@ -52,6 +57,7 @@ export const warehouseContainerAddPositions = api(
 export const warehouseContainerRemovePosition = api(
   { expose: true, auth: true, method: "DELETE", path: "/warehouse-containers/:id/positions/:movementId" },
   async ({ id, movementId }: { id: string; movementId: string }): Promise<ContainerResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { container: await containerService.removePosition(id, companyID, userID, movementId) };
   },
@@ -61,6 +67,7 @@ export const warehouseContainerRemovePosition = api(
 export const warehouseContainerReorder = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-containers/:id/positions-order" },
   async ({ id, movementIds }: { id: string; movementIds: string[] }): Promise<ContainerResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { container: await containerService.reorder(id, companyID, userID, movementIds) };
   },
@@ -80,6 +87,7 @@ interface ContainerStampRequest extends OfflineFields {
 export const warehouseContainerStamp = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-containers/:id/stamp" },
   async ({ id, kind, seal, plate, recordedAt, clientRequestId }: ContainerStampRequest): Promise<ContainerActionResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID, role } = getAuthData()!;
     return containerService.stamp(id, companyID, userID, role, kind, { seal, plate, recordedAt, clientRequestId });
   },
@@ -95,6 +103,7 @@ interface ContainerStuffedRequest extends OfflineFields {
 export const warehouseContainerSetStuffed = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-containers/:id/positions/:movementId/stuffed" },
   async ({ id, movementId, stuffed, recordedAt, clientRequestId }: ContainerStuffedRequest): Promise<ContainerActionResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return containerService.setStuffed(id, companyID, userID, movementId, !!stuffed, { recordedAt, clientRequestId });
   },
@@ -117,6 +126,7 @@ interface ContainerTallyResponse extends ContainerActionResponse {
 export const warehouseContainerTally = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-containers/:id/positions/:movementId/tally" },
   async ({ id, movementId, tally, recordedAt, clientRequestId }: ContainerTallyRequest): Promise<ContainerTallyResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID, role } = getAuthData()!;
     return containerService.tally(id, companyID, userID, role, movementId, tally, { recordedAt, clientRequestId });
   },
@@ -127,6 +137,7 @@ export const warehouseContainerTally = api(
 export const warehouseContainerVoidTally = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-containers/:id/positions/:movementId/void-tally" },
   async ({ id, movementId, reason }: { id: string; movementId: string; reason: string }): Promise<ContainerVoidResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID, role } = requireRole("superadmin", "admin", "manager");
     return containerService.voidTally(id, companyID, userID, role, movementId, reason);
   },
@@ -137,6 +148,7 @@ export const warehouseContainerVoidTally = api(
 export const warehouseContainerVoidStamp = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-containers/:id/void-stamp" },
   async ({ id, kind, reason }: { id: string; kind: ContainerStampKind; reason: string }): Promise<ContainerVoidResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID, role } = requireRole("superadmin", "admin", "manager");
     return containerService.voidStamp(id, companyID, userID, role, kind, reason);
   },

@@ -29,6 +29,7 @@ import { useSidebarState } from "@/hooks/useSidebarState";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { SALES_NAV, SALES_PAGES, type SalesNavItem } from "@/app/sales/_lib/tabs";
 import type { ReactNode } from "react";
+import { isModuleEnabled, type AppModule, type ModuleUser } from "@/lib/modules";
 
 // An item of a submenu. Its shape is defined with the Sales menu, the one that uses all of it.
 type NavChild = SalesNavItem;
@@ -43,6 +44,8 @@ interface NavItem {
   home?: string;
   // If set, the item only shows for these roles.
   roles?: string[];
+  // If set, the item only shows while the company has this module (Platform → Companies).
+  module?: AppModule;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -57,8 +60,8 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/exchange", label: "Exchange", icon: <SwapOutlined /> },
   { path: "/customs", label: "Customs", icon: <SafetyCertificateOutlined /> },
   // Gate Log is a tab of the Warehouse page.
-  { path: "/warehouse", label: "Warehouse Concept", icon: <InboxOutlined /> },
-  { path: "/trucking", label: "Trucking Concept", icon: <CarOutlined /> },
+  { path: "/warehouse", label: "Warehouse Concept", icon: <InboxOutlined />, module: "warehouse_concept" },
+  { path: "/trucking", label: "Trucking Concept", icon: <CarOutlined />, module: "trucking_concept" },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
   {
@@ -72,6 +75,12 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/settings/organization", label: "Organization", icon: <BankOutlined />, roles: ["admin", "superadmin"] },
   { path: "/platform/companies", label: "Platform", icon: <ApartmentOutlined />, roles: ["superadmin"] },
 ];
+
+/** Hide role-restricted items the user can't access and items of modules the company has hidden. */
+export function navItemVisible(item: Pick<NavItem, "roles" | "module">, user: ModuleUser | null): boolean {
+  if (item.roles && !(user != null && item.roles.includes(user.role))) return false;
+  return !item.module || isModuleEnabled(user, item.module);
+}
 
 const EXPANDED_WIDTH = 260;
 const COLLAPSED_WIDTH = 64;
@@ -91,7 +100,7 @@ export function AppSidebar() {
   const isChildActive = (child: NavChild) => [child.path, ...(child.alsoActiveUnder ?? [])].some((path) => isUnder(pathname, path));
 
   // Hide role-restricted items the current user can't access.
-  const navItems = NAV_ITEMS.filter((item) => !item.roles || (user != null && item.roles.includes(user.role)));
+  const navItems = NAV_ITEMS.filter((item) => navItemVisible(item, user));
 
   // Auto-expand the group that owns the current route.
   useEffect(() => {

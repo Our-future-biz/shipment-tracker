@@ -5,6 +5,7 @@ import { warehouseImportService } from "../services/warehouseImport.service";
 import { toTaskItem } from "../services/warehouse.service";
 import type { WarehouseTaskItem } from "../interfaces/interfaces";
 import type { GateCustomsMode, GateCustomsStatus, GateHandling, GateMovementItem } from "../interfaces/gate.interfaces";
+import { requireModule } from "../../../lib/modules";
 
 interface WarehousePositionCreateRequest {
   customer?: string;
@@ -48,6 +49,7 @@ interface WarehousePositionCreateResponse {
 export const warehousePositionCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-positions" },
   async (req: WarehousePositionCreateRequest): Promise<WarehousePositionCreateResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     const { task, movement } = await warehouseImportService.createPosition(companyID, userID, req);
     return { task: toTaskItem(task), movement };

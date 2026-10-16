@@ -14,6 +14,8 @@ vi.mock("~encore/clients", () => ({
   quotes: {},
   holidays: { _internalHolidaysCzNational: vi.fn(async () => ({ dates: [] })) },
 }));
+const modules = vi.hoisted(() => ({ moduleHidden: vi.fn(async (_companyId: string, _module: string) => false) }));
+vi.mock("../../../lib/modules", () => modules);
 vi.mock("../db/db", async () => (await import("./truckingFakes")).dbModule);
 vi.mock("../../../lib/outbox/serviceIdentity", async () => (await import("./truckingFakes")).serviceIdentityModule);
 vi.mock("../repositories/consignment.repository", async (orig) => ({

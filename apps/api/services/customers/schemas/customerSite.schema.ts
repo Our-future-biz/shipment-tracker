@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, boolean, doublePrecision, index, check } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, boolean, doublePrecision, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { customerTable } from "./customer.schema";
 import type { CustomerSiteKind } from "../interfaces/interfaces";
@@ -35,6 +35,8 @@ export const customerSiteTable = pgTable(
     ...defaultTableIndexes("customer_site", table),
     tenantIndex("customer_site", table),
     index("customer_site_customer_id_idx").on(table.customerId),
+    // At most one live default site per customer.
+    uniqueIndex("customer_site_one_default").on(table.customerId).where(sql`${table.isDefault} AND ${table.deletedAt} IS NULL`),
     check("customer_site_kind_check", sql`${table.kind} IN ('loading', 'delivery', 'both')`),
   ],
 );

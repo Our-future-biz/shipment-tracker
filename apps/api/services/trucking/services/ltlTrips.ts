@@ -6,6 +6,7 @@ import { haulierRepository } from "../repositories/haulier.repository";
 import { truckingOutboxRepository, type TruckingOutboxInput } from "../repositories/truckingOutbox.repository";
 import type { TruckingConsignmentRecord, TruckingLegRecord, TruckingTripRecord, TripJobRef } from "../schemas/truckingConsignment.schema";
 import type { TruckingOutboxKind } from "../schemas/truckingOutbox.schema";
+import type { TruckingOutboxPayloads } from "../lib/outboxPayload";
 import type { CostSplitBasis, LtlTripKind, TripCapacity, TruckingSettings } from "../interfaces/interfaces";
 import type { Actor } from "../../../lib/rbac";
 import { splitTripCost } from "../lib/costSplit";
@@ -29,11 +30,11 @@ import { settingsService } from "./settings.service";
 type LtlActor = Pick<Actor, "userID" | "role" | "companyID">;
 
 /** An outbox row owed by a change, sent as `actor`. */
-const owe = (actor: LtlActor, job: TripJobRef, kind: TruckingOutboxKind, payload: object): TruckingOutboxInput => ({
+const owe = <K extends TruckingOutboxKind>(actor: LtlActor, job: TripJobRef, kind: K, payload: TruckingOutboxPayloads[K]): TruckingOutboxInput => ({
   consignmentId: job.consignmentId,
   shipmentId: job.shipmentId,
   kind,
-  payload: payload as Record<string, unknown>,
+  payload,
   actingUserId: actor.userID,
   actingRole: actor.role,
 });

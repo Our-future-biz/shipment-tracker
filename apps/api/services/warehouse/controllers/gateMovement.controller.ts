@@ -8,6 +8,7 @@ import { gateAdminService } from "../services/gateAdmin.service";
 import { gateExceptionService } from "../services/gateException.service";
 import { reweighService } from "../services/reweigh.service";
 import type { GateExceptionInput, GateFileItem, GateMovementInput, GateMovementItem, GateReweighInput, GateSurveyInput } from "../interfaces/gate.interfaces";
+import { requireModule } from "../../../lib/modules";
 
 interface GateMovementResponse {
   movement: GateMovementItem;
@@ -22,6 +23,7 @@ interface GateMovementListRequest {
 export const gateMovementList = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-gate" },
   async ({ archived }: GateMovementListRequest): Promise<{ movements: GateMovementItem[] }> => {
+    await requireModule("warehouse_concept");
     return { movements: await gateMovementService.list(getAuthData()!.companyID, { archived: !!archived }) };
   },
 );
@@ -34,6 +36,7 @@ interface GateMovementGetRequest {
 export const gateMovementGet = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-gate/:id" },
   async ({ id }: GateMovementGetRequest): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     return { movement: await gateMovementService.get(id, getAuthData()!.companyID) };
   },
 );
@@ -50,6 +53,7 @@ interface GateMovementFollowRequest {
 export const gateMovementFollow = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/follow" },
   async ({ id, force }: GateMovementFollowRequest): Promise<{ changed: number }> => {
+    await requireModule("warehouse_concept");
     return { changed: await gateMovementService.followShipments(getAuthData()!.companyID, { id, force: !!force }) };
   },
 );
@@ -62,6 +66,7 @@ interface GateMovementCreateRequest extends GateMovementInput {
 export const gateMovementCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate" },
   async (req: GateMovementCreateRequest): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { movement: await gateMovementService.create(companyID, userID, req) };
   },
@@ -76,6 +81,7 @@ interface GateMovementUpdateRequest extends GateMovementInput {
 export const gateMovementUpdate = api(
   { expose: true, auth: true, method: "PATCH", path: "/warehouse-gate/:id" },
   async ({ id, linkChangeReason, ...data }: GateMovementUpdateRequest): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID, role } = getAuthData()!;
     return { movement: await gateMovementService.update(id, companyID, userID, data, role, linkChangeReason) };
   },
@@ -86,6 +92,7 @@ export const gateMovementUpdate = api(
 export const gateMovementDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/warehouse-gate/:id" },
   async ({ id }: { id: string }): Promise<{ ok: boolean }> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     await gateMovementService.remove(id, companyID, userID);
     return { ok: true };
@@ -119,6 +126,7 @@ interface GateStampResponse {
 export const gateMovementStamp = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/stamp" },
   async ({ id, kind, recordedAt, clientRequestId }: GateStampRequest): Promise<GateStampResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID, role } = getAuthData()!;
     return gateMovementService.stampWithOutcome(id, companyID, userID, kind, role, { recordedAt, clientRequestId });
   },
@@ -128,6 +136,7 @@ export const gateMovementStamp = api(
 export const gateMovementArchive = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/archive" },
   async ({ id, reason }: { id: string; reason: string }): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID, role } = requireRole("superadmin", "admin", "manager");
     return { movement: await gateAdminService.archive(id, companyID, userID, role, reason) };
   },
@@ -137,6 +146,7 @@ export const gateMovementArchive = api(
 export const gateMovementRestore = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/restore" },
   async ({ id, reason }: { id: string; reason: string }): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID, role } = requireRole("superadmin", "admin", "manager");
     return { movement: await gateAdminService.restore(id, companyID, userID, role, reason) };
   },
@@ -152,6 +162,7 @@ interface GateVoidStampResponse {
 export const gateMovementVoidStamp = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/void-stamp" },
   async ({ id, kind, reason }: { id: string; kind: StampKind; reason: string }): Promise<GateVoidStampResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID, role } = requireRole("superadmin", "admin", "manager");
     return gateAdminService.voidStamp(id, companyID, userID, role, kind, reason);
   },
@@ -161,6 +172,7 @@ export const gateMovementVoidStamp = api(
 export const gateMovementShipmentUpdateRetry = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/shipment-update/retry" },
   async ({ id }: { id: string }): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { movement: await gateAdminService.retryShipmentUpdate(id, companyID, userID) };
   },
@@ -170,6 +182,7 @@ export const gateMovementShipmentUpdateRetry = api(
 export const gateMovementShipmentUpdateDismiss = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/shipment-update/dismiss" },
   async ({ id }: { id: string }): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { movement: await gateAdminService.dismissShipmentUpdate(id, companyID, userID) };
   },
@@ -178,6 +191,7 @@ export const gateMovementShipmentUpdateDismiss = api(
 export const gateMovementRefuse = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/refuse" },
   async ({ id, reason }: { id: string; reason: string }): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { movement: await gateMovementService.refuse(id, companyID, userID, reason) };
   },
@@ -187,6 +201,7 @@ export const gateMovementRefuse = api(
 export const gateMovementRequestRelease = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/request-release" },
   async ({ id }: { id: string }): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { movement: await gateMovementService.requestRelease(id, companyID, userID) };
   },
@@ -196,6 +211,7 @@ export const gateMovementRequestRelease = api(
 export const gateMovementRequestMrn = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/request-mrn" },
   async ({ id }: { id: string }): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { movement: await gateMovementService.requestMrn(id, companyID, userID) };
   },
@@ -205,6 +221,7 @@ export const gateMovementRequestMrn = api(
 export const gateMovementReleaseGate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/release-gate" },
   async ({ id, gate, ok }: { id: string; gate: string; ok: boolean }): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { movement: await gateMovementService.setReleaseGate(id, companyID, userID, gate, ok) };
   },
@@ -214,6 +231,7 @@ export const gateMovementReleaseGate = api(
 export const gateMovementOverride = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/override" },
   async ({ id, reason }: { id: string; reason: string }): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = requireRole("superadmin", "admin", "manager");
     return { movement: await gateMovementService.override(id, companyID, userID, reason) };
   },
@@ -223,6 +241,7 @@ export const gateMovementOverride = api(
 export const gateMovementLabelPrinted = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/label-printed" },
   async ({ id, copies }: { id: string; copies: number }): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { movement: await gateMovementService.labelPrinted(id, companyID, userID, copies) };
   },
@@ -236,6 +255,7 @@ interface GatePinVerifyResponse {
 export const gateMovementVerifyPin = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/verify-pin" },
   async ({ id, pin }: { id: string; pin: string }): Promise<GatePinVerifyResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return gateMovementService.verifyPin(id, companyID, userID, pin);
   },
@@ -260,6 +280,7 @@ interface GateSurveySaveResponse {
 export const gateMovementSaveSurvey = api(
   { expose: true, auth: true, method: "PUT", path: "/warehouse-gate/:id/survey" },
   async ({ id, survey, recordedAt, clientRequestId }: GateSurveySaveRequest): Promise<GateSurveySaveResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return gateMovementService.saveSurveyWithOutcome(id, companyID, userID, survey, { recordedAt, clientRequestId });
   },
@@ -268,6 +289,7 @@ export const gateMovementSaveSurvey = api(
 export const gateFileList = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-gate/:id/files" },
   async ({ id }: { id: string }): Promise<{ files: GateFileItem[] }> => {
+    await requireModule("warehouse_concept");
     return { files: await gateFileService.list(id, getAuthData()!.companyID) };
   },
 );
@@ -287,6 +309,7 @@ export const gateFileUpload = api(
   // base64 inflates bytes ~33%, so this fits a 25 MB file.
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/files", bodyLimit: 36 * 1024 * 1024 },
   async ({ id, ...input }: GateFileUploadRequest): Promise<{ file: GateFileItem }> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { file: await gateFileService.upload(id, companyID, userID, input) };
   },
@@ -301,6 +324,7 @@ interface GateFileContentResponse {
 export const gateFileContent = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-gate/:id/files/:fileId/content" },
   async ({ id, fileId }: { id: string; fileId: string }): Promise<GateFileContentResponse> => {
+    await requireModule("warehouse_concept");
     return gateFileService.content(id, fileId, getAuthData()!.companyID);
   },
 );
@@ -308,6 +332,7 @@ export const gateFileContent = api(
 export const gateFileDelete = api(
   { expose: true, auth: true, method: "DELETE", path: "/warehouse-gate/:id/files/:fileId" },
   async ({ id, fileId }: { id: string; fileId: string }): Promise<{ ok: boolean }> => {
+    await requireModule("warehouse_concept");
     await gateFileService.remove(id, fileId, getAuthData()!.companyID);
     return { ok: true };
   },
@@ -319,6 +344,7 @@ export const gateFileDelete = api(
 export const gateMovementUseRemeasured = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/use-remeasured" },
   async ({ id, sectionVersion }: { id: string; sectionVersion: number }): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { movement: await gateMovementService.useRemeasured(id, companyID, userID, sectionVersion) };
   },
@@ -336,6 +362,7 @@ interface GateExceptionCreateResponse {
 export const gateExceptionCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/exceptions" },
   async ({ id, exception }: { id: string; exception: GateExceptionInput }): Promise<GateExceptionCreateResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return gateExceptionService.createWithOutcome(id, companyID, userID, exception);
   },
@@ -345,6 +372,7 @@ export const gateExceptionCreate = api(
 export const gateExceptionResolve = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/exceptions/:exceptionId/resolve" },
   async ({ id, exceptionId, note }: { id: string; exceptionId: string; note: string }): Promise<GateMovementResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return { movement: await gateExceptionService.resolve(id, exceptionId, companyID, userID, note) };
   },
@@ -364,6 +392,7 @@ interface GateReweighResponse {
 export const gateMovementReweigh = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/reweigh" },
   async ({ id, reweigh }: { id: string; reweigh: GateReweighInput }): Promise<GateReweighResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     return reweighService.record(id, companyID, userID, reweigh);
   },

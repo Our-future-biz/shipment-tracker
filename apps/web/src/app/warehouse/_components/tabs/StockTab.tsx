@@ -25,7 +25,7 @@ import { customsClockSort } from "@/app/warehouse/_lib/customsClock";
 import { stockSyncText } from "@/app/warehouse/_lib/stockSync";
 import { useStockSync } from "@/hooks/useStockSync";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
-import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
+import { useUrlParam } from "@/hooks/useUrlParam";
 import { BulkDeleteButton, Callout, Card, Kpi, RecordFormModal, StatusTag, SubTabs, dim, nf, type FieldDef } from "./shared";
 import { businessToday } from "@/lib/date";
 

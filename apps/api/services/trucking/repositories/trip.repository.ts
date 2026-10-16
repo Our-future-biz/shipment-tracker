@@ -60,12 +60,35 @@ class TripRepository {
     return db.select().from(t).where(and(...clauses)).orderBy(desc(t.plannedPickupDate), desc(t.createdAt)).limit(MAX_LIST);
   }
 
-  /** A haulier's trips whose transport order was sent and that are not cancelled (the haulier portal), newest first. */
-  async forHaulier(companyId: string, haulierCustomerId: string): Promise<TruckingTripRecord[]> {
+  /**
+   * A haulier's trips whose transport order was sent and that are not cancelled (the haulier portal), newest first.
+   * `view` narrows them in SQL before the limit, so open orders are never cut off by many done ones
+   * (and the other way round). The test is loose on purpose - it keeps every trip that may be in the
+   * view; the portal decides exactly (portalOrder.service isDone).
+   */
+  async forHaulier(companyId: string, haulierCustomerId: string, view: "open" | "done"): Promise<TruckingTripRecord[]> {
+    const rejected = sql`(${t.rejectedAt} IS NOT NULL AND ${t.confirmedAt} IS NULL)`;
+    // A live consignment of the trip (an FTL's own, a run's through its legs) still without a POD;
+    // cancelled ones are no stop of the order.
+    const podMissing = sql`EXISTS (
+      SELECT 1 FROM trucking_consignment c
+      WHERE c.deleted_at IS NULL AND c.cancelled_at IS NULL AND c.pod_received_at IS NULL
+        AND (c.trip_id = ${t.id} OR c.id IN (SELECT g.consignment_id FROM trucking_leg g WHERE g.trip_id = ${t.id} AND g.deleted_at IS NULL)))`;
+    const mayBeOpen = sql`NOT ${rejected} AND (${t.arrivedAt} IS NULL OR ${podMissing})`;
+    const mayBeDone = sql`(${rejected} OR ${t.arrivedAt} IS NOT NULL OR NOT ${podMissing})`;
     return db
       .select()
       .from(t)
-      .where(and(eq(t.companyId, companyId), eq(t.haulierCustomerId, haulierCustomerId), isNull(t.deletedAt), isNull(t.cancelledAt), isNotNull(t.orderSentAt)))
+      .where(
+        and(
+          eq(t.companyId, companyId),
+          eq(t.haulierCustomerId, haulierCustomerId),
+          isNull(t.deletedAt),
+          isNull(t.cancelledAt),
+          isNotNull(t.orderSentAt),
+          view === "open" ? mayBeOpen : mayBeDone,
+        ),
+      )
       .orderBy(desc(t.plannedPickupDate), desc(t.createdAt))
       .limit(MAX_LIST);
   }

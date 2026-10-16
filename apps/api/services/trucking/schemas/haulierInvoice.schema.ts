@@ -62,6 +62,7 @@ export const truckingHaulierInvoiceTable = pgTable(
     index("trucking_haulier_invoice_status_idx").on(table.companyId, table.status),
     check("trucking_haulier_invoice_status_check", sql`${table.status} IN ('DRAFT', 'MATCHED', 'NEEDS_APPROVAL', 'APPROVED', 'BLOCKED', 'REJECTED')`),
     check("trucking_haulier_invoice_currency_check", sql`${table.currency} IN ('CZK', 'EUR')`),
+    check("trucking_haulier_invoice_gross_check", sql`${table.totalGross} = ${table.totalNet} + ${table.vatAmount}`),
     // Payment is never approved while blocked (ručení za DPH): an approved invoice has no block reason.
     check("trucking_haulier_invoice_approved_check", sql`${table.status} <> 'APPROVED' OR (${table.approvedAt} IS NOT NULL AND ${table.blockReasons} = '[]'::jsonb)`),
     check("trucking_haulier_invoice_rejected_check", sql`(${table.status} = 'REJECTED') = (${table.rejectedAt} IS NOT NULL)`),

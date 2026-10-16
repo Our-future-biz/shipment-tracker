@@ -15,6 +15,7 @@ import {
   IP_RULE,
   isLocked,
   LOG_IN_AGAIN,
+  LOGIN_AMBIGUOUS,
   LOGIN_FAILED,
   MAX_PASSWORD,
   normaliseEmail,
@@ -26,6 +27,7 @@ import {
 } from "../lib/portalRules";
 import { ourCompany } from "./transportOrder.service";
 import { serviceActor } from "../../../lib/outbox/serviceIdentity";
+import { moduleHidden } from "../../../lib/modules";
 
 // The haulier portal's own login, separate from the app's: e-mail + password (argon2id, the
 // parameters the app's login uses), a session token of 32 random bytes of which only the SHA-256
@@ -89,6 +91,8 @@ class PortalAuthService {
     const now = new Date();
     if (!session || !tokenMatches(session.tokenHash, token) || session.revokedAt) throw again();
     if (session.expiresAt.getTime() <= now.getTime() || session.absoluteExpiresAt.getTime() <= now.getTime()) throw again();
+    // A company that hides Trucking has no portal: its sessions answer like an unknown one.
+    if (await moduleHidden(session.companyId, "trucking_concept")) throw again();
     const user = await portalRepository.findUser(session.companyId, session.userId);
     if (!user || user.status !== "ACTIVE" || !user.passwordHash) {
       await portalRepository.revokeSessionsOf(db, session.companyId, [session.userId]);
@@ -115,14 +119,16 @@ class PortalAuthService {
   async login(input: { email: unknown; password: unknown }, client: PortalClient): Promise<{ session: string; expiresAt: string; me: PortalMe }> {
     const fail = () => APIError.unauthenticated(LOGIN_FAILED);
     const now = new Date();
-    const ipKey = `ip:${client.ip || "unknown"}`;
+    // An unknown client IP is not throttled per IP (one shared bucket would let anyone lock the
+    // portal for everybody); the per-account lockout still applies.
+    const ipKey = client.ip ? `ip:${client.ip}` : null;
     const failed = async () => {
-      await portalRepository.failThrottle(ipKey, now, IP_RULE);
+      if (ipKey) await portalRepository.failThrottle(ipKey, now, IP_RULE);
       return fail();
     };
     const email = normaliseEmail(input.email);
     const password = typeof input.password === "string" ? input.password : "";
-    const throttle = await portalRepository.throttleOf(ipKey);
+    const throttle = ipKey ? await portalRepository.throttleOf(ipKey) : null;
     if (throttle && isLocked(throttle, now)) {
       await burn(password);
       log.info("trucking portal: login refused, too many failures from the IP");
@@ -132,7 +138,10 @@ class PortalAuthService {
       await burn("");
       throw await failed();
     }
-    const candidates = await portalRepository.usersByEmail(email);
+    // Accounts of a company that hides Trucking count as unknown (that company has no portal).
+    const accounts = await portalRepository.usersByEmail(email);
+    const hidden = await Promise.all(accounts.map((u) => moduleHidden(u.companyId, "trucking_concept")));
+    const candidates = accounts.filter((_, n) => !hidden[n]);
     if (!candidates.length) {
       await burn(password);
       log.info("trucking portal: login with an unknown e-mail refused");
@@ -150,13 +159,23 @@ class PortalAuthService {
       if (await verify(u.passwordHash, password).catch(() => false)) matched.push(u);
       else tried.push(u);
     }
+    const usable: PortalUserRecord[] = [];
     for (const u of matched) {
       if (await this.haulierBlocked(u.companyId, u.haulierCustomerId)) {
         await appendEvent(db, u.companyId, event(u, "portal_login_failed", "Portal login refused: the haulier is blocked", { reason: "blocked" }));
         continue;
       }
-      return this.startSession(u, now, client);
+      usable.push(u);
     }
+    // The same e-mail and password in two companies' portals: which company is meant can't be told,
+    // so neither is logged in (the user asks one company for a different e-mail).
+    if (usable.length > 1) {
+      for (const u of usable) {
+        await appendEvent(db, u.companyId, event(u, "portal_login_failed", "Portal login refused: the e-mail has accounts with more than one company", { reason: "ambiguous" }));
+      }
+      throw APIError.failedPrecondition(LOGIN_AMBIGUOUS);
+    }
+    if (usable.length === 1) return this.startSession(usable[0]!, now, client);
     if (matched.length) throw APIError.permissionDenied(HAULIER_BLOCKED);
     for (const u of tried) {
       const row = await portalRepository.failLogin(u.companyId, u.id, now, ACCOUNT_RULE);
@@ -229,6 +248,7 @@ class PortalAuthService {
     const link = await portalRepository.tokenByHash(hashToken(token));
     const now = new Date();
     if (!link || !tokenMatches(link.tokenHash, token) || link.usedAt || link.expiresAt.getTime() <= now.getTime()) throw invalid();
+    if (await moduleHidden(link.companyId, "trucking_concept")) throw invalid();
     const user = await portalRepository.findUser(link.companyId, link.userId);
     if (!user || user.status !== "ACTIVE") throw invalid();
     const refusal = passwordRefusal(input.password, user.email);
@@ -236,7 +256,7 @@ class PortalAuthService {
     const passwordHash = await hash(input.password as string);
     await inTx(async (tx) => {
       if (!(await portalRepository.useToken(tx, link.id, now))) throw invalid();
-      await portalRepository.updateUser(tx, user.companyId, user.id, { passwordHash, failedAttempts: 0, lockedUntil: null });
+      await portalRepository.updateUser(tx, user.companyId, user.id, { passwordHash, failedAttempts: 0, lockedUntil: null, lockLevel: 0 });
       await portalRepository.revokeSessionsOf(tx, user.companyId, [user.id]);
       await appendEvent(tx, user.companyId, event(user, "portal_password_set", link.kind === "INVITE" ? "Portal password set (invitation)" : "Portal password set (reset)", { kind: link.kind }));
     });

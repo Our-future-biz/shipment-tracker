@@ -1,8 +1,10 @@
 import type { interfaces } from "@/lib/api/client";
 import type { RateLevelResult } from "@/hooks/useTrucking";
-import { formatPsc } from "@/app/trucking/_lib/hauliers";
+import { formatPostcode as formatPsc } from "@/lib/postcode";
 import { NO_EXTRAS, emptyRateForm, rateFormProblems, type RateForm } from "@/app/trucking/_lib/rateCalculator";
-import { formatMoney, formatPercent, isPriced } from "@/app/trucking/_lib/tariffs";
+import { isPriced } from "@/app/trucking/_lib/tariffs";
+import { formatAmount as formatMoney } from "@/lib/money";
+import { formatPercent } from "@/lib/number";
 import { cargoReadyDay, computeCargo } from "./salesQuote";
 import type { CostLine, QuoteRoadInput, QuoteRoadPricing, SalesQuoteData } from "./types";
 

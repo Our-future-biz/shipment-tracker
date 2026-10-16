@@ -284,8 +284,7 @@ function ModuleTabs({
     <Tabs
       activeKey={active}
       onChange={(k) => onChange(k as ModuleTab)}
-      className="mt-3"
-      tabBarStyle={{ marginBottom: 0 }}
+      className="mt-3 [&>.ant-tabs-nav]:!mb-0"
       tabBarExtraContent={{
         right: (
           <span className="flex items-center gap-1">

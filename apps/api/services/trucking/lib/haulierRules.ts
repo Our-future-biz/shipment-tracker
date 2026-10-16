@@ -137,9 +137,10 @@ const day = (v: unknown, what: string): string | null => {
   return v;
 };
 
-const currency = (v: unknown, what: string): string => {
+const isCurrency = (c: string): c is (typeof CURRENCIES)[number] => (CURRENCIES as readonly string[]).includes(c);
+const currency = (v: unknown, what: string): (typeof CURRENCIES)[number] => {
   const c = typeof v === "string" ? v.trim().toUpperCase() : "";
-  if (!(CURRENCIES as readonly string[]).includes(c)) throw bad(`${what} must be CZK or EUR`);
+  if (!isCurrency(c)) throw bad(`${what} must be CZK or EUR`);
   return c;
 };
 

@@ -9,10 +9,10 @@ import type { TruckingDocumentRecord } from "../schemas/truckingConsignment.sche
 import type { FileDownload, TruckingDocumentItem } from "../interfaces/interfaces";
 import type { Actor } from "../../../lib/rbac";
 import { isUuid } from "../../../lib/uuid";
-import { servedFileType } from "../../warehouse/services/fileType";
+import { servedFileType } from "../../../lib/fileType";
 import { checkUpload, documentKind, type CheckedFile } from "../lib/truckingFiles";
 import { userName } from "../lib/users";
-import { isManager } from "../lib/roles";
+import { requireManager } from "../lib/roles";
 import { cleanReason } from "../lib/consignmentRules";
 import { consignmentService } from "./consignment.service";
 import type { Tx } from "../db/db";
@@ -127,7 +127,7 @@ class TruckingDocumentService {
    * one leaves the list (kept in storage and named in the event); the stamps stay as they are.
    */
   async replacePod(actor: Actor, documentId: string, input: { fileName: unknown; fileBase64: unknown; reason: unknown }): Promise<TruckingDocumentItem> {
-    if (!isManager(actor.role)) throw APIError.permissionDenied("Only a manager can replace a POD");
+    requireManager(actor.role, "replace a POD");
     const companyId = actor.companyID;
     const old = isUuid(documentId) ? await truckingDocumentRepository.find(companyId, documentId) : null;
     if (!old) throw APIError.notFound("Document not found");

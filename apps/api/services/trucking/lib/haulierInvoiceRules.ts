@@ -67,6 +67,44 @@ export function autoApprovalHolds(p: BankChange | null, enteredBy: (string | nul
   return out;
 }
 
+export const FOUR_EYES = "Who entered this invoice or last changed the haulier's bank accounts cannot approve its payment: another manager must";
+export const FIGURES_CHANGED = "The expected amounts changed since the invoice was saved (a claim was decided or a price changed): open the invoice and save it again";
+
+/** The expected and claimed amounts a line was saved with, against those worked out now. */
+export function figuresChanged(
+  saved: { targetId: string; expected: number; claimed: number }[],
+  now: { input: { targetId: string }; expected: number; claimed: number }[],
+): boolean {
+  const nowOf = new Map(now.map((r) => [r.input.targetId, r]));
+  return saved.some((l) => {
+    const n = nowOf.get(l.targetId);
+    return !n || cents(n.expected) !== cents(l.expected) || cents(n.claimed) !== cents(l.claimed);
+  });
+}
+
+/** The haulier as the VAT check reads it (from Customers). */
+export interface HaulierVatParty {
+  /** VAT id (DIČ); "" when the haulier is not a VAT payer */
+  dic: string;
+  /** ISO country of the haulier; "" when unknown (taken as CZ) */
+  country: string;
+}
+
+/**
+ * VAT on the invoice that does not fit the haulier's VAT regime - a manager must approve it
+ * (it is never a reason to block). A Czech VAT payer charges VAT; a haulier without a VAT id
+ * charges none; a VAT payer from another country invoices under reverse charge (no VAT).
+ */
+export function vatRegimeHolds(party: HaulierVatParty | null, vatAmount: number): string[] {
+  if (!party) return [];
+  const vat = cents(vatAmount);
+  const dic = party.dic.trim().toUpperCase();
+  const country = (party.country.trim().toUpperCase() || dic.slice(0, 2) || "CZ").slice(0, 2);
+  if (!dic) return vat !== 0 ? ["VAT is charged but the haulier has no VAT id: a manager must approve the payment"] : [];
+  if (country === "CZ") return vat === 0 ? ["No VAT on a Czech VAT payer's invoice: a manager must check the VAT before the payment"] : [];
+  return vat !== 0 ? [`VAT is charged by a haulier from ${country} (reverse charge expected): a manager must approve the payment`] : [];
+}
+
 /** The invoice's account against the haulier's published accounts (the manual list for now). */
 export function bankAccountCheck(p: VatProfile | null, bankAccount: string): { published: boolean | null; checkedAt: string | null; note: string } {
   if (!p) return { published: null, checkedAt: null, note: "The haulier has no trucking profile" };
@@ -188,6 +226,12 @@ export function cleanInvoiceInput(input: Omit<HaulierInvoiceInput, "haulierCusto
   if (!bankAccount) throw bad("The bank account must be a valid Czech account (prefix-number/bank) or an IBAN");
   const raw = Array.isArray(input.lines) ? input.lines : [];
   if (raw.length > MAX_INVOICE_LINES) throw bad(`At most ${MAX_INVOICE_LINES} lines are allowed`);
+  const totalNet = money(input.totalNet, "The net total");
+  const vatAmount = money(input.vatAmount, "The VAT amount");
+  const totalGross = money(input.totalGross, "The gross total");
+  if (cents(totalNet) + cents(vatAmount) !== cents(totalGross)) {
+    throw bad(`The gross total ${totalGross.toFixed(2)} is not the net total plus VAT (${fromCents(cents(totalNet) + cents(vatAmount)).toFixed(2)})`);
+  }
   const lines = raw.map((l, i): HaulierInvoiceLineInput => {
     const n = i + 1;
     if (l?.targetKind !== "TRIP" && l?.targetKind !== "PARTNER_LEG") throw bad(`Line ${n}: the target must be a TRIP or a PARTNER_LEG`);
@@ -205,9 +249,9 @@ export function cleanInvoiceInput(input: Omit<HaulierInvoiceInput, "haulierCusto
     dueDate,
     duzp,
     currency: input.currency,
-    totalNet: money(input.totalNet, "The net total"),
-    vatAmount: money(input.vatAmount, "The VAT amount"),
-    totalGross: money(input.totalGross, "The gross total"),
+    totalNet,
+    vatAmount,
+    totalGross,
     bankAccount,
     lines,
   };

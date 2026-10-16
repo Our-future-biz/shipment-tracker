@@ -16,7 +16,7 @@ import { eventItem, factsOf, tripDetail, tripListItem, type HaulierAssessment, t
 import { capacityOf, tripFill } from "../lib/ltlRules";
 import { avizaceWarnings } from "../lib/avizaceRules";
 import { buyCosts, noCosts, plannedUpdate, tripSourceRef } from "../lib/truckingLinks";
-import { isManager } from "../lib/roles";
+import { requireManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { assess, haulierService, toProfile } from "./haulier.service";
 import { consignmentService, manualSnapshot, owed, rateRequestOf, snapshotOf } from "./consignment.service";
@@ -286,7 +286,7 @@ class TripService {
 
   /** Manager. Refused after the pick-up. The consignment goes back to BOOKED; the haulier's link is revoked and the buy lines removed. */
   async cancel(actor: Actor, id: string, reason: unknown): Promise<TripDetail> {
-    if (!isManager(actor.role)) throw APIError.permissionDenied("Only a manager can cancel a trip");
+    requireManager(actor.role, "cancel a trip");
     const why = cleanReason(reason, "a reason for the cancellation");
     const companyId = actor.companyID;
     const trip = await this.load(companyId, id);

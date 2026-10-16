@@ -26,24 +26,29 @@ import type { Actor } from "../../../lib/rbac";
 import { isUuid } from "../../../lib/uuid";
 import { businessDay } from "../../../lib/businessDate";
 import { isUniqueViolation } from "../../../lib/db/errors";
-import { servedFileType } from "../../warehouse/services/fileType";
+import { servedFileType } from "../../../lib/fileType";
 import {
   autoApprovalHolds,
   bankAccountCheck,
   cleanInvoiceInput,
   cleanReason,
   currentStatus,
+  FIGURES_CHANGED,
+  figuresChanged,
+  FOUR_EYES,
   invoiceBlockReasons,
   matchInvoice,
   OPEN_STATUSES,
+  vatRegimeHolds,
   type CleanInvoice,
+  type HaulierVatParty,
 } from "../lib/haulierInvoiceRules";
 import { realCosts, type RealTarget, type TargetJob } from "../lib/haulierInvoiceReal";
 import { partnerLegRef } from "../lib/truckingLinks";
 import { haulierClaims } from "../lib/haulierClaims";
 import { isInternalDepartment } from "../lib/internalRules";
 import { checkUpload, type CheckedFile } from "../lib/truckingFiles";
-import { isManager } from "../lib/roles";
+import { requireManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { toProfile } from "./haulier.service";
 import { deliverDue } from "./truckingOutbox.service";
@@ -125,12 +130,23 @@ function toInvoice({ invoice: r, lines }: StoredInvoice, profile: HaulierProfile
 
 class HaulierInvoiceService {
   /** The haulier's name in the Customer Database; not found when it is not a live haulier there. */
-  private async haulierName(customerId: string): Promise<string> {
+  /** The haulier's name and VAT party; notFound when the customer is not a live haulier. */
+  private async haulier(customerId: string): Promise<{ name: string; party: HaulierVatParty }> {
     if (typeof customerId !== "string" || !isUuid(customerId)) throw APIError.notFound("Haulier not found");
     const { hauliers } = await customers._internalHaulierList({ ids: [customerId] });
     const found = hauliers.find((h) => h.id === customerId);
     if (!found) throw APIError.notFound("Haulier not found");
-    return found.companyName;
+    return { name: found.companyName, party: { dic: found.dic, country: found.country } };
+  }
+
+  /** The haulier's VAT party for a later save; null (no VAT check) when it can't be read. */
+  private async vatParty(customerId: string): Promise<HaulierVatParty | null> {
+    try {
+      return (await this.haulier(customerId)).party;
+    } catch (err) {
+      log.warn(err, "trucking: haulier VAT party not read", { customerId });
+      return null;
+    }
   }
 
   private async profile(companyId: string, customerId: string): Promise<HaulierProfile | null> {
@@ -241,7 +257,7 @@ class HaulierInvoiceService {
           consignmentId: p.consignmentId,
           shipmentId: p.shipmentId,
           kind: "real_costs",
-          payload: p.payload as unknown as Record<string, unknown>,
+          payload: p.payload,
           actingUserId: actor.userID,
           actingRole: actor.role,
         }),
@@ -369,9 +385,18 @@ class HaulierInvoiceService {
    * The status and figures of a save, worked out against the haulier's profile now. `enteredBy`:
    * the users entering or saving it (an exact match they could have arranged waits for a manager).
    */
-  private assess(profile: HaulierProfile | null, clean: CleanInvoice, resolved: ResolvedLine[], enteredBy: (string | null)[]) {
+  private assess(
+    profile: HaulierProfile | null,
+    clean: CleanInvoice,
+    resolved: ResolvedLine[],
+    enteredBy: (string | null)[],
+    party: HaulierVatParty | null,
+  ) {
     const blockReasons = invoiceBlockReasons(profile, clean.bankAccount);
-    const holdReasons = autoApprovalHolds(profile, enteredBy, new Date(), resolved.filter((r) => r.repriced).map((r) => r.ref));
+    const holdReasons = [
+      ...autoApprovalHolds(profile, enteredBy, new Date(), resolved.filter((r) => r.repriced).map((r) => r.ref)),
+      ...vatRegimeHolds(party, clean.vatAmount),
+    ];
     const match = matchInvoice(
       clean.totalNet,
       resolved.map((r) => ({ expected: r.expected, invoiced: r.input.invoiced })),
@@ -390,11 +415,11 @@ class HaulierInvoiceService {
   async create(actor: Actor, input: HaulierInvoiceInput): Promise<HaulierInvoice> {
     const companyId = actor.companyID;
     const haulierId = input.haulierCustomerId;
-    const haulierName = await this.haulierName(haulierId);
+    const { name: haulierName, party } = await this.haulier(haulierId);
     const clean = cleanInvoiceInput(input);
     const profile = await this.profile(companyId, haulierId);
     const resolved = await this.resolve(companyId, haulierId, clean.currency, clean.lines);
-    const { blockReasons, holdReasons, match, published } = this.assess(profile, clean, resolved, [actor.userID || null]);
+    const { blockReasons, holdReasons, match, published } = this.assess(profile, clean, resolved, [actor.userID || null], party);
     const by = await userName(actor.userID);
     const approved = match.status === "APPROVED";
     const plans = approved
@@ -448,7 +473,8 @@ class HaulierInvoiceService {
     const clean = cleanInvoiceInput(input);
     const profile = await this.profile(companyId, haulierId);
     const resolved = await this.resolve(companyId, haulierId, clean.currency, clean.lines);
-    const { blockReasons, holdReasons, match, published } = this.assess(profile, clean, resolved, [actor.userID || null, cur.invoice.createdByUserId]);
+    const party = await this.vatParty(haulierId);
+    const { blockReasons, holdReasons, match, published } = this.assess(profile, clean, resolved, [actor.userID || null, cur.invoice.createdByUserId], party);
     const by = await userName(actor.userID);
     const approved = match.status === "APPROVED";
     const plans = approved
@@ -488,22 +514,37 @@ class HaulierInvoiceService {
    * everyone - while the haulier fails the VAT bank-account check (worked out again now).
    */
   async approve(actor: Actor, id: string, reason: unknown): Promise<HaulierInvoice> {
-    if (!isManager(actor.role)) throw APIError.permissionDenied("Only a manager can approve a haulier invoice");
+    requireManager(actor.role, "approve a haulier invoice");
     const why = cleanReason(reason, "approval");
     const companyId = actor.companyID;
     const cur = await this.load(companyId, id);
     if (cur.invoice.status === "APPROVED") throw APIError.failedPrecondition("The invoice is already approved");
     if (!APPROVABLE.includes(cur.invoice.status)) throw APIError.failedPrecondition(`An invoice that is ${cur.invoice.status.toLowerCase().replace("_", " ")} cannot be approved`);
-    const profile = await this.profile(companyId, cur.invoice.haulierCustomerId);
-    const blockReasons = invoiceBlockReasons(profile, cur.invoice.bankAccount);
-    if (blockReasons.length) {
-      throw APIError.failedPrecondition(`Payment cannot be approved (Czech VAT joint liability): ${blockReasons.join("; ")}`).withDetails({ blockReasons });
-    }
     if (!cur.lines.length) throw APIError.failedPrecondition("The invoice has no lines");
+    const haulierId = cur.invoice.haulierCustomerId;
     const by = await userName(actor.userID);
-    const plans = await this.planReal(companyId, cur.invoice, cur.lines, actor);
+    let profile: HaulierProfile | null = null;
     const owed = await inTx(async (tx) => {
-      await haulierInvoiceRepository.lockHaulier(tx, companyId, cur.invoice.haulierCustomerId);
+      await haulierInvoiceRepository.lockHaulier(tx, companyId, haulierId);
+      // Worked out again under the haulier's lock: a claim decided, a price changed or the VAT
+      // profile fixed (or broken) since the save counts - the payment is approved on today's figures.
+      profile = await this.profile(companyId, haulierId);
+      const blockReasons = invoiceBlockReasons(profile, cur.invoice.bankAccount);
+      if (blockReasons.length) {
+        throw APIError.failedPrecondition(`Payment cannot be approved (Czech VAT joint liability): ${blockReasons.join("; ")}`).withDetails({ blockReasons });
+      }
+      // Four eyes: who entered the invoice, or last changed the haulier's bank accounts, can't approve its payment.
+      if (actor.userID && (actor.userID === cur.invoice.createdByUserId || actor.userID === profile?.bankAccountsChangedByUserId)) {
+        throw APIError.permissionDenied(FOUR_EYES);
+      }
+      const now = await this.resolve(
+        companyId,
+        haulierId,
+        cur.invoice.currency,
+        cur.lines.map((l) => ({ targetKind: l.targetKind, targetId: l.targetId, invoiced: l.invoiced, note: l.note })),
+      );
+      if (figuresChanged(cur.lines, now)) throw APIError.failedPrecondition(FIGURES_CHANGED);
+      const plans = await this.planReal(companyId, cur.invoice, cur.lines, actor);
       const row = await haulierInvoiceRepository.update(tx, companyId, cur.invoice.id, cur.invoice.version, APPROVABLE, {
         status: "APPROVED",
         blockReasons: [],
@@ -524,7 +565,7 @@ class HaulierInvoiceService {
 
   /** Manager only, with a reason. The invoice is not paid; its trips and deliveries may go on another invoice. */
   async reject(actor: Actor, id: string, reason: unknown): Promise<HaulierInvoice> {
-    if (!isManager(actor.role)) throw APIError.permissionDenied("Only a manager can reject a haulier invoice");
+    requireManager(actor.role, "reject a haulier invoice");
     const why = cleanReason(reason, "rejection");
     const companyId = actor.companyID;
     const cur = await this.load(companyId, id);

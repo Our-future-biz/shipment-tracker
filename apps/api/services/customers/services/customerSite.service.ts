@@ -5,6 +5,18 @@ import type { CustomerSiteItem, CustomerSiteKind } from "../interfaces/interface
 import { toCustomerSiteItem } from "../lib/mappers";
 import { normaliseCountry, normalisePostcode } from "../lib/postcode";
 import { customerService } from "./customer.service";
+import { isUniqueViolation } from "../../../lib/db/errors";
+
+// Two saves making different sites the default at the same moment: the one-default index refuses the second.
+const DEFAULT_RACE = "Another site of this customer was made the default at the same moment - reload and try again";
+const oneDefault = async <T>(write: () => Promise<T>): Promise<T> => {
+  try {
+    return await write();
+  } catch (err) {
+    if (isUniqueViolation(err)) throw APIError.aborted(DEFAULT_RACE);
+    throw err;
+  }
+};
 
 export interface CustomerSiteInput {
   label: string;
@@ -72,7 +84,7 @@ class CustomerSiteService {
       tailLiftNeeded: input.tailLiftNeeded ?? false,
       isDefault: input.isDefault ?? false,
     };
-    const row = await customerSiteRepository.createForCompany(companyId, values);
+    const row = await oneDefault(() => customerSiteRepository.createForCompany(companyId, values));
     return toCustomerSiteItem(row);
   }
 
@@ -104,7 +116,7 @@ class CustomerSiteService {
     if (input.loadingNotes !== undefined) patch.loadingNotes = input.loadingNotes;
     if (input.tailLiftNeeded !== undefined) patch.tailLiftNeeded = input.tailLiftNeeded;
     if (input.isDefault !== undefined) patch.isDefault = input.isDefault;
-    const row = await customerSiteRepository.updateForCompany(id, companyId, patch);
+    const row = await oneDefault(() => customerSiteRepository.updateForCompany(id, companyId, patch));
     if (!row) throw APIError.notFound("Site not found");
     return toCustomerSiteItem(row);
   }

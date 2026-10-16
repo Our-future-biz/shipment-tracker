@@ -193,6 +193,7 @@ vi.mock("../repositories/haulierInvoice.repository", () => {
 import { customers, shipments } from "~encore/clients";
 import { haulierInvoiceService } from "../services/haulierInvoice.service";
 import { setClaimsSource, noClaims } from "../lib/haulierClaims";
+import { FIGURES_CHANGED, FOUR_EYES } from "../lib/haulierInvoiceRules";
 import type { HaulierInvoiceInput } from "../interfaces/haulierInvoice.interfaces";
 import type { PriceSnapshot } from "../interfaces/interfaces";
 
@@ -206,7 +207,9 @@ const S_OPS = "00000000-0000-0000-0000-0000000000d3";
 const ACCOUNT = "19-2000145399/0800";
 
 const user = { userID: U, companyID: COMPANY, role: "user" };
-const manager = { userID: U, companyID: COMPANY, role: "manager" };
+// Another person than `user` (who enters the invoices): the payment needs four eyes.
+const M = "00000000-0000-0000-0000-000000000003";
+const manager = { userID: M, companyID: COMPANY, role: "manager" };
 const admin = { userID: U, companyID: COMPANY, role: "admin" };
 
 const snapshot = (amounts: number[], currency: "CZK" | "EUR" = "CZK"): PriceSnapshot => ({
@@ -278,6 +281,7 @@ function seed() {
   );
 }
 
+// The gross total follows the net and VAT given (net + VAT = gross is checked on save).
 const invoice = (over: Partial<HaulierInvoiceInput> = {}): HaulierInvoiceInput => ({
   haulierCustomerId: H,
   invoiceNumber: "FV 2026/101",
@@ -287,10 +291,10 @@ const invoice = (over: Partial<HaulierInvoiceInput> = {}): HaulierInvoiceInput =
   currency: "CZK",
   totalNet: 10000,
   vatAmount: 2100,
-  totalGross: 12100,
   bankAccount: "CZ65 0800 0000 1920 0014 5399",
   lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10000, note: "" }],
   ...over,
+  totalGross: over.totalGross ?? Math.round(((over.totalNet ?? 10000) + (over.vatAmount ?? 2100)) * 100) / 100,
 });
 
 beforeEach(() => {
@@ -307,8 +311,8 @@ beforeEach(() => {
   seed();
   vi.mocked(customers._internalHaulierList).mockImplementation((async ({ ids }: { ids?: string[] }) => ({
     hauliers: [
-      { id: H, companyName: "Bravo Trans", ico: "1", dic: "CZ1", city: "Brno" },
-      { id: H2, companyName: "Gama", ico: "2", dic: "CZ2", city: "Praha" },
+      { id: H, companyName: "Bravo Trans", ico: "1", dic: "CZ1", city: "Brno", country: "CZ" },
+      { id: H2, companyName: "Gama", ico: "2", dic: "CZ2", city: "Praha", country: "CZ" },
     ].filter((h) => !ids || ids.includes(h.id)),
   })) as never);
   vi.mocked(shipments._internalShipmentBasics).mockImplementation((async ({ ids }: { ids: string[] }) => ({
@@ -529,6 +533,35 @@ describe("file and reading", () => {
     await haulierInvoiceService.create(user, invoice({ invoiceNumber: "FV 2", totalNet: 1001, lines: [{ targetKind: "TRIP", targetId: LTL, invoiced: 1001, note: "" }] }));
     expect((await haulierInvoiceService.list(user, { status: "NEEDS_APPROVAL" })).map((i) => i.invoiceNumber)).toEqual(["FV 2"]);
     expect(await haulierInvoiceService.list(user, { haulierCustomerId: H2 })).toEqual([]);
+  });
+});
+
+describe("four eyes and today's figures on approval", () => {
+  it("who entered the invoice cannot approve its payment", async () => {
+    const inv = await haulierInvoiceService.create(manager, invoice({ totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
+    await expect(haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).rejects.toMatchObject({ code: "permission_denied", message: FOUR_EYES });
+  });
+
+  it("nor who last changed the haulier's bank accounts", async () => {
+    mem.profiles.set(H, profile({ bankAccountsChangedByUserId: M, bankAccountsChangedAt: new Date(Date.now() - 60 * 86_400_000) }));
+    const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
+    await expect(haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).rejects.toMatchObject({ code: "permission_denied", message: FOUR_EYES });
+  });
+
+  it("refuses to approve on figures that changed since the save (a claim decided meanwhile)", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ totalNet: 10200, lines: [{ targetKind: "TRIP", targetId: FTL, invoiced: 10200, note: "" }] }));
+    setClaimsSource({ claimedFor: async () => new Map([[FTL, 500]]) });
+    await expect(haulierInvoiceService.approve(manager, inv.id, "Waiting time agreed")).rejects.toMatchObject({ code: "failed_precondition", message: FIGURES_CHANGED });
+  });
+
+  it("refuses a gross total that is not net plus VAT", async () => {
+    await expect(haulierInvoiceService.create(user, invoice({ totalGross: 12000 }))).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+
+  it("holds an exact match whose VAT does not fit the haulier (no VAT from a Czech VAT payer)", async () => {
+    const inv = await haulierInvoiceService.create(user, invoice({ vatAmount: 0 }));
+    expect(inv.status).toBe("NEEDS_APPROVAL");
+    expect(inv.holdReasons).toEqual([expect.stringContaining("No VAT on a Czech VAT payer")]);
   });
 });
 

@@ -47,7 +47,8 @@ export const PlanningTripCard = ({ trip, vehicleLabel, avizaceWarning, legDraggi
   const [over, setOver] = useState(false);
   const order = trip.stops.map((s) => s.legId);
   const locked = trip.status === "IN_TRANSIT" || trip.status === "DONE" || trip.status === "CANCELLED";
-  const takesLegs = legDragging && !locked;
+  // A trip with a change on the way takes no leg until it answers.
+  const takesLegs = legDragging && !locked && !busy;
   const warnings = avizaceWarning ? [...trip.warnings, avizaceWarning] : trip.warnings;
 
   const reorder = (next: string[]) => orderChanged(order, next) && onReorder(trip, next);

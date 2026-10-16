@@ -9,7 +9,7 @@ import type { InternalCharge, InternalMonth } from "../interfaces/internal.inter
 import type { Actor } from "../../../lib/rbac";
 import { chargeItem, cleanMonth, closeRefusal, monthItem, monthOf, monthsBack, statementGroups, statementYear } from "../lib/internalBilling";
 import { buildInternalMonthWorkbook, buildInternalStatementPdf } from "../lib/internalStatementPdf";
-import { isManager } from "../lib/roles";
+import { requireManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { internalBillingService } from "./internalBilling.service";
 import { ourCompany } from "./transportOrder.service";
@@ -50,7 +50,7 @@ class InternalMonthService {
    * re-sends the internal line of every consignment charged in it, now with the statement number.
    */
   async close(actor: Actor, rawMonth: unknown): Promise<InternalMonth> {
-    if (!isManager(actor.role)) throw APIError.permissionDenied("Only a manager can close an internal billing month");
+    requireManager(actor.role, "close an internal billing month");
     const month = cleanMonth(rawMonth);
     const companyId = actor.companyID;
     const by = await userName(actor.userID);

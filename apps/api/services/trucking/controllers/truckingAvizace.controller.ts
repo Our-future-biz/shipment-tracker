@@ -3,6 +3,7 @@ import { requireRole } from "../../../lib/rbac";
 import { avizaceService } from "../services/avizace.service";
 import type { ConsignmentDetail } from "../interfaces/interfaces";
 import type { AvizaceChannel, AvizaceTemplate } from "../interfaces/avizace.interfaces";
+import { requireModule } from "../../../lib/modules";
 
 interface TruckingAvizaceTemplateRequest {
   id: string;
@@ -16,6 +17,7 @@ interface TruckingAvizaceTemplateResponse {
 export const truckingAvizaceTemplate = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/consignments/:id/avizace/template" },
   async ({ id }: TruckingAvizaceTemplateRequest): Promise<TruckingAvizaceTemplateResponse> => {
+    await requireModule("trucking_concept");
     return { template: await avizaceService.template(requireRole(), id) };
   },
 );
@@ -39,6 +41,7 @@ interface TruckingAvizaceRecordResponse {
 export const truckingAvizaceRecord = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/consignments/:id/avizace" },
   async ({ id, ...input }: TruckingAvizaceRecordRequest): Promise<TruckingAvizaceRecordResponse> => {
+    await requireModule("trucking_concept");
     return { consignment: await avizaceService.record(requireRole(), id, input) };
   },
 );

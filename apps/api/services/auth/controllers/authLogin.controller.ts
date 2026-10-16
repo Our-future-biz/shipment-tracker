@@ -1,7 +1,7 @@
 import { api } from "encore.dev/api";
 import type { MaxLen, MinLen } from "encore.dev/validate";
 import { authService } from "../services/auth.service";
-import type { AuthUserInfo } from "../services/auth.service";
+import type { SessionUser } from "../services/auth.service";
 
 interface AuthLoginRequest {
   email: string & MinLen<1> & MaxLen<320>;
@@ -10,7 +10,7 @@ interface AuthLoginRequest {
 
 interface AuthLoginResponse {
   token: string;
-  user: AuthUserInfo;
+  user: SessionUser;
 }
 
 export const authLogin = api(

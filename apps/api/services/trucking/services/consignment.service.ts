@@ -10,10 +10,11 @@ import { legRepository } from "../repositories/leg.repository";
 import { truckingDocumentRepository } from "../repositories/truckingDocument.repository";
 import { serviceActor } from "../../../lib/outbox/serviceIdentity";
 import { truckingOutboxRepository, type TruckingOutboxInput } from "../repositories/truckingOutbox.repository";
-import { appendEvent, listEvents } from "../repositories/event.repository";
+import { appendEvent, hasEvent, listEvents } from "../repositories/event.repository";
 import { exceptionRepository } from "../repositories/exception.repository";
 import type { NewTruckingLegRecord, TruckingConsignmentRecord, TruckingLegRecord, TruckingTripRecord } from "../schemas/truckingConsignment.schema";
 import type { TruckingOutboxKind } from "../schemas/truckingOutbox.schema";
+import type { TruckingOutboxPayloads } from "../lib/outboxPayload";
 import type { TruckingEventKind } from "../schemas/truckingEvent.schema";
 import type {
   ConsignmentCounts,
@@ -64,7 +65,7 @@ import { isPriced, promise, roundToStep, showPostcode } from "../lib/rateEngine"
 import { formatDay } from "../lib/format";
 import { quoteRefusal, quoteSellLines } from "../lib/quoteRules";
 import { isUniqueViolation } from "../../../lib/db/errors";
-import { isManager } from "../lib/roles";
+import { isManager, requireManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { eurRate, rateService } from "./rate.service";
 import { settingsService } from "./settings.service";
@@ -111,16 +112,16 @@ interface Priced {
 }
 
 /** An outbox row owed by a change, sent as `actor`. */
-export const owed = (
+export const owed = <K extends TruckingOutboxKind>(
   actor: Pick<Actor, "userID" | "role">,
   c: { id: string; shipmentId: string },
-  kind: TruckingOutboxKind,
-  payload: object,
+  kind: K,
+  payload: TruckingOutboxPayloads[K],
 ): TruckingOutboxInput => ({
   consignmentId: c.id,
   shipmentId: c.shipmentId,
   kind,
-  payload: payload as Record<string, unknown>,
+  payload,
   actingUserId: actor.userID,
   actingRole: actor.role,
 });
@@ -821,7 +822,7 @@ class ConsignmentService {
    * nobody read them. Idempotent: a second run changes nothing.
    */
   async refreshAllDepartments(actor: Actor): Promise<{ checked: number; written: number }> {
-    if (!isManager(actor.role)) throw APIError.permissionDenied("Only a manager can refresh the departments of consignments");
+    requireManager(actor.role, "refresh the departments of consignments");
     let checked = 0;
     let written = 0;
     for (let after: string | null = null; ; ) {
@@ -854,7 +855,7 @@ class ConsignmentService {
 
   /** Manager, with a reason: takes a notice off the consignment (Needs attention) once it is dealt with. */
   async clearNotice(actor: Actor, id: string, key: unknown, reason: unknown): Promise<ConsignmentDetail> {
-    if (!isManager(actor.role)) throw APIError.permissionDenied("Only a manager can clear a notice");
+    requireManager(actor.role, "clear a notice");
     const why = cleanReason(reason, "how the notice was dealt with");
     const { c } = await this.load(actor.companyID, id);
     if (typeof key !== "string" || !(c.notices ?? []).some((n) => n.key === key)) throw APIError.notFound("Notice not found");
@@ -877,7 +878,7 @@ class ConsignmentService {
 
   /** Manager. Refused after the pick-up. Its trip is cancelled with it and its Trucking cost lines removed. */
   async cancel(actor: Actor, id: string, reason: unknown): Promise<ConsignmentDetail> {
-    if (!isManager(actor.role)) throw APIError.permissionDenied("Only a manager can cancel a consignment");
+    requireManager(actor.role, "cancel a consignment");
     const why = cleanReason(reason, "a reason for the cancellation");
     const { c, trip } = await this.load(actor.companyID, id);
     if (c.cancelledAt) throw APIError.failedPrecondition("The consignment is already cancelled");
@@ -946,7 +947,7 @@ class ConsignmentService {
 
   /** Manager, only while the margin is below the floor and not yet approved. */
   async approveMargin(actor: Actor, id: string, reason: unknown): Promise<ConsignmentDetail> {
-    if (!isManager(actor.role)) throw APIError.permissionDenied("Only a manager can approve a margin below the floor");
+    requireManager(actor.role, "approve a margin below the floor");
     const why = cleanReason(reason, "a reason for the approval");
     const { c, trip } = await this.load(actor.companyID, id);
     if (c.cancelledAt) throw APIError.failedPrecondition("The consignment is cancelled");
@@ -1126,7 +1127,7 @@ class ConsignmentService {
 
   /** Manager: clears a stamp with the reason (the event of the stamp stays). A later stamp must be voided first. */
   async voidStamp(actor: Actor, id: string, kind: StampKind, reason: unknown): Promise<ConsignmentDetail> {
-    if (!isManager(actor.role)) throw APIError.permissionDenied("Only a manager can void a stamp");
+    requireManager(actor.role, "void a stamp");
     if (!STAMP_KINDS.includes(kind)) throw bad("Unknown stamp");
     const why = cleanReason(reason, "a reason for voiding the stamp");
     const { c, trip } = await this.load(actor.companyID, id);
@@ -1209,7 +1210,8 @@ class ConsignmentService {
       const trip = c.tripId ? await tripRepository.find(companyId, c.tripId) : null;
       await inTx(async (tx) => {
         const cancelled = !c.pickedUpAt && !c.gateInAt && (await this.cancelInTx(tx, system!, c, trip, "Shipments", "The job was deleted in Shipments", "Cancelled: the job was deleted in Shipments"));
-        if (!cancelled) {
+        // A redelivered message notes a kept consignment once.
+        if (!cancelled && !(await hasEvent(tx, companyId, c.id, "shipment_deleted"))) {
           await appendEvent(tx, companyId, {
             kind: "shipment_deleted",
             consignmentId: c.id,

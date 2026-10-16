@@ -3,6 +3,8 @@ import { pgTable, text, integer, numeric, boolean, uuid, timestamp, index, uniqu
 import { tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import type { InternalChargeKind } from "../interfaces/internal.interfaces";
 import { truckingConsignmentTable } from "./truckingConsignment.schema";
+import { truckingExceptionTable } from "./avizace.schema";
+import { truckingTariffVersionTable } from "./truckingTariff.schema";
 
 // Internal billing (Phase 6): what Trucking charges another department for a consignment on that
 // department's job, month by month (the month of the delivery, Prague).
@@ -48,6 +50,8 @@ export const truckingInternalChargeTable = pgTable(
     uniqueIndex("trucking_internal_charge_reverses_unique").on(table.reversesId).where(sql`reverses_id IS NOT NULL`),
     foreignKey({ name: "trucking_internal_charge_consignment_fk", columns: [table.consignmentId], foreignColumns: [truckingConsignmentTable.id] }).onDelete("restrict"),
     foreignKey({ name: "trucking_internal_charge_reverses_fk", columns: [table.reversesId], foreignColumns: [table.id] }).onDelete("restrict"),
+    foreignKey({ name: "trucking_internal_charge_exception_fk", columns: [table.exceptionId], foreignColumns: [truckingExceptionTable.id] }).onDelete("restrict"),
+    foreignKey({ name: "trucking_internal_charge_tariff_version_fk", columns: [table.tariffVersionId], foreignColumns: [truckingTariffVersionTable.id] }).onDelete("restrict"),
     check("trucking_internal_charge_month_check", sql`${table.month} ~ '^[0-9]{4}-(0[1-9]|1[0-2])$'`),
     check("trucking_internal_charge_kind_check", sql`${table.kind} IN ('CHARGE', 'EXCEPTION', 'ADJUSTMENT')`),
     check("trucking_internal_charge_currency_check", sql`${table.currency} = 'CZK'`),

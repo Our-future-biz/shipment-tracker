@@ -89,6 +89,8 @@ export interface HaulierCompanyItem {
   ico: string;
   dic: string;
   city: string;
+  /** ISO 3166-1 alpha-2 as stored ("CZ" for most); "" when unknown */
+  country: string;
 }
 
 export interface ContactItem {

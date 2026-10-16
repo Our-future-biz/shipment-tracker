@@ -3,9 +3,8 @@ import { invoicing, shipments } from "~encore/clients";
 import { truckingOutboxRepository } from "../repositories/truckingOutbox.repository";
 import { appendEvent } from "../repositories/event.repository";
 import type { TruckingOutboxKind, TruckingOutboxRecord } from "../schemas/truckingOutbox.schema";
-import type { CostsPayload } from "../lib/truckingLinks";
-import type { RealCostsPayload } from "../lib/haulierInvoiceReal";
-import { cancelExpected, expectArrival, expectDeparture, type CancelExpectedInput, type ExpectArrivalInput, type ExpectDepartureInput } from "../lib/warehouseLink";
+import { parseOutboxRow } from "../lib/outboxPayload";
+import { cancelExpected, expectArrival, expectDeparture } from "../lib/warehouseLink";
 import { outboxErrorCode } from "../../../lib/outbox/outboxRetry";
 import { deliverOutboxRow, runOutboxDelivery, type OutboxHandlers } from "../../../lib/outbox/outboxDelivery";
 import { actingAuthNow, sendShipmentUpdateAs } from "../../../lib/outbox/shipmentUpdateAs";
@@ -58,37 +57,36 @@ export function outboxErrorText(err: unknown): string {
 
 /** Sends one row to where it goes, as its acting user. */
 export async function sendRow(row: TruckingOutboxRecord): Promise<void> {
-  if (row.kind === "planned" || row.kind === "plate" || row.kind === "delivered") {
-    await sendShipmentUpdateAs({ ...row, payload: row.payload as Record<string, string> });
+  const message = parseOutboxRow(row);
+  if (message.kind === "planned" || message.kind === "plate" || message.kind === "delivered") {
+    await sendShipmentUpdateAs({ ...row, payload: message.payload });
     return;
   }
   const authData = await actingAuthNow(row);
-  // Our warehouse (lib/warehouseLink).
-  if (row.kind === "expect_arrival") {
-    await expectArrival(row.payload as unknown as ExpectArrivalInput, authData);
-    return;
+  switch (message.kind) {
+    // Our warehouse (lib/warehouseLink).
+    case "expect_arrival":
+      await expectArrival(message.payload, authData);
+      return;
+    case "expect_departure":
+      await expectDeparture(message.payload, authData);
+      return;
+    case "cancel_expected":
+      await cancelExpected(message.payload, authData);
+      return;
+    case "billing":
+      await shipments._internalShipmentMarkBilling({ shipmentId: row.shipmentId }, { authData });
+      return;
+    case "real_costs":
+      await invoicing._internalInvoicingTruckingReal({ shipmentId: row.shipmentId, ...message.payload }, { authData });
+      return;
+    case "costs": {
+      const result = await invoicing._internalInvoicingTruckingLines({ shipmentId: row.shipmentId, ...message.payload }, { authData });
+      // A selling set kept for an issued invoice: Invoicing added the difference as its own line (decision 9).
+      await recordSellingDifferences(row, result?.differences);
+      return;
+    }
   }
-  if (row.kind === "expect_departure") {
-    await expectDeparture(row.payload as unknown as ExpectDepartureInput, authData);
-    return;
-  }
-  if (row.kind === "cancel_expected") {
-    await cancelExpected(row.payload as unknown as CancelExpectedInput, authData);
-    return;
-  }
-  if (row.kind === "billing") {
-    await shipments._internalShipmentMarkBilling({ shipmentId: row.shipmentId }, { authData });
-    return;
-  }
-  if (row.kind === "real_costs") {
-    const real = row.payload as unknown as RealCostsPayload;
-    await invoicing._internalInvoicingTruckingReal({ shipmentId: row.shipmentId, ...real }, { authData });
-    return;
-  }
-  const costs = row.payload as unknown as CostsPayload;
-  const result = await invoicing._internalInvoicingTruckingLines({ shipmentId: row.shipmentId, ...costs }, { authData });
-  // A selling set kept for an issued invoice: Invoicing added the difference as its own line (decision 9).
-  await recordSellingDifferences(row, result?.differences);
 }
 
 const what = (row: Pick<TruckingOutboxRecord, "kind">) => OUTBOX_WHAT[row.kind] ?? row.kind;

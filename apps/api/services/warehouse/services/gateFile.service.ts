@@ -8,7 +8,7 @@ import type { GateFileItem } from "../interfaces/gate.interfaces";
 import { checkRequestId } from "./offline";
 import { isUniqueViolation } from "../../../lib/db/errors";
 import { userName } from "./users";
-import { servedFileType, storedFileType } from "./fileType";
+import { servedFileType, storedFileType } from "../../../lib/fileType";
 
 // A single upload may be up to 25 MB; the page shows usage against ~20 MB per shipment.
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;

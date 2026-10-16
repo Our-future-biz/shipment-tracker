@@ -24,6 +24,7 @@ export const LINK_VALID_MS = 72 * 60 * 60 * 1000;
 
 /** The one answer to a failed login: unknown e-mail, wrong password, locked or disabled. */
 export const LOGIN_FAILED = "E-mail or password is wrong";
+export const LOGIN_AMBIGUOUS = "This e-mail has portal accounts with more than one company - ask each company to use a different e-mail";
 /** The one answer to a missing, unknown, expired or revoked session. */
 export const LOG_IN_AGAIN = "Please log in again";
 /** The one answer to an unknown, used or expired set-password link. */

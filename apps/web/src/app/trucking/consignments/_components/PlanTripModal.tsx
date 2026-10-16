@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Alert, Button, Input, InputNumber, Modal, Radio, Select, Spin } from "antd";
 import { StarFilled } from "@ant-design/icons";
 import { apiErrorMessage } from "@/lib/api";
 import { formatDate } from "@/lib/date";
-import { useHauliers, useRate, useTruckingSettings, type RateRequest } from "@/hooks/useTrucking";
+import { useHauliers, useRateQuery, useTruckingSettings, type RateRequest } from "@/hooks/useTrucking";
 import type { ConsignmentDetail, TripCreateFtl } from "@/hooks/useTruckingConsignments";
 import { CURRENCIES, formatPsc } from "../../_lib/hauliers";
 import { TERMS } from "../../_lib/glossary";
@@ -54,7 +54,10 @@ interface PlanTripModalProps {
 // cheapest; blocked ones shown apart with why — or another haulier at an agreed price. The
 // suggested haulier is the first; choosing another is logged on the trip.
 export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
-  const { rate, isRating, result, error } = useRate();
+  // The candidates are priced once per opening (the dialog mounts per opening).
+  const [round] = useState(() => Date.now());
+  const [request] = useState(() => planRateRequest(c));
+  const { isRating, result, error } = useRateQuery(request, round);
   const { settings } = useTruckingSettings();
   const { hauliers } = useHauliers();
   const [choice, setChoice] = useState<string | null>(null);
@@ -64,12 +67,6 @@ export const PlanTripModal = ({ c, onClose, onPlan }: PlanTripModalProps) => {
   const [agreedReason, setAgreedReason] = useState("");
   const [vehicle, setVehicle] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  // The candidates are priced once, when the dialog opens.
-  useEffect(() => {
-    rate(planRateRequest(c)).catch(() => undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const level = result?.results[0] ?? null;
   const candidates = useMemo(() => level?.buy ?? [], [level]);

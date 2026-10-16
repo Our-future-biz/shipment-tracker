@@ -3,6 +3,7 @@ import { requireRole } from "../../../lib/rbac";
 import { internalMonthService } from "../services/internalMonth.service";
 import type { FileDownload } from "../interfaces/interfaces";
 import type { InternalCharge, InternalMonth } from "../interfaces/internal.interfaces";
+import { requireModule } from "../../../lib/modules";
 
 // Internal billing: what Trucking charges other departments, month by month.
 
@@ -14,6 +15,7 @@ interface TruckingInternalMonthListResponse {
 export const truckingInternalMonthList = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/internal/months" },
   async (): Promise<TruckingInternalMonthListResponse> => {
+    await requireModule("trucking_concept");
     return { months: await internalMonthService.list(requireRole()) };
   },
 );
@@ -30,6 +32,7 @@ interface TruckingInternalChargesResponse {
 export const truckingInternalCharges = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/internal/months/:month/charges" },
   async ({ month }: TruckingInternalMonthRequest): Promise<TruckingInternalChargesResponse> => {
+    await requireModule("trucking_concept");
     return { charges: await internalMonthService.charges(requireRole(), month) };
   },
 );
@@ -42,6 +45,7 @@ interface TruckingInternalMonthCloseResponse {
 export const truckingInternalMonthClose = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/internal/months/:month/close" },
   async ({ month }: TruckingInternalMonthRequest): Promise<TruckingInternalMonthCloseResponse> => {
+    await requireModule("trucking_concept");
     return { month: await internalMonthService.close(requireRole(), month) };
   },
 );
@@ -58,6 +62,7 @@ interface TruckingFileResponse {
 export const truckingInternalStatementPdf = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/internal/statements/:number/pdf" },
   async ({ number }: TruckingInternalStatementRequest): Promise<TruckingFileResponse> => {
+    await requireModule("trucking_concept");
     return { file: await internalMonthService.statementPdf(requireRole(), number) };
   },
 );
@@ -65,6 +70,7 @@ export const truckingInternalStatementPdf = api(
 export const truckingInternalMonthExport = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/internal/months/:month/export" },
   async ({ month }: TruckingInternalMonthRequest): Promise<TruckingFileResponse> => {
+    await requireModule("trucking_concept");
     return { file: await internalMonthService.exportMonth(requireRole(), month) };
   },
 );

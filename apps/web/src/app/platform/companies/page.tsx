@@ -8,6 +8,7 @@ import type { ColumnsType } from "antd/es/table";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { usePlatformCompanies, type CompanyRow } from "@/hooks/useUserAdmin";
 import { useToast } from "@/lib/toast";
+import { CompanyModulesCell } from "./_components/CompanyModulesCell";
 
 export default function PlatformCompaniesPage() {
   const { user } = useAuth();
@@ -45,6 +46,7 @@ export default function PlatformCompaniesPage() {
     { title: "Company", dataIndex: "name", render: (v: string) => <span className="font-medium text-slate-800">{v}</span> },
     { title: "Slug", dataIndex: "slug", render: (v: string) => <span className="font-mono text-xs text-slate-500">{v}</span> },
     { title: "Created", dataIndex: "createdAt", width: 140, render: (v: string) => v?.slice(0, 10) ?? "—" },
+    { title: "Modules", key: "modules", width: 230, render: (_: unknown, r) => <CompanyModulesCell company={r} /> },
     {
       title: "",
       key: "actions",

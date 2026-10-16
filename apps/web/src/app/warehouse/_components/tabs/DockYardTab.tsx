@@ -21,7 +21,7 @@ import { useToast } from "@/lib/toast";
 import type { interfaces } from "@/lib/api/client";
 import { CONTAINER_TYPES } from "@/app/warehouse/gate-log/_lib/gate";
 import { TERMS, directionOf } from "@/app/warehouse/_lib/glossary";
-import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
+import { useUrlParam } from "@/hooks/useUrlParam";
 import { useWarehouseSettings } from "@/hooks/useWarehouseSettings";
 import { Card, ExpiryTag, Kpi, RecordFormModal, StatusTag, SubTabs, daysUntil, dim, type FieldDef } from "./shared";
 import { addDays, businessToday } from "@/lib/date";

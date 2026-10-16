@@ -4,6 +4,7 @@ import { sectionItem } from "../services/warehouse.service";
 import { emailSupplierService } from "../services/emailSupplier.service";
 import type { WarehouseSectionItem } from "../interfaces/interfaces";
 import type { SupplierEmailItem, SupplierEmailPreview } from "../interfaces/settings.interfaces";
+import { requireModule } from "../../../lib/modules";
 
 // Supplier e-mail of a position: VGM, survey or remeasurement e-mailed to the recipients set in
 // Warehouse settings. Only an e-mail the provider took is marked as sent (with the recipients in
@@ -32,6 +33,7 @@ interface SendToSupplierResponse {
 export const warehousePositionSendToSupplier = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-positions/:taskId/send-to-supplier" },
   async ({ taskId, what, note, clientRequestId, previewOnly }: SendToSupplierRequest): Promise<SendToSupplierResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID } = getAuthData()!;
     if (previewOnly) {
       return { section: null, email: null, preview: await emailSupplierService.preview(taskId, what, note ?? "", companyID, userID) };
@@ -49,6 +51,7 @@ interface SupplierEmailsRequest {
 export const warehousePositionSupplierEmails = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-positions/:taskId/supplier-emails" },
   async ({ taskId }: SupplierEmailsRequest): Promise<{ emails: SupplierEmailItem[] }> => {
+    await requireModule("warehouse_concept");
     return { emails: await emailSupplierService.list(taskId, getAuthData()!.companyID) };
   },
 );

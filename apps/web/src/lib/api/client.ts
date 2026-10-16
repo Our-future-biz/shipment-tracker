@@ -139,6 +139,7 @@ export namespace auth {
             this.columnTemplatesList = this.columnTemplatesList.bind(this)
             this.columnTemplatesUpsert = this.columnTemplatesUpsert.bind(this)
             this.companyList = this.companyList.bind(this)
+            this.companyModulesUpdate = this.companyModulesUpdate.bind(this)
             this.companyProvision = this.companyProvision.bind(this)
             this.companyUserCreate = this.companyUserCreate.bind(this)
             this.companyUserDelete = this.companyUserDelete.bind(this)
@@ -294,6 +295,17 @@ export namespace auth {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/companies`)
             return await resp.json() as controllers.CompanyListResponse
+        }
+
+        /**
+         * Platform-only: which modules a company's users get. Superadmins always see every module. Other
+         * services cache a company's hidden modules for up to a minute (lib/modules), so a change can take
+         * that long to reach them.
+         */
+        public async companyModulesUpdate(id: string, params: controllers.CompanyModulesUpdateRequest): Promise<controllers.CompanyModulesUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/companies/${encodeURIComponent(id)}/modules`, JSON.stringify(params))
+            return await resp.json() as controllers.CompanyModulesUpdateResponse
         }
 
         /**
@@ -3839,6 +3851,10 @@ export namespace warehouse {
 }
         }
 
+        /**
+         * One shipment's positions (the Shipments → Warehouse tab) are there for every company; the whole
+         * list is the Warehouse Concept's Positions screen.
+         */
         public async warehouseList(params: controllers.WarehouseListRequest): Promise<controllers.WarehouseListResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
@@ -4425,7 +4441,7 @@ export namespace controllers {
 
     export interface AuthLoginResponse {
         token: string
-        user: services.AuthUserInfo
+        user: services.SessionUser
     }
 
     /**
@@ -4437,7 +4453,7 @@ export namespace controllers {
     }
 
     export interface AuthMeResponse {
-        user: services.AuthUserInfo
+        user: services.SessionUser
     }
 
     export interface AutomationLogsResponse {
@@ -4592,6 +4608,17 @@ export namespace controllers {
 
     export interface CompanyListResponse {
         companies: services.CompanyInfo[]
+    }
+
+    export interface CompanyModulesUpdateRequest {
+        /**
+         * The modules the company's users do not get; [] shows everything
+         */
+        hiddenModules: interfaces.AppModule[]
+    }
+
+    export interface CompanyModulesUpdateResponse {
+        company: services.CompanyInfo
     }
 
     export interface CompanyProvisionRequest {
@@ -7710,11 +7737,7 @@ export namespace controllers {
         insurer: string
         insurancePolicyNo: string
         insuranceLimit: number | null
-        /**
-         * "CZK" | "EUR"
-         */
-        insuranceCurrency: string
-
+        insuranceCurrency: interfaces.HaulierCurrency
         /**
          * YYYY-MM-DD
          */
@@ -7734,11 +7757,7 @@ export namespace controllers {
         vehicleTypes: string[]
 
         paymentDays: number
-        /**
-         * "CZK" | "EUR"
-         */
-        currency: string
-
+        currency: interfaces.HaulierCurrency
         /**
          * vatUnreliable, bankAccountPublished, vatCheckedAt, bankAccounts: a manager only (another user sends them as stored)
          */
@@ -8587,6 +8606,11 @@ export namespace interfaces {
     export type AddressType = "Registered" | "Billing" | "Pickup" | "Delivery" | "Warehouse"
 
     export type AdrPackingGroup = "I" | "II" | "III"
+
+    /**
+     * A part of the app a company can have hidden (superadmin sets it per company; superadmins always see everything).
+     */
+    export type AppModule = "warehouse_concept" | "trucking_concept"
 
     export interface AresResult {
         ico: string
@@ -9768,7 +9792,17 @@ export namespace interfaces {
         internalChargesCzk: number
         haulierCostCzk: number
         /**
-         * externalSell + exceptionCharges + internalCharges − haulierCost
+         * Claimed back from hauliers (damage, delays) in the period, CZK
+         */
+        haulierClaimsCzk: number
+
+        /**
+         * EUR amounts with no ČNB rate for their day: left out of the figures above (never counted as 0)
+         */
+        unconvertedAmounts: number
+
+        /**
+         * externalSell + exceptionCharges + internalCharges + haulierClaims − haulierCost
          */
         resultCzk: number
 
@@ -10683,6 +10717,11 @@ export namespace interfaces {
         createdAt: string
     }
 
+    /**
+     * The currencies a haulier is insured and paid in (the profile's CHECK holds the same two).
+     */
+    export type HaulierCurrency = "CZK" | "EUR"
+
     export interface HaulierDetail {
         customerId: string
         companyName: string
@@ -10865,11 +10904,7 @@ export namespace interfaces {
          */
         insuranceLimit: number | null
 
-        /**
-         * "CZK" | "EUR"
-         */
-        insuranceCurrency: string
-
+        insuranceCurrency: HaulierCurrency
         /**
          * YYYY-MM-DD
          */
@@ -10901,11 +10936,7 @@ export namespace interfaces {
          */
         paymentDays: number
 
-        /**
-         * "CZK" | "EUR"
-         */
-        currency: string
-
+        currency: HaulierCurrency
         /**
          * Nespolehlivý plátce DPH (manual for now)
          */
@@ -15271,6 +15302,10 @@ export namespace services {
         name: string
         slug: string
         createdAt: string
+        /**
+         * Modules the company's users do not get (superadmins still see them)
+         */
+        hiddenModules: interfaces.AppModule[]
     }
 
     export interface CountryInfo {
@@ -15352,6 +15387,24 @@ export namespace services {
          * The value the client last saw ("" = not set). The save is refused if it changed since.
          */
         expected: string
+    }
+
+    /**
+     * The signed-in user (login, /auth/me): their info and the modules hidden from them.
+     */
+    export interface SessionUser {
+        /**
+         * Modules the user's company hides; always [] for a superadmin
+         */
+        hiddenModules: interfaces.AppModule[]
+
+        id: string
+        companyId: string
+        email: string
+        displayName: string
+        role: string
+        departmentId: string | null
+        branchId: string | null
     }
 
     export type StampKind = "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt"

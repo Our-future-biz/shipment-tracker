@@ -11,6 +11,8 @@ import type { Tone } from "@/components/Badge";
 import type { interfaces } from "@/lib/api/client";
 import { businessDateTime } from "@/lib/date";
 import { formatMoney, formatPercent, formatQty } from "./tariffs";
+import { consignmentHref, jobConsignmentsHref, tripHref } from "@/lib/truckingLinks";
+export { consignmentHref, jobConsignmentsHref, tripHref };
 
 // Pure helpers of the consignment and trip screens: status words and colours, the lifecycle, what
 // needs attention, and which actions a consignment allows now (and why not). Tested in
@@ -183,7 +185,6 @@ export function loadText(c: Pick<ConsignmentListItem, "palletPlaces" | "weightKg
 }
 
 /** The Consignments tab showing only one job's consignments (?job= is the job's shipment id). */
-export const jobConsignmentsHref = (shipmentId: string) => `/trucking?job=${encodeURIComponent(shipmentId)}`;
 
 /** The margin as a line: "1 250 CZK · 12.5 %"; "—" when not known yet (no buy price). */
 export function marginText(c: Pick<ConsignmentListItem, "marginCzk" | "marginPercent">): string {
@@ -414,8 +415,6 @@ export function routeText(c: Pick<ConsignmentListItem, "pickupPostcode" | "picku
 }
 
 /** The consignment page of a ref's id. */
-export const consignmentHref = (id: string) => `/trucking/consignments/${id}`;
-export const tripHref = (id: string) => `/trucking/trips/${id}`;
 
 /** The Needs-attention reasons that are not one of the consignment's notices (those are listed on their own, each with Clear). */
 export const reasonsBesideNotices = (c: Pick<ConsignmentDetail, "needsAttention" | "notices">): string[] => {

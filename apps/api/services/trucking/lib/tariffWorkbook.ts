@@ -366,7 +366,8 @@ export async function loadWorkbookTables(buffer: Buffer): Promise<SheetTable[]> 
   }
   const wb = new ExcelJS.Workbook();
   try {
-    await wb.xlsx.load(buffer as never);
+    // ExcelJS types load() with its own Buffer; a fresh ArrayBuffer copy fits it without a cast.
+    await wb.xlsx.load(new Uint8Array(buffer).buffer);
   } catch {
     throw new UnreadableFileError("The file could not be opened as an Excel workbook. Open it in Excel, save it as .xlsx and try again.");
   }

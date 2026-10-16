@@ -107,7 +107,11 @@ export interface DepartmentResult {
   exceptionChargesCzk: number;
   internalChargesCzk: number;
   haulierCostCzk: number;
-  /** externalSell + exceptionCharges + internalCharges − haulierCost */
+  /** Claimed back from hauliers (damage, delays) in the period, CZK */
+  haulierClaimsCzk: number;
+  /** EUR amounts with no ČNB rate for their day: left out of the figures above (never counted as 0) */
+  unconvertedAmounts: number;
+  /** externalSell + exceptionCharges + internalCharges + haulierClaims − haulierCost */
   resultCzk: number;
   internalByDepartment: { department: string; amountCzk: number; consignments: number }[];
 }

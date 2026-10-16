@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, uuid, jsonb, index, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
 import { outboxColumns, outboxStatusCheck } from "../../../lib/outbox/outbox.columns";
+import type { TruckingOutboxPayload } from "../lib/outboxPayload";
 
 /**
  * What a row owes the job:
@@ -39,8 +40,8 @@ export const truckingOutboxTable = pgTable(
     consignmentId: uuid("consignment_id").notNull(),
     shipmentId: uuid("shipment_id").notNull(),
     kind: text("kind").$type<TruckingOutboxKind>().notNull(),
-    // ShipmentUpdate fields (planned / plate / delivered), nothing (billing) or the cost lines (costs).
-    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    // What the kind carries (lib/outboxPayload): ShipmentUpdate fields, nothing (billing), cost lines, ...
+    payload: jsonb("payload").$type<TruckingOutboxPayload>().notNull(),
     ...outboxColumns,
   },
   (table) => [

@@ -13,7 +13,7 @@ import { getCellConditionalStyle } from "@/lib/columnConfig";
 import { reportBulk, runBulk } from "@/app/warehouse/_components/tabs/shared";
 import { DIRECTIONS, RELEASE_GATES_VALUES, TERMS, directionOf, releaseGatesText } from "@/app/warehouse/_lib/glossary";
 import { formatDateTime } from "@/lib/date";
-import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
+import { useUrlParam } from "@/hooks/useUrlParam";
 import { Badge, CUSTOMS_CLEARED, CUSTOMS_STATUSES, GATE_STATUSES, OPERATION_TYPES, PACKINGS, isFcl, isLcl, nf } from "../_lib/gate";
 import { PrintLabelsModal } from "./PrintLabelsModal";
 import { ExpectedTodayPanel } from "./ExpectedTodayPanel";

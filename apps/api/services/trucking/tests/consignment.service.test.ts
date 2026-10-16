@@ -495,6 +495,7 @@ describe("the job was deleted in Shipments", () => {
     // Idempotent: a second delivery of the message changes nothing more.
     await consignmentService.retireShipment(SHIPMENT, COMPANY);
     expect(eventsOf("consignment_cancelled")).toHaveLength(1);
+    expect(eventsOf("shipment_deleted")).toHaveLength(1);
   });
 });
 

@@ -14,6 +14,7 @@ import { TARGET_KIND_LABELS, differenceText, entryProblems, entrySummary, lineDi
 import { formatMoney } from "../../_lib/tariffs";
 import { readUpload, uploadProblem } from "../../_lib/uploads";
 import { TruckingField } from "../../_components/TruckingField";
+import { round2 } from "@/lib/money";
 
 const CURRENCY_OPTIONS = CURRENCIES.map((c) => ({ value: c, label: c }));
 const EMPTY_HEADER: EntryHeader = { invoiceNumber: "", issueDate: null, currency: "CZK", totalNet: null, vatAmount: null, totalGross: null, bankAccount: "" };
@@ -73,7 +74,7 @@ export const HaulierInvoiceEntryModal = ({ onClose, onCreate }: HaulierInvoiceEn
   const effectiveHeader: EntryHeader = {
     ...header,
     totalNet: header.totalNet ?? (lines.length ? linesTotal(lines) : null),
-    totalGross: header.totalGross ?? (header.vatAmount != null && lines.length ? Math.round(((header.totalNet ?? linesTotal(lines)) + header.vatAmount) * 100) / 100 : null),
+    totalGross: header.totalGross ?? (header.vatAmount != null && lines.length ? round2((header.totalNet ?? linesTotal(lines)) + header.vatAmount) : null),
   };
   const summary = entrySummary(lines, effectiveHeader);
   const fileProblem = file ? uploadProblem(file, { imagesAndPdfOnly: true }) : null;

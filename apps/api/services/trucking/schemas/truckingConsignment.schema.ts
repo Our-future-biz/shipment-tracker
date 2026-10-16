@@ -128,6 +128,8 @@ export const truckingConsignmentTable = pgTable(
     index("trucking_consignment_shipment_idx").on(table.companyId, table.shipmentId),
     index("trucking_consignment_status_idx").on(table.companyId, table.status, table.pickupDate),
     index("trucking_consignment_trip_idx").on(table.tripId),
+    // The trip table is declared below; the callback runs after the module has loaded.
+    foreignKey({ name: "trucking_consignment_trip_fk", columns: [table.tripId], foreignColumns: [truckingTripTable.id] }).onDelete("restrict"),
     // One live consignment per quote it is priced from (decision 10); a cancelled one frees the quote.
     uniqueIndex("trucking_consignment_quote_unique")
       .on(table.companyId, table.quoteNumber)

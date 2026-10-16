@@ -1,6 +1,11 @@
 import type { interfaces } from "@/lib/api/client";
 import { formatDate } from "@/lib/date";
-import { formatNumber } from "@/lib/number";
+import { formatPercent, formatQty } from "@/lib/number";
+import { formatAmount } from "@/lib/money";
+
+// Shared with screens outside Trucking; kept under their Trucking names here.
+export { formatPercent, formatQty };
+export const formatMoney = formatAmount;
 import { formatPsc } from "./hauliers";
 
 // Pure helpers of the Tariffs tab, the tariff and version pages and the rate calculator: labels,
@@ -59,29 +64,8 @@ export const VERSION_STATUS_CHIP: Record<TariffVersionStatus, { label: string; t
   SUPERSEDED: { label: "Superseded", tone: "slate", hint: "Replaced before it started" },
 };
 
-/** "1 250" / "12.5" / "0.25": whole numbers without decimals, others with up to 2. */
-export function formatQty(n: number): string {
-  const rounded = Math.round(n * 100) / 100;
-  if (Number.isInteger(rounded)) return formatNumber(rounded, 0);
-  return formatNumber(rounded, Number.isInteger(rounded * 10) ? 1 : 2);
-}
 
-/** "1 250 CZK", "1 250.50 EUR" (cents only when there are some); "—" for none. */
-export function formatMoney(amount: number | null | undefined, currency: string): string {
-  if (amount == null || !Number.isFinite(amount)) return "—";
-  const cents = Math.round(amount * 100);
-  const value = cents / 100 || 0;
-  const text = formatNumber(Math.abs(value), cents % 100 !== 0 ? 2 : 0);
-  return `${value < 0 ? "−" : ""}${text} ${currency}`;
-}
 
-/** "12.5 %"; with `signed`, "+3 %" / "−5 %". "—" for none. */
-export function formatPercent(p: number | null | undefined, signed = false): string {
-  if (p == null || !Number.isFinite(p)) return "—";
-  const rounded = Math.round(p * 10) / 10 || 0;
-  const sign = rounded < 0 ? "−" : signed && rounded > 0 ? "+" : "";
-  return `${sign}${formatQty(Math.abs(rounded))} %`;
-}
 
 /** How a DISCOUNT tariff reads: "−5 % on Standard" (a negative discount is an uplift: "+3 % on Standard"). */
 export function discountLabel(discountPercent: number | null): string {

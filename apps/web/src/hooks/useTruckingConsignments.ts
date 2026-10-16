@@ -1,8 +1,9 @@
 "use client";
 
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, publicApi } from "@/lib/api";
 import { truckingKeys } from "./truckingKeys";
+import { invalidateAfterTruckingWrite } from "./truckingRefresh";
 
 // Consignments, FTL trips, transport orders, documents and the haulier's public link (Phase 4).
 // Every shape is taken from the client methods, so the screens follow the API when the client is
@@ -63,15 +64,18 @@ const NO_CONSIGNMENTS: ConsignmentListItem[] = [];
 const NO_TRIPS: TripListItem[] = [];
 const NO_DOCUMENTS: TruckingDocument[] = [];
 
-/** The consignments of a view, status, search or job, with the counts of the tiles and chips. */
-export function useConsignments(filters: ConsignmentListRequest = {}, { enabled = true } = {}) {
+/**
+ * The consignments of a view, status, search or job, with the counts of the tiles and chips.
+ * `keepPrevious` (the list tab only) keeps the rows on screen while a chip switches; elsewhere a new
+ * job must never show the previous job's consignments.
+ */
+export function useConsignments(filters: ConsignmentListRequest = {}, { enabled = true, keepPrevious = false } = {}) {
   const key = { view: filters.view, status: filters.status, search: filters.search, shipmentId: filters.shipmentId };
   const query = useQuery({
     queryKey: truckingKeys.consignmentList(key),
     queryFn: () => api.trucking.truckingConsignmentList(filters),
     enabled,
-    // A chip switched keeps the rows on screen until the new ones arrive.
-    placeholderData: keepPreviousData,
+    placeholderData: keepPrevious ? keepPreviousData : undefined,
   });
   return {
     consignments: query.data?.consignments ?? NO_CONSIGNMENTS,
@@ -82,18 +86,10 @@ export function useConsignments(filters: ConsignmentListRequest = {}, { enabled 
   };
 }
 
-/** A change to a consignment or trip moves both lists, the planning board and the job's cards, so every list is read again. */
+/** A change to a consignment or trip moves the lists, the board, the job, its costs, billing and warehouse rows. */
 export function useRefreshLists() {
   const queryClient = useQueryClient();
-  return () =>
-    Promise.all([
-      queryClient.invalidateQueries({ queryKey: truckingKeys.consignments() }),
-      queryClient.invalidateQueries({ queryKey: truckingKeys.trips() }),
-      queryClient.invalidateQueries({ queryKey: truckingKeys.planning() }),
-      // The job (dates, plate, status) and its costs are written by the server from Trucking.
-      queryClient.invalidateQueries({ queryKey: ["shipments"] }),
-      queryClient.invalidateQueries({ queryKey: ["invoicing"] }),
-    ]);
+  return () => invalidateAfterTruckingWrite(queryClient);
 }
 
 export function useCreateConsignment() {
@@ -180,6 +176,21 @@ export function useTrips(filters: Parameters<typeof api.trucking.truckingTripLis
     enabled,
   });
   return { trips: query.data?.trips ?? NO_TRIPS, isLoading: query.isLoading, isError: query.isError };
+}
+
+/**
+ * The refs of just these trips (a job's cost rows name a few), by id — shares the cache with
+ * `useTrip`, instead of loading the whole trips list to label them.
+ */
+export function useTripRefs(ids: readonly string[]): Map<string, string> {
+  const results = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: truckingKeys.trip(id),
+      queryFn: () => api.trucking.truckingTripGet(id),
+      retry: false,
+    })),
+  });
+  return new Map(results.flatMap((r) => (r.data ? [[r.data.trip.id, r.data.trip.ref] as const] : [])));
 }
 
 /** One trip and its transport order; `enabled: false` asks nothing (a consignment without a trip). */

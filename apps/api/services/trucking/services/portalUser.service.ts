@@ -9,10 +9,11 @@ import type { Actor } from "../../../lib/rbac";
 import { isUuid } from "../../../lib/uuid";
 import { newToken } from "../lib/haulierToken";
 import { cleanText, LINK_VALID_MS, normaliseEmail, portalUserItem, setPasswordUrl } from "../lib/portalRules";
-import { isManager } from "../lib/roles";
+import { requireManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { haulierService } from "./haulier.service";
 import { appUrl } from "../../../lib/appUrl";
+import { isUniqueViolation } from "../../../lib/db/errors";
 
 // The app's side of the haulier portal: a haulier's portal users. Any user sees them; a manager
 // adds one, resets a password, disables or enables. E-mail sending is off, so an invitation or a
@@ -23,13 +24,6 @@ export const PORTAL_USER_CONFLICT = "The portal user was changed by someone else
 const EMAIL_TAKEN = "A portal user with this e-mail already exists";
 
 const notFound = () => APIError.notFound("Portal user not found");
-
-const managerOnly = (actor: Actor, what: string) => {
-  if (!isManager(actor.role)) throw APIError.permissionDenied(`Only a manager can ${what}`);
-};
-
-/** A unique index refused the row (two adds of one e-mail at once). */
-const isUniqueViolation = (err: unknown) => (err as { code?: unknown })?.code === "23505";
 
 class PortalUserService {
   private async load(actor: Actor, id: string): Promise<PortalUserRecord> {
@@ -65,7 +59,7 @@ class PortalUserService {
 
   /** Manager: a new portal user of a haulier (Customer Database company with the role haulier) and the invitation link. */
   async create(actor: Actor, customerId: string, input: { email: unknown; name: unknown; phone: unknown }): Promise<{ user: PortalUserItem; inviteLink: string; expiresAt: string }> {
-    managerOnly(actor, "add a portal user");
+    requireManager(actor.role, "add a portal user");
     const email = normaliseEmail(input.email);
     if (!email) throw APIError.invalidArgument("Give a valid e-mail");
     const name = cleanText(input.name, "Give the name", 2, 100);
@@ -91,7 +85,7 @@ class PortalUserService {
    * session of the user ends at once.
    */
   async reset(actor: Actor, id: string): Promise<{ resetLink: string; expiresAt: string }> {
-    managerOnly(actor, "reset a portal password");
+    requireManager(actor.role, "reset a portal password");
     const u = await this.load(actor, id);
     if (u.status === "DISABLED") throw APIError.failedPrecondition("Enable the portal user first");
     const by = await userName(actor.userID);
@@ -107,7 +101,7 @@ class PortalUserService {
 
   /** Manager: the user can no longer log in; their sessions and open links end. */
   async disable(actor: Actor, id: string, reason: unknown): Promise<PortalUserItem> {
-    managerOnly(actor, "disable a portal user");
+    requireManager(actor.role, "disable a portal user");
     const why = cleanText(reason, "Give the reason for disabling", 3, MAX_REASON);
     const u = await this.load(actor, id);
     if (u.status === "DISABLED") throw APIError.failedPrecondition("The portal user is already disabled");
@@ -125,7 +119,7 @@ class PortalUserService {
 
   /** Manager: a disabled user may log in again (with the password they had; reset it when unsure). */
   async enable(actor: Actor, id: string): Promise<PortalUserItem> {
-    managerOnly(actor, "enable a portal user");
+    requireManager(actor.role, "enable a portal user");
     const u = await this.load(actor, id);
     if (u.status !== "DISABLED") throw APIError.failedPrecondition("The portal user is not disabled");
     const by = await userName(actor.userID);

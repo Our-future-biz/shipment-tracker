@@ -18,8 +18,7 @@ import {
   sellingDifference,
   sellingReplaceable,
   truckingBuyingRow,
-  truckingSellingRow,
-} from "../utils/truckingLines.utils";
+  truckingSellingRow, sameCostCodes } from "../utils/truckingLines.utils";
 import type { TruckingCostLine } from "../interfaces/interfaces";
 
 const C = "00000000-0000-0000-0000-000000000001";
@@ -190,5 +189,13 @@ describe("Trucking lines in Costs Breakdown", () => {
       expect(matchRealLines([], [l(1)])).toBeNull();
       expect(matchRealLines([r("a", "x")], [l(1), l(2, { currency: "EUR" })])).toBeNull();
     });
+  });
+});
+
+describe("costs counted as one", () => {
+  it("treats the road codes as the same cost, any other code alone", () => {
+    expect(sameCostCodes("pickup").sort()).toEqual(["delivery", "freight", "pickup", "road_freight"]);
+    expect(sameCostCodes("road_freight")).toContain("freight");
+    expect(sameCostCodes("customs")).toEqual(["customs"]);
   });
 });

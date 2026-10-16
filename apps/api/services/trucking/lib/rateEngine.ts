@@ -171,17 +171,35 @@ export function ratePrice(rate: Pick<TariffRate, "amount" | "priceType">, q: num
   }
 }
 
-/** The least a higher band charges: its flat amount, or its rate at its own lower limit. */
-const bandMinimum = (rate: TariffRate, band: TariffBand) => (rate.priceType === "FLAT" ? rate.amount : ratePrice(rate, band.fromExcl));
+/**
+ * The least quantity a band holds: its lower limit is exclusive, so one step above it - the
+ * weight step for kg (1 001 kg after "1 000"), 0.1 ldm, one pallet place.
+ */
+export function bandStart(band: TariffBand, weightStepKg: number): number {
+  switch (band.basis) {
+    case "KG":
+      return clean(band.fromExcl + (weightStepKg > 0 ? weightStepKg : 1));
+    case "LDM":
+      return clean(band.fromExcl + 0.1);
+    case "PALLET":
+      return band.fromExcl + 1;
+    case "TRIP":
+      return band.fromExcl;
+  }
+}
+
+/** The least a higher band charges: its flat amount, or its rate at the least quantity it holds. */
+const bandMinimum = (rate: TariffRate, band: TariffBand, weightStepKg: number) =>
+  rate.priceType === "FLAT" ? rate.amount : ratePrice(rate, bandStart(band, weightStepKg));
 
 /**
  * The break-point candidate among the bands above the shipment's: the one charging least (the
  * nearest on a tie). Every higher band counts - a narrow next band must not hide a cheaper one
  * two steps up.
  */
-export function cheapestHigherBand<T extends { rate: TariffRate; band: TariffBand }>(higher: T[]): T | null {
+export function cheapestHigherBand<T extends { rate: TariffRate; band: TariffBand }>(higher: T[], weightStepKg: number): T | null {
   let best: T | null = null;
-  for (const x of higher) if (!best || bandMinimum(x.rate, x.band) < bandMinimum(best.rate, best.band)) best = x;
+  for (const x of higher) if (!best || bandMinimum(x.rate, x.band, weightStepKg) < bandMinimum(best.rate, best.band, weightStepKg)) best = x;
   return best;
 }
 
@@ -290,9 +308,10 @@ export function rateOnVersion(
   const where = `${level}, zone ${zone.code}, ${bandLabel(band)}`;
   let freight: PriceLine;
   const own = ratePrice(rate, ch.quantity);
-  const next = cheapestHigherBand(priced.slice(at + 1));
-  if (next && bandMinimum(next.rate, next.band) < own) {
-    const amount = bandMinimum(next.rate, next.band);
+  const weightStep = v.rounding.weightStepKg;
+  const next = cheapestHigherBand(priced.slice(at + 1), weightStep);
+  if (next && bandMinimum(next.rate, next.band, weightStep) < own) {
+    const amount = bandMinimum(next.rate, next.band, weightStep);
     freight = { code: "FREIGHT", label: `Freight ${where} — charged at the ${bandLabel(next.band)} price (break-point, cheaper)`, qty: 1, unit: "shipment", unitPrice: amount, amount };
   } else if (rate.priceType === "FLAT") {
     freight = { code: "FREIGHT", label: `Freight ${where}`, qty: 1, unit: ch.basis === "TRIP" ? "trip" : "shipment", unitPrice: rate.amount, amount: own };

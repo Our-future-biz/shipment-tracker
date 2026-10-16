@@ -34,3 +34,8 @@ export function formatFileSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+/** A file the server sent as base64, as a data URL to save to disk (`fallbackType` when it names none). */
+export function fileDataUrl(file: { fileBase64: string; contentType?: string | null }, fallbackType = "application/octet-stream"): string {
+  return `data:${file.contentType || fallbackType};base64,${file.fileBase64}`;
+}

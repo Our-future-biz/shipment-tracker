@@ -4,6 +4,7 @@ import { useState } from "react";
 import dayjs from "dayjs";
 import { Alert, DatePicker, Modal, Radio } from "antd";
 import type { StampKind } from "@/hooks/useTruckingConsignments";
+import { addDays, businessToday } from "@/lib/date";
 import { STAMP_LABELS, stampTimeProblem } from "../../_lib/consignments";
 
 const MEANING: Record<StampKind, string> = {
@@ -65,7 +66,8 @@ export const StampModal = ({ kind, note, onClose, onSubmit }: StampModalProps) =
             format="DD.MM.YYYY HH:mm"
             className="w-full"
             value={at ? dayjs(at) : null}
-            disabledDate={(d) => d.isAfter(dayjs(), "day") || d.isBefore(dayjs().subtract(7, "day"), "day")}
+            // The warehouse's calendar (Prague), not the browser's: today and up to 7 days back.
+            disabledDate={(d) => d.format("YYYY-MM-DD") > businessToday() || d.format("YYYY-MM-DD") < addDays(businessToday(), -7)}
             onChange={(d) => setAt(d ? d.toISOString() : null)}
           />
           {problem && at && <div className="mt-1 text-[12px] text-red-600">{problem}</div>}

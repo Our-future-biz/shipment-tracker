@@ -9,7 +9,7 @@ import { useClaims, useSavedReports, type Claim, type SavedReport } from "@/hook
 import { formatDateTime } from "@/lib/date";
 import type { interfaces } from "@/lib/api/client";
 import { TERMS } from "@/app/warehouse/_lib/glossary";
-import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
+import { useUrlParam } from "@/hooks/useUrlParam";
 import { KpiCard, KpiPeriodBar, kpiTone } from "../kpi/KpiCards";
 import { useKpiPeriod, useKpiReport } from "@/hooks/useKpis";
 import { Callout, Card, RecordFormModal, StatusTag, SubTabs, dim, nf } from "./shared";

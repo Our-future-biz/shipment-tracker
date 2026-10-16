@@ -53,7 +53,7 @@ import { printQuote } from "../../_lib/printQuote";
 import { transitionRequest, type StatusChange } from "../../_lib/statusChange";
 import { salesSettingsHref } from "../../_lib/tabs";
 import { isRoadQuote, lineTariffTag, roadInputDefaults, roadInputProblems, sendBlockedText, sideOverridden, type LineTariffTag, type RatePick } from "../../_lib/roadQuote";
-import { formatMoney } from "@/app/trucking/_lib/tariffs";
+import { formatAmount as formatMoney } from "@/lib/money";
 import { CustomerLink } from "../../_components/CustomerLink";
 import { DeleteQuoteModal } from "../../_components/DeleteQuoteModal";
 import { ExchangeRatesError } from "../../_components/ExchangeRatesError";
@@ -76,6 +76,7 @@ import { QuoteRoadCard } from "./_components/QuoteRoadCard";
 import { QuoteRoadPriceDrawer } from "./_components/QuoteRoadPriceDrawer";
 import { QuoteMarginPanel } from "./_components/QuoteMarginPanel";
 import { QuoteMarginApproveDialog } from "./_components/QuoteMarginApproveDialog";
+import { useModules } from "@/lib/auth/AuthContext";
 
 // A new package has no dimensions and no weight: made-up ones would print as real cargo and drive
 // the chargeable weight.
@@ -110,6 +111,8 @@ const FIELD_LABEL_CLASS = "shrink-0 text-[11px] font-bold text-slate-500 upperca
 const SMALL_LINK_CLASS = `shrink-0 text-xs font-semibold whitespace-nowrap ${LINK_CLASS}`;
 
 export function QuoteWorkflow() {
+  const { isEnabled: isModuleOn } = useModules();
+  const truckingOn = isModuleOn("trucking_concept");
   const { ref } = useParams<{ ref: string }>();
   const router = useRouter();
   const toast = useToast();
@@ -401,7 +404,8 @@ export function QuoteWorkflow() {
   const airFreight = draft.serviceType === "Air";
 
   // Road transport: the card shows on a Road quote and on any quote with lines priced from a tariff.
-  const showRoad = isRoadQuote(draft);
+  // Road pricing from the trucking tariffs only while the company has the Trucking Concept.
+  const showRoad = truckingOn && isRoadQuote(draft);
   const road = draft.road ?? roadInputDefaults(draft);
   const roadProblems = roadInputProblems(road, businessToday());
   const roadMargin = quote.roadMargin ?? null;
@@ -836,7 +840,7 @@ export function QuoteWorkflow() {
               tone={marginTone(totals)}
             />
           </div>
-          {roadMargin && (
+          {roadMargin && truckingOn && (
             <QuoteMarginPanel margin={roadMargin} canApprove={quote.permissions.canApproveMargin} onApprove={() => setModal("approveMargin")} />
           )}
           {/* Which rates the totals use: stored on the quote once sent, today's until then. */}
@@ -1113,14 +1117,16 @@ export function QuoteWorkflow() {
         onMarkSent={markSent}
         onClose={() => setModal(null)}
       />
-      <QuoteRoadPriceDrawer
-        open={modal === "roadPrice"}
-        road={road}
-        customerId={draft.customerId ?? null}
-        previousLevel={draft.roadPricing?.serviceLevel ?? null}
-        onConfirm={priceRoad}
-        onClose={() => setModal(null)}
-      />
+      {truckingOn && (
+        <QuoteRoadPriceDrawer
+          open={modal === "roadPrice"}
+          road={road}
+          customerId={draft.customerId ?? null}
+          previousLevel={draft.roadPricing?.serviceLevel ?? null}
+          onConfirm={priceRoad}
+          onClose={() => setModal(null)}
+        />
+      )}
       {modal === "approveMargin" && roadMargin && (
         <QuoteMarginApproveDialog quoteNumber={ref} margin={roadMargin} onApprove={approveMargin} onClose={() => setModal(null)} />
       )}

@@ -47,10 +47,12 @@ export const useCompanyUsers = () => {
   };
 };
 
+export const platformCompaniesKey = ["platform-companies"] as const;
+
 // Superadmin: list + provision companies.
 export const usePlatformCompanies = () => {
   const qc = useQueryClient();
-  const key = ["platform-companies"];
+  const key = platformCompaniesKey;
   const query = useQuery({ queryKey: key, queryFn: () => api.auth.companyList() });
 
   const provision = useMutation({

@@ -7,6 +7,7 @@ import { warehouseImportService } from "../services/warehouseImport.service";
 import { toTaskItem } from "../services/warehouse.service";
 import { userName } from "../services/users";
 import type { WarehouseTaskItem } from "../interfaces/interfaces";
+import { requireModule } from "../../../lib/modules";
 
 interface WarehouseCreateRequest {
   shipmentId: string & MinLen<1> & MaxLen<36>;
@@ -23,6 +24,7 @@ interface WarehouseCreateResponse {
 export const warehouseCreate = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse" },
   async (req: WarehouseCreateRequest): Promise<WarehouseCreateResponse> => {
+    await requireModule("warehouse_concept");
     if (!isUuid(req.shipmentId)) throw APIError.invalidArgument("Not a shipment id");
     const { companyID, userID } = getAuthData()!;
     // Throws not_found unless the shipment exists in the caller's company.

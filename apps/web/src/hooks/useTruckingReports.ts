@@ -2,7 +2,7 @@
 
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
-import type { KpiRange } from "@/app/warehouse/_components/kpi/kpiPeriod";
+import type { KpiRange } from "@/lib/kpiPeriod";
 import { truckingKeys } from "./truckingKeys";
 import type { TruckingFile } from "./useTruckingConsignments";
 

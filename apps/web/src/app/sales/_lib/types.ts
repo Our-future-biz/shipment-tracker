@@ -106,15 +106,7 @@ export const PROTECTED_KEYS = [
 ] as const satisfies readonly (keyof SalesQuoteData)[];
 
 // The road transport of a quote as the Sales editor enters it; the trucking tariffs price it.
-export interface QuoteRoadInput {
-  fromSiteId: string | null; fromPostcode: string;     // CZ PSČ as typed ("110 00"); server normalises
-  toSiteId: string | null;   toPostcode: string;
-  pickupDate: string | null; pickupTime: string | null; // null date = "today" when pricing
-  scope: "LTL" | "FTL" | "LINEHAUL";
-  pieces: number; palletPlaces: number; ldm: number; weightKg: number; cbm: number;
-  extras: { adr: boolean; tailLift: boolean; avizace: boolean; timeWindow: boolean; b2c: boolean;
-            nonStackable: boolean; waitingHours: number; declaredValueCzk: number | null };
-}
+export type QuoteRoadInput = interfaces.QuoteRoadInput;
 
 // What the last pricing from the trucking tariffs gave. Written by the server only.
 export interface QuoteRoadPricing {
@@ -125,10 +117,7 @@ export interface QuoteRoadPricing {
 }
 
 // A manager's approval of a road margin below the Trucking floor. Written by the server only.
-export interface QuoteMarginApproval {
-  byUserId: string; byName: string; at: string; reason: string;
-  marginCzk: number; marginPercent: number | null;   // the margin that was approved
-}
+export type QuoteMarginApproval = interfaces.QuoteMarginApproval;
 
 // Every other key is one the Sales editor writes. The server stores those as a save sends them
 // and keeps no list of them, so a field added here needs no change in the API to be saved.

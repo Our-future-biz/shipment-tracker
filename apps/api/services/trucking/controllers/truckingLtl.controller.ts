@@ -3,6 +3,7 @@ import { requireRole } from "../../../lib/rbac";
 import { ltlService } from "../services/ltl.service";
 import { ltlDocumentService } from "../services/ltlDocument.service";
 import type { ConsignmentDetail, DocLanguageCode, FileDownload, LtlTripKind, PlanningBoard, TripDetail, TripPriceInput } from "../interfaces/interfaces";
+import { requireModule } from "../../../lib/modules";
 
 // LTL groupage: the planning board, pick-up runs / line hauls / delivery runs and their legs, a
 // partner's delivery, trip stamps, the manifest and the labels.
@@ -17,6 +18,7 @@ interface TruckingPlanningBoardRequest {
 export const truckingPlanningBoard = api(
   { expose: true, auth: true, method: "GET", path: "/trucking/planning" },
   async ({ date, kind }: TruckingPlanningBoardRequest): Promise<PlanningBoard> => {
+    await requireModule("trucking_concept");
     return ltlService.board(requireRole(), date, kind);
   },
 );
@@ -40,6 +42,7 @@ interface TruckingTripCreateLtlRequest {
 export const truckingTripCreateLtl = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/trips/ltl" },
   async (req: TruckingTripCreateLtlRequest): Promise<TruckingTripResponse> => {
+    await requireModule("trucking_concept");
     return { trip: await ltlService.createTrip(requireRole(), req) };
   },
 );
@@ -58,6 +61,7 @@ interface TruckingTripAssignLegsRequest {
 export const truckingTripAssignLegs = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/trips/:id/legs" },
   async ({ id, ...input }: TruckingTripAssignLegsRequest): Promise<TruckingTripResponse> => {
+    await requireModule("trucking_concept");
     return { trip: await ltlService.assignLegs(requireRole(), id, input) };
   },
 );
@@ -74,6 +78,7 @@ interface TruckingTripRepriceRequest {
 export const truckingTripReprice = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/trips/:id/price" },
   async ({ id, price, reason }: TruckingTripRepriceRequest): Promise<TruckingTripResponse> => {
+    await requireModule("trucking_concept");
     return { trip: await ltlService.reprice(requireRole(), id, price, reason) };
   },
 );
@@ -96,6 +101,7 @@ interface TruckingConsignmentResponse {
 export const truckingLegPartner = api(
   { expose: true, auth: true, method: "PUT", path: "/trucking/legs/:id/partner" },
   async ({ id, ...input }: TruckingLegPartnerRequest): Promise<TruckingConsignmentResponse> => {
+    await requireModule("trucking_concept");
     return { consignment: await ltlService.legPartner(requireRole(), id, input) };
   },
 );
@@ -112,6 +118,7 @@ interface TruckingTripStampRequest {
 export const truckingTripStamp = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/trips/:id/stamps/:kind" },
   async ({ id, kind, at }: TruckingTripStampRequest): Promise<TruckingTripResponse> => {
+    await requireModule("trucking_concept");
     return { trip: await ltlService.tripStamp(requireRole(), id, kind, at ?? null) };
   },
 );
@@ -129,6 +136,7 @@ interface TruckingManifestPdfRequest {
 export const truckingManifestPdf = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/trips/:id/manifest" },
   async ({ id, language }: TruckingManifestPdfRequest): Promise<TruckingFileResponse> => {
+    await requireModule("trucking_concept");
     return { file: await ltlDocumentService.manifest(requireRole(), id, language) };
   },
 );
@@ -143,6 +151,7 @@ interface TruckingLabelsPdfRequest {
 export const truckingLabelsPdf = api(
   { expose: true, auth: true, method: "POST", path: "/trucking/consignments/labels" },
   async ({ consignmentIds, perPiece }: TruckingLabelsPdfRequest): Promise<TruckingFileResponse> => {
+    await requireModule("trucking_concept");
     return { file: await ltlDocumentService.labels(requireRole(), consignmentIds, perPiece) };
   },
 );

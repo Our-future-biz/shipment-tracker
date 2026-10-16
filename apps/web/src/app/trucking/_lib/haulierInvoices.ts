@@ -3,6 +3,7 @@ import type { HaulierInvoice, HaulierInvoiceStatus, InvoiceCandidate } from "@/h
 import { bankAccountProblem, isPublishedAccount } from "./bankAccounts";
 import type { StatusChip } from "./consignments";
 import { formatMoney } from "./tariffs";
+import { round2 } from "@/lib/money";
 
 // Haulier invoices: matched line by line against what the trips and partner legs should cost.
 // Exact match only — any difference waits for a manager. Never approved while the haulier or its
@@ -21,7 +22,6 @@ export const INVOICE_STATUS_ORDER: HaulierInvoiceStatus[] = ["BLOCKED", "NEEDS_A
 
 export const TARGET_KIND_LABELS: Record<InvoiceCandidate["kind"], string> = { TRIP: "Trip", PARTNER_LEG: "Partner delivery" };
 
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** What a line is off by: invoiced − expected (expected is already net of claims); + = the haulier asks more. */
 export const lineDifference = (invoiced: number | null, expected: number) => round2((invoiced ?? 0) - expected);

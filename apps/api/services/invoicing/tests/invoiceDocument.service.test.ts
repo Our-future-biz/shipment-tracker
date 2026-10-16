@@ -12,6 +12,10 @@ const repo = vi.hoisted(() => ({
   listOpenInvoicesWithSources: vi.fn(),
   invoicedSellingRowIds: vi.fn(),
 }));
+const trucking = vi.hoisted(() => ({
+  lock: vi.fn(async () => undefined),
+  liveSellingIds: vi.fn(async (_tx: unknown, _c: string, _s: string, ids: string[]) => new Set(ids)),
+}));
 const bucket = vi.hoisted(() => ({ upload: vi.fn(), download: vi.fn(), remove: vi.fn() }));
 const pdf = vi.hoisted(() => ({ render: vi.fn() }));
 const profiles = vi.hoisted(() => ({ getByCompany: vi.fn() }));
@@ -24,6 +28,10 @@ const clients = vi.hoisted(() => ({
 }));
 
 vi.mock("../repositories/invoice.repository", () => ({ invoiceRepository: repo }));
+vi.mock("../repositories/truckingLines.repository", () => ({
+  truckingLinesLock: trucking.lock,
+  truckingLinesRepository: { liveSellingIds: trucking.liveSellingIds },
+}));
 vi.mock("../repositories/invoiceProfile.repository", () => ({ invoiceProfileRepository: profiles }));
 vi.mock("../repositories/sellingCost.repository", () => ({ sellingCostRepository: selling }));
 vi.mock("../repositories/billingSettings.repository", () => ({ billingSettingsRepository: settings }));
@@ -274,6 +282,19 @@ describe("issue", () => {
     });
     await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {})).rejects.toThrow(/invoiced a moment ago/);
     expect(repo.invoicedSellingRowIds).toHaveBeenLastCalledWith(SHIPMENT, COMPANY, { tx: true });
+    expect(clients.invoiceCreate).not.toHaveBeenCalled();
+  });
+
+  it("waits for a running Trucking push and refuses rows the push replaced meanwhile", async () => {
+    repo.invoicedSellingRowIds.mockResolvedValue(new Set());
+    // the push soft-deleted s2 and wrote a new row while this invoice was being prepared
+    trucking.liveSellingIds.mockImplementationOnce(async (_tx, _c, _s, ids: string[]) => new Set(ids.filter((id) => id !== "s2")));
+    repo.issue.mockImplementation(async (_p: string, _h: unknown, _l: unknown, hooks?: { beforeInsert?: (tx: unknown) => Promise<void> }) => {
+      await hooks?.beforeInsert?.({ tx: true });
+      return { invoice: {}, lines: [] };
+    });
+    await expect(invoiceDocumentService.issue(SHIPMENT, COMPANY, USER, {})).rejects.toThrow(/changed a moment ago/);
+    expect(trucking.lock).toHaveBeenCalledWith({ tx: true }, SHIPMENT);
     expect(clients.invoiceCreate).not.toHaveBeenCalled();
   });
 

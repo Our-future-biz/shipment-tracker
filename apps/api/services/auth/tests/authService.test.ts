@@ -19,7 +19,8 @@ const users = vi.hoisted(() => ({
   ensureSystemUser: vi.fn(async () => "svc-1"),
 }));
 vi.mock("../repositories/user.repository", () => ({ userRepository: users }));
-vi.mock("../repositories/company.repository", () => ({ companyRepository: {} }));
+const companies = vi.hoisted(() => ({ getById: vi.fn(async () => ({ hiddenModules: ["warehouse_concept", "trucking_concept"] })) }));
+vi.mock("../repositories/company.repository", () => ({ companyRepository: companies }));
 vi.mock("../repositories/orgUnit.repository", () => ({ departmentRepository: {}, branchRepository: {} }));
 
 import { assertNotSelf, authService } from "../services/auth.service";
@@ -61,5 +62,18 @@ describe("the service identity (Trucking (system))", () => {
   it("is created on demand for the caller's company", async () => {
     expect(await authService.serviceUser("c1")).toBe("svc-1");
     expect(users.ensureSystemUser).toHaveBeenCalledWith("c1");
+  });
+});
+
+describe("the session's hidden modules", () => {
+  const C = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
+  const person = (role: string) => ({ id: "u1", companyId: C, email: "a@b.cz", passwordHash: "x", displayName: "A", role, isSystem: false, departmentId: null, branchId: null });
+
+  it("carries the company's hidden modules for its users, and none for a superadmin", async () => {
+    vi.spyOn(authService, "verifyToken").mockResolvedValue({ userId: "u1", companyId: C, role: "user" });
+    users.getById.mockResolvedValueOnce(person("admin"));
+    expect((await authService.me("token")).hiddenModules).toEqual(["warehouse_concept", "trucking_concept"]);
+    users.getById.mockResolvedValueOnce(person("superadmin"));
+    expect((await authService.me("token")).hiddenModules).toEqual([]);
   });
 });

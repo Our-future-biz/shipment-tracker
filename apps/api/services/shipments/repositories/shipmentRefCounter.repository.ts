@@ -15,13 +15,17 @@ export function formatRef(sequence: ShipmentRefSequence, n: number): string {
 // The highest number of the sequence already stored for the company, live or archived (0 when
 // there is none). Only the digits right after the prefix count, so CZQ… references and other
 // free text are no CZ number. MCZ numbers can also be typed in by hand when a shipment is linked
-// to a master job, so the stored rows always have the last word, not the counter alone.
+// to a master job, so the stored rows always have the last word, not the counter alone. At most
+// twelve digits count (followed by no further digit): a longer number typed by hand would not fit
+// bigint and break every create, so it counts as none.
+const DIGITS = "([0-9]{1,12})([^0-9]|$)";
+
 export function storedMaxSql(companyId: string, sequence: ShipmentRefSequence): SQL {
   if (sequence === "MCZ") {
-    return sql`(SELECT coalesce(max(substring(${masterJobTable.mczNumber} from '^MCZ([0-9]+)')::bigint), 0)
+    return sql`(SELECT coalesce(max(substring(${masterJobTable.mczNumber} from ${sql.raw(`'^MCZ${DIGITS}'`)})::bigint), 0)
       FROM ${masterJobTable} WHERE ${masterJobTable.companyId} = ${companyId} AND ${masterJobTable.mczNumber} LIKE 'MCZ%')`;
   }
-  return sql`(SELECT coalesce(max(substring(${shipmentTable.jobNumber} from '^CZ([0-9]+)')::bigint), 0)
+  return sql`(SELECT coalesce(max(substring(${shipmentTable.jobNumber} from ${sql.raw(`'^CZ${DIGITS}'`)})::bigint), 0)
     FROM ${shipmentTable} WHERE ${shipmentTable.companyId} = ${companyId} AND ${shipmentTable.jobNumber} LIKE 'CZ%')`;
 }
 

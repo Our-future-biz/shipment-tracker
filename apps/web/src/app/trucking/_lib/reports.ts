@@ -134,6 +134,7 @@ export function departmentLines(d: DepartmentResult): StatementLine[] {
     { label: "External sell", sign: "+", amountCzk: d.externalSellCzk },
     { label: "Charged exceptions", sign: "+", amountCzk: d.exceptionChargesCzk },
     { label: "Internal charges", sign: "+", amountCzk: d.internalChargesCzk },
+    { label: "Claimed from hauliers", sign: "+", amountCzk: d.haulierClaimsCzk },
     { label: "Haulier cost", sign: "−", amountCzk: d.haulierCostCzk },
   ];
 }

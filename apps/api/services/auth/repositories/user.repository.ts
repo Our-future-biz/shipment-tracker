@@ -111,7 +111,7 @@ class UserRepository extends BaseRepository<typeof userTable> {
         displayName: SYSTEM_USER_NAME,
         role: "user",
         isSystem: true,
-      } as never)
+      })
       .onConflictDoNothing();
     const [row] = await this.db.select({ id: userTable.id }).from(userTable).where(live).limit(1);
     if (!row) throw new Error("service identity could not be created");

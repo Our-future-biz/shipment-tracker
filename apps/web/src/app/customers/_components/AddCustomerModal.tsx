@@ -13,6 +13,7 @@ import { useToast } from "@/lib/toast";
 import { ContactPhoneInput, isPossiblePhone } from "../[id]/_components/ContactPhoneInput";
 import { CustomerInfoRow } from "../[id]/_components/CustomerInfoRow";
 import { CONTACT_ROLES, CUSTOMER_ROLE_OPTIONS } from "../_lib/constants";
+import { useModules } from "@/lib/auth/AuthContext";
 
 const ICO_LENGTH = 8;
 // ARES is searched by name from this many characters, once typing has paused.
@@ -70,6 +71,7 @@ export function AddCustomerModal({
   isCreating,
   defaultRoles = CUSTOMER_ONLY,
 }: AddCustomerModalProps) {
+  const { isEnabled: isModuleOn } = useModules();
   const toast = useToast();
   const submitting = useRef(false);
   const [manualForm] = Form.useForm<ManualCustomerValues>();
@@ -292,15 +294,17 @@ export function AddCustomerModal({
             onChange={handleCountryChange}
           />
         </Form.Item>
-        <Form.Item
-          label="Roles"
-          extra="A haulier is a company we subcontract trucking to. A company can be both."
-          validateStatus={roles.length === 0 ? "error" : undefined}
-          help={roles.length === 0 ? "Choose at least one role" : undefined}
-          className="!mb-3"
-        >
-          <Checkbox.Group options={CUSTOMER_ROLE_OPTIONS} value={roles} onChange={setRoles} disabled={isCreating} />
-        </Form.Item>
+        {isModuleOn("trucking_concept") && (
+          <Form.Item
+            label="Roles"
+            extra="A haulier is a company we subcontract trucking to. A company can be both."
+            validateStatus={roles.length === 0 ? "error" : undefined}
+            help={roles.length === 0 ? "Choose at least one role" : undefined}
+            className="!mb-3"
+          >
+            <Checkbox.Group options={CUSTOMER_ROLE_OPTIONS} value={roles} onChange={setRoles} disabled={isCreating} />
+          </Form.Item>
+        )}
       </Form>
 
       <div className="flex items-center gap-2 rounded-lg bg-indigo-50 px-3 py-2.5 mb-4 text-[13px] text-slate-600">

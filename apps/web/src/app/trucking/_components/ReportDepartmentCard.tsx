@@ -9,7 +9,7 @@ interface ReportDepartmentCardProps {
 }
 
 // The Trucking department's result for the period as a small statement:
-// external sell + charged exceptions + internal charges − haulier cost = result, with the internal charges per department.
+// external sell + charged exceptions + internal charges + claims − haulier cost = result, with the internal charges per department.
 export const ReportDepartmentCard = ({ department }: ReportDepartmentCardProps) => {
   const byDepartment = sortDepartments(department.internalByDepartment);
   return (
@@ -35,6 +35,12 @@ export const ReportDepartmentCard = ({ department }: ReportDepartmentCardProps) 
           </dt>
           <dd className={`m-0 text-[16px] font-bold tabular-nums ${department.resultCzk < 0 ? "text-red-600" : "text-slate-900"}`}>{marginText(department.resultCzk)}</dd>
         </div>
+        {department.unconvertedAmounts > 0 && (
+          <p className="m-0 mt-2 text-[12px] text-warn">
+            {department.unconvertedAmounts} EUR {department.unconvertedAmounts === 1 ? "amount has" : "amounts have"} no ČNB rate for its day
+            and {department.unconvertedAmounts === 1 ? "is" : "are"} left out of these figures.
+          </p>
+        )}
       </dl>
       <div>
         <div className="mb-1 text-[11px] font-bold uppercase tracking-wide text-slate-500">Internal charges by department</div>

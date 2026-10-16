@@ -13,7 +13,7 @@ import type {
 } from "../interfaces/interfaces";
 import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import { isUuid } from "../../../lib/uuid";
-import { isManager } from "../lib/roles";
+import { requireManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { formatDay } from "../lib/format";
 import {
@@ -86,10 +86,6 @@ function listItem(t: TruckingTariffRecord, versions: VersionSummaryRecord[], nam
     draftCount: summaries.filter((s) => s.status === "DRAFT").length,
   };
 }
-
-const requireManager = (role: string, what: string) => {
-  if (!isManager(role)) throw APIError.permissionDenied(`Only a manager can ${what}`);
-};
 
 class TariffService {
   async list(companyId: string, filter: { side?: TariffSide; ownerCustomerId?: string }): Promise<TariffListItem[]> {

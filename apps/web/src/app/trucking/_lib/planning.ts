@@ -5,6 +5,7 @@ import { dropHouse, fillTone, moveHouse } from "@/app/warehouse/_lib/containerPl
 import { formatDate } from "@/lib/date";
 import { TERMS } from "./glossary";
 import { formatQty } from "./tariffs";
+import { round2 } from "@/lib/money";
 
 // Pure helpers of LTL planning and the legs of a consignment: the kind switch, unplanned legs by
 // zone with their deadline badge, the fill of a trip (the fuller of LDM and kg drives the colour),
@@ -67,7 +68,6 @@ export interface ZoneGroup {
 }
 
 const NO_ZONE = "No zone";
-const round2 = (n: number) => Math.round(n * 100) / 100;
 
 /** The legs grouped by zone (by name, "No zone" last); inside a zone the most urgent first, then by promised date and ref. */
 export function groupLegsByZone(legs: readonly PlanningLeg[]): ZoneGroup[] {

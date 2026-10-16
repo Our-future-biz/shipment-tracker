@@ -309,8 +309,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
         <Tabs
           activeKey={tab}
           onChange={(k) => setTab(k as Tab)}
-          className="mt-4 [&_.ant-tabs-nav::before]:!border-b-0"
-          tabBarStyle={{ marginBottom: 0 }}
+          className="mt-4 [&_.ant-tabs-nav::before]:!border-b-0 [&>.ant-tabs-nav]:!mb-0"
           items={tabs.map((t) => ({
             key: t.key,
             label: (

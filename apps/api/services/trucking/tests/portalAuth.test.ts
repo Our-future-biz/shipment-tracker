@@ -9,6 +9,8 @@ vi.mock("~encore/clients", () => ({
   auth: { _internalCompanyName: vi.fn(async () => ({ name: "Registered Name s.r.o." })) },
   customers: { _internalHaulierList: vi.fn(async () => ({ hauliers: [{ id: "00000000-0000-0000-0000-0000000000a1", companyName: "Bravo Trans" }] })) },
 }));
+const modules = vi.hoisted(() => ({ moduleHidden: vi.fn(async (_companyId: string, _module: string) => false) }));
+vi.mock("../../../lib/modules", () => modules);
 vi.mock("../db/db", async () => (await import("./truckingFakes")).dbModule);
 vi.mock("../../../lib/outbox/serviceIdentity", async () => (await import("./truckingFakes")).serviceIdentityModule);
 vi.mock("../repositories/portal.repository", async () => ({ portalRepository: (await import("./portalFakes")).portalRepository }));
@@ -25,7 +27,7 @@ import { portalAuthService } from "../services/portalAuth.service";
 import { portalUserService } from "../services/portalUser.service";
 import { haulierService } from "../services/haulier.service";
 import { hashToken } from "../lib/haulierToken";
-import { clientIp, HAULIER_BLOCKED, LOG_IN_AGAIN, LOGIN_FAILED, SET_PASSWORD_LINK_INVALID, TOO_MANY_ATTEMPTS } from "../lib/portalRules";
+import { clientIp, HAULIER_BLOCKED, LOG_IN_AGAIN, LOGIN_AMBIGUOUS, LOGIN_FAILED, SET_PASSWORD_LINK_INVALID, TOO_MANY_ATTEMPTS } from "../lib/portalRules";
 import { portalStore, resetPortalStore } from "./portalFakes";
 import { COMPANY, HAULIER, HAULIER2, SERVICE_USER, eventsOf, manager, resetStore, store, user } from "./truckingFakes";
 
@@ -283,6 +285,32 @@ describe("login throttle per IP and per account (C20)", () => {
     hauliers.find.mockResolvedValue({ profile: { blocked: true }, lanes: [] });
     await expect(from("10.0.0.1")).rejects.toMatchObject({ code: "permission_denied", message: HAULIER_BLOCKED });
   });
+
+  it("the same e-mail and password in two companies logs in to neither (which company is meant can't be told)", async () => {
+    await active();
+    await inCompanyB(PASSWORD);
+    await expect(from("10.0.0.1")).rejects.toMatchObject({ code: "failed_precondition", message: LOGIN_AMBIGUOUS });
+    expect(portalStore.sessions).toHaveLength(0);
+  });
+});
+
+describe("login edge cases", () => {
+  it("an unknown client IP is never throttled as one shared bucket", async () => {
+    await active();
+    for (let i = 0; i < 30; i++) {
+      await expect(portalAuthService.login({ email: `nobody${i}@x.cz`, password: "wrong password!" }, { ip: "", userAgent: "Phone" })).rejects.toMatchObject({ message: LOGIN_FAILED });
+    }
+    // Someone else, also without a known IP, still logs in.
+    await expect(portalAuthService.login({ email: "eva@bravo.cz", password: PASSWORD }, { ip: "", userAgent: "Phone" })).resolves.toHaveProperty("session");
+  });
+
+  it("setting a password lifts the lock level too", async () => {
+    const created = await active();
+    portalStore.users[0]!.lockLevel = 3;
+    const { resetLink } = await portalUserService.reset(manager, created.user.id);
+    await portalAuthService.setPassword({ token: tokenOf(resetLink), password: "a whole new password" });
+    expect(portalStore.users[0]).toMatchObject({ lockLevel: 0, failedAttempts: 0, lockedUntil: null });
+  });
 });
 
 describe("the client's IP for the throttle", () => {
@@ -369,5 +397,26 @@ describe("the session every portal endpoint checks", () => {
     await portalAuthService.setPassword({ token: tokenOf(other.inviteLink), password: PASSWORD });
     const { session } = await login("ola@gama.cz");
     expect((await portalAuthService.authenticate(session)).haulierId).toBe(HAULIER2);
+  });
+});
+
+describe("a company that hides Trucking", () => {
+  afterEach(() => modules.moduleHidden.mockImplementation(async () => false));
+
+  it("has no portal: its sessions answer like an unknown one, its e-mails like unknown ones, its links like used ones", async () => {
+    const created = await active();
+    const { session } = await login();
+    modules.moduleHidden.mockImplementation(async (companyId) => companyId === COMPANY);
+    await expect(portalAuthService.authenticate(session)).rejects.toMatchObject({ code: "unauthenticated", message: LOG_IN_AGAIN });
+    await expect(login()).rejects.toMatchObject({ code: "unauthenticated", message: LOGIN_FAILED });
+    // Shown again: the session was only refused, not ended.
+    modules.moduleHidden.mockImplementation(async () => false);
+    await expect(portalAuthService.authenticate(session)).resolves.toMatchObject({ companyId: COMPANY });
+    modules.moduleHidden.mockImplementation(async (companyId) => companyId === COMPANY);
+    const reset = await portalUserService.reset(manager, created.user.id);
+    await expect(portalAuthService.setPassword({ token: tokenOf(reset.resetLink), password: "another long password" })).rejects.toMatchObject({
+      code: "not_found",
+      message: SET_PASSWORD_LINK_INVALID,
+    });
   });
 });

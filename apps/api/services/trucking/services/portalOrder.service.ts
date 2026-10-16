@@ -229,7 +229,7 @@ class PortalOrderService {
     const done = view === "done";
     if (view !== undefined && view !== null && view !== "" && view !== "open" && !done) throw APIError.invalidArgument("The view must be open or done");
     const { companyId, haulierId } = caller;
-    const [trips, partnerLegs] = await Promise.all([tripRepository.forHaulier(companyId, haulierId), legRepository.partnerFor(companyId, haulierId)]);
+    const [trips, partnerLegs] = await Promise.all([tripRepository.forHaulier(companyId, haulierId, done ? "done" : "open"), legRepository.partnerFor(companyId, haulierId)]);
     const orders = [...(await this.ofTrips(companyId, trips)), ...(await this.ofPartnerLegs(companyId, haulierId, partnerLegs))].filter((o) => o.stops.length && isDone(o) === done);
     const pods = await truckingDocumentRepository.withPod(companyId, [...new Set(orders.flatMap((o) => o.stops.map((s) => s.c.id)))]);
     const items = orders.map((o) => item(o, pods)).sort((a, b) => a.date.localeCompare(b.date) || a.ref.localeCompare(b.ref));

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { Input, Button, Popconfirm, Space, Tag } from "antd";
 import { DeleteOutlined } from "@ant-design/icons";
 import type { MessageInstance } from "antd/es/message/interface";
@@ -8,7 +8,8 @@ import { useGeneratePickupPin, useWarehouseSection } from "@/hooks/useWarehouseS
 import { APIError } from "@/lib/api/client";
 import { formatDateTime } from "@/lib/date";
 import { splitPickupRows, type PickupRowData } from "@/lib/tripSource";
-import { TripMarker } from "@/app/warehouse/_components/TripMarker";
+import { TripMarker } from "@/components/TripMarker";
+import { useListKeys } from "@/hooks/useListKeys";
 import { SaveStatus } from "./JobExtras";
 
 // The PIN and its fields are written by the server only; this page sends the rows. The server
@@ -27,6 +28,18 @@ const MAX_PIN_TRIES = 3;
 
 const emptyRow = () => ({ haulier: "", licensePlate: "", driver: "" });
 
+/** The stored rows split into the ones a Trucking trip filled and the ones people typed. */
+function storedRows(sectionData: unknown): { tripRows: PickupRowData[]; ownRows: Record<string, string>[] } {
+  const sec = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
+  try {
+    const parsed: PickupRowData[] = JSON.parse(sec.rows || "[]");
+    const split = splitPickupRows(Array.isArray(parsed) ? parsed : []);
+    const ownRows = split.ownRows as Record<string, string>[];
+    return { tripRows: split.tripRows, ownRows: ownRows.length > 0 || split.tripRows.length > 0 ? ownRows : [emptyRow()] };
+  } catch {
+    return { tripRows: [], ownRows: [emptyRow()] };
+  }
+}
 
 export function PickupSection({ ownerId, messageApi, readOnly = false }: { ownerId: string; messageApi: MessageInstance; readOnly?: boolean }) {
   const { data: sectionData, save, isSaving } = useWarehouseSection(ownerId, "pickup");
@@ -39,25 +52,16 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
   const locked = pinSet && (section.pinTries ?? 0) >= MAX_PIN_TRIES;
   // Rows a Trucking trip filled ("From trip LCZ…") are read-only here and never sent back: the
   // server keeps them as stored. `rows` are the ones people type.
-  const [tripRows, setTripRows] = useState<PickupRowData[]>([]);
-  const [rows, setRows] = useState<Record<string, string>[]>([emptyRow()]);
-  const [dirty, setDirty] = useState(false);
+  // What is stored, read fresh on every refetch (Trucking fills trip rows meanwhile). The user's
+  // edit is a draft over it: a refetch never overwrites rows being typed.
+  const stored = useMemo(() => storedRows(sectionData), [sectionData]);
+  const tripRows = stored.tripRows;
+  const [draft, setDraft] = useState<Record<string, string>[] | null>(null);
+  const rows = draft ?? stored.ownRows;
+  const dirty = draft !== null;
+  const rowKeys = useListKeys(rows.length);
   const [savedAt, setSavedAt] = useState<Date | null>(null);
-
-  useEffect(() => {
-    const sec = (sectionData && typeof sectionData === "object" ? sectionData : {}) as PickupSectionData;
-    try {
-      const parsed: PickupRowData[] = JSON.parse(sec.rows || "[]");
-      const split = splitPickupRows(Array.isArray(parsed) ? parsed : []);
-      setTripRows(split.tripRows);
-      if (split.ownRows.length > 0 || split.tripRows.length > 0) {
-        setRows(split.ownRows as Record<string, string>[]);
-        setDirty(false);
-      }
-    } catch {
-      /* ignore */
-    }
-  }, [sectionData]);
+  const editRows = (change: (prev: Record<string, string>[]) => Record<string, string>[]) => setDraft((d) => change(d ?? stored.ownRows));
 
   // The server makes the PIN (six digits). A new one only once the old one is locked at the gate.
   const generatePin = async () => {
@@ -70,22 +74,16 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
     }
   };
 
-  const update = (idx: number, field: string, value: string) => {
-    setRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
-    setDirty(true);
-  };
-  const addRow = () => {
-    setRows((prev) => [...prev, emptyRow()]);
-    setDirty(true);
-  };
+  const update = (idx: number, field: string, value: string) => editRows((prev) => prev.map((r, i) => (i === idx ? { ...r, [field]: value } : r)));
+  const addRow = () => editRows((prev) => [...prev, emptyRow()]);
   const deleteRow = (idx: number) => {
-    setRows((prev) => prev.filter((_, i) => i !== idx));
-    setDirty(true);
+    rowKeys.remove(idx);
+    editRows((prev) => prev.filter((_, i) => i !== idx));
   };
   const handleSave = async () => {
     try {
       await save({ rows: JSON.stringify(rows) });
-      setDirty(false);
+      setDraft(null);
       setSavedAt(new Date());
       messageApi.success("Saved");
     } catch {
@@ -165,7 +163,7 @@ export function PickupSection({ ownerId, messageApi, readOnly = false }: { owner
             </tr>
           ))}
           {rows.map((row, idx) => (
-            <tr key={idx} className="border-b border-slate-100">
+            <tr key={rowKeys.keys[idx]} className="border-b border-slate-100">
               {/* The PIN belongs to the pick-up, so every row carries it. */}
               <td className="p-0.5 px-1.5 font-mono text-indigo-500">{pin ?? ""}</td>
               {["haulier", "licensePlate", "driver"].map((f) => (

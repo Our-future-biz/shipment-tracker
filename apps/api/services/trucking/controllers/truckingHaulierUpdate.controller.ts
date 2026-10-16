@@ -1,15 +1,15 @@
 import { api } from "encore.dev/api";
 import { getAuthData } from "~encore/auth";
 import { haulierService } from "../services/haulier.service";
-import type { CostSplitBasis, TruckingHaulierResponse, PreferredLaneInput } from "../interfaces/interfaces";
+import type { CostSplitBasis, HaulierCurrency, TruckingHaulierResponse, PreferredLaneInput } from "../interfaces/interfaces";
+import { requireModule } from "../../../lib/modules";
 
 interface TruckingHaulierUpdateRequest {
   customerId: string;
   insurer: string;
   insurancePolicyNo: string;
   insuranceLimit: number | null;
-  /** "CZK" | "EUR" */
-  insuranceCurrency: string;
+  insuranceCurrency: HaulierCurrency;
   /** YYYY-MM-DD */
   insuranceValidTo: string | null;
   licenceNo: string;
@@ -20,8 +20,7 @@ interface TruckingHaulierUpdateRequest {
   /** Vehicle type codes of the trucking settings */
   vehicleTypes: string[];
   paymentDays: number;
-  /** "CZK" | "EUR" */
-  currency: string;
+  currency: HaulierCurrency;
   /** vatUnreliable, bankAccountPublished, vatCheckedAt, bankAccounts: a manager only (another user sends them as stored) */
   vatUnreliable: boolean;
   bankAccountPublished: boolean;
@@ -41,6 +40,7 @@ interface TruckingHaulierUpdateRequest {
 export const truckingHaulierUpdate = api(
   { expose: true, auth: true, method: "PUT", path: "/trucking/hauliers/:customerId" },
   async ({ customerId, version, ...input }: TruckingHaulierUpdateRequest): Promise<TruckingHaulierResponse> => {
+    await requireModule("trucking_concept");
     const { userID, companyID, role } = getAuthData()!;
     return { haulier: await haulierService.update(companyID, userID, role, customerId, input, version) };
   },

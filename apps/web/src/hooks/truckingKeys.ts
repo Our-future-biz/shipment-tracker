@@ -14,6 +14,8 @@ export const truckingKeys = {
   tariffVersion: (versionId: string) => [...truckingKeys.tariffs(), "version", versionId] as const,
   tariffVersionDiff: (versionId: string, againstVersionId: string) => [...truckingKeys.tariffs(), "diff", versionId, againstVersionId] as const,
   fuelIndex: () => [...truckingKeys.all, "fuel-index"] as const,
+  /** A rating of one request; `round` makes each opening of a price dialog rate afresh. */
+  rate: (req: unknown, round: number) => [...truckingKeys.all, "rate", req, round] as const,
   consignments: () => [...truckingKeys.all, "consignments"] as const,
   consignmentList: (filters: Record<string, string | undefined>) => [...truckingKeys.consignments(), "list", filters] as const,
   consignment: (id: string) => [...truckingKeys.consignments(), "one", id] as const,

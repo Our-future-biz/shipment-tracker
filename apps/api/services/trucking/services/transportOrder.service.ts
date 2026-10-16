@@ -93,13 +93,29 @@ export async function ourCompany(as?: CallAs): Promise<DocParty> {
   return profile || quote ? ourCompanyParty(profile, quote) : EMPTY_PARTY;
 }
 
-/** The haulier as printed, with its payment days; the address and contact from the Customer Database. */
-export async function haulierOf(companyId: string, haulierId: string, as?: CallAs) {
+/**
+ * The haulier as printed, with its payment days; the address and contact from the Customer
+ * Database. `strict` (an order about to go out): a Customer Database that can't be read stops the
+ * send (unavailable) instead of sending an order with a blank address and no e-mail; otherwise
+ * the failure is logged and the document prints what is known.
+ */
+export async function haulierOf(companyId: string, haulierId: string, as?: CallAs, opts: { strict?: boolean } = {}) {
   const detail = await haulierService.get(companyId, haulierId, as);
-  const [customer, contacts] = await Promise.all([
-    customers.customerGet({ id: haulierId }, callOpts(as)).then((r) => r.customer).catch(() => null),
-    customers.contactList({ customerId: haulierId }, callOpts(as)).then((r) => r.data).catch(() => []),
+  // What the Customer Database answers; null when it can't be read (logged), or unavailable when strict.
+  const read = async <T>(what: string, load: () => Promise<T>): Promise<T | null> => {
+    try {
+      return await load();
+    } catch (err) {
+      log.warn(err, `trucking: haulier ${what} not read`, { haulierId });
+      if (opts.strict) throw APIError.unavailable("The haulier's address or contact could not be read from the Customer Database - try again in a moment");
+      return null;
+    }
+  };
+  const [customer, contactList] = await Promise.all([
+    read("address", async () => (await customers.customerGet({ id: haulierId }, callOpts(as))).customer),
+    read("contacts", async () => (await customers.contactList({ customerId: haulierId }, callOpts(as))).data),
   ]);
+  const contacts = contactList ?? [];
   const contact = contacts.find((x) => x.isMain) ?? contacts[0] ?? null;
   return {
     detail,
@@ -116,7 +132,7 @@ class TransportOrderService {
     const trip = await tripService.load(companyId, tripId);
     const c = await consignmentRepository.findByTrip(companyId, trip.id);
     if (!c) throw APIError.failedPrecondition("The trip has no consignment");
-    const [settings, haulier] = await Promise.all([settingsService.get(companyId), haulierOf(companyId, trip.haulierCustomerId)]);
+    const [settings, haulier] = await Promise.all([settingsService.get(companyId), haulierOf(companyId, trip.haulierCustomerId, undefined, { strict: true })]);
     const money = moneyOf(c, trip, settings.marginFloor);
     const refusal = transportOrderRefusal({
       consignmentCancelled: !!c.cancelledAt,
@@ -340,7 +356,7 @@ class TransportOrderService {
   private async readyLtl(actor: Actor, tripId: string) {
     const companyId = actor.companyID;
     const trip = await tripService.load(companyId, tripId);
-    const [settings, haulier] = await Promise.all([settingsService.get(companyId), haulierOf(companyId, trip.haulierCustomerId)]);
+    const [settings, haulier] = await Promise.all([settingsService.get(companyId), haulierOf(companyId, trip.haulierCustomerId, undefined, { strict: true })]);
     const { docLegs, consignments } = await this.docLegsOf(trip);
     const { legs: allLegs } = await consignmentService.ltlContext(companyId, consignments.map((c) => c.id));
     const low = consignments.find((c) => {

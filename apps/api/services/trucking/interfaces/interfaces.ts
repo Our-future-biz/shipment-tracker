@@ -121,14 +121,16 @@ export interface HaulierIssue {
 
 export type HaulierStatus = "ok" | "warning" | "blocked";
 
+/** The currencies a haulier is insured and paid in (the profile's CHECK holds the same two). */
+export type HaulierCurrency = "CZK" | "EUR";
+
 export interface HaulierProfile {
   customerId: string;
   insurer: string;
   insurancePolicyNo: string;
   /** Carrier liability limit */
   insuranceLimit: number | null;
-  /** "CZK" | "EUR" */
-  insuranceCurrency: string;
+  insuranceCurrency: HaulierCurrency;
   /** YYYY-MM-DD */
   insuranceValidTo: string | null;
   /** Road transport licence (koncese) */
@@ -142,8 +144,7 @@ export interface HaulierProfile {
   vehicleTypes: string[];
   /** >= 0, default 30 */
   paymentDays: number;
-  /** "CZK" | "EUR" */
-  currency: string;
+  currency: HaulierCurrency;
   /** Nespolehlivý plátce DPH (manual for now) */
   vatUnreliable: boolean;
   /** Account published in the VAT register (manual for now) */
@@ -214,7 +215,7 @@ export interface HaulierProfileInput {
   insurer: string;
   insurancePolicyNo: string;
   insuranceLimit: number | null;
-  insuranceCurrency: string;
+  insuranceCurrency: HaulierCurrency;
   insuranceValidTo: string | null;
   licenceNo: string;
   licenceValidTo: string | null;
@@ -222,7 +223,7 @@ export interface HaulierProfileInput {
   adrCapable: boolean;
   vehicleTypes: string[];
   paymentDays: number;
-  currency: string;
+  currency: HaulierCurrency;
   /** vatUnreliable, bankAccountPublished, vatCheckedAt and bankAccounts: a manager only (another user's save must send them as stored) */
   vatUnreliable: boolean;
   bankAccountPublished: boolean;

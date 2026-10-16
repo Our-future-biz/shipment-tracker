@@ -1,3 +1,6 @@
+/** A part of the app a company can have hidden (superadmin sets it per company; superadmins always see everything). */
+export type AppModule = "warehouse_concept" | "trucking_concept";
+
 /** A saved set of visible columns for one screen */
 export interface ColumnTemplateItem {
   id: string;

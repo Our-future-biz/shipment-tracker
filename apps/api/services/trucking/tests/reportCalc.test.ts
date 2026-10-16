@@ -353,6 +353,8 @@ describe("department result", () => {
       exceptionChargesCzk: 0,
       internalChargesCzk: 12000.5,
       haulierCostCzk: 38000,
+      haulierClaimsCzk: 0,
+      unconvertedAmounts: 0,
       resultCzk: 24000.5,
       internalByDepartment: [
         { department: "Sea", amountCzk: 9000.5, consignments: 3 },
@@ -368,7 +370,13 @@ describe("department result", () => {
       { haulierId: "", currency: "EUR", day: "2026-10-07", n: 1, amount: 99 },
     ];
     const eur = new Map<string, number | null>([["2026-10-06", 25], ["2026-10-07", null]]);
-    expect(departmentResult([group({ sellCzk: 10000, costCzk: 6000 })], [], charged, eur)).toMatchObject({ exceptionChargesCzk: 2500, resultCzk: 6500 });
+    // the 99 EUR of a day without a rate is left out - and counted, never taken as 0 silently
+    expect(departmentResult([group({ sellCzk: 10000, costCzk: 6000 })], [], charged, eur)).toMatchObject({ exceptionChargesCzk: 2500, resultCzk: 6500, unconvertedAmounts: 1 });
+  });
+
+  it("nets what is claimed back from hauliers", () => {
+    const claims = [{ haulierId: "h", currency: "CZK", day: "2026-10-05", n: 1, amount: 700 }];
+    expect(departmentResult([group({ sellCzk: 10000, costCzk: 6000 })], [], [], new Map(), claims)).toMatchObject({ haulierClaimsCzk: 700, resultCzk: 4700 });
   });
 
   it("counts an adjustment that takes a charge back (negative amount)", () => {

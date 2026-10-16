@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DOWNLOAD_ONLY, servedFileType, sniffFileType, storedFileType } from "../services/fileType";
+import { DOWNLOAD_ONLY, servedFileType, sniffFileType, storedFileType } from "../../../lib/fileType";
 
 const bytes = (...b: number[]) => Buffer.from(b);
 

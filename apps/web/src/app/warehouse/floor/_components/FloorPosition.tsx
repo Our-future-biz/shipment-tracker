@@ -9,7 +9,7 @@ import { formatDateTime } from "@/lib/date";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { TERMS, directionOf } from "@/app/warehouse/_lib/glossary";
 import { dockSlotText, exceptionText, isOnHold } from "@/app/warehouse/_lib/worklist";
-import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
+import { useUrlParam } from "@/hooks/useUrlParam";
 import { Badge, CUSTOMS_STATUS_TONE, STATUS_TONE, errorMessage, hasSurvey, hhmm, nf, requiredSurveyPhase, surveyTargets } from "@/app/warehouse/gate-log/_lib/gate";
 import { cargoLeg, gateSteps, isOutbound, isQueueableStamp, leavesByRelease, stampConfirmText, stampPrecheck, type GateStep } from "@/app/warehouse/gate-log/_lib/steps";
 import { useFloorQueue } from "../_lib/useFloorQueue";

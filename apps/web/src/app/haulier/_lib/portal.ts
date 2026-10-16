@@ -1,4 +1,4 @@
-import type { interfaces } from "@/lib/api/client";
+import type { controllers, interfaces } from "@/lib/api/client";
 import type { BiText } from "./publicOrder";
 
 // Pure helpers of the haulier portal (/haulier/portal): Czech and English words, the password
@@ -8,7 +8,7 @@ import type { BiText } from "./publicOrder";
 export type PortalOrderItem = interfaces.PortalOrderItem;
 export type PortalOrder = interfaces.PortalOrder;
 export type PortalStop = interfaces.PortalStop;
-export type PortalStampKind = "LOADED" | "DEPARTED" | "ARRIVED";
+export type PortalStampKind = controllers.PortalOrderStampRequest["kind"];
 type Tone = "amber" | "green" | "red" | "blue" | "slate";
 
 export const ORDER_KIND: Record<PortalOrderItem["kind"], BiText> = {

@@ -2,6 +2,7 @@ import { api } from "encore.dev/api";
 import { requireRole } from "../../../lib/rbac";
 import { gateSendAgain, gateUnsent, type GateUnsent } from "../services/gateSendAgain.service";
 import type { GateMovementItem } from "../interfaces/gate.interfaces";
+import { requireModule } from "../../../lib/modules";
 
 interface GateUnsentResponse {
   /** What the record failed to send for good; null when nothing */
@@ -12,6 +13,7 @@ interface GateUnsentResponse {
 export const gateMovementUnsent = api(
   { expose: true, auth: true, method: "GET", path: "/warehouse-gate/:id/unsent" },
   async ({ id }: { id: string }): Promise<GateUnsentResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, role } = requireRole();
     return { unsent: await gateUnsent(id, companyID, role) };
   },
@@ -27,6 +29,7 @@ interface GateSendAgainResponse {
 export const gateMovementSendAgain = api(
   { expose: true, auth: true, method: "POST", path: "/warehouse-gate/:id/send-again" },
   async ({ id }: { id: string }): Promise<GateSendAgainResponse> => {
+    await requireModule("warehouse_concept");
     const { companyID, userID, role } = requireRole();
     return gateSendAgain(id, companyID, userID, role);
   },

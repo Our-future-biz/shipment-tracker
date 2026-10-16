@@ -123,6 +123,9 @@ export function tripJobCosts(
     unit: "trip",
     unitPrice: job.shareCzk,
     amount: job.shareCzk,
+    // The share is split from the trip's CZK total, so the estimate is in CZK whatever the haulier
+    // bills in; the real side (haulierInvoiceReal) comes in the invoice's currency and the row keeps
+    // it apart as realCurrency, so each side is converted on its own.
     currency: "CZK",
     vendor: trip.haulierName,
     haulierId: trip.haulierCustomerId,

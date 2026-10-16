@@ -1,5 +1,6 @@
 import type { interfaces } from "@/lib/api/client";
 import { addDays } from "@/lib/date";
+import { formatPostcode } from "@/lib/postcode";
 
 // Pure helpers of the Hauliers tab and the haulier page: status chip, postcodes (PSČ), expiry and
 // the checks a profile must pass before it is saved.
@@ -30,7 +31,7 @@ export function issueSummary(issues: readonly HaulierIssue[]): { first: string; 
 
 /** A Czech postcode as shown: "110 00"; anything not 5 digits stays as typed. */
 export function formatPsc(psc: string): string {
-  return /^\d{5}$/.test(psc) ? `${psc.slice(0, 3)} ${psc.slice(3)}` : psc;
+  return formatPostcode(psc);
 }
 
 /** What is typed into a postcode field, kept to its digits (at most 5): "110 00" → "11000". */

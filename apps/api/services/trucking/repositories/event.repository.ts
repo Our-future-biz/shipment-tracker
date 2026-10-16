@@ -14,6 +14,16 @@ export async function appendEvent(tx: Tx | typeof db, companyId: string, event: 
   await tx.insert(truckingEventTable).values({ ...event, companyId });
 }
 
+/** Whether the consignment already has an event of this kind (a redelivered message notes it once). */
+export async function hasEvent(reader: Tx | typeof db, companyId: string, consignmentId: string, kind: NewTruckingEventRecord["kind"]): Promise<boolean> {
+  const [row] = await reader
+    .select({ id: e.id })
+    .from(e)
+    .where(and(eq(e.companyId, companyId), eq(e.consignmentId, consignmentId), eq(e.kind, kind)))
+    .limit(1);
+  return !!row;
+}
+
 /** The events of a consignment and / or a trip, newest first (at most 200). */
 export async function listEvents(companyId: string, about: { consignmentId?: string | null; tripId?: string | null }) {
   const which: SQL[] = [];

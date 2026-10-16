@@ -15,6 +15,8 @@ import { SectionCard as Card, PillTabs } from "@/components/SectionCard";
 import { PickupSection } from "./warehouse/PickupSection";
 import { JobNotes, ActionPushButtons, SaveStatus, SavedMeanwhile, sectionSaveError } from "./warehouse/JobExtras";
 import { warehouseTaskKeys } from "@/hooks/warehouseKeys";
+import { useAuth } from "@/lib/auth/AuthContext";
+import { shipmentWarehouseReadOnly } from "@/lib/modules";
 
 interface JobSectionData {
   inform_operations_sent?: string;
@@ -50,18 +52,27 @@ const SUB_TABS = [
   { key: "pickup", label: "Pick-up" },
 ];
 
+interface WarehouseTabProps {
+  shipment: ShipmentItem;
+  /** Shipment Details (notes, remeasurement, push to suppliers) shown view only. */
+  readOnly?: boolean;
+  /** Pick-up shown view only; by default the opposite of `readOnly` (one side keeps each part). */
+  pickupReadOnly?: boolean;
+  editHref?: string;
+}
+
 /**
  * The warehouse part of a shipment, shown both in Shipments (`readOnly`) and on the warehouse
  * page. Shipment Details (notes, remeasurement, push to suppliers) is kept by the warehouse:
  * Shipments shows it read-only, with `editHref` leading to Warehouse → Remeasurement / Release when the
  * shipment has a position. Pick-up is the other way round: Shipments generates the PIN and
- * enters the pick-up, the warehouse only sees it.
+ * enters the pick-up, the warehouse only sees it. A company without the Warehouse Concept keeps
+ * both parts here, in Shipments.
  */
-export function WarehouseTab({ shipment, readOnly = false, editHref }: { shipment: ShipmentItem; readOnly?: boolean; editHref?: string }) {
+export function WarehouseTab({ shipment, readOnly = false, pickupReadOnly = !readOnly, editHref }: WarehouseTabProps) {
   const [subTab, setSubTab] = useState<string>("details");
   const [messageApi, contextHolder] = message.useMessage();
   const rowData = buildRowData(shipment);
-  const pickupReadOnly = !readOnly;
 
   return (
     <div className="flex flex-col gap-5">
@@ -119,13 +130,22 @@ export function WarehouseTab({ shipment, readOnly = false, editHref }: { shipmen
   );
 }
 
+interface ShipmentWarehouseTabProps {
+  shipment: ShipmentItem;
+}
+
 /** The Warehouse tab in Shipments: view only, with a way into the warehouse page when the
- *  shipment has a warehouse position. */
-export function ShipmentWarehouseTab({ shipment }: { shipment: ShipmentItem }) {
+ *  shipment has a warehouse position — or, for a company without the Warehouse Concept, the
+ *  place where the whole warehouse part is edited. */
+export function ShipmentWarehouseTab({ shipment }: ShipmentWarehouseTabProps) {
+  const { user } = useAuth();
+  const conceptOn = shipmentWarehouseReadOnly(user);
   const { data } = useQuery({
     queryKey: warehouseTaskKeys.byShipment(shipment.id),
     queryFn: () => api.warehouse.warehouseList({ shipmentId: shipment.id }),
+    enabled: conceptOn,
   });
+  if (!conceptOn) return <WarehouseTab shipment={shipment} readOnly={false} pickupReadOnly={false} />;
   const inWarehouse = (data?.tasks.length ?? 0) > 0;
   return <WarehouseTab shipment={shipment} readOnly editHref={inWarehouse ? remeasurementHref(shipment.id) : undefined} />;
 }

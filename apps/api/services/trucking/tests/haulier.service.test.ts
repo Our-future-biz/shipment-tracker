@@ -20,7 +20,7 @@ const U = "00000000-0000-0000-0000-000000000002";
 const H = "00000000-0000-0000-0000-0000000000a1";
 const H2 = "00000000-0000-0000-0000-0000000000a2";
 const haulierList = vi.mocked(customers._internalHaulierList);
-const company = (id: string, companyName: string) => ({ id, companyName, ico: "12345678", dic: "CZ12345678", city: "Brno" });
+const company = (id: string, companyName: string) => ({ id, companyName, ico: "12345678", dic: "CZ12345678", city: "Brno", country: "CZ" });
 
 const record = (over: Record<string, unknown> = {}) => ({
   id: "p1",

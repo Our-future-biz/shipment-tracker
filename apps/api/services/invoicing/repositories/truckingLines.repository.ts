@@ -5,7 +5,7 @@ import { db } from "../db/db";
 import { invoiceCostTable, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import { invoiceSellingCostTable, type NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
 import { invoiceRepository } from "./invoice.repository";
-import { differenceRef, differencesOf, matchRealLines, nextDifferenceNumber, planBuyingReplace, sellingDifference, sellingReplaceable } from "../utils/truckingLines.utils";
+import { differenceRef, differencesOf, matchRealLines, nextDifferenceNumber, planBuyingReplace, ROAD_CODES, sellingDifference, sellingReplaceable } from "../utils/truckingLines.utils";
 import { realRowValues } from "../utils/truckingReal.utils";
 import type { TruckingLinesResult, TruckingRealLine } from "../interfaces/interfaces";
 
@@ -16,7 +16,26 @@ type CostTable = typeof invoiceCostTable | typeof invoiceSellingCostTable;
 export type TruckingBuyingValues = Omit<NewInvoiceCostRecord, "companyId" | "shipmentId" | "sourceTruckingRef" | "sortOrder">;
 export type TruckingSellingValues = Omit<NewInvoiceSellingCostRecord, "companyId" | "shipmentId" | "sourceTruckingRef" | "sortOrder">;
 
+/** The advisory lock a push and an invoice issue of one shipment share (one at a time per shipment). */
+export const truckingLinesLock = (tx: Tx, shipmentId: string) =>
+  tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`trucking-lines:${shipmentId}`}))`);
+
 class TruckingLinesRepository {
+  /**
+   * Of the given selling rows, the ones still live (not soft-deleted). Called by an invoice issue
+   * after taking the shipment's trucking-lines lock, so a Trucking push that replaced the rows
+   * meanwhile is seen and the invoice is refused instead of billing rows that no longer exist.
+   */
+  async liveSellingIds(tx: Tx, companyId: string, shipmentId: string, ids: string[]): Promise<Set<string>> {
+    if (!ids.length) return new Set();
+    const s = invoiceSellingCostTable;
+    const rows = await tx
+      .select({ id: s.id })
+      .from(s)
+      .where(and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), inArray(s.id, ids), isNull(s.deletedAt)));
+    return new Set(rows.map((r) => r.id));
+  }
+
   /**
    * Replaces the live rows a Trucking sourceRef keeps in a shipment's Costs Breakdown, in one
    * transaction: the old rows are soft-deleted and the new ones added after the shipment's last
@@ -35,7 +54,13 @@ class TruckingLinesRepository {
     differenceLabel = "Price change after invoice",
   ): Promise<TruckingLinesResult> {
     return db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`trucking-lines:${shipmentId}`}))`);
+      await truckingLinesLock(tx, shipmentId);
+      // Road lines copied from a quote are the estimate the consignment now prices: they go when
+      // Trucking writes its own road lines, or the cost and the charge are counted twice. Only
+      // untouched estimates go - nothing with a real cost, a vendor invoice or on an invoice.
+      if ([...buying, ...selling].some((r) => (ROAD_CODES as readonly string[]).includes(String(r.category ?? "")))) {
+        await this.retireQuoteRoadEstimates(tx, companyId, shipmentId);
+      }
       const of = (table: CostTable) =>
         and(eq(table.companyId, companyId), eq(table.shipmentId, shipmentId), eq(table.sourceTruckingRef, sourceRef), isNull(table.deletedAt));
 
@@ -116,7 +141,7 @@ class TruckingLinesRepository {
    */
   async setReal(companyId: string, shipmentId: string, sourceRef: string, lines: TruckingRealLine[]): Promise<number | null> {
     return db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`trucking-lines:${shipmentId}`}))`);
+      await truckingLinesLock(tx, shipmentId);
       const t = invoiceCostTable;
       const rows = await tx
         .select({ id: t.id, estQty: t.estQty, description: t.description, realAmount: t.realAmount, invoiceNumber: t.invoiceNumber })
@@ -139,14 +164,69 @@ class TruckingLinesRepository {
   }
 
   /** Whether Trucking keeps live buying rows of this charge code on the shipment (a trip, a share, a partner delivery, the internal line). */
-  async hasBuyingOfCategory(companyId: string, shipmentId: string, category: string): Promise<boolean> {
+  private async retireQuoteRoadEstimates(tx: Tx, companyId: string, shipmentId: string): Promise<void> {
+    const now = new Date();
+    const c = invoiceCostTable;
+    const buying = await tx
+      .update(c)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(c.companyId, companyId),
+          eq(c.shipmentId, shipmentId),
+          isNull(c.deletedAt),
+          isNull(c.sourceTruckingRef),
+          sql`${c.sourceQuoteNumber} <> ''`,
+          inArray(c.category, [...ROAD_CODES]),
+          isNull(c.realAmount),
+          eq(c.invoiceNumber, ""),
+          eq(c.received, false),
+        ),
+      )
+      .returning({ id: c.id });
+    const s = invoiceSellingCostTable;
+    const invoiced = await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId, tx);
+    const candidates = await tx
+      .select({ id: s.id })
+      .from(s)
+      .where(
+        and(
+          eq(s.companyId, companyId),
+          eq(s.shipmentId, shipmentId),
+          isNull(s.deletedAt),
+          isNull(s.sourceTruckingRef),
+          sql`${s.sourceQuoteNumber} <> ''`,
+          inArray(s.category, [...ROAD_CODES]),
+        ),
+      );
+    const sellingIds = candidates.map((r) => r.id).filter((id) => !invoiced.has(id));
+    if (sellingIds.length) await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(inArray(s.id, sellingIds));
+    if (buying.length || sellingIds.length) {
+      log.info("invoicing: quote road estimates replaced by Trucking's lines", { shipmentId, buying: buying.length, selling: sellingIds.length });
+    }
+  }
+
+  /** Whether Trucking keeps a live buying row of any of these codes on the shipment. */
+  async hasBuyingOfCategories(companyId: string, shipmentId: string, categories: string[]): Promise<boolean> {
     const c = invoiceCostTable;
     const [row] = await db
       .select({ id: c.id })
       .from(c)
-      .where(and(eq(c.companyId, companyId), eq(c.shipmentId, shipmentId), eq(c.category, category), isNull(c.deletedAt), like(c.sourceTruckingRef, "trucking:%")))
+      .where(and(eq(c.companyId, companyId), eq(c.shipmentId, shipmentId), inArray(c.category, categories), isNull(c.deletedAt), like(c.sourceTruckingRef, "trucking:%")))
       .limit(1);
     return !!row;
+  }
+
+  /**
+   * Runs `work` while holding the shipment's trucking-lines lock (the lock a Trucking push takes):
+   * a check and the write after it can't interleave with a push. The work's own writes commit on
+   * their own connection while the lock is still held, so the push that waits sees them.
+   */
+  async withShipmentLock<T>(shipmentId: string, work: () => Promise<T>): Promise<T> {
+    return db.transaction(async (tx) => {
+      await truckingLinesLock(tx, shipmentId);
+      return work();
+    });
   }
 
   /** Whether the shipment has a consignment of Trucking (live selling rows "trucking:consignment:…"). */

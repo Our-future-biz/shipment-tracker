@@ -5,11 +5,11 @@ import Link from "next/link";
 import { Spin } from "antd";
 import { apiErrorMessage, isNotFound } from "@/lib/api";
 import { businessDateTime, formatDate } from "@/lib/date";
-import { usePortalOrder } from "@/hooks/useHaulierPortal";
+import { fetchPortalTransportOrderPdf, usePortalOrder } from "@/hooks/useHaulierPortal";
 import { formatMoney, formatQty } from "@/app/trucking/_lib/tariffs";
 import { savePdf } from "@/app/trucking/_lib/pdfFile";
 import { CONFIRMATION, ORDER_KIND, canRespond, needsActionText, orderStatusText } from "../_lib/portal";
-import { PortalSignedOutError, portalApi } from "../_lib/portalClient";
+import { PortalSignedOutError } from "../_lib/portalClient";
 import { PORTAL_CARD, PORTAL_CARD_TITLE, PORTAL_SECONDARY, PORTAL_TONE } from "../_lib/portalStyles";
 import { Bi } from "./Bi";
 import { PortalRespondCard } from "./PortalRespondCard";
@@ -54,8 +54,7 @@ export const PortalOrderView = ({ id }: PortalOrderViewProps) => {
     setPdfBusy(true);
     setPdfError(null);
     try {
-      const res = await portalApi.transportOrderPdf(order.id);
-      savePdf(res.file, `${order.ref}.pdf`);
+      savePdf(await fetchPortalTransportOrderPdf(order.id), `${order.ref}.pdf`);
     } catch (e) {
       if (!(e instanceof PortalSignedOutError)) setPdfError(apiErrorMessage(e));
     } finally {
