@@ -49,7 +49,7 @@ export const TruckingView = () => {
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto flex flex-col gap-5">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Trucking</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Trucking Concept</h1>
           <TruckingTabs
             active={activeTab.key}
             counts={tabCounts}

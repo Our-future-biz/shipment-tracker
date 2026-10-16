@@ -338,7 +338,7 @@ export function GateLogView({ embedded, header }: { embedded?: boolean; header?:
   const content = (
     <>
       <AppGrid<GateMovement>
-        title={embedded ? "Warehouse" : "Gate Log"}
+        title={embedded ? "Warehouse Concept" : "Gate Log"}
         subHeader={
           embedded ? (
             <>
