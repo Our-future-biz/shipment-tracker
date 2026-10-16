@@ -37,7 +37,7 @@ interface TruckingPortalUserCreateResponse {
 
 // Adds a portal user (manager) and gives the invitation link.
 export const truckingPortalUserCreate = api(
-  { expose: true, auth: true, method: "POST", path: "/trucking/hauliers/:customerId/portal-users" },
+  { expose: true, auth: true, method: "POST", path: "/trucking/hauliers/:customerId/portal-users", sensitive: true },
   async ({ customerId, email, name, phone }: TruckingPortalUserCreateRequest): Promise<TruckingPortalUserCreateResponse> => {
     return portalUserService.create(requireRole("superadmin", "admin", "manager"), customerId, { email, name, phone });
   },
@@ -55,7 +55,7 @@ interface TruckingPortalUserResetResponse {
 
 // Resets the password (manager): the old one stops working, the user's sessions end, a one-time link comes back.
 export const truckingPortalUserReset = api(
-  { expose: true, auth: true, method: "POST", path: "/trucking/portal-users/:id/reset" },
+  { expose: true, auth: true, method: "POST", path: "/trucking/portal-users/:id/reset", sensitive: true },
   async ({ id }: TruckingPortalUserIdRequest): Promise<TruckingPortalUserResetResponse> => {
     return portalUserService.reset(requireRole("superadmin", "admin", "manager"), id);
   },

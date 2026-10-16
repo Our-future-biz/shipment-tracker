@@ -10187,6 +10187,11 @@ export namespace interfaces {
          */
         blockReasons: string[]
 
+        /**
+         * Why an exact match was not approved automatically (NEEDS_APPROVAL): a recent bank-account change, the same user, a repriced trip; a manager decides
+         */
+        holdReasons: string[]
+
         approval: {
             byName: string
             at: string
@@ -10363,6 +10368,18 @@ export namespace interfaces {
          * Phase 6: the accounts published in the VAT register, normalised ("19-2000145399/0800" or an IBAN); manual for now
          */
         bankAccounts: string[]
+
+        /**
+         * When an account was last added to bankAccounts (ISO) and by whom (name, user id); null = never. Set by the server.
+         */
+        bankAccountsChangedAt: string | null
+
+        bankAccountsChangedBy: string | null
+        bankAccountsChangedByUserId: string | null
+        /**
+         * ISO: 30 days after the last bank-account change; until then an exact-match invoice waits for a manager. null = never changed
+         */
+        bankChangeHoldUntil: string | null
 
         /**
          * Default chargeable_weight

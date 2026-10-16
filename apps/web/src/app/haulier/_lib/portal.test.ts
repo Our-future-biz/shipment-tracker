@@ -12,6 +12,7 @@ import {
   portalUserProblem,
   stampKinds,
   stampProblem,
+  STAMP_LABEL,
   stopAddress,
 } from "./portal";
 
@@ -49,7 +50,8 @@ describe("haulier portal words", () => {
 });
 
 describe("haulier portal actions", () => {
-  it("offers Loaded only where the haulier loads, no stamps on a partner delivery", () => {
+  it("offers Picked up only where the haulier loads, no stamps on a partner delivery", () => {
+    expect(STAMP_LABEL.LOADED).toEqual({ cs: "Naloženo", en: "Picked up" });
     expect(stampKinds("FTL")).toEqual(["LOADED"]);
     expect(stampKinds("PICKUP_RUN")).toEqual(["LOADED", "DEPARTED", "ARRIVED"]);
     expect(stampKinds("PICKUP_RUN")).toEqual(["LOADED", "DEPARTED", "ARRIVED"]);
@@ -79,6 +81,8 @@ describe("haulier portal actions", () => {
     expect(canUploadStopPod(order("CONFIRMED"), stop)).toBe(true);
     expect(canUploadStopPod(order("CONFIRMED"), { ...stop, podUploaded: true })).toBe(false);
     expect(canUploadStopPod(order("REJECTED"), stop)).toBe(false);
+    // Only once the order is confirmed (owner decision 13).
+    expect(canUploadStopPod(order("AWAITING"), stop)).toBe(false);
   });
 });
 

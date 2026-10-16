@@ -4,6 +4,7 @@ import { isUuid } from "../../../lib/uuid";
 import { accountListed, normaliseBankAccount } from "./bankAccount";
 import { splitCents } from "./costSplit";
 import { formatDay } from "./format";
+import { BANK_HOLD_DAYS, bankHoldUntil } from "./haulierRules";
 import type { HaulierProfile } from "../interfaces/interfaces";
 import type { HaulierInvoiceInput, HaulierInvoiceLineInput, HaulierInvoiceStatus } from "../interfaces/haulierInvoice.interfaces";
 
@@ -41,6 +42,31 @@ export function invoiceBlockReasons(p: VatProfile | null, bankAccount: string): 
   return out;
 }
 
+/** The profile parts the auto-approval hold reads: the last bank-account change. */
+export type BankChange = Pick<HaulierProfile, "bankAccountsChangedAt" | "bankAccountsChangedBy" | "bankAccountsChangedByUserId">;
+
+/**
+ * Why an invoice that matches exactly may still not approve itself (owner decisions 6 and 7):
+ * the haulier's bank accounts changed in the last 30 days, the user who changed them is the one
+ * entering the invoice, or a line's trip / partner delivery was repriced after its order went out.
+ * `enteredBy`: the users entering or saving the invoice. Empty = it may approve itself.
+ */
+export function autoApprovalHolds(p: BankChange | null, enteredBy: (string | null)[], now: Date, repriced: string[]): string[] {
+  const out: string[] = [];
+  if (p?.bankAccountsChangedAt) {
+    const changed = new Date(p.bankAccountsChangedAt);
+    const who = p.bankAccountsChangedBy ? ` by ${p.bankAccountsChangedBy}` : "";
+    if (now.getTime() < bankHoldUntil(changed).getTime()) {
+      out.push(`The haulier's bank accounts were changed${who} on ${formatDay(changed.toISOString().slice(0, 10))}, less than ${BANK_HOLD_DAYS} days ago: a manager must approve the payment`);
+    }
+    if (p.bankAccountsChangedByUserId && enteredBy.includes(p.bankAccountsChangedByUserId)) {
+      out.push("The user who last changed the haulier's bank accounts also entered this invoice: a manager must approve the payment");
+    }
+  }
+  for (const r of repriced) out.push(`${r}: the price was changed after the order went out: a manager must approve the payment`);
+  return out;
+}
+
 /** The invoice's account against the haulier's published accounts (the manual list for now). */
 export function bankAccountCheck(p: VatProfile | null, bankAccount: string): { published: boolean | null; checkedAt: string | null; note: string } {
   if (!p) return { published: null, checkedAt: null, note: "The haulier has no trucking profile" };
@@ -72,9 +98,9 @@ export interface MatchResult {
 /**
  * The status an invoice gets: BLOCKED while there is a block reason; DRAFT without lines; else
  * APPROVED when every line and the net total match to the cent (an exact match is approved
- * automatically), NEEDS_APPROVAL on any difference.
+ * automatically) and nothing holds it (autoApprovalHolds), NEEDS_APPROVAL on any difference or hold.
  */
-export function matchInvoice(totalNet: number, lines: MatchLine[], blockReasons: string[]): MatchResult {
+export function matchInvoice(totalNet: number, lines: MatchLine[], blockReasons: string[], holdReasons: string[] = []): MatchResult {
   const lineDifferences = lines.map((l) => fromCents(cents(l.invoiced) - cents(l.expected)));
   const expected = lines.reduce((a, l) => a + cents(l.expected), 0);
   const invoiced = lines.reduce((a, l) => a + cents(l.invoiced), 0);
@@ -87,7 +113,7 @@ export function matchInvoice(totalNet: number, lines: MatchLine[], blockReasons:
   let status: HaulierInvoiceStatus;
   if (blockReasons.length) status = "BLOCKED";
   else if (!lines.length) status = "DRAFT";
-  else status = mismatches.length ? "NEEDS_APPROVAL" : "APPROVED";
+  else status = mismatches.length || holdReasons.length ? "NEEDS_APPROVAL" : "APPROVED";
   return { status, lineDifferences, difference, mismatches };
 }
 

@@ -11,6 +11,7 @@ import {
   fileSlug,
   loadWorkbookTables,
   MAX_FILE_BYTES,
+  MAX_UNPACKED_BYTES,
   parseDate,
   parseNumber,
   parsePostcode,
@@ -18,6 +19,7 @@ import {
   readTariffWorkbook,
   UnreadableFileError,
   writeTariffWorkbook,
+  zipUnpackedBytes,
   type WorkbookTariffInfo,
 } from "../lib/tariffWorkbook";
 import { validateVersion } from "../lib/tariffValidation";
@@ -447,5 +449,21 @@ describe("reading filled files", () => {
     await expect(loadWorkbookTables(xls)).rejects.toThrow("old Excel 97–2003 (.xls)");
     const brokenZip = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(100)]);
     await expect(loadWorkbookTables(brokenZip)).rejects.toBeInstanceOf(UnreadableFileError);
+  });
+
+  it("refuses a workbook that unpacks to more than 50 MB before opening it (its zip directory read)", async () => {
+    const buffer = await writeTariffWorkbook({ tariff: TARIFF, input: emptyTemplateInput(DEFAULTS.factors, "2026-10-15"), levelLabels: LABELS });
+    const declared = zipUnpackedBytes(buffer)!;
+    expect(declared).toBeGreaterThan(buffer.length);
+    expect(declared).toBeLessThan(MAX_UNPACKED_BYTES);
+    // The first central directory entry claims 60 MB unpacked.
+    const bomb = Buffer.from(buffer);
+    const cen = bomb.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+    bomb.writeUInt32LE(60 * 1024 * 1024, cen + 24);
+    expect(zipUnpackedBytes(bomb)).toBeGreaterThan(MAX_UNPACKED_BYTES);
+    const load = vi.spyOn(ExcelJS.Workbook.prototype, "xlsx", "get");
+    await expect(loadWorkbookTables(bomb)).rejects.toThrow("The workbook unpacks to more than 50 MB");
+    expect(load).not.toHaveBeenCalled();
+    load.mockRestore();
   });
 });

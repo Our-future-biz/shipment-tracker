@@ -19,10 +19,10 @@ import { cleanText } from "../lib/portalRules";
 import { actingFor, type PortalCaller } from "./portalAuth.service";
 import { consignmentService } from "./consignment.service";
 import { ltlService } from "./ltl.service";
-import { recordAnswer, senderOf } from "./publicOrder.service";
+import { CONFIRM_BEFORE_POD, recordAnswer, senderOf } from "./publicOrder.service";
 import { settingsService } from "./settings.service";
 import { transportOrderService } from "./transportOrder.service";
-import { insertDocument, storeFile } from "./truckingDocument.service";
+import { assertNoPod, insertDocument, POD_ON_FILE_HAULIER, withStoredFile } from "./truckingDocument.service";
 import { deliverDue } from "./truckingOutbox.service";
 
 // What a logged-in haulier sees and does in the portal: its own orders only - trips (FTL, pick-up
@@ -136,9 +136,17 @@ const STAMPS_SHOWN: Record<PortalOrderKind, StampKind[]> = {
   PARTNER_DELIVERY: ["delivered", "podReceived"],
 };
 
+type Price = { total: number; currency: string } | null;
+const priceText = (p: Price) => (p ? `${p.total.toFixed(2)} ${p.currency}` : "none");
+
+/** An agreed price changed after the order went out, as the haulier reads it (never the reason). */
+function priceChangeText(facts: Record<string, unknown>): string {
+  return `Agreed price changed: ${priceText(facts.priceBefore as Price)} → ${priceText(facts.priceAfter as Price)}`;
+}
+
 /**
- * The order's history as the haulier may read it: the transport order sent and answered and the
- * stamps of its own part, in our wording - never a summary that could carry a price, a margin, a
+ * The order's history as the haulier may read it: the transport order sent and answered, the
+ * agreed price changed after it went out, and the stamps of its own part, in our wording - never a summary that could carry a price, a margin, a
  * recipient or an internal note.
  */
 async function historyOf(o: Loaded): Promise<{ at: string; text: string }[]> {
@@ -160,6 +168,10 @@ async function historyOf(o: Loaded): Promise<{ at: string; text: string }[]> {
     else if (ownTrip && e.kind === "transport_order_confirmed") text = "Order confirmed";
     else if (ownTrip && e.kind === "transport_order_rejected") text = `Order rejected${payload.reason ? `: ${payload.reason}` : ""}`;
     else if (ownTrip && e.kind === "trip_stamp_set") text = payload.summary ?? null;
+    else if (ownTrip && e.kind === "trip_repriced" && payload.facts?.afterOrder) text = priceChangeText(payload.facts);
+    else if (o.leg && e.kind === "partner_delivery_set" && payload.facts?.afterOrder && payload.facts.legId === o.leg.id && payload.facts.partner === o.leg.haulierCustomerId) {
+      text = priceChangeText(payload.facts);
+    }
     else if (e.kind === "stamp_set" && STAMPS_SHOWN[o.kind].includes(payload.facts?.kind as StampKind)) {
       const ref = e.consignmentId ? refOf.get(e.consignmentId) : null;
       text = ref && payload.summary ? `${ref}: ${payload.summary}` : null;
@@ -348,9 +360,11 @@ class PortalOrderService {
 
   /**
    * The POD of one stop (a photo or a PDF, at most 10 MB, the type taken from the bytes), as the
-   * transport-order link takes it: stamps the delivery when missing (an FTL pick-up first), then
-   * POD received (source HAULIER), which may send the job to Billing. Refused before anything is
-   * stored when the delivery may not be stamped yet.
+   * transport-order link takes it: only once the order is confirmed (a partner delivery has no
+   * confirmation) and one per stop (a manager replaces it in the app). Stamps the delivery when
+   * missing (an FTL pick-up first), then POD received (source HAULIER), which may send the job to
+   * Billing. Refused before anything is stored when the delivery may not be stamped yet; the file
+   * is removed again when the transaction fails.
    */
   async pod(
     caller: PortalCaller,
@@ -360,6 +374,9 @@ class PortalOrderService {
   ): Promise<PortalOrder> {
     const o = await this.load(caller, id);
     const c = this.deliveryStop(o, consignmentId);
+    if (o.trip && !o.trip.confirmedAt) throw APIError.failedPrecondition(CONFIRM_BEFORE_POD);
+    const companyId = caller.companyId;
+    if (await truckingDocumentRepository.hasPod(companyId, c.id)) throw APIError.failedPrecondition(POD_ON_FILE_HAULIER);
     const trip = o.kind === "FTL" ? o.trip : null;
     const now = new Date();
     const deliveredAt = stampTime(input.deliveredAt ?? null, now);
@@ -371,10 +388,9 @@ class PortalOrderService {
     const file = checkUpload(input.fileName, input.fileBase64, true);
     const receiver = typeof input.receiverName === "string" ? input.receiverName.trim().slice(0, MAX_NAME) : "";
     const by = receiver ? `${caller.who}, received by ${receiver}` : caller.who;
-    const companyId = caller.companyId;
     const actor = this.actorOf(caller, o);
-    const key = await storeFile(companyId, c.id, file);
-    await inTx(async (tx) => {
+    await withStoredFile(companyId, c.id, file, (key) => inTx(async (tx) => {
+      await assertNoPod(tx, companyId, c.id, POD_ON_FILE_HAULIER);
       await insertDocument(tx, companyId, c.id, file, key, { kind: "POD", source: "HAULIER", userId: null, name: by });
       // The stamps the POD proves, in order; each one guarded, each on the row the previous one left.
       let row = (await consignmentRepository.find(companyId, c.id, tx))!;
@@ -384,7 +400,7 @@ class PortalOrderService {
         row = await consignmentService.stampInTx(tx, actor, row, trip, "delivered", at, by, "HAULIER");
       }
       if (!row.podReceivedAt) await consignmentService.stampInTx(tx, actor, row, trip, "podReceived", now, by, "HAULIER");
-    });
+    }));
     await deliverDue(c.id);
     return this.get(caller, id);
   }

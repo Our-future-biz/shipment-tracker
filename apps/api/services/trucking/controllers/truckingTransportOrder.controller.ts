@@ -16,7 +16,7 @@ interface TruckingTransportOrderPdfRequest {
 
 // The transport order PDF. Refused while the margin is below the floor without approval, or the haulier is blocked.
 export const truckingTransportOrderPdf = api(
-  { expose: true, auth: true, method: "POST", path: "/trucking/trips/:id/transport-order/pdf" },
+  { expose: true, auth: true, method: "POST", path: "/trucking/trips/:id/transport-order/pdf", sensitive: true },
   async ({ id, pickupPin, language }: TruckingTransportOrderPdfRequest): Promise<TruckingFileResponse> => {
     return { file: await transportOrderService.pdf(requireRole(), id, { pickupPin, language }) };
   },
@@ -39,7 +39,7 @@ interface TruckingTransportOrderSendResponse {
 
 // Sends (or, while e-mail is off, records as sent) the transport order with a new haulier link.
 export const truckingTransportOrderSend = api(
-  { expose: true, auth: true, method: "POST", path: "/trucking/trips/:id/transport-order/send" },
+  { expose: true, auth: true, method: "POST", path: "/trucking/trips/:id/transport-order/send", sensitive: true },
   async ({ id, ...input }: TruckingTransportOrderSendRequest): Promise<TruckingTransportOrderSendResponse> => {
     return transportOrderService.send(requireRole(), id, input);
   },

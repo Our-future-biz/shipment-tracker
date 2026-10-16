@@ -21,6 +21,7 @@ export class APIError extends Error {
   static alreadyExists = (message: string) => new APIError("already_exists", message);
   static unavailable = (message: string) => new APIError("unavailable", message);
   static unauthenticated = (message: string) => new APIError("unauthenticated", message);
+  static resourceExhausted = (message: string) => new APIError("resource_exhausted", message);
 
   withDetails(details: Record<string, unknown>) {
     return new APIError(this.code, this.message, details);

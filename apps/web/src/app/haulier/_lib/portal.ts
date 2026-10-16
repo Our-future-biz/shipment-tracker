@@ -47,7 +47,7 @@ const ORDER_STATUS: Record<string, BiText> = {
 export const orderStatusText = (status: string): BiText => ORDER_STATUS[status] ?? { cs: status, en: status };
 
 export const STAMP_LABEL: Record<PortalStampKind, BiText> = {
-  LOADED: { cs: "Naloženo", en: "Loaded" },
+  LOADED: { cs: "Naloženo", en: "Picked up" },
   DEPARTED: { cs: "Odjezd", en: "Departed" },
   ARRIVED: { cs: "Příjezd", en: "Arrived" },
 };
@@ -58,9 +58,9 @@ const STAMP_FIELD = { LOADED: "loaded", DEPARTED: "departed", ARRIVED: "arrived"
 export const stampAt = (stamps: PortalOrder["stamps"], kind: PortalStampKind): string | null => stamps[STAMP_FIELD[kind]];
 
 /**
- * The stamps a haulier gives an order: Loaded only where it picks the goods up itself (FTL, pick-up
+ * The stamps a haulier gives an order: Picked up only where it picks the goods up itself (FTL, pick-up
  * run; a line haul and a delivery run are loaded by our warehouse), Departed and Arrived on the runs
- * and line hauls. An FTL order follows its consignment instead (Loaded, then Delivered and the POD at
+ * and line hauls. An FTL order follows its consignment instead (Picked up, then Delivered and the POD at
  * the stop), and a partner delivery has only its stops' Delivered.
  */
 export function stampKinds(kind: PortalOrderItem["kind"]): PortalStampKind[] {
@@ -92,9 +92,15 @@ export function deliveredProblem(order: Pick<PortalOrder, "confirmation">, stop:
   return null;
 }
 
-/** The POD is uploaded once per delivery stop. */
+/** The POD rule (owner decision 13): once the order is confirmed, one per stop; the dispatcher replaces it. */
+export const POD_RULE: BiText = {
+  cs: "POD lze nahrát až po potvrzení objednávky, jeden na každou vykládku. Opravu provede dispečer.",
+  en: "The POD can be uploaded once the order is confirmed, one per delivery stop. The dispatcher replaces it if needed.",
+};
+
+/** The POD is uploaded once per delivery stop, once the order is confirmed (a partner delivery counts as confirmed). */
 export const canUploadStopPod = (order: Pick<PortalOrder, "confirmation">, stop: Pick<PortalStop, "kind" | "podUploaded">) =>
-  order.confirmation.status !== "REJECTED" && stop.kind === "DELIVERY" && !stop.podUploaded;
+  order.confirmation.status === "CONFIRMED" && stop.kind === "DELIVERY" && !stop.podUploaded;
 
 /** Why a rejection cannot be sent yet, or null. */
 export const rejectProblem = (reason: string): BiText | null =>

@@ -10,18 +10,19 @@ import type { PortalSessionRecord, PortalUserRecord } from "../schemas/portal.sc
 import type { PortalMe } from "../interfaces/portal.interfaces";
 import { hashToken, looksLikeToken, newToken, tokenMatches } from "../lib/haulierToken";
 import {
+  ACCOUNT_RULE,
   HAULIER_BLOCKED,
+  IP_RULE,
   isLocked,
-  LOCK_MS,
   LOG_IN_AGAIN,
   LOGIN_FAILED,
-  MAX_FAILED_LOGINS,
   MAX_PASSWORD,
   normaliseEmail,
   passwordRefusal,
   SET_PASSWORD_LINK_INVALID,
   sessionTimes,
   slidExpiry,
+  TOO_MANY_ATTEMPTS,
 } from "../lib/portalRules";
 import { ourCompany } from "./transportOrder.service";
 
@@ -100,25 +101,43 @@ class PortalAuthService {
   }
 
   /**
-   * E-mail and password. After 5 wrong passwords the e-mail is locked for 15 minutes (a right
-   * password is refused too while locked). Every attempt on a known e-mail is an event; an unknown
-   * e-mail is only logged (it belongs to no company).
+   * E-mail and password. Throttled twice: per IP (20 failed logins in 15 minutes, any e-mail or
+   * company, lock the IP - 15 minutes doubling up to 24 h - answered "too many attempts") and per
+   * account (5 wrong passwords lock it - 15 minutes doubling up to 1 hour; a right password is
+   * refused too while locked). One e-mail may have an account in several companies: the password
+   * is checked against each usable one and the account it matches logs in - the others are not
+   * charged a failure; a failure counts only when no account matched, and only on the accounts
+   * actually tried. A matching account of a blocked haulier does not stop another match. Every
+   * attempt on a known e-mail is an event; an unknown e-mail is only logged.
    */
   async login(input: { email: unknown; password: unknown }, client: PortalClient): Promise<{ session: string; expiresAt: string; me: PortalMe }> {
     const fail = () => APIError.unauthenticated(LOGIN_FAILED);
+    const now = new Date();
+    const ipKey = `ip:${client.ip || "unknown"}`;
+    const failed = async () => {
+      await portalRepository.failThrottle(ipKey, now, IP_RULE);
+      return fail();
+    };
     const email = normaliseEmail(input.email);
     const password = typeof input.password === "string" ? input.password : "";
+    const throttle = await portalRepository.throttleOf(ipKey);
+    if (throttle && isLocked(throttle, now)) {
+      await burn(password);
+      log.info("trucking portal: login refused, too many failures from the IP");
+      throw APIError.resourceExhausted(TOO_MANY_ATTEMPTS);
+    }
     if (!email || !password || password.length > MAX_PASSWORD) {
       await burn("");
-      throw fail();
+      throw await failed();
     }
     const candidates = await portalRepository.usersByEmail(email);
     if (!candidates.length) {
       await burn(password);
       log.info("trucking portal: login with an unknown e-mail refused");
-      throw fail();
+      throw await failed();
     }
-    const now = new Date();
+    const tried: PortalUserRecord[] = [];
+    const matched: PortalUserRecord[] = [];
     for (const u of candidates) {
       const refused = isLocked(u, now) ? "locked" : u.status !== "ACTIVE" ? "disabled" : !u.passwordHash ? "password_not_set" : null;
       if (refused || !u.passwordHash) {
@@ -126,26 +145,31 @@ class PortalAuthService {
         await appendEvent(db, u.companyId, event(u, "portal_login_failed", `Portal login refused (${refused})`, { reason: refused }));
         continue;
       }
-      if (!(await verify(u.passwordHash, password).catch(() => false))) {
-        const row = await portalRepository.failLogin(u.companyId, u.id, MAX_FAILED_LOGINS, new Date(now.getTime() + LOCK_MS));
-        const lockedNow = !!row && isLocked(row, now);
-        await appendEvent(db, u.companyId, event(u, "portal_login_failed", `Portal login: wrong password${lockedNow ? ", locked for 15 minutes" : ""}`, { reason: "wrong_password", locked: lockedNow }));
-        continue;
-      }
+      if (await verify(u.passwordHash, password).catch(() => false)) matched.push(u);
+      else tried.push(u);
+    }
+    for (const u of matched) {
       if (await this.haulierBlocked(u.companyId, u.haulierCustomerId)) {
         await appendEvent(db, u.companyId, event(u, "portal_login_failed", "Portal login refused: the haulier is blocked", { reason: "blocked" }));
-        throw APIError.permissionDenied(HAULIER_BLOCKED);
+        continue;
       }
       return this.startSession(u, now, client);
     }
-    throw fail();
+    if (matched.length) throw APIError.permissionDenied(HAULIER_BLOCKED);
+    for (const u of tried) {
+      const row = await portalRepository.failLogin(u.companyId, u.id, now, ACCOUNT_RULE);
+      const lockedNow = !!row && isLocked(row, now);
+      const minutes = row?.lockedUntil ? Math.round((row.lockedUntil.getTime() - now.getTime()) / 60_000) : 0;
+      await appendEvent(db, u.companyId, event(u, "portal_login_failed", `Portal login: wrong password${lockedNow ? `, locked for ${minutes} minutes` : ""}`, { reason: "wrong_password", locked: lockedNow }));
+    }
+    throw await failed();
   }
 
   private async startSession(u: PortalUserRecord, now: Date, client: PortalClient) {
     const { token, hash: tokenHash } = newToken();
     const times = sessionTimes(now);
     await inTx(async (tx) => {
-      await portalRepository.updateUser(tx, u.companyId, u.id, { failedAttempts: 0, lockedUntil: null, lastLoginAt: now });
+      await portalRepository.updateUser(tx, u.companyId, u.id, { failedAttempts: 0, lockedUntil: null, lockLevel: 0, lastLoginAt: now });
       await portalRepository.insertSession(tx, {
         companyId: u.companyId,
         userId: u.id,

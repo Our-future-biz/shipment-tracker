@@ -31,7 +31,7 @@ vi.mock("../services/truckingOutbox.service", () => ({ deliverDue: vi.fn(async (
 vi.mock("../lib/users", () => ({ userName: vi.fn(async () => "Jana Nováková") }));
 vi.mock("../lib/transportOrderPdf", () => ({ buildTransportOrderPdf: vi.fn(async () => new Uint8Array([37, 80, 68, 70])) }));
 vi.mock("../lib/cmrPdf", () => ({ buildCmrPdf: vi.fn(async () => new Uint8Array([37, 80, 68, 70])) }));
-vi.mock("../../../lib/email", () => ({ sendMail: vi.fn(async () => ({ sent: false, error: "E-mail sending is disabled", providerId: "" })) }));
+vi.mock("../../../lib/email", () => ({ emailConfigured: vi.fn(() => false), sendMail: vi.fn(async () => ({ sent: false, error: "E-mail sending is disabled", providerId: "" })) }));
 
 import { customers, invoicing, sales } from "~encore/clients";
 import { transportOrderService } from "../services/transportOrder.service";
@@ -40,7 +40,7 @@ import { consignmentRepository } from "../repositories/consignment.repository";
 import { tripRepository } from "../repositories/trip.repository";
 import { buildTransportOrderPdf } from "../lib/transportOrderPdf";
 import { buildCmrPdf } from "../lib/cmrPdf";
-import { sendMail } from "../../../lib/email";
+import { emailConfigured, sendMail } from "../../../lib/email";
 import { hashToken } from "../lib/haulierToken";
 import type { HaulierDetail } from "../interfaces/interfaces";
 import type { TruckingConsignmentRecord } from "../schemas/truckingConsignment.schema";
@@ -95,6 +95,7 @@ const lastDoc = () => vi.mocked(buildTransportOrderPdf).mock.calls.at(-1)![0] as
 beforeEach(() => {
   resetStore();
   vi.clearAllMocks();
+  vi.mocked(emailConfigured).mockReturnValue(false);
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-10-15T10:00:00Z"));
   vi.mocked(haulierService.get).mockResolvedValue(haulier());
@@ -195,7 +196,8 @@ describe("transport order: send and confirm", () => {
     const res = await transportOrderService.send(user, trip.id, { pickupPin: null, language: "cs", to: ["dispo@bravo.cz"], note: "Ramp 3" });
     expect(res.recordedOnly).toBe(true);
     expect(res.file.contentType).toBe("application/pdf");
-    expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: ["dispo@bravo.cz"], subject: "Transport order LCZ2026000007 – 16 Oct 2026" }));
+    // E-mail is off: nothing is handed to the mailer, the user sends the PDF.
+    expect(sendMail).not.toHaveBeenCalled();
     expect(res.trip).toMatchObject({ status: "ORDERED", transportOrder: { sentBy: "Jana Nováková", recordedOnly: true, pinPrinted: false } });
     expect(res.trip.transportOrder!.podLinkExpiresAt).toBe("2026-11-15T22:59:59.000Z");
     expect(store.consignments.find((x) => x.id === c.id)!.status).toBe("ORDERED");
@@ -210,6 +212,47 @@ describe("transport order: send and confirm", () => {
     await transportOrderService.send(user, trip.id, { pickupPin: null, language: "cs", to: [], note: "" });
     expect(store.links.filter((l) => !l.revokedAt)).toHaveLength(1);
     expect(store.links).toHaveLength(2);
+  });
+
+  it("stores the link before anything is mailed: the mail carries the stored link, keyed by the new version", async () => {
+    vi.mocked(emailConfigured).mockReturnValue(true);
+    vi.mocked(sendMail).mockImplementationOnce(async () => {
+      // When the mail goes out, the link it carries is already stored.
+      expect(store.links).toHaveLength(1);
+      return { sent: true, error: "", providerId: "m1" };
+    });
+    const { trip } = await planned();
+    const res = await transportOrderService.send(user, trip.id, { pickupPin: null, language: "cs", to: ["dispo@bravo.cz"], note: "" });
+    expect(res.recordedOnly).toBe(false);
+    const mail = vi.mocked(sendMail).mock.calls[0]![0];
+    const token = mail.text.match(/haulier\/order\/([A-Za-z0-9_-]{43})/)![1]!;
+    expect(store.links[0]!.tokenHash).toBe(hashToken(token));
+    expect(mail.idempotencyKey).toBe(`${trip.id}:${store.trips.find((t) => t.id === trip.id)!.version}`);
+  });
+
+  it("a send that loses the race (the trip changed meanwhile) mails nothing and stores no link: no dead link", async () => {
+    vi.mocked(emailConfigured).mockReturnValue(true);
+    const { trip } = await planned();
+    // Another send commits while this one builds its PDF: the version it read is stale when it locks the trip.
+    vi.mocked(tripRepository.lock).mockImplementationOnce(async (_tx, _c, id) => {
+      const row = store.trips.find((t) => t.id === id)!;
+      row.version += 1;
+      return { ...row };
+    });
+    await expect(transportOrderService.send(user, trip.id, { pickupPin: null, language: "cs", to: ["dispo@bravo.cz"], note: "" })).rejects.toMatchObject({ code: "aborted" });
+    expect(sendMail).not.toHaveBeenCalled();
+    expect(store.links).toHaveLength(0);
+  });
+
+  it("a mail that fails after the send is recorded: recorded only, with the reason; the stored link stays", async () => {
+    vi.mocked(emailConfigured).mockReturnValue(true);
+    vi.mocked(sendMail).mockResolvedValueOnce({ sent: false, error: "Provider down", providerId: "" });
+    const { trip } = await planned();
+    const res = await transportOrderService.send(user, trip.id, { pickupPin: null, language: "cs", to: ["dispo@bravo.cz"], note: "" });
+    expect(res.recordedOnly).toBe(true);
+    expect(store.trips.find((t) => t.id === trip.id)!.orderRecordedOnly).toBe(true);
+    expect(store.links.filter((l) => !l.revokedAt)).toHaveLength(1);
+    expect(eventsOf("transport_order_sent").map((e) => (e.payload as { summary: string }).summary)).toContainEqual(expect.stringContaining("the e-mail was not sent (Provider down)"));
   });
 
   it("refuses a recipient that is no e-mail address", async () => {

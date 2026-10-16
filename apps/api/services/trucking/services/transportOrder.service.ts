@@ -10,7 +10,8 @@ import type { TruckingConsignmentRecord, TruckingTripRecord } from "../schemas/t
 import type { DocLanguageCode, FileDownload, LegKind, TripDetail, TruckingSettings } from "../interfaces/interfaces";
 import type { DocParty } from "../lib/documentTypes";
 import type { Actor } from "../../../lib/rbac";
-import { sendMail } from "../../../lib/email";
+import { emailConfigured, sendMail, type MailResult } from "../../../lib/email";
+import { appUrl } from "../../../lib/appUrl";
 import {
   cleanPin,
   cleanRecipients,
@@ -43,7 +44,6 @@ import { ltlTrips } from "./ltlTrips";
 // into the PDF and nowhere else - no column, no event, no log; the event says only whether one
 // was printed.
 
-const APP_URL = process.env.APP_URL || "http://localhost:3001";
 const LANGUAGES: readonly DocLanguageCode[] = ["cs", "en", "both"];
 
 export interface TransportOrderPrintInput {
@@ -183,7 +183,10 @@ class TransportOrderService {
   /**
    * Any user. Sends the transport order - while e-mail is off it is recorded as sent ("recorded
    * only") and the PDF comes back for the user to send. A new haulier link (valid 30 days after the
-   * planned pick-up) replaces the old one and is printed on the order. Trip and consignment become ORDERED.
+   * planned pick-up) replaces the old one and is printed on the order. Trip and consignment become
+   * ORDERED. The link's hash is stored in the trip's locked, version-checked transaction BEFORE the
+   * order is mailed or returned: a send that loses a race (or any conflict) mails and returns
+   * nothing, so the haulier never holds a link that was not stored.
    */
   async send(actor: Actor, tripId: string, input: TransportOrderSendInput): Promise<{ trip: TripDetail; recordedOnly: boolean; file: FileDownload }> {
     const lang = language(input.language);
@@ -196,25 +199,18 @@ class TransportOrderService {
     const our = await ourCompany();
     const { token, hash } = newToken();
     const expiresAt = linkExpiry(trip.plannedPickupDate);
-    const link = haulierLinkUrl(APP_URL, token);
+    const link = haulierLinkUrl(appUrl(), token);
     const bytes = await this.build(trip, c, lang, pin, link, haulier, settings.vehicleTypes, our);
     const file = pdfFile(`${trip.ref}.pdf`, bytes);
-
-    const texts = { orderRef: trip.ref, haulier: trip.haulierName, date: formatDay(trip.plannedPickupDate) };
-    const mail = await sendMail({
-      to,
-      cc: [],
-      subject: fillOrderText(settings.transportOrder.emailSubject, texts),
-      text: [fillOrderText(settings.transportOrder.emailBody, texts), note, `Confirm the order and upload the POD: ${link}`].filter(Boolean).join("\n\n"),
-      attachments: [{ filename: file.fileName, content: file.fileBase64 }],
-      idempotencyKey: `${trip.id}:${trip.version}`,
-    });
-    const recordedOnly = !mail.sent;
+    // While e-mail is off every send is "recorded only"; a mail that fails later is recorded then.
+    const mailing = emailConfigured() && to.length > 0;
     const by = await userName(actor.userID);
     const now = new Date();
-    await inTx(async (tx) => {
+    const sentRow = await inTx(async (tx) => {
+      const locked = await tripRepository.lock(tx, companyId, trip.id);
+      if (!locked || locked.cancelledAt || locked.version !== trip.version) throw APIError.aborted("The trip was changed by someone else. Reload and try again.");
       await tripRepository.renewLink(tx, companyId, trip.id, hash, expiresAt);
-      const sent = { ...trip, orderSentAt: now, rejectedAt: null };
+      const sent = { ...locked, orderSentAt: now, rejectedAt: null };
       const row = await tripRepository.update(
         tx,
         companyId,
@@ -224,7 +220,7 @@ class TransportOrderService {
           orderSentBy: by,
           orderSentByUserId: actor.userID || null,
           orderSentByRole: actor.role,
-          orderRecordedOnly: recordedOnly,
+          orderRecordedOnly: !mailing,
           orderTo: to,
           ...(pin ? { pinPrinted: true } : {}),
           ourCompanyName: our.name,
@@ -246,12 +242,47 @@ class TransportOrderService {
         byName: by,
         payload: {
           changes: {},
-          summary: `Transport order ${trip.ref} ${recordedOnly ? "marked as sent (recorded only)" : "sent"}${to.length ? ` to ${to.join(", ")}` : ""}${pin ? " (PIN printed)" : ""}`,
-          facts: { recordedOnly, to, pinPrinted: !!pin, language: lang, note, linkExpiresAt: expiresAt.toISOString() },
+          summary: `Transport order ${trip.ref} ${mailing ? "sent" : "marked as sent (recorded only)"}${to.length ? ` to ${to.join(", ")}` : ""}${pin ? " (PIN printed)" : ""}`,
+          facts: { recordedOnly: !mailing, to, pinPrinted: !!pin, language: lang, note, linkExpiresAt: expiresAt.toISOString() },
+        },
+      });
+      return row;
+    });
+
+    const texts = { orderRef: trip.ref, haulier: trip.haulierName, date: formatDay(trip.plannedPickupDate) };
+    const mail = mailing
+      ? await sendMail({
+          to,
+          cc: [],
+          subject: fillOrderText(settings.transportOrder.emailSubject, texts),
+          text: [fillOrderText(settings.transportOrder.emailBody, texts), note, `Confirm the order and upload the POD: ${link}`].filter(Boolean).join("\n\n"),
+          attachments: [{ filename: file.fileName, content: file.fileBase64 }],
+          idempotencyKey: `${trip.id}:${sentRow.version}`,
+        })
+      : null;
+    if (mail && !mail.sent) await this.mailFailed(actor, sentRow, c.id, by, mail);
+    return { trip: await tripService.get(actor, trip.id), recordedOnly: !mail?.sent, file };
+  }
+
+  // A transport order recorded as sent whose e-mail then failed: recorded only after all (the user
+  // sends the PDF that came back), with the reason in the history. The stored link stays valid.
+  private async mailFailed(actor: Actor, trip: TruckingTripRecord, consignmentId: string | null, by: string, mail: MailResult): Promise<void> {
+    await inTx(async (tx) => {
+      await tripRepository.update(tx, actor.companyID, trip.id, { orderRecordedOnly: true }, { live: true });
+      await appendEvent(tx, actor.companyID, {
+        kind: "transport_order_sent",
+        tripId: trip.id,
+        consignmentId,
+        customerId: trip.haulierCustomerId,
+        byUserId: actor.userID || null,
+        byName: by,
+        payload: {
+          changes: {},
+          summary: `Transport order ${trip.ref}: the e-mail was not sent (${mail.timedOut ? "no answer from the provider in time" : mail.error}); send the PDF yourself`,
+          facts: { recordedOnly: true, mailError: mail.error, timedOut: !!mail.timedOut },
         },
       });
     });
-    return { trip: await tripService.get(actor, trip.id), recordedOnly, file };
   }
 
   /** Any user: records the haulier's confirmation given by phone or e-mail (confirmedVia USER). */
@@ -436,19 +467,12 @@ class TransportOrderService {
     const { trip, settings, haulier, docLegs } = await this.readyLtl(actor, tripId);
     const our = await ourCompany();
     const file = pdfFile(`${trip.ref}.pdf`, await this.buildLtl(trip, docLegs, lang, pin, haulier, settings, our));
-    const texts = { orderRef: trip.ref, haulier: trip.haulierName, date: formatDay(trip.plannedPickupDate) };
-    const mail = await sendMail({
-      to,
-      cc: [],
-      subject: fillOrderText(settings.transportOrder.emailSubject, texts),
-      text: [fillOrderText(settings.transportOrder.emailBody, texts), note].filter(Boolean).join("\n\n"),
-      attachments: [{ filename: file.fileName, content: file.fileBase64 }],
-      idempotencyKey: `${trip.id}:${trip.version}`,
-    });
-    const recordedOnly = !mail.sent;
+    // Recorded first (trip locked, version checked), mailed after: a send that loses a race mails nothing.
+    const mailing = emailConfigured() && to.length > 0;
+    const recordedOnly = !mailing;
     const by = await userName(actor.userID);
     const now = new Date();
-    await inTx(async (tx) => {
+    const sentRow = await inTx(async (tx) => {
       const locked = await tripRepository.lock(tx, companyId, trip.id);
       if (!locked || locked.cancelledAt || locked.version !== trip.version) throw APIError.aborted("The trip was changed by someone else. Reload and try again.");
       const values = {
@@ -478,9 +502,22 @@ class TransportOrderService {
         },
       });
       await ltlTrips.settle(tx, actor, row);
+      return row;
     });
     await deliverDue();
-    return { trip: await tripService.get(actor, trip.id), recordedOnly, file };
+    const texts = { orderRef: trip.ref, haulier: trip.haulierName, date: formatDay(trip.plannedPickupDate) };
+    const mail = mailing
+      ? await sendMail({
+          to,
+          cc: [],
+          subject: fillOrderText(settings.transportOrder.emailSubject, texts),
+          text: [fillOrderText(settings.transportOrder.emailBody, texts), note].filter(Boolean).join("\n\n"),
+          attachments: [{ filename: file.fileName, content: file.fileBase64 }],
+          idempotencyKey: `${trip.id}:${sentRow.version}`,
+        })
+      : null;
+    if (mail && !mail.sent) await this.mailFailed(actor, sentRow, null, by, mail);
+    return { trip: await tripService.get(actor, trip.id), recordedOnly: !mail?.sent, file };
   }
 
   /** Any user: the CMR (consignment note) of a consignment; the carrier is its trip's haulier when planned. */

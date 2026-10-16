@@ -56,6 +56,10 @@ export const defaultProfile = (customerId: string): HaulierProfile => ({
   bankAccountPublished: false,
   vatCheckedAt: null,
   bankAccounts: [],
+  bankAccountsChangedAt: null,
+  bankAccountsChangedBy: null,
+  bankAccountsChangedByUserId: null,
+  bankChangeHoldUntil: null,
   costSplitBasis: "chargeable_weight",
   blocked: false,
   blockReason: "",
@@ -239,3 +243,33 @@ export function profileChanges(before: HaulierProfile, after: HaulierProfileInpu
   }
   return changes;
 }
+
+// ---- VAT and bank fields (owner decision 6, 16 Oct 2026) -------------------------------------------
+
+/**
+ * The profile fields only a manager may change: what the VAT bank-account check (ručení za DPH)
+ * trusts. Each with how it is named in a refusal.
+ */
+export const MANAGER_ONLY_FIELDS = {
+  vatUnreliable: "unreliable VAT payer",
+  bankAccountPublished: "account published in the VAT register",
+  vatCheckedAt: "VAT check date",
+  bankAccounts: "published bank accounts",
+} as const;
+
+/** Days after a bank-account change in which an exact-match invoice of the haulier is not approved automatically. */
+export const BANK_HOLD_DAYS = 30;
+
+/** The manager-only fields among a save's changes. */
+export const managerOnlyChanges = (changes: Record<string, unknown>): (keyof typeof MANAGER_ONLY_FIELDS)[] =>
+  (Object.keys(MANAGER_ONLY_FIELDS) as (keyof typeof MANAGER_ONLY_FIELDS)[]).filter((k) => k in changes);
+
+/** The refusal of a save by a user who is not a manager that changes manager-only fields. */
+export const managerOnlyRefusal = (fields: (keyof typeof MANAGER_ONLY_FIELDS)[]): string =>
+  `Only a manager can change the VAT and bank details (${fields.map((f) => MANAGER_ONLY_FIELDS[f]).join(", ")}). Nothing was saved: reload, leave them as they are, or ask a manager.`;
+
+/** Whether a save adds an account that was not published before (removing one changes nothing a payment could go to). */
+export const bankAccountAdded = (before: string[], after: string[]): boolean => after.some((a) => !before.includes(a));
+
+/** The end of the hold after a bank-account change. */
+export const bankHoldUntil = (changedAt: Date): Date => new Date(changedAt.getTime() + BANK_HOLD_DAYS * 86_400_000);

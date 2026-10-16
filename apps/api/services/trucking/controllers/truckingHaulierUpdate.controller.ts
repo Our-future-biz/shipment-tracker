@@ -22,6 +22,7 @@ interface TruckingHaulierUpdateRequest {
   paymentDays: number;
   /** "CZK" | "EUR" */
   currency: string;
+  /** vatUnreliable, bankAccountPublished, vatCheckedAt, bankAccounts: a manager only (another user sends them as stored) */
   vatUnreliable: boolean;
   bankAccountPublished: boolean;
   /** YYYY-MM-DD */
@@ -36,11 +37,11 @@ interface TruckingHaulierUpdateRequest {
   version: number;
 }
 
-// Saves a haulier's trucking profile (any user). The block is changed only by block / unblock.
+// Saves a haulier's trucking profile (any user; the VAT and bank fields a manager only). The block is changed only by block / unblock.
 export const truckingHaulierUpdate = api(
   { expose: true, auth: true, method: "PUT", path: "/trucking/hauliers/:customerId" },
   async ({ customerId, version, ...input }: TruckingHaulierUpdateRequest): Promise<TruckingHaulierResponse> => {
-    const { userID, companyID } = getAuthData()!;
-    return { haulier: await haulierService.update(companyID, userID, customerId, input, version) };
+    const { userID, companyID, role } = getAuthData()!;
+    return { haulier: await haulierService.update(companyID, userID, role, customerId, input, version) };
   },
 );

@@ -8,11 +8,14 @@ import { bankAccountProblem, formatBankAccount, isPublishedAccount, normaliseBan
 interface HaulierBankAccountsProps {
   accounts: string[];
   onChange: (accounts: string[]) => void;
+  /** A manager's only: shown read-only to everyone else */
+  readOnly?: boolean;
 }
 
 // The haulier's bank accounts published in the VAT register, typed in by hand after checking the
-// register. An invoice paid to any other account is blocked (joint VAT liability).
-export const HaulierBankAccounts = ({ accounts, onChange }: HaulierBankAccountsProps) => {
+// register. An invoice paid to any other account is blocked (joint VAT liability). Only a manager
+// changes the list.
+export const HaulierBankAccounts = ({ accounts, onChange, readOnly = false }: HaulierBankAccountsProps) => {
   const [input, setInput] = useState("");
   const problem = input.trim() ? (bankAccountProblem(input) ?? (isPublishedAccount(input, accounts) ? "Already in the list" : null)) : null;
 
@@ -32,25 +35,29 @@ export const HaulierBankAccounts = ({ accounts, onChange }: HaulierBankAccountsP
           {accounts.map((a) => (
             <li key={a} className="flex items-center gap-2 text-[13px]">
               <span className="font-mono text-slate-800">{formatBankAccount(a)}</span>
-              <Button size="small" type="text" aria-label={`Remove ${a}`} icon={<CloseOutlined />} onClick={() => onChange(accounts.filter((x) => x !== a))} />
+              {!readOnly && (
+                <Button size="small" type="text" aria-label={`Remove ${a}`} icon={<CloseOutlined />} onClick={() => onChange(accounts.filter((x) => x !== a))} />
+              )}
             </li>
           ))}
         </ul>
       )}
-      <div className="flex gap-2">
-        <Input
-          aria-label="Bank account to add"
-          placeholder="19-2000145399/0800 or CZ65 0800 …"
-          value={input}
-          status={problem ? "error" : undefined}
-          onChange={(e) => setInput(e.target.value)}
-          onPressEnter={handleAdd}
-        />
-        <Button icon={<PlusOutlined />} disabled={!input.trim() || !!problem} onClick={handleAdd}>
-          Add
-        </Button>
-      </div>
-      {problem && <span className="text-[11px] text-red-600">{problem}</span>}
+      {!readOnly && (
+        <div className="flex gap-2">
+          <Input
+            aria-label="Bank account to add"
+            placeholder="19-2000145399/0800 or CZ65 0800 …"
+            value={input}
+            status={problem ? "error" : undefined}
+            onChange={(e) => setInput(e.target.value)}
+            onPressEnter={handleAdd}
+          />
+          <Button icon={<PlusOutlined />} disabled={!input.trim() || !!problem} onClick={handleAdd}>
+            Add
+          </Button>
+        </div>
+      )}
+      {!readOnly && problem && <span className="text-[11px] text-red-600">{problem}</span>}
     </div>
   );
 };

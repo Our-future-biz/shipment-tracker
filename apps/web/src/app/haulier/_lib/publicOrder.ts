@@ -20,6 +20,12 @@ export const LINK_INVALID: BiText = { cs: "Tento odkaz již neplatí.", en: "Thi
 /** Confirm / reject is asked once, while the order waits for it. */
 export const canRespond = (o: Pick<PublicTransportOrder, "status">) => o.status === "AWAITING_CONFIRMATION";
 
+/** The POD rule as the link page states it (owner decision 13). */
+export const LINK_POD_RULE: BiText = {
+  cs: "POD lze nahrát až po potvrzení objednávky, a to jednou. Opravu provede dispečer.",
+  en: "The POD can be uploaded once the order is confirmed, and only once. The dispatcher replaces it if needed.",
+};
+
 /** The POD is uploaded once, after the order is confirmed. */
 export const canUploadPod = (o: Pick<PublicTransportOrder, "status" | "podUploaded">) => !o.podUploaded && (o.status === "CONFIRMED" || o.status === "DELIVERED");
 

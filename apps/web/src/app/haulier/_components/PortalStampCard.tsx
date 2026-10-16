@@ -15,7 +15,7 @@ interface PortalStampCardProps {
   onStamp: (kind: PortalStampKind) => Promise<unknown>;
 }
 
-// Loaded / Departed / Arrived, each once and now. A button that cannot be pressed says why: from
+// Picked up / Departed / Arrived, each once and now. A button that cannot be pressed says why: from
 // the order itself, or the server's own sentence after it refused (e.g. the goods are not gated in yet).
 export const PortalStampCard = ({ order, loadedAt, stampingKind, onStamp }: PortalStampCardProps) => {
   const [refusals, setRefusals] = useState<Partial<Record<PortalStampKind, { text: string; loadedAt: number }>>>({});

@@ -21,7 +21,12 @@ export interface StoredProfile {
 
 /** Profile columns a save or a block may write. */
 type ProfileValues = Omit<HaulierProfileInput, "preferredLanes"> &
-  Partial<Pick<NewTruckingHaulierProfileRecord, "blocked" | "blockReason" | "blockedAt" | "blockedBy">>;
+  Partial<
+    Pick<
+      NewTruckingHaulierProfileRecord,
+      "blocked" | "blockReason" | "blockedAt" | "blockedBy" | "bankAccountsChangedAt" | "bankAccountsChangedByUserId" | "bankAccountsChangedBy"
+    >
+  >;
 
 class HaulierRepository extends TenantRepository<typeof truckingHaulierProfileTable> {
   constructor() {

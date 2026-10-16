@@ -180,6 +180,9 @@ export const truckingTripTable = pgTable(
     buy: jsonb("buy").$type<PriceSnapshot>(),
     buyCzk: numeric("buy_czk", { precision: 14, scale: 2, mode: "number" }),
     buyCandidates: jsonb("buy_candidates").$type<PricedSide[]>().notNull().default([]),
+    /** A manager changed the buy price after the transport order was sent (owner decision 7): kept out of invoice auto-approval */
+    buyRepricedAt: timestamp("buy_repriced_at", { withTimezone: true }),
+    buyRepricedBy: text("buy_repriced_by"),
     orderSentAt: timestamp("order_sent_at", { withTimezone: true }),
     orderSentBy: text("order_sent_by"),
     /** Who sent the transport order: updates the haulier's link causes are sent to Shipments as this user */
@@ -242,6 +245,9 @@ export const truckingLegTable = pgTable(
     haulierCustomerId: uuid("haulier_customer_id"),
     depotSiteId: uuid("depot_site_id"),
     buy: jsonb("buy").$type<PriceSnapshot>(),
+    /** A partner delivery's price changed by a manager after the partner was given it: kept out of invoice auto-approval */
+    buyRepricedAt: timestamp("buy_repriced_at", { withTimezone: true }),
+    buyRepricedBy: text("buy_repriced_by"),
     costShareCzk: numeric("cost_share_czk", { precision: 14, scale: 2, mode: "number" }),
   },
   (table) => [

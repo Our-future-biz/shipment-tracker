@@ -3,7 +3,7 @@
 import { businessDateTime } from "@/lib/date";
 import { formatQty } from "@/app/trucking/_lib/tariffs";
 import type { BiText } from "../_lib/publicOrder";
-import { canUploadStopPod, deliveredProblem, stopAddress, type PortalOrder, type PortalStop } from "../_lib/portal";
+import { canUploadStopPod, deliveredProblem, POD_RULE, stopAddress, type PortalOrder, type PortalStop } from "../_lib/portal";
 import { PORTAL_CARD } from "../_lib/portalStyles";
 import { Bi } from "./Bi";
 import { HaulierPodForm } from "./HaulierPodForm";
@@ -93,6 +93,11 @@ export const PortalStopCard = ({ order, stop, index, busy, onDelivered, onUpload
             <div className="mt-3">
               <HaulierPodForm busy={busy} onUpload={onUploadPod} accept="image/*,application/pdf" withCamera />
             </div>
+          )}
+          {!stop.podUploaded && (
+            <p className="mt-2 text-[13px] text-slate-600">
+              <Bi text={POD_RULE} />
+            </p>
           )}
         </div>
       )}
