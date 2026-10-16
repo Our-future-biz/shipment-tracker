@@ -12,6 +12,10 @@ vi.mock("../../repositories/billingOverride.repository", () => ({ billingOverrid
 vi.mock("../../repositories/generatedInvoice.repository", () => ({ generatedInvoiceRepository: {} }));
 vi.mock("../../repositories/sellingCost.repository", () => ({ sellingCostRepository: {} }));
 vi.mock("../../repositories/quoteCostImport.repository", () => ({ quoteCostImportRepository: {} }));
+const trucking = vi.hoisted(() => ({ kept: new Set<string>() }));
+vi.mock("../../repositories/truckingLines.repository", () => ({
+  truckingLinesRepository: { hasBuyingOfCategory: async (_c: string, shipmentId: string, category: string) => trucking.kept.has(`${shipmentId}|${category}`) },
+}));
 vi.mock("../../repositories/invoiceCost.repository", async () => {
   type Row = import("../../schemas/invoiceCost.schema").InvoiceCostRecord;
   const rows: Row[] = [];
@@ -75,6 +79,36 @@ const counted = (shipmentId: string) =>
 
 beforeEach(() => {
   rows.length = 0;
+  trucking.kept.clear();
+});
+
+describe("guards against counting a Trucking cost twice", () => {
+  it("refuses a cost posted by code (document reading) onto a job whose cost of that code Trucking keeps", async () => {
+    trucking.kept.add(`${SHIP_A}|road_freight`);
+    await expect(invoicingService.upsertCost(SHIP_A, COMPANY, "road_freight", { realAmount: "950.00" })).rejects.toMatchObject({
+      code: "failed_precondition",
+      message: "Job CZ00000001 has its road freight cost from Trucking: enter the haulier's invoice in Trucking (Haulier invoices), not here, or it is counted twice",
+    });
+    // Another code of the same job is fine.
+    await invoicingService.upsertCost(SHIP_A, COMPANY, "customs", { realAmount: "50.00" });
+    expect(rows).toHaveLength(1);
+  });
+
+  it("refuses a master job's split before writing anything when one of its jobs has the code from Trucking", async () => {
+    trucking.kept.add(`${SHIP_B}|road_freight`);
+    const split = invoicingService.splitCost(COMPANY, {
+      category: "road_freight",
+      total: "300.00",
+      currency: "EUR",
+      invoiceNumber: "INV-9",
+      lines: [
+        { shipmentId: SHIP_A, weight: 1 },
+        { shipmentId: SHIP_B, weight: 2 },
+      ],
+    });
+    await expect(split).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(rows).toEqual([]);
+  });
 });
 
 describe("upsertCost", () => {

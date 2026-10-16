@@ -12,6 +12,7 @@ import {
   checkSourceRef,
   differenceRef,
   differencesOf,
+  matchRealLines,
   nextDifferenceNumber,
   planBuyingReplace,
   sellingDifference,
@@ -147,7 +148,47 @@ describe("Trucking lines in Costs Breakdown", () => {
       );
       expect(plan.rows).toEqual([]);
       expect(plan.keep).toEqual(["a"]);
+      // Nothing new carries an estimate: the kept row keeps its own.
+      expect(plan.clearEstimate).toEqual([]);
       expect(planBuyingReplace([{ id: "b", description: "LCZ1 · Fuel", ...open }], []).keep).toEqual([]);
+    });
+
+    it("clears the estimate of a kept row when new rows carry the estimate: the job's estimate is not counted twice", () => {
+      const plan = planBuyingReplace(
+        [
+          { id: "a", description: "LCZ1 · Freight", ...real },
+          { id: "b", description: "LCZ1 · Fuel", ...real, realAmount: "1200.00" },
+        ],
+        [row("LCZ1 · Agreed price")],
+      );
+      expect(plan.rows[0]).toMatchObject({ realAmount: "8800.00" });
+      expect(plan.keep).toEqual(["b"]);
+      expect(plan.clearEstimate).toEqual(["b"]);
+    });
+  });
+
+  describe("the real side lands on the right rows also when a re-push kept rows (counts differ)", () => {
+    const r = (id: string, description: string, realAmount: string | null = null, invoiceNumber = "") => ({ id, description, realAmount, invoiceNumber });
+    const l = (amount: number, over: Record<string, unknown> = {}) => ({ amount, currency: "CZK", invoiceNumber: "FV-9", ...over });
+
+    it("matches by description first, then by position (rows of another invoice last)", () => {
+      const plan = matchRealLines([r("a", "LCZ1 · Freight", "8800.00", "FV-1"), r("b", "LCZ1 · Agreed price"), r("c", "LCZ1 · Fuel")], [l(500, { description: "LCZ1 · Fuel" }), l(9000)])!;
+      expect([...plan.set.entries()].map(([id, x]) => [id, x.amount])).toEqual([["c", 500], ["b", 9000]]);
+      expect(plan.clear).toEqual([]);
+    });
+
+    it("puts extra lines onto the last row of their currency; clears rows of the same invoice nothing took", () => {
+      const plan = matchRealLines([r("a", "x", "100.00", "FV-9"), r("b", "y", "200.00", "FV-9")], [l(9000), l(1000), l(500)])!;
+      expect([...plan.set.entries()].map(([id, x]) => [id, x.amount])).toEqual([["a", 9000], ["b", 1500]]);
+      const fewer = matchRealLines([r("a", "x"), r("b", "y", "200.00", "FV-9"), r("c", "z", "300.00", "FV-1")], [l(9000)])!;
+      expect([...fewer.set.keys()]).toEqual(["a"]);
+      expect(fewer.clear).toEqual(["b"]);
+    });
+
+    it("clears every row without lines; null when there is no row, or no row in an extra line's currency", () => {
+      expect(matchRealLines([r("a", "x", "1.00", "FV-1")], [])).toEqual({ set: new Map(), clear: ["a"] });
+      expect(matchRealLines([], [l(1)])).toBeNull();
+      expect(matchRealLines([r("a", "x")], [l(1), l(2, { currency: "EUR" })])).toBeNull();
     });
   });
 });

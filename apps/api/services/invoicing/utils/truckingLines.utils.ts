@@ -162,12 +162,14 @@ export const hasRealSide = (r: RealSide): boolean => r.realAmount !== null || r.
  * How a re-push replaces a sourceRef's buying rows without losing their real side: each new row
  * takes the real side of the current row with the same description, else of the row at the same
  * position (a new row that brings its own real amount keeps it). A current row with a real side
- * that no new row takes over is kept as it is (`keep`), never deleted; the rest are replaced.
+ * that no new row takes over is kept (`keep`), never deleted; the rest are replaced. When new rows
+ * come, they carry the estimate: a kept row's estimate is cleared (`clearEstimate`) so the job's
+ * estimate is not counted twice - its real side stays.
  */
 export function planBuyingReplace<T extends { description?: string; realAmount?: string | null }>(
   current: CurrentBuyingRow[],
   next: T[],
-): { rows: (T & Partial<RealSide>)[]; keep: string[] } {
+): { rows: (T & Partial<RealSide>)[]; keep: string[]; clearEstimate: string[] } {
   const taken = new Set<string>();
   const rows = next.map((row, i) => {
     const match = current.find((c) => !taken.has(c.id) && c.description === row.description) ?? (current[i] && !taken.has(current[i]!.id) ? current[i] : undefined);
@@ -178,5 +180,57 @@ export function planBuyingReplace<T extends { description?: string; realAmount?:
     return { ...row, realQty, realAmount, realCurrency, invoiceNumber, received };
   });
   const keep = current.filter((c) => !taken.has(c.id) && hasRealSide(c)).map((c) => c.id);
-  return { rows, keep };
+  return { rows, keep, clearEstimate: rows.length ? keep : [] };
+}
+
+/** A real line as Trucking sends it, optionally naming the row it is for. */
+export interface RealLineIn {
+  description?: string;
+  amount: number;
+  currency: string;
+  invoiceNumber: string;
+}
+
+/** A live buying row of the sourceRef, in sort order, as the real push matches it. */
+export interface RealRowIn {
+  id: string;
+  description: string;
+  realAmount: string | null;
+  invoiceNumber: string;
+}
+
+/**
+ * Which row each real line goes to (C: a re-push may have kept rows): by description first, then
+ * by position among the rows left - rows without a real side of another invoice first. More lines
+ * than rows: the extra amounts go onto the last row matched in their currency. Rows left over
+ * that carry a real side of the same invoice are cleared (it moved); other rows are not touched.
+ * No lines: every row is cleared. Null when the lines cannot all be placed (no row, or no row in
+ * an extra line's currency).
+ */
+export function matchRealLines(rows: RealRowIn[], lines: RealLineIn[]): { set: Map<string, RealLineIn>; clear: string[] } | null {
+  if (!lines.length) return { set: new Map(), clear: rows.map((r) => r.id) };
+  if (!rows.length) return null;
+  const set = new Map<string, RealLineIn>();
+  const free = (r: RealRowIn) => !set.has(r.id);
+  const left: RealLineIn[] = [];
+  for (const line of lines) {
+    const row = line.description !== undefined ? rows.find((r) => free(r) && r.description === line.description) : undefined;
+    if (row) set.set(row.id, line);
+    else left.push(line);
+  }
+  const invoices = new Set(lines.map((l) => l.invoiceNumber));
+  const otherInvoice = (r: RealRowIn) => r.realAmount !== null && r.invoiceNumber !== "" && !invoices.has(r.invoiceNumber);
+  const order = [...rows.filter((r) => free(r) && !otherInvoice(r)), ...rows.filter((r) => free(r) && otherInvoice(r))];
+  for (const [i, line] of left.entries()) {
+    const row = order[i];
+    if (row) {
+      set.set(row.id, line);
+      continue;
+    }
+    const last = [...set.entries()].reverse().find(([, l]) => l.currency === line.currency);
+    if (!last) return null;
+    set.set(last[0], { ...last[1], amount: Math.round((last[1].amount + line.amount) * 100) / 100 });
+  }
+  const clear = rows.filter((r) => !set.has(r.id) && r.realAmount !== null && invoices.has(r.invoiceNumber)).map((r) => r.id);
+  return { set, clear };
 }

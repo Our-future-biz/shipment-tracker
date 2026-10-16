@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.
 vi.mock("encore.dev/api", () => ({ APIError: { invalidArgument: (msg: string) => new Error(msg) } }));
 vi.mock("../repositories/invoiceCost.repository", () => ({ invoiceCostRepository: {} }));
+vi.mock("../repositories/truckingLines.repository", () => ({ truckingLinesRepository: {} }));
 vi.mock("../repositories/additionalCharge.repository", () => ({ additionalChargeRepository: {} }));
 vi.mock("../repositories/billingSettings.repository", () => ({ billingSettingsRepository: {} }));
 vi.mock("../repositories/billingOverride.repository", () => ({ billingOverrideRepository: {} }));

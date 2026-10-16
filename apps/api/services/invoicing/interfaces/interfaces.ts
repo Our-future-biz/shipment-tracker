@@ -515,6 +515,8 @@ export interface TruckingLinesResult {
 
 /** The real cost of one Trucking buying row, from an approved haulier invoice (rows in their order). */
 export interface TruckingRealLine {
+  /** The row's description, when Trucking names it (matched first; else by position) */
+  description?: string;
   amount: number;
   currency: string;
   /** The haulier's invoice number */

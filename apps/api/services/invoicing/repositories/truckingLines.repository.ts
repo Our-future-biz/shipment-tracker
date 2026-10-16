@@ -1,11 +1,11 @@
-import { and, asc, eq, isNull, like, max, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, like, max, notInArray, or, sql } from "drizzle-orm";
 import log from "encore.dev/log";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
 import { invoiceCostTable, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import { invoiceSellingCostTable, type NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
 import { invoiceRepository } from "./invoice.repository";
-import { differenceRef, differencesOf, nextDifferenceNumber, planBuyingReplace, sellingDifference, sellingReplaceable } from "../utils/truckingLines.utils";
+import { differenceRef, differencesOf, matchRealLines, nextDifferenceNumber, planBuyingReplace, sellingDifference, sellingReplaceable } from "../utils/truckingLines.utils";
 import { realRowValues } from "../utils/truckingReal.utils";
 import type { TruckingLinesResult, TruckingRealLine } from "../interfaces/interfaces";
 
@@ -56,6 +56,8 @@ class TruckingLinesRepository {
         .orderBy(asc(c.sortOrder), asc(c.createdAt));
       const plan = planBuyingReplace(currentBuying, buying);
       if (plan.keep.length) log.warn("invoicing: Trucking re-push kept buying rows with a real cost", { shipmentId, sourceRef, kept: plan.keep });
+      // The new rows carry the estimate: a kept row keeps only its real side.
+      if (plan.clearEstimate.length) await tx.update(c).set({ estAmount: "0.00", updatedAt: now }).where(and(of(c), inArray(c.id, plan.clearEstimate)));
       await tx
         .update(c)
         .set({ deletedAt: now, updatedAt: now })
@@ -107,29 +109,55 @@ class TruckingLinesRepository {
   }
 
   /**
-   * Sets (or, with no lines, clears) the real side of the live buying rows of a sourceRef, one
-   * line per row in sort order, under the same shipment lock as a push. Null (nothing written)
-   * when the number of rows is not the number of lines.
+   * Sets (or, with no lines, clears) the real side of the live buying rows of a sourceRef under
+   * the same shipment lock as a push: each line on the row with its description, else by position
+   * (matchRealLines) - also when a re-push kept rows and the counts differ. Null (nothing written)
+   * when the lines cannot be placed.
    */
   async setReal(companyId: string, shipmentId: string, sourceRef: string, lines: TruckingRealLine[]): Promise<number | null> {
     return db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`trucking-lines:${shipmentId}`}))`);
       const t = invoiceCostTable;
       const rows = await tx
-        .select({ id: t.id, estQty: t.estQty })
+        .select({ id: t.id, estQty: t.estQty, description: t.description, realAmount: t.realAmount, invoiceNumber: t.invoiceNumber })
         .from(t)
         .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), eq(t.sourceTruckingRef, sourceRef), isNull(t.deletedAt)))
         .orderBy(asc(t.sortOrder), asc(t.id));
-      if (lines.length && rows.length !== lines.length) return null;
+      const plan = matchRealLines(rows, lines);
+      if (!plan) return null;
       const now = new Date();
-      for (const [n, row] of rows.entries()) {
+      for (const row of rows) {
+        const line = plan.set.get(row.id);
+        if (!line && !plan.clear.includes(row.id)) continue;
         await tx
           .update(t)
-          .set({ ...realRowValues(lines[n] ?? null, row.estQty), updatedAt: now })
+          .set({ ...realRowValues(line ?? null, row.estQty), updatedAt: now })
           .where(eq(t.id, row.id));
       }
-      return rows.length;
+      return plan.set.size + plan.clear.length;
     });
+  }
+
+  /** Whether Trucking keeps live buying rows of this charge code on the shipment (a trip, a share, a partner delivery, the internal line). */
+  async hasBuyingOfCategory(companyId: string, shipmentId: string, category: string): Promise<boolean> {
+    const c = invoiceCostTable;
+    const [row] = await db
+      .select({ id: c.id })
+      .from(c)
+      .where(and(eq(c.companyId, companyId), eq(c.shipmentId, shipmentId), eq(c.category, category), isNull(c.deletedAt), like(c.sourceTruckingRef, "trucking:%")))
+      .limit(1);
+    return !!row;
+  }
+
+  /** Whether the shipment has a consignment of Trucking (live selling rows "trucking:consignment:…"). */
+  async hasConsignmentRows(companyId: string, shipmentId: string): Promise<boolean> {
+    const s = invoiceSellingCostTable;
+    const [row] = await db
+      .select({ id: s.id })
+      .from(s)
+      .where(and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), isNull(s.deletedAt), like(s.sourceTruckingRef, "trucking:consignment:%")))
+      .limit(1);
+    return !!row;
   }
 
   // One more than the last sort order of the shipment's live rows on that side.

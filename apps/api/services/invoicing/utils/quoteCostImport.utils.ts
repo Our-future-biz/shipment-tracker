@@ -80,13 +80,17 @@ interface QuoteLine {
 
 const toAmount = (cents: number | null) => (cents === null ? null : (cents / 100).toFixed(2));
 
+/** A line priced from a trucking tariff (tariffRef "trucking:…"): Trucking pushes its own rows for it. */
+const isTruckingLine = (line: Record<string, unknown>) => typeof line.tariffRef === "string" && line.tariffRef.startsWith("trucking:");
+
 // The lines of one side that say something. A line nobody filled in - the editor adds new lines
 // with a type and the amount 0 - has no amount, no description and no supplier, and is left out.
-function linesOf(value: unknown, quoteCurrency: string): QuoteLine[] {
+function linesOf(value: unknown, quoteCurrency: string, skipTrucking: boolean): QuoteLine[] {
   if (!Array.isArray(value)) return [];
   const lines: QuoteLine[] = [];
   for (const line of value) {
     if (!isPlainObject(line)) continue;
+    if (skipTrucking && isTruckingLine(line)) continue;
     const cents = centsOf(line.amount);
     const description = text(line.description);
     const supplier = text(line.supplier);
@@ -117,14 +121,16 @@ function linesOf(value: unknown, quoteCurrency: string): QuoteLine[] {
  * The Costs Breakdown rows a quote's document gives: a buying row per buying line (estimate =
  * the line's amount, real cost still open but in the same currency, vendor = the supplier) and a
  * selling row per selling line (charged to the quote's customer, ticked for invoicing).
+ * `skipTrucking`: lines priced from a trucking tariff are left out (the job has a Trucking
+ * consignment, whose rows are Trucking's own).
  */
-export function quoteLinesToCostRows(data: unknown): { buying: QuoteBuyingRow[]; selling: QuoteSellingRow[] } {
+export function quoteLinesToCostRows(data: unknown, opts: { skipTrucking?: boolean } = {}): { buying: QuoteBuyingRow[]; selling: QuoteSellingRow[] } {
   const doc = isPlainObject(data) ? data : {};
   // A quote whose currency was never changed stores none and is in EUR.
   const quoteCurrency = text(doc.currency) || "EUR";
   const customer = text(doc.customerName);
   return {
-    buying: linesOf(doc.buyingLines, quoteCurrency).map((line) => ({
+    buying: linesOf(doc.buyingLines, quoteCurrency, opts.skipTrucking === true).map((line) => ({
       category: line.category,
       description: line.description,
       vendor: line.supplier,
@@ -135,7 +141,7 @@ export function quoteLinesToCostRows(data: unknown): { buying: QuoteBuyingRow[];
       realCurrency: line.currency,
       unit: line.unit,
     })),
-    selling: linesOf(doc.sellingLines, quoteCurrency).map((line) => ({
+    selling: linesOf(doc.sellingLines, quoteCurrency, opts.skipTrucking === true).map((line) => ({
       category: line.category,
       description: line.description,
       customer,

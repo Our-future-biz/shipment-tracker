@@ -29,7 +29,8 @@ export function checkRealLines(lines: TruckingRealLine[] | undefined): TruckingR
     if (!CURRENCY.test(currency)) throw APIError.invalidArgument(`Line ${n}: the currency must be a 3-letter code`);
     const invoiceNumber = (l.invoiceNumber ?? "").trim();
     if (!invoiceNumber || invoiceNumber.length > 100) throw APIError.invalidArgument(`Line ${n}: the invoice number is required (at most 100 characters)`);
-    return { amount: Math.round(l.amount * 100) / 100, currency, invoiceNumber };
+    const description = typeof l.description === "string" ? l.description.trim().slice(0, 500) : undefined;
+    return { ...(description !== undefined ? { description } : {}), amount: Math.round(l.amount * 100) / 100, currency, invoiceNumber };
   });
 }
 
