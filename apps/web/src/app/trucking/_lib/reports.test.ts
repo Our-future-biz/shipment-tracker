@@ -156,7 +156,7 @@ describe("coverage gaps", () => {
 
 describe("department result", () => {
   it("reads external sell + internal charges − haulier cost", () => {
-    const lines = departmentLines({ externalSellCzk: 100, internalChargesCzk: 50, haulierCostCzk: 120, resultCzk: 30, internalByDepartment: [] });
+    const lines = departmentLines({ externalSellCzk: 100, exceptionChargesCzk: 0, internalChargesCzk: 50, haulierCostCzk: 120, resultCzk: 30, internalByDepartment: [] });
     expect(lines.map((l) => `${l.sign}${l.label}:${l.amountCzk}`)).toEqual(["+External sell:100", "+Internal charges:50", "−Haulier cost:120"]);
   });
 

@@ -1910,11 +1910,6 @@ export namespace shipments {
     }
 }
 
-/**
- * Trucking: road transport by subcontracted hauliers. Phase 1 holds the trucking settings
- * (service levels, vehicle types, chargeable-weight factors, margin floor, transport-order texts)
- * and each haulier's trucking profile (insurance, licence, VAT checks, block, preferred lanes).
- */
 export namespace trucking {
 
     export class ServiceClient {
@@ -1941,6 +1936,7 @@ export namespace trucking {
             this.truckingCmrPdf = this.truckingCmrPdf.bind(this)
             this.truckingConsignmentApproveMargin = this.truckingConsignmentApproveMargin.bind(this)
             this.truckingConsignmentCancel = this.truckingConsignmentCancel.bind(this)
+            this.truckingConsignmentClearNotice = this.truckingConsignmentClearNotice.bind(this)
             this.truckingConsignmentCreate = this.truckingConsignmentCreate.bind(this)
             this.truckingConsignmentGet = this.truckingConsignmentGet.bind(this)
             this.truckingConsignmentList = this.truckingConsignmentList.bind(this)
@@ -1948,8 +1944,10 @@ export namespace trucking {
             this.truckingConsignmentStamp = this.truckingConsignmentStamp.bind(this)
             this.truckingConsignmentUpdate = this.truckingConsignmentUpdate.bind(this)
             this.truckingConsignmentVoidStamp = this.truckingConsignmentVoidStamp.bind(this)
+            this.truckingDepartmentRefresh = this.truckingDepartmentRefresh.bind(this)
             this.truckingDocumentContent = this.truckingDocumentContent.bind(this)
             this.truckingDocumentList = this.truckingDocumentList.bind(this)
+            this.truckingDocumentReplacePod = this.truckingDocumentReplacePod.bind(this)
             this.truckingDocumentUpload = this.truckingDocumentUpload.bind(this)
             this.truckingExceptionClose = this.truckingExceptionClose.bind(this)
             this.truckingExceptionCreate = this.truckingExceptionCreate.bind(this)
@@ -2020,7 +2018,8 @@ export namespace trucking {
         }
 
         /**
-         * Logs in. Unknown e-mail, wrong password and a locked e-mail (5 wrong passwords: 15 minutes) get the same answer.
+         * Logs in. Unknown e-mail, wrong password and a locked account (5 wrong passwords: 15 minutes, then
+         * longer) get the same answer; an IP with 20 failed logins in 15 minutes is told to wait (429).
          */
         public async portalLogin(params: controllers.PortalLoginRequest): Promise<controllers.PortalLoginResponse> {
             // Convert our params into the objects we need for the request
@@ -2263,6 +2262,15 @@ export namespace trucking {
         }
 
         /**
+         * Clears a notice (manager, with how it was dealt with): it leaves Needs attention; the event stays.
+         */
+        public async truckingConsignmentClearNotice(id: string, params: controllers.TruckingConsignmentClearNoticeRequest): Promise<controllers.TruckingConsignmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/${encodeURIComponent(id)}/notices/clear`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingConsignmentResponse
+        }
+
+        /**
          * Creates a consignment (any user): priced from the tariff, a quote or an agreed price. A margin
          * below the floor is saved; the transport order then waits for a manager's approval.
          */
@@ -2295,6 +2303,9 @@ export namespace trucking {
             return await resp.json() as controllers.TruckingConsignmentListResponse
         }
 
+        /**
+         * Managers: "Send again" for a consignment's failed job updates (logged in its history).
+         */
         public async truckingConsignmentSendAgain(id: string): Promise<controllers.TruckingSendAgainResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/consignments/${encodeURIComponent(id)}/send-again`)
@@ -2328,6 +2339,16 @@ export namespace trucking {
             return await resp.json() as controllers.TruckingConsignmentResponse
         }
 
+        /**
+         * Manager: refreshes every consignment's department from Shipments (the one-off backfill of
+         * consignments made before departments were recorded; safe to run again).
+         */
+        public async truckingDepartmentRefresh(): Promise<controllers.TruckingDepartmentRefreshResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/departments/refresh`)
+            return await resp.json() as controllers.TruckingDepartmentRefreshResponse
+        }
+
         public async truckingDocumentContent(docId: string): Promise<controllers.TruckingDocumentContentResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/documents/${encodeURIComponent(docId)}`)
@@ -2338,6 +2359,15 @@ export namespace trucking {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/trucking/consignments/${encodeURIComponent(id)}/documents`)
             return await resp.json() as controllers.TruckingDocumentListResponse
+        }
+
+        /**
+         * Manager: replaces a consignment's POD (one per consignment) with the reason; the stamps stay.
+         */
+        public async truckingDocumentReplacePod(docId: string, params: controllers.TruckingDocumentReplacePodRequest): Promise<controllers.TruckingDocumentUploadResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/trucking/documents/${encodeURIComponent(docId)}/replace`, JSON.stringify(params))
+            return await resp.json() as controllers.TruckingDocumentUploadResponse
         }
 
         /**
@@ -2532,7 +2562,7 @@ export namespace trucking {
         }
 
         /**
-         * Saves a haulier's trucking profile (any user). The block is changed only by block / unblock.
+         * Saves a haulier's trucking profile (any user; the VAT and bank fields a manager only). The block is changed only by block / unblock.
          */
         public async truckingHaulierUpdate(customerId: string, params: controllers.TruckingHaulierUpdateRequest): Promise<interfaces.TruckingHaulierResponse> {
             // Now make the actual call to the API
@@ -2600,6 +2630,9 @@ export namespace trucking {
             return await resp.json() as controllers.TruckingFileResponse
         }
 
+        /**
+         * Managers: job updates that failed for good ("Not sent"), of a consignment, a trip or the company.
+         */
         public async truckingOutboxFailed(params: controllers.TruckingOutboxFailedRequest): Promise<controllers.TruckingOutboxFailedResponse> {
             // Convert our params into the objects we need for the request
             const query = makeRecord<string, string | string[]>({
@@ -2958,6 +2991,7 @@ export namespace trucking {
 
         /**
          * An LTL trip priced again (the tariff now, or an agreed price with the reason), split over its legs.
+         * Once the transport order is sent: a manager with a reason; never once the trip is on a haulier invoice.
          */
         public async truckingTripReprice(id: string, params: controllers.TruckingTripRepriceRequest): Promise<controllers.TruckingTripResponse> {
             // Now make the actual call to the API
@@ -2965,6 +2999,9 @@ export namespace trucking {
             return await resp.json() as controllers.TruckingTripResponse
         }
 
+        /**
+         * Managers: "Send again" for the failed job updates of the consignments on a trip.
+         */
         public async truckingTripSendAgain(id: string): Promise<controllers.TruckingSendAgainResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/trucking/trips/${encodeURIComponent(id)}/send-again`)
@@ -3337,6 +3374,9 @@ export namespace warehouse {
             return await resp.json() as controllers.GateSurveySaveResponse
         }
 
+        /**
+         * Managers: "Send again" for a gate record's failed shipment updates and events (logged).
+         */
         public async gateMovementSendAgain(id: string): Promise<controllers.GateSendAgainResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/send-again`)
@@ -3367,6 +3407,9 @@ export namespace warehouse {
             return await resp.json() as controllers.GateStampResponse
         }
 
+        /**
+         * Managers: the shipment updates and events for Trucking a gate record failed to send ("Not sent").
+         */
         public async gateMovementUnsent(id: string): Promise<controllers.GateUnsentResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}/unsent`)
@@ -5301,6 +5344,14 @@ export namespace controllers {
         notice: string
     }
 
+    export interface GateSendAgainResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * What is still failed afterwards; null when nothing
+         */
+        unsent: services.GateUnsent | null
+    }
+
     export interface GateStampRequest {
         kind: services.StampKind
         /**
@@ -5314,14 +5365,6 @@ export namespace controllers {
          * Floor mode: id of this request (UUID). A stamp already there is then an answer, not an error.
          */
         clientRequestId?: string
-    }
-
-    export interface GateSendAgainResponse {
-        movement: interfaces.GateMovementItem
-        /**
-         * What is still failed afterwards; null when nothing
-         */
-        unsent: services.GateUnsent | null
     }
 
     export interface GateStampResponse {
@@ -7121,6 +7164,18 @@ export namespace controllers {
         template: interfaces.AvizaceTemplate
     }
 
+    export interface TruckingConsignmentClearNoticeRequest {
+        /**
+         * The notice's key (ConsignmentDetail.notices)
+         */
+        key: string
+
+        /**
+         * How it was dealt with
+         */
+        reason: string
+    }
+
     export interface TruckingConsignmentCreateRequest {
         /**
          * null = a Road / Domestic job is created for the order
@@ -7257,12 +7312,37 @@ export namespace controllers {
         reason: string
     }
 
+    export interface TruckingDepartmentRefreshResponse {
+        /**
+         * Consignments looked at: not cancelled, before the POD or without a department
+         */
+        checked: number
+
+        /**
+         * Consignments whose department (and side) was written
+         */
+        written: number
+    }
+
     export interface TruckingDocumentContentResponse {
         file: interfaces.FileDownload
     }
 
     export interface TruckingDocumentListResponse {
         documents: interfaces.TruckingDocumentItem[]
+    }
+
+    export interface TruckingDocumentReplacePodRequest {
+        fileName: string
+        /**
+         * A photo or a PDF, at most 10 MB
+         */
+        fileBase64: string
+
+        /**
+         * Why the POD is replaced (3 to 500 characters)
+         */
+        reason: string
     }
 
     export interface TruckingDocumentUploadRequest {
@@ -7441,7 +7521,11 @@ export namespace controllers {
          */
         currency: string
 
+        /**
+         * vatUnreliable, bankAccountPublished, vatCheckedAt, bankAccounts: a manager only (another user sends them as stored)
+         */
         vatUnreliable: boolean
+
         bankAccountPublished: boolean
         /**
          * YYYY-MM-DD
@@ -7497,10 +7581,30 @@ export namespace controllers {
         depotSiteId: string | null
 
         price: interfaces.TripPriceInput
+        /**
+         * Required to change the partner or price once the partner was given the delivery (a manager only)
+         */
+        reason?: string
     }
 
     export interface TruckingManifestPdfRequest {
         language: interfaces.DocLanguageCode
+    }
+
+    export interface TruckingOutboxFailedRequest {
+        /**
+         * Only this consignment's updates
+         */
+        consignmentId?: string
+
+        /**
+         * Only the updates of the consignments on this trip
+         */
+        tripId?: string
+    }
+
+    export interface TruckingOutboxFailedResponse {
+        updates: interfaces.TruckingUnsentUpdate[]
     }
 
     export interface TruckingPlanningBoardRequest {
@@ -7510,21 +7614,6 @@ export namespace controllers {
         date: string
 
         kind: interfaces.LtlTripKind
-    }
-
-    export interface TruckingOutboxFailedRequest {
-        /**
-         * Only this consignment's updates
-         */
-        consignmentId?: string
-        /**
-         * Only the updates of the consignments on this trip
-         */
-        tripId?: string
-    }
-
-    export interface TruckingOutboxFailedResponse {
-        updates: interfaces.TruckingUnsentUpdate[]
     }
 
     export interface TruckingPortalUserCreateRequest {
@@ -7596,6 +7685,7 @@ export namespace controllers {
          * How many failed updates were sent again
          */
         requeued: number
+
         /**
          * What is still failed afterwards
          */
@@ -7841,6 +7931,10 @@ export namespace controllers {
 
     export interface TruckingTripRepriceRequest {
         price: interfaces.TripPriceInput
+        /**
+         * Required once the transport order is sent (a manager only); an agreed price's own reason stands in when left out
+         */
+        reason?: string
     }
 
     export interface TruckingTripResponse {
@@ -8738,6 +8832,11 @@ export namespace interfaces {
          */
         warehouseExceptions: WarehouseExceptionItem[]
 
+        /**
+         * What needs a look until a manager clears it (also shown in needsAttention)
+         */
+        notices: ConsignmentNotice[]
+
         id: string
         /**
          * "TCZ2026000001"
@@ -8811,6 +8910,21 @@ export namespace interfaces {
          * The job belongs to another department: billed internally (no customer selling lines)
          */
         internal: boolean
+
+        /**
+         * When the goods were picked up and delivered (the stamps), for the job's Trucking tab
+         */
+        pickedUpAt: string | null
+
+        deliveredAt: string | null
+        /**
+         * The truck and driver of the trip shown (FTL: its trip; LTL: the leg under way); "" when not known
+         */
+        tractorPlate: string
+
+        trailerPlate: string
+        driverName: string
+        driverPhone: string
     }
 
     export interface ConsignmentListItem {
@@ -8894,18 +9008,41 @@ export namespace interfaces {
         pickedUpAt: string | null
 
         deliveredAt: string | null
-
         /**
          * The truck and driver of the trip shown (FTL: its trip; LTL: the leg under way); "" when not known
          */
         tractorPlate: string
 
         trailerPlate: string
-
         driverName: string
-
         driverPhone: string
     }
+
+    /**
+     * Something that needs someone's look and no state shows; it stays in Needs attention until a manager clears it.
+     */
+    export interface ConsignmentNotice {
+        /**
+         * Unique on the consignment (what wrote it, so a retry never writes it twice)
+         */
+        key: string
+
+        code: ConsignmentNoticeCode
+        /**
+         * The Needs-attention text
+         */
+        text: string
+
+        /**
+         * ISO time it was written
+         */
+        at: string
+    }
+
+    /**
+     * Why a notice is on a consignment.
+     */
+    export type ConsignmentNoticeCode = "PRICE_CHANGE_AFTER_INVOICE" | "HAULIER_CREDIT" | "INTERNAL_NOT_PRICED"
 
     export type ConsignmentPriceInput = {
         source: "TARIFF"
@@ -8923,7 +9060,7 @@ export namespace interfaces {
     export type ConsignmentStatus = "BOOKED" | "PLANNED" | "ORDERED" | "CONFIRMED" | "PICKED_UP" | "AT_HUB" | "ON_LINEHAUL" | "OUT_FOR_DELIVERY" | "DELIVERED" | "POD_RECEIVED" | "READY_TO_BILL" | "CANCELLED"
 
     /**
-     * podMissing = delivered more than 2 working days ago without POD
+     * podMissing = delivered more than 2 working days ago without POD; openFtl = booked FTL not yet on a trip
      */
     export type ConsignmentView = "attention" | "pickupToday" | "deliveryToday" | "podMissing" | "readyToBill" | "avizacePending" | "openExceptions" | "openFtl"
 
@@ -9343,10 +9480,15 @@ export namespace interfaces {
      */
     export interface DepartmentResult {
         externalSellCzk: number
+        /**
+         * Delivery exceptions charged to Road customers (CZK; EUR at the delivery day's ČNB rate)
+         */
+        exceptionChargesCzk: number
+
         internalChargesCzk: number
         haulierCostCzk: number
         /**
-         * externalSell + internalCharges − haulierCost
+         * externalSell + exceptionCharges + internalCharges − haulierCost
          */
         resultCzk: number
 
@@ -9683,6 +9825,12 @@ export namespace interfaces {
      */
     export type GateHandling = "Import" | "Export" | "Domestic"
 
+    export interface GateLegFigures {
+        colli?: number
+        weightKg?: number
+        measureCbm?: number
+    }
+
     /**
      * One step of the position's lifecycle.
      */
@@ -9764,6 +9912,7 @@ export namespace interfaces {
          * Gate figures written by a Trucking trip; null when none.
          */
         tripFigures: GateTripFigures | null
+
         containers: GateContainer[]
         surveys: GateSurvey[]
         subPositions: GateSubPosition[]
@@ -10212,7 +10361,11 @@ export namespace interfaces {
         figures?: GateLegFigures | null
     }
 
-    export interface GateLegFigures {
+    /**
+     * Gate figures a Trucking trip wrote (pieces / kg / cbm), with the trip: "From trip LCZ…" while unchanged.
+     */
+    export interface GateTripFigures {
+        source: GateTripSource
         colli?: number
         weightKg?: number
         measureCbm?: number
@@ -10228,20 +10381,11 @@ export namespace interfaces {
          * Trucking's trip kind (PICKUP_RUN, LINEHAUL, DELIVERY_RUN), when the trip sent it.
          */
         tripKind?: string
+
         /**
          * Trucking's trip id, when the trip sent it: the marker links to the trip.
          */
         tripId?: string
-    }
-
-    /**
-     * Gate figures a Trucking trip wrote (pieces / kg / cbm), with the trip: "From trip LCZ…" while unchanged.
-     */
-    export interface GateTripFigures {
-        source: GateTripSource
-        colli?: number
-        weightKg?: number
-        measureCbm?: number
     }
 
     /**
@@ -10991,7 +11135,7 @@ export namespace interfaces {
         freightMode: string
         status: string
         direction: "import" | "export"
-        basis: "ata" | "atd" | "eta" | "etd"
+        basis: "ata" | "atd" | "eta" | "etd" | "delivery" | "planned delivery"
         date: string
         month: string
         provisional: boolean
@@ -11775,6 +11919,10 @@ export namespace interfaces {
         lines: PriceLine[]
         ratedAt: string
         overrideReason: string | null
+        /**
+         * The engine's findings when it was priced (PricedSide.findings); absent when none
+         */
+        findings?: string[]
     }
 
     /**
@@ -11817,6 +11965,11 @@ export namespace interfaces {
          * BUY only
          */
         preferred: boolean
+
+        /**
+         * What was priced on a fallback someone should look at (a missing or an earlier month's fuel index); absent when none
+         */
+        findings?: string[]
     }
 
     /**
@@ -13578,34 +13731,6 @@ export namespace interfaces {
         department: DepartmentResult
     }
 
-    /**
-     * A job update Trucking owes and has not delivered: failed for good, or still being retried.
-     */
-    export interface TruckingUnsentUpdate {
-        id: string
-        consignmentId: string
-        /**
-         * The consignment's reference (e.g. "FTL2026-0042")
-         */
-        consignmentRef: string
-        shipmentId: string
-        jobNumber: string
-        /**
-         * What it owes the job, in words (e.g. "Trucking lines in Costs Breakdown")
-         */
-        what: string
-        state: "failed" | "pending"
-        attempts: number
-        /**
-         * Our own wording of the last error ("" when none)
-         */
-        lastError: string
-        /**
-         * When the update was written (ISO)
-         */
-        since: string
-    }
-
     export interface TruckingSettings {
         /**
          * Always all 8 codes, in the order of ServiceLevelCode
@@ -13624,6 +13749,37 @@ export namespace interfaces {
          * Display name
          */
         updatedBy: string | null
+    }
+
+    /**
+     * A job update Trucking owes and has not delivered: failed for good, or still being retried.
+     */
+    export interface TruckingUnsentUpdate {
+        id: string
+        consignmentId: string
+        /**
+         * The consignment's reference (e.g. "FTL2026-0042")
+         */
+        consignmentRef: string
+
+        shipmentId: string
+        jobNumber: string
+        /**
+         * What it owes the job, in words (e.g. "Trucking lines in Costs Breakdown")
+         */
+        what: string
+
+        state: "failed" | "pending"
+        attempts: number
+        /**
+         * Our own wording of the last error ("" when none)
+         */
+        lastError: string
+
+        /**
+         * When the update was written (ISO)
+         */
+        since: string
     }
 
     export interface Unpriced {
@@ -14710,24 +14866,6 @@ export namespace interfaces {
 }
 
 export namespace services {
-    /**
-     * What a gate record failed to send for good.
-     */
-    export interface GateUnsent {
-        /**
-         * Shipment updates, in words (e.g. "warehouse received date")
-         */
-        shipmentUpdates: string[]
-        /**
-         * Events for Trucking, in words (e.g. "gate-in")
-         */
-        gateEvents: string[]
-        /**
-         * The latest error, in our own wording
-         */
-        lastError: string
-    }
-
     export interface AnnouncementAttachmentContent {
         fileName: string
         fileType: string
@@ -14820,6 +14958,26 @@ export namespace services {
     export interface DepartmentInfo {
         id: string
         name: string
+    }
+
+    /**
+     * What a gate record failed to send for good.
+     */
+    export interface GateUnsent {
+        /**
+         * Shipment updates, in words (e.g. "warehouse received date")
+         */
+        shipmentUpdates: string[]
+
+        /**
+         * Events for Trucking, in words (e.g. "gate-in")
+         */
+        gateEvents: string[]
+
+        /**
+         * The latest error, in our own wording
+         */
+        lastError: string
     }
 
     export interface GeoItem {

@@ -113,6 +113,13 @@
       "when": 1791992653747,
       "tag": "0015_tenant_column_templates_fk_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792123671431,
+      "tag": "0016_service_user",
+      "breakpoints": true
     }
   ]
 }
