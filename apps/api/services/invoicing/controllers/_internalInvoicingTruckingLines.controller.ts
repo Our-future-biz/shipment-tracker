@@ -9,12 +9,15 @@ interface TruckingLinesRequest {
   sourceRef: string;
   buying: TruckingCostLine[];
   selling: TruckingCostLine[];
+  /** The description of a difference line when the selling set is kept (default "Price change after invoice") */
+  differenceLabel?: string;
 }
 
 /**
  * Internal API of the trucking service: replaces the Costs Breakdown rows a consignment or trip
  * keeps on its job (soft delete + insert in one transaction). Selling rows already on an issued
- * invoice are kept as they are and counted in the answer. Empty lists remove the rows.
+ * invoice are kept as they are and counted in the answer; the difference to the new lines is
+ * added as its own line ("<sourceRef>:diff:<n>") and answered. Empty lists remove the rows.
  */
 export const _internalInvoicingTruckingLines = api(
   { expose: false, auth: true, method: "PUT", path: "/internal/invoicing/trucking-lines" },

@@ -216,7 +216,7 @@ describe("which consignments are internal and what their jobs' Costs get", () =>
     const after = await consignmentService.update(user, d.id, { ...input(), version: store.consignments[0]!.version, reprice: false });
     expect(after.internal).toBe(true);
     expect(costs()).toEqual([
-      { sourceRef: `trucking:consignment:${d.id}`, buying: [], selling: [] },
+      { sourceRef: `trucking:consignment:${d.id}`, buying: [], selling: [], differenceLabel: `${d.ref} · Price change after invoice` },
       { sourceRef: `trucking:internal:${d.id}`, buying: [], selling: [] },
     ]);
   });
@@ -242,7 +242,7 @@ describe("the job's department: followed before the POD, frozen after it (C7, de
     expect(consignments[0]).toMatchObject({ internal: true });
     expect(store.consignments[0]).toMatchObject({ department: "Ocean Department", internal: true });
     expect(costs()).toEqual([
-      { sourceRef: `trucking:consignment:${d.id}`, buying: [], selling: [] },
+      { sourceRef: `trucking:consignment:${d.id}`, buying: [], selling: [], differenceLabel: `${d.ref} · Price change after invoice` },
       { sourceRef: `trucking:internal:${d.id}`, buying: [], selling: [] },
     ]);
     expect(store.events.at(-1)).toMatchObject({ kind: "department_changed" });

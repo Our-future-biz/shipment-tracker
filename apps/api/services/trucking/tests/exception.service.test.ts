@@ -196,6 +196,7 @@ describe("exceptions", () => {
       sourceRef: `trucking:exception:${e.id}`,
       buying: [],
       selling: [expect.objectContaining({ chargeCode: "road_freight", description: `${c.ref} · Waiting time 45 min`, amount: 450, currency: "CZK" })],
+      differenceLabel: `${c.ref} · Waiting time 45 min · Price change after invoice`,
     });
     expect(store.internalCharges).toEqual([]);
   });

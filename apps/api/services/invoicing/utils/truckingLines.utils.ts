@@ -8,7 +8,8 @@
 
 import { APIError } from "encore.dev/api";
 import { toChargeCode } from "../../../lib/chargeCodes";
-import type { TruckingCostLine } from "../interfaces/interfaces";
+import { qtyOrOne } from "../lib/invoiceCalc";
+import type { TruckingCostLine, TruckingSellingDifference } from "../interfaces/interfaces";
 
 const ID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const SOURCE_REF = new RegExp(`^trucking:((consignment|leg|internal|exception):${ID}|trip:${ID}(:job:${ID})?)$`);
@@ -83,6 +84,60 @@ export const truckingSellingRow = (l: TruckingCostLine, customer: string) => ({
 export function sellingReplaceable(currentIds: string[], invoicedIds: Set<string>): { replace: boolean; kept: number } {
   const kept = currentIds.filter((id) => invoicedIds.has(id)).length;
   return kept ? { replace: false, kept: currentIds.length } : { replace: true, kept: 0 };
+}
+
+// ---- a price change after the invoice (decision 9) ---------------------------------------------
+
+/** The label of a difference line when Trucking names none. */
+export const DIFFERENCE_LABEL = "Price change after invoice";
+
+/** The sourceRef of the n-th difference line of a set: "trucking:consignment:<id>:diff:<n>". */
+export const differenceRef = (sourceRef: string, n: number) => `${sourceRef}:diff:${n}`;
+
+/** The number the next difference line of a set gets: one more than any it ever had (deleted ones included). */
+export function nextDifferenceNumber(sourceRef: string, refs: (string | null)[]): number {
+  const prefix = `${sourceRef}:diff:`;
+  let last = 0;
+  for (const r of refs) if (r?.startsWith(prefix)) last = Math.max(last, Number(r.slice(prefix.length)) || 0);
+  return last + 1;
+}
+
+const cents = (n: number) => Math.round(n * 100);
+
+/**
+ * What the job must still be billed when a set is kept because it is on an issued invoice: per
+ * currency, the new lines (qty × unit price) less what the kept rows (and earlier difference lines)
+ * already bill. Currencies whose difference is 0 are left out; negative = a credit is owed.
+ */
+type SellingValue = { qty?: string | null; amount?: string | null; currency?: string };
+
+export function sellingDifference(kept: SellingValue[], next: SellingValue[]): { currency: string; amount: number }[] {
+  const by = new Map<string, number>();
+  const add = (rows: SellingValue[], sign: 1 | -1) => {
+    for (const r of rows) {
+      const currency = r.currency ?? "";
+      by.set(currency, (by.get(currency) ?? 0) + sign * cents(qtyOrOne(r.qty) * Number(r.amount ?? 0)));
+    }
+  };
+  add(next, 1);
+  add(kept, -1);
+  return [...by]
+    .filter(([, c]) => c !== 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([currency, c]) => ({ currency, amount: c / 100 }));
+}
+
+/** The live difference lines of a set as the push answers them (one per ref and currency). */
+export function differencesOf(rows: { ref: string | null; qty: string | null; amount: string | null; currency: string }[], sourceRef: string): TruckingSellingDifference[] {
+  const out = new Map<string, TruckingSellingDifference>();
+  for (const r of rows) {
+    if (!r.ref?.startsWith(`${sourceRef}:diff:`)) continue;
+    const key = `${r.ref}|${r.currency}`;
+    const amount = qtyOrOne(r.qty) * Number(r.amount ?? 0);
+    const was = out.get(key);
+    out.set(key, { sourceRef: r.ref, currency: r.currency, amount: Math.round(((was?.amount ?? 0) + amount) * 100) / 100 });
+  }
+  return [...out.values()];
 }
 
 /** The real side of a buying row (what a haulier invoice approval or the internal statement sets). */

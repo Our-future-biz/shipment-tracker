@@ -54,13 +54,15 @@ import {
   type ConsignmentFacts,
 } from "../lib/consignmentRules";
 import { detail, eventItem, factsOf, listItem, moneyOf } from "../lib/consignmentView";
-import { buyCosts, consignmentSourceRef, internalSourceRef, legSourceRef, noCosts, partnerLegCosts, sellCosts, tripSourceRef } from "../lib/truckingLinks";
+import { buyCosts, consignmentSourceRef, differenceLabel, internalSourceRef, legSourceRef, noCosts, partnerLegCosts, sellCosts, tripSourceRef } from "../lib/truckingLinks";
 import { departmentPlan, isInternalDepartment, ROAD_DEPARTMENT, type DepartmentPlan } from "../lib/internalRules";
 import { avizacePending, exceptionItem, podMissing } from "../lib/avizaceRules";
 import { cleanLtlChoice, hubPlace, LEG_SEQ, legEnds, legKindsFor, ltlPromise, ltlStampRefusal, ltlStatus, type LtlChoice } from "../lib/ltlRules";
 import { ltlFactsOf, ltlLegsOf } from "../lib/ltlView";
 import { isPriced, promise, roundToStep, showPostcode } from "../lib/rateEngine";
 import { formatDay } from "../lib/format";
+import { quoteRefusal, quoteSellLines } from "../lib/quoteRules";
+import { isUniqueViolation } from "../../../lib/db/errors";
 import { isManager } from "../lib/roles";
 import { userName } from "../lib/users";
 import { eurRate, rateService } from "./rate.service";
@@ -367,7 +369,7 @@ class ConsignmentService {
   }
 
   /** The sell price of a consignment from its source. */
-  async price(companyId: string, customerId: string, f: ConsignmentFields): Promise<Priced> {
+  async price(companyId: string, customerId: string, f: ConsignmentFields, consignmentId?: string): Promise<Priced> {
     const p = f.price;
     if (p.source === "TARIFF") {
       if (!bothCz(f)) throw APIError.failedPrecondition("The tariffs price CZ postcodes only: give an agreed price");
@@ -383,7 +385,7 @@ class ConsignmentService {
         chargeableKg: result.sell.chargeable.basis === "KG" ? result.sell.chargeable.quantity : null,
       };
     }
-    if (p.source === "QUOTE") return this.quotePrice(companyId, customerId, f);
+    if (p.source === "QUOTE") return this.quotePrice(companyId, customerId, f, consignmentId);
     const sell = await manualSnapshot(p.total, p.currency, p.reason, f.serviceLevel, f.pickupDate);
     return {
       sell,
@@ -405,8 +407,13 @@ class ConsignmentService {
     }
   }
 
-  // The price of a road quote (its last pricing from the tariffs): same customer, priced, not lost.
-  private async quotePrice(companyId: string, customerId: string, f: ConsignmentFields): Promise<Priced> {
+  /**
+   * The price of a road quote (decision 10, C9): a quote sent or won, still valid, priced from the
+   * tariffs (its margin approved when it needed it), for the same customer, lane and scope, and not
+   * pricing another live consignment. The price is the quote's trucking selling lines as they
+   * stand, each by its amount, in their one currency.
+   */
+  private async quotePrice(companyId: string, customerId: string, f: ConsignmentFields, exceptId?: string): Promise<Priced> {
     const number = f.quoteNumber!;
     let quote;
     try {
@@ -415,23 +422,13 @@ class ConsignmentService {
       if (err instanceof APIError && err.code === ErrCode.NotFound) throw bad(`Quote ${number} not found`);
       throw err;
     }
-    if (quote.customerId !== customerId) throw APIError.failedPrecondition(`Quote ${quote.quoteNumber} is for another customer`);
-    if (quote.status === "lost" || quote.effectiveStatus === "lost") throw APIError.failedPrecondition(`Quote ${quote.quoteNumber} is lost`);
-    const data = (quote.data && typeof quote.data === "object" ? quote.data : {}) as Record<string, unknown>;
-    const rp = data.roadPricing as QuoteRoadPricing | undefined;
-    if (!rp?.sell) throw APIError.failedPrecondition(`Quote ${quote.quoteNumber} was not priced from the trucking tariffs`);
-    const lines = (Array.isArray(data.sellingLines) ? data.sellingLines : [])
-      .filter((l): l is Record<string, unknown> => !!l && typeof l === "object" && typeof (l as Record<string, unknown>).tariffRef === "string" && String((l as Record<string, unknown>).tariffRef).startsWith("trucking:"))
-      .map(
-        (l): PriceLine => ({
-          code: String(l.chargeCode ?? "road_freight"),
-          label: String(l.description ?? ""),
-          qty: Number(l.qty) || 1,
-          unit: String(l.unit ?? ""),
-          unitPrice: Number(l.unitPrice) || 0,
-          amount: Number(l.amount) || 0,
-        }),
-      );
+    const refusal = quoteRefusal(quote, { customerId, fromPostcode: f.pickup.postcode, toPostcode: f.delivery.postcode, scope: scopeOf(f), today: today() });
+    if (refusal) throw APIError.failedPrecondition(refusal);
+    const used = await consignmentRepository.liveByQuote(companyId, quote.quoteNumber);
+    if (used && used.id !== exceptId) throw APIError.alreadyExists(`Quote ${quote.quoteNumber} already prices consignment ${used.ref}: one consignment per quote`);
+    const sold = quoteSellLines(quote);
+    if (!sold.ok) throw APIError.failedPrecondition(sold.reason);
+    const rp = (quote.data as { roadPricing: QuoteRoadPricing }).roadPricing;
     const level = f.serviceLevel ?? rp.serviceLevel;
     return {
       sell: {
@@ -441,10 +438,10 @@ class ConsignmentService {
         versionNo: rp.sell.versionNo,
         tariffName: rp.sell.tariffName,
         serviceLevel: rp.serviceLevel,
-        currency: rp.sell.currency,
-        total: rp.sell.total,
-        totalCzk: rp.sell.totalCzk,
-        lines: lines.length ? lines : [{ code: "road_freight", label: `Quote ${quote.quoteNumber}`, qty: 1, unit: "trip", unitPrice: rp.sell.total, amount: rp.sell.total }],
+        currency: sold.currency,
+        total: sold.total,
+        totalCzk: await this.quoteTotalCzk(sold.total, sold.currency, rp, f.pickupDate),
+        lines: sold.lines,
         ratedAt: rp.ratedAt,
         overrideReason: null,
       },
@@ -453,6 +450,15 @@ class ConsignmentService {
       promisedDate: await this.promiseFor(companyId, level, f.pickupDate, f.pickupTime),
       chargeableKg: null,
     };
+  }
+
+  // A quote's total in CZK: EUR at the rate the quote was priced with, else the ČNB rate of the pick-up day.
+  private async quoteTotalCzk(total: number, currency: "CZK" | "EUR", rp: QuoteRoadPricing, day: string): Promise<number> {
+    if (currency === "CZK") return total;
+    if (rp.sell.currency === "EUR" && rp.sell.total > 0) return roundToStep(total * (rp.sell.totalCzk / rp.sell.total), 0.01);
+    const fx = await eurRate(day);
+    if (!fx) throw APIError.failedPrecondition(`No ČNB rate for EUR on ${formatDay(day)}`);
+    return roundToStep(total * fx.rate, 0.01);
   }
 
   /**
@@ -598,6 +604,10 @@ class ConsignmentService {
       if (ltl) await legRepository.insertMany(tx, newLegs(companyId, row, ltl, hub));
       if (!internal) await truckingOutboxRepository.enqueue(tx, companyId, [owed(actor, row, "costs", sellCosts(row))]);
       return row;
+    }).catch((err: unknown) => {
+      // Two bookings from one quote at once: the unique index keeps one (decision 10).
+      if (priced.sell.source === "QUOTE" && isUniqueViolation(err)) throw APIError.alreadyExists(`Quote ${f.quoteNumber} already prices a consignment: one consignment per quote`);
+      throw err;
     });
     await deliverDue(created.id);
     return this.get(actor, created.id);
@@ -620,7 +630,7 @@ class ConsignmentService {
       if (input.reprice) throw APIError.failedPrecondition("After the pick-up the price cannot change");
       if (lockedPart(f, f.price) !== lockedPart(storedFields(c), f.price)) throw APIError.failedPrecondition("After the pick-up only notes and references can change");
     }
-    const priced = input.reprice ? await this.price(companyId, c.customerId, f) : null;
+    const priced = input.reprice ? await this.price(companyId, c.customerId, f, c.id) : null;
     const level = priced?.serviceLevel ?? f.serviceLevel;
     const dateMoved = f.pickupDate !== c.pickupDate || f.pickupTime !== c.pickupTime || level !== c.serviceLevel;
     let promisedDate = priced ? priced.promisedDate : dateMoved ? await this.promiseFor(companyId, level, f.pickupDate, f.pickupTime) : c.promisedDate;
@@ -699,7 +709,7 @@ class ConsignmentService {
   private async costsAfterFlip(tx: Tx, actor: BillingActor, row: TruckingConsignmentRecord, trip: TruckingTripRecord | null): Promise<TruckingOutboxInput[]> {
     const companyId = actor.companyID;
     const internal = row.internal;
-    const owes: TruckingOutboxInput[] = [owed(actor, row, "costs", internal ? noCosts(consignmentSourceRef(row.id)) : sellCosts(row))];
+    const owes: TruckingOutboxInput[] = [owed(actor, row, "costs", internal ? noCosts(consignmentSourceRef(row.id), differenceLabel(row.ref)) : sellCosts(row))];
     if (trip && row.scope === "FTL") owes.push(owed(actor, row, "costs", internal ? noCosts(tripSourceRef(trip.id)) : buyCosts(trip)));
     if (row.scope === "LTL") {
       const legs = ltlLegsOf(row.id, await legRepository.forConsignments(companyId, [row.id], tx));
@@ -899,7 +909,7 @@ class ConsignmentService {
       { beforePickup: true },
     );
     if (!row) return false;
-    const owes: TruckingOutboxInput[] = [owed(actor, c, "costs", noCosts(consignmentSourceRef(c.id)))];
+    const owes: TruckingOutboxInput[] = [owed(actor, c, "costs", noCosts(consignmentSourceRef(c.id), differenceLabel(c.ref)))];
     if (c.scope === "LTL") {
       // Its legs leave their trips (whose prices are split again over the legs left) and a partner's delivery lines go.
       const legs = ltlLegsOf(c.id, await legRepository.forConsignments(companyId, [c.id], tx));

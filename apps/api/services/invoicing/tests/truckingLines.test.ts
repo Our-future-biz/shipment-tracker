@@ -7,7 +7,18 @@ vi.mock("../repositories/truckingLines.repository", () => ({ truckingLinesReposi
 
 import { truckingLinesRepository } from "../repositories/truckingLines.repository";
 import { truckingLinesService } from "../services/truckingLines.service";
-import { checkLines, checkSourceRef, planBuyingReplace, sellingReplaceable, truckingBuyingRow, truckingSellingRow } from "../utils/truckingLines.utils";
+import {
+  checkLines,
+  checkSourceRef,
+  differenceRef,
+  differencesOf,
+  nextDifferenceNumber,
+  planBuyingReplace,
+  sellingDifference,
+  sellingReplaceable,
+  truckingBuyingRow,
+  truckingSellingRow,
+} from "../utils/truckingLines.utils";
 import type { TruckingCostLine } from "../interfaces/interfaces";
 
 const C = "00000000-0000-0000-0000-000000000001";
@@ -71,9 +82,33 @@ describe("Trucking lines in Costs Breakdown", () => {
 
   it("hands the whole set to the repository; empty lists remove it (a cancel)", async () => {
     await truckingLinesService.replace(C, { shipmentId: S, sourceRef: `trucking:trip:${TRIP}`, buying: [line()], selling: [] });
-    expect(truckingLinesRepository.replace).toHaveBeenCalledWith(C, S, `trucking:trip:${TRIP}`, [expect.objectContaining({ estCurrency: "CZK", vendor: "Bravo Trans" })], []);
-    await truckingLinesService.replace(C, { shipmentId: S, sourceRef: `trucking:trip:${TRIP}`, buying: [], selling: [] });
-    expect(truckingLinesRepository.replace).toHaveBeenLastCalledWith(C, S, `trucking:trip:${TRIP}`, [], []);
+    expect(truckingLinesRepository.replace).toHaveBeenCalledWith(C, S, `trucking:trip:${TRIP}`, [expect.objectContaining({ estCurrency: "CZK", vendor: "Bravo Trans" })], [], "Price change after invoice");
+    await truckingLinesService.replace(C, { shipmentId: S, sourceRef: `trucking:trip:${TRIP}`, buying: [], selling: [], differenceLabel: "TCZ2026000001 · Price change after invoice" });
+    expect(truckingLinesRepository.replace).toHaveBeenLastCalledWith(C, S, `trucking:trip:${TRIP}`, [], [], "TCZ2026000001 · Price change after invoice");
+  });
+
+  describe("a price change after the invoice is billed as its own difference line (decision 9)", () => {
+    const ref = `trucking:consignment:${TRIP}`;
+    const kept = (qty: string | null, amount: string, currency = "CZK") => ({ qty, amount, currency });
+
+    it("works out the difference per currency: the new lines less what the kept rows and earlier differences bill", () => {
+      // Invoiced: 10 000 freight + 1 200 fuel; repriced to 12 000 + 1 440 → +2 240.
+      expect(sellingDifference([kept("1.00", "10000.00"), kept("1.00", "1200.00")], [kept("1.00", "12000.00"), kept("1.00", "1440.00")])).toEqual([{ currency: "CZK", amount: 2240 }]);
+      // A later re-price counts the first difference as billed already.
+      expect(sellingDifference([kept("1.00", "10000.00"), kept("1.00", "2240.00")], [kept("1.00", "11000.00")])).toEqual([{ currency: "CZK", amount: -1240 }]);
+      // A cancel after invoicing: the whole kept price comes back as a negative line; the same push again changes nothing.
+      expect(sellingDifference([kept("2.00", "480.50", "EUR")], [])).toEqual([{ currency: "EUR", amount: -961 }]);
+      expect(sellingDifference([kept(null, "500.00")], [kept("1.00", "500.00")])).toEqual([]);
+    });
+
+    it("numbers difference lines after any the set ever had, and answers the live ones per ref and currency", () => {
+      expect(nextDifferenceNumber(ref, [null, ref, `${ref}:diff:1`, `${ref}:diff:3`, `trucking:consignment:other:diff:9`])).toBe(4);
+      expect(nextDifferenceNumber(ref, [])).toBe(1);
+      expect(differenceRef(ref, 2)).toBe(`${ref}:diff:2`);
+      expect(differencesOf([{ ref, qty: "1.00", amount: "10000.00", currency: "CZK" }, { ref: `${ref}:diff:1`, qty: "1.00", amount: "-1240.00", currency: "CZK" }], ref)).toEqual([
+        { sourceRef: `${ref}:diff:1`, currency: "CZK", amount: -1240 },
+      ]);
+    });
   });
 
   it("refuses a bad shipment id, currency or amount before writing", async () => {

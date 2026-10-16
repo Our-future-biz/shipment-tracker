@@ -1,11 +1,11 @@
-import { and, asc, eq, isNull, max, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, like, max, notInArray, or, sql } from "drizzle-orm";
 import log from "encore.dev/log";
 import type { PgTable } from "drizzle-orm/pg-core";
 import { db } from "../db/db";
 import { invoiceCostTable, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
 import { invoiceSellingCostTable, type NewInvoiceSellingCostRecord } from "../schemas/invoiceSellingCost.schema";
 import { invoiceRepository } from "./invoice.repository";
-import { planBuyingReplace, sellingReplaceable } from "../utils/truckingLines.utils";
+import { differenceRef, differencesOf, nextDifferenceNumber, planBuyingReplace, sellingDifference, sellingReplaceable } from "../utils/truckingLines.utils";
 import { realRowValues } from "../utils/truckingReal.utils";
 import type { TruckingLinesResult, TruckingRealLine } from "../interfaces/interfaces";
 
@@ -32,13 +32,18 @@ class TruckingLinesRepository {
     sourceRef: string,
     buying: TruckingBuyingValues[],
     selling: TruckingSellingValues[],
+    differenceLabel = "Price change after invoice",
   ): Promise<TruckingLinesResult> {
     return db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`trucking-lines:${shipmentId}`}))`);
       const of = (table: CostTable) =>
         and(eq(table.companyId, companyId), eq(table.shipmentId, shipmentId), eq(table.sourceTruckingRef, sourceRef), isNull(table.deletedAt));
 
-      const currentSelling = await tx.select({ id: invoiceSellingCostTable.id }).from(invoiceSellingCostTable).where(of(invoiceSellingCostTable));
+      // The selling set: the ref's rows and the difference lines added to it after an invoice.
+      const s = invoiceSellingCostTable;
+      const inSet = or(eq(s.sourceTruckingRef, sourceRef), like(s.sourceTruckingRef, `${sourceRef}:diff:%`));
+      const ofSet = and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), isNull(s.deletedAt), inSet);
+      const currentSelling = await tx.select({ id: s.id, ref: s.sourceTruckingRef, qty: s.qty, amount: s.amount, currency: s.currency }).from(s).where(ofSet);
       const invoiced = currentSelling.length ? await invoiceRepository.invoicedSellingRowIds(shipmentId, companyId, tx) : new Set<string>();
       const sellingPlan = sellingReplaceable(currentSelling.map((r) => r.id), invoiced);
 
@@ -60,15 +65,44 @@ class TruckingLinesRepository {
         await tx.insert(c).values(plan.rows.map((row, i) => ({ ...row, companyId, shipmentId, sourceTruckingRef: sourceRef, sortOrder: next + i })));
       }
       if (sellingPlan.replace) {
-        await tx.update(invoiceSellingCostTable).set({ deletedAt: now, updatedAt: now }).where(of(invoiceSellingCostTable));
+        // Nothing of the set is invoiced: the new lines replace it, difference lines included.
+        await tx.update(s).set({ deletedAt: now, updatedAt: now }).where(ofSet);
         if (selling.length) {
-          const next = await this.nextSort(tx, invoiceSellingCostTable, companyId, shipmentId);
-          await tx
-            .insert(invoiceSellingCostTable)
-            .values(selling.map((row, i) => ({ ...row, companyId, shipmentId, sourceTruckingRef: sourceRef, sortOrder: next + i })));
+          const next = await this.nextSort(tx, s, companyId, shipmentId);
+          await tx.insert(s).values(selling.map((row, i) => ({ ...row, companyId, shipmentId, sourceTruckingRef: sourceRef, sortOrder: next + i })));
         }
+        return { buying: buying.length, selling: selling.length, sellingKept: 0, differences: [] };
       }
-      return { buying: buying.length, selling: sellingPlan.replace ? selling.length : 0, sellingKept: sellingPlan.kept };
+      // The set is on an issued invoice: it stays, and only what changed is billed as its own line (decision 9).
+      const difference = sellingDifference(currentSelling, selling);
+      const added: typeof currentSelling = [];
+      if (difference.length) {
+        const everRefs = await tx.select({ ref: s.sourceTruckingRef }).from(s).where(and(eq(s.companyId, companyId), eq(s.shipmentId, shipmentId), like(s.sourceTruckingRef, `${sourceRef}:diff:%`)));
+        const ref = differenceRef(sourceRef, nextDifferenceNumber(sourceRef, everRefs.map((r) => r.ref)));
+        const category = selling[0]?.category ?? "road_freight";
+        const next = await this.nextSort(tx, s, companyId, shipmentId);
+        const rows = await tx
+          .insert(s)
+          .values(
+            difference.map((d, i) => ({
+              category,
+              description: differenceLabel,
+              customer: differenceLabel,
+              qty: "1.00",
+              amount: d.amount.toFixed(2),
+              currency: d.currency,
+              invoice: true,
+              companyId,
+              shipmentId,
+              sourceTruckingRef: ref,
+              sortOrder: next + i,
+            })),
+          )
+          .returning({ id: s.id, ref: s.sourceTruckingRef, qty: s.qty, amount: s.amount, currency: s.currency });
+        added.push(...rows);
+        log.warn("invoicing: Trucking price changed after the invoice; the difference was added as its own line", { shipmentId, sourceRef: ref, difference });
+      }
+      return { buying: buying.length, selling: 0, sellingKept: sellingPlan.kept, differences: differencesOf([...currentSelling, ...added], sourceRef) };
     });
   }
 

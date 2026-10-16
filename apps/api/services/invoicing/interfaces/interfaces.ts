@@ -495,11 +495,22 @@ export interface TruckingCostLine {
 }
 
 /** What a Trucking push did to Costs Breakdown. */
+/** A difference line of a kept selling set: "Price change after invoice" (decision 9). */
+export interface TruckingSellingDifference {
+  /** "trucking:consignment:<id>:diff:<n>" */
+  sourceRef: string;
+  currency: string;
+  /** Signed: negative when the price went down (a credit is owed) */
+  amount: number;
+}
+
 export interface TruckingLinesResult {
   buying: number;
   selling: number;
   /** Selling rows of the sourceRef left as they were because one of them is on an issued invoice */
   sellingKept: number;
+  /** When kept: every live difference line of the set (those this push added included); [] otherwise */
+  differences: TruckingSellingDifference[];
 }
 
 /** The real cost of one Trucking buying row, from an approved haulier invoice (rows in their order). */

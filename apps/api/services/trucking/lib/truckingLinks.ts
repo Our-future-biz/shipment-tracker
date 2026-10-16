@@ -28,7 +28,12 @@ export interface CostsPayload {
   sourceRef: string;
   buying: CostLinePush[];
   selling: CostLinePush[];
+  /** The text of the line Invoicing adds when the selling set is on an issued invoice: only the difference is billed (decision 9) */
+  differenceLabel?: string;
 }
+
+/** The text of a consignment's "Price change after invoice" line. */
+export const differenceLabel = (consignmentRef: string) => `${consignmentRef} · Price change after invoice`;
 
 const cents = (n: number) => Math.round(n * 100);
 /** Whether n has at most 2 decimals (allowing for binary float noise). */
@@ -58,7 +63,12 @@ const lines = (ref: string, price: PriceSnapshot, vendor: { name: string; id: st
 
 /** What the customer pays for a consignment (selling side); none when it has no price. */
 export function sellCosts(consignment: { id: string; ref: string; sell: PriceSnapshot | null }): CostsPayload {
-  return { sourceRef: consignmentSourceRef(consignment.id), buying: [], selling: consignment.sell ? lines(consignment.ref, consignment.sell, null) : [] };
+  return {
+    sourceRef: consignmentSourceRef(consignment.id),
+    buying: [],
+    selling: consignment.sell ? lines(consignment.ref, consignment.sell, null) : [],
+    differenceLabel: differenceLabel(consignment.ref),
+  };
 }
 
 /** What the haulier is paid for a trip (buying side, estimate); none when it has no price. */
@@ -67,8 +77,8 @@ export function buyCosts(trip: { id: string; ref: string; buy: PriceSnapshot | n
   return { sourceRef: tripSourceRef(trip.id), buying: trip.buy ? lines(trip.ref, trip.buy, vendor) : [], selling: [] };
 }
 
-/** Removes a consignment's / a trip's lines. */
-export const noCosts = (sourceRef: string): CostsPayload => ({ sourceRef, buying: [], selling: [] });
+/** Removes a consignment's / a trip's lines (a selling set already invoiced gets a negative difference line, named by `label`). */
+export const noCosts = (sourceRef: string, label?: string): CostsPayload => ({ sourceRef, buying: [], selling: [], ...(label ? { differenceLabel: label } : {}) });
 
 /** A trip planned: the job's pick-up date, planned delivery date and plate (each only when known). */
 export function plannedUpdate(p: { pickupDate: string; promisedDate: string | null; tractorPlate: string }): Record<string, string> {
@@ -166,5 +176,5 @@ export function exceptionCosts(e: { id: string }, consignmentRef: string, text: 
     vendor: "",
     haulierId: null,
   };
-  return { sourceRef: exceptionSourceRef(e.id), buying: [], selling: [line] };
+  return { sourceRef: exceptionSourceRef(e.id), buying: [], selling: [line], differenceLabel: differenceLabel(`${consignmentRef} · ${text}`) };
 }
