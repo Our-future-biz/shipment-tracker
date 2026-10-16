@@ -1,12 +1,16 @@
 import { api, type Header } from "encore.dev/api";
+import log from "encore.dev/log";
 import { portalAuthService } from "../services/portalAuth.service";
 import { clientIp } from "../lib/portalRules";
 
 /**
  * How many proxies in front of the API append to X-Forwarded-For. Assumption: on Encore Cloud the
  * Google load balancer appends "<client>, <load balancer>", so the client is the second entry from
- * the right. With fewer entries the IP is unknown ("") and only the per-account lockout applies -
- * the IP throttle is never keyed on a shared "unknown" bucket.
+ * the right. With fewer entries the leftmost one is used, so a short header can't turn the throttle
+ * off. Only a request with no header at all (local dev) has no IP; then only the per-account
+ * lockout applies. If entries left of the trusted ones are client-written, a client can rotate its
+ * per-IP bucket — the per-account lockout still caps guessing per account. Verify the hop count
+ * against the logged header length in the cloud.
  */
 const TRUSTED_PROXY_HOPS = 2;
 import { portalOrderService } from "../services/portalOrder.service";
@@ -65,6 +69,7 @@ interface PortalLoginResponse {
 export const portalLogin = api(
   { expose: true, auth: false, method: "POST", path: "/portal/login", sensitive: true },
   async ({ email, password, userAgent, forwardedFor }: PortalLoginRequest): Promise<PortalLoginResponse> => {
+    log.info("trucking portal: login attempt", { forwardedHops: (forwardedFor ?? "").split(",").filter((x) => x.trim()).length });
     return portalAuthService.login({ email, password }, { ip: clientIp(forwardedFor, TRUSTED_PROXY_HOPS), userAgent: userAgent ?? "" });
   },
 );

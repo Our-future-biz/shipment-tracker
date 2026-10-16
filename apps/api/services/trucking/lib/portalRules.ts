@@ -98,8 +98,11 @@ export function clientIp(forwardedFor: string | undefined, trustedHops: number):
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
+  if (!hops.length) return "";
   const n = Math.max(1, Math.floor(trustedHops));
-  return (hops[hops.length - n] ?? "").slice(0, 100);
+  // Fewer entries than proxies expected: take the leftmost one there is rather than none, so a
+  // short header can never switch the per-IP throttle off.
+  return hops[Math.max(0, hops.length - n)]!.slice(0, 100);
 }
 
 /** A new session's expiry and its absolute end. */

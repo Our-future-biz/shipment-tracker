@@ -318,7 +318,9 @@ describe("the client's IP for the throttle", () => {
     expect(clientIp("6.6.6.6, 203.0.113.9", 1)).toBe("203.0.113.9");
     expect(clientIp("6.6.6.6, 203.0.113.9, 10.0.0.2", 2)).toBe("203.0.113.9");
     expect(clientIp(undefined, 1)).toBe("");
-    expect(clientIp("203.0.113.9", 2)).toBe("");
+    // A short header never switches the throttle off: the leftmost entry is used.
+    expect(clientIp("203.0.113.9", 2)).toBe("203.0.113.9");
+    expect(clientIp(" , ", 2)).toBe("");
   });
 });
 
