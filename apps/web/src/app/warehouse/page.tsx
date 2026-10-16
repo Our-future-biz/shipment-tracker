@@ -1,5 +1,7 @@
-import { WarehouseDashboard } from "./_components/WarehouseDashboard";
+"use client";
 
-export default function WarehouseOverviewPage() {
-  return <WarehouseDashboard />;
+import { WarehouseView } from "./_components/WarehouseView";
+
+export default function WarehousePage() {
+  return <WarehouseView />;
 }

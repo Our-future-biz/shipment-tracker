@@ -67,3 +67,9 @@
 @page {
   margin: 10mm;
 }
+
+/* One row height for the warehouse grids (AppGrid), whatever the cells contain
+   (the Shipments grid's documents-icon column sets it at 42px), so they line up the same. */
+.app-grid .ant-table-tbody > tr > td.ant-table-cell {
+  height: 42px;
+}

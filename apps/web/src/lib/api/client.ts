@@ -1911,36 +1911,718 @@ export namespace warehouse {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.gateExceptionCreate = this.gateExceptionCreate.bind(this)
+            this.gateExceptionResolve = this.gateExceptionResolve.bind(this)
+            this.gateFileContent = this.gateFileContent.bind(this)
+            this.gateFileDelete = this.gateFileDelete.bind(this)
+            this.gateFileList = this.gateFileList.bind(this)
+            this.gateFileUpload = this.gateFileUpload.bind(this)
+            this.gateMovementArchive = this.gateMovementArchive.bind(this)
+            this.gateMovementCreate = this.gateMovementCreate.bind(this)
+            this.gateMovementDelete = this.gateMovementDelete.bind(this)
+            this.gateMovementFollow = this.gateMovementFollow.bind(this)
+            this.gateMovementGet = this.gateMovementGet.bind(this)
+            this.gateMovementLabelPrinted = this.gateMovementLabelPrinted.bind(this)
+            this.gateMovementList = this.gateMovementList.bind(this)
+            this.gateMovementOverride = this.gateMovementOverride.bind(this)
+            this.gateMovementRefreshFromShipment = this.gateMovementRefreshFromShipment.bind(this)
+            this.gateMovementRefuse = this.gateMovementRefuse.bind(this)
+            this.gateMovementReleaseGate = this.gateMovementReleaseGate.bind(this)
+            this.gateMovementRepairMissing = this.gateMovementRepairMissing.bind(this)
+            this.gateMovementRequestMrn = this.gateMovementRequestMrn.bind(this)
+            this.gateMovementRequestRelease = this.gateMovementRequestRelease.bind(this)
+            this.gateMovementRestore = this.gateMovementRestore.bind(this)
+            this.gateMovementReweigh = this.gateMovementReweigh.bind(this)
+            this.gateMovementSaveSurvey = this.gateMovementSaveSurvey.bind(this)
+            this.gateMovementShipmentUpdateDismiss = this.gateMovementShipmentUpdateDismiss.bind(this)
+            this.gateMovementShipmentUpdateRetry = this.gateMovementShipmentUpdateRetry.bind(this)
+            this.gateMovementStamp = this.gateMovementStamp.bind(this)
+            this.gateMovementUpdate = this.gateMovementUpdate.bind(this)
+            this.gateMovementUseRemeasured = this.gateMovementUseRemeasured.bind(this)
+            this.gateMovementVerifyPin = this.gateMovementVerifyPin.bind(this)
+            this.gateMovementVoidStamp = this.gateMovementVoidStamp.bind(this)
+            this.pickupPinGenerate = this.pickupPinGenerate.bind(this)
+            this.warehouseBondedCreate = this.warehouseBondedCreate.bind(this)
+            this.warehouseBondedDelete = this.warehouseBondedDelete.bind(this)
+            this.warehouseBondedList = this.warehouseBondedList.bind(this)
+            this.warehouseBondedUpdate = this.warehouseBondedUpdate.bind(this)
+            this.warehouseClaimCreate = this.warehouseClaimCreate.bind(this)
+            this.warehouseClaimDelete = this.warehouseClaimDelete.bind(this)
+            this.warehouseClaimList = this.warehouseClaimList.bind(this)
+            this.warehouseClaimUpdate = this.warehouseClaimUpdate.bind(this)
+            this.warehouseContainerAddPositions = this.warehouseContainerAddPositions.bind(this)
+            this.warehouseContainerCreate = this.warehouseContainerCreate.bind(this)
+            this.warehouseContainerDelete = this.warehouseContainerDelete.bind(this)
+            this.warehouseContainerGet = this.warehouseContainerGet.bind(this)
+            this.warehouseContainerList = this.warehouseContainerList.bind(this)
+            this.warehouseContainerRemovePosition = this.warehouseContainerRemovePosition.bind(this)
+            this.warehouseContainerReorder = this.warehouseContainerReorder.bind(this)
+            this.warehouseContainerSetStuffed = this.warehouseContainerSetStuffed.bind(this)
+            this.warehouseContainerStamp = this.warehouseContainerStamp.bind(this)
+            this.warehouseContainerTally = this.warehouseContainerTally.bind(this)
+            this.warehouseContainerUpdate = this.warehouseContainerUpdate.bind(this)
+            this.warehouseContainerVoidStamp = this.warehouseContainerVoidStamp.bind(this)
+            this.warehouseContainerVoidTally = this.warehouseContainerVoidTally.bind(this)
             this.warehouseCreate = this.warehouseCreate.bind(this)
             this.warehouseDelete = this.warehouseDelete.bind(this)
-            this.warehouseEnsureRefs = this.warehouseEnsureRefs.bind(this)
+            this.warehouseDockSlotCreate = this.warehouseDockSlotCreate.bind(this)
+            this.warehouseDockSlotDelete = this.warehouseDockSlotDelete.bind(this)
+            this.warehouseDockSlotList = this.warehouseDockSlotList.bind(this)
+            this.warehouseDockSlotUpdate = this.warehouseDockSlotUpdate.bind(this)
+            this.warehouseEquipmentCreate = this.warehouseEquipmentCreate.bind(this)
+            this.warehouseEquipmentDelete = this.warehouseEquipmentDelete.bind(this)
+            this.warehouseEquipmentList = this.warehouseEquipmentList.bind(this)
+            this.warehouseEquipmentUpdate = this.warehouseEquipmentUpdate.bind(this)
+            this.warehouseImport = this.warehouseImport.bind(this)
+            this.warehouseKpis = this.warehouseKpis.bind(this)
             this.warehouseList = this.warehouseList.bind(this)
+            this.warehousePositionCreate = this.warehousePositionCreate.bind(this)
+            this.warehousePositionMarkSent = this.warehousePositionMarkSent.bind(this)
+            this.warehousePositionRemove = this.warehousePositionRemove.bind(this)
+            this.warehousePositionSectionGet = this.warehousePositionSectionGet.bind(this)
+            this.warehousePositionSectionPatch = this.warehousePositionSectionPatch.bind(this)
+            this.warehousePositionSendToSupplier = this.warehousePositionSendToSupplier.bind(this)
+            this.warehousePositionSupplierEmails = this.warehousePositionSupplierEmails.bind(this)
+            this.warehouseReportSummary = this.warehouseReportSummary.bind(this)
+            this.warehouseSavedReportCreate = this.warehouseSavedReportCreate.bind(this)
+            this.warehouseSavedReportDelete = this.warehouseSavedReportDelete.bind(this)
+            this.warehouseSavedReportList = this.warehouseSavedReportList.bind(this)
+            this.warehouseSavedReportUpdate = this.warehouseSavedReportUpdate.bind(this)
             this.warehouseSectionGet = this.warehouseSectionGet.bind(this)
+            this.warehouseSectionPatch = this.warehouseSectionPatch.bind(this)
+            this.warehouseSectionSummary = this.warehouseSectionSummary.bind(this)
             this.warehouseSectionUpsert = this.warehouseSectionUpsert.bind(this)
-            this.warehouseTruckCreate = this.warehouseTruckCreate.bind(this)
+            this.warehouseSettingsGet = this.warehouseSettingsGet.bind(this)
+            this.warehouseSettingsUpdate = this.warehouseSettingsUpdate.bind(this)
+            this.warehouseStaffCreate = this.warehouseStaffCreate.bind(this)
+            this.warehouseStaffDelete = this.warehouseStaffDelete.bind(this)
+            this.warehouseStaffList = this.warehouseStaffList.bind(this)
+            this.warehouseStaffUpdate = this.warehouseStaffUpdate.bind(this)
+            this.warehouseStockLineCreate = this.warehouseStockLineCreate.bind(this)
+            this.warehouseStockLineDelete = this.warehouseStockLineDelete.bind(this)
+            this.warehouseStockLineList = this.warehouseStockLineList.bind(this)
+            this.warehouseStockLineUpdate = this.warehouseStockLineUpdate.bind(this)
+            this.warehouseStockMovementCreate = this.warehouseStockMovementCreate.bind(this)
+            this.warehouseStockMovementList = this.warehouseStockMovementList.bind(this)
+            this.warehouseStockSync = this.warehouseStockSync.bind(this)
             this.warehouseUpdate = this.warehouseUpdate.bind(this)
+            this.warehouseZoneCreate = this.warehouseZoneCreate.bind(this)
+            this.warehouseZoneDelete = this.warehouseZoneDelete.bind(this)
+            this.warehouseZoneList = this.warehouseZoneList.bind(this)
+            this.warehouseZoneUpdate = this.warehouseZoneUpdate.bind(this)
         }
 
+        public async gateExceptionCreate(id: string, params: {
+    exception: interfaces.GateExceptionInput
+}): Promise<controllers.GateExceptionCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/exceptions`, JSON.stringify(params))
+            return await resp.json() as controllers.GateExceptionCreateResponse
+        }
+
+        /**
+         * Resolves an open exception with a note (any user, logged). The last one resolved clears the hold.
+         */
+        public async gateExceptionResolve(id: string, exceptionId: string, params: {
+    note: string
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/exceptions/${encodeURIComponent(exceptionId)}/resolve`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        public async gateFileContent(id: string, fileId: string): Promise<controllers.GateFileContentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}/content`)
+            return await resp.json() as controllers.GateFileContentResponse
+        }
+
+        public async gateFileDelete(id: string, fileId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-gate/${encodeURIComponent(id)}/files/${encodeURIComponent(fileId)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        public async gateFileList(id: string): Promise<{
+    files: interfaces.GateFileItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}/files`)
+            return await resp.json() as {
+    files: interfaces.GateFileItem[]
+}
+        }
+
+        public async gateFileUpload(id: string, params: controllers.GateFileUploadRequest): Promise<{
+    file: interfaces.GateFileItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/files`, JSON.stringify(params))
+            return await resp.json() as {
+    file: interfaces.GateFileItem
+}
+        }
+
+        /**
+         * Manager: archives a record (stamped or not) with a reason; it can be restored.
+         */
+        public async gateMovementArchive(id: string, params: {
+    reason: string
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/archive`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        public async gateMovementCreate(params: controllers.GateMovementCreateRequest): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * Any user may delete a record without gate stamps (it is archived, logged). A stamped
+         * record is archived by a manager with a reason (gateMovementArchive).
+         */
+        public async gateMovementDelete(id: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-gate/${encodeURIComponent(id)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * Linked records read their shipment's customs status (and move their stock / bonded entry with
+         * it). The Gate Log calls this when it opens and the job's "Refresh" with `force`.
+         */
+        public async gateMovementFollow(params: controllers.GateMovementFollowRequest): Promise<{
+    changed: number
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/follow`, JSON.stringify(params))
+            return await resp.json() as {
+    changed: number
+}
+        }
+
+        /**
+         * One record, live or archived (reads only).
+         */
+        public async gateMovementGet(id: string): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * Logs a label print (or reprint) with the number of labels on the movement.
+         */
+        public async gateMovementLabelPrinted(id: string, params: {
+    copies: number
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/label-printed`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * The Gate Log (reads only; the shipments' customs status comes in through gateMovementFollow).
+         */
+        public async gateMovementList(params: controllers.GateMovementListRequest): Promise<{
+    movements: interfaces.GateMovementItem[]
+}> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                archived: params.archived === undefined ? undefined : String(params.archived),
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-gate`, undefined, {query})
+            return await resp.json() as {
+    movements: interfaces.GateMovementItem[]
+}
+        }
+
+        /**
+         * Overriding the release box is a supervisor permission, not a button everyone has.
+         */
+        public async gateMovementOverride(id: string, params: {
+    reason: string
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/override`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * Copies the linked shipment's data onto the gate record again; any user, logged.
+         */
+        public async gateMovementRefreshFromShipment(id: string): Promise<controllers.GateRefreshFromShipmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/refresh-from-shipment`)
+            return await resp.json() as controllers.GateRefreshFromShipmentResponse
+        }
+
+        public async gateMovementRefuse(id: string, params: {
+    reason: string
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/refuse`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * Ticks one release-gate line OK (or back to Pending); any user, logged on the movement.
+         */
+        public async gateMovementReleaseGate(id: string, params: {
+    gate: string
+    ok: boolean
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/release-gate`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * Manager only: positions of shipments without a gate record (from before every import made
+         * one) get it now, from their shipment. Shipments that cannot be read are reported.
+         */
+        public async gateMovementRepairMissing(): Promise<controllers.GateRepairMissingResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/repair-missing`)
+            return await resp.json() as controllers.GateRepairMissingResponse
+        }
+
+        /**
+         * Asks customs / ops for the MRN; logged on the movement.
+         */
+        public async gateMovementRequestMrn(id: string): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/request-mrn`)
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * Asks ops to clear the release gates; logged on the movement, changes no gate itself.
+         */
+        public async gateMovementRequestRelease(id: string): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/request-release`)
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * Manager: brings an archived record back (and its position, when it was removed with it).
+         */
+        public async gateMovementRestore(id: string, params: {
+    reason: string
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/restore`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * Re-weighs the cargo (LCL cargo is re-weighed before its receipt / tally tick; any user, logged).
+         * A correction is a new weighing: the history stays and the latest counts. Compared with the
+         * declared gross weight (more than 5 % off is a variance); turns the checklist's VGM icon green.
+         */
+        public async gateMovementReweigh(id: string, params: {
+    reweigh: interfaces.GateReweighInput
+}): Promise<controllers.GateReweighResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/reweigh`, JSON.stringify(params))
+            return await resp.json() as controllers.GateReweighResponse
+        }
+
+        public async gateMovementSaveSurvey(id: string, params: controllers.GateSurveySaveRequest): Promise<controllers.GateSurveySaveResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse-gate/${encodeURIComponent(id)}/survey`, JSON.stringify(params))
+            return await resp.json() as controllers.GateSurveySaveResponse
+        }
+
+        /**
+         * A failed shipment update that was set in Shipments by hand is dismissed; any user, logged.
+         */
+        public async gateMovementShipmentUpdateDismiss(id: string): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/shipment-update/dismiss`)
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * "Retry now" for a shipment update the record still owes; any user, logged.
+         */
+        public async gateMovementShipmentUpdateRetry(id: string): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/shipment-update/retry`)
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        public async gateMovementStamp(id: string, params: controllers.GateStampRequest): Promise<controllers.GateStampResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/stamp`, JSON.stringify(params))
+            return await resp.json() as controllers.GateStampResponse
+        }
+
+        public async gateMovementUpdate(id: string, params: controllers.GateMovementUpdateRequest): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-gate/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        /**
+         * "Use remeasured figures for the warehouse": the gate figures (pieces, kg, cbm) become the
+         * totals of the position's remeasured lines. Only the warehouse's figures — the shipment's cargo
+         * is never changed. Refused when the lines changed since `sectionVersion`, or after the release.
+         */
+        public async gateMovementUseRemeasured(id: string, params: {
+    sectionVersion: number
+}): Promise<controllers.GateMovementResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/use-remeasured`, JSON.stringify(params))
+            return await resp.json() as controllers.GateMovementResponse
+        }
+
+        public async gateMovementVerifyPin(id: string, params: {
+    pin: string
+}): Promise<controllers.GatePinVerifyResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/verify-pin`, JSON.stringify(params))
+            return await resp.json() as controllers.GatePinVerifyResponse
+        }
+
+        /**
+         * Manager: voids a wrong stamp with a reason (logged). The shipment is not changed back.
+         */
+        public async gateMovementVoidStamp(id: string, params: {
+    kind: services.StampKind
+    reason: string
+}): Promise<controllers.GateVoidStampResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-gate/${encodeURIComponent(id)}/void-stamp`, JSON.stringify(params))
+            return await resp.json() as controllers.GateVoidStampResponse
+        }
+
+        /**
+         * Managers make the pick-up PIN of a shipment (Shipments → Warehouse → Pick-up): six digits
+         * made on the server, shown once in this answer. A new one only once the current one is locked
+         * at the gate; logged.
+         */
+        public async pickupPinGenerate(shipmentId: string): Promise<controllers.PickupPinGenerateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse/pickup-pin/${encodeURIComponent(shipmentId)}`)
+            return await resp.json() as controllers.PickupPinGenerateResponse
+        }
+
+        public async warehouseBondedCreate(params: interfaces.WarehouseBondedEntryInput): Promise<{
+    entry: interfaces.WarehouseBondedEntryItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-bonded`, JSON.stringify(params))
+            return await resp.json() as {
+    entry: interfaces.WarehouseBondedEntryItem
+}
+        }
+
+        public async warehouseBondedDelete(id: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-bonded/${encodeURIComponent(id)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        public async warehouseBondedList(): Promise<{
+    entries: interfaces.WarehouseBondedEntryItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-bonded`)
+            return await resp.json() as {
+    entries: interfaces.WarehouseBondedEntryItem[]
+}
+        }
+
+        public async warehouseBondedUpdate(id: string, params: controllers.BondedUpdateRequest): Promise<{
+    entry: interfaces.WarehouseBondedEntryItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-bonded/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as {
+    entry: interfaces.WarehouseBondedEntryItem
+}
+        }
+
+        public async warehouseClaimCreate(params: interfaces.WarehouseClaimInput): Promise<controllers.ClaimResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-claims`, JSON.stringify(params))
+            return await resp.json() as controllers.ClaimResponse
+        }
+
+        public async warehouseClaimDelete(id: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-claims/${encodeURIComponent(id)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        public async warehouseClaimList(): Promise<controllers.ClaimListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-claims`)
+            return await resp.json() as controllers.ClaimListResponse
+        }
+
+        public async warehouseClaimUpdate(id: string, params: controllers.WarehouseClaimUpdateRequest): Promise<controllers.ClaimResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-claims/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.ClaimResponse
+        }
+
+        /**
+         * Adds positions as houses. Export: inbound (příjem) positions in the warehouse, not on hold;
+         * import: outbound (výdej) positions not received yet. A position is in at most one container.
+         */
+        public async warehouseContainerAddPositions(id: string, params: {
+    movementIds: string[]
+}): Promise<controllers.ContainerResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerResponse
+        }
+
+        /**
+         * With a position (movementId), it becomes the container's first house.
+         */
+        public async warehouseContainerCreate(params: interfaces.WarehouseContainerInput): Promise<controllers.ContainerResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerResponse
+        }
+
+        public async warehouseContainerDelete(id: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-containers/${encodeURIComponent(id)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * One container with its houses, totals against its capacity and its log.
+         */
+        public async warehouseContainerGet(id: string): Promise<controllers.ContainerResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-containers/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.ContainerResponse
+        }
+
+        public async warehouseContainerList(): Promise<controllers.ContainerListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-containers`)
+            return await resp.json() as controllers.ContainerListResponse
+        }
+
+        /**
+         * Takes a house out (not once it is stuffed or tallied).
+         */
+        public async warehouseContainerRemovePosition(id: string, movementId: string): Promise<controllers.ContainerResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}`)
+            return await resp.json() as controllers.ContainerResponse
+        }
+
+        /**
+         * The order of the houses: every house's position, in the new order.
+         */
+        public async warehouseContainerReorder(id: string, params: {
+    movementIds: string[]
+}): Promise<controllers.ContainerResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions-order`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerResponse
+        }
+
+        public async warehouseContainerSetStuffed(id: string, movementId: string, params: controllers.ContainerStuffedRequest): Promise<controllers.ContainerActionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}/stuffed`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerActionResponse
+        }
+
+        /**
+         * Container stamps, in strict order. The export gate-out releases every stuffed house (storage
+         * stops; its shipment gets the released date and the plate); the close and the gate-out need a
+         * connection (never from the offline queue).
+         */
+        public async warehouseContainerStamp(id: string, params: controllers.ContainerStampRequest): Promise<controllers.ContainerActionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/stamp`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerActionResponse
+        }
+
+        /**
+         * Tallies one house at stripping. "received" ticks it off: the house is received (its free time
+         * starts) and its shipment gets the received date and the WCZ reference. LCL cargo is re-weighed
+         * first. Short / not arrived need a reason.
+         */
+        public async warehouseContainerTally(id: string, movementId: string, params: controllers.ContainerTallyRequest): Promise<controllers.ContainerTallyResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}/tally`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerTallyResponse
+        }
+
+        /**
+         * The typed yard dates follow the container's stamps once stamped; a plate entered after an export
+         * container went out is sent to the shipments of the positions that left in it.
+         */
+        public async warehouseContainerUpdate(id: string, params: controllers.ContainerUpdateRequest): Promise<controllers.ContainerResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-containers/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerResponse
+        }
+
+        /**
+         * Manager: voids a container stamp with a reason, later steps first. Voiding the export gate-out
+         * brings the positions that left with it back into the warehouse.
+         */
+        public async warehouseContainerVoidStamp(id: string, params: {
+    kind: interfaces.ContainerStampKind
+    reason: string
+}): Promise<controllers.ContainerVoidResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/void-stamp`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerVoidResponse
+        }
+
+        /**
+         * Manager: voids the tally of a house with a reason. A tick-off is undone (the shipment is not
+         * changed back; logged).
+         */
+        public async warehouseContainerVoidTally(id: string, movementId: string, params: {
+    reason: string
+}): Promise<controllers.ContainerVoidResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-containers/${encodeURIComponent(id)}/positions/${encodeURIComponent(movementId)}/void-tally`, JSON.stringify(params))
+            return await resp.json() as controllers.ContainerVoidResponse
+        }
+
+        /**
+         * Adds one shipment to the warehouse; the server assigns its WCZ reference and makes its gate
+         * record in the same transaction. (Several at once: warehouseImport.)
+         */
         public async warehouseCreate(params: controllers.WarehouseCreateRequest): Promise<controllers.WarehouseCreateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("POST", `/warehouse`, JSON.stringify(params))
             return await resp.json() as controllers.WarehouseCreateResponse
         }
 
+        /**
+         * Removes a position the gate never stamped; its gate records are archived with it (kept).
+         * A position whose gate record has stamps needs a manager and a reason: warehousePositionRemove.
+         */
         public async warehouseDelete(taskId: string): Promise<controllers.WarehouseDeleteResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse/${encodeURIComponent(taskId)}`)
             return await resp.json() as controllers.WarehouseDeleteResponse
         }
 
-        /**
-         * A shipment gets its warehouse reference the moment it shows up in the warehouse;
-         * calling this again returns the reference it already has.
-         */
-        public async warehouseEnsureRefs(params: controllers.EnsureRefsRequest): Promise<controllers.EnsureRefsResponse> {
+        public async warehouseDockSlotCreate(params: interfaces.WarehouseDockSlotInput): Promise<controllers.DockSlotResponse> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-refs`, JSON.stringify(params))
-            return await resp.json() as controllers.EnsureRefsResponse
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-dock-slots`, JSON.stringify(params))
+            return await resp.json() as controllers.DockSlotResponse
+        }
+
+        public async warehouseDockSlotDelete(id: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-dock-slots/${encodeURIComponent(id)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        public async warehouseDockSlotList(): Promise<controllers.DockSlotListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-dock-slots`)
+            return await resp.json() as controllers.DockSlotListResponse
+        }
+
+        public async warehouseDockSlotUpdate(id: string, params: controllers.DockSlotUpdateRequest): Promise<controllers.DockSlotResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-dock-slots/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.DockSlotResponse
+        }
+
+        public async warehouseEquipmentCreate(params: interfaces.WarehouseEquipmentInput): Promise<controllers.EquipmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-equipment`, JSON.stringify(params))
+            return await resp.json() as controllers.EquipmentResponse
+        }
+
+        public async warehouseEquipmentDelete(id: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-equipment/${encodeURIComponent(id)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        public async warehouseEquipmentList(): Promise<controllers.EquipmentListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-equipment`)
+            return await resp.json() as controllers.EquipmentListResponse
+        }
+
+        public async warehouseEquipmentUpdate(id: string, params: controllers.EquipmentUpdateRequest): Promise<controllers.EquipmentResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-equipment/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.EquipmentResponse
+        }
+
+        /**
+         * Imports shipments in one request: each gets its position (WCZ reference) and gate record in
+         * one transaction. Per shipment: created, already in the warehouse, or failed with the reason.
+         */
+        public async warehouseImport(params: controllers.WarehouseImportRequest): Promise<controllers.WarehouseImportResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse/import`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseImportResponse
+        }
+
+        /**
+         * Reports tab: KPIs from the gate stamps for a period, each with how it is measured; figures
+         * that cannot be measured are null with the reason. Any logged-in user of the company.
+         */
+        public async warehouseKpis(params: controllers.WarehouseKpisRequest): Promise<{
+    report: interfaces.WarehouseKpiReport
+}> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                from: params.from,
+                to:   params.to,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-kpis`, undefined, {query})
+            return await resp.json() as {
+    report: interfaces.WarehouseKpiReport
+}
         }
 
         public async warehouseList(params: controllers.WarehouseListRequest): Promise<controllers.WarehouseListResponse> {
@@ -1954,32 +2636,342 @@ export namespace warehouse {
             return await resp.json() as controllers.WarehouseListResponse
         }
 
+        /**
+         * "Create new" in the warehouse: a position of its own (WCZ reference) that is NOT paired
+         * with a shipment — no shipment job is created. Its data lives on the gate log movement; the
+         * position and its movement are created together (one transaction).
+         */
+        public async warehousePositionCreate(params: controllers.WarehousePositionCreateRequest): Promise<controllers.WarehousePositionCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehousePositionCreateResponse
+        }
+
+        /**
+         * "Mark as sent" (VGM / survey / remeasurement sent outside the app) or "Inform Operations" for a
+         * position. Nothing is e-mailed. A resend is allowed and kept in the history; logged.
+         */
+        public async warehousePositionMarkSent(taskId: string, params: controllers.PositionMarkSentRequest): Promise<{
+    section: interfaces.WarehouseSectionItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions/${encodeURIComponent(taskId)}/mark-sent`, JSON.stringify(params))
+            return await resp.json() as {
+    section: interfaces.WarehouseSectionItem
+}
+        }
+
+        /**
+         * Removes a position from the warehouse, with an optional reason; its gate records are archived
+         * with it (kept, with the reason). A position whose gate record has stamps is removed only by a
+         * manager with a reason.
+         */
+        public async warehousePositionRemove(taskId: string, params: controllers.WarehousePositionRemoveRequest): Promise<controllers.WarehouseDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions/${encodeURIComponent(taskId)}/remove`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseDeleteResponse
+        }
+
+        /**
+         * A section of a position; before its first save, the row its shipment had (if any).
+         */
+        public async warehousePositionSectionGet(taskId: string, section: string): Promise<controllers.PositionSectionResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-positions/${encodeURIComponent(taskId)}/sections/${encodeURIComponent(section)}`)
+            return await resp.json() as controllers.PositionSectionResponse
+        }
+
+        /**
+         * Saves changed fields of a position's section (Shipment Details: notes, remeasured lines). A
+         * field someone else changed since the client read it is refused with "Changed meanwhile …
+         * reload" (aborted); different fields saved at the same time both stay. Logged on the position's
+         * gate records.
+         */
+        public async warehousePositionSectionPatch(taskId: string, section: string, params: controllers.PositionSectionPatchRequest): Promise<{
+    section: interfaces.WarehouseSectionItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-positions/${encodeURIComponent(taskId)}/sections/${encodeURIComponent(section)}`, JSON.stringify(params))
+            return await resp.json() as {
+    section: interfaces.WarehouseSectionItem
+}
+        }
+
+        public async warehousePositionSendToSupplier(taskId: string, params: controllers.SendToSupplierRequest): Promise<controllers.SendToSupplierResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-positions/${encodeURIComponent(taskId)}/send-to-supplier`, JSON.stringify(params))
+            return await resp.json() as controllers.SendToSupplierResponse
+        }
+
+        /**
+         * The latest supplier e-mail attempts of a position, newest first (sent, failed, still sending).
+         */
+        public async warehousePositionSupplierEmails(taskId: string): Promise<{
+    emails: interfaces.SupplierEmailItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-positions/${encodeURIComponent(taskId)}/supplier-emails`)
+            return await resp.json() as {
+    emails: interfaces.SupplierEmailItem[]
+}
+        }
+
+        /**
+         * Calculated from positions, containers and dock slots.
+         */
+        public async warehouseReportSummary(): Promise<{
+    summary: interfaces.WarehouseReportSummary
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-reports/summary`)
+            return await resp.json() as {
+    summary: interfaces.WarehouseReportSummary
+}
+        }
+
+        public async warehouseSavedReportCreate(params: interfaces.WarehouseSavedReportInput): Promise<controllers.SavedReportResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-saved-reports`, JSON.stringify(params))
+            return await resp.json() as controllers.SavedReportResponse
+        }
+
+        public async warehouseSavedReportDelete(id: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-saved-reports/${encodeURIComponent(id)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        public async warehouseSavedReportList(): Promise<controllers.SavedReportListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-saved-reports`)
+            return await resp.json() as controllers.SavedReportListResponse
+        }
+
+        public async warehouseSavedReportUpdate(id: string, params: controllers.SavedReportUpdateRequest): Promise<controllers.SavedReportResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-saved-reports/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.SavedReportResponse
+        }
+
         public async warehouseSectionGet(shipmentId: string, section: string): Promise<controllers.WarehouseSectionGetResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`)
             return await resp.json() as controllers.WarehouseSectionGetResponse
         }
 
+        /**
+         * Saves changed fields of a section (Shipment Details: notes, remeasured lines, "sent" marks,
+         * operations informed). A field someone else changed since the client read it is refused with
+         * "Changed meanwhile … reload" (aborted); different fields saved at the same time both stay.
+         */
+        public async warehouseSectionPatch(shipmentId: string, section: string, params: controllers.WarehouseSectionPatchRequest): Promise<controllers.WarehouseSectionPatchResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
+            return await resp.json() as controllers.WarehouseSectionPatchResponse
+        }
+
+        /**
+         * Per position: remeasured lines saved, last remeasurement sent, operations informed (worklist).
+         */
+        public async warehouseSectionSummary(): Promise<{
+    positions: interfaces.WarehouseSectionSummaryItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-section-summary`)
+            return await resp.json() as {
+    positions: interfaces.WarehouseSectionSummaryItem[]
+}
+        }
+
+        /**
+         * Whole-section save — Pick-up only, and only its rows (the PIN is the server's). Shipment
+         * Details ("job"), customs and invoicing are saved field by field (warehouseSectionPatch) so
+         * several people and screens never overwrite each other; a whole-section save of them would
+         * replace what others saved meanwhile and is refused.
+         */
         public async warehouseSectionUpsert(shipmentId: string, section: string, params: controllers.WarehouseSectionUpsertRequest): Promise<controllers.WarehouseSectionUpsertResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/warehouse/sections/${encodeURIComponent(shipmentId)}/${encodeURIComponent(section)}`, JSON.stringify(params))
             return await resp.json() as controllers.WarehouseSectionUpsertResponse
         }
 
-        /**
-         * Shipments released from Stock leave on a truck. A new truck gets the next TCZ reference;
-         * the shipments put on it carry that reference.
-         */
-        public async warehouseTruckCreate(): Promise<controllers.TruckCreateResponse> {
+        public async warehouseSettingsGet(): Promise<{
+    settings: interfaces.WarehouseSettingsItem
+}> {
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-trucks`)
-            return await resp.json() as controllers.TruckCreateResponse
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-settings`)
+            return await resp.json() as {
+    settings: interfaces.WarehouseSettingsItem
+}
+        }
+
+        /**
+         * Saves the settings (manager only). Addresses are checked, trimmed, lower-cased and
+         * de-duplicated; each change is logged ("Supplier e-mail VGM: To a@x → a@x, b@y").
+         */
+        public async warehouseSettingsUpdate(params: controllers.WarehouseSettingsUpdateRequest): Promise<{
+    settings: interfaces.WarehouseSettingsItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-settings`, JSON.stringify(params))
+            return await resp.json() as {
+    settings: interfaces.WarehouseSettingsItem
+}
+        }
+
+        public async warehouseStaffCreate(params: interfaces.WarehouseStaffInput): Promise<controllers.StaffResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-staff`, JSON.stringify(params))
+            return await resp.json() as controllers.StaffResponse
+        }
+
+        public async warehouseStaffDelete(id: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-staff/${encodeURIComponent(id)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        public async warehouseStaffList(): Promise<controllers.StaffListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-staff`)
+            return await resp.json() as controllers.StaffListResponse
+        }
+
+        public async warehouseStaffUpdate(id: string, params: controllers.StaffUpdateRequest): Promise<controllers.StaffResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-staff/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.StaffResponse
+        }
+
+        public async warehouseStockLineCreate(params: interfaces.WarehouseStockLineInput): Promise<{
+    line: interfaces.WarehouseStockLineItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-stock`, JSON.stringify(params))
+            return await resp.json() as {
+    line: interfaces.WarehouseStockLineItem
+}
+        }
+
+        public async warehouseStockLineDelete(id: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-stock/${encodeURIComponent(id)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * Every line, open and closed (Picked / Voided, `closed` true): the screen filters what is on hand.
+         */
+        public async warehouseStockLineList(): Promise<{
+    lines: interfaces.WarehouseStockLineItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-stock`)
+            return await resp.json() as {
+    lines: interfaces.WarehouseStockLineItem[]
+}
+        }
+
+        public async warehouseStockLineUpdate(id: string, params: controllers.StockLineUpdateRequest): Promise<{
+    line: interfaces.WarehouseStockLineItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-stock/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as {
+    line: interfaces.WarehouseStockLineItem
+}
+        }
+
+        public async warehouseStockMovementCreate(params: interfaces.WarehouseStockMovementInput): Promise<{
+    movement: interfaces.WarehouseStockMovementItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-stock-movements`, JSON.stringify(params))
+            return await resp.json() as {
+    movement: interfaces.WarehouseStockMovementItem
+}
+        }
+
+        public async warehouseStockMovementList(): Promise<{
+    movements: interfaces.WarehouseStockMovementItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-stock-movements`)
+            return await resp.json() as {
+    movements: interfaces.WarehouseStockMovementItem[]
+}
+        }
+
+        /**
+         * "Build stock from gate records" (manager): runs the gate sync on every live gate record —
+         * the first build after the migration, and the repair tool. `dryRun` only counts.
+         */
+        public async warehouseStockSync(params: interfaces.WarehouseStockSyncRequest): Promise<{
+    result: interfaces.WarehouseStockSyncResult
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-stock/sync`, JSON.stringify(params))
+            return await resp.json() as {
+    result: interfaces.WarehouseStockSyncResult
+}
         }
 
         public async warehouseUpdate(taskId: string, params: controllers.WarehouseUpdateRequest): Promise<controllers.WarehouseUpdateResponse> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse/${encodeURIComponent(taskId)}`, JSON.stringify(params))
             return await resp.json() as controllers.WarehouseUpdateResponse
+        }
+
+        public async warehouseZoneCreate(params: interfaces.WarehouseZoneInput): Promise<{
+    zone: interfaces.WarehouseZoneItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/warehouse-zones`, JSON.stringify(params))
+            return await resp.json() as {
+    zone: interfaces.WarehouseZoneItem
+}
+        }
+
+        public async warehouseZoneDelete(id: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/warehouse-zones/${encodeURIComponent(id)}`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        public async warehouseZoneList(): Promise<{
+    zones: interfaces.WarehouseZoneItem[]
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/warehouse-zones`)
+            return await resp.json() as {
+    zones: interfaces.WarehouseZoneItem[]
+}
+        }
+
+        public async warehouseZoneUpdate(id: string, params: controllers.ZoneUpdateRequest): Promise<{
+    zone: interfaces.WarehouseZoneItem
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/warehouse-zones/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as {
+    zone: interfaces.WarehouseZoneItem
+}
         }
     }
 }
@@ -2260,6 +3252,25 @@ export namespace controllers {
         swift: string
     }
 
+    export interface BondedUpdateRequest {
+        /**
+         * Position picker (gate record id); "" / null = not linked.
+         */
+        movementId?: string | null
+
+        mrn?: string
+        job?: string
+        consignee?: string
+        procedure?: string
+        entryDate?: string
+        pieces?: number
+        weightKg?: number
+        customsValue?: string
+        discharge?: string
+        balance?: number
+        dischargeRef?: string
+    }
+
     export interface BranchCreateRequest {
         name: string
         countryCode: string
@@ -2296,6 +3307,14 @@ export namespace controllers {
         invoiceNumber?: string
         reason?: string
         amount?: string
+    }
+
+    export interface ClaimListResponse {
+        claims: interfaces.WarehouseClaimItem[]
+    }
+
+    export interface ClaimResponse {
+        claim: interfaces.WarehouseClaimItem
     }
 
     export interface ClaimUpdateRequest {
@@ -2430,6 +3449,127 @@ export namespace controllers {
 
     export interface ContactUpdateResponse {
         contact: interfaces.ContactItem
+    }
+
+    export interface ContainerActionResponse {
+        container: interfaces.WarehouseContainerItem
+        /**
+         * done · already_done (this request came before) · done_by_someone_else (another request was first; only with a clientRequestId)
+         */
+        outcome: "done" | "already_done" | "done_by_someone_else"
+
+        /**
+         * Text for a toast; "" when nothing to say.
+         */
+        notice: string
+    }
+
+    export interface ContainerListResponse {
+        containers: interfaces.WarehouseContainerItem[]
+    }
+
+    export interface ContainerResponse {
+        container: interfaces.WarehouseContainerItem
+    }
+
+    export interface ContainerResponse {
+        container: interfaces.WarehouseContainerItem
+    }
+
+    export interface ContainerStampRequest {
+        /**
+         * gateIn · strippingStart (import) · close (export, with the seal) · gateOut (with the truck plate, optional)
+         */
+        kind: interfaces.ContainerStampKind
+
+        seal?: string
+        plate?: string
+        recordedAt?: string
+        clientRequestId?: string
+    }
+
+    export interface ContainerStuffedRequest {
+        /**
+         * true: stuffed; false: back out (only until the close).
+         */
+        stuffed: boolean
+
+        recordedAt?: string
+        clientRequestId?: string
+    }
+
+    export interface ContainerTallyRequest {
+        tally: interfaces.ContainerTallyInput
+        recordedAt?: string
+        clientRequestId?: string
+    }
+
+    export interface ContainerTallyResponse {
+        /**
+         * The count differs from the expected pieces: the OS&D exception the client may offer (POST /warehouse-gate/:id/exceptions, source "tally").
+         */
+        suggestException: {
+            type: "Short" | "Over"
+            pieces: number
+        } | null
+
+        container: interfaces.WarehouseContainerItem
+        /**
+         * done · already_done (this request came before) · done_by_someone_else (another request was first; only with a clientRequestId)
+         */
+        outcome: "done" | "already_done" | "done_by_someone_else"
+
+        /**
+         * Text for a toast; "" when nothing to say.
+         */
+        notice: string
+    }
+
+    export interface ContainerUpdateRequest {
+        movementId?: string | null
+        number?: string
+        equipment?: string
+        seal?: string
+        pieces?: number | null
+        packages?: string
+        weightKg?: number | null
+        cbm?: number | null
+        direction?: string
+        note?: string
+        carrier?: string
+        masterJob?: string
+        dischargePort?: string
+        arrivedAt?: string
+        houses?: number | null
+        dockSlot?: string
+        scheduleStatus?: string
+        yardState?: string
+        gatedIn?: string
+        gatedOut?: string
+        detentionExpiry?: string
+        yardStatus?: string
+        tareKg?: number | null
+        cargoKg?: number | null
+        vgmMethod?: string
+        vgmDeclaredBy?: string
+        vgmDeclaredAt?: string
+        vgmStatus?: string
+        bookingNumber?: string
+        mblNumber?: string
+        vessel?: string
+        voyage?: string
+        /**
+         * After the gate-out a new plate is sent to the shipments of the positions that left in it.
+         */
+        plate?: string
+    }
+
+    export interface ContainerVoidResponse {
+        container: interfaces.WarehouseContainerItem
+        /**
+         * Set when shipments were already updated from what was voided (they are not changed back).
+         */
+        notice: string
     }
 
     /**
@@ -2641,6 +3781,32 @@ export namespace controllers {
         name: string
     }
 
+    export interface DockSlotListResponse {
+        slots: interfaces.WarehouseDockSlotItem[]
+    }
+
+    export interface DockSlotResponse {
+        slot: interfaces.WarehouseDockSlotItem
+    }
+
+    export interface DockSlotUpdateRequest {
+        movementId?: string | null
+        date?: string
+        time?: string
+        /**
+         * 15–480 minutes in steps of 15; default 60.
+         */
+        durationMin?: number
+
+        dock?: string
+        direction?: string
+        reference?: string
+        party?: string
+        vehicle?: string
+        status?: string
+        note?: string
+    }
+
     export interface DocumentContentResponse {
         fileName: string
         fileType: string
@@ -2671,15 +3837,20 @@ export namespace controllers {
         data: interfaces.DocumentItem[]
     }
 
-    export interface EnsureRefsRequest {
-        /**
-         * Shipments shown in a warehouse section; each gets its WHCZ reference.
-         */
-        shipmentIds: string[]
+    export interface EquipmentListResponse {
+        equipment: interfaces.WarehouseEquipmentItem[]
     }
 
-    export interface EnsureRefsResponse {
-        refs: interfaces.WarehouseRef[]
+    export interface EquipmentResponse {
+        item: interfaces.WarehouseEquipmentItem
+    }
+
+    export interface EquipmentUpdateRequest {
+        code?: string
+        kind?: string
+        status?: string
+        operator?: string
+        note?: string
     }
 
     export interface ExtractBookingRequest {
@@ -2831,6 +4002,291 @@ export namespace controllers {
 
     export interface FollowupTaskUpdateResponse {
         task: interfaces.FollowupTaskItem
+    }
+
+    /**
+     * Records a damage / short / over exception on the movement (from a survey or by hand). While it
+     * is open the cargo is ON HOLD: the "No open exceptions" release-gate line is Blocked.
+     */
+    export interface GateExceptionCreateResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * recorded · already_recorded (the same clientRequestId came before; nothing was added)
+         */
+        outcome: "recorded" | "already_recorded"
+
+        notice: string
+    }
+
+    export interface GateFileContentResponse {
+        fileName: string
+        fileType: string
+        contentBase64: string
+    }
+
+    export interface GateFileUploadRequest {
+        fileName: string
+        fileType: string
+        contentBase64: string
+        container?: string
+        tag?: string
+        /**
+         * Floor mode: id of this upload (UUID); the same id sent again returns the file already stored.
+         */
+        clientRequestId?: string
+    }
+
+    export interface GateMovementCreateRequest {
+        /**
+         * Truck at the fence with no pre-advice: creates an unlinked row.
+         */
+        walkIn?: boolean
+
+        gateRef?: string
+        warehouseTaskId?: string | null
+        visit?: interfaces.GateVisit
+        handling?: interfaces.GateHandling
+        operationType?: interfaces.GateOperationType
+        customsMode?: interfaces.GateCustomsMode
+        customer?: string
+        customerRef?: string
+        customerContact?: string
+        shipmentOwner?: string
+        colli?: number
+        packing?: string
+        weightKg?: number
+        measureCbm?: number
+        customsDocs?: string
+        mrn?: string
+        customsStatus?: interfaces.GateCustomsStatus
+        freightMode?: string
+        loadType?: string
+        commodity?: string
+        stackable?: boolean | null
+        dangerousGoods?: boolean | null
+        customerContactPhone?: string
+        unNumber?: string
+        jobNumber?: string
+        pol?: string
+        pod?: string
+        etd?: string
+        eta?: string
+        vessel?: string
+        voyage?: string
+        containerNumber?: string
+        sealNumber?: string
+        bookingNumber?: string
+        hblNumber?: string
+        mblNumber?: string
+        transportLegs?: interfaces.GateTransportLeg[]
+        subPositions?: interfaces.GateSubPosition[]
+        pin?: string
+        slot?: string
+        carrier?: string
+        driver?: string
+        plate?: string
+        checklist?: interfaces.GateChecklist
+        cfsCustomsNumber?: string
+        cfsCustomsProcedure?: string
+        /**
+         * Outbound: the date the cargo was received in the warehouse (YYYY-MM-DD, "" clears); starts the storage clock.
+         */
+        loadInDate?: string
+
+        /**
+         * Free days of this position (0–365); null = the default (7).
+         */
+        freeDays?: number | null
+
+        note?: string
+    }
+
+    export interface GateMovementFollowRequest {
+        /**
+         * One record ("Refresh" on the job); without it, a limited number of records not read lately.
+         */
+        id?: string
+
+        /**
+         * With `id`: read it now, even if it was read in the last half minute.
+         */
+        force?: boolean
+    }
+
+    export interface GateMovementListRequest {
+        /**
+         * true: archived records only (newest archive first).
+         */
+        archived?: boolean
+    }
+
+    export interface GateMovementResponse {
+        movement: interfaces.GateMovementItem
+    }
+
+    export interface GateMovementUpdateRequest {
+        /**
+         * Required (managers only) to change the link or direction of a position linked to a shipment.
+         */
+        linkChangeReason?: string
+
+        gateRef?: string
+        warehouseTaskId?: string | null
+        visit?: interfaces.GateVisit
+        handling?: interfaces.GateHandling
+        operationType?: interfaces.GateOperationType
+        customsMode?: interfaces.GateCustomsMode
+        customer?: string
+        customerRef?: string
+        customerContact?: string
+        shipmentOwner?: string
+        colli?: number
+        packing?: string
+        weightKg?: number
+        measureCbm?: number
+        customsDocs?: string
+        mrn?: string
+        customsStatus?: interfaces.GateCustomsStatus
+        freightMode?: string
+        loadType?: string
+        commodity?: string
+        stackable?: boolean | null
+        dangerousGoods?: boolean | null
+        customerContactPhone?: string
+        unNumber?: string
+        jobNumber?: string
+        pol?: string
+        pod?: string
+        etd?: string
+        eta?: string
+        vessel?: string
+        voyage?: string
+        containerNumber?: string
+        sealNumber?: string
+        bookingNumber?: string
+        hblNumber?: string
+        mblNumber?: string
+        transportLegs?: interfaces.GateTransportLeg[]
+        subPositions?: interfaces.GateSubPosition[]
+        pin?: string
+        slot?: string
+        carrier?: string
+        driver?: string
+        plate?: string
+        checklist?: interfaces.GateChecklist
+        cfsCustomsNumber?: string
+        cfsCustomsProcedure?: string
+        /**
+         * Outbound: the date the cargo was received in the warehouse (YYYY-MM-DD, "" clears); starts the storage clock.
+         */
+        loadInDate?: string
+
+        /**
+         * Free days of this position (0–365); null = the default (7).
+         */
+        freeDays?: number | null
+
+        note?: string
+    }
+
+    export interface GatePinVerifyResponse {
+        result: "match" | "no_match" | "locked" | "no_pin"
+        tries: number
+    }
+
+    export interface GateRefreshFromShipmentResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * What changed, in words; empty when the record already matched the shipment.
+         */
+        changed: string[]
+
+        /**
+         * Gate-checked values (pieces, weight, measure, packing, container, seal) kept on a stamped record although the shipment differs.
+         */
+        differs: string[]
+    }
+
+    export interface GateRepairMissingResponse {
+        created: number
+        failed: {
+            taskId: string
+            ref: string
+            reason: string
+        }[]
+    }
+
+    export interface GateReweighResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * recorded · already_recorded (the same clientRequestId came before; nothing was added)
+         */
+        outcome: "recorded" | "already_recorded"
+
+        /**
+         * Text for a toast (recorded offline, a newer weighing counts, a variance); "" when nothing to say.
+         */
+        notice: string
+    }
+
+    export interface GateStampRequest {
+        kind: services.StampKind
+        /**
+         * Floor mode (offline queue): when the stamp was made on the phone (ISO with a time zone).
+         * Accepted up to 2 minutes ahead and 12 hours back, never before the step it follows; never
+         * for the WH release (it needs a connection). The stamp and its log carry this time.
+         */
+        recordedAt?: string
+
+        /**
+         * Floor mode: id of this request (UUID). A stamp already there is then an answer, not an error.
+         */
+        clientRequestId?: string
+    }
+
+    export interface GateStampResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * stamped · already_stamped (this request came before) · stamped_by_someone_else (the step was
+         * stamped by another request first; only with a clientRequestId — without one that is a 400).
+         */
+        outcome: "stamped" | "already_stamped" | "stamped_by_someone_else"
+
+        /**
+         * Text for a toast, e.g. "Gate-in was already stamped 10:05 by Jana"; "" when nothing to say.
+         */
+        notice: string
+    }
+
+    export interface GateSurveySaveRequest {
+        survey: interfaces.GateSurveyInput
+        /**
+         * Floor mode (offline queue): when it was saved on the phone (ISO); within the last 12 hours.
+         */
+        recordedAt?: string
+
+        /**
+         * Floor mode: id of this request (UUID); the same id sent again changes nothing.
+         */
+        clientRequestId?: string
+    }
+
+    export interface GateSurveySaveResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * saved · already_saved (this request came before) · newer_exists (a later survey of that container and pass is kept)
+         */
+        outcome: "saved" | "already_saved" | "newer_exists"
+
+        notice: string
+    }
+
+    export interface GateVoidStampResponse {
+        movement: interfaces.GateMovementItem
+        /**
+         * Set when the shipment was already updated from the voided stamp (it is not changed back).
+         */
+        notice: string
     }
 
     export interface GetProfileResponse {
@@ -3108,6 +4564,18 @@ export namespace controllers {
         sha256: string
     }
 
+    export interface PickupPinGenerateResponse {
+        /**
+         * The pick-up section, without the PIN.
+         */
+        section: interfaces.WarehouseSectionItem
+
+        /**
+         * The new PIN — shown only in this answer; only its hash is stored.
+         */
+        pin: string
+    }
+
     export interface PipelineExtractHblRequest {
         sessionId: string
         batchIndex: number
@@ -3131,6 +4599,27 @@ export namespace controllers {
     export interface PlaceSearchRequest {
         q: string
         countryCode?: string
+    }
+
+    export interface PositionMarkSentRequest {
+        /**
+         * vgm | survey | remeasurement | inform_operations
+         */
+        what: string
+
+        note?: string
+    }
+
+    export interface PositionSectionPatchRequest {
+        /**
+         * The fields to save (1–10), each with the value the client last saw in `expected` ("" = not
+         * set). Fields not listed are left as stored.
+         */
+        changes: services.SectionKeyChange[]
+    }
+
+    export interface PositionSectionResponse {
+        section: interfaces.WarehouseSectionItem | null
     }
 
     export interface PrefGetResponse {
@@ -3501,8 +4990,56 @@ export namespace controllers {
         footerNote: string
     }
 
+    export interface SavedReportListResponse {
+        reports: interfaces.WarehouseSavedReportItem[]
+    }
+
+    export interface SavedReportResponse {
+        report: interfaces.WarehouseSavedReportItem
+    }
+
+    export interface SavedReportUpdateRequest {
+        name?: string
+        owner?: string
+        frequency?: string
+        format?: string
+        distribution?: string
+    }
+
     export interface SellingResponse {
         sellingCost: interfaces.SellingCostItem
+    }
+
+    export interface SendToSupplierRequest {
+        /**
+         * vgm | survey | remeasurement
+         */
+        what: string
+
+        note?: string
+        /**
+         * A UUID made once per send: a double click or a replay sends once. Not needed for a preview.
+         */
+        clientRequestId?: string
+
+        /**
+         * Only return what would be e-mailed (nothing is sent or recorded).
+         */
+        previewOnly?: boolean
+    }
+
+    export interface SendToSupplierResponse {
+        /**
+         * The saved Shipment Details (null for a preview).
+         */
+        section: interfaces.WarehouseSectionItem | null
+
+        /**
+         * The attempt that was sent (null for a preview).
+         */
+        email: interfaces.SupplierEmailItem | null
+
+        preview: interfaces.SupplierEmailPreview | null
     }
 
     export interface SetIssuedInvoiceNumberRequest {
@@ -4037,6 +5574,45 @@ export namespace controllers {
         shipment: interfaces.ShipmentItem
     }
 
+    export interface StaffListResponse {
+        staff: interfaces.WarehouseStaffItem[]
+    }
+
+    export interface StaffResponse {
+        member: interfaces.WarehouseStaffItem
+    }
+
+    export interface StaffUpdateRequest {
+        name?: string
+        role?: string
+        shift?: string
+        area?: string
+        status?: string
+    }
+
+    export interface StockLineUpdateRequest {
+        /**
+         * Position picker (gate record id); "" / null = not linked (then `job` is typed).
+         */
+        movementId?: string | null
+
+        job?: string
+        customer?: string
+        shipper?: string
+        pod?: string
+        pieces?: number
+        packageType?: string
+        weightKg?: number
+        cbm?: number
+        location?: string
+        receivedAt?: string
+        freeDays?: number
+        customs?: string
+        status?: string
+        consol?: string
+        marks?: string
+    }
+
     export interface TaskListResponse {
         tasks: interfaces.TaskItem[]
     }
@@ -4080,10 +5656,6 @@ export namespace controllers {
 
     export interface TermsUpdateResponse {
         terms: interfaces.TermsConditionItem
-    }
-
-    export interface TruckCreateResponse {
-        reference: string
     }
 
     export interface UnlinkMasterJobResponse {
@@ -4248,17 +5820,55 @@ export namespace controllers {
         users: services.AuthUserInfo[]
     }
 
+    export interface WarehouseClaimUpdateRequest {
+        job?: string
+        against?: string
+        type?: string
+        value?: string
+        raised?: string
+        status?: string
+    }
+
     export interface WarehouseCreateRequest {
-        taskId: string
-        shipmentId?: string
+        shipmentId: string
     }
 
     export interface WarehouseCreateResponse {
         task: interfaces.WarehouseTaskItem
+        /**
+         * False when the shipment was already in the warehouse and its existing task is returned.
+         */
+        created: boolean
     }
 
     export interface WarehouseDeleteResponse {
         ok: boolean
+    }
+
+    export interface WarehouseImportRequest {
+        /**
+         * Shipments to bring into the warehouse (up to 200 per request; duplicates count once).
+         */
+        shipmentIds: string[]
+    }
+
+    export interface WarehouseImportResponse {
+        /**
+         * One result per shipment, in the order sent.
+         */
+        results: interfaces.WarehouseImportResult[]
+    }
+
+    export interface WarehouseKpisRequest {
+        /**
+         * YYYY-MM-DD (Prague), first day included; default 6 days before `to`.
+         */
+        from?: string
+
+        /**
+         * YYYY-MM-DD (Prague), last day included; default today. At most 366 days.
+         */
+        to?: string
     }
 
     export interface WarehouseListRequest {
@@ -4269,8 +5879,66 @@ export namespace controllers {
         tasks: interfaces.WarehouseTaskItem[]
     }
 
+    export interface WarehousePositionCreateRequest {
+        customer?: string
+        customerRef?: string
+        customerContact?: string
+        shipmentOwner?: string
+        customsStatus?: interfaces.GateCustomsStatus
+        handling?: interfaces.GateHandling
+        freightMode?: string
+        loadType?: string
+        customsMode?: interfaces.GateCustomsMode
+        commodity?: string
+        packing?: string
+        colli?: number
+        weightKg?: number
+        measureCbm?: number
+        note?: string
+        /**
+         * Job fields copied from a shipment ("Copy from job"); the position keeps no link to it.
+         */
+        jobNumber?: string
+
+        pol?: string
+        pod?: string
+        etd?: string
+        eta?: string
+        vessel?: string
+        voyage?: string
+        containerNumber?: string
+        sealNumber?: string
+        bookingNumber?: string
+        hblNumber?: string
+        mblNumber?: string
+    }
+
+    export interface WarehousePositionCreateResponse {
+        task: interfaces.WarehouseTaskItem
+        movement: interfaces.GateMovementItem
+    }
+
+    export interface WarehousePositionRemoveRequest {
+        /**
+         * Required when the position's gate record has stamps (manager only). Sent in the body, so it stays out of URLs and logs.
+         */
+        reason?: string
+    }
+
     export interface WarehouseSectionGetResponse {
         section: interfaces.WarehouseSectionItem | null
+    }
+
+    export interface WarehouseSectionPatchRequest {
+        /**
+         * The fields to save (1–10), each with the value the client last saw in `expected` ("" = not
+         * set). Fields not listed are left as stored.
+         */
+        changes: services.SectionKeyChange[]
+    }
+
+    export interface WarehouseSectionPatchResponse {
+        section: interfaces.WarehouseSectionItem
     }
 
     export interface WarehouseSectionUpsertRequest {
@@ -4279,6 +5947,24 @@ export namespace controllers {
 
     export interface WarehouseSectionUpsertResponse {
         section: interfaces.WarehouseSectionItem
+    }
+
+    export interface WarehouseSettingsUpdateRequest {
+        /**
+         * The version read (0 when none is saved yet); a save on top of a newer one is refused.
+         */
+        expectedVersion: number
+
+        /**
+         * Message types to change; the ones left out stay as stored.
+         */
+        supplierEmail?: {
+            vgm?: interfaces.SupplierRecipientsItem
+            survey?: interfaces.SupplierRecipientsItem
+            remeasurement?: interfaces.SupplierRecipientsItem
+        }
+
+        docks?: interfaces.DockSettingsItem
     }
 
     export interface WarehouseUpdateRequest {
@@ -4299,6 +5985,15 @@ export namespace controllers {
 
     export interface WarehouseUpdateResponse {
         task: interfaces.WarehouseTaskItem
+    }
+
+    export interface ZoneUpdateRequest {
+        code?: string
+        name?: string
+        bays?: number
+        capacity?: number
+        blockedBays?: string
+        note?: string
     }
 }
 
@@ -4709,6 +6404,34 @@ export namespace interfaces {
     }
 
     /**
+     * Container stamps, in order: import gateIn → strippingStart → gateOut; export gateIn → close → gateOut.
+     */
+    export type ContainerStampKind = "gateIn" | "strippingStart" | "close" | "gateOut"
+
+    /**
+     * The tally of one house at stripping.
+     */
+    export interface ContainerTallyInput {
+        /**
+         * received (tick off: the house is received) | short | not_arrived
+         */
+        outcome: string
+
+        /**
+         * Pieces counted.
+         */
+        pieces?: number | null
+
+        condition?: string
+        location?: string
+        note?: string
+        /**
+         * Required for short / not arrived.
+         */
+        reason?: string
+    }
+
+    /**
      * How copying the quote's cost lines went when a shipment was created from it.
      */
     export interface CostImportOutcome {
@@ -4877,6 +6600,20 @@ export namespace interfaces {
 
     export type DeadlinePeriod = "OVERDUE" | "TODAY" | "THIS_WEEK" | "NEXT_WEEK" | "LATER"
 
+    export interface DockSettingsItem {
+        docks: string[]
+        /**
+         * "HH:MM", Prague time
+         */
+        opensAt: string
+
+        closesAt: string
+        /**
+         * ISO weekdays: 1 = Monday … 7 = Sunday
+         */
+        workingDays: number[]
+    }
+
     export interface DocumentItem {
         id: string
         customerId: string
@@ -4971,6 +6708,688 @@ export namespace interfaces {
         sync: SyncStatus
         alerts: FxAlertItem[]
     }
+
+    export type GateCheckState = "g" | "a" | "r" | "n"
+
+    export interface GateChecklist {
+        ht: GateCheckState
+        photos: GateCheckState
+        measure: GateCheckState
+        vgm: GateCheckState
+        seal: GateCheckState
+        dg: GateCheckState
+    }
+
+    /**
+     * A container of the position, from the warehouse container register.
+     */
+    export interface GateContainer {
+        id: string
+        number: string
+        type: string
+    }
+
+    export type GateCustomsMode = "SCP" | "JSD" | "T1" | "T2L" | "ATA Carnet" | "RDT" | "C-Goods"
+
+    /**
+     * Shared with Shipments; only the last one releases cargo.
+     */
+    export type GateCustomsStatus = "Waiting For Commercial Paperwork" | "Paperwork Verification Pending" | "Paperwork Verified" | "Under Customs Clearance" | "Customs Cleared/Released"
+
+    /**
+     * A dock slot booked for the movement (Dock & Yard), as the gate job and floor mode show it.
+     */
+    export interface GateDockSlot {
+        id: string
+        /**
+         * YYYY-MM-DD (Prague)
+         */
+        date: string
+
+        /**
+         * HH:MM (Prague)
+         */
+        time: string
+
+        /**
+         * HH:MM (Prague) the slot ends; "" when unknown.
+         */
+        end: string
+
+        dock: string
+        /**
+         * IN | OUT
+         */
+        direction: string
+
+        /**
+         * Booked | In progress | Completed | Overdue
+         */
+        status: string
+
+        durationMin: number
+        /**
+         * ISO; null on old slots whose date / time could not be read.
+         */
+        startsAt: string | null
+
+        endsAt: string | null
+    }
+
+    export interface GateEvent {
+        kind: string
+        label: string
+        at: string
+        by: string
+        detail?: string
+        /**
+         * Id of the phone request that made it (floor mode, offline queue).
+         */
+        requestId?: string
+    }
+
+    /**
+     * A new exception, from a survey or by hand.
+     */
+    export interface GateExceptionInput {
+        /**
+         * Damaged | Short | Over
+         */
+        type: string
+
+        pieces: number
+        note?: string
+        container?: string
+        surveyPhase?: string
+        /**
+         * survey | tally (found at the stripping tally) | manual (default)
+         */
+        source?: string
+
+        /**
+         * Photos of this movement to attach (gate file ids, at most 20).
+         */
+        fileIds?: string[]
+
+        /**
+         * Floor mode: id the phone gave this exception; the same id sent again adds nothing.
+         */
+        clientRequestId?: string
+
+        /**
+         * Floor mode: when it was recorded on the phone (ISO), if it was sent later (offline).
+         */
+        recordedAt?: string
+    }
+
+    /**
+     * A damage / short / over exception of the movement; an open one holds the release.
+     */
+    export interface GateExceptionItem {
+        id: string
+        movementId: string
+        taskId: string | null
+        /**
+         * Damaged | Short | Over
+         */
+        type: string
+
+        pieces: number
+        note: string
+        container: string
+        surveyPhase: string
+        /**
+         * survey | manual
+         */
+        source: string
+
+        /**
+         * Photos of the movement (gate file ids).
+         */
+        fileIds: string[]
+
+        /**
+         * open | resolved
+         */
+        status: string
+
+        createdBy: string
+        createdAt: string
+        resolvedAt: string | null
+        resolvedBy: string
+        resolutionNote: string
+    }
+
+    export interface GateFileItem {
+        id: string
+        movementId: string
+        container: string
+        tag: string
+        fileName: string
+        fileSize: number
+        fileType: string
+        uploadedBy: string
+        createdAt: string
+    }
+
+    export type GateHandling = "Import" | "Export"
+
+    /**
+     * One step of the position's lifecycle.
+     */
+    export interface GateLifecycleStep {
+        /**
+         * expected | arrived | received | in_warehouse | stuffed | ready | left
+         */
+        stage: string
+
+        label: string
+        /**
+         * ISO time, or a YYYY-MM-DD day (a received date typed by hand); null when not reached.
+         */
+        at: string | null
+
+        done: boolean
+    }
+
+    export interface GateMovementItem {
+        id: string
+        gateRef: string
+        warehouseTaskId: string | null
+        /**
+         * WCZ reference of the linked warehouse task, empty when unlinked.
+         */
+        positionRef: string
+
+        /**
+         * Shipment of the linked warehouse task; null for walk-ins and positions without a shipment.
+         */
+        shipmentId: string | null
+
+        visit: string
+        handling: string
+        operationType: string
+        customsMode: string
+        customer: string
+        customerRef: string
+        customerContact: string
+        shipmentOwner: string
+        colli: number
+        packing: string
+        weightKg: number
+        measureCbm: number
+        customsDocs: string
+        mrn: string
+        customsStatus: string
+        freightMode: string
+        loadType: string
+        commodity: string
+        stackable: boolean | null
+        dangerousGoods: boolean | null
+        customerContactPhone: string
+        /**
+         * Shown only for dangerous goods (IMO / DG = yes).
+         */
+        unNumber: string
+
+        /**
+         * Copied once from the shipment job when recorded into the warehouse; never synced.
+         */
+        jobNumber: string
+
+        pol: string
+        pod: string
+        etd: string
+        eta: string
+        vessel: string
+        voyage: string
+        containerNumber: string
+        sealNumber: string
+        bookingNumber: string
+        hblNumber: string
+        mblNumber: string
+        cfsCustomsNumber: string
+        cfsCustomsProcedure: string
+        transportLegs: GateTransportLeg[]
+        containers: GateContainer[]
+        surveys: GateSurvey[]
+        subPositions: GateSubPosition[]
+        updatedBy: string
+        /**
+         * The PIN itself is never returned — the gate only verifies it. On a linked outbound movement
+         * these follow the shipment's pick-up PIN (see `pickup`).
+         */
+        hasPin: boolean
+
+        pinTries: number
+        pinLocked: boolean
+        /**
+         * Pick-up from Shipments; only on outbound movements linked to a shipment, else null.
+         */
+        pickup: GatePickupInfo | null
+
+        slot: string
+        carrier: string
+        driver: string
+        plate: string
+        status: string
+        gateIn: string | null
+        gateOut: string | null
+        impRelease: string | null
+        expDraft: string | null
+        expReceipt: string | null
+        checklist: GateChecklist
+        releaseGates: GateReleaseLine[]
+        /**
+         * Follows the release gates; a refusal disarms, a supervisor override arms. Never set by hand.
+         */
+        armed: boolean
+
+        needsAttention: boolean
+        overridden: boolean
+        refusalLog: string
+        overrideLog: string
+        loadInDate: string
+        freeDays: number | null
+        note: string
+        events: GateEvent[]
+        /**
+         * Set when the record is archived (or was deleted before archiving existed).
+         */
+        archivedAt: string | null
+
+        archivedBy: string
+        /**
+         * Empty for records deleted before archiving existed.
+         */
+        archiveReason: string
+
+        /**
+         * When the linked shipment's customs status was last read; null when never.
+         */
+        shipmentCheckedAt: string | null
+
+        /**
+         * Shipment update still owed by a stamp; null when everything reached the shipment.
+         */
+        shipmentUpdate: GateShipmentUpdateState | null
+
+        /**
+         * Days in the warehouse, free time and the estimated storage charge.
+         */
+        storage: GateStorageInfo
+
+        /**
+         * Damage / short / over exceptions, oldest first (open and resolved).
+         */
+        exceptions: GateExceptionItem[]
+
+        /**
+         * Open exceptions: the cargo is ON HOLD while this is above 0.
+         */
+        openExceptions: number
+
+        /**
+         * Dock slots booked for this movement (not cancelled), earliest first.
+         */
+        dockSlots: GateDockSlot[]
+
+        /**
+         * Outbound: when the house was ticked received at the stripping tally; null otherwise.
+         */
+        receivedAt: string | null
+
+        /**
+         * Inbound: when it left stuffed in a container (that container's gate-out); null otherwise.
+         */
+        leftAt: string | null
+
+        leftContainerId: string | null
+        /**
+         * Where the position is in its in-and-out lifecycle.
+         */
+        lifecycle: GatePositionLifecycle
+
+        /**
+         * The container the position is a house of; null when none.
+         */
+        container: GatePositionContainer | null
+
+        /**
+         * LCL cargo: re-weighed before the receipt (export) or the tally tick (import).
+         */
+        needsReweigh: boolean
+
+        /**
+         * The re-weighing that counts (the latest); null when none.
+         */
+        reweigh: GateReweighItem | null
+
+        /**
+         * Every re-weighing, latest first.
+         */
+        reweighs: GateReweighItem[]
+
+        createdAt: string
+        updatedAt: string
+    }
+
+    export type GateOperationType = "LCL consolidation" | "FCL stuffing" | "FCL stripping" | "FCL transload (cross-stuff)" | "Cargo storage" | "Cargo storage (bonded)" | "Container yard storage"
+
+    /**
+     * The shipment's pick-up, as the gate sees it on a linked outbound movement: whether the PIN
+     * operations made in Shipments is set, its tries and lock, and the haulier / plate / driver
+     * rows to compare with the truck. The PIN itself is not here — the gate checks it.
+     */
+    export interface GatePickupInfo {
+        pinSet: boolean
+        tries: number
+        locked: boolean
+        pinCreatedAt: string
+        pinCreatedBy: string
+        rows: {
+            haulier: string
+            licensePlate: string
+            driver: string
+        }[]
+    }
+
+    /**
+     * The container the position is a house of, with the house's state in it.
+     */
+    export interface GatePositionContainer {
+        id: string
+        number: string
+        equipment: string
+        /**
+         * Unloading (import, stripped) | Loading (export, stuffed)
+         */
+        direction: string
+
+        /**
+         * import | export
+         */
+        kind: string
+
+        /**
+         * Expected · Arrived · Stripping · Stripped · Planning · Stuffing · Closed · Gone out
+         */
+        status: string
+
+        seal: string
+        gateInAt: string | null
+        gateOutAt: string | null
+        stuffedAt: string | null
+        stuffedBy: string
+        /**
+         * "" (not tallied) | received | short | not_arrived
+         */
+        tallyOutcome: string
+
+        tallyPieces: number | null
+        tickedAt: string | null
+        tickedBy: string
+        /**
+         * Import: the house is received by its tick-off at the stripping tally (its WH release waits
+         * for it). False for an old one-position container linked by migration 0017, which keeps the
+         * "Received in warehouse" date typed by hand; false for export containers.
+         */
+        tallyRequired: boolean
+    }
+
+    /**
+     * The position's in-and-out lifecycle, derived from its stamps, the stripping tally and the
+     * stuffing (never stored). Inbound: Expected → Arrived → Received → In warehouse → (Stuffed) →
+     * Left. Outbound: Expected → Arrived → Received → In warehouse → Ready for release → Left.
+     */
+    export interface GatePositionLifecycle {
+        stage: string
+        label: string
+        at: string | null
+        /**
+         * The movement is refused (shown next to the stage).
+         */
+        refused: boolean
+
+        steps: GateLifecycleStep[]
+    }
+
+    export interface GateReleaseLine {
+        g: string
+        s: "OK" | "Pending" | "Blocked"
+        note: string
+    }
+
+    /**
+     * A re-weighing as the gate (or a phone) records it; who is the caller.
+     */
+    export interface GateReweighInput {
+        /**
+         * Weighed gross weight in kg (more than 0, at most 100 000).
+         */
+        weighedKg: number
+
+        note?: string
+        /**
+         * Scale photos of this movement (gate file ids, at most 20).
+         */
+        fileIds?: string[]
+
+        /**
+         * Floor mode: id the phone gave this weighing; the same id sent again adds nothing.
+         */
+        clientRequestId?: string
+
+        /**
+         * Floor mode: when it was weighed on the phone (ISO), if it was sent later (offline).
+         */
+        recordedAt?: string
+    }
+
+    /**
+     * One re-weighing of the position (LCL cargo is re-weighed on receipt; the latest counts).
+     */
+    export interface GateReweighItem {
+        id: string
+        movementId: string
+        weighedKg: number
+        /**
+         * The declared gross weight it was compared with; null when none was known.
+         */
+        declaredKg: number | null
+
+        /**
+         * shipment (its total weight) | gate (the gate figures) | ""
+         */
+        declaredSource: string
+
+        /**
+         * Weighed against declared, e.g. 0.046 = 4.6 % heavier; null when not compared.
+         */
+        variancePct: number | null
+
+        /**
+         * More than 5 % off the declared weight.
+         */
+        flagged: boolean
+
+        weighedBy: string
+        weighedAt: string
+        /**
+         * Scale photos (gate file ids).
+         */
+        fileIds: string[]
+
+        note: string
+        createdAt: string
+    }
+
+    /**
+     * A shipment update the gate still owes (the received / released date or the plate written to
+     * the linked shipment). "pending" is being retried; "failed" stopped and needs a hand in Shipments.
+     */
+    export interface GateShipmentUpdateState {
+        state: "pending" | "failed"
+        /**
+         * What is not on the shipment yet, e.g. "warehouse received date".
+         */
+        what: string[]
+
+        attempts: number
+        lastError: string
+        /**
+         * Next try (pending only).
+         */
+        nextAttemptAt: string | null
+    }
+
+    /**
+     * The storage clock of a movement — the warehouse's one free-time calculation. Starts at the
+     * receipt (inbound: the gate-in; outbound: the stripping tally tick, else the "Received in
+     * warehouse" date), stops at the WH release (inbound stuffed in a container: that container's
+     * gate-out; outbound: also the gate-out); calendar days in Prague time, the arrival day is day 1.
+     * CZK 22 per W/M per day, at least CZK 120, after the free days.
+     */
+    export interface GateStorageInfo {
+        started: boolean
+        /**
+         * YYYY-MM-DD (Prague); "" when not started.
+         */
+        startDate: string
+
+        /**
+         * What started the clock: "gateIn" (inbound), "tally" (outbound, ticked received at the
+         * stripping tally), "loadInDate" (outbound without a tally), "" (not started).
+         */
+        startSource: string
+
+        stopped: boolean
+        /**
+         * YYYY-MM-DD (Prague) of the WH release / gate-out; "" while the cargo is in the warehouse.
+         */
+        stopDate: string
+
+        daysInWarehouse: number
+        freeDays: number
+        freeDaysLeft: number
+        /**
+         * YYYY-MM-DD; "" when not started.
+         */
+        lastFreeDay: string
+
+        chargeableDays: number
+        /**
+         * Chargeable W/M from the gate figures: the larger of cbm and tonnes.
+         */
+        wm: number
+
+        dailyCzk: number
+        estimatedCzk: number
+        /**
+         * Not started | Within free time | Expiring (2 free days left or fewer) | Chargeable
+         */
+        state: string
+    }
+
+    export interface GateSubPosition {
+        /**
+         * YYYY-MM-DD
+         */
+        etw: string
+
+        qty: number | null
+        packing: string
+        /**
+         * cm
+         */
+        width: number | null
+
+        length: number | null
+        height: number | null
+        description: string
+        /**
+         * kg
+         */
+        weight: number | null
+
+        /**
+         * cbm
+         */
+        measure: number | null
+
+        /**
+         * kg
+         */
+        totalGross: number | null
+
+        /**
+         * SPZ — licence plate
+         */
+        plate: string
+
+        driver: string
+        transport: string
+        vgm: boolean
+        vgmDate: string
+        storageDays: number | null
+    }
+
+    export interface GateSurvey {
+        /**
+         * Container number, or "" for a position-level survey.
+         */
+        container: string
+
+        phase: string
+        damaged: number
+        lost: number
+        lines: GateSurveyLine[]
+        driverNote: string
+        warehouseNote: string
+        surveyedAt: string
+        surveyedBy: string
+    }
+
+    /**
+     * What the survey form sends; who and when are stamped by the server.
+     */
+    export interface GateSurveyInput {
+        container: string
+        phase: string
+        damaged: number
+        lost: number
+        lines: GateSurveyLine[]
+        driverNote: string
+        warehouseNote: string
+    }
+
+    /**
+     * One survey line: a number of packages with the same packing and condition.
+     */
+    export interface GateSurveyLine {
+        qty: number | null
+        outerPacking: string
+        visual: string[]
+        inner: string[]
+    }
+
+    export interface GateTransportLeg {
+        leg: "IN" | "OUT" | "CFS"
+        company: string
+        plate: string
+        driver: string
+        /**
+         * Driver's phone number.
+         */
+        phone: string
+
+        gateTime: string
+    }
+
+    /**
+     * Gate visit: příjem (cargo comes in) | výdej (cargo goes out).
+     */
+    export type GateVisit = "příjem" | "výdej"
 
     export interface GeneratedInvoiceItem {
         id: string
@@ -5329,6 +7748,64 @@ export namespace interfaces {
     }
 
     /**
+     * The docks and opening hours dock utilisation is measured against.
+     */
+    export interface KpiDockSettings {
+        docks: string[]
+        /**
+         * HH:MM (Prague)
+         */
+        opensAt: string
+
+        closesAt: string
+        /**
+         * ISO weekdays, 1 = Monday … 7 = Sunday.
+         */
+        workingDays: number[]
+    }
+
+    /**
+     * In and out of one day (≤ 31 days) or one ISO week.
+     */
+    export interface KpiThroughputBucket {
+        /**
+         * YYYY-MM-DD (day) or the Monday of the week.
+         */
+        key: string
+
+        /**
+         * "15.10." or "W42".
+         */
+        label: string
+
+        inPositions: number
+        inPieces: number
+        inKg: number
+        inCbm: number
+        outPositions: number
+        outPieces: number
+        outKg: number
+        outCbm: number
+    }
+
+    export interface LaneFill {
+        lane: string
+        containers: number
+        avgCbm: number
+        capacityCbm: number
+        /**
+         * Average fill, 0–100
+         */
+        fill: number
+
+        avgPieces: number
+        /**
+         * Healthy ≥ 80 · Acceptable ≥ 60 · Below target
+         */
+        verdict: string
+    }
+
+    /**
      * A container on the master BL and the house shipments it is assigned to.
      */
     export interface MasterJobContainerLine {
@@ -5456,6 +7933,24 @@ export namespace interfaces {
             currency: string
             average: number
         }[]
+    }
+
+    export interface MonthlySummary {
+        /**
+         * YYYY-MM, the current month marked by `monthToDate`.
+         */
+        month: string
+
+        monthToDate: boolean
+        receipts: number
+        cbmIn: number
+        dispatches: number
+        cbmOut: number
+        consolPositions: number
+        containersLoaded: number
+        fclStuffed: number
+        fclStripped: number
+        yardContainerDays: number
     }
 
     export interface NoteItem {
@@ -5639,6 +8134,21 @@ export namespace interfaces {
          * All file names, comma separated.
          */
         fileName: string
+    }
+
+    export interface QualityMetrics {
+        /**
+         * Damaged pieces / surveyed pieces this year, percent; null without surveys.
+         */
+        damageRate: number | null
+
+        /**
+         * Completed outbound dock slots that were not overdue, percent; null without slots.
+         */
+        onTimeDispatch: number | null
+
+        surveyedPieces: number
+        damagedPieces: number
     }
 
     /**
@@ -5923,6 +8433,12 @@ export namespace interfaces {
      * A status a sales quote can be set to.
      */
     export type SettableQuoteStatus = "draft" | "ready_to_send" | "quoted" | "feedback" | "revised" | "won" | "lost"
+
+    export interface SettingsEventItem {
+        at: string
+        by: string
+        label: string
+    }
 
     /**
      * The operations dashboard: status KPIs and upcoming shipment dates.
@@ -6216,6 +8732,150 @@ export namespace interfaces {
         nextWeek: number
     }
 
+    /**
+     * Shipment updates the gate still owes (health line).
+     */
+    export interface ShipmentUpdateHealth {
+        /**
+         * Being retried.
+         */
+        pending: number
+
+        /**
+         * Stopped: need a hand in Shipments.
+         */
+        failed: number
+
+        /**
+         * Pending updates held back behind a stopped one of the same shipment (sent in order).
+         */
+        blockedByFailed: number
+
+        /**
+         * Oldest pending update (ISO); null when none.
+         */
+        oldestPendingAt: string | null
+    }
+
+    /**
+     * Days under customs control and the EU temporary-storage deadline (display only).
+     */
+    export interface StockCustomsClock {
+        /**
+         * "" (not under customs control) | Temporary storage | Transit T1 | Customs warehouse
+         */
+        regime: string
+
+        /**
+         * none | not_started | ok | warning (≤ 10 days left) | overdue | stopped
+         */
+        state: string
+
+        /**
+         * YYYY-MM-DD (Prague)
+         */
+        startDate: string
+
+        stopDate: string
+        /**
+         * Receipt day = day 1.
+         */
+        daysUnderControl: number
+
+        /**
+         * YYYY-MM-DD: receipt day + 90 (UCC art. 149); "" for a customs warehouse.
+         */
+        deadline: string
+
+        /**
+         * Negative = overdue; null without a deadline.
+         */
+        daysLeft: number | null
+
+        note: string
+    }
+
+    /**
+     * Cargo in the warehouse now, from the one storage calculation (gate records).
+     */
+    export interface StorageSummary {
+        /**
+         * Records whose storage clock runs (received, not released / gone out).
+         */
+        inWarehouse: number
+
+        /**
+         * Within the last 2 free days.
+         */
+        expiring: number
+
+        chargeable: number
+        /**
+         * Estimated storage charge to date of the chargeable records, CZK.
+         */
+        estimatedCzk: number
+    }
+
+    export interface SupplierEmailAttachmentItem {
+        fileId: string
+        fileName: string
+        size: number
+        /**
+         * attached | linked (download link in the text) | listed (named only)
+         */
+        how: string
+    }
+
+    /**
+     * One attempt to e-mail a VGM / survey / remeasurement.
+     */
+    export interface SupplierEmailItem {
+        id: string
+        kind: string
+        to: string[]
+        cc: string[]
+        subject: string
+        attachments: SupplierEmailAttachmentItem[]
+        note: string
+        /**
+         * sending | sent | failed | unknown (a "sending" attempt that never finished)
+         */
+        status: string
+
+        error: string
+        requestedBy: string
+        createdAt: string
+        sentAt: string | null
+    }
+
+    /**
+     * What "Send" would e-mail (previewOnly), so the user sees it before sending.
+     */
+    export interface SupplierEmailPreview {
+        kind: string
+        to: string[]
+        cc: string[]
+        subject: string
+        text: string
+        attachments: SupplierEmailAttachmentItem[]
+    }
+
+    export interface SupplierEmailSettingsItem {
+        vgm: SupplierRecipientsItem
+        survey: SupplierRecipientsItem
+        remeasurement: SupplierRecipientsItem
+    }
+
+    export interface SupplierRecipientsItem {
+        /**
+         * E-mail this type when it is sent; off = "Mark as sent" records it only.
+         */
+        enabled: boolean
+
+        to: string[]
+        cc: string[]
+    }
+
     export interface SyncResult {
         skipped: boolean
         status?: "ok" | "no_new_data" | "failed"
@@ -6260,6 +8920,16 @@ export namespace interfaces {
         updatedAt: string
     }
 
+    export interface ThroughputWeek {
+        /**
+         * ISO week label, e.g. "W33"
+         */
+        week: string
+
+        receivedCbm: number
+        dispatchedCbm: number
+    }
+
     export interface TodayRate {
         currency: string
         rate: number | null
@@ -6268,23 +8938,947 @@ export namespace interfaces {
         previousFixingDate: string | null
     }
 
+    export interface TopCustomer {
+        customer: string
+        jobs: number
+        cbm: number
+        /**
+         * Chargeable weight/measure: the greater of cbm and tonnes, per position.
+         */
+        wm: number
+
+        /**
+         * Share of this month's received volume, 0–100.
+         */
+        share: number
+    }
+
     /**
      * VAT code of an invoice line: the ones a line can be set to, or NP (issuer not a VAT payer).
      */
     export type VatCode = SellingVatCode | "NP"
 
-    export interface WarehouseRef {
-        shipmentId: string
+    export interface WarehouseBondedEntryInput {
+        /**
+         * Position picker (gate record id); "" / null = not linked.
+         */
+        movementId?: string | null
+
+        mrn?: string
+        job?: string
+        consignee?: string
+        procedure?: string
+        entryDate?: string
+        pieces?: number
+        weightKg?: number
+        customsValue?: string
+        discharge?: string
+        balance?: number
+        dischargeRef?: string
+    }
+
+    export interface WarehouseBondedEntryItem {
+        id: string
+        mrn: string
+        job: string
+        consignee: string
+        procedure: string
+        /**
+         * YYYY-MM-DD
+         */
+        entryDate: string
+
+        pieces: number
+        weightKg: number
+        customsValue: string
+        discharge: string
+        balance: number
+        /**
+         * In stock | Discharged (balance 0) | Voided (receipt voided / position archived)
+         */
+        status: string
+
+        /**
+         * auto (opened at the receipt, discharged when it leaves) | manual
+         */
+        source: string
+
+        movementId: string | null
+        taskId: string | null
+        positionRef: string
+        jobNumber: string
+        positionArchived: boolean
+        /**
+         * Temporary storage | Transit T1 | Customs warehouse ("" on old manual entries).
+         */
+        regime: string
+
+        /**
+         * ISO
+         */
+        enteredAt: string | null
+
+        dischargedAt: string | null
+        dischargeRef: string
+        /**
+         * YYYY-MM-DD; "" without a 90-day limit.
+         */
+        deadline: string
+
+        voidedReason: string
+        /**
+         * An entry without an MRN (still to be recorded).
+         */
+        mrnMissing: boolean
+
+        customsClock: StockCustomsClock
+        createdAt: string
+        updatedAt: string
+    }
+
+    export interface WarehouseClaimInput {
+        job?: string
+        against?: string
+        type?: string
+        value?: string
+        raised?: string
+        status?: string
+    }
+
+    export interface WarehouseClaimItem {
+        id: string
+        ref: string
+        job: string
+        against: string
+        type: string
+        value: string
+        raised: string
+        status: string
+        createdAt: string
+        updatedAt: string
+    }
+
+    /**
+     * One position (house) in a container.
+     */
+    export interface WarehouseContainerHouse {
+        /**
+         * Id of the house (the link).
+         */
+        id: string
+
+        movementId: string
+        taskId: string | null
+        /**
+         * WCZ reference of the position.
+         */
+        positionRef: string
+
+        gateRef: string
+        customer: string
+        /**
+         * příjem | výdej
+         */
+        visit: string
+
+        operationType: string
+        pod: string
+        etd: string
+        /**
+         * Expected figures of the position (gate figures).
+         */
+        pieces: number
+
+        weightKg: number
+        cbm: number
+        sequence: number
+        addedBy: string
+        /**
+         * Lifecycle stage of the position (expected · arrived · received · in_warehouse · stuffed · ready · left) and its label.
+         */
+        stage: string
+
+        stageLabel: string
+        stuffedAt: string | null
+        stuffedBy: string
+        /**
+         * "" (not tallied) | received | short | not_arrived
+         */
+        tallyOutcome: string
+
+        tallyPieces: number | null
+        tallyCondition: string
+        tallyLocation: string
+        tallyNote: string
+        tallyReason: string
+        tickedAt: string | null
+        tickedBy: string
+        /**
+         * LCL: re-weighed before the tick (import) or the receipt (export).
+         */
+        needsReweigh: boolean
+
+        /**
+         * The re-weighing that counts; null when none.
+         */
+        reweighKg: number | null
+
+        reweighFlagged: boolean
+        /**
+         * Open damage / short / over exceptions (the cargo is on hold).
+         */
+        openExceptions: number
+
+        /**
+         * A supervisor override lets the cargo move although exceptions are open (not on hold).
+         */
+        overridden: boolean
+
+        /**
+         * The position is archived.
+         */
+        archived: boolean
+    }
+
+    export interface WarehouseContainerInput {
+        movementId?: string | null
+        number?: string
+        equipment?: string
+        seal?: string
+        pieces?: number | null
+        packages?: string
+        weightKg?: number | null
+        cbm?: number | null
+        direction?: string
+        note?: string
+        carrier?: string
+        masterJob?: string
+        dischargePort?: string
+        arrivedAt?: string
+        houses?: number | null
+        dockSlot?: string
+        scheduleStatus?: string
+        yardState?: string
+        gatedIn?: string
+        gatedOut?: string
+        detentionExpiry?: string
+        yardStatus?: string
+        tareKg?: number | null
+        cargoKg?: number | null
+        vgmMethod?: string
+        vgmDeclaredBy?: string
+        vgmDeclaredAt?: string
+        vgmStatus?: string
+        bookingNumber?: string
+        mblNumber?: string
+        vessel?: string
+        voyage?: string
+        /**
+         * After the gate-out a new plate is sent to the shipments of the positions that left in it.
+         */
+        plate?: string
+    }
+
+    export interface WarehouseContainerItem {
+        id: string
+        movementId: string | null
+        /**
+         * The position this container belongs to (from its gate movement), empty when none.
+         */
+        warehouseTaskId: string | null
+
+        positionRef: string
+        customer: string
+        handling: string
+        /**
+         * Tare + cargo, when both are known.
+         */
+        vgmKg: number | null
+
+        /**
+         * Whole days on our yard (gate-in to gate-out or today); null when not gated in.
+         */
+        daysOnYard: number | null
+
+        /**
+         * import (Unloading: stripped, houses tallied) | export (Loading: stuffed from a plan)
+         */
+        kind: string
+
+        /**
+         * Expected · Arrived · Stripping · Stripped (import) · Planning · Stuffing · Closed (export) · Gone out
+         */
+        status: string
+
+        /**
+         * Container stamps (ISO), null while not stamped.
+         */
+        gateInAt: string | null
+
+        strippingStartedAt: string | null
+        /**
+         * Import: when the last house was accounted for; null while houses are open.
+         */
+        strippingCompletedAt: string | null
+
+        closedAt: string | null
+        closedBy: string
+        gateOutAt: string | null
+        /**
+         * The houses, in their order.
+         */
+        positions: WarehouseContainerHouse[]
+
+        totals: WarehouseContainerTotals
+        /**
+         * Shipment updates from this container's stamps not delivered yet (pending or failed).
+         */
+        shipmentUpdatesWaiting: number
+
+        events: {
+            kind: string
+            label: string
+            at: string
+            by: string
+            detail?: string
+        }[]
+        createdAt: string
+        updatedAt: string
+        number: string
+        equipment: string
+        seal: string
+        pieces: number | null
+        packages: string
+        weightKg: number | null
+        cbm: number | null
+        /**
+         * Unloading | Loading
+         */
+        direction: string
+
+        note: string
+        carrier: string
+        masterJob: string
+        dischargePort: string
+        /**
+         * YYYY-MM-DDTHH:MM
+         */
+        arrivedAt: string
+
+        houses: number | null
+        dockSlot: string
+        /**
+         * Scheduled | Arrived | Devanning | Devanned | Empty returned
+         */
+        scheduleStatus: string
+
+        yardState: string
+        /**
+         * YYYY-MM-DD
+         */
+        gatedIn: string
+
+        gatedOut: string
+        detentionExpiry: string
+        yardStatus: string
+        tareKg: number | null
+        cargoKg: number | null
+        vgmMethod: string
+        vgmDeclaredBy: string
+        /**
+         * YYYY-MM-DDTHH:MM
+         */
+        vgmDeclaredAt: string
+
+        /**
+         * "" | Draft | Submitted
+         */
+        vgmStatus: string
+
+        bookingNumber: string
+        mblNumber: string
+        vessel: string
+        voyage: string
+        /**
+         * The truck that takes the container away; sent to the shipments of its stuffed positions.
+         */
+        plate: string
+    }
+
+    /**
+     * Pieces / kg / cbm of the houses against the capacity of the equipment type.
+     */
+    export interface WarehouseContainerTotals {
+        pieces: number
+        kg: number
+        cbm: number
+        capacityCbm: number | null
+        capacityKg: number | null
+        fillCbmPct: number | null
+        fillKgPct: number | null
+        /**
+         * Over capacity by volume or weight (a warning; the plan may still be saved).
+         */
+        overCapacity: boolean
+    }
+
+    /**
+     * A new slot needs `movementId` (the position), date, time and dock; reference, party and vehicle
+     * default to the position's WCZ reference, customer and plate. The same dock door cannot be
+     * booked twice for overlapping times (409 with the clashing slot named).
+     */
+    export interface WarehouseDockSlotInput {
+        movementId?: string | null
+        date?: string
+        time?: string
+        /**
+         * 15–480 minutes in steps of 15; default 60.
+         */
+        durationMin?: number
+
+        dock?: string
+        direction?: string
+        reference?: string
+        party?: string
+        vehicle?: string
+        status?: string
+        note?: string
+    }
+
+    export interface WarehouseDockSlotItem {
+        id: string
+        /**
+         * Gate movement (position) the slot is for; null only on slots booked before the link existed.
+         */
+        movementId: string | null
+
+        /**
+         * Position of the movement: its WCZ reference, customer and gate visit (příjem / výdej).
+         */
+        warehouseTaskId: string | null
+
+        positionRef: string
+        customer: string
+        visit: string
+        /**
+         * YYYY-MM-DD (Prague)
+         */
+        date: string
+
+        /**
+         * HH:MM (Prague)
+         */
+        time: string
+
+        /**
+         * Minutes the dock door is booked for (15–480, in steps of 15).
+         */
+        durationMin: number
+
+        /**
+         * HH:MM (Prague) the slot ends; "" when unknown.
+         */
+        end: string
+
+        /**
+         * ISO; null on old slots whose date / time could not be read.
+         */
+        startsAt: string | null
+
+        endsAt: string | null
+        dock: string
+        /**
+         * IN | OUT — follows the position (příjem = IN, výdej = OUT).
+         */
+        direction: string
+
         reference: string
+        party: string
+        vehicle: string
+        /**
+         * Booked | In progress | Completed | Overdue | Cancelled
+         */
+        status: string
+
+        note: string
+        createdAt: string
+        updatedAt: string
+    }
+
+    export interface WarehouseEquipmentInput {
+        code?: string
+        kind?: string
+        status?: string
+        operator?: string
+        note?: string
+    }
+
+    export interface WarehouseEquipmentItem {
+        id: string
+        code: string
+        kind: string
+        status: string
+        operator: string
+        note: string
+        createdAt: string
+        updatedAt: string
+    }
+
+    /**
+     * Result of importing one shipment into the warehouse.
+     */
+    export interface WarehouseImportResult {
+        shipmentId: string
+        /**
+         * Job number of the shipment; empty when it could not be read.
+         */
+        jobNumber: string
+
+        /**
+         * created = new position; already = it was in the warehouse; failed = see reason (no reference used).
+         */
+        outcome: "created" | "already" | "failed"
+
+        /**
+         * Warehouse task id and its WCZ reference (created / already).
+         */
+        taskId: string | null
+
+        ref: string
+        /**
+         * Gate record of the position, when it has one.
+         */
+        movementId: string | null
+
+        reason: string
+    }
+
+    export interface WarehouseKpi {
+        /**
+         * dwell · gateToReceipt · receiptToRelease · throughput · dockUtilisation · onTime · reweighVariance · exceptionRate · outboxHealth
+         */
+        key: string
+
+        label: string
+        /**
+         * null when it cannot be measured in this period (see `notMeasured`).
+         */
+        value: number | null
+
+        /**
+         * days · hours · % · positions · per 100 positions · updates
+         */
+        unit: string
+
+        /**
+         * How many records the value is built from.
+         */
+        n: number
+
+        /**
+         * "How it is measured": start → stop, the population and the rule.
+         */
+        measured: string
+
+        /**
+         * Why the value is null (or what is left out); "" when nothing is missing.
+         */
+        notMeasured: string
+
+        breakdown: WarehouseKpiPart[]
+    }
+
+    /**
+     * One extra figure of a KPI (per direction, per dock, per type, P90 …).
+     */
+    export interface WarehouseKpiPart {
+        label: string
+        /**
+         * null = not measured (no data).
+         */
+        value: number | null
+
+        unit: string
+        /**
+         * How many records the figure is built from.
+         */
+        n: number
+    }
+
+    export interface WarehouseKpiReport {
+        period: {
+            /**
+             * YYYY-MM-DD (Prague), both days included.
+             */
+            from: string
+
+            to: string
+            days: number
+            /**
+             * Throughput buckets: day (≤ 31 days) or ISO week.
+             */
+            bucket: string
+        }
+        /**
+         * ISO
+         */
+        generatedAt: string
+
+        kpis: WarehouseKpi[]
+        throughput: KpiThroughputBucket[]
+        /**
+         * Customers by volume received in the period.
+         */
+        topCustomers: TopCustomer[]
+
+        /**
+         * This month and the three before it (not filtered by the period).
+         */
+        monthly: MonthlySummary[]
+
+        /**
+         * Export containers that went out in the period, by discharge port.
+         */
+        lanes: LaneFill[]
+
+        /**
+         * Cargo in the warehouse now.
+         */
+        storage: StorageSummary
+
+        /**
+         * Shipment updates the gate still owes, now.
+         */
+        shipmentUpdates: ShipmentUpdateHealth
+
+        docks: KpiDockSettings
+    }
+
+    export interface WarehouseReportSummary {
+        throughput: ThroughputWeek[]
+        topCustomers: TopCustomer[]
+        monthly: MonthlySummary[]
+        lanes: LaneFill[]
+        quality: QualityMetrics
+        storage: StorageSummary
+        shipmentUpdates: ShipmentUpdateHealth
+    }
+
+    export interface WarehouseSavedReportInput {
+        name?: string
+        owner?: string
+        frequency?: string
+        format?: string
+        distribution?: string
+    }
+
+    export interface WarehouseSavedReportItem {
+        id: string
+        name: string
+        owner: string
+        frequency: string
+        format: string
+        distribution: string
+        createdAt: string
+        updatedAt: string
     }
 
     export interface WarehouseSectionItem {
         id: string
-        shipmentId: string
+        /**
+         * The warehouse position the section belongs to; null for the pick-up section and for shipments with no position.
+         */
+        taskId: string | null
+
+        /**
+         * The shipment of the section (for information); null for a stand-alone position.
+         */
+        shipmentId: string | null
+
         section: string
         data: any
+        /**
+         * Bumped by every save of the section.
+         */
+        version: number
+
         createdAt: string
         updatedAt: string
+    }
+
+    /**
+     * Per position: what the remeasurement worklist needs from its Shipment Details.
+     */
+    export interface WarehouseSectionSummaryItem {
+        taskId: string
+        /**
+         * Remeasured lines are saved.
+         */
+        hasLines: boolean
+
+        lineCount: number
+        /**
+         * When the remeasured lines were last saved (ISO); null when unknown.
+         */
+        linesSavedAt: string | null
+
+        /**
+         * Last "Remeasurement marked as sent" (ISO); null when never.
+         */
+        remeasurementSentAt: string | null
+
+        /**
+         * Last "Operations informed" (ISO); null when never.
+         */
+        operationsInformedAt: string | null
+
+        hasNotes: boolean
+        version: number
+        updatedAt: string
+    }
+
+    export interface WarehouseSettingsItem {
+        supplierEmail: SupplierEmailSettingsItem
+        docks: DockSettingsItem
+        /**
+         * 0 = nothing saved yet (the defaults are shown). Send it back as expectedVersion.
+         */
+        version: number
+
+        updatedAt: string | null
+        updatedBy: string
+        /**
+         * Change log, newest first (the latest 50).
+         */
+        events: SettingsEventItem[]
+
+        /**
+         * The caller may change the settings (manager, admin).
+         */
+        canEdit: boolean
+
+        /**
+         * The server has a Resend key — without it nothing can be e-mailed.
+         */
+        emailConfigured: boolean
+    }
+
+    export interface WarehouseStaffInput {
+        name?: string
+        role?: string
+        shift?: string
+        area?: string
+        status?: string
+    }
+
+    export interface WarehouseStaffItem {
+        id: string
+        name: string
+        role: string
+        shift: string
+        area: string
+        status: string
+        createdAt: string
+        updatedAt: string
+    }
+
+    export interface WarehouseStockLineInput {
+        /**
+         * Position picker (gate record id); "" / null = not linked (then `job` is typed).
+         */
+        movementId?: string | null
+
+        job?: string
+        customer?: string
+        shipper?: string
+        pod?: string
+        pieces?: number
+        packageType?: string
+        weightKg?: number
+        cbm?: number
+        location?: string
+        receivedAt?: string
+        freeDays?: number
+        customs?: string
+        status?: string
+        consol?: string
+        marks?: string
+    }
+
+    export interface WarehouseStockLineItem {
+        id: string
+        job: string
+        customer: string
+        shipper: string
+        pod: string
+        pieces: number
+        packageType: string
+        weightKg: number
+        cbm: number
+        /**
+         * Chargeable weight/measure: the larger of cbm and tonnes.
+         */
+        wm: number
+
+        location: string
+        /**
+         * YYYY-MM-DD
+         */
+        receivedAt: string
+
+        freeDays: number
+        /**
+         * Free circulation | T1 bonded | Temporary storage | Customs warehouse | Export cleared
+         */
+        customs: string
+
+        /**
+         * Available | Allocated | On hold | Picked (left) | Voided (receipt voided / position archived)
+         */
+        status: string
+
+        consol: string
+        marks: string
+        /**
+         * auto (follows the gate record) | manual (typed by hand)
+         */
+        source: string
+
+        /**
+         * The gate record (position) it belongs to; null = not linked.
+         */
+        movementId: string | null
+
+        taskId: string | null
+        /**
+         * WCZ ref of the linked position ("" when not linked).
+         */
+        positionRef: string
+
+        /**
+         * Job no. of the linked position.
+         */
+        jobNumber: string
+
+        /**
+         * The linked position is archived.
+         */
+        positionArchived: boolean
+
+        /**
+         * Not on hand any more (Picked / Voided).
+         */
+        closed: boolean
+
+        /**
+         * ISO; when it left or was voided.
+         */
+        closedAt: string | null
+
+        closedReason: string
+        /**
+         * ISO receipt stamp (auto lines).
+         */
+        receivedInstant: string | null
+
+        customsRegime: string
+        customsClock: StockCustomsClock
+        /**
+         * Calendar days in the warehouse (Prague dates); the receipt day is day 1.
+         */
+        daysInStock: number
+
+        /**
+         * Days past free time (negative = days left).
+         */
+        overFreeTime: number
+
+        /**
+         * Within free time | Expiring (2 free days left or fewer) | Chargeable
+         */
+        freeTimeState: string
+
+        /**
+         * YYYY-MM-DD
+         */
+        lastFreeDay: string
+
+        chargeableDays: number
+        /**
+         * Storage accrued to date in CZK (w/m × 22 per day, at least 120 per day).
+         */
+        accruedCzk: number
+
+        createdAt: string
+        updatedAt: string
+    }
+
+    export interface WarehouseStockMovementInput {
+        /**
+         * YYYY-MM-DDTHH:MM; defaults to now.
+         */
+        at?: string
+
+        type: string
+        job?: string
+        pieces?: number
+        fromLocation?: string
+        toLocation?: string
+        reference?: string
+    }
+
+    export interface WarehouseStockMovementItem {
+        id: string
+        /**
+         * YYYY-MM-DDTHH:MM
+         */
+        at: string
+
+        /**
+         * Receipt | Put-away | Transfer | Pick | Load | Adjustment | Rework
+         */
+        type: string
+
+        job: string
+        pieces: number
+        fromLocation: string
+        toLocation: string
+        userName: string
+        reference: string
+        /**
+         * auto (written by the gate) | manual
+         */
+        source: string
+
+        movementId: string | null
+        createdAt: string
+    }
+
+    export interface WarehouseStockSyncRequest {
+        /**
+         * Only count what would change.
+         */
+        dryRun?: boolean
+    }
+
+    export interface WarehouseStockSyncResult {
+        dryRun: boolean
+        /**
+         * Live gate records looked at.
+         */
+        positions: number
+
+        linesCreated: number
+        linesClosed: number
+        linesVoided: number
+        linesReopened: number
+        bondedOpened: number
+        bondedDischarged: number
+        bondedVoided: number
+        /**
+         * WCZ refs that already have a manual line linked (no automatic line made — check them).
+         */
+        manualLineExists: string[]
     }
 
     export interface WarehouseTaskItem {
@@ -6304,6 +9898,50 @@ export namespace interfaces {
         weight: string
         notes: string
         data: any
+        createdAt: string
+        updatedAt: string
+    }
+
+    export interface WarehouseZoneInput {
+        code?: string
+        name?: string
+        bays?: number
+        capacity?: number
+        blockedBays?: string
+        note?: string
+    }
+
+    export interface WarehouseZoneItem {
+        id: string
+        code: string
+        name: string
+        bays: number
+        /**
+         * Pallet positions; 0 = floor storage counted by bays.
+         */
+        capacity: number
+
+        /**
+         * Comma list of blocked bay codes, e.g. "C-05".
+         */
+        blockedBays: string
+
+        note: string
+        /**
+         * Bays holding at least one stock line.
+         */
+        usedBays: number
+
+        /**
+         * Pieces stored in the zone.
+         */
+        occupied: number
+
+        /**
+         * How full the zone is, in %.
+         */
+        fullPercent: number
+
         createdAt: string
         updatedAt: string
     }
@@ -6440,6 +10078,21 @@ export namespace services {
      * A UN/LOCODE place as shipments and quotes use it, written "Name (CODE)".
      */
     export type PlaceInfo = geo.Place
+
+    export interface SectionKeyChange {
+        key: string
+        /**
+         * New text value; "" clears the field.
+         */
+        value: string
+
+        /**
+         * The value the client last saw ("" = not set). The save is refused if it changed since.
+         */
+        expected: string
+    }
+
+    export type StampKind = "gateIn" | "gateOut" | "impRelease" | "expDraft" | "expReceipt"
 }
 
 export namespace utils {

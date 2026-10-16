@@ -44,7 +44,7 @@ import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
 import { CargoDetailsTab } from "./tabs/CargoDetailsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
-import { WarehouseTab } from "./tabs/WarehouseTab";
+import { ShipmentWarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsTab } from "./tabs/CustomsTab";
 import { EditableCell, TradeDirectionContext } from "./_components/EditableCell";
 import { FadeText } from "@/components/FadeText";
@@ -1565,7 +1565,7 @@ export function ShipmentDetailContent() {
 
         {activeTab === "documents" && <DocumentsTab shipment={shipment} />}
 
-        {activeTab === "warehouse" && <WarehouseTab shipment={shipment} />}
+        {activeTab === "warehouse" && <ShipmentWarehouseTab shipment={shipment} />}
 
         {activeTab === "tracking" && <TrackingTab shipment={shipment} />}
 

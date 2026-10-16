@@ -1,25 +1,30 @@
-import { eq, desc, isNull, and, like, sql } from "drizzle-orm";
-import { TenantRepository, type AnyDb } from "../../../lib/db/repository";
+import { eq, ne, desc, isNull, and, sql } from "drizzle-orm";
+import { APIError } from "encore.dev/api";
 import { db } from "../db/db";
-import { warehouseTaskTable, type WarehouseTaskRecord } from "../schemas/warehouseTask.schema";
+import { warehouseTaskTable, type NewWarehouseTaskRecord, type WarehouseTaskRecord } from "../schemas/warehouseTask.schema";
+import { warehouseRefCounterTable } from "../schemas/warehouseRefCounter.schema";
+import { formatWarehouseRef, MAX_REF_NUMBER, warehouseRefYear } from "../services/warehouseRef";
+import type { Tx } from "./warehouseSection.repository";
 
-type Tx = Parameters<Parameters<AnyDb["transaction"]>[0]>[0];
+/** Type of the old truck-reference rows (TCZ…); no longer created, kept out of the positions list. */
+export const TRUCK_TYPE = "Truck";
 
-class WarehouseTaskRepository extends TenantRepository<typeof warehouseTaskTable> {
-  constructor() {
-    super(db, warehouseTaskTable, "warehouse_task");
-  }
-
+class WarehouseTaskRepository {
   async listAll(companyId: string): Promise<WarehouseTaskRecord[]> {
-    return this.db
+    return db
       .select()
       .from(warehouseTaskTable)
-      .where(and(eq(warehouseTaskTable.companyId, companyId), isNull(warehouseTaskTable.deletedAt)))
+      .where(and(
+        eq(warehouseTaskTable.companyId, companyId),
+        isNull(warehouseTaskTable.deletedAt),
+        // Truck references (TCZ…) live in the same table but are not warehouse positions.
+        ne(warehouseTaskTable.type, TRUCK_TYPE),
+      ))
       .orderBy(desc(warehouseTaskTable.createdAt));
   }
 
   async listByShipmentId(shipmentId: string, companyId: string): Promise<WarehouseTaskRecord[]> {
-    return this.db
+    return db
       .select()
       .from(warehouseTaskTable)
       .where(and(
@@ -29,74 +34,108 @@ class WarehouseTaskRepository extends TenantRepository<typeof warehouseTaskTable
       ));
   }
 
-  /**
-   * The warehouse reference of a shipment, creating it on first use: WHCZ + year + a
-   * per-company sequence of that year (WHCZ2026001). An advisory lock keeps two parallel
-   * calls from handing out the same number; deleted rows still hold their number, so one
-   * is never reused.
-   */
-  async findForShipment(companyId: string, shipmentId: string): Promise<WarehouseTaskRecord | null> {
-    const [row] = await this.db
+  // Hands out the next reference of the company for `year` (WCZ + year + six digits). The
+  // counter row is bumped in one statement and stays locked until the transaction ends, so two
+  // positions never get the same number and a rolled-back create gives its number back.
+  // A number that spells a reference already used (old day-based references, live or deleted)
+  // is skipped, so a reference is never reused.
+  async allocateRef(tx: Tx, companyId: string, year: number): Promise<string> {
+    for (;;) {
+      const res = await tx.execute<{ last: number }>(sql`
+        INSERT INTO ${warehouseRefCounterTable} (company_id, year, last) VALUES (${companyId}, ${year}, 1)
+        ON CONFLICT (company_id, year) DO UPDATE SET last = ${warehouseRefCounterTable}.last + 1, updated_at = now()
+        RETURNING last`);
+      const n = Number(res.rows[0]!.last);
+      if (n > MAX_REF_NUMBER) throw APIError.resourceExhausted(`Warehouse reference numbers for ${year} are used up`);
+      const ref = formatWarehouseRef(year, n);
+      const [taken] = await tx
+        .select({ id: warehouseTaskTable.id })
+        .from(warehouseTaskTable)
+        .where(and(eq(warehouseTaskTable.companyId, companyId), eq(warehouseTaskTable.taskId, ref)))
+        .limit(1);
+      if (!taken) return ref;
+    }
+  }
+
+  // Creates a warehouse position under the next reference, inside the caller's transaction.
+  // The per-company advisory lock stops two adds of the same shipment both creating one.
+  // With a shipment, returns its existing live task instead if it is already in the warehouse;
+  // without one (null) the position stands on its own — no shipment job behind it.
+  async createInTx(tx: Tx, companyId: string, shipmentId: string | null, now = new Date()): Promise<{ task: WarehouseTaskRecord; created: boolean }> {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`warehouse_ref:${companyId}`}))`);
+    if (shipmentId) {
+      const [existing] = await tx
+        .select()
+        .from(warehouseTaskTable)
+        .where(and(
+          eq(warehouseTaskTable.companyId, companyId),
+          eq(warehouseTaskTable.shipmentId, shipmentId),
+          isNull(warehouseTaskTable.deletedAt),
+        ));
+      if (existing) return { task: existing, created: false };
+    }
+    const taskId = await this.allocateRef(tx, companyId, warehouseRefYear(now));
+    const [row] = await tx.insert(warehouseTaskTable).values({ companyId, taskId, shipmentId }).returning();
+    return { task: row!, created: true };
+  }
+
+  // createInTx in a transaction of its own (a position without its gate row — tests and repairs).
+  async createForShipment(companyId: string, shipmentId: string | null, now = new Date()): Promise<{ task: WarehouseTaskRecord; created: boolean }> {
+    return db.transaction((tx) => this.createInTx(tx, companyId, shipmentId, now));
+  }
+
+  async findAny(id: string, companyId: string, tx: Tx | typeof db = db): Promise<WarehouseTaskRecord | null> {
+    const [row] = await tx
       .select()
       .from(warehouseTaskTable)
-      .where(and(eq(warehouseTaskTable.companyId, companyId), eq(warehouseTaskTable.shipmentId, shipmentId), isNull(warehouseTaskTable.deletedAt)))
-      .limit(1);
+      .where(and(eq(warehouseTaskTable.id, id), eq(warehouseTaskTable.companyId, companyId)));
     return row ?? null;
   }
 
-  async ensureForShipment(companyId: string, shipmentId: string, prefix: string): Promise<WarehouseTaskRecord> {
-    const existing = await this.db
+  // Live task of a shipment, if any.
+  async findLiveForShipment(companyId: string, shipmentId: string, tx: Tx | typeof db = db): Promise<WarehouseTaskRecord | null> {
+    const [row] = await tx
       .select()
       .from(warehouseTaskTable)
-      .where(and(eq(warehouseTaskTable.companyId, companyId), eq(warehouseTaskTable.shipmentId, shipmentId), isNull(warehouseTaskTable.deletedAt)))
-      .limit(1);
-    if (existing[0]) return existing[0];
-
-    return this.db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`warehouse-ref:${companyId}`}))`);
-
-      const again = await tx
-        .select()
-        .from(warehouseTaskTable)
-        .where(and(eq(warehouseTaskTable.companyId, companyId), eq(warehouseTaskTable.shipmentId, shipmentId), isNull(warehouseTaskTable.deletedAt)))
-        .limit(1);
-      if (again[0]) return again[0];
-
-      const taskId = await this.nextRef(tx, companyId, prefix);
-      const [row] = await tx.insert(warehouseTaskTable).values({ companyId, shipmentId, taskId }).returning();
-      return row!;
-    });
+      .where(and(eq(warehouseTaskTable.companyId, companyId), eq(warehouseTaskTable.shipmentId, shipmentId), isNull(warehouseTaskTable.deletedAt)));
+    return row ?? null;
   }
 
-  /**
-   * A new truck leaving the warehouse: a row of its own holding the next reference of the
-   * `prefix` sequence (TCZ2026001), numbered the same way as the shipments' references.
-   */
-  async createTruck(companyId: string, prefix: string): Promise<WarehouseTaskRecord> {
-    return this.db.transaction(async (tx) => {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`warehouse-ref:${companyId}`}))`);
-      const taskId = await this.nextRef(tx, companyId, prefix);
-      const [row] = await tx.insert(warehouseTaskTable).values({ companyId, taskId, type: "Truck" }).returning();
-      return row!;
-    });
-  }
-
-  /** The next free reference of a prefix; call it holding the company's reference lock. */
-  private async nextRef(tx: Tx, companyId: string, prefix: string): Promise<string> {
-    const used = await tx
-      .select({ taskId: warehouseTaskTable.taskId })
+  // Live task holding a reference, if any.
+  async findLiveByRef(companyId: string, taskId: string, tx: Tx | typeof db = db): Promise<WarehouseTaskRecord | null> {
+    const [row] = await tx
+      .select()
       .from(warehouseTaskTable)
-      .where(and(eq(warehouseTaskTable.companyId, companyId), like(warehouseTaskTable.taskId, `${prefix}%`)));
-    const highest = used.reduce((max, r) => Math.max(max, parseInt(r.taskId.slice(prefix.length), 10) || 0), 0);
-    return `${prefix}${String(highest + 1).padStart(3, "0")}`;
+      .where(and(eq(warehouseTaskTable.companyId, companyId), eq(warehouseTaskTable.taskId, taskId), isNull(warehouseTaskTable.deletedAt)));
+    return row ?? null;
   }
 
-  // A deleted shipment's warehouse rows go with it; their references stay taken (nextRef counts them).
-  async softDeleteForShipment(shipmentId: string, companyId: string): Promise<void> {
-    await this.db
+  // Brings a removed task back (restore of its archived gate record).
+  async undelete(tx: Tx, id: string, companyId: string): Promise<WarehouseTaskRecord | null> {
+    const [row] = await tx
+      .update(warehouseTaskTable)
+      .set({ deletedAt: null, updatedAt: new Date() })
+      .where(and(eq(warehouseTaskTable.id, id), eq(warehouseTaskTable.companyId, companyId)))
+      .returning();
+    return row ?? null;
+  }
+
+  async update(id: string, companyId: string, data: Partial<NewWarehouseTaskRecord>): Promise<WarehouseTaskRecord | null> {
+    const [row] = await db
+      .update(warehouseTaskTable)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(warehouseTaskTable.id, id), eq(warehouseTaskTable.companyId, companyId), isNull(warehouseTaskTable.deletedAt)))
+      .returning();
+    return row ?? null;
+  }
+
+  async softDelete(id: string, companyId: string, tx: Tx | typeof db = db): Promise<WarehouseTaskRecord | null> {
+    const [row] = await tx
       .update(warehouseTaskTable)
       .set({ deletedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(warehouseTaskTable.companyId, companyId), eq(warehouseTaskTable.shipmentId, shipmentId), isNull(warehouseTaskTable.deletedAt)));
+      .where(and(eq(warehouseTaskTable.id, id), eq(warehouseTaskTable.companyId, companyId), isNull(warehouseTaskTable.deletedAt)))
+      .returning();
+    return row ?? null;
   }
 }
 

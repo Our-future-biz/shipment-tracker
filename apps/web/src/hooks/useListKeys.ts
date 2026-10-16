@@ -7,7 +7,7 @@ import { useRef } from "react";
  * plain JSON). Rows added at the end get a new key; call `remove(i)` when row i is deleted so
  * the rows after it keep theirs — inputs and dropdowns then stay with their own row.
  */
-export function useListKeys(length: number): { keys: string[]; remove: (index: number) => void } {
+export function useListKeys(length: number): { keys: string[]; remove: (index: number) => void; insert: (index: number) => void } {
   const keys = useRef<string[]>([]);
   const next = useRef(0);
   while (keys.current.length < length) keys.current.push(`row-${next.current++}`);
@@ -16,6 +16,10 @@ export function useListKeys(length: number): { keys: string[]; remove: (index: n
     keys: keys.current,
     remove: (index) => {
       keys.current.splice(index, 1);
+    },
+    /** A row added at `index` (not at the end): it gets a new key, the rows after it keep theirs. */
+    insert: (index) => {
+      keys.current.splice(index, 0, `row-${next.current++}`);
     },
   };
 }

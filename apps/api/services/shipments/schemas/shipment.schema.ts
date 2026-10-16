@@ -102,15 +102,14 @@ export const shipmentTable = pgTable(
     vgmClosing: date("vgm_closing", { mode: "string" }),
     siClosing: date("si_closing", { mode: "string" }),
     etaWarehouse: date("eta_warehouse", { mode: "string" }),
-    // Set when the shipment is taken into the warehouse (Naskladnit) and when it leaves
-    // it again (Vyskladnit); null until then. They move it In Warehouse → Stock → Out Warehouse.
+    // Set by the warehouse Gate Log: gate-in sets the received date, the cargo leaving the
+    // warehouse sets the released date; null until then.
     warehouseReceivedDate: date("warehouse_received_date", { mode: "string" }),
     warehouseReleasedDate: date("warehouse_released_date", { mode: "string" }),
-    // The warehouse's own reference (WHCZ2026001), handed out by the warehouse service the
-    // first time the shipment is taken in; it stays with the shipment from then on.
+    // The warehouse position reference (WCZ…), written by the Gate Log at gate-in.
     warehouseReference: text("warehouse_reference").notNull().default(""),
-    // The truck the shipment left the warehouse on, by the truck's reference (TCZ2026001,
-    // handed out by the warehouse service); "" while in stock.
+    // The truck the shipment left the warehouse on, by the truck's reference (TCZ2026001);
+    // no longer handed out (release-to-truck was dropped), kept for existing rows.
     warehouseTruck: text("warehouse_truck").notNull().default(""),
     // Licence plate of the truck carrying the shipment. On a truck (warehouseTruck) it is
     // the truck's plate, kept the same on all its shipments by the update logic.

@@ -7,6 +7,14 @@ export interface ColumnTemplateItem {
 }
 
 /** Who receives system alerts (e.g. missing ČNB rates). */
+/** A live user as other services see it: the name for their logs and the current role. */
+export interface UserRef {
+  id: string;
+  /** Display name, or the e-mail when there is none. */
+  name: string;
+  role: string;
+}
+
 export interface AdminContact {
   email: string;
   displayName: string;

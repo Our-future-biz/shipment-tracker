@@ -5,7 +5,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { isCompanyRole, isAdminLevel } from "../../../lib/rbac";
 import { userRepository, type UserPatch } from "../repositories/user.repository";
 import { companyRepository } from "../repositories/company.repository";
-import type { AdminContact } from "../interfaces/interfaces";
+import type { AdminContact, UserRef } from "../interfaces/interfaces";
 import { departmentRepository, branchRepository } from "../repositories/orgUnit.repository";
 
 // The signing key comes from the Encore secret store (set via `encore secret set JWT_SECRET`).
@@ -246,6 +246,12 @@ class AuthService {
    */
   async adminContacts(): Promise<AdminContact[]> {
     return userRepository.listAdmins();
+  }
+
+  /** Live users of the company among `ids` (deactivated or unknown ids are left out). */
+  async userRefs(companyId: string, ids: string[]): Promise<UserRef[]> {
+    const rows = await userRepository.listByIdsInCompany([...new Set(ids)], companyId);
+    return rows.map((u) => ({ id: u.id, name: u.displayName || u.email || "", role: u.role }));
   }
 }
 

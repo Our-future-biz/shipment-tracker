@@ -9,3 +9,6 @@ const sqlState = (err: unknown): string | undefined => {
 
 /** A unique constraint or unique index refused the write. */
 export const isUniqueViolation = (err: unknown): boolean => sqlState(err) === "23505";
+
+/** An EXCLUDE constraint refused the write (e.g. two bookings of one dock at once). */
+export const isExclusionViolation = (err: unknown): boolean => sqlState(err) === "23P01";

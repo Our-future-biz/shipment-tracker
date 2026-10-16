@@ -55,16 +55,8 @@ const NAV_ITEMS: NavItem[] = [
   { path: "/invoicing", label: "Invoicing", icon: <DollarOutlined /> },
   { path: "/exchange", label: "Exchange", icon: <SwapOutlined /> },
   { path: "/customs", label: "Customs", icon: <SafetyCertificateOutlined /> },
-  {
-    path: "/warehouse",
-    label: "Warehouse",
-    icon: <InboxOutlined />,
-    children: [
-      { path: "/warehouse/in", label: "In Warehouse" },
-      { path: "/warehouse/stock", label: "Stock" },
-      { path: "/warehouse/out", label: "Out Warehouse" },
-    ],
-  },
+  // Gate Log is a tab of the Warehouse page.
+  { path: "/warehouse", label: "Warehouse", icon: <InboxOutlined /> },
   { path: "/master-jobs", label: "Master Jobs", icon: <ClusterOutlined /> },
   { path: "/cockpit", label: "Cockpit", icon: <ControlOutlined /> },
   {

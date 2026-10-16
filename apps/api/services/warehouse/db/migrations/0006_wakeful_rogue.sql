@@ -1,0 +1,1 @@
+ALTER TABLE "warehouse_gate_movement" ADD COLUMN "un_number" text DEFAULT '' NOT NULL;
