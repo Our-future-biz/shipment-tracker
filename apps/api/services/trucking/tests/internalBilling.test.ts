@@ -15,6 +15,7 @@ vi.mock("~encore/clients", () => ({
   sales: { prefGet: vi.fn(async () => Promise.reject(new Error("no prefs"))) },
 }));
 vi.mock("../db/db", async () => (await import("./truckingFakes")).dbModule);
+vi.mock("../../../lib/outbox/serviceIdentity", async () => (await import("./truckingFakes")).serviceIdentityModule);
 vi.mock("../repositories/consignment.repository", async (orig) => ({
   ...(await orig<object>()),
   consignmentRepository: (await import("./truckingFakes")).consignmentRepository,
@@ -48,7 +49,7 @@ import { consignmentRepository } from "../repositories/consignment.repository";
 import { departmentPlan } from "../lib/internalRules";
 import type { PricedSide, RateLevelResult, RateResponse } from "../interfaces/interfaces";
 import type { TruckingConsignmentRecord } from "../schemas/truckingConsignment.schema";
-import { COMPANY, CUSTOMER, HAULIER, SHIPMENT, load, manager, outboxOf, resetStore, stop, store, tripRepository, legRepository, user, TX } from "./truckingFakes";
+import { COMPANY, CUSTOMER, HAULIER, SERVICE_USER, SHIPMENT, load, manager, outboxOf, resetStore, stop, store, tripRepository, legRepository, user, TX } from "./truckingFakes";
 
 const OCEAN_JOB = "00000000-0000-0000-0000-0000000000d2";
 
@@ -248,6 +249,8 @@ describe("the job's department: followed before the POD, frozen after it (C7, de
       { sourceRef: `trucking:consignment:${d.id}`, buying: [], selling: [], differenceLabel: `${d.ref} · Price change after invoice` },
       { sourceRef: `trucking:internal:${d.id}`, buying: [], selling: [] },
     ]);
+    // The cause is Shipments, not the reader: the rows go as the service identity (decision 14).
+    expect(new Set(store.outbox.map((r) => r.actingUserId))).toEqual(new Set([SERVICE_USER]));
     expect(store.events.at(-1)).toMatchObject({ kind: "department_changed" });
     // Read again: nothing more to do.
     store.outbox = [];

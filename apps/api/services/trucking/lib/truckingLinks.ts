@@ -49,11 +49,16 @@ export function storableLine(l: { qty: number; unit: string; unitPrice: number; 
   return exact ? { qty: l.qty, unit: l.unit, unitPrice: l.unitPrice } : { qty: 1, unit: "", unitPrice: l.amount };
 }
 
+/** The description of a price line's row in Costs ("LCZ… · Fuel surcharge 12 %"); a real cost finds its row by it. */
+export const priceLineDescription = (ref: string, label: string) => `${ref} · ${label}`;
+/** What a partner delivery's rows are named after: "TCZ… partner delivery". */
+export const partnerLegRef = (consignmentRef: string) => `${consignmentRef} partner delivery`;
+
 // Every price line is road freight; the line's label ("Fuel surcharge 12 %") tells them apart.
 const lines = (ref: string, price: PriceSnapshot, vendor: { name: string; id: string } | null): CostLinePush[] =>
   price.lines.map((l) => ({
     chargeCode: "road_freight",
-    description: `${ref} · ${l.label}`,
+    description: priceLineDescription(ref, l.label),
     ...storableLine(l),
     amount: l.amount,
     currency: price.currency,
@@ -127,7 +132,7 @@ export function tripJobCosts(
 
 /** A partner's delivery of a consignment (buying side); none when it has no price. */
 export function partnerLegCosts(leg: { id: string; buy: PriceSnapshot | null }, consignmentRef: string, partner: { id: string; name: string }): CostsPayload {
-  return { sourceRef: legSourceRef(leg.id), buying: leg.buy ? lines(`${consignmentRef} partner delivery`, leg.buy, partner) : [], selling: [] };
+  return { sourceRef: legSourceRef(leg.id), buying: leg.buy ? lines(partnerLegRef(consignmentRef), leg.buy, partner) : [], selling: [] };
 }
 
 // ---- Phase 6: internal billing and delivery exceptions -------------------------------------------

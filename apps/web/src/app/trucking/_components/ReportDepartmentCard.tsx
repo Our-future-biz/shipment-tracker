@@ -9,7 +9,7 @@ interface ReportDepartmentCardProps {
 }
 
 // The Trucking department's result for the period as a small statement:
-// external sell + internal charges − haulier cost = result, with the internal charges per department.
+// external sell + charged exceptions + internal charges − haulier cost = result, with the internal charges per department.
 export const ReportDepartmentCard = ({ department }: ReportDepartmentCardProps) => {
   const byDepartment = sortDepartments(department.internalByDepartment);
   return (
@@ -54,7 +54,7 @@ export const ReportDepartmentCard = ({ department }: ReportDepartmentCardProps) 
         )}
       </div>
       <p className="m-0 md:col-span-2 text-[11px] text-slate-500">
-        External sell: Road consignments delivered in the period. Internal charges: charges whose consignment was delivered in the period (adjustments by the day
+        External sell: Road consignments delivered in the period. Charged exceptions: delivery exceptions charged to Road customers. Internal charges: charges whose consignment was delivered in the period (adjustments by the day
         they were made). Haulier cost: all haulier cost of consignments delivered in the period, Road and internal.
       </p>
     </div>

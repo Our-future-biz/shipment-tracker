@@ -83,6 +83,7 @@ export function expectPayload(trip: TruckingTripRecord, job: { shipmentId: strin
     shipmentId: job.shipmentId,
     tripRef: trip.ref,
     tripKind: kind,
+    tripId: trip.id,
     haulierName: trip.haulierName,
     plate: trip.tractorPlate || trip.trailerPlate,
     driver: trip.driverName,

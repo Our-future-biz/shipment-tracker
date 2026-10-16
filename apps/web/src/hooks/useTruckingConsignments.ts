@@ -128,6 +128,8 @@ export function useConsignment(id: string) {
   const update = useMutation({ mutationFn: (req: ConsignmentUpdate) => api.trucking.truckingConsignmentUpdate(id, req), onSuccess: onChanged });
   const cancel = useMutation({ mutationFn: (reason: string) => api.trucking.truckingConsignmentCancel(id, { reason }), onSuccess: onChanged });
   const approveMargin = useMutation({ mutationFn: (reason: string) => api.trucking.truckingConsignmentApproveMargin(id, { reason }), onSuccess: onChanged });
+  // A manager clears a notice (price change after the invoice, credit from the haulier, …) saying how it was dealt with.
+  const clearNotice = useMutation({ mutationFn: ({ key, reason }: { key: string; reason: string }) => api.trucking.truckingConsignmentClearNotice(id, { key, reason }), onSuccess: onChanged });
   const stamp = useMutation({
     mutationFn: ({ kind, at }: { kind: StampKind; at: string | null }) => api.trucking.truckingConsignmentStamp(id, kind, { at }),
     onSuccess: onChanged,
@@ -158,6 +160,7 @@ export function useConsignment(id: string) {
     isUpdating: update.isPending,
     cancel: cancel.mutateAsync,
     approveMargin: approveMargin.mutateAsync,
+    clearNotice: clearNotice.mutateAsync,
     stamp: stamp.mutateAsync,
     isStamping: stamp.isPending,
     voidStamp: voidStamp.mutateAsync,

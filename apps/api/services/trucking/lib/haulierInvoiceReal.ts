@@ -1,6 +1,6 @@
 import type { PriceSnapshot, TripKind } from "../interfaces/interfaces";
 import type { HaulierInvoiceAllocation } from "../schemas/haulierInvoice.schema";
-import { legSourceRef, tripJobSourceRef, tripSourceRef } from "./truckingLinks";
+import { legSourceRef, priceLineDescription, tripJobSourceRef, tripSourceRef } from "./truckingLinks";
 import { splitLike } from "./haulierInvoiceRules";
 
 // Where the real cost of an approved haulier invoice line goes (Phase 6 B). Road Department jobs
@@ -11,6 +11,8 @@ import { splitLike } from "./haulierInvoiceRules";
 
 /** A real amount for one Costs Breakdown row, in row order (invoicing _internalInvoicingTruckingReal). */
 export interface RealLine {
+  /** The row's description as the estimate pushed it (Invoicing matches it first, else by position) */
+  description?: string;
   amount: number;
   currency: "CZK" | "EUR";
   invoiceNumber: string;
@@ -34,6 +36,8 @@ export interface RealTarget {
   id: string;
   /** The trip's kind (null for a partner leg) */
   tripKind: TripKind | null;
+  /** What its estimate rows are named after: the trip's ref, or partnerLegRef(consignment ref) for a partner leg */
+  ref: string;
   buy: PriceSnapshot;
   /** FTL trip / partner leg: the one job; LTL trip: every job on it */
   jobs: TargetJob[];
@@ -78,7 +82,10 @@ export function realCosts(
   if (!job) return { allocations, pushes };
   // The rows of the price lines (trucking:trip:<id> / trucking:leg:<id>), split like their amounts.
   const sourceRef = target.kind === "TRIP" ? tripSourceRef(target.id) : legSourceRef(target.id);
-  const parts = target.buy.lines.length ? splitLike(invoiced, target.buy.lines.map((l) => l.amount)) : [invoiced];
-  add(job, sourceRef, invoiced, parts.map(real));
+  const priced = target.buy.lines;
+  const parts = priced.length ? splitLike(invoiced, priced.map((l) => l.amount)) : [invoiced];
+  // Each part named like the price line's row, so a row kept or reordered in Costs still gets its own.
+  const named = parts.map((amount, n): RealLine => (priced[n] ? { description: priceLineDescription(target.ref, priced[n]!.label), ...real(amount) } : real(amount)));
+  add(job, sourceRef, invoiced, named);
   return { allocations, pushes };
 }

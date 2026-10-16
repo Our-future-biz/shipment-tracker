@@ -121,7 +121,7 @@ describe("the real cost reaches the jobs like the estimate", () => {
   const S3 = "00000000-0000-0000-0000-0000000000d3";
 
   it("an FTL trip: the job's trip rows, over the price lines like their amounts", () => {
-    const t: RealTarget = { kind: "TRIP", id: TRIP, tripKind: "FTL", buy: snapshot([9000, 1000]), jobs: [{ shipmentId: S1, consignmentId: "c1", weight: 1 }] };
+    const t: RealTarget = { kind: "TRIP", id: TRIP, tripKind: "FTL", ref: "LCZ2026000001", buy: snapshot([9000, 1000]), jobs: [{ shipmentId: S1, consignmentId: "c1", weight: 1 }] };
     const { allocations, pushes } = realCosts(t, 10500, "CZK", "FV1", () => false);
     expect(pushes).toEqual([
       {
@@ -130,8 +130,8 @@ describe("the real cost reaches the jobs like the estimate", () => {
         payload: {
           sourceRef: `trucking:trip:${TRIP}`,
           realLines: [
-            { amount: 9450, currency: "CZK", invoiceNumber: "FV1" },
-            { amount: 1050, currency: "CZK", invoiceNumber: "FV1" },
+            { description: "LCZ2026000001 · Line 0", amount: 9450, currency: "CZK", invoiceNumber: "FV1" },
+            { description: "LCZ2026000001 · Line 1", amount: 1050, currency: "CZK", invoiceNumber: "FV1" },
           ],
         },
       },
@@ -145,6 +145,7 @@ describe("the real cost reaches the jobs like the estimate", () => {
       kind: "TRIP",
       id: TRIP,
       tripKind: "PICKUP_RUN",
+      ref: "LCZ2026000002",
       buy: snapshot([1000]),
       jobs: [
         { shipmentId: S1, consignmentId: "c1", weight: 333.33 },
@@ -165,6 +166,7 @@ describe("the real cost reaches the jobs like the estimate", () => {
       kind: "TRIP",
       id: TRIP,
       tripKind: "DELIVERY_RUN",
+      ref: "LCZ2026000003",
       buy: snapshot([900]),
       jobs: [
         { shipmentId: S1, consignmentId: "c1", weight: 600 },
@@ -177,8 +179,8 @@ describe("the real cost reaches the jobs like the estimate", () => {
       expect.objectContaining({ shipmentId: S1, amount: 600, internal: false }),
       expect.objectContaining({ shipmentId: S2, amount: 300, internal: true }),
     ]);
-    const leg: RealTarget = { kind: "PARTNER_LEG", id: "l1", tripKind: null, buy: snapshot([800], "EUR"), jobs: [{ shipmentId: S2, consignmentId: "c2", weight: 1 }] };
+    const leg: RealTarget = { kind: "PARTNER_LEG", id: "l1", tripKind: null, ref: "TCZ2026000002 partner delivery", buy: snapshot([800], "EUR"), jobs: [{ shipmentId: S2, consignmentId: "c2", weight: 1 }] };
     expect(realCosts(leg, 800, "EUR", "FV1", () => true).pushes).toEqual([]);
-    expect(realCosts(leg, 800, "EUR", "FV1", () => false).pushes[0]!.payload).toEqual({ sourceRef: "trucking:leg:l1", realLines: [{ amount: 800, currency: "EUR", invoiceNumber: "FV1" }] });
+    expect(realCosts(leg, 800, "EUR", "FV1", () => false).pushes[0]!.payload).toEqual({ sourceRef: "trucking:leg:l1", realLines: [{ description: "TCZ2026000002 partner delivery · Line 0", amount: 800, currency: "EUR", invoiceNumber: "FV1" }] });
   });
 });

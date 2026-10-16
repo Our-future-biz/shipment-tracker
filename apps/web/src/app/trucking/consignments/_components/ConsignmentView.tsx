@@ -10,20 +10,20 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { businessToday, businessDateTime } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { useTruckingSettings } from "@/hooks/useTrucking";
-import { useConsignment, useConsignmentDocuments, useTrip, type DocumentUpload, type Leg, type StampKind } from "@/hooks/useTruckingConsignments";
+import { useConsignment, useConsignmentDocuments, useTrip, type ConsignmentDetail, type DocumentUpload, type Leg, type StampKind } from "@/hooks/useTruckingConsignments";
 import { useConsignmentControl, type DeliveryException } from "@/hooks/useTruckingControl";
 import { useInternalCharges } from "@/hooks/useTruckingMoney";
 import { Badge } from "@/components/Badge";
 import { LifecycleStrip } from "@/app/warehouse/_components/LifecycleStrip";
 import { useUrlParam } from "@/hooks/useUrlParam";
 import { btnDefault, btnPrimary } from "@/components/buttons";
-import { CONSIGNMENT_STATUS_CHIP, STAMP_LABELS, consignmentActions, consignmentLifecycle, stampOf, statusRank, tripHref, type ActionState } from "../../_lib/consignments";
+import { CONSIGNMENT_STATUS_CHIP, STAMP_LABELS, consignmentActions, consignmentLifecycle, reasonsBesideNotices, stampOf, statusRank, tripHref, type ActionState } from "../../_lib/consignments";
 import { isExceptionOpen } from "../../_lib/exceptions";
 import { consignmentInternalAmount, monthOf } from "../../_lib/internalBilling";
 import { podWait } from "../../_lib/podMissing";
 import { waitingFreeOf } from "../../_lib/settings";
 import { TERMS } from "../../_lib/glossary";
-import { isTruckingManager } from "../../_lib/roles";
+import { isTruckingManager, managerOnlyReason } from "../../_lib/roles";
 import { planningHref } from "../../_lib/planning";
 import { recordAsSentLabel } from "../../_lib/transportOrder";
 import { LabelsModal } from "../../_components/LabelsModal";
@@ -41,6 +41,7 @@ import { ConsignmentDocumentsTab } from "./ConsignmentDocumentsTab";
 import { ConsignmentExceptionsTab, type ExceptionAction } from "./ConsignmentExceptionsTab";
 import { ConsignmentEditModal } from "./ConsignmentEditModal";
 import { ConsignmentLegsTimeline } from "./ConsignmentLegsTimeline";
+import { ConsignmentNotices } from "./ConsignmentNotices";
 import { ConsignmentOverviewTab } from "./ConsignmentOverviewTab";
 import { ConsignmentStatusCards } from "./ConsignmentStatusCards";
 import { ConsignmentStepBar } from "./ConsignmentStepBar";
@@ -65,6 +66,7 @@ type Dialog =
   | { kind: "offerPod" }
   | { kind: "cancel" }
   | { kind: "approve" }
+  | { kind: "clearNotice"; notice: ConsignmentDetail["notices"][number] }
   | { kind: "partner"; leg: Leg }
   | { kind: "labels" }
   | { kind: "avizaceRecord" }
@@ -95,7 +97,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
   const toast = useToast();
   const { user } = useAuth();
   const { settings } = useTruckingSettings();
-  const { consignment: c, isLoading, error, update, cancel, approveMargin, stamp, voidStamp, planTrip, setLegPartner } = useConsignment(consignmentId);
+  const { consignment: c, isLoading, error, update, cancel, approveMargin, clearNotice, stamp, voidStamp, planTrip, setLegPartner } = useConsignment(consignmentId);
   const { trip } = useTrip(c?.tripId ?? null);
   const { documents, isLoading: docsLoading, upload } = useConsignmentDocuments(consignmentId);
   const [tab, setTab] = useUrlParam<Tab>("tab", TABS, "overview");
@@ -187,6 +189,7 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
   const internalPrice = c.internal ? consignmentInternalAmount(internalCharges, c.id) : null;
   const internalDepartment = internalCharges.find((x) => x.consignmentId === c.id)?.department || "another department";
   const handleExceptionAction = (exception: DeliveryException, action: ExceptionAction) => setDialog({ kind: "exception", action, exception });
+  const otherAttention = reasonsBesideNotices(c);
 
   return (
     <div className="bg-slate-50 min-h-full">
@@ -284,9 +287,10 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
           />
         )}
         {podWaiting && <Alert className="mt-3" type={podWaiting.missing ? "error" : "info"} showIcon message={podWaiting.text} />}
-        {c.status !== "CANCELLED" && c.needsAttention.length > 0 && (
-          <Alert className="mt-3" type="error" showIcon message="Needs attention" description={c.needsAttention.join(" · ")} />
+        {c.status !== "CANCELLED" && otherAttention.length > 0 && (
+          <Alert className="mt-3" type="error" showIcon message="Needs attention" description={otherAttention.join(" · ")} />
         )}
+        <ConsignmentNotices notices={c.notices} clearReason={managerOnlyReason(user, "clear a notice")} onClear={(notice) => setDialog({ kind: "clearNotice", notice })} />
 
         <div className="mt-3">
           <LifecycleStrip l={consignmentLifecycle(c, trip)} />
@@ -436,6 +440,20 @@ export const ConsignmentView = ({ consignmentId }: ConsignmentViewProps) => {
             approveMargin(reason)
               .then(() => toast.success("Margin approved"))
               .catch(fail("Could not approve the margin"))
+          }
+        />
+      )}
+      {dialog?.kind === "clearNotice" && (
+        <TruckingTextModal
+          title="Clear notice"
+          hint={`"${dialog.notice.text}" leaves Needs attention. Say how it was dealt with; your name, the time and the text are kept in the history.`}
+          placeholder="How it was dealt with (required)"
+          okText="Clear notice"
+          onClose={close}
+          onSubmit={(reason) =>
+            clearNotice({ key: dialog.notice.key, reason })
+              .then(() => toast.success("Notice cleared"))
+              .catch(fail("Could not clear the notice"))
           }
         />
       )}

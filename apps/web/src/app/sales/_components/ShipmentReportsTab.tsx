@@ -11,6 +11,7 @@ import { fmtMoney } from "@/lib/money";
 import { DataTable } from "@/components/DataTable";
 import { StatusBadge } from "@/components/StatusBadge";
 import type { interfaces } from "@/lib/api/client";
+import { periodBasisLabel, provisionalText } from "../_lib/jobPeriod";
 
 type Report = interfaces.JobProfitReport;
 type Row = Report["rows"][number];
@@ -21,7 +22,8 @@ const tone = (v: number) => (v >= 0 ? "text-green-600" : "text-red-600");
 
 // Job profit from Costs Breakdown, in CZK at each month's fixed ČNB average (mean of the
 // month's fixing days, without the ROE %). A job falls in the month of its ATA (import) /
-// ATD (export); until then of its ETA / ETD, marked provisional.
+// ATD (export); until then of its ETA / ETD, marked provisional. A road job falls in the month it was
+// delivered; until then of its planned delivery date, marked provisional.
 export function ShipmentReportsTab() {
   // The default range (this year to this month) is read from the browser's clock after mount,
   // so a page rendered on the server (possibly in another month) can't disagree with it.
@@ -71,10 +73,10 @@ export function ShipmentReportsTab() {
         <span className="whitespace-nowrap">
           {dayjs(`${r.month}-01`).format("MMM YYYY")}{" "}
           <span className="text-slate-400 text-[12px]">
-            {r.basis.toUpperCase()} {formatDate(r.date)}
+            {periodBasisLabel(r.basis)} {formatDate(r.date)}
           </span>
           {r.provisional && (
-            <Tooltip title="No ATA / ATD yet — placed by ETA / ETD and may move">
+            <Tooltip title={provisionalText(r.basis)}>
               <span className="ml-1.5 text-[11px] font-semibold text-warn bg-warn-soft rounded px-1.5 py-0.5">provisional</span>
             </Tooltip>
           )}
@@ -154,7 +156,7 @@ export function ShipmentReportsTab() {
         />
         <span className="text-[12.5px] text-slate-500">
           CZK at each month&apos;s ČNB average (fixing days, no ROE %) · by ATA (import) / ATD (export)
-          {totals.provisional > 0 && ` · ${totals.provisional} provisional (no ATA / ATD yet)`}
+          {totals.provisional > 0 && ` · ${totals.provisional} provisional (no ATA / ATD or delivery yet)`}
           {data?.undated ? ` · ${data.undated} job${data.undated === 1 ? "" : "s"} without any date not shown` : ""}
         </span>
       </div>

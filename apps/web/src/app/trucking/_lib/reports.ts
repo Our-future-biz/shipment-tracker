@@ -128,10 +128,11 @@ export interface StatementLine {
   amountCzk: number;
 }
 
-/** The department statement: external sell + internal charges − haulier cost (= resultCzk). */
+/** The department statement: external sell + charged exceptions + internal charges − haulier cost (= resultCzk). */
 export function departmentLines(d: DepartmentResult): StatementLine[] {
   return [
     { label: "External sell", sign: "+", amountCzk: d.externalSellCzk },
+    { label: "Charged exceptions", sign: "+", amountCzk: d.exceptionChargesCzk },
     { label: "Internal charges", sign: "+", amountCzk: d.internalChargesCzk },
     { label: "Haulier cost", sign: "−", amountCzk: d.haulierCostCzk },
   ];

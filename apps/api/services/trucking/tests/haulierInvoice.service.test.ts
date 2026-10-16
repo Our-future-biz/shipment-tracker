@@ -336,8 +336,8 @@ describe("matching", () => {
         payload: {
           sourceRef: `trucking:trip:${FTL}`,
           realLines: [
-            { amount: 9000, currency: "CZK", invoiceNumber: "FV 2026/101" },
-            { amount: 1000, currency: "CZK", invoiceNumber: "FV 2026/101" },
+            { description: "LCZ2026000001 · Line 0", amount: 9000, currency: "CZK", invoiceNumber: "FV 2026/101" },
+            { description: "LCZ2026000001 · Line 1", amount: 1000, currency: "CZK", invoiceNumber: "FV 2026/101" },
           ],
         },
       }),

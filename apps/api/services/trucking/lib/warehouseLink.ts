@@ -24,6 +24,8 @@ export interface ExpectArrivalInput {
   pieces: number;
   weightKg: number;
   cbm: number;
+  /** The trip's id, so the warehouse's "From trip" markers link to it (rows written before have none). */
+  tripId?: string;
 }
 
 export interface ExpectArrivalResult {
@@ -44,6 +46,8 @@ export interface ExpectDepartureInput {
   driverPhone: string;
   /** ISO */
   expectedAt: string;
+  /** The trip's id, so the warehouse's "From trip" markers link to it (rows written before have none). */
+  tripId?: string;
 }
 
 /** POST /internal/warehouse/cancel-expected */

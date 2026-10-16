@@ -17,6 +17,7 @@ import {
   buySource,
   marginText,
   nextStep,
+  reasonsBesideNotices,
   stampKindsFor,
   routeText,
   stampTimeProblem,
@@ -248,5 +249,13 @@ describe("load in a line", () => {
   it("formats the numbers instead of printing them raw", () => {
     expect(loadText({ palletPlaces: 12, weightKg: 1250.5, adr: true })).toBe("12 pallet places · 1 250.5 kg · ADR");
     expect(loadText({ palletPlaces: 1, weightKg: 800, adr: false })).toBe("1 pallet place · 800 kg");
+  });
+});
+
+describe("notices", () => {
+  it("are left out of the other Needs-attention reasons (they are listed on their own, with Clear)", () => {
+    const notice = { key: "diff:1", code: "PRICE_CHANGE_AFTER_INVOICE" as const, text: "Price changed after the invoice: +500.00 CZK billed as a difference", at: "2026-10-16T08:00:00Z" };
+    expect(reasonsBesideNotices({ needsAttention: [notice.text, "POD missing"], notices: [notice] })).toEqual(["POD missing"]);
+    expect(reasonsBesideNotices({ needsAttention: ["POD missing"], notices: [] })).toEqual(["POD missing"]);
   });
 });

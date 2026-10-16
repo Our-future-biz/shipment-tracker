@@ -14,7 +14,7 @@ interface AuthLoginResponse {
 }
 
 export const authLogin = api(
-  { expose: true, auth: false, method: "POST", path: "/auth/login" },
+  { expose: true, auth: false, method: "POST", path: "/auth/login", sensitive: true },
   async (req: AuthLoginRequest): Promise<AuthLoginResponse> => {
     return authService.login(req.email, req.password);
   },

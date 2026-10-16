@@ -12,6 +12,7 @@ vi.mock("~encore/clients", () => ({
   warehouse: { _internalWarehouseExceptionsForShipments: vi.fn(async () => ({ exceptions: [] })) },
 }));
 vi.mock("../db/db", async () => (await import("./truckingFakes")).dbModule);
+vi.mock("../../../lib/outbox/serviceIdentity", async () => (await import("./truckingFakes")).serviceIdentityModule);
 vi.mock("../repositories/consignment.repository", async (orig) => ({
   ...(await orig<object>()),
   consignmentRepository: (await import("./truckingFakes")).consignmentRepository,

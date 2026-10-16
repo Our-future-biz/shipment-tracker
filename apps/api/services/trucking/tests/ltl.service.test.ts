@@ -451,7 +451,7 @@ describe("transport order, our warehouse and the trip's stamps", () => {
     ]);
     expect(cOf(a.id).status).toBe("ORDERED");
     expect(outboxOf("expect_arrival").map((r) => r.payload)).toEqual([
-      expect.objectContaining({ shipmentId: SHIPMENT, tripRef: trip.ref, tripKind: "PICKUP_RUN", haulierName: "Bravo", weightKg: 500, pieces: 2, expectedAt: "2026-10-15T12:00:00.000Z" }),
+      expect.objectContaining({ shipmentId: SHIPMENT, tripRef: trip.ref, tripKind: "PICKUP_RUN", tripId: trip.id, haulierName: "Bravo", weightKg: 500, pieces: 2, expectedAt: "2026-10-15T12:00:00.000Z" }),
       expect.objectContaining({ shipmentId: SHIPMENT2, weightKg: 300 }),
     ]);
     // A new plate is announced again; a job taken off the trip is withdrawn.

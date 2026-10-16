@@ -416,3 +416,9 @@ export function routeText(c: Pick<ConsignmentListItem, "pickupPostcode" | "picku
 /** The consignment page of a ref's id. */
 export const consignmentHref = (id: string) => `/trucking/consignments/${id}`;
 export const tripHref = (id: string) => `/trucking/trips/${id}`;
+
+/** The Needs-attention reasons that are not one of the consignment's notices (those are listed on their own, each with Clear). */
+export const reasonsBesideNotices = (c: Pick<ConsignmentDetail, "needsAttention" | "notices">): string[] => {
+  const notices = new Set(c.notices.map((n) => n.text));
+  return c.needsAttention.filter((r) => !notices.has(r));
+};

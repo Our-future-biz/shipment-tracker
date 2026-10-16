@@ -39,6 +39,7 @@ import {
   type CleanInvoice,
 } from "../lib/haulierInvoiceRules";
 import { realCosts, type RealTarget, type TargetJob } from "../lib/haulierInvoiceReal";
+import { partnerLegRef } from "../lib/truckingLinks";
 import { haulierClaims } from "../lib/haulierClaims";
 import { isInternalDepartment } from "../lib/internalRules";
 import { checkUpload, type CheckedFile } from "../lib/truckingFiles";
@@ -192,13 +193,13 @@ class HaulierInvoiceService {
       const leg = await legRepository.find(companyId, id);
       if (!leg?.buy) return null;
       const [c] = await consignmentRepository.findMany(companyId, [leg.consignmentId]);
-      return { kind, id, tripKind: null, buy: leg.buy, jobs: c ? [{ shipmentId: c.shipmentId, consignmentId: c.id, weight: 1 }] : [] };
+      return { kind, id, tripKind: null, ref: partnerLegRef(c?.ref ?? ""), buy: leg.buy, jobs: c ? [{ shipmentId: c.shipmentId, consignmentId: c.id, weight: 1 }] : [] };
     }
     const trip = await tripRepository.find(companyId, id);
     if (!trip?.buy) return null;
     if (trip.kind === "FTL") {
       const c = await consignmentRepository.findByTrip(companyId, trip.id);
-      return { kind, id, tripKind: "FTL", buy: trip.buy, jobs: c ? [{ shipmentId: c.shipmentId, consignmentId: c.id, weight: 1 }] : [] };
+      return { kind, id, tripKind: "FTL", ref: trip.ref, buy: trip.buy, jobs: c ? [{ shipmentId: c.shipmentId, consignmentId: c.id, weight: 1 }] : [] };
     }
     // LTL: each job weighs its part of the estimate (Σ its legs' cost shares).
     const legs = await legRepository.forTrips(companyId, [trip.id]);
@@ -212,7 +213,7 @@ class HaulierInvoiceService {
       job.weight = round2(job.weight + (l.costShareCzk ?? 0));
       jobs.set(c.shipmentId, job);
     }
-    return { kind, id, tripKind: trip.kind, buy: trip.buy, jobs: [...jobs.values()] };
+    return { kind, id, tripKind: trip.kind, ref: trip.ref, buy: trip.buy, jobs: [...jobs.values()] };
   }
 
   /**

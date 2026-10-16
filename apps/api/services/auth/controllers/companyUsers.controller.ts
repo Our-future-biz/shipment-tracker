@@ -35,7 +35,7 @@ interface CompanyUserCreateResponse {
 }
 
 export const companyUserCreate = api(
-  { expose: true, auth: true, method: "POST", path: "/companies/:companyId/users" },
+  { expose: true, auth: true, method: "POST", path: "/companies/:companyId/users", sensitive: true },
   async (req: CompanyUserCreateRequest): Promise<CompanyUserCreateResponse> => {
     const actor = requireRole("superadmin");
     const { companyId, ...input } = req;
@@ -58,7 +58,7 @@ interface CompanyUserUpdateResponse {
 }
 
 export const companyUserUpdate = api(
-  { expose: true, auth: true, method: "PATCH", path: "/companies/:companyId/users/:id" },
+  { expose: true, auth: true, method: "PATCH", path: "/companies/:companyId/users/:id", sensitive: true },
   async (req: CompanyUserUpdateRequest): Promise<CompanyUserUpdateResponse> => {
     const actor = requireRole("superadmin");
     const { companyId, id, ...patch } = req;

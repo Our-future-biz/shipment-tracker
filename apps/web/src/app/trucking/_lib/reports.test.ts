@@ -155,9 +155,9 @@ describe("coverage gaps", () => {
 });
 
 describe("department result", () => {
-  it("reads external sell + internal charges − haulier cost", () => {
-    const lines = departmentLines({ externalSellCzk: 100, exceptionChargesCzk: 0, internalChargesCzk: 50, haulierCostCzk: 120, resultCzk: 30, internalByDepartment: [] });
-    expect(lines.map((l) => `${l.sign}${l.label}:${l.amountCzk}`)).toEqual(["+External sell:100", "+Internal charges:50", "−Haulier cost:120"]);
+  it("reads external sell + charged exceptions + internal charges − haulier cost", () => {
+    const lines = departmentLines({ externalSellCzk: 100, exceptionChargesCzk: 20, internalChargesCzk: 50, haulierCostCzk: 120, resultCzk: 50, internalByDepartment: [] });
+    expect(lines.map((l) => `${l.sign}${l.label}:${l.amountCzk}`)).toEqual(["+External sell:100", "+Charged exceptions:20", "+Internal charges:50", "−Haulier cost:120"]);
   });
 
   it("lists the departments largest first", () => {

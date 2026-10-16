@@ -768,10 +768,12 @@ class ConsignmentService {
   }
 
   // Writes a refresh or fill plan (guarded: the version read, the POD still empty for a refresh); false when the row changed meanwhile.
+  // The cause is Shipments, not the reader: what a flip owes the job is sent as the service identity (decision 14).
   private async applyDepartment(actor: BillingActor, c: TruckingConsignmentRecord, plan: Extract<DepartmentPlan, { kind: "refresh" | "fill" }>): Promise<boolean> {
     const companyId = actor.companyID;
     const trip = c.scope === "FTL" && c.tripId ? await tripRepository.find(companyId, c.tripId) : null;
     const liveTrip = trip && !trip.cancelledAt ? trip : null;
+    const system = plan.kind === "refresh" && plan.internal !== c.internal ? await serviceActor(companyId) : null;
     return inTx(async (tx) => {
       const values: ConsignmentValues = plan.kind === "refresh" ? { department: plan.department, internal: plan.internal } : { department: plan.department };
       const row = await consignmentRepository.update(tx, companyId, c.id, values, plan.kind === "refresh" ? { version: c.version, stampEmpty: "podReceived" } : { version: c.version, live: true });
@@ -791,7 +793,7 @@ class ConsignmentService {
           facts: { department: plan.department, internal: row.internal },
         },
       });
-      if (flipped) await truckingOutboxRepository.enqueue(tx, companyId, await this.costsAfterFlip(tx, actor, row, liveTrip));
+      if (flipped) await truckingOutboxRepository.enqueue(tx, companyId, await this.costsAfterFlip(tx, system ?? (await serviceActor(companyId)), row, liveTrip));
       return true;
     });
   }

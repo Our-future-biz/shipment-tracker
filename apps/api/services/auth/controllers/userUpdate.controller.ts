@@ -18,7 +18,7 @@ interface UserUpdateResponse {
 }
 
 export const userUpdate = api(
-  { expose: true, auth: true, method: "PATCH", path: "/auth/users/:id" },
+  { expose: true, auth: true, method: "PATCH", path: "/auth/users/:id", sensitive: true },
   async (req: UserUpdateRequest): Promise<UserUpdateResponse> => {
     const actor = requireRole("admin", "manager");
     const { id, ...patch } = req;
