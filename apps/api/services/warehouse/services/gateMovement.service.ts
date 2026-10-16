@@ -4,7 +4,7 @@ import log from "encore.dev/log";
 import { hash, verify } from "@node-rs/argon2";
 import { sql, type SQL } from "drizzle-orm";
 import { db } from "../db/db";
-import { gateMovementRepository, hasStampSql, type GateMovementRow } from "../repositories/gateMovement.repository";
+import { gateMovementRepository, hasStamp, hasStampSql, type GateMovementRow } from "../repositories/gateMovement.repository";
 import { containerRepository, dockSlotRepository } from "../repositories/warehouseRecords.repository";
 import { warehouseSectionRepository } from "../repositories/warehouseSection.repository";
 import { shipmentOutboxRepository } from "../repositories/shipmentOutbox.repository";
@@ -12,7 +12,7 @@ import { gateMovementTable, type GateChecklist, type GateEvent, type GateMovemen
 import type { NewShipmentOutboxRecord, ShipmentOutboxRecord } from "../schemas/shipmentOutbox.schema";
 import { gateExceptionRepository } from "../repositories/gateException.repository";
 import type { WarehouseExceptionRecord } from "../schemas/warehouseException.schema";
-import type { GateVisit } from "../interfaces/gate.interfaces";
+import { cargoLeg, DOMESTIC, isDomestic, releasePlate, visitOfHandling } from "./direction";
 import type { GateDockSlot, GateExceptionItem, GateMovementInput, GateMovementItem, GatePickupInfo, GateReweighItem, GateSurveyInput } from "../interfaces/gate.interfaces";
 import { EXCEPTION_GATE, exceptionHold, noOpenExceptionSql } from "./osd";
 import { isIsoDate, movementStorage, pragueDate, storageNote, type StorageInfo } from "./storage";
@@ -29,7 +29,8 @@ import { isUuid } from "../../../lib/uuid";
 import { acceptRecordedAt, checkRequestId, latest, offlineDetail, pragueHhmm, type StampOutcome, type SurveyOutcome } from "./offline";
 import { dockSlotsOf } from "./dockSlots";
 import { deliverGateEvents, enqueueGateEvents } from "./gateEvents.service";
-import { protectTripLegs } from "./tripSource";
+import { gateInIsArrival, stampDeparts } from "./gateEvents";
+import { protectTripLegs, tripFiguresOf } from "./tripSource";
 import { reweighRepository } from "../repositories/reweigh.repository";
 import type { WarehouseReweighRecord } from "../schemas/warehouseReweigh.schema";
 import { needsReweigh, REWEIGH_FIRST, reweighOkSql } from "./reweigh";
@@ -59,13 +60,9 @@ export const DEFAULT_CHECKLIST: GateChecklist = { ht: "a", photos: "a", measure:
 
 const isFcl = (operationType: string) => /^FCL|Container yard/.test(operationType);
 
-// Domestic cargo (Trucking's LTL through our hub) arrives at the gate (příjem: the gate-in is the
-// arrival) and leaves through the WH release, which stamps the gate-out too. No customs at all:
-// no Customs / MRN / B/L / VGM lines, no pick-up PIN, never "needs attention" for a missing MRN.
-export const DOMESTIC = "Domestic";
-export const isDomestic = (handling: string | null | undefined) => handling === DOMESTIC;
-/** The gate visit a handling means: Import cargo goes out (výdej); Export and Domestic cargo come in (příjem). */
-export const visitOfHandling = (handling: string): GateVisit => (handling === "Import" ? "výdej" : "příjem");
+// Domestic cargo (Trucking's LTL through our hub): see direction.ts. Never "needs attention" for a
+// missing MRN.
+export { DOMESTIC, isDomestic, visitOfHandling } from "./direction";
 
 export { CUSTOMS_CLEARED, CUSTOMS_MODES, CUSTOMS_STATUSES } from "./customs";
 export const MAX_SUB_POSITIONS = 10;
@@ -298,6 +295,7 @@ function toItem(
     dockSlots,
     containers: containers.map((c) => ({ id: c.id, number: c.number, type: c.equipment })),
     transportLegs: normalizeLegs(m.transportLegs),
+    tripFigures: tripFiguresOf(m.transportLegs),
     surveys: m.surveys.map(normalizeSurvey),
     subPositions: m.subPositions.map(normalizeDrop),
     positionRef: m.positionRef ?? "",
@@ -333,6 +331,14 @@ const stampText = (d: Date) =>
 const NOT_EDITABLE = ["pickupShipmentId", "status", "releaseGates", "releaseStatus", "overridden", "refusalLog", "overrideLog", "gateIn", "gateOut", "impRelease", "expDraft", "expReceipt", "events", "pinTries", "pinHash", "surveys"];
 
 const t = gateMovementTable;
+const DIRECTION_LOCKED = "Direction cannot change once a gate stamp is recorded";
+// The release gates of a position whose direction changes (before any stamp): the defaults of the
+// new handling, keeping the lines that follow something else — the "No open exceptions" hold of an
+// open exception and the Pick-up PIN line (dropped or added right after, as the link says).
+// Built on the stored gates in SQL, so an exception opened meanwhile keeps its hold.
+const rebuiltGatesSql = (handling: string, operationType: string, customsStatus: string) =>
+  sql`${JSON.stringify(defaultReleaseGates(handling, operationType, customsStatus))}::jsonb || COALESCE((SELECT jsonb_agg(x) FROM jsonb_array_elements(${t.releaseGates}) x
+    WHERE x->>'g' IN (${EXCEPTION_GATE}, ${PICKUP_PIN_GATE})), '[]'::jsonb)`;
 // Short waits (30 ms each) a PIN check makes for a try held by a parallel right PIN.
 const PIN_BUSY_WAITS = 10;
 const json = (v: unknown) => sql`${JSON.stringify(v)}::jsonb`;
@@ -356,10 +362,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 // gate-out of its own would skip the release gates.
 const OUT_NEEDS_RELEASE = "Outgoing cargo leaves through WH release (it stamps the gate-out too) — stamp WH release first";
 const DOMESTIC_OUT_NEEDS_RELEASE = "Domestic cargo leaves through WH release (it stamps the gate-out too) — stamp WH release first";
-// The cargo leaves the warehouse with this stamp (what Trucking hears as gateOut): the WH release
-// (it stamps the gate-out too), or an outbound gate-out. An inbound (příjem) gate-out of its own is
-// the delivering truck leaving — the cargo stays.
-const cargoLeaves = (m: Pick<GateMovementRow, "visit">, kind: StampKind) => kind === "impRelease" || (kind === "gateOut" && m.visit === "výdej");
+// Domestic cargo: the gate-in is the receipt (owner decision 16 Oct 2026).
+const DOMESTIC_NO_RECEIPT = "Domestic cargo has no draft receipt or receipt — its gate-in is the receipt";
 
 /** What a stamp check reads besides the row: the container house and whether it is re-weighed. */
 export interface StampContext {
@@ -387,8 +391,10 @@ function stampBlocked(m: GateMovementRow, kind: StampKind, ctx: StampContext = {
       if (!m.overridden && exceptionHold(m.releaseGates)) return "On hold — an open damage / short / over exception must be resolved before the WH release";
       return isArmed(m) ? null : "Release box NOT armed — gate must refuse. Use supervisor override only with reason.";
     case "expDraft":
-      return m.expDraft ? "Draft receipt already created" : null;
+      if (m.expDraft) return "Draft receipt already created";
+      return isDomestic(m.handling) ? DOMESTIC_NO_RECEIPT : null;
     case "expReceipt":
+      if (isDomestic(m.handling) && !m.expReceipt) return DOMESTIC_NO_RECEIPT;
       if (!m.expDraft) return "Create the draft receipt first";
       if (m.expReceipt) return "WH receipt already confirmed";
       return needsReweigh(m) && !ctx.reweighed ? REWEIGH_FIRST : null;
@@ -570,7 +576,7 @@ class GateMovementService {
     const out: Partial<NewGateMovementRecord> = { ...rest };
     for (const key of NOT_EDITABLE) delete (out as Record<string, unknown>)[key];
     // Only a Trucking trip marks a leg (expect-arrival / expect-departure); a client's marker is dropped.
-    if (transportLegs !== undefined) out.transportLegs = normalizeLegs(transportLegs).map(({ source: _source, ...leg }) => leg);
+    if (transportLegs !== undefined) out.transportLegs = normalizeLegs(transportLegs).map(({ source: _source, figures: _figures, ...leg }) => leg);
     if (subPositions !== undefined) {
       if (subPositions.length > MAX_SUB_POSITIONS) throw APIError.invalidArgument(`At most ${MAX_SUB_POSITIONS} sub-positions (drops)`);
       out.subPositions = subPositions.map(normalizeDrop);
@@ -668,19 +674,20 @@ class GateMovementService {
     // A leg filled by a Trucking trip is read-only here: it stays as the trip set it.
     if (patch.transportLegs) patch.transportLegs = protectTripLegs(m.transportLegs, patch.transportLegs);
 
-    // Direction is held twice — handling (Import/Export) and the gate visit (výdej/příjem) the
-    // gate rules follow — so they change together, and only until the first gate stamp.
+    // Direction is held twice — handling (Import / Export / Domestic) and the gate visit (výdej /
+    // příjem) the gate rules follow — so they change together, and only before any stamp (owner
+    // decision 16 Oct 2026, also into or out of Domestic). The release gates are then rebuilt with
+    // the defaults of the new handling (see rebuiltGatesSql), in the save's transaction.
     const handlingChanged = input.handling !== undefined && input.handling !== m.handling;
     const visitChanged = input.visit !== undefined && input.visit !== m.visit;
     const house = (await houseContexts([id], companyId)).get(id) ?? null;
     if (handlingChanged || visitChanged) {
-      if (m.gateIn || m.gateOut || m.impRelease || m.expDraft || m.expReceipt) {
-        throw APIError.failedPrecondition("Direction cannot change once a gate stamp is recorded");
-      }
+      if (hasStamp(m)) throw APIError.failedPrecondition(DIRECTION_LOCKED);
       if (house) throw APIError.failedPrecondition(`Direction cannot change while the position is in container ${house.container.number}`);
       if (handlingChanged && input.visit === undefined) patch.visit = visitOfHandling(input.handling!);
       if (visitChanged && input.handling === undefined) patch.handling = input.visit === "výdej" ? "Import" : "Export";
     }
+    const directionChanged = (patch.handling ?? m.handling) !== m.handling || (patch.visit ?? m.visit) !== m.visit;
 
     // The UN number only exists for dangerous goods.
     if (input.dangerousGoods === false) patch.unNumber = "";
@@ -691,7 +698,8 @@ class GateMovementService {
     const customsChanged = input.customsStatus !== undefined && input.customsStatus !== m.customsStatus;
     // The grid's carrier / driver / plate follow the leg the cargo moves on at this gate.
     if (patch.transportLegs) {
-      const leg = patch.transportLegs.find((l) => l.leg === ((input.visit ?? m.visit) === "výdej" ? "OUT" : "IN"))!;
+      const now = { visit: patch.visit ?? m.visit, handling: patch.handling ?? m.handling, gateIn: m.gateIn };
+      const leg = patch.transportLegs.find((l) => l.leg === cargoLeg(now))!;
       patch.carrier = leg.company;
       patch.driver = leg.driver;
       patch.plate = leg.plate;
@@ -731,7 +739,9 @@ class GateMovementService {
     }
     // A plate entered (or corrected) after the cargo of a linked record was released goes to the
     // shipment too, through the outbox like the release itself.
-    const plateLater = !!m.shipmentId && !!m.impRelease && patch.plate !== undefined && !!patch.plate.trim() && patch.plate !== m.plate;
+    // (Domestic cargo left on its OUT leg: that leg's plate.)
+    const plateAfter = releasePlate({ handling: m.handling, plate: patch.plate ?? m.plate, transportLegs: patch.transportLegs ?? m.transportLegs });
+    const plateLater = !!m.shipmentId && !!m.impRelease && !!plateAfter.trim() && plateAfter !== releasePlate(m);
     // The storage clock's inputs are logged (History): the received date of outbound cargo and the
     // position's own free days.
     const clockEvents: GateEvent[] = [];
@@ -754,6 +764,18 @@ class GateMovementService {
       });
     }
     await db.transaction(async (tx) => {
+      if (directionChanged) {
+        // First, under the row lock: still no stamp (one taken meanwhile refuses the change).
+        const rebuilt = await gateMovementRepository.conditionalUpdate(
+          id,
+          companyId,
+          { releaseGates: rebuiltGatesSql(patch.handling ?? m.handling, patch.operationType ?? m.operationType, patch.customsStatus ?? m.customsStatus) },
+          [{ kind: "releaseGatesRebuilt", label: `Release gates set for ${patch.handling ?? m.handling}`, at: new Date().toISOString(), by: patch.updatedBy ?? "", detail: `was ${m.handling}` }],
+          sql`NOT ${hasStampSql}`,
+          tx,
+        );
+        if (!rebuilt) throw APIError.failedPrecondition(DIRECTION_LOCKED);
+      }
       await gateMovementRepository.update(id, companyId, patch, tx);
       if (customsChanged) await gateMovementRepository.conditionalUpdate(id, companyId, { releaseGates: setCustomsLineSql(customsLine(input.customsStatus!)) }, undefined, undefined, tx);
       if (clockEvents.length || linkEvents.length) await gateMovementRepository.appendEvents(id, companyId, [...linkEvents, ...clockEvents], tx);
@@ -762,7 +784,7 @@ class GateMovementService {
       await syncStockForMovement(tx, companyId, id, { by: patch.updatedBy ?? "", why: "gate record changed" });
       if (plateLater) {
         await shipmentOutboxRepository.enqueue(tx, [
-          outboxRow(m, "plate", m.impRelease ? "impRelease" : "gateOut", { plateNumber: patch.plate!.trim() }, userId, role),
+          outboxRow(m, "plate", m.impRelease ? "impRelease" : "gateOut", { plateNumber: plateAfter.trim() }, userId, role),
         ]);
       }
     });
@@ -1042,7 +1064,14 @@ class GateMovementService {
           break;
         case "expDraft": {
           const a = arrival(evt(kind, STAMP_LABEL.expDraft, true));
-          row = await gateMovementRepository.conditionalUpdate(id, companyId, { ...a.set, expDraft: at, status: toWarehouse }, a.events, sql`${t.expDraft} IS NULL`, tx);
+          row = await gateMovementRepository.conditionalUpdate(
+            id,
+            companyId,
+            { ...a.set, expDraft: at, status: toWarehouse },
+            a.events,
+            sql`${t.expDraft} IS NULL AND ${t.handling} <> ${DOMESTIC}`,
+            tx,
+          );
           break;
         }
         case "expReceipt": {
@@ -1052,7 +1081,7 @@ class GateMovementService {
             companyId,
             { ...a.set, expReceipt: at, status: toWarehouse },
             a.events,
-            sql`${t.expReceipt} IS NULL AND ${t.expDraft} IS NOT NULL AND ${reweighOkSql}`,
+            sql`${t.expReceipt} IS NULL AND ${t.expDraft} IS NOT NULL AND ${t.handling} <> ${DOMESTIC} AND ${reweighOkSql}`,
             tx,
           );
           break;
@@ -1073,9 +1102,10 @@ class GateMovementService {
           userId,
           stampKind: kind,
           at,
-          // Arrival: the gate-in of inbound cargo (an outbound gate-in is the pick-up truck).
-          // Departure: the cargo leaves (cargoLeaves) — once, with the stamp that lets it go.
-          stamped: { gateIn: m.visit !== "výdej" && !m.gateIn && sameTime(row.gateIn, at), gateOut: cargoLeaves(m, kind) },
+          // Arrival: the gate-in of cargo coming into the hub — inbound cargo, or cargo brought by a
+          // Trucking pick-up run (an outbound gate-in otherwise is the pick-up truck). Departure:
+          // the cargo leaves — once, with the stamp that lets it go (gateEvents.ts).
+          stamped: { gateIn: gateInIsArrival(m) && !m.gateIn && sameTime(row.gateIn, at), gateOut: stampDeparts(m, kind) },
         },
         role,
       );
@@ -1092,7 +1122,9 @@ class GateMovementService {
           owed.push(outboxRow(m, "received", "gateIn", { warehouseReceivedDate: date, ...(m.positionRef ? { warehouseReference: m.positionRef } : {}) }, userId, role));
         }
         if ((kind === "impRelease" && sameTime(row.gateOut, at)) || (kind === "gateOut" && row.visit === "výdej")) {
-          owed.push(outboxRow(m, "released", kind, { warehouseReleasedDate: date, ...(row.plate ? { plateNumber: row.plate } : {}) }, userId, role));
+          // Domestic cargo leaves on its OUT leg (the line haul), not on the truck that brought it.
+          const plate = releasePlate(row);
+          owed.push(outboxRow(m, "released", kind, { warehouseReleasedDate: date, ...(plate ? { plateNumber: plate } : {}) }, userId, role));
         }
       }
       await shipmentOutboxRepository.enqueue(tx, owed);

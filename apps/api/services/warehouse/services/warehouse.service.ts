@@ -367,7 +367,12 @@ class WarehouseService {
     }
     // The shipment's first pick-up save: the shipment must exist in the caller's company.
     if (!(await warehouseSectionRepository.findPickup(shipmentId, companyId))) await assertShipmentExists(shipmentId);
-    return warehouseSectionRepository.upsertPickupRows(shipmentId, companyId, rows);
+    // The limit counts the rows as stored: the user's rows after the ones Trucking trips filled.
+    return warehouseSectionRepository.upsertPickupRows(shipmentId, companyId, rows, (merged) => {
+      if (merged.length > MAX_PICKUP_ROWS) {
+        throw APIError.invalidArgument(`At most ${MAX_PICKUP_ROWS} pick-up rows in all — ${merged.length - rows.length} of them are filled by Trucking trips`);
+      }
+    });
   }
 
   // A shipment deleted in Shipments (the shipmentDeleted subscription; runs as the system and is

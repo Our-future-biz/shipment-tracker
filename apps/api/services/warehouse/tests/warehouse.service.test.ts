@@ -51,7 +51,7 @@ describe("warehouse sections", () => {
     sections.upsertPickupRows.mockResolvedValue({ id: "p1" });
     await warehouseService.upsertPickupRows(SHIPMENT, COMPANY, { rows: "[]" });
     expect(shipments.assertShipmentExists).not.toHaveBeenCalled();
-    expect(sections.upsertPickupRows).toHaveBeenCalledWith(SHIPMENT, COMPANY, []);
+    expect(sections.upsertPickupRows).toHaveBeenCalledWith(SHIPMENT, COMPANY, [], expect.any(Function));
   });
 
   it("answers a shipment id that is not a uuid without reaching the database", async () => {

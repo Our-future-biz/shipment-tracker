@@ -11,7 +11,7 @@ import { TERMS, directionOf } from "@/app/warehouse/_lib/glossary";
 import { dockSlotText, exceptionText, isOnHold } from "@/app/warehouse/_lib/worklist";
 import { useUrlParam } from "@/app/warehouse/_lib/useUrlParam";
 import { Badge, CUSTOMS_STATUS_TONE, STATUS_TONE, errorMessage, hasSurvey, hhmm, nf, requiredSurveyPhase, surveyTargets } from "@/app/warehouse/gate-log/_lib/gate";
-import { gateSteps, isOutbound, isQueueableStamp, stampConfirmText, stampPrecheck, type GateStep } from "@/app/warehouse/gate-log/_lib/steps";
+import { cargoLeg, gateSteps, isOutbound, isQueueableStamp, leavesByRelease, stampConfirmText, stampPrecheck, type GateStep } from "@/app/warehouse/gate-log/_lib/steps";
 import { useFloorQueue } from "../_lib/useFloorQueue";
 import { applyPending, pendingStamps, uuid } from "../_lib/queue";
 import { FloorCard, NeedsConnection, bigPrimary } from "./floorUi";
@@ -74,7 +74,8 @@ export function FloorPosition({ id }: { id: string }) {
   const steps = gateSteps(m).filter((s) => !s.legacy);
   const next = steps.find((s) => s.state === "next" || s.state === "blocked");
   const out = isOutbound(m);
-  const leg = m.transportLegs.find((l) => l.leg === (out ? "OUT" : "IN"));
+  // Domestic cargo leaves on its OUT leg once it has arrived (the line haul, not the pick-up truck).
+  const leg = m.transportLegs.find((l) => l.leg === cargoLeg(m));
   const phase = requiredSurveyPhase(m);
   const surveyDue = !!phase && surveyTargets(m).some((c) => !hasSurvey(m, c, phase));
   const releaseNeedsServer = (kind: GateStampKind) => !isQueueableStamp(m, kind);
@@ -144,7 +145,7 @@ export function FloorPosition({ id }: { id: string }) {
     { key: "photos", label: "Photos", show: true },
     { key: "damage", label: "Damage / short / over", hint: exceptionText(m) || undefined, alert: isOnHold(m), show: true },
     { key: "pin", label: TERMS.pickupPin, hint: m.pickup?.locked ? "Locked" : undefined, show: out && !!m.pickup },
-    { key: "release", label: "Release readiness", show: out },
+    { key: "release", label: "Release readiness", show: leavesByRelease(m) },
   ];
 
   return (

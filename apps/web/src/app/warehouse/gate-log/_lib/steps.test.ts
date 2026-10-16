@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { QUEUEABLE_STAMPS, REWEIGH_FIRST, containerHoldsRelease, gateSteps, isQueueableStamp, pinCheckMessage, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, writesBack } from "./steps";
+import { QUEUEABLE_STAMPS, REWEIGH_FIRST, cargoLeg, containerHoldsRelease, gateSteps, leavesByRelease, isQueueableStamp, pinCheckMessage, stampConfirmText, stampPrecheck, voidBlocked, voidsGateOutToo, writesBack } from "./steps";
 
 type M = Parameters<typeof gateSteps>[0];
 const T = "2026-10-14T08:00:00.000Z";
@@ -200,5 +200,52 @@ describe("re-weigh and the container hold the steps", () => {
     expect(gateSteps({ ...out, container: { ...house, tallyOutcome: "received" } }).find((s) => s.kind === "impRelease")!.state).toBe("next");
     // An old one-position container (linked by the migration) keeps the received date typed by hand.
     expect(gateSteps({ ...out, container: { ...house, tallyRequired: false } }).find((s) => s.kind === "impRelease")!.state).toBe("next");
+  });
+});
+
+// Three handlings, three step bars: inbound (Export), outbound (Import) and Domestic (Trucking's
+// LTL through our hub: the gate-in is the receipt, no draft receipt / receipt / re-weigh).
+describe("gateSteps by handling", () => {
+  const clear = [{ g: "Charges", s: "OK" as const, note: "" }];
+
+  it("Export (inbound): Gate-in → Draft receipt → Receipt → Gate-out", () => {
+    expect(brief(base({ handling: "Export" }))).toEqual(["Gate-in:next", "Draft receipt:later", "Receipt:later", "Gate-out:later"]);
+  });
+
+  it("Import (outbound): Gate-in (truck) → WH release → Gate-out", () => {
+    expect(brief(base({ handling: "Import", visit: "výdej" }))).toEqual(["Gate-in (truck):next", "WH release:later", "Gate-out:later"]);
+  });
+
+  it("Domestic: Gate-in → WH release → Gate-out stamped with the release, never a receipt or re-weigh", () => {
+    const dom = base({ handling: "Domestic", needsReweigh: true, reweigh: null });
+    expect(brief(dom)).toEqual(["Gate-in:next", "WH release:later", "Gate-out:later"]);
+    const arrived = { ...dom, gateIn: T, status: "In Warehouse", releaseGates: clear };
+    expect(brief(arrived)).toEqual(["Gate-in:done", "WH release:blocked", "Gate-out:later"]);
+    expect(brief({ ...arrived, armed: true })).toEqual(["Gate-in:done", "WH release:next", "Gate-out:later"]);
+    const gone = gateSteps({ ...arrived, armed: true, impRelease: T, gateOut: T, events: [{ kind: "impRelease", label: "WH release", at: T, by: "Jan" }] });
+    expect(gone.map((s) => s.state)).toEqual(["done", "done", "done"]);
+    expect(gone[2]).toMatchObject({ by: "Jan", note: "Stamped with WH release" });
+    // A receipt stamped before Domestic had its own flow is kept, greyed out.
+    expect(gateSteps({ ...arrived, expDraft: T }).at(-1)).toMatchObject({ kind: "expDraft", legacy: true, note: "Not a Domestic step — kept from before" });
+  });
+
+  it("Domestic in the stamp checks: gate-out and receipts point to the right step; the gate-out never waits in the phone queue", () => {
+    const m = { visit: "příjem", handling: "Domestic", gateIn: T, impRelease: null };
+    expect(stampPrecheck(m, "gateOut", "Gate-out", null, (x) => x)).toMatch(/Domestic cargo leaves through WH release/);
+    expect(stampPrecheck(m, "expDraft", "Draft receipt", null, (x) => x)).toMatch(/its Gate-in is the receipt/);
+    expect(isQueueableStamp(m, "gateOut")).toBe(false);
+    expect(isQueueableStamp(m, "gateIn")).toBe(true);
+    expect(isQueueableStamp({ visit: "příjem", handling: "Export" }, "gateOut")).toBe(true);
+    expect(writesBack(m, "impRelease")).toBe("released date and plate");
+  });
+
+  it("Domestic leaves through the WH release on its OUT leg once it has arrived", () => {
+    expect(leavesByRelease({ visit: "příjem", handling: "Domestic" })).toBe(true);
+    expect(leavesByRelease({ visit: "příjem", handling: "Export" })).toBe(false);
+    expect(leavesByRelease({ visit: "výdej" })).toBe(true);
+    expect(cargoLeg({ visit: "příjem", handling: "Domestic", gateIn: null })).toBe("IN");
+    expect(cargoLeg({ visit: "příjem", handling: "Domestic", gateIn: T })).toBe("OUT");
+    expect(cargoLeg({ visit: "příjem", handling: "Export", gateIn: T })).toBe("IN");
+    expect(cargoLeg({ visit: "výdej", gateIn: null })).toBe("OUT");
   });
 });

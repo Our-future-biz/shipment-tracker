@@ -7,7 +7,7 @@ import type { GateMovement } from "@/hooks/useGateLog";
 import { formatDateTime } from "@/lib/date";
 import { TERMS } from "../../_lib/glossary";
 import { Badge } from "../../gate-log/_lib/gate";
-import { PICKUP_PIN_GATE, containerHoldsRelease, isOutbound } from "../../gate-log/_lib/steps";
+import { PICKUP_PIN_GATE, containerHoldsRelease, isDomestic, leavesByRelease } from "../../gate-log/_lib/steps";
 import { LifecycleStrip } from "../LifecycleStrip";
 import { releaseState } from "../../gate-log/_components/job/ReleaseGatesPanel";
 import { btnPrimary } from "../../gate-log/_components/job/fields";
@@ -30,7 +30,8 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
       </Card>
     );
   }
-  const out = isOutbound(m);
+  // Outbound and Domestic cargo leave through the WH release (Domestic: right after its gate-in).
+  const out = leavesByRelease(m);
   const state = releaseState(m);
   const pinLine = m.releaseGates.find((x) => x.g === PICKUP_PIN_GATE);
   const open = (
@@ -128,7 +129,9 @@ export function ReleaseReadiness({ m }: { m: GateMovement | undefined }) {
               )}
             </>
           ) : (
-            <span className="text-slate-400">{m.shipmentId ? "No pick-up entered in Shipments" : "Not linked to a shipment — no pick-up PIN"}</span>
+            <span className="text-slate-400">
+              {isDomestic(m) ? "Domestic cargo — no pick-up PIN" : m.shipmentId ? "No pick-up entered in Shipments" : "Not linked to a shipment — no pick-up PIN"}
+            </span>
           )}
         </div>
         <div className="rounded-lg border border-slate-200 px-3 py-2">
