@@ -6,12 +6,15 @@ import { toContactItem } from "../lib/mappers";
 import { customerService } from "./customer.service";
 
 export interface ContactInput {
-  name: string;
+  firstName: string;
+  lastName: string;
   email?: string;
   phone?: string;
   role?: ContactRole;
   isMain?: boolean;
 }
+
+export const fullName = (firstName: string, lastName: string) => [firstName.trim(), lastName.trim()].filter(Boolean).join(" ");
 
 class ContactService {
   async listByCustomer(customerId: string, companyId: string): Promise<ContactItem[]> {
@@ -23,10 +26,12 @@ class ContactService {
     if (input.isMain) await contactRepository.clearMainFlag(customerId, companyId);
     const values: Omit<NewContactRecord, "companyId"> = {
       customerId,
-      name: input.name,
+      name: fullName(input.firstName, input.lastName),
+      firstName: input.firstName.trim(),
+      lastName: input.lastName.trim(),
       email: input.email ?? "",
       phone: input.phone ?? "",
-      role: input.role ?? "Operations",
+      role: input.role ?? "Logistics Manager",
       isMain: input.isMain ?? false,
     };
     const row = await contactRepository.createForCompany(companyId, values);
@@ -40,7 +45,11 @@ class ContactService {
     if (!existing) throw APIError.notFound("Contact not found");
     if (input.isMain) await contactRepository.clearMainFlag(existing.customerId, companyId);
     const patch: Partial<NewContactRecord> = {};
-    if (input.name !== undefined) patch.name = input.name;
+    if (input.firstName !== undefined || input.lastName !== undefined) {
+      patch.firstName = (input.firstName ?? existing.firstName).trim();
+      patch.lastName = (input.lastName ?? existing.lastName).trim();
+      patch.name = fullName(patch.firstName, patch.lastName);
+    }
     if (input.email !== undefined) patch.email = input.email;
     if (input.phone !== undefined) patch.phone = input.phone;
     if (input.role !== undefined) patch.role = input.role;

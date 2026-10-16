@@ -38,6 +38,7 @@ export const useCustomerContacts = (customerId: string) => {
   return {
     contacts: query.data?.data ?? [],
     isLoading: query.isLoading,
+    isError: query.isError,
     createContact: createMutation.mutateAsync,
     updateContact: updateMutation.mutateAsync,
     deleteContact: deleteMutation.mutateAsync,

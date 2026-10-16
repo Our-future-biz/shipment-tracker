@@ -9,6 +9,7 @@ import { CUSTOMER_DETAIL_TABS, CUSTOMER_TAB_ALIASES } from "../_lib/constants";
 import { useCustomerListHref } from "../_lib/customerListHref";
 import { CustomerHeader } from "./_components/CustomerHeader";
 import { OverviewTab } from "./_tabs/OverviewTab";
+import { AddressesTab } from "./_tabs/AddressesTab";
 import { ContactsTab } from "./_tabs/ContactsTab";
 import { SitesTab } from "./_tabs/SitesTab";
 import { ShipmentsTab } from "./_tabs/ShipmentsTab";
@@ -86,6 +87,7 @@ export function CustomerDetailContent() {
         {activeTab === "overview" && <OverviewTab customerId={id} onSelectTab={handleSelectTab} />}
         {activeTab === "contacts" && <ContactsTab customerId={id} />}
         {activeTab === "sites" && <SitesTab customerId={id} />}
+        {activeTab === "addresses" && <AddressesTab customerId={id} />}
         {activeTab === "shipments" && <ShipmentsTab customerId={id} />}
         {activeTab === "quotes" && <QuotesTab customerId={id} />}
         {activeTab === "trucking" && <TruckingTab customerId={id} />}

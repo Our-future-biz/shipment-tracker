@@ -15,11 +15,13 @@ interface EditableTextProps {
   placeholder?: string;
   // What is being edited (e.g. "Sales owner"), announced by screen readers.
   label?: string;
+  // Shown but not editable (e.g. a field only a manager may change); the hover says why.
+  readOnlyReason?: string;
 }
 
 // Click-to-edit text: a button showing the value that turns into an input. Enter or leaving the field saves,
 // Escape cancels.
-export function EditableText({ value, onCommit, placeholder = "—", label }: EditableTextProps) {
+export function EditableText({ value, onCommit, placeholder = "—", label, readOnlyReason }: EditableTextProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -79,6 +81,14 @@ export function EditableText({ value, onCommit, placeholder = "—", label }: Ed
   }
 
   const shown = value || placeholder;
+
+  if (readOnlyReason) {
+    return (
+      <span title={readOnlyReason} className={`px-1 -mx-1 [overflow-wrap:anywhere] ${value ? "" : "text-slate-400"}`}>
+        {shown}
+      </span>
+    );
+  }
 
   return (
     <button

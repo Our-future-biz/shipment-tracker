@@ -1,15 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { RightOutlined, WarningFilled } from "@ant-design/icons";
+import { useCustomerContacts } from "@/hooks/useCustomerContacts";
 import { useCustomerDocuments } from "@/hooks/useCustomerDocuments";
 import { useCustomerInvoices } from "@/hooks/useCustomerInvoices";
 import { useCustomerNotes } from "@/hooks/useCustomerNotes";
-import { useCustomerQuotes } from "@/hooks/useCustomerQuotes";
 import { useCustomer } from "@/hooks/useCustomers";
 import { useLatestRates } from "@/lib/fx";
-import { useShipmentsNeedingAttention } from "@/hooks/useShipmentsNeedingAttention";
 import { buildCustomerAttention } from "../../_lib/customerAttention";
 import type { AttentionItem, AttentionSeverity } from "../../_lib/customerAttention";
 
@@ -25,6 +23,7 @@ interface SeverityStyle {
   header: string;
   icon: string;
   count: string;
+  title: string;
 }
 
 const SEVERITY_STYLE: Record<AttentionSeverity, SeverityStyle> = {
@@ -35,6 +34,7 @@ const SEVERITY_STYLE: Record<AttentionSeverity, SeverityStyle> = {
     header: "bg-red-50 border-red-100",
     icon: "text-red-500",
     count: "text-red-600",
+    title: "text-red-600",
   },
   warning: {
     label: "Warning:",
@@ -43,6 +43,7 @@ const SEVERITY_STYLE: Record<AttentionSeverity, SeverityStyle> = {
     header: "bg-amber-50 border-amber-100",
     icon: "text-amber-500",
     count: "text-amber-700",
+    title: "text-amber-700",
   },
 };
 
@@ -62,44 +63,37 @@ interface CustomerAttentionCardProps {
   onSelectTab: (key: string) => void;
 }
 
-// What needs somebody's attention on this customer right now — overdue money, deadlines, expiring quotes,
-// missing paperwork — each row leading to where it is dealt with. The card is absent when there is nothing.
+// What needs somebody's attention on this customer right now — overdue money,
+// missing paperwork, lapsed contact — each row leading to where it is dealt with. The card is absent when there is nothing.
 export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAttentionCardProps) {
   const { customer, isLoading: customerLoading } = useCustomer(customerId);
   const { invoices, isLoading: invoicesLoading } = useCustomerInvoices(customerId);
-  const { rates } = useLatestRates();
-  const { quotes, isLoading: quotesLoading } = useCustomerQuotes(customerId);
+  const { rates, isLoading: ratesLoading } = useLatestRates();
+  const { contacts, isLoading: contactsLoading, isError: contactsError } = useCustomerContacts(customerId);
   const { documents, isLoading: documentsLoading, isError: documentsError } = useCustomerDocuments(customerId);
   const { notes, isLoading: notesLoading, isError: notesError } = useCustomerNotes(customerId);
-  const { within24h, within48h, isLoading: dueLoading } = useShipmentsNeedingAttention();
   // Remembered per customer, so an unfolded list does not carry over to the next customer opened.
   const [expandedFor, setExpandedFor] = useState<string | null>(null);
-  // The due lists refresh every minute, and the refresh of a request that failed counts as loading again:
-  // they hold the card back only until they have settled once, or it would blink out on every refresh.
-  const [dueSettled, setDueSettled] = useState(false);
-  if (!dueLoading && !dueSettled) setDueSettled(true);
 
   // Until every source is in, the list would appear half-built and then grow or reorder under the reader.
-  const customerSourcesLoading =
-    customerLoading || invoicesLoading || quotesLoading || documentsLoading || notesLoading;
-  const isLoading = customerSourcesLoading || (dueLoading && !dueSettled);
+  // The rates too: without them a foreign invoice can't be weighed against the credit limit.
+  const isLoading = customerLoading || invoicesLoading || ratesLoading || contactsLoading || documentsLoading || notesLoading;
 
   const items = useMemo(() => {
     if (isLoading || !customer) return [];
     const built = buildCustomerAttention({
       customer,
       invoices,
-      dueWithin24h: within24h,
-      dueWithin48h: within48h,
-      quotes,
+      contacts,
       documents,
       notes,
       rates,
     });
-    // For documents and notes an empty list is itself a finding, but a list that could not be loaded is
+    // For contacts, documents and notes an empty list is itself a finding, but a list that could not be loaded is
     // not an empty one: its "nothing on file" row would be untrue.
-    return built.filter((item) => !(documentsError && item.key === "documents-missing") && !(notesError && item.key === "no-interaction"));
-  }, [isLoading, customer, invoices, within24h, within48h, quotes, documents, notes, rates, documentsError, notesError]);
+    return built.filter((item) => !(contactsError && item.key === "no-contact-person") &&
+        !(documentsError && item.key === "documents-missing") && !(notesError && item.key === "no-interaction"));
+  }, [isLoading, customer, invoices, contacts, documents, notes, rates, contactsError, documentsError, notesError]);
 
   if (items.length === 0) return null;
 
@@ -107,10 +101,20 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
   const expanded = expandedFor === customerId;
   const visibleItems = expanded ? items : items.slice(0, VISIBLE_ROWS);
 
+  // Brings the field into view first, so the input it turns into does not make the page jump when it takes the focus.
+  const openField = (id: string) => {
+    const trigger = document.getElementById(id);
+    if (!trigger) return;
+    trigger.scrollIntoView({ block: "center" });
+    trigger.focus();
+    // A locked field opens on a double click, as a person would open it.
+    trigger.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+  };
+
   const handleToggleExpanded = () => setExpandedFor(expanded ? null : customerId);
 
   const renderRow = (item: AttentionItem) => {
-    const { tab, href } = item;
+    const { tab, field } = item;
     const style = SEVERITY_STYLE[item.severity];
     const content = (
       <>
@@ -118,11 +122,11 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
           <span className={`h-2 w-2 rounded-full ${style.dot}`} />
         </span>
         <span className="flex-1 min-w-0 [overflow-wrap:anywhere]">
-          <span className="sr-only">{style.label}</span> <span className="font-semibold text-slate-800">{item.title}</span>
+          <span className="sr-only">{style.label}</span> <span className={`font-semibold ${style.title}`}>{item.title}</span>
           {item.detail && <span className="text-slate-600"> {item.detail}</span>}
         </span>
         {item.meta && <span className="shrink-0 whitespace-nowrap font-semibold tabular-nums text-slate-800">{item.meta}</span>}
-        {(tab || href) && (
+        {(tab || field) && (
           <span className="flex h-5 shrink-0 items-center text-[10px] text-slate-400">
             <RightOutlined aria-hidden />
           </span>
@@ -130,18 +134,18 @@ export function CustomerAttentionCard({ customerId, onSelectTab }: CustomerAtten
       </>
     );
 
+    if (field) {
+      return (
+        <button type="button" onClick={() => openField(field)} className={CLICKABLE_ROW_CLASS}>
+          {content}
+        </button>
+      );
+    }
     if (tab) {
       return (
         <button type="button" onClick={() => onSelectTab(tab)} className={CLICKABLE_ROW_CLASS}>
           {content}
         </button>
-      );
-    }
-    if (href) {
-      return (
-        <Link href={href} className={CLICKABLE_ROW_CLASS}>
-          {content}
-        </Link>
       );
     }
     return <div className={ROW_CLASS}>{content}</div>;

@@ -1,8 +1,9 @@
-import { and, arrayContains, asc, eq, inArray, or, ilike, desc, isNull } from "drizzle-orm";
+import { and, arrayContains, asc, eq, inArray, or, ilike, desc, isNull, ne } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { customerTable, type CustomerRecord } from "../schemas/customer.schema";
-import { contactTable } from "../schemas/contact.schema";
+import { customerTable, type CustomerRecord, type NewCustomerRecord } from "../schemas/customer.schema";
+import { contactTable, type NewContactRecord } from "../schemas/contact.schema";
+import { customerAddressTable, type NewCustomerAddressRecord } from "../schemas/customerAddress.schema";
 import { customerNoteTable } from "../schemas/customerNote.schema";
 import { customerDocumentTable } from "../schemas/customerDocument.schema";
 import { customerInvoiceTable } from "../schemas/customerInvoice.schema";
@@ -22,6 +23,23 @@ export interface CustomerListFilters {
 class CustomerRepository extends TenantRepository<typeof customerTable> {
   constructor() {
     super(db, customerTable, "customer");
+  }
+
+  /** Active when it is not already, live and of this company; true when a row changed. */
+  async activate(id: string, companyId: string): Promise<boolean> {
+    const rows = await this.db
+      .update(customerTable)
+      .set({ status: "Active", updatedAt: new Date() })
+      .where(
+        and(
+          eq(customerTable.id, id),
+          eq(customerTable.companyId, companyId),
+          isNull(customerTable.deletedAt),
+          ne(customerTable.status, "Active"),
+        ),
+      )
+      .returning({ id: customerTable.id });
+    return rows.length > 0;
   }
 
   // Every live customer of the company with what the sales pipeline shows of it. All of them -
@@ -93,8 +111,24 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       .limit(f.limit ?? 2000);
   }
 
+  // A new customer together with its first contact and its registered address, in one transaction:
+  // a customer is never left without them.
+  async createWithContact(
+    companyId: string,
+    customer: Omit<NewCustomerRecord, "companyId">,
+    contact: Omit<NewContactRecord, "companyId" | "customerId">,
+    address: Omit<NewCustomerAddressRecord, "companyId" | "customerId">,
+  ): Promise<CustomerRecord> {
+    return this.db.transaction(async (tx) => {
+      const [row] = await tx.insert(customerTable).values({ ...customer, companyId }).returning();
+      await tx.insert(contactTable).values({ ...contact, companyId, customerId: row!.id });
+      await tx.insert(customerAddressTable).values({ ...address, companyId, customerId: row!.id });
+      return row!;
+    });
+  }
+
   // The customer and everything filed under it go together, in one transaction, so no
-  // contact/note/document/invoice/site outlives its customer.
+  // address/contact/note/document/invoice/site outlives its customer.
   async softDeleteWithChildren(id: string, companyId: string): Promise<CustomerRecord | null> {
     return this.db.transaction(async (tx) => {
       const now = new Date();
@@ -105,6 +139,8 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
         .returning();
       if (!customer) return null;
       const gone = { deletedAt: now, updatedAt: now };
+      await tx.update(customerAddressTable).set(gone)
+        .where(and(eq(customerAddressTable.companyId, companyId), eq(customerAddressTable.customerId, id), isNull(customerAddressTable.deletedAt)));
       await tx.update(contactTable).set(gone)
         .where(and(eq(contactTable.companyId, companyId), eq(contactTable.customerId, id), isNull(contactTable.deletedAt)));
       await tx.update(customerNoteTable).set(gone)

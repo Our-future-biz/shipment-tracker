@@ -1,4 +1,5 @@
 import { APIError } from "encore.dev/api";
+import { auth } from "~encore/clients";
 import { customerRepository } from "../repositories/customer.repository";
 import type { CustomerListFilters } from "../repositories/customer.repository";
 import type { CustomerRecord, NewCustomerRecord } from "../schemas/customer.schema";
@@ -10,20 +11,51 @@ import type {
   CustomerRole,
   CustomerRollups,
   CustomerStatus,
+  NewCustomerContact,
+  RiskLevelOverride,
 } from "../interfaces/interfaces";
+import type { NewContactRecord } from "../schemas/contact.schema";
 import { iso } from "../../../lib/db/serialize";
+import { canManageSales } from "../../../lib/salesPolicy";
+import { isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
 import { aresService } from "./ares.service";
-import { logoService } from "./logo.service";
+import { fullName } from "./contact.service";
+
+/** A company outside the Czech Republic, typed in by hand: there is no registry to read it from. */
+export interface ManualCustomerInput {
+  /** ISO 3166-1 alpha-2, not CZ. */
+  country: string;
+  companyName: string;
+  registrationNumber?: string;
+  vatId?: string;
+  street: string;
+  city: string;
+  postalCode: string;
+  contact: NewCustomerContact;
+  /** ["customer"] when left out (a foreign haulier is added here too). */
+  roles?: CustomerRole[];
+}
+
+// The first contact of a new customer: its main one. Somebody must be reachable, so an email or a phone is needed.
+function firstContact(contact: NewCustomerContact): Omit<NewContactRecord, "companyId" | "customerId"> {
+  const firstName = contact.firstName.trim();
+  const lastName = contact.lastName.trim();
+  const email = (contact.email ?? "").trim();
+  const phone = (contact.phone ?? "").trim();
+  if (!firstName || !lastName) throw APIError.invalidArgument("The contact person needs a first and a last name");
+  if (!email && !phone) throw APIError.invalidArgument("The contact person needs an email or a phone number");
+  return { name: fullName(firstName, lastName), firstName, lastName, email, phone, role: contact.role ?? "Logistics Manager", isMain: true };
+}
 
 /** What a user may change on a customer (the rollups belong to the shipments service). */
 export interface CustomerPatch {
   companyName?: string;
   dic?: string;
   status?: CustomerStatus;
-  salesOwner?: string;
+  salesOwnerUserId?: string | null;
   currency?: string;
   label?: CustomerLabel;
   creditLimit?: number;
@@ -31,11 +63,13 @@ export interface CustomerPatch {
   freightPaymentTerms?: string;
   dutyPaymentTerms?: string;
   companyWebsite?: string;
-  city?: string;
-  country?: string;
-  registeredAddress?: string;
   nace?: string;
   roles?: CustomerRole[];
+  registrationDate?: string;
+  industry?: string;
+  typicalCargo?: string;
+  stability?: string;
+  riskLevel?: RiskLevelOverride;
 }
 
 // Must match the "PREPAYMENT" option of the web app's payment-terms selects (customers/_lib/constants.ts).
@@ -51,8 +85,63 @@ const requireRoles = (roles: CustomerRole[]): CustomerRole[] => {
 const today = () => new Date().toISOString().slice(0, 10);
 
 // Only the fields actually sent are written.
-const definedOnly = <T extends object>(patch: T): Partial<T> =>
-  Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) as Partial<T>;
+function definedOnly<T extends object>(patch: T): Partial<T> {
+  const out: Partial<T> = {};
+  for (const key of Object.keys(patch) as (keyof T)[]) {
+    if (patch[key] !== undefined) out[key] = patch[key];
+  }
+  return out;
+}
+
+/**
+ * Commercial fields of the whole company's relationship with a customer: who owns it, its
+ * credit, label, payment terms and the risk set by hand. Only a manager (or above) may change
+ * them; any user may edit the rest of the record.
+ */
+const MANAGER_FIELDS = [
+  "salesOwnerUserId",
+  "label",
+  "creditLimit",
+  "currency",
+  "paymentTerms",
+  "freightPaymentTerms",
+  "dutyPaymentTerms",
+  "industry",
+  "typicalCargo",
+  "stability",
+  "riskLevel",
+  // A haulier role puts the company into Trucking and its payables.
+  "roles",
+] as const satisfies readonly (keyof CustomerPatch)[];
+
+/** The manager-only fields a patch writes; empty when a plain user may make it. */
+export function managerFieldsIn(patch: CustomerPatch): string[] {
+  return MANAGER_FIELDS.filter((key) => patch[key] !== undefined);
+}
+
+// The owner columns for a picked user (its id and name), or for nobody.
+async function salesOwnerOf(userId: string | null): Promise<Pick<NewCustomerRecord, "salesOwner" | "salesOwnerUserId">> {
+  if (userId === null) return { salesOwner: "", salesOwnerUserId: null };
+  if (!isUuid(userId)) throw APIError.invalidArgument("salesOwnerUserId must be the id of a user");
+  // Only that user, of the caller's company and not deleted (auth looks it up by id).
+  const { users } = await auth.userLookup({ ids: [userId] });
+  const user = users.find((u) => u.id === userId);
+  if (!user) throw APIError.invalidArgument("salesOwnerUserId must be a user of the company");
+  return { salesOwner: user.name, salesOwnerUserId: user.id };
+}
+
+/**
+ * The insert of a new customer. The IČO check before it gives the friendly answer; two creates
+ * racing past it are stopped by the unique index, and the loser gets the same answer, not a 500.
+ */
+async function insertUnique<T>(insert: () => Promise<T>, what: string): Promise<T> {
+  try {
+    return await insert();
+  } catch (err) {
+    if (isUniqueViolation(err)) throw APIError.alreadyExists(`A customer with this ${what} already exists`);
+    throw err;
+  }
+}
 
 class CustomerService {
   async list(companyId: string, filters: CustomerListFilters = {}): Promise<CustomerItem[]> {
@@ -65,8 +154,7 @@ class CustomerService {
     return toCustomerItem(row);
   }
 
-  /** Throws not found unless the customer is live in this company (for writes under it). */
-  /** The live customer of this company; notFound otherwise. */
+  /** The live customer of this company (for writes under it); notFound otherwise. */
   async requireLive(id: string, companyId: string): Promise<CustomerRecord> {
     const customer = await customerRepository.getByIdForCompany(id, companyId);
     if (!customer) throw APIError.notFound("Customer not found");
@@ -89,8 +177,14 @@ class CustomerService {
     return customerRepository.haulierList(companyId, ids);
   }
 
-  async createFromAres(companyId: string, ico: string, roles: CustomerRole[] = ["customer"]): Promise<CustomerItem> {
+  async createFromAres(
+    companyId: string,
+    ico: string,
+    contact: NewCustomerContact,
+    roles: CustomerRole[] = ["customer"],
+  ): Promise<CustomerItem> {
     const checkedRoles = requireRoles(roles);
+    const mainContact = firstContact(contact);
     if (await customerRepository.findByIco(ico, companyId)) {
       throw APIError.alreadyExists("A customer with this IČO already exists");
     }
@@ -103,26 +197,71 @@ class CustomerService {
       registeredAddress: ares.registeredAddress,
       city: ares.city,
       country: ares.country,
-      companyStatus: ares.companyStatus,
       registrationDate: dateInput(ares.registrationDate, "registrationDate") ?? null,
       nace: ares.nace,
       dataSource: "ARES",
       lastRegistryUpdate: today(),
       status: "Prospect",
-      label: "PROSPECT",
+      label: "TARGET CUSTOMER",
       // A new customer pays in advance until payment terms are agreed and set on its page.
       paymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
       freightPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
       dutyPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
       roles: checkedRoles,
     };
-    const row = await customerRepository.createForCompany(companyId, values);
+    const registered = { type: "Registered" as const, street: ares.street, city: ares.postalCity || ares.city, postalCode: ares.postalCode, country: ares.country };
+    const row = await insertUnique(() => customerRepository.createWithContact(companyId, values, mainContact, registered), "IČO");
     return toCustomerItem(row);
   }
 
-  async update(id: string, companyId: string, patch: CustomerPatch): Promise<CustomerItem> {
-    const values = definedOnly(patch);
+  async createManual(companyId: string, input: ManualCustomerInput): Promise<CustomerItem> {
+    const mainContact = firstContact(input.contact);
+    const checkedRoles = requireRoles(input.roles ?? ["customer"]);
+    const country = input.country.trim().toUpperCase();
+    if (country === "CZ") throw APIError.invalidArgument("A Czech company is added from ARES by its IČO");
+    const registrationNumber = (input.registrationNumber ?? "").trim();
+    if (registrationNumber && (await customerRepository.findByIco(registrationNumber, companyId))) {
+      throw APIError.alreadyExists("A customer with this registration number already exists");
+    }
+    const street = input.street.trim();
+    const city = input.city.trim();
+    const postalCode = input.postalCode.trim();
+    const values: Omit<NewCustomerRecord, "companyId"> = {
+      // The column holds the IČO of a Czech customer and the registration number of a foreign one.
+      ico: registrationNumber,
+      dic: (input.vatId ?? "").trim(),
+      companyName: input.companyName.trim(),
+      registeredAddress: [street, [postalCode, city].filter(Boolean).join(" ")].filter(Boolean).join(", "),
+      city,
+      country,
+      dataSource: "Manual",
+      roles: checkedRoles,
+      status: "Prospect",
+      label: "TARGET CUSTOMER",
+      paymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
+      freightPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
+      dutyPaymentTerms: NEW_CUSTOMER_PAYMENT_TERMS,
+    };
+    const registered = { type: "Registered" as const, street, city, postalCode, country };
+    const row = await insertUnique(() => customerRepository.createWithContact(companyId, values, mainContact, registered), "registration number");
+    return toCustomerItem(row);
+  }
+
+  async update(id: string, companyId: string, role: string, patch: CustomerPatch): Promise<CustomerItem> {
+    const restricted = managerFieldsIn(patch);
+    if (restricted.length && !canManageSales(role)) {
+      throw APIError.permissionDenied(`Only a manager can change: ${restricted.join(", ")}`);
+    }
+    const { salesOwnerUserId, registrationDate, ...fields } = patch;
+    const values: Partial<NewCustomerRecord> = definedOnly(fields);
     if (values.roles) values.roles = requireRoles(values.roles);
+    // A date column: "" clears it, anything but a date is refused.
+    const regDate = dateInput(registrationDate, "registrationDate");
+    if (regDate !== undefined) values.registrationDate = regDate;
+    for (const key of ["industry", "typicalCargo", "stability"] as const) {
+      if (values[key] !== undefined) values[key] = values[key]!.trim();
+    }
+    if (salesOwnerUserId !== undefined) Object.assign(values, await salesOwnerOf(salesOwnerUserId));
     const row = await customerRepository.updateForCompany(id, companyId, values);
     if (!row) throw APIError.notFound("Customer not found");
     return toCustomerItem(row);
@@ -141,19 +280,16 @@ class CustomerService {
     }
   }
 
+  // A won quote makes its customer Active, from Prospect or Inactive alike. A customer deleted meanwhile is skipped.
+  /** One statement, so a delete or a manual status change in between is never overwritten. */
+  async activate(id: string, companyId: string): Promise<boolean> {
+    return customerRepository.activate(id, companyId);
+  }
+
   async softDelete(id: string, companyId: string): Promise<void> {
     if (!(await customerRepository.softDeleteWithChildren(id, companyId))) {
       throw APIError.notFound("Customer not found");
     }
-  }
-
-  async fetchLogo(id: string, companyId: string): Promise<CustomerItem> {
-    const customer = await customerRepository.getByIdForCompany(id, companyId);
-    if (!customer) throw APIError.notFound("Customer not found");
-    if (!customer.companyWebsite) throw APIError.invalidArgument("Customer has no website to fetch a logo from");
-    const result = await logoService.fetchLogo(customer.companyWebsite);
-    if (!result) throw APIError.notFound("No logo could be fetched for this website");
-    return this.setLogo(id, companyId, { logoData: result.dataUrl, logoSource: result.sourceUrl, logoUpdatedAt: result.updatedAt });
   }
 
   async uploadLogo(id: string, companyId: string, dataUrl: string): Promise<CustomerItem> {

@@ -95,7 +95,7 @@ export const TruckingHauliersTab = () => {
   const { hauliers, isLoading } = useHauliers();
   const { settings } = useTruckingSettings();
   // Only the create call: the dialog needs no customer list.
-  const { createCustomer, isCreating } = useCustomers({}, { enabled: false });
+  const { createCustomer, createManualCustomer, isCreating } = useCustomers({}, { enabled: false });
   const [addOpen, setAddOpen] = useState(false);
   const today = businessToday();
 
@@ -171,6 +171,7 @@ export const TruckingHauliersTab = () => {
         onClose={() => setAddOpen(false)}
         onCreated={handleCreated}
         createCustomer={createCustomer}
+        createManualCustomer={createManualCustomer}
         isCreating={isCreating}
         defaultRoles={HAULIER_ROLE}
       />

@@ -82,3 +82,21 @@ describe("registerEntryFrom", () => {
     expect(registerEntryFrom({ zaznamy: [{ spisovaZnacka: [] }] })).toBe("");
   });
 });
+
+describe("ARES name search guards", () => {
+  it("tells 'too many companies' apart from other refusals", async () => {
+    const { isTooManyAnswer } = await import("../services/ares.service");
+    expect(isTooManyAnswer('{"kod":"CHYBA_VSTUPU","subKod":"VYSTUP_PRILIS_MNOHO_VYSLEDKU","popis":"Příliš mnoho výsledků"}')).toBe(true);
+    expect(isTooManyAnswer('{"kod":"CHYBA_VSTUPU","popis":"Nepovolené znaky"}')).toBe(false);
+    expect(isTooManyAnswer("")).toBe(false);
+  });
+
+  it("brakes runaway searching per company", async () => {
+    const { searchAllowed, SEARCHES_PER_MINUTE } = await import("../services/ares.service");
+    const t0 = 1_000_000;
+    for (let i = 0; i < SEARCHES_PER_MINUTE; i++) expect(searchAllowed("company-a", t0 + i)).toBe(true);
+    expect(searchAllowed("company-a", t0 + 100)).toBe(false);
+    expect(searchAllowed("company-b", t0 + 100)).toBe(true);
+    expect(searchAllowed("company-a", t0 + 61_000)).toBe(true);
+  });
+});

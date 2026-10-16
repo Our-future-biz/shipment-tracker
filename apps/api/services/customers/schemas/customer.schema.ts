@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, numeric, date, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, numeric, date, index, uniqueIndex, check, uuid } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantColumns, tenantIndex } from "../../../lib/db/defaults";
-import type { CustomerLabel, CustomerRole, CustomerStatus } from "../interfaces/interfaces";
+import type { CustomerLabel, CustomerRole, CustomerStatus, RiskLevelOverride } from "../interfaces/interfaces";
 
 export const customerTable = pgTable(
   "customer",
@@ -17,16 +17,25 @@ export const customerTable = pgTable(
     registeredAddress: text("registered_address").notNull().default(""),
     city: text("city").notNull().default(""),
     country: text("country").notNull().default("CZ"),
+    // No longer read or written: ARES never sent the field it was filled from. Dropped once every branch is on main.
     companyStatus: text("company_status").notNull().default(""),
     registrationDate: date("registration_date", { mode: "string" }),
     nace: text("nace").notNull().default(""),
+    // Company analysis typed in by hand: each overrides what is derived from the registry data; "" = derived.
+    industry: text("industry").notNull().default(""),
+    typicalCargo: text("typical_cargo").notNull().default(""),
+    stability: text("stability").notNull().default(""),
+    riskLevel: text("risk_level").$type<RiskLevelOverride>().notNull().default(""),
     dataSource: text("data_source").notNull().default("ARES"),
     lastRegistryUpdate: text("last_registry_update").notNull().default(""),
 
     // — CRM data —
     status: text("status").$type<CustomerStatus>().notNull().default("Prospect"),
+    // The owner's name as it was when the user was picked; empty, or a name typed before owners were users.
     salesOwner: text("sales_owner").notNull().default(""),
-    label: text("label").$type<CustomerLabel>().notNull().default("STANDARD"),
+    // A user of the auth service (another database, so no foreign key); null when nobody is picked.
+    salesOwnerUserId: uuid("sales_owner_user_id"),
+    label: text("label").$type<CustomerLabel>().notNull().default("TARGET CUSTOMER"),
     // Money as numeric (exact) rather than real (lossy float); mode:"number" keeps the API type a JS number.
     creditLimit: numeric("credit_limit", { precision: 14, scale: 2, mode: "number" }).notNull().default(0),
     currency: text("currency").notNull().default("EUR"),
@@ -52,17 +61,19 @@ export const customerTable = pgTable(
     ...defaultTableIndexes("customer", table),
     tenantIndex("customer", table),
     index("customer_status_idx").on(table.status),
-    // IČO is unique per company among live customers, so different companies can each
-    // have the same Czech entity as a customer, and a soft-deleted one can be re-created.
+    // IČO (a registration number for a foreign customer) is unique per company among live customers, so
+    // different companies can each have the same entity as a customer, and a soft-deleted one can be re-created.
+    // A foreign customer may have none: those are not compared.
     uniqueIndex("customer_company_ico_unique")
       .on(table.companyId, table.ico)
-      .where(sql`deleted_at IS NULL`),
+      .where(sql`deleted_at IS NULL AND ico <> ''`),
     // Closed sets driven by UI selects — reject anything else at the DB level so a typo
     // can't silently drop a customer out of every status filter and KPI.
+    check("customer_risk_level_check", sql`${table.riskLevel} IN ('', 'Low', 'Medium', 'High')`),
     check("customer_status_check", sql`${table.status} IN ('Active', 'Prospect', 'Inactive')`),
     check(
       "customer_label_check",
-      sql`${table.label} IN ('KEY ACCOUNT', 'STANDARD', 'TARGET CUSTOMER', 'PROSPECT', 'RISK')`,
+      sql`${table.label} IN ('KEY ACCOUNT', 'STANDARD', 'TARGET CUSTOMER', 'RISK')`,
     ),
     // At least one role, and only known ones.
     check(

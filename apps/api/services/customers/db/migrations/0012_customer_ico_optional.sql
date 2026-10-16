@@ -1,0 +1,2 @@
+DROP INDEX "customer_company_ico_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "customer_company_ico_unique" ON "customer" USING btree ("company_id","ico") WHERE deleted_at IS NULL AND ico <> '';

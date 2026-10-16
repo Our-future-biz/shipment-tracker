@@ -35,7 +35,7 @@ beforeEach(() => {
 
 describe("pipelineList", () => {
   it("reads every live customer of the company - no other condition, no limit", async () => {
-    const customers = [{ id: "customer-1", companyName: "ITTEC, s.r.o.", status: "Prospect", label: "PROSPECT", salesOwner: "Martin", createdAt: new Date("2026-09-01T08:00:00.000Z") }];
+    const customers = [{ id: "customer-1", companyName: "ITTEC, s.r.o.", status: "Prospect", label: "TARGET CUSTOMER", salesOwner: "Martin", createdAt: new Date("2026-09-01T08:00:00.000Z") }];
     fake.state.found = customers;
     await expect(customerRepository.pipelineList(COMPANY)).resolves.toEqual(customers);
     const { sql, params } = new PgDialect().sqlToQuery(fake.state.reads[0]!.where as SQL);

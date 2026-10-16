@@ -4,13 +4,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("../../db/db", () => ({ db: {} }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
+vi.mock("~encore/clients", () => ({ auth: { usersList: vi.fn() } }));
 vi.mock("../../repositories/customer.repository", () => ({
   customerRepository: {
     pipelineList: vi.fn(),
     listFiltered: vi.fn(),
     findByIco: vi.fn(),
-    createForCompany: vi.fn(),
+    createWithContact: vi.fn(),
+    getByIdForCompany: vi.fn(),
     updateForCompany: vi.fn(),
+    activate: vi.fn(),
   },
 }));
 vi.mock("../../services/ares.service", () => ({ aresService: { lookup: vi.fn() } }));
@@ -38,11 +41,11 @@ beforeEach(() => {
 describe("pipelineList", () => {
   it("hands out the company's customers as the pipeline needs them, the creation time as an ISO string", async () => {
     repository.pipelineList.mockResolvedValue([
-      { id: "customer-1", companyName: "ITTEC, s.r.o.", status: "Prospect", label: "PROSPECT", salesOwner: "Martin", createdAt: new Date("2026-09-01T08:00:00.123Z") },
+      { id: "customer-1", companyName: "ITTEC, s.r.o.", status: "Prospect", label: "TARGET CUSTOMER", salesOwner: "Martin", createdAt: new Date("2026-09-01T08:00:00.123Z") },
       { id: "customer-2", companyName: "RAVAK a.s.", status: "Active", label: "KEY ACCOUNT", salesOwner: "", createdAt: new Date("2026-08-01T08:00:00.000Z") },
     ]);
     await expect(customerService.pipelineList(COMPANY)).resolves.toEqual([
-      { id: "customer-1", companyName: "ITTEC, s.r.o.", status: "Prospect", label: "PROSPECT", salesOwner: "Martin", createdAt: "2026-09-01T08:00:00.123Z" },
+      { id: "customer-1", companyName: "ITTEC, s.r.o.", status: "Prospect", label: "TARGET CUSTOMER", salesOwner: "Martin", createdAt: "2026-09-01T08:00:00.123Z" },
       { id: "customer-2", companyName: "RAVAK a.s.", status: "Active", label: "KEY ACCOUNT", salesOwner: "", createdAt: "2026-08-01T08:00:00.000Z" },
     ]);
     expect(repository.pipelineList).toHaveBeenCalledWith(COMPANY);
@@ -50,6 +53,8 @@ describe("pipelineList", () => {
 });
 
 describe("roles", () => {
+  const CONTACT = { firstName: "Jana", lastName: "Nová", email: "jana@example.cz" };
+
   it("are passed on as a list filter, and every item carries its roles", async () => {
     repository.listFiltered.mockResolvedValue([customerRow({ roles: ["customer", "haulier"] })]);
     const [item] = await customerService.list(COMPANY, { role: "haulier" });
@@ -60,30 +65,47 @@ describe("roles", () => {
   it("make a new company a customer unless others are given", async () => {
     repository.findByIco.mockResolvedValue(null);
     ares.lookup.mockResolvedValue({ ico: "12345678", registrationDate: "" } as never);
-    repository.createForCompany.mockResolvedValue(customerRow());
-    await customerService.createFromAres(COMPANY, "12345678");
-    expect(repository.createForCompany).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ roles: ["customer"] }));
+    repository.createWithContact.mockResolvedValue(customerRow());
+    await customerService.createFromAres(COMPANY, "12345678", CONTACT);
+    expect(repository.createWithContact).toHaveBeenCalledWith(COMPANY, expect.objectContaining({ roles: ["customer"] }), expect.anything(), expect.anything());
 
-    await customerService.createFromAres(COMPANY, "12345678", ["haulier"]);
-    expect(repository.createForCompany).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ roles: ["haulier"] }));
+    await customerService.createFromAres(COMPANY, "12345678", CONTACT, ["haulier"]);
+    expect(repository.createWithContact).toHaveBeenLastCalledWith(COMPANY, expect.objectContaining({ roles: ["haulier"] }), expect.anything(), expect.anything());
   });
 
   it("are stored once each when changed", async () => {
     repository.updateForCompany.mockResolvedValue(customerRow({ roles: ["haulier", "customer"] }));
-    await customerService.update("customer-1", COMPANY, { roles: ["haulier", "customer", "haulier"] });
+    await customerService.update("customer-1", COMPANY, "manager", { roles: ["haulier", "customer", "haulier"] });
     expect(repository.updateForCompany).toHaveBeenCalledWith("customer-1", COMPANY, { roles: ["haulier", "customer"] });
   });
 
   it("can't be emptied: a company is always at least a customer or a haulier", async () => {
-    await expect(customerService.update("customer-1", COMPANY, { roles: [] })).rejects.toMatchObject({ code: "invalid_argument" });
-    await expect(customerService.createFromAres(COMPANY, "12345678", [])).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(customerService.update("customer-1", COMPANY, "manager", { roles: [] })).rejects.toMatchObject({ code: "invalid_argument" });
+    await expect(customerService.createFromAres(COMPANY, "12345678", CONTACT, [])).rejects.toMatchObject({ code: "invalid_argument" });
     expect(repository.updateForCompany).not.toHaveBeenCalled();
-    expect(repository.createForCompany).not.toHaveBeenCalled();
+    expect(repository.createWithContact).not.toHaveBeenCalled();
+  });
+
+  it("are changed only by a manager (a haulier role reaches Trucking and its payables)", async () => {
+    await expect(customerService.update("customer-1", COMPANY, "user", { roles: ["haulier"] })).rejects.toMatchObject({ code: "permission_denied" });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
   });
 
   it("stay as they are when a change does not send them", async () => {
     repository.updateForCompany.mockResolvedValue(customerRow());
-    await customerService.update("customer-1", COMPANY, { salesOwner: "Martin" });
-    expect(repository.updateForCompany).toHaveBeenCalledWith("customer-1", COMPANY, { salesOwner: "Martin" });
+    await customerService.update("customer-1", COMPANY, "user", { companyName: "ITTEC" });
+    expect(repository.updateForCompany).toHaveBeenCalledWith("customer-1", COMPANY, { companyName: "ITTEC" });
+  });
+});
+
+describe("activate", () => {
+  it("is one conditional write in the repository: true when a row changed", async () => {
+    repository.activate.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    await expect(customerService.activate("customer-1", COMPANY)).resolves.toBe(true);
+    // Already Active, deleted or of another company: nothing matched, nothing written.
+    await expect(customerService.activate("customer-1", COMPANY)).resolves.toBe(false);
+    expect(repository.activate).toHaveBeenCalledWith("customer-1", COMPANY);
+    expect(repository.getByIdForCompany).not.toHaveBeenCalled();
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
   });
 });

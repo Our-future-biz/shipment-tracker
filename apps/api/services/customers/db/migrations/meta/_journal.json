@@ -61,8 +61,71 @@
     {
       "idx": 8,
       "version": "7",
+      "when": 1792006525255,
+      "tag": "0008_drop_prospect_account_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792007038575,
+      "tag": "0009_contact_first_last_name",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792007941000,
+      "tag": "0010_customer_sales_owner_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792008403101,
+      "tag": "0011_contact_roles",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792008811414,
+      "tag": "0012_customer_ico_optional",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1792010147121,
+      "tag": "0013_customer_address",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1792012452045,
+      "tag": "0014_company_analysis_overrides",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1792090375393,
+      "tag": "0015_customer_list_pref",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1792135729741,
+      "tag": "0016_one_registered_address",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
       "when": 1792053559133,
-      "tag": "0008_customer_roles_and_sites",
+      "tag": "0017_customer_roles_and_sites",
       "breakpoints": true
     }
   ]

@@ -12,6 +12,7 @@ import { CustomerAgingCard, invoiceCountLabel } from "../_components/CustomerAgi
 import { CustomerCreditCard, utilizationTone } from "../_components/CustomerCreditCard";
 import { CustomerInvoicesCard } from "../_components/CustomerInvoicesCard";
 import { CustomerKpiTile, KPI_GRID_CLASS } from "../_components/CustomerKpiTile";
+import { CustomerPaymentTermsCard } from "../_components/CustomerPaymentTermsCard";
 import { CustomerProfitabilityView } from "../_components/CustomerProfitabilityView";
 import { EMPTY_CELL } from "../../_lib/customerTable";
 
@@ -126,6 +127,8 @@ export function FinanceTab({ customerId, onSelectTab }: FinanceTabProps) {
                   />
                 </div>
 
+                {/* Keyed so an edit still being saved never carries over to another customer. */}
+                <CustomerPaymentTermsCard key={customer.id} customer={customer} />
                 <CustomerCreditCard customer={customer} outstanding={summary.outstanding} utilization={utilization} />
                 <CustomerAgingCard aging={summary.aging} currency={currency} />
               </div>

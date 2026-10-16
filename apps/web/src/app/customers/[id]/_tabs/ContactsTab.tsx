@@ -1,15 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Table, Tag } from "antd";
-import { DeleteOutlined, EditOutlined, PlusOutlined, StarFilled } from "@ant-design/icons";
+import { Button, Dropdown, Table, Tag } from "antd";
+import { DeleteOutlined, EditOutlined, EllipsisOutlined, PlusOutlined, StarFilled } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerContacts } from "@/hooks/useCustomerContacts";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
 import { useToast } from "@/lib/toast";
-import { CONTACT_ROLE_COLORS } from "../../_lib/constants";
+import { contactRoleColor } from "../../_lib/constants";
 import { CustomerContactDialog } from "../_components/CustomerContactDialog";
 import type { CustomerContactFormValues } from "../_components/CustomerContactDialog";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
@@ -24,7 +24,7 @@ interface ContactDialogState {
 }
 
 export function ContactsTab({ customerId }: { customerId: string }) {
-  const { contacts, isLoading, createContact, updateContact, deleteContact } = useCustomerContacts(customerId);
+  const { contacts, isLoading, isError, createContact, updateContact, deleteContact } = useCustomerContacts(customerId);
   const toast = useToast();
   const [dialog, setDialog] = useState<ContactDialogState>({ key: 0, open: false, contact: null });
   const [saving, setSaving] = useState(false);
@@ -100,10 +100,10 @@ export function ContactsTab({ customerId }: { customerId: string }) {
     {
       title: "Role",
       dataIndex: "role",
-      width: 130,
+      width: 200,
       render: (v: string) =>
         v ? (
-          <Tag color={CONTACT_ROLE_COLORS[v] ?? "default"} className="!m-0">
+          <Tag color={contactRoleColor(v)} className="!m-0">
             {v}
           </Tag>
         ) : (
@@ -113,11 +113,27 @@ export function ContactsTab({ customerId }: { customerId: string }) {
     {
       title: "",
       key: "actions",
-      width: 90,
+      width: 56,
       render: (_: unknown, r) => (
-        <div className="flex justify-end gap-1">
-          <Button type="text" size="small" icon={<EditOutlined />} aria-label={`Edit ${r.name}`} onClick={() => handleOpenDialog(r)} />
-          <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`Delete ${r.name}`} onClick={() => setDeleteTarget(r)} />
+        <div className="flex justify-end">
+          <Dropdown
+            trigger={["click"]}
+            placement="bottomRight"
+            menu={{
+              items: [
+                { key: "edit", label: "Edit", icon: <EditOutlined />, onClick: () => handleOpenDialog(r) },
+                { key: "delete", label: "Delete", icon: <DeleteOutlined />, danger: true, onClick: () => setDeleteTarget(r) },
+              ],
+            }}
+          >
+            <Button
+              type="text"
+              size="small"
+              icon={<EllipsisOutlined className="!text-[20px]" />}
+              aria-label={`Actions for ${r.name}`}
+              className="!text-slate-600 hover:!text-slate-900"
+            />
+          </Dropdown>
         </div>
       ),
     },
@@ -149,7 +165,7 @@ export function ContactsTab({ customerId }: { customerId: string }) {
           columns={columns}
           scroll={{ x: "max-content" }}
           pagination={TABLE_PAGINATION}
-          locale={{ emptyText: "No contacts yet" }}
+          locale={{ emptyText: isError ? "Could not load the contacts." : "No contacts yet" }}
         />
       </SectionCard>
 

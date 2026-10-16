@@ -3,7 +3,7 @@
 import { SectionCard } from "@/components/SectionCard";
 import type { CustomerItem } from "@/hooks/useCustomers";
 import { formatDate } from "@/lib/date";
-import { isDataStale, isRegistryActive, legalFormText, parseNaceCodes } from "../../_lib/companyAnalysis";
+import { isDataStale, legalFormText, parseNaceCodes } from "../../_lib/companyAnalysis";
 import { CustomerInfoRow } from "./CustomerInfoRow";
 
 const MAX_NACE_CODES = 8;
@@ -14,6 +14,7 @@ interface CustomerRegistryCardProps {
 
 // What the Czech business registry (ARES) returned when the customer was created. Read-only.
 export function CustomerRegistryCard({ customer }: CustomerRegistryCardProps) {
+  const czech = customer.country === "CZ";
   const legalForm = legalFormText(customer.legalForm);
   const naceCodes = parseNaceCodes(customer.nace);
   const naceText = naceCodes.slice(0, MAX_NACE_CODES).join(", ") + (naceCodes.length > MAX_NACE_CODES ? "…" : "");
@@ -22,8 +23,9 @@ export function CustomerRegistryCard({ customer }: CustomerRegistryCardProps) {
 
   return (
     <SectionCard title="Registry (ARES)">
-      <CustomerInfoRow label="IČO" narrow>{customer.ico}</CustomerInfoRow>
-      <CustomerInfoRow label="DIČ" narrow>{customer.dic}</CustomerInfoRow>
+      {/* A foreign customer, typed in by hand, has its own country's registration number and VAT ID. */}
+      <CustomerInfoRow label={czech ? "IČO" : "Registration number"} narrow>{customer.ico}</CustomerInfoRow>
+      <CustomerInfoRow label={czech ? "DIČ" : "VAT ID"} narrow>{customer.dic}</CustomerInfoRow>
       <CustomerInfoRow label="Legal form" narrow>
         {customer.legalForm ? (
           <>
@@ -32,9 +34,6 @@ export function CustomerRegistryCard({ customer }: CustomerRegistryCardProps) {
             {legalForm !== customer.legalForm && <span className="ml-1.5 font-normal text-slate-400">{customer.legalForm}</span>}
           </>
         ) : null}
-      </CustomerInfoRow>
-      <CustomerInfoRow label="Registry status" narrow>
-        {isRegistryActive(customer.companyStatus) ? customer.companyStatus : <span className="text-red-600">{customer.companyStatus}</span>}
       </CustomerInfoRow>
       <CustomerInfoRow label="Registered address" narrow>{customer.registeredAddress}</CustomerInfoRow>
       <CustomerInfoRow label="City" narrow>{customer.city}</CustomerInfoRow>

@@ -12,17 +12,20 @@ export const contactTable = pgTable(
     customerId: uuid("customer_id")
       .notNull()
       .references(() => customerTable.id, { onDelete: "cascade" }),
+    // The full name, kept as "First Last" by the API: quotes and shipments read this one.
     name: text("name").notNull(),
+    firstName: text("first_name").notNull().default(""),
+    lastName: text("last_name").notNull().default(""),
     email: text("email").notNull().default(""),
     phone: text("phone").notNull().default(""),
-    role: text("role").$type<ContactRole>().notNull().default("Operations"),
+    role: text("role").$type<ContactRole>().notNull().default("Logistics Manager"),
     isMain: boolean("is_main").notNull().default(false),
   },
   (table) => [
     ...defaultTableIndexes("contact", table),
     tenantIndex("contact", table),
     index("contact_customer_id_idx").on(table.customerId),
-    check("contact_role_check", sql`${table.role} IN ('Sales', 'Operations', 'Finance')`),
+    check("contact_role_check", sql`${table.role} IN ('Purchasing / Procurement', 'Customer Service', 'Logistics Manager', 'Warehouse', 'Finance / Accounting', 'Sales', 'Management', 'Owner')`),
   ],
 );
 

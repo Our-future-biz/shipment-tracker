@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // The service is run for real against stand-ins for the repositories.
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("../../db/db", () => ({ db: {} }));
+// customer.service (requireLive) also loads the auth client and ARES (which logs).
+vi.mock("~encore/clients", () => ({ auth: { userLookup: vi.fn() } }));
+vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() } }));
 const customers = vi.hoisted(() => ({ getByIdForCompany: vi.fn() }));
 const sites = vi.hoisted(() => ({
   findByCustomer: vi.fn(),

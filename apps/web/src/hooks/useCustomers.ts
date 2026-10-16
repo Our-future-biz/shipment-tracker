@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { customerQuotesKeys } from "@/hooks/salesQueryKeys";
+import { customerAddressesKey } from "@/hooks/useCustomerAddresses";
 
 export type CustomerItem = interfaces.CustomerItem;
 
@@ -26,6 +27,7 @@ const CUSTOMER_RECORD_KEYS = [
   "customer-documents",
   "customer-invoices",
   "customer-shipments",
+  customerAddressesKey("")[0],
   customerQuotesKeys.all[0],
 ];
 
@@ -49,12 +51,20 @@ export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true 
     enabled,
   });
 
+  // Not awaited: creating a customer must not wait for the whole list to download again.
+  const refreshList = () => {
+    queryClient.invalidateQueries({ queryKey: ["customers"] });
+  };
+
   const createMutation = useMutation({
     mutationFn: (params: controllers.CustomerCreateRequest) => api.customers.customerCreate(params),
-    // Not awaited: creating a customer must not wait for the whole list to download again.
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
-    },
+    onSuccess: refreshList,
+  });
+
+  // A company outside the Czech Republic, typed in by hand.
+  const createManualMutation = useMutation({
+    mutationFn: (params: controllers.CustomerCreateManualRequest) => api.customers.customerCreateManual(params),
+    onSuccess: refreshList,
   });
 
   return {
@@ -63,7 +73,8 @@ export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true 
     isFetching: query.isFetching,
     isError: query.isError,
     createCustomer: createMutation.mutateAsync,
-    isCreating: createMutation.isPending,
+    createManualCustomer: createManualMutation.mutateAsync,
+    isCreating: createMutation.isPending || createManualMutation.isPending,
   };
 };
 
@@ -93,14 +104,14 @@ export const useCustomer = (id: string | null) => {
     queryClient.invalidateQueries({ queryKey: ["customers"] });
   };
 
+  // The saved row is put in the cache straight away, so a field shows the new value without
+  // flicking back to the old one until the refetch lands.
   const updateMutation = useMutation({
     mutationFn: (params: controllers.CustomerUpdateRequest) => api.customers.customerUpdate(id as string, params),
-    onSuccess: invalidate,
-  });
-
-  const fetchLogoMutation = useMutation({
-    mutationFn: () => api.customers.logoFetch(id as string),
-    onSuccess: invalidate,
+    onSuccess: (res) => {
+      queryClient.setQueryData<controllers.CustomerGetResponse>(["customer", id], (prev) => (prev ? { ...prev, customer: res.customer } : prev));
+      invalidate();
+    },
   });
 
   const uploadLogoMutation = useMutation({
@@ -121,8 +132,6 @@ export const useCustomer = (id: string | null) => {
     refetch: query.refetch,
     updateCustomer: updateMutation.mutateAsync,
     deleteCustomer: deleteMutation.mutateAsync,
-    fetchLogo: fetchLogoMutation.mutateAsync,
-    isFetchingLogo: fetchLogoMutation.isPending,
     uploadLogo: uploadLogoMutation.mutateAsync,
     deleteLogo: deleteLogoMutation.mutateAsync,
   };

@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 import Link from "next/link";
-import { Button, Input, Select, Table, Tag } from "antd";
+import { Button, Input, Select, Table, Tag, Tooltip } from "antd";
 import { DeleteOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
@@ -11,11 +11,13 @@ import { SectionCard } from "@/components/SectionCard";
 import { CUSTOMER_SHIPMENTS_LIMIT, useCustomerShipments } from "@/hooks/useCustomerShipments";
 import type { ShipmentItem } from "@/hooks/useCustomerShipments";
 import { useCustomer } from "@/hooks/useCustomers";
+import { useCustomerShipmentFinancials } from "@/hooks/useCustomerShipmentFinancials";
+import type { ShipmentFinancials } from "@/hooks/useCustomerShipmentFinancials";
 import { formatDate } from "@/lib/date";
 import { isCompletedStatus } from "@/lib/enums";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 import { useToast } from "@/lib/toast";
-import { fmtMoney, marginPct, num } from "../../_lib/customerMoney";
+import { fmtMoney, marginPct } from "../../_lib/customerMoney";
 import { CustomerCountChip } from "../_components/CustomerCountChip";
 import { CustomerKpiTile, KPI_GRID_CLASS } from "../_components/CustomerKpiTile";
 import { EMPTY_CELL, TABLE_PAGINATION } from "../../_lib/customerTable";
@@ -38,8 +40,7 @@ function profitClassName(profit: number): string | undefined {
   return undefined;
 }
 
-// The one list of a customer's shipments. Revenue / Profit / Margin totals live in the page
-// header (from the server rollup); the tiles here only count the rows that are loaded.
+// The one list of a customer's shipments. The tiles here only count the rows that are loaded.
 export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
   const { shipments, isCapped, isLoading, isError, deleteShipment, isDeleting } = useCustomerShipments(customerId);
   const { customer } = useCustomer(customerId);
@@ -68,6 +69,27 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       return true;
     });
   }, [shipments, search, status, mode, direction]);
+
+  // Revenue, cost and profit come from each job's Costs (Invoicing), worked out on the server as its Costs
+  // Breakdown tab does — one request for the rows on the page, not one per job.
+  const pageRows = filtered.slice((page - 1) * TABLE_PAGINATION.pageSize, page * TABLE_PAGINATION.pageSize);
+  const pageIds = useMemo(() => pageRows.map((s) => s.id), [pageRows]);
+  const costs = useCustomerShipmentFinancials(customerId, pageIds, currency ?? "CZK");
+  // Still loading shows "…"; a failed request "!" with a tooltip; a missing rate a dash.
+  const money = (id: string, pick: (f: ShipmentFinancials) => number | null) => {
+    const item = costs.byShipment.get(id);
+    const value = item ? pick(item) : null;
+    if (value !== null) return fmtMoney(value, currency);
+    if (costs.isLoading) return "…";
+    if (costs.isError) {
+      return (
+        <Tooltip title="Could not load the figures">
+          <span className="text-red-500">!</span>
+        </Tooltip>
+      );
+    }
+    return item?.missingCurrencies.length ? <Tooltip title={`No ČNB rate for ${item.missingCurrencies.join(", ")}`}>{EMPTY_CELL}</Tooltip> : EMPTY_CELL;
+  };
 
   // antd keeps the current page when the rows change, so a narrowed list would open on a later
   // page with its first matches hidden. Every filter change therefore returns to page 1.
@@ -157,7 +179,7 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       fixed: "right",
       align: "right",
       className: "tabular-nums",
-      render: (_: unknown, r) => fmtMoney(num(r.selling), currency),
+      render: (_: unknown, r) => money(r.id, (t) => t.revenue),
     },
     {
       title: "Cost",
@@ -166,7 +188,7 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       fixed: "right",
       align: "right",
       className: "tabular-nums",
-      render: (_: unknown, r) => fmtMoney(num(r.buying), currency),
+      render: (_: unknown, r) => money(r.id, (t) => t.cost),
     },
     {
       title: "Profit",
@@ -176,7 +198,8 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       align: "right",
       className: "tabular-nums",
       render: (_: unknown, r) => {
-        const profit = num(r.selling) - num(r.buying);
+        const profit = costs.byShipment.get(r.id)?.profit ?? null;
+        if (profit === null) return money(r.id, (f) => f.profit);
         return <span className={profitClassName(profit)}>{fmtMoney(profit, currency)}</span>;
       },
     },
@@ -188,10 +211,10 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
       align: "right",
       className: "tabular-nums",
       render: (_: unknown, r) => {
-        const revenue = num(r.selling);
+        const item = costs.byShipment.get(r.id);
         // Without revenue there is nothing to take a percentage of.
-        if (!revenue) return EMPTY_CELL;
-        return `${marginPct(revenue, revenue - num(r.buying))}%`;
+        if (!item || item.revenue === null || item.profit === null || !item.revenue) return item || !costs.isLoading ? EMPTY_CELL : "…";
+        return `${marginPct(item.revenue, item.profit)}%`;
       },
     },
     {

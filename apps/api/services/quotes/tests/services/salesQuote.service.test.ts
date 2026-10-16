@@ -8,6 +8,7 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn() },
+  customers: { customerActivate: vi.fn() },
   fx: { fxRatesOn: vi.fn(), fxResolve: vi.fn() },
   shipments: { _internalShipmentsNamingQuote: vi.fn() },
   trucking: { truckingRate: vi.fn(), _internalTruckingMarginFloor: vi.fn() },
@@ -32,7 +33,7 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
 }));
 
 import log from "encore.dev/log";
-import { auth, fx, shipments, trucking } from "~encore/clients";
+import { auth, customers, fx, shipments, trucking } from "~encore/clients";
 import type { Actor } from "../../../../lib/rbac";
 import { quoteAttachmentRepository } from "../../repositories/quoteAttachment.repository";
 import { salesQuoteRepository, type LifecycleWrite, type QuoteTransaction } from "../../repositories/salesQuote.repository";
@@ -51,6 +52,7 @@ const namingShipments = vi.mocked(shipments._internalShipmentsNamingQuote);
 const fxResolve = vi.mocked(fx.fxResolve);
 const truckingRate = vi.mocked(trucking.truckingRate);
 const marginFloor = vi.mocked(trucking._internalTruckingMarginFloor);
+const customerActivate = vi.mocked(customers.customerActivate);
 
 // 10 October 2026, noon in Prague.
 const NOW = new Date("2026-10-10T10:00:00.000Z");
@@ -511,6 +513,31 @@ describe("transition", () => {
     await expect(salesQuoteService.transition(martin, REF, { to: "revised", expectedStatus: "expired" })).resolves.toMatchObject({ changed: true });
   });
 
+  describe("customer of a won quote", () => {
+    const CUSTOMER = "c0ffee00-0000-4000-8000-000000000002";
+
+    it("makes the customer Active when the quote is won", async () => {
+      stored = quote({ status: "quoted", customerId: CUSTOMER, data: { reference: REF, quoteStatus: "quoted" } });
+      await expect(salesQuoteService.transition(martin, REF, { to: "won" })).resolves.toMatchObject({ changed: true });
+      expect(customerActivate).toHaveBeenCalledWith({ id: CUSTOMER, companyId: martin.companyID });
+    });
+
+    it("leaves the customer alone for any other status, and for a quote without a customer", async () => {
+      stored = quote({ status: "quoted", customerId: CUSTOMER, data: { reference: REF, quoteStatus: "quoted" } });
+      await salesQuoteService.transition(martin, REF, { to: "lost", lostReason: "Price: too high" });
+      stored = quote({ status: "quoted", data: { reference: REF, quoteStatus: "quoted" } });
+      await salesQuoteService.transition(martin, REF, { to: "won" });
+      expect(customerActivate).not.toHaveBeenCalled();
+    });
+
+    it("keeps the win when the customer cannot be updated", async () => {
+      stored = quote({ status: "quoted", customerId: CUSTOMER, data: { reference: REF, quoteStatus: "quoted" } });
+      customerActivate.mockRejectedValue(new Error("customers down"));
+      await expect(salesQuoteService.transition(martin, REF, { to: "won" })).resolves.toMatchObject({ changed: true, quote: { status: "won" } });
+      expect(log.warn).toHaveBeenCalled();
+    });
+  });
+
   it("refuses a move the status does not allow, in words for the user", async () => {
     await expect(salesQuoteService.transition(martin, REF, { to: "won" })).rejects.toMatchObject({
       code: "failed_precondition",
@@ -733,6 +760,15 @@ describe("syncShipments", () => {
     expect(lockedWhenRead).toBe(false);
   });
 
+  it("makes the customer Active when the hourly reconcile (no login) wins the quote", async () => {
+    const CUSTOMER = "c0ffee00-0000-4000-8000-000000000002";
+    stored = quoted({ customerId: CUSTOMER });
+    const system = { userID: "", companyID: martin.companyID, role: "system" };
+    await salesQuoteService.syncShipments(system, [{ quoteNumber: REF, shipments: [FIRST], wonByShipmentId: FIRST.id }]);
+    // The company goes along explicitly: customerActivate gets no login on this path.
+    expect(customerActivate).toHaveBeenCalledWith({ id: CUSTOMER, companyId: martin.companyID });
+  });
+
   it("asks ČNB for nothing when no shipment was created from a quote", async () => {
     stored = quoted();
     await salesQuoteService.syncShipments(martin, [{ quoteNumber: REF, shipments: [FIRST] }]);
@@ -761,6 +797,8 @@ describe("syncShipments", () => {
     await expect(salesQuoteService.syncShipments(martin, [{ quoteNumber: REF, shipments: [FIRST], wonByShipmentId: FIRST.id }])).resolves.toMatchObject([
       { found: true, shipmentId: FIRST.id, status: "won", becameWon: true, note: null },
     ]);
+    // The quote has no customer, so there is no one to make Active.
+    expect(customerActivate).not.toHaveBeenCalled();
     expect(written()).toMatchObject({
       state: { status: "won", decidedAt: NOW, sentAt: null, firstSentAt: null },
       entries: [linkedLine(FIRST), { kind: "status", status: "won", from: "draft", shipmentId: FIRST.id, jobNumber: "CZ00000101", user: "Martin Koubek" }],

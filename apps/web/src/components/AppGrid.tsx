@@ -1,13 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Table, Input, Select, Tooltip, Popover, Pagination, Button, Badge, Checkbox, type InputRef } from "antd";
-import { SearchOutlined, FilterOutlined, CloseOutlined, DownloadOutlined, SettingOutlined } from "@ant-design/icons";
+import { Table, Input, Select, Tooltip, Popover, Pagination, Button, Badge, type InputRef } from "antd";
+import { SearchOutlined, FilterOutlined, DownloadOutlined, SettingOutlined } from "@ant-design/icons";
 import type { ColumnType } from "antd/es/table";
 import type { SortOrder } from "antd/es/table/interface";
 import { DndContext, PointerSensor, closestCenter, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
+import { ColumnChecklist } from "@/components/ColumnChecklist";
+import { ColumnFilterRows } from "@/components/ColumnFilterRows";
+import { TOOLBAR_BUTTON_CLASS, activeGridFilters, matchesGridFilters, type GridFilter } from "@/components/gridFilters";
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
 
@@ -28,7 +31,6 @@ export interface AppGridColumn<T> extends Omit<ColumnType<T>, "key" | "title"> {
   filterOptions?: string[];
 }
 
-type ColFilter = { id: number; key: string; value: string };
 type Sort = { key: string; order: Exclude<SortOrder, null> };
 
 // A column's compare function (`sorter` as a function or `{ compare }`), if it sorts on the client.
@@ -41,8 +43,6 @@ function compareOf<T>(col: AppGridColumn<T> | undefined): ((a: T, b: T) => numbe
 
 const PAGE_SIZE_OPTIONS = [50, 100, 150, 200];
 
-const toolbarButton =
-  "flex items-center justify-center shrink-0 rounded-lg border border-slate-300 bg-white w-8 h-8 p-0 text-slate-700 hover:bg-slate-50 transition-colors";
 
 // The rows as a CSV file (lib/csv guards cells a spreadsheet would run as formulas), named
 // with today's date on the company's calendar.
@@ -146,23 +146,23 @@ export function AppGrid<T extends object>({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  const [colFilters, setColFilters] = useState<ColFilter[]>([]);
-  const nextFilterId = useRef(0);
-  const [columnSearch, setColumnSearch] = useState("");
+  const [colFilters, setColFilters] = useState<GridFilter[]>([]);
   const [pageSize, setPageSize] = useState(50);
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
 
-  const activeFilters = useMemo(() => colFilters.filter((f) => f.key && f.value.trim()), [colFilters]);
+  const activeFilters = useMemo(() => activeGridFilters(colFilters), [colFilters]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
       if (q && !columns.some((c) => c.text(r).toLowerCase().includes(q))) return false;
-      return activeFilters.every((f) => {
-        const col = columnMap.get(f.key);
-        return !col || col.text(r).toLowerCase().includes(f.value.toLowerCase().trim());
-      });
+      // A filter on a column this grid no longer has narrows nothing.
+      return matchesGridFilters(
+        r,
+        activeFilters.filter((f) => columnMap.has(f.key)),
+        (row, key) => columnMap.get(key)?.text(row) ?? "",
+      );
     });
   }, [rows, columns, columnMap, search, activeFilters]);
 
@@ -225,8 +225,7 @@ export function AppGrid<T extends object>({
     latest.current.onSelectionChange?.(latest.current.selectedRows, clearSelection);
   }, [selectionSignature, clearSelection]);
 
-  const filterColumnOptions = columns.map((c) => ({ value: c.key, label: c.title }));
-  const shownColumns = columns.filter((c) => c.title.toLowerCase().includes(columnSearch.trim().toLowerCase()));
+  const filterColumns = useMemo(() => columns.map((c) => ({ key: c.key, title: c.title, options: c.filterOptions })), [columns]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -282,66 +281,13 @@ export function AppGrid<T extends object>({
                     </button>
                   )}
                 </div>
-                {colFilters.length === 0 ? (
-                  <div className="text-xs text-slate-400 text-center py-4 bg-slate-50 rounded-lg">No filters yet — add one to narrow the list.</div>
-                ) : (
-                  <div className="flex flex-col gap-2">
-                    {colFilters.map((f) => {
-                      const col = columnMap.get(f.key);
-                      const update = (patch: Partial<ColFilter>) => setColFilters(colFilters.map((x) => (x.id === f.id ? { ...x, ...patch } : x)));
-                      return (
-                        <div key={f.id} className="flex items-center gap-1.5">
-                          <Select
-                            showSearch
-                            placeholder="Column"
-                            value={f.key || undefined}
-                            onChange={(val) => update({ key: val, value: "" })}
-                            options={filterColumnOptions}
-                            optionFilterProp="label"
-                            size="small"
-                            className="w-[150px] shrink-0"
-                          />
-                          <div className="flex-1 min-w-0">
-                            {col?.filterOptions ? (
-                              <Select
-                                showSearch
-                                allowClear
-                                placeholder="Select value"
-                                value={f.value || undefined}
-                                onChange={(val) => update({ value: val ?? "" })}
-                                options={col.filterOptions.map((o) => ({ value: o, label: o }))}
-                                optionFilterProp="label"
-                                size="small"
-                                className="w-full"
-                              />
-                            ) : (
-                              <Input placeholder="Enter value" value={f.value} onChange={(e) => update({ value: e.target.value })} size="small" allowClear />
-                            )}
-                          </div>
-                          <button
-                            onClick={() => setColFilters(colFilters.filter((x) => x.id !== f.id))}
-                            aria-label="Remove filter"
-                            className="shrink-0 flex items-center justify-center w-6 h-6 rounded text-slate-400 hover:text-red-500 hover:bg-red-50 bg-transparent border-none cursor-pointer transition-colors"
-                          >
-                            <CloseOutlined className="text-[11px]" />
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <button
-                  onClick={() => setColFilters([...colFilters, { id: nextFilterId.current++, key: "", value: "" }])}
-                  className="mt-2.5 w-full flex items-center justify-center gap-1.5 h-8 rounded-lg border border-dashed border-slate-300 text-xs font-medium text-slate-500 hover:border-indigo-400 hover:text-indigo-500 hover:bg-indigo-50/40 bg-transparent cursor-pointer transition-colors"
-                >
-                  + Add filter
-                </button>
+                <ColumnFilterRows rows={colFilters} columns={filterColumns} onChange={setColFilters} />
               </div>
             }
           >
             <Tooltip title="Filters">
               <Badge count={activeFilters.length} size="small" offset={[-4, 4]} className="[&_.ant-badge-count]:!bg-indigo-600">
-                <button aria-label="Filters" className={toolbarButton}>
+                <button aria-label="Filters" className={TOOLBAR_BUTTON_CLASS}>
                   <FilterOutlined />
                 </button>
               </Badge>
@@ -352,32 +298,8 @@ export function AppGrid<T extends object>({
             placement="bottomRight"
             content={
               <div className="w-[300px]">
-                <Input size="small" placeholder="Find a column…" value={columnSearch} onChange={(e) => setColumnSearch(e.target.value)} allowClear className="mb-2" />
-                <div className="flex items-center gap-3 mb-1.5">
-                  <button
-                    onClick={() => setVisible([...visible, ...columns.map((c) => c.key).filter((k) => !visible.includes(k))])}
-                    className="text-[11px] text-indigo-500 hover:underline bg-transparent border-none p-0 cursor-pointer"
-                  >
-                    Select all
-                  </button>
-                  <button onClick={() => setVisible([])} className="text-[11px] text-slate-400 hover:underline bg-transparent border-none p-0 cursor-pointer">
-                    Clear
-                  </button>
-                </div>
-                <div className="max-h-[320px] overflow-y-auto pr-1 flex flex-col gap-1">
-                  {shownColumns.length === 0 && <div className="text-xs text-slate-400 py-2">No columns found.</div>}
-                  {shownColumns.map((c) => (
-                    <label key={c.key} className="flex items-center gap-2 text-xs py-0.5 text-slate-700 cursor-pointer">
-                      <Checkbox
-                        checked={visible.includes(c.key)}
-                        onChange={(e) => setVisible(e.target.checked ? [...visible, c.key] : visible.filter((k) => k !== c.key))}
-                      />
-                      {c.title}
-                    </label>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100">
-                  <span className="text-[11px] text-slate-400">{visible.length} shown</span>
+                <ColumnChecklist columns={columns} visible={visible} onChange={setVisible} />
+                <div className="flex justify-end">
                   <Button size="small" type="link" onClick={() => setVisible(defaultVisible)} className="px-0">
                     Reset to default
                   </Button>
@@ -386,7 +308,7 @@ export function AppGrid<T extends object>({
             }
           >
             <Tooltip title="Columns">
-              <button aria-label="Columns" className={toolbarButton}>
+              <button aria-label="Columns" className={TOOLBAR_BUTTON_CLASS}>
                 <SettingOutlined />
               </button>
             </Tooltip>

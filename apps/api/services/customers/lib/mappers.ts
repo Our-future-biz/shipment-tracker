@@ -1,10 +1,11 @@
 import { iso } from "../../../lib/db/serialize";
 import type { ContactRecord } from "../schemas/contact.schema";
+import type { CustomerAddressRecord } from "../schemas/customerAddress.schema";
 import type { CustomerRecord } from "../schemas/customer.schema";
 import type { CustomerInvoiceRecord } from "../schemas/customerInvoice.schema";
 import type { CustomerNoteRecord } from "../schemas/customerNote.schema";
 import type { CustomerSiteRecord } from "../schemas/customerSite.schema";
-import type { ContactItem, CustomerItem, CustomerSiteItem, DocumentItem, InvoiceItem, NoteItem } from "../interfaces/interfaces";
+import type { AddressItem, ContactItem, CustomerItem, CustomerSiteItem, DocumentItem, InvoiceItem, NoteItem } from "../interfaces/interfaces";
 import { dateOutput } from "./dates";
 
 // Rows → API items: only the declared fields go out (no companyId, deletedAt, file bytes).
@@ -18,13 +19,17 @@ export const toCustomerItem = (r: CustomerRecord): CustomerItem => ({
   registeredAddress: r.registeredAddress,
   city: r.city,
   country: r.country,
-  companyStatus: r.companyStatus,
   registrationDate: dateOutput(r.registrationDate),
   nace: r.nace,
+  industry: r.industry,
+  typicalCargo: r.typicalCargo,
+  stability: r.stability,
+  riskLevel: r.riskLevel,
   dataSource: r.dataSource,
   lastRegistryUpdate: r.lastRegistryUpdate,
   status: r.status,
   salesOwner: r.salesOwner,
+  salesOwnerUserId: r.salesOwnerUserId,
   label: r.label,
   creditLimit: r.creditLimit,
   currency: r.currency,
@@ -70,6 +75,8 @@ export const toContactItem = (r: ContactRecord): ContactItem => ({
   id: r.id,
   customerId: r.customerId,
   name: r.name,
+  firstName: r.firstName,
+  lastName: r.lastName,
   email: r.email,
   phone: r.phone,
   role: r.role,
@@ -110,6 +117,19 @@ export const toInvoiceItem = (r: CustomerInvoiceRecord): InvoiceItem => ({
   dueDate: dateOutput(r.dueDate),
   status: r.status,
   issuedAt: dateOutput(r.issuedAt),
+  createdAt: iso(r.createdAt),
+  updatedAt: iso(r.updatedAt),
+});
+
+export const toAddressItem = (r: CustomerAddressRecord): AddressItem => ({
+  id: r.id,
+  customerId: r.customerId,
+  type: r.type,
+  label: r.label,
+  street: r.street,
+  city: r.city,
+  postalCode: r.postalCode,
+  country: r.country,
   createdAt: iso(r.createdAt),
   updatedAt: iso(r.updatedAt),
 });

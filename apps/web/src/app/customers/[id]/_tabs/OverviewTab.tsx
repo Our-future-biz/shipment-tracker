@@ -6,9 +6,7 @@ import { CustomerCompanyAnalysisCard } from "../_components/CustomerCompanyAnaly
 import { CustomerCreditSummaryCard } from "../_components/CustomerCreditSummaryCard";
 import { CustomerCrmCard } from "../_components/CustomerCrmCard";
 import { CustomerHaulierCard } from "../_components/CustomerHaulierCard";
-import { CustomerLastInteractionCard } from "../_components/CustomerLastInteractionCard";
 import { CustomerMainContactCard } from "../_components/CustomerMainContactCard";
-import { CustomerNextStepsCard } from "../_components/CustomerNextStepsCard";
 import { CustomerRecentShipmentsCard } from "../_components/CustomerRecentShipmentsCard";
 import { CustomerRegistryCard } from "../_components/CustomerRegistryCard";
 import { CustomerSnapshotTiles } from "../_components/CustomerSnapshotTiles";
@@ -19,8 +17,8 @@ interface OverviewTabProps {
 }
 
 // The customer at a glance. Main column, most urgent first: what needs attention, the current state in
-// four figures, the latest shipments and interaction, then who the company is. Side column: who to call,
-// the credit position, a haulier's Trucking status, and the CRM and registry records. The all-time totals stay in the header and every
+// four figures, the latest shipments, then who the company is and its registry record. Side
+// column: who to call, a haulier's Trucking status, the credit position, and the CRM record. The all-time totals stay in the header and every
 // full list in its own tab; the cards here are summaries that lead there.
 export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
   const { customer } = useCustomer(customerId);
@@ -33,12 +31,9 @@ export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
         <CustomerAttentionCard customerId={customerId} onSelectTab={onSelectTab} />
         <CustomerSnapshotTiles customerId={customerId} onSelectTab={onSelectTab} />
         <CustomerRecentShipmentsCard customerId={customerId} onSelectTab={onSelectTab} />
-        {/* "Next steps" hides itself when everything is done; "Last interaction" then takes the whole row. */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start lg:[&>*:only-child]:col-span-2">
-          <CustomerNextStepsCard customer={customer} onSelectTab={onSelectTab} />
-          <CustomerLastInteractionCard customerId={customerId} onSelectTab={onSelectTab} />
-        </div>
-        <CustomerCompanyAnalysisCard customer={customer} />
+        {/* Keyed: a pending edit of one customer must not carry over to the next one opened. */}
+        <CustomerCompanyAnalysisCard key={customer.id} customer={customer} />
+        <CustomerRegistryCard customer={customer} />
       </div>
 
       <div className="space-y-5">
@@ -48,7 +43,6 @@ export function OverviewTab({ customerId, onSelectTab }: OverviewTabProps) {
         <CustomerCreditSummaryCard customerId={customerId} onSelectTab={onSelectTab} />
         {/* Keyed so an edit still being saved never carries over to another customer. */}
         <CustomerCrmCard key={customer.id} customer={customer} />
-        <CustomerRegistryCard customer={customer} />
       </div>
     </div>
   );

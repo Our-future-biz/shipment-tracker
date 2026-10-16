@@ -1,5 +1,6 @@
 import { APIError } from "encore.dev/api";
-import { auth, fx, shipments, trucking } from "~encore/clients";
+import log from "encore.dev/log";
+import { auth, customers, fx, shipments, trucking } from "~encore/clients";
 import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import type { PaginatedResponse } from "../../../lib/db/interface";
 import type { Actor } from "../../../lib/rbac";
@@ -171,6 +172,18 @@ function pageOf(request: SalesQuoteListRequest): SalesQuotePage {
 }
 
 const notFound = () => APIError.notFound("Quote not found");
+
+// A won quote makes its customer Active. After the quote is written and outside its lock: the win stands
+// even when the customer cannot be updated, which is logged rather than undoing the user's change.
+async function activateCustomer(companyId: string, customerId: string | null): Promise<void> {
+  if (!customerId) return;
+  try {
+    // The company is passed along: the hourly reconcile runs without a login.
+    await customers.customerActivate({ id: customerId, companyId });
+  } catch (err) {
+    log.warn("could not make the customer of a won quote Active", { customerId, error: err instanceof Error ? err.message : String(err) });
+  }
+}
 const conflict = () => APIError.aborted("the quote was changed by someone else since it was loaded");
 
 // The rules refuse in words meant for the user; the API adds what kind of refusal it is.
@@ -379,6 +392,7 @@ class SalesQuoteService {
       return { quote: written, changed: true };
     });
     if (!result) throw notFound();
+    if (result.changed && request.to === "won") await activateCustomer(actor.companyID, result.quote.customerId);
     return { quote: await this.item(result.quote, names, actor, at), changed: result.changed };
   }
 
@@ -534,8 +548,9 @@ class SalesQuoteService {
           const document = change.becameWon ? fxWriteFor("won", quote.data, today) : undefined;
           await salesQuoteRepository.writeLifecycle(tx, quote, { state: change.state, entries: change.entries, document });
         }
-        return change;
+        return { ...change, customerId: quote.customerId };
       });
+      if (synced?.becameWon) await activateCustomer(actor.companyID, synced.customerId);
       results.push({
         quoteNumber: item.quoteNumber,
         found: synced !== null,

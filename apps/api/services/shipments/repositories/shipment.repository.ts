@@ -346,6 +346,23 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
     return this.getByColumnForCompany(shipmentTable.jobNumber, jobNumber, companyId);
   }
 
+  /** Of the given ids, those of live shipments of this customer in this company. */
+  async idsOfCustomer(companyId: string, customerId: string, ids: string[]): Promise<string[]> {
+    if (!ids.length) return [];
+    const rows = await this.db
+      .select({ id: shipmentTable.id })
+      .from(shipmentTable)
+      .where(
+        and(
+          eq(shipmentTable.companyId, companyId),
+          eq(shipmentTable.customerId, customerId),
+          isNull(shipmentTable.deletedAt),
+          inArray(shipmentTable.id, ids),
+        ),
+      );
+    return rows.map((r) => r.id);
+  }
+
   async findByCustomerId(customerId: string, companyId: string) {
     return this.db
       .select()

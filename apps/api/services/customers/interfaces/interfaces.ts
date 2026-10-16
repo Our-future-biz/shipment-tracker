@@ -4,8 +4,20 @@
 // The closed sets the database CHECK constraints allow (schemas/*.schema.ts). Spelled out as
 // literal unions so Encore validates requests against them and the web client gets them.
 export type CustomerStatus = "Active" | "Prospect" | "Inactive";
-export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "PROSPECT" | "RISK";
-export type ContactRole = "Sales" | "Operations" | "Finance";
+export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "RISK";
+export type ContactRole =
+  | "Purchasing / Procurement"
+  | "Customer Service"
+  | "Logistics Manager"
+  | "Warehouse"
+  | "Finance / Accounting"
+  | "Sales"
+  | "Management"
+  | "Owner";
+/** Registered is the company's seat; the others are where invoices go and goods are picked up or delivered. */
+export type AddressType = "Registered" | "Billing" | "Pickup" | "Delivery" | "Warehouse";
+/** A risk level set by hand, or "" when it is derived from the registry data. */
+export type RiskLevelOverride = "" | "Low" | "Medium" | "High";
 export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";
 export type DocumentType = "Contract" | "NDA" | "Power of attorney" | "Customs" | "Other";
 /** Credited = reversed by a credit note; like Paid, it no longer counts as owed. */
@@ -24,14 +36,20 @@ export interface CustomerItem {
   registeredAddress: string;
   city: string;
   country: string;
-  companyStatus: string;
   /** yyyy-mm-dd, or "" when unknown */
   registrationDate: string;
   nace: string;
+  /** Company analysis set by hand; "" where the derived value applies. */
+  industry: string;
+  typicalCargo: string;
+  stability: string;
+  riskLevel: RiskLevelOverride;
   dataSource: string;
   lastRegistryUpdate: string;
   status: CustomerStatus;
+  /** The owner's name; without salesOwnerUserId a name typed before owners were users, or "". */
   salesOwner: string;
+  salesOwnerUserId: string | null;
   label: CustomerLabel;
   creditLimit: number;
   currency: string;
@@ -76,7 +94,10 @@ export interface HaulierCompanyItem {
 export interface ContactItem {
   id: string;
   customerId: string;
+  /** "First Last", for showing and for quotes and shipments. */
   name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   phone: string;
   role: ContactRole;
@@ -149,6 +170,37 @@ export interface InvoiceItem {
   updatedAt: string;
 }
 
+export interface AddressItem {
+  id: string;
+  customerId: string;
+  type: AddressType;
+  label: string;
+  street: string;
+  city: string;
+  postalCode: string;
+  /** ISO 3166-1 alpha-2 */
+  country: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** The contact person a new customer is created with; it becomes its main contact. */
+export interface NewCustomerContact {
+  firstName: string;
+  lastName: string;
+  email?: string;
+  phone?: string;
+  role?: ContactRole;
+}
+
+/** One company found in ARES by its name, enough to pick it; its full record is then read by IČO. */
+export interface AresSearchHit {
+  ico: string;
+  companyName: string;
+  /** The registered address in one line, e.g. "Jankovcova 1522/53, Holešovice, 17000 Praha 7". */
+  address: string;
+}
+
 export interface AresResult {
   ico: string;
   dic: string;
@@ -157,7 +209,6 @@ export interface AresResult {
   registeredAddress: string;
   city: string;
   country: string;
-  companyStatus: string;
   registrationDate: string;
   nace: string;
   /** Street and house number, e.g. "Jankovcova 1522/53" */
@@ -179,4 +230,21 @@ export interface CustomerRollups {
   totalShipments: number;
   /** yyyy-mm-dd, or "" when the customer has no shipments */
   lastActivityDate: string;
+}
+
+/** A shipment's revenue, cost and profit as its Costs Breakdown works them out. */
+export interface ShipmentFinancials {
+  shipmentId: string;
+  /** The currency of revenue / cost / profit (the one asked for). */
+  currency: string;
+  /** In CZK; null when an amount (or the billing currency) has no ČNB rate, or the job's rates can't be read. */
+  revenueCzk: number | null;
+  costCzk: number | null;
+  profitCzk: number | null;
+  /** In `currency` at the job's own rate; null also when that currency has no rate. */
+  revenue: number | null;
+  cost: number | null;
+  profit: number | null;
+  /** Currencies without a rate that made the totals unknown. */
+  missingCurrencies: string[];
 }

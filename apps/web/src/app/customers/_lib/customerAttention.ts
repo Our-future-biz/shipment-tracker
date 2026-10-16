@@ -1,56 +1,52 @@
 import dayjs from "dayjs";
-import { quoteHref } from "@/app/sales/_lib/quoteHref";
-import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import type { DocumentItem } from "@/hooks/useCustomerDocuments";
 import type { InvoiceItem } from "@/hooks/useCustomerInvoices";
 import type { NoteItem } from "@/hooks/useCustomerNotes";
+import type { ContactItem } from "@/hooks/useCustomerContacts";
 import type { CustomerItem } from "@/hooks/useCustomers";
-import type { ShipmentDueItem } from "@/hooks/useShipmentsNeedingAttention";
 import { formatDate } from "@/lib/date";
-import { deadlineDayLabel, deadlineLabel } from "@/lib/shipmentDeadlines";
-import { getNaceInfo, isNewCompany, isRegistryActive, parseNaceCodes } from "./companyAnalysis";
+import { getNaceInfo, isNewCompany, parseNaceCodes } from "./companyAnalysis";
 import { daysSince } from "./customerDates";
 import { daysOverdue, summarizeInvoices } from "./customerInvoices";
 import type { Rates } from "@/lib/fx";
 import { fmtMoney, roundCents } from "./customerMoney";
-import { quoteBucket } from "./customerQuotes";
 
 // What on a customer needs somebody's attention right now, for the "Needs attention" list of the Overview.
+// Only the customer itself: shipment deadlines (VGM, SI, cut-offs…) and quote validity belong to Shipments and Sales.
 // One pure function over data the page has already loaded, so the rules can be read and tested in one place.
 
 // The thresholds the product owner approved.
 export const ATTENTION_RULES = {
   // More days than this since the last logged interaction counts as "no contact".
   noContactDays: 30,
-  // An open quote is listed once its validity ends within this many days.
-  quoteExpiryDays: 7,
   // Document types every customer is expected to have on file.
   requiredDocumentTypes: ["Power of attorney", "Contract"],
 } as const;
+
+// The Sales owner select in the page header, which the "No sales owner" row opens.
+export const SALES_OWNER_FIELD_ID = "customer-sales-owner";
 
 export type AttentionSeverity = "critical" | "warning";
 
 export interface AttentionItem {
   key: string;
   severity: AttentionSeverity;
-  // The bold lead of the row: a count, a job number, a quote number.
+  // The bold lead of the row: a count or a short finding.
   title: string;
   // Finishes the line.
   detail: string;
   // Right-aligned extra, e.g. an amount.
   meta?: string;
-  // Where the row leads: `tab` is a tab of the customer page, `href` another page. At most one of them is set;
-  // with neither the row is not clickable.
+  // Where the row leads: `tab` is a tab of the customer page, `field` the id of a click-to-edit field on the
+  // Overview, which the row scrolls to and opens. At most one of them is set; with neither the row is not clickable.
   tab?: string;
-  href?: string;
+  field?: string;
 }
 
 export interface AttentionInput {
   customer: CustomerItem;
   invoices: InvoiceItem[];
-  dueWithin24h: ShipmentDueItem[];
-  dueWithin48h: ShipmentDueItem[];
-  quotes: SalesQuote[];
+  contacts: ContactItem[];
   documents: DocumentItem[];
   notes: NoteItem[];
   // Today's exchange rates: invoices in another currency are compared with the limit in the customer's currency.
@@ -60,64 +56,6 @@ export interface AttentionInput {
 }
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
-
-// A shipment with dates in both windows is on both lists, so the window is part of the key.
-function shipmentItems(
-  due: ShipmentDueItem[],
-  customerId: string,
-  severity: AttentionSeverity,
-  window: string,
-): AttentionItem[] {
-  return due
-    // The two "due" lists cover the whole company; keep this customer's shipments.
-    .filter((shipment) => shipment.customerId === customerId)
-    .map((shipment) => ({
-      key: `shipment-${window}-${shipment.id}`,
-      severity,
-      title: shipment.jobNumber || "Shipment",
-      detail: shipment.deadlines.map((deadline) => `${deadlineLabel(deadline.field)} ${deadlineDayLabel(deadline.daysLeft)}`).join(", "),
-      href: `/shipments/${shipment.id}`,
-    }));
-}
-
-// Whole calendar days from today to a date on the viewer's clock — negative once the date has passed —
-// so a quote valid until today stays "today" until midnight. Null when the date is unreadable.
-function daysUntil(date: string, now: number): number | null {
-  const day = dayjs(date);
-  if (!day.isValid()) return null;
-  // Rounded, not truncated, as daysSince does: across a DST change two local midnights are 23 or 25 hours apart.
-  return Math.round(day.startOf("day").diff(dayjs(now).startOf("day"), "day", true));
-}
-
-function validityDetail(date: string, daysLeft: number): string {
-  if (daysLeft < 0) return `Validity ended ${formatDate(date)}.`;
-  if (daysLeft === 0) return "Valid until today.";
-  if (daysLeft === 1) return "Valid until tomorrow.";
-  return `Valid for ${daysLeft} more days.`;
-}
-
-// Quotes still in play whose validity has ended or is about to, soonest first. A quote that
-// expired while it was with the customer is among them: it waits for somebody to revise or close it.
-// The quote opens knowing it was opened from this customer, so its back link returns here.
-function quoteItems(quotes: SalesQuote[], customerId: string, now: number): AttentionItem[] {
-  return quotes
-    .flatMap((quote) => {
-      const bucket = quoteBucket(quote);
-      if (bucket !== "open" && bucket !== "expired") return [];
-      const date = quote.validUntil;
-      const daysLeft = date ? daysUntil(date, now) : null;
-      if (!date || daysLeft === null || daysLeft > ATTENTION_RULES.quoteExpiryDays) return [];
-      return [{ quote, date, daysLeft }];
-    })
-    .sort((a, b) => a.daysLeft - b.daysLeft)
-    .map(({ quote, date, daysLeft }) => ({
-      key: `quote-${quote.quoteNumber}`,
-      severity: "warning",
-      title: quote.quoteNumber,
-      detail: validityDetail(date, daysLeft),
-      href: quoteHref(quote.quoteNumber, { from: "customer", customerId }),
-    }));
-}
 
 function contactItem(notes: NoteItem[], now: number): AttentionItem | null {
   if (notes.length === 0) {
@@ -156,20 +94,11 @@ const documentTypeKey = (type: string) => type.trim().toLowerCase();
 // Everything that needs attention, most serious first: all critical items, then all warnings,
 // each group in a fixed order of rules.
 export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
-  const { customer, invoices, dueWithin24h, dueWithin48h, quotes, documents, notes, rates, now = Date.now() } = input;
+  const { customer, invoices, contacts, documents, notes, rates, now = Date.now() } = input;
   const { creditLimit, currency } = customer;
   const items: AttentionItem[] = [];
 
   // Critical.
-  if (!isRegistryActive(customer.companyStatus)) {
-    items.push({
-      key: "registry",
-      severity: "critical",
-      title: `Registry status: ${customer.companyStatus.trim()}`,
-      detail: "Verify the company is still trading before quoting.",
-    });
-  }
-
   // The same summary the Finance tab shows, so the count and the amount match its Overdue tile.
   const summary = summarizeInvoices(invoices, { currency, rates }, now);
   if (summary.overdueCount > 0) {
@@ -198,11 +127,51 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
     });
   }
 
-  items.push(...shipmentItems(dueWithin24h, customer.id, "critical", "24h"));
-
   // Warnings.
-  items.push(...shipmentItems(dueWithin48h, customer.id, "warning", "48h"));
-  items.push(...quoteItems(quotes, customer.id, now));
+  // Invoices in a currency without a ČNB rate can't be added to the outstanding sum, so the credit-limit
+  // check above leaves them out; that is said, not hidden.
+  if (summary.unconverted.length > 0) {
+    items.push({
+      key: "invoices-not-counted",
+      severity: "warning",
+      title: "Invoices not counted",
+      detail: `No ČNB rate for ${summary.unconverted.map((u) => u.currency).join(", ")}; those open invoices are left out of the outstanding sum and the credit check.`,
+      meta: summary.unconverted.map((u) => fmtMoney(u.amount, u.currency)).join(" + "),
+      tab: "finance",
+    });
+  }
+
+  // An owner is a user; a name typed before owners were users counts as none, but is named so it can be found.
+  if (!customer.salesOwnerUserId) {
+    const typed = customer.salesOwner.trim();
+    items.push({
+      key: "no-sales-owner",
+      severity: "warning",
+      title: "No sales owner",
+      detail: typed ? `“${typed}” is not linked to a user. Pick one at the top of the page.` : "Assign one at the top of the page.",
+      field: SALES_OWNER_FIELD_ID,
+    });
+  }
+
+  if (contacts.length === 0) {
+    items.push({
+      key: "no-contact-person",
+      severity: "warning",
+      title: "No contact person",
+      detail: "Add who to call or write to at this customer.",
+      tab: "contacts",
+    });
+  }
+
+  if (!(creditLimit > 0)) {
+    items.push({
+      key: "no-credit-limit",
+      severity: "warning",
+      title: "No credit limit",
+      detail: "Set how much this customer may owe.",
+      tab: "finance",
+    });
+  }
 
   const typesOnFile = new Set(documents.map((document) => documentTypeKey(document.type)));
   const missingTypes = ATTENTION_RULES.requiredDocumentTypes.map(documentTypeKey).filter((type) => !typesOnFile.has(type));
@@ -228,13 +197,16 @@ export function buildCustomerAttention(input: AttentionInput): AttentionItem[] {
     });
   }
 
+  // A risk level or industry set by hand (company analysis) wins over the one read from the NACE codes.
   const { primary } = getNaceInfo(parseNaceCodes(customer.nace));
-  if (primary?.risk === "High") {
+  const risk = customer.riskLevel || primary?.risk || "";
+  if (risk === "High") {
+    const industry = customer.industry.trim() || primary?.label || "";
     items.push({
       key: "high-risk-industry",
       severity: "warning",
-      title: "High-risk industry",
-      detail: `${primary.label} — review before extending credit.`,
+      title: customer.riskLevel ? "High risk" : "High-risk industry",
+      detail: `${industry ? `${industry} — ` : ""}review before extending credit.`,
     });
   }
 

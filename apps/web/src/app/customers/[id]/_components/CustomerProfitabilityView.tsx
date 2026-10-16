@@ -55,19 +55,19 @@ const formatAxisValue = (value: number) => compactNumber.format(value);
 // Chart chrome stays quiet (hairline slate grid, small slate text) so the bars and the line are the only colour.
 const CHART_BOX_CLASS = "h-[260px]";
 const CHART_MARGIN = { top: 8, right: 8, bottom: 0, left: 0 };
-const GRID_STROKE = "#e2e8f0";
-const BASELINE_STROKE = "#94a3b8";
-const AXIS_TICK = { fontSize: 11, fill: "#64748b" };
+const GRID_STROKE = CHART_COLORS.grid;
+const BASELINE_STROKE = CHART_COLORS.baseline;
+const AXIS_TICK = { fontSize: 11, fill: CHART_COLORS.axis };
 const AXIS_LINE = { stroke: GRID_STROKE };
 const TOOLTIP_CONTENT_STYLE = { borderRadius: 8, border: `1px solid ${GRID_STROKE}`, fontSize: 12 };
-const TOOLTIP_LABEL_STYLE = { color: "#1e293b", fontWeight: 600 };
+const TOOLTIP_LABEL_STYLE = { color: CHART_COLORS.label, fontWeight: 600 };
 // Tooltip rows are printed in ink; recharts would otherwise colour them like their series, which is hard to read.
-const TOOLTIP_ITEM_STYLE = { color: "#334155" };
+const TOOLTIP_ITEM_STYLE = { color: CHART_COLORS.ink };
 const LEGEND_STYLE = { fontSize: 12 };
 // Rounded at the value end, square at the baseline.
 const BAR_RADIUS: [number, number, number, number] = [4, 4, 0, 0];
 const MAX_BAR_SIZE = 24;
-const LINE_DOT = { r: 4, fill: CHART_COLORS.profit, stroke: "#ffffff", strokeWidth: 2 };
+const LINE_DOT = { r: 4, fill: CHART_COLORS.profit, stroke: CHART_COLORS.dotRing, strokeWidth: 2 };
 
 const renderLegendLabel = (value: string) => <span className="text-slate-600">{value}</span>;
 
@@ -76,12 +76,12 @@ interface CustomerProfitabilityViewProps {
   onSelectTab: (key: string) => void;
 }
 
-// Finance sub-view "Profitability": the two figures the header does not show, and how money moved month by month.
+// Finance sub-view "Profitability": total cost, average profit per shipment, and how money moved month by month.
 export function CustomerProfitabilityView({ customer, onSelectTab }: CustomerProfitabilityViewProps) {
   const { shipments, isCapped, isLoading, isError } = useCustomerShipments(customer.id);
   const monthly = useMemo(() => bucketByMonth(shipments), [shipments]);
 
-  // Both tiles come from the stored rollup, like the header totals, so the two can never disagree.
+  // Both tiles come from the stored rollup, like the totals of the customer list, so the two can never disagree.
   const { currency, totalRevenue, totalProfit, totalShipments } = customer;
   const avgProfit = totalShipments > 0 ? totalProfit / totalShipments : null;
 
@@ -124,7 +124,7 @@ export function CustomerProfitabilityView({ customer, onSelectTab }: CustomerPro
                   <YAxis width={48} tick={AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={formatAxisValue} />
                   <Tooltip
                     formatter={formatTooltipValue}
-                    cursor={{ fill: "#f1f5f9" }}
+                    cursor={{ fill: CHART_COLORS.cursor }}
                     contentStyle={TOOLTIP_CONTENT_STYLE}
                     labelStyle={TOOLTIP_LABEL_STYLE}
                     itemStyle={TOOLTIP_ITEM_STYLE}
@@ -150,7 +150,7 @@ export function CustomerProfitabilityView({ customer, onSelectTab }: CustomerPro
                   <YAxis width={48} tick={AXIS_TICK} tickLine={false} axisLine={false} tickFormatter={formatAxisValue} />
                   <Tooltip
                     formatter={formatTooltipValue}
-                    cursor={{ stroke: "#cbd5e1" }}
+                    cursor={{ stroke: CHART_COLORS.cursorLine }}
                     contentStyle={TOOLTIP_CONTENT_STYLE}
                     labelStyle={TOOLTIP_LABEL_STYLE}
                     itemStyle={TOOLTIP_ITEM_STYLE}

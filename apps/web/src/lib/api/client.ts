@@ -470,15 +470,24 @@ export namespace customers {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.addressCreate = this.addressCreate.bind(this)
+            this.addressDelete = this.addressDelete.bind(this)
+            this.addressList = this.addressList.bind(this)
+            this.addressUpdate = this.addressUpdate.bind(this)
             this.aresLookup = this.aresLookup.bind(this)
+            this.aresSearch = this.aresSearch.bind(this)
             this.contactCreate = this.contactCreate.bind(this)
             this.contactDelete = this.contactDelete.bind(this)
             this.contactList = this.contactList.bind(this)
             this.contactUpdate = this.contactUpdate.bind(this)
             this.customerCreate = this.customerCreate.bind(this)
+            this.customerCreateManual = this.customerCreateManual.bind(this)
             this.customerDelete = this.customerDelete.bind(this)
             this.customerGet = this.customerGet.bind(this)
             this.customerList = this.customerList.bind(this)
+            this.customerListPrefGet = this.customerListPrefGet.bind(this)
+            this.customerListPrefSet = this.customerListPrefSet.bind(this)
+            this.customerShipmentFinancials = this.customerShipmentFinancials.bind(this)
             this.customerSiteCreate = this.customerSiteCreate.bind(this)
             this.customerSiteDelete = this.customerSiteDelete.bind(this)
             this.customerSiteList = this.customerSiteList.bind(this)
@@ -493,17 +502,54 @@ export namespace customers {
             this.invoiceList = this.invoiceList.bind(this)
             this.invoiceUpdate = this.invoiceUpdate.bind(this)
             this.logoDelete = this.logoDelete.bind(this)
-            this.logoFetch = this.logoFetch.bind(this)
             this.logoUpload = this.logoUpload.bind(this)
             this.noteCreate = this.noteCreate.bind(this)
             this.noteDelete = this.noteDelete.bind(this)
             this.noteList = this.noteList.bind(this)
         }
 
+        public async addressCreate(customerId: string, params: controllers.AddressCreateRequest): Promise<controllers.AddressCreateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(customerId)}/addresses`, JSON.stringify(params))
+            return await resp.json() as controllers.AddressCreateResponse
+        }
+
+        public async addressDelete(id: string): Promise<controllers.AddressDeleteResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("DELETE", `/customer-addresses/${encodeURIComponent(id)}`)
+            return await resp.json() as controllers.AddressDeleteResponse
+        }
+
+        public async addressList(customerId: string): Promise<controllers.AddressListResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customers/${encodeURIComponent(customerId)}/addresses`)
+            return await resp.json() as controllers.AddressListResponse
+        }
+
+        public async addressUpdate(id: string, params: controllers.AddressUpdateRequest): Promise<controllers.AddressUpdateResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PATCH", `/customer-addresses/${encodeURIComponent(id)}`, JSON.stringify(params))
+            return await resp.json() as controllers.AddressUpdateResponse
+        }
+
         public async aresLookup(ico: string): Promise<interfaces.AresResult> {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/ares/${encodeURIComponent(ico)}`)
             return await resp.json() as interfaces.AresResult
+        }
+
+        /**
+         * Czech companies by name, for picking one in Add Customer before it is looked up by IČO.
+         */
+        public async aresSearch(params: controllers.AresSearchRequest): Promise<controllers.AresSearchResponse> {
+            // Convert our params into the objects we need for the request
+            const query = makeRecord<string, string | string[]>({
+                name: params.name,
+            })
+
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/ares-search`, undefined, {query})
+            return await resp.json() as controllers.AresSearchResponse
         }
 
         public async contactCreate(customerId: string, params: controllers.ContactCreateRequest): Promise<controllers.ContactCreateResponse> {
@@ -537,6 +583,15 @@ export namespace customers {
         }
 
         /**
+         * A customer outside the Czech Republic, typed in by hand.
+         */
+        public async customerCreateManual(params: controllers.CustomerCreateManualRequest): Promise<controllers.CustomerCreateManualResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/manual`, JSON.stringify(params))
+            return await resp.json() as controllers.CustomerCreateManualResponse
+        }
+
+        /**
          * Removes the customer with its contacts, notes, documents and invoices: managers and up only.
          */
         public async customerDelete(id: string): Promise<controllers.CustomerDeleteResponse> {
@@ -564,6 +619,27 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("GET", `/customers`, undefined, {query})
             return await resp.json() as controllers.CustomerListResponse
+        }
+
+        public async customerListPrefGet(prefKey: string): Promise<controllers.CustomerListPrefGetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/customer-list-prefs/${encodeURIComponent(prefKey)}`)
+            return await resp.json() as controllers.CustomerListPrefGetResponse
+        }
+
+        public async customerListPrefSet(prefKey: string, params: controllers.CustomerListPrefSetRequest): Promise<controllers.CustomerListPrefSetResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("PUT", `/customer-list-prefs/${encodeURIComponent(prefKey)}`, JSON.stringify(params))
+            return await resp.json() as controllers.CustomerListPrefSetResponse
+        }
+
+        /**
+         * Revenue, cost and profit of the customer's shipments, as each job's Costs Breakdown works them out.
+         */
+        public async customerShipmentFinancials(id: string, params: controllers.CustomerShipmentFinancialsRequest): Promise<controllers.CustomerShipmentFinancialsResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(id)}/shipment-financials`, JSON.stringify(params))
+            return await resp.json() as controllers.CustomerShipmentFinancialsResponse
         }
 
         public async customerSiteCreate(customerId: string, params: controllers.CustomerSiteCreateRequest): Promise<controllers.CustomerSiteCreateResponse> {
@@ -648,12 +724,6 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/customers/${encodeURIComponent(id)}/logo`)
             return await resp.json() as controllers.LogoDeleteResponse
-        }
-
-        public async logoFetch(id: string): Promise<controllers.LogoFetchResponse> {
-            // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/customers/${encodeURIComponent(id)}/logo/fetch`)
-            return await resp.json() as controllers.LogoFetchResponse
         }
 
         public async logoUpload(id: string, params: controllers.LogoUploadRequest): Promise<controllers.LogoUploadResponse> {
@@ -4192,6 +4262,46 @@ export namespace controllers {
         vatCode?: interfaces.SellingVatCode | ""
     }
 
+    export interface AddressCreateRequest {
+        type: interfaces.AddressType
+        label?: string
+        street: string
+        city: string
+        postalCode: string
+        /**
+         * ISO 3166-1 alpha-2
+         */
+        country: string
+    }
+
+    export interface AddressCreateResponse {
+        address: interfaces.AddressItem
+    }
+
+    export interface AddressDeleteResponse {
+        ok: boolean
+    }
+
+    export interface AddressListResponse {
+        data: interfaces.AddressItem[]
+    }
+
+    export interface AddressUpdateRequest {
+        type?: interfaces.AddressType
+        label?: string
+        street?: string
+        city?: string
+        postalCode?: string
+        /**
+         * ISO 3166-1 alpha-2
+         */
+        country?: string
+    }
+
+    export interface AddressUpdateResponse {
+        address: interfaces.AddressItem
+    }
+
     export interface AlertsResponse {
         alerts: interfaces.FxAlertItem[]
     }
@@ -4244,6 +4354,21 @@ export namespace controllers {
         severity?: string
         title?: string
         body?: string
+    }
+
+    export interface AresSearchRequest {
+        /**
+         * Part of the company name; at least 3 characters.
+         */
+        name: string
+    }
+
+    export interface AresSearchResponse {
+        companies: interfaces.AresSearchHit[]
+        /**
+         * True when the name fits too many companies to list; nothing is returned then.
+         */
+        tooMany: boolean
     }
 
     /**
@@ -4516,7 +4641,8 @@ export namespace controllers {
     }
 
     export interface ContactCreateRequest {
-        name: string
+        firstName: string
+        lastName: string
         email?: string
         phone?: string
         role?: interfaces.ContactRole
@@ -4541,7 +4667,8 @@ export namespace controllers {
          */
         customerId?: string
 
-        name?: string
+        firstName?: string
+        lastName?: string
         email?: string
         phone?: string
         role?: interfaces.ContactRole
@@ -4701,6 +4828,41 @@ export namespace controllers {
         idempotencyKey?: string
     }
 
+    export interface CustomerCreateManualRequest {
+        /**
+         * ISO 3166-1 alpha-2 code of a country other than CZ (Czech companies come from ARES).
+         */
+        country: string
+
+        companyName: string
+        /**
+         * The company's number in its country's register (e.g. "HRB 12345"); optional.
+         */
+        registrationNumber?: string
+
+        /**
+         * Optional: a customer can be set up before its VAT ID is known.
+         */
+        vatId?: string
+
+        street: string
+        city: string
+        postalCode: string
+        /**
+         * The contact person, created as the customer's main contact.
+         */
+        contact: interfaces.CustomerContactRequest
+
+        /**
+         * ["customer"] when left out.
+         */
+        roles?: interfaces.CustomerRole[]
+    }
+
+    export interface CustomerCreateManualResponse {
+        customer: interfaces.CustomerItem
+    }
+
     export interface CustomerCreateRequest {
         /**
          * IČO: exactly 8 digits
@@ -4711,6 +4873,11 @@ export namespace controllers {
          * ["customer"] when left out.
          */
         roles?: interfaces.CustomerRole[]
+
+        /**
+         * The contact person, created as the customer's main contact.
+         */
+        contact: interfaces.CustomerContactRequest
     }
 
     export interface CustomerCreateResponse {
@@ -4723,6 +4890,24 @@ export namespace controllers {
 
     export interface CustomerGetResponse {
         customer: interfaces.CustomerItem
+    }
+
+    export interface CustomerListPrefGetResponse {
+        /**
+         * The value as JSON; null while the user has saved nothing.
+         */
+        value: string | null
+    }
+
+    export interface CustomerListPrefSetRequest {
+        /**
+         * The value as JSON.
+         */
+        value: string
+    }
+
+    export interface CustomerListPrefSetResponse {
+        ok: boolean
     }
 
     export interface CustomerListRequest {
@@ -4742,6 +4927,25 @@ export namespace controllers {
 
     export interface CustomerListResponse {
         data: interfaces.CustomerItem[]
+    }
+
+    export interface CustomerShipmentFinancialsRequest {
+        /**
+         * The shipments shown (a page of the customer's Shipments tab).
+         */
+        shipmentIds: string[]
+
+        /**
+         * Totals are also given in this currency (default CZK), e.g. the customer's.
+         */
+        currency?: string
+    }
+
+    export interface CustomerShipmentFinancialsResponse {
+        /**
+         * One per given shipment that is a live shipment of this customer, in the order given.
+         */
+        items: interfaces.ShipmentFinancials[]
     }
 
     export interface CustomerSiteCreateRequest {
@@ -4818,12 +5022,18 @@ export namespace controllers {
     /**
      * The rollups (totalRevenue, totalProfit, totalShipments, lastActivityDate) are not here:
      * they are computed from shipments and written only through customerRollupsUpdate.
+     * Nor is the registered address: it lives in the customer's Registered address (the
+     * addresses endpoints); the copy on the customer comes from the registry when it is created.
      */
     export interface CustomerUpdateRequest {
         companyName?: string
         dic?: string
         status?: interfaces.CustomerStatus
-        salesOwner?: string
+        /**
+         * A user of the company, or null for no owner. The owner's name is looked up from the user.
+         */
+        salesOwnerUserId?: string | null
+
         label?: interfaces.CustomerLabel
         creditLimit?: number
         currency?: string
@@ -4831,14 +5041,25 @@ export namespace controllers {
         freightPaymentTerms?: string
         dutyPaymentTerms?: string
         companyWebsite?: string
-        city?: string
-        country?: string
-        registeredAddress?: string
         nace?: string
         /**
          * The whole set, replacing the current one; at least one role.
          */
         roles?: interfaces.CustomerRole[]
+
+        /**
+         * yyyy-mm-dd, or "" to clear: the company age and stability follow it.
+         */
+        registrationDate?: string
+
+        /**
+         * Company analysis set by hand; "" goes back to the value derived from the registry data.
+         */
+        industry?: string
+
+        typicalCargo?: string
+        stability?: string
+        riskLevel?: interfaces.RiskLevelOverride
     }
 
     export interface CustomerUpdateResponse {
@@ -5673,10 +5894,6 @@ export namespace controllers {
     }
 
     export interface LogoDeleteResponse {
-        customer: interfaces.CustomerItem
-    }
-
-    export interface LogoFetchResponse {
         customer: interfaces.CustomerItem
     }
 
@@ -8347,6 +8564,28 @@ export namespace interfaces {
         sortOrder: number
     }
 
+    export interface AddressItem {
+        id: string
+        customerId: string
+        type: AddressType
+        label: string
+        street: string
+        city: string
+        postalCode: string
+        /**
+         * ISO 3166-1 alpha-2
+         */
+        country: string
+
+        createdAt: string
+        updatedAt: string
+    }
+
+    /**
+     * Registered is the company's seat; the others are where invoices go and goods are picked up or delivered.
+     */
+    export type AddressType = "Registered" | "Billing" | "Pickup" | "Delivery" | "Warehouse"
+
     export type AdrPackingGroup = "I" | "II" | "III"
 
     export interface AresResult {
@@ -8357,7 +8596,6 @@ export namespace interfaces {
         registeredAddress: string
         city: string
         country: string
-        companyStatus: string
         registrationDate: string
         nace: string
         /**
@@ -8384,6 +8622,18 @@ export namespace interfaces {
          * Commercial register entry, e.g. "B 8573 vedená u Městského soudu v Praze"; "" when none
          */
         registerEntry: string
+    }
+
+    /**
+     * One company found in ARES by its name, enough to pick it; its full record is then read by IČO.
+     */
+    export interface AresSearchHit {
+        ico: string
+        companyName: string
+        /**
+         * The registered address in one line, e.g. "Jankovcova 1522/53, Holešovice, 17000 Praha 7".
+         */
+        address: string
     }
 
     /**
@@ -9068,7 +9318,13 @@ export namespace interfaces {
     export interface ContactItem {
         id: string
         customerId: string
+        /**
+         * "First Last", for showing and for quotes and shipments.
+         */
         name: string
+
+        firstName: string
+        lastName: string
         email: string
         phone: string
         role: ContactRole
@@ -9077,7 +9333,7 @@ export namespace interfaces {
         updatedAt: string
     }
 
-    export type ContactRole = "Sales" | "Operations" | "Finance"
+    export type ContactRole = "Purchasing / Procurement" | "Customer Service" | "Logistics Manager" | "Warehouse" | "Finance / Accounting" | "Sales" | "Management" | "Owner"
 
     export interface ContainerLine {
         /**
@@ -9204,6 +9460,17 @@ export namespace interfaces {
         lastAt: string
     }
 
+    /**
+     * The contact person sent with a new customer, with the same limits as a contact added later.
+     */
+    export interface CustomerContactRequest {
+        firstName: string
+        lastName: string
+        email?: string
+        phone?: string
+        role?: ContactRole
+    }
+
     export interface CustomerItem {
         id: string
         ico: string
@@ -9213,17 +9480,29 @@ export namespace interfaces {
         registeredAddress: string
         city: string
         country: string
-        companyStatus: string
         /**
          * yyyy-mm-dd, or "" when unknown
          */
         registrationDate: string
 
         nace: string
+        /**
+         * Company analysis set by hand; "" where the derived value applies.
+         */
+        industry: string
+
+        typicalCargo: string
+        stability: string
+        riskLevel: RiskLevelOverride
         dataSource: string
         lastRegistryUpdate: string
         status: CustomerStatus
+        /**
+         * The owner's name; without salesOwnerUserId a name typed before owners were users, or "".
+         */
         salesOwner: string
+
+        salesOwnerUserId: string | null
         label: CustomerLabel
         creditLimit: number
         currency: string
@@ -9251,7 +9530,7 @@ export namespace interfaces {
         updatedAt: string
     }
 
-    export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "PROSPECT" | "RISK"
+    export type CustomerLabel = "KEY ACCOUNT" | "STANDARD" | "TARGET CUSTOMER" | "RISK"
 
     /**
      * What a company is to us. A customer buys our services; a haulier is a trucking subcontractor. One company can be both.
@@ -12347,6 +12626,11 @@ export namespace interfaces {
     }
 
     /**
+     * A risk level set by hand, or "" when it is derived from the registry data.
+     */
+    export type RiskLevelOverride = "" | "Low" | "Medium" | "High"
+
+    /**
      * The margin of a road quote against the Trucking margin floor. Amounts in CZK.
      */
     export interface RoadMargin {
@@ -12633,6 +12917,36 @@ export namespace interfaces {
          * The dates that are due in that window, soonest first.
          */
         deadlines: ShipmentDeadline[]
+    }
+
+    /**
+     * A shipment's revenue, cost and profit as its Costs Breakdown works them out.
+     */
+    export interface ShipmentFinancials {
+        shipmentId: string
+        /**
+         * The currency of revenue / cost / profit (the one asked for).
+         */
+        currency: string
+
+        /**
+         * In CZK; null when an amount (or the billing currency) has no ČNB rate, or the job's rates can't be read.
+         */
+        revenueCzk: number | null
+
+        costCzk: number | null
+        profitCzk: number | null
+        /**
+         * In `currency` at the job's own rate; null also when that currency has no rate.
+         */
+        revenue: number | null
+
+        cost: number | null
+        profit: number | null
+        /**
+         * Currencies without a rate that made the totals unknown.
+         */
+        missingCurrencies: string[]
     }
 
     export interface ShipmentItem {

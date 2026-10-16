@@ -25,7 +25,7 @@ export function round2(v: number): number {
 }
 
 /** Numeric columns arrive as strings ("4999.50") or null. */
-function toNumber(v: string | number | null | undefined): number {
+export function toNumber(v: string | number | null | undefined): number {
   if (v === null || v === undefined || v === "") return 0;
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : 0;
