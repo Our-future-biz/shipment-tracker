@@ -28,3 +28,11 @@ tsconfig.check.json
 # Docasne soubory z generovani prehledu
 .cols_tmp.json
 .opts_tmp.json
+
+# SQLite databases (real customer data must never be committed)
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite3
