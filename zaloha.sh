@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zaloha a obnova lokalni databaze (8 Encore databazi najednou).
+# Zaloha a obnova lokalni databaze (vsechny Encore databaze najednou).
 #
 #   ./zaloha.sh                 vytvori zalohu do ~/Documents/Shipment Tracker/zalohy/
 #   ./zaloha.sh seznam          vypise existujici zalohy
@@ -16,7 +16,10 @@ for d in /opt/homebrew/opt/libpq/bin /usr/local/opt/libpq/bin; do
 done
 export PATH
 
-DBS="auth automation customers invoicing quotes sales shipments warehouse"
+# Jmena z new SQLDatabase("...") v apps/api/services/*/db/db.ts. "warehouse" je Warehouse Concept,
+# "warehouse_basic" je normalni Warehouse. Pri nove databazi ji sem pridej.
+DBS="auth automation customers fx holidays invoicing quotes sales shipments trucking warehouse warehouse_basic"
+POCET=$(echo $DBS | wc -w | tr -d ' ')
 KAM="$HOME/Documents/Shipment Tracker/zalohy"
 cmd="${1:-zaloha}"
 
@@ -44,7 +47,7 @@ if [ "$cmd" = "obnov" ]; then
   SRC="${2:-}"
   [ -z "$SRC" ] && { echo "Pouziti: ./zaloha.sh obnov <nazev-slozky>"; echo; "$0" seznam; exit 1; }
   [ -d "$KAM/$SRC" ] || { echo "❌ zaloha '$SRC' neexistuje"; "$0" seznam; exit 1; }
-  echo "⚠️  Obnova PREPISE soucasna data ve vsech 8 databazich."
+  echo "⚠️  Obnova PREPISE soucasna data ve vsech $POCET databazich."
   printf "   Pokracovat? (napis ano): "
   read -r odp
   [ "$odp" = "ano" ] || { echo "zruseno"; exit 0; }
@@ -81,4 +84,4 @@ if [ "$ok" -eq 0 ]; then
   echo "❌ Nic se nezalohovalo. Bezi aplikace? Spust ./run-local.sh a zkus znovu."
   exit 1
 fi
-echo "Hotovo: $ok z 8 databazi -> $OUT"
+echo "Hotovo: $ok z $POCET databazi -> $OUT"

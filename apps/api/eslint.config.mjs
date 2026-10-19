@@ -21,6 +21,13 @@ export default [
     },
   },
   {
+    // One-off CLI tools (seed, provisioning): printing to the terminal is their output.
+    files: ["scripts/**/*.ts"],
+    rules: {
+      "no-console": "off",
+    },
+  },
+  {
     ignores: ["dist/", "node_modules/", "encore.gen/"],
   },
 ];
