@@ -1839,7 +1839,8 @@ export namespace shipments {
         /**
          * Soft-delete only — the row and all details are kept (deletedAt is set) so the
          * job reference can never be reused. The actor is derived server-side from the
-         * authenticated user and recorded in the audit log.
+         * authenticated user and recorded in the audit log. Managers and up only: the delete
+         * also retires the shipment's costs, billing and links in the other services.
          */
         public async shipmentDelete(shipmentId: string): Promise<controllers.ShipmentDeleteResponse> {
             // Now make the actual call to the API
@@ -7001,8 +7002,6 @@ export namespace controllers {
          * Other
          */
         claim?: string
-
-        createdBy?: string
     }
 
     export interface ShipmentCreateResponse {
@@ -7334,8 +7333,6 @@ export namespace controllers {
          * Other
          */
         claim?: string
-
-        createdBy?: string
     }
 
     export interface ShipmentUpdateResponse {

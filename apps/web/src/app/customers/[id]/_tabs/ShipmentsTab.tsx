@@ -12,6 +12,7 @@ import { CUSTOMER_SHIPMENTS_LIMIT, useCustomerShipments } from "@/hooks/useCusto
 import type { ShipmentItem } from "@/hooks/useCustomerShipments";
 import { useCustomer } from "@/hooks/useCustomers";
 import { useCustomerShipmentFinancials } from "@/hooks/useCustomerShipmentFinancials";
+import { useCanDeleteShipments } from "@/lib/auth/AuthContext";
 import type { ShipmentFinancials } from "@/hooks/useCustomerShipmentFinancials";
 import { formatDate } from "@/lib/date";
 import { isCompletedStatus } from "@/lib/enums";
@@ -45,6 +46,7 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
   const { shipments, isCapped, isLoading, isError, deleteShipment, isDeleting } = useCustomerShipments(customerId);
   const { customer } = useCustomer(customerId);
   const toast = useToast();
+  const canDelete = useCanDeleteShipments();
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>();
   const [mode, setMode] = useState<string>();
@@ -217,7 +219,10 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
         return `${marginPct(item.revenue, item.profit)}%`;
       },
     },
-    {
+  ];
+  // Deleting is for managers and up (the server enforces the same).
+  if (canDelete) {
+    columns.push({
       title: "",
       key: "actions",
       width: 48,
@@ -234,8 +239,8 @@ export function ShipmentsTab({ customerId }: ShipmentsTabProps) {
           />
         </div>
       ),
-    },
-  ];
+    });
+  }
 
   return (
     <div className="space-y-5">

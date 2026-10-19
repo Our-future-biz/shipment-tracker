@@ -25,7 +25,6 @@ import type { interfaces } from "@/lib/api/client";
 import { fileToBase64, formatFileSize } from "@/lib/files";
 import { FULL_LOAD } from "@/lib/enums";
 import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
-import { useAuth } from "@/lib/auth/AuthContext";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
@@ -40,7 +39,6 @@ import {
   buildFields,
   withBookingEquipment,
   containerRowsFromNumbers,
-  createdByStamp,
   type Destination,
   type ExtractedField,
   type InputMode,
@@ -109,7 +107,6 @@ function recordToFields(record: Record<string, string>): ExtractedField[] {
 export function DocumentReadingWorkflow() {
   const toast = useToast();
   const queryClient = useQueryClient();
-  const { user } = useAuth();
   const { shipments, createShipment, updateShipment, linkMasterJob } = useShipments();
   const quoteReading = useQuoteReading();
 
@@ -384,7 +381,7 @@ export function DocumentReadingWorkflow() {
         setCommittedJobNumber(target?.jobNumber || "");
       } else {
         const jobNumber = nextCzNumber(shipments);
-        const created = await createShipment(baseCreatePayload(jobNumber, createdByStamp(user?.email)));
+        const created = await createShipment(baseCreatePayload(jobNumber));
         let data = toShipmentUpdate(approved);
         if (newContainers.length > 0) data.containers = newContainers;
         data = withContainerType(data, approved);
@@ -588,7 +585,7 @@ export function DocumentReadingWorkflow() {
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
     try {
       const jobNumber = nextCzNumber(shipments, masterCreatedJobs);
-      const created = await createShipment(baseCreatePayload(jobNumber, createdByStamp(user?.email, "System (Master Job)")));
+      const created = await createShipment(baseCreatePayload(jobNumber));
       let data = toShipmentUpdate(approved);
       const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
       if (newContainers.length > 0) data.containers = newContainers;

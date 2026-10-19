@@ -172,16 +172,15 @@ export const CreateShipmentWizard = ({
   };
 
   const baseRequest = (): controllers.ShipmentCreateRequest => {
-    const now = new Date().toLocaleString("cs-CZ", { timeZone: "Europe/Prague" });
     // No job number: the server gives the shipment the next free one when it is stored, so the
-    // number shown above is a preview and a parallel create may take it first.
+    // number shown above is a preview and a parallel create may take it first. No Created By
+    // either: the server stamps it from the signed-in user.
     return {
       tradeDirection: "Import",
       freightMode: "Sea Freight",
       department: "Operation Department",
       status: "Booking Confirmation Pending [IMP]",
       personInCharge: user?.email || "",
-      createdBy: `${now} — ${user?.email || "System"}`,
     };
   };
 

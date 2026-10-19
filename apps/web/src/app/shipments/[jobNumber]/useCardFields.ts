@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { message } from "antd";
+import { useToast } from "@/lib/toast";
 import { api } from "@/lib/api";
 
 /**
@@ -26,6 +26,7 @@ const knownKey = (cardId: string) => `${cardId}#known`;
 type CardFieldMap = Record<string, string[]>;
 
 export function useCardFields() {
+  const toast = useToast();
   const queryClient = useQueryClient();
 
   const { data } = useQuery({
@@ -56,7 +57,7 @@ export function useCardFields() {
     },
     onError: (_e, _next, context) => {
       queryClient.setQueryData(["user-prefs", PREF_KEY], context?.previous);
-      message.error("Could not save the field selection");
+      toast.error("Could not save the field selection");
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ["user-prefs", PREF_KEY] }),
   });

@@ -2,7 +2,8 @@
 
 import { Fragment, useMemo, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { DatePicker, Input, Modal, Select, TimePicker, Tooltip, message } from "antd";
+import { DatePicker, Input, Modal, Select, TimePicker, Tooltip } from "antd";
+import { useToast } from "@/lib/toast";
 import dayjs, { type Dayjs } from "dayjs";
 import {
   SafetyCertificateOutlined,
@@ -267,6 +268,7 @@ export function CustomsTab({
   /** Shows only that part (the Customs section has them on separate tabs); left out, both. */
   section?: "details" | "documents";
 }) {
+  const toast = useToast();
   const [search, setSearch] = useState("");
   const { updateShipment } = useShipments();
   // Commercial Invoice(s) Value is the total of the cargo lines per currency whenever they
@@ -303,7 +305,7 @@ export function CustomsTab({
       setDeclining(null);
       setNote("");
     },
-    onError: () => message.error("Could not save the review"),
+    onError: () => toast.error("Could not save the review"),
   });
 
   // Memoised so the `?? []` fallback does not hand the memo below a new array
@@ -335,7 +337,7 @@ export function CustomsTab({
                       customerId={shipment.principalPartyId}
                       onChange={(principalParty, principalPartyId) =>
                         updateShipment({ id: shipment.id, data: { principalParty, principalPartyId } }).catch(() =>
-                          message.error("Could not save the principal party"),
+                          toast.error("Could not save the principal party"),
                         )
                       }
                     />
@@ -361,7 +363,7 @@ export function CustomsTab({
               // Priority and deadline are saved together, so there is never an Urgent without one.
               onChange={(customsPriority, customsDeadline) =>
                 updateShipment({ id: shipment.id, data: { customsPriority, customsDeadline } }).catch(() =>
-                  message.error("Could not save the priority"),
+                  toast.error("Could not save the priority"),
                 )
               }
             />

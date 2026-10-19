@@ -13,7 +13,7 @@ import { cargoItemRepository } from "../repositories/cargoItem.repository";
 import { cargoDimensionRepository } from "../repositories/cargoDimension.repository";
 import { commercialInvoiceRepository } from "../repositories/commercialInvoice.repository";
 import { invoiceValueByCurrency, isValidContainerNumber, normalizeContainerNumber, projectCargo } from "../lib/cargoProjection";
-import { actionStamp, cfsDefault, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
+import { actionStamp, cfsDefault, creationStamp, exportBolDefaults, isCreditApproval, startingStateDefaults, statusForDirection } from "../lib/fieldDefaults";
 import { quoteLinksService } from "./quoteLinks.service";
 import type { ShipmentListFilters } from "../repositories/shipment.repository";
 import type { NewShipmentRecord, ShipmentRecord } from "../schemas/shipment.schema";
@@ -639,11 +639,17 @@ class ShipmentService {
     return { shipment: (await this.getById(shipment.id, companyId))!, quoteLink, costImport, detailRowsError };
   }
 
-  async create(companyId: string, data: ShipmentCreateData): Promise<CreatedShipment> {
+  /**
+   * `creatorUserId` is the signed-in user creating the shipment: Created By is then stamped
+   * here from that user. Without it (a caller inside the backend, e.g. Trucking's road jobs)
+   * the caller's own createdBy is kept.
+   */
+  async create(companyId: string, data: ShipmentCreateData, creatorUserId?: string): Promise<CreatedShipment> {
     const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, ...rest } = data;
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
     const shipmentData = sanitizeTypedFields({ ...rest, ...legacyInvoiceFields(commercialInvoices) });
+    if (creatorUserId) shipmentData.createdBy = creationStamp(await this.resolveUserName(creatorUserId), new Date());
     Object.assign(shipmentData, normalizeStops(shipmentData));
     // A new shipment has no paperwork yet, so its customs status starts where the paperwork does.
     delete shipmentData.customsStatus;

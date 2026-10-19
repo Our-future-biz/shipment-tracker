@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Select, Tooltip, message } from "antd";
+import { Select, Tooltip } from "antd";
+import { useToast } from "@/lib/toast";
 import {
   InboxOutlined,
   DeleteOutlined,
@@ -133,6 +134,7 @@ interface PendingFile {
 }
 
 export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
+  const toast = useToast();
   // A document added, removed or classified also changes the shipment itself: its customs
   // status follows the invoice and the packing list, and so do the "received" ticks.
   const { attachments, refresh: refreshDocuments } = useShipmentAttachments(shipment.id);
@@ -194,12 +196,12 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     setSaving(false);
 
     if (failed.length === 0) {
-      message.success(pending.length === 1 ? "Document added" : `${pending.length} documents added`);
+      toast.success(pending.length === 1 ? "Document added" : `${pending.length} documents added`);
       setPending([]);
       return;
     }
     // Keep the failed ones in the queue so the user can retry without re-picking.
-    message.error({ content: failed[0], duration: 8 });
+    toast.error(failed[0] ?? "Could not add the document", 8);
     const failedNames = new Set(failed.map((f) => f.split(":")[0]));
     setPending((list) => list.filter((p) => failedNames.has(p.name)));
   };
@@ -210,7 +212,7 @@ export function DocumentsTab({ shipment }: { shipment: ShipmentItem }) {
     mutationFn: ({ id, documentType }: { id: string; documentType: string }) =>
       api.shipments.attachmentClassify(shipment.id, id, { documentType }),
     onSuccess: refreshDocuments,
-    onError: () => message.error("Could not save the document type"),
+    onError: () => toast.error("Could not save the document type"),
   });
 
 

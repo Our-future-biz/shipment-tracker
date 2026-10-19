@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   actionStamp,
   cfsDefault,
+  creationStamp,
   exportBolDefaults,
   isCreditApproval,
   startingStateDefaults,
@@ -88,6 +89,20 @@ describe("actionStamp", () => {
 
   it("falls back to the timestamp when the approver is unknown", () => {
     expect(actionStamp("", at)).not.toContain("—");
+  });
+});
+
+describe("creationStamp", () => {
+  const at = new Date("2026-08-17T12:32:00Z");
+
+  it("puts the time first and then who created it, like every Created By already stored", () => {
+    const stamp = creationStamp("Jan Novák", at);
+    expect(stamp.endsWith(" — Jan Novák")).toBe(true);
+    expect(stamp).toContain("2026");
+  });
+
+  it("is the time alone when the creator cannot be named", () => {
+    expect(creationStamp(" ", at)).not.toContain("—");
   });
 });
 

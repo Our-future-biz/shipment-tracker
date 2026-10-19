@@ -36,7 +36,7 @@ vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() } }));
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 
 import log from "encore.dev/log";
-import { invoicing, quotes } from "~encore/clients";
+import { auth, invoicing, quotes } from "~encore/clients";
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import type { QuoteSyncResult } from "../../interfaces/interfaces";
 import { cargoDimensionRepository } from "../../repositories/cargoDimension.repository";
@@ -304,6 +304,24 @@ describe("create without a quote", () => {
     await create({ fromQuoteNumber: "   " });
     expect(salesQuoteGet).not.toHaveBeenCalled();
     expect(repository.createWithJobNumber).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Created by", () => {
+  const members = { users: [{ id: USER, displayName: "Jan Novák", email: "jan@example.com" }] };
+
+  it("is stamped with the signed-in user who creates the shipment, whatever the request says", async () => {
+    vi.mocked(auth.usersList).mockResolvedValue(members as never);
+    await shipmentService.create(COMPANY, { createdBy: "someone else" } as never, USER);
+    await shipmentService.create(COMPANY, { fromQuoteNumber: REF, createdBy: "someone else" } as never, USER);
+    const createdBy = [repository.createWithJobNumber.mock.calls[0]![1].createdBy, repository.createFromQuote.mock.calls[0]![2].createdBy];
+    for (const stamp of createdBy) expect(stamp).toMatch(/^\S.* — Jan Novák$/);
+  });
+
+  it("keeps the stamp a caller inside the backend passes when no user creates it (Trucking's road jobs)", async () => {
+    await shipmentService.create(COMPANY, { createdBy: "Trucking (system)" } as never);
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ createdBy: "Trucking (system)" });
+    expect(auth.usersList).not.toHaveBeenCalled();
   });
 });
 

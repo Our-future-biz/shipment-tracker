@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Drawer, Input, Button, message } from "antd";
+import { Drawer, Input, Button } from "antd";
+import { useToast } from "@/lib/toast";
 import type { ShipmentItem } from "@/hooks/useShipments";
 
 export function NotesDrawer({
@@ -15,6 +16,7 @@ export function NotesDrawer({
   onClose: () => void;
   onSave: (value: string) => void;
 }) {
+  const toast = useToast();
   const saved = shipment.freeComments ?? "";
   const [draft, setDraft] = useState(saved);
 
@@ -26,7 +28,7 @@ export function NotesDrawer({
 
   const handleSave = () => {
     onSave(draft);
-    message.success("Notes saved");
+    toast.success("Notes saved");
   };
 
   return (

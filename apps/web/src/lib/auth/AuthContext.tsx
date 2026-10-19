@@ -57,14 +57,19 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       return;
     }
 
-    // Safety timeout — don't hang forever if API is down
+    // Safety timeout — don't hang forever if API is down. It aborts the request, so an answer
+    // arriving later can't sign the user in after the token was already dropped (every call
+    // would then go out without one).
+    const controller = new AbortController();
+    let timedOut = false;
     const timeout = setTimeout(() => {
-      setIsLoading(false);
-      localStorage.removeItem("auth_token");
+      timedOut = true;
+      controller.abort();
     }, 5000);
 
     fetch(`${API_BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${savedToken}` },
+      signal: controller.signal,
     })
       .then((res) => {
         if (!res.ok) throw new Error("Invalid session");
@@ -75,12 +80,20 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
         setToken(savedToken);
       })
       .catch(() => {
+        // Aborted by the cleanup below (unmount, or React's dev double-run): not a failed session.
+        if (controller.signal.aborted && !timedOut) return;
         localStorage.removeItem("auth_token");
       })
       .finally(() => {
         clearTimeout(timeout);
+        if (controller.signal.aborted && !timedOut) return;
         setIsLoading(false);
       });
+
+    return () => {
+      clearTimeout(timeout);
+      controller.abort();
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -131,6 +144,15 @@ export const CUSTOMER_MANAGER_ROLES = ["superadmin", "admin", "manager"] as cons
 export const useCanManageCustomers = (): boolean => {
   const { user } = useAuth();
   return !!user && (CUSTOMER_MANAGER_ROLES as readonly string[]).includes(user.role);
+};
+
+/** Roles that may delete a shipment (it also retires its costs and billing); the server enforces the same. */
+export const SHIPMENT_DELETE_ROLES = ["superadmin", "admin", "manager"] as const;
+
+/** Whether the signed-in user may delete shipments. */
+export const useCanDeleteShipments = (): boolean => {
+  const { user } = useAuth();
+  return !!user && (SHIPMENT_DELETE_ROLES as readonly string[]).includes(user.role);
 };
 
 /** Whether the signed-in user sees the concept modules (Warehouse Concept, Trucking Concept): superadmins only. */

@@ -180,7 +180,6 @@ interface ShipmentUpdateRequest {
 
   // Other
   claim?: string;
-  createdBy?: string;
 }
 
 interface ShipmentUpdateResponse {

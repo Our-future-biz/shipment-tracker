@@ -185,12 +185,8 @@ export function normalizeCurrency(raw?: string): string {
   return (CURRENCIES as readonly string[]).includes(c) ? c : "CZK";
 }
 
-export function createdByStamp(email: string | undefined, fallback = "Document Reading"): string {
-  const now = new Date().toLocaleString("cs-CZ", { timeZone: "Europe/Prague" });
-  return `${now} — ${email || fallback}`;
-}
-
-export function baseCreatePayload(jobNumber: string, createdBy: string): controllers.ShipmentCreateRequest {
+// No Created By: the server stamps it from the signed-in user.
+export function baseCreatePayload(jobNumber: string): controllers.ShipmentCreateRequest {
   return {
     jobNumber,
     tradeDirection: "Import",
@@ -198,7 +194,6 @@ export function baseCreatePayload(jobNumber: string, createdBy: string): control
     department: "Operation Department",
     status: "Booking Confirmation Pending [IMP]",
     customsStatus: "Waiting For Commercial Paperwork",
-    createdBy,
   };
 }
 

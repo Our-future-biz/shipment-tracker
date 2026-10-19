@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Alert, Button, Spin, Table, Upload, message } from "antd";
+import { Alert, Button, Spin, Table, Upload } from "antd";
+import { useToast } from "@/lib/toast";
 import { CloseOutlined, InboxOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import { api } from "@/lib/api";
@@ -47,6 +48,7 @@ const holidayFields = (r: PreviewRow): HolidayRow => ({
 // World Holidays columns is read as-is; anything else is read by the AI. The rows are
 // shown for checking first and saved only on "Save".
 export function HolidaysUploadTab({ onSaved }: HolidaysUploadTabProps) {
+  const toast = useToast();
   const { importHolidays } = usePublicHolidays();
   const [reading, setReading] = useState<{ id: string; name: string }[]>([]);
   const [rows, setRows] = useState<PreviewRow[]>([]);
@@ -79,12 +81,12 @@ export function HolidaysUploadTab({ onSaved }: HolidaysUploadTabProps) {
       const bySource = new Map<string, HolidayRow[]>();
       for (const r of rows) bySource.set(r.source, [...(bySource.get(r.source) ?? []), holidayFields(r)]);
       const { added, skipped } = await importHolidays([...bySource].map(([source, list]) => ({ rows: list, source })));
-      message.success(`${added} holidays added${skipped ? `, ${skipped} skipped (already in the list or incomplete)` : ""}.`);
+      toast.success(`${added} holidays added${skipped ? `, ${skipped} skipped (already in the list or incomplete)` : ""}.`);
       setRows([]);
       setNotes([]);
       onSaved();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : "Could not save the holidays");
+      toast.error(e instanceof Error ? e.message : "Could not save the holidays");
     } finally {
       setSaving(false);
     }

@@ -182,7 +182,7 @@ interface ShipmentCreateRequest {
 
   // Other
   claim?: string;
-  createdBy?: string;
+  // No createdBy: the server stamps who created the shipment from the signed-in user.
 }
 
 interface ShipmentCreateResponse {
@@ -199,6 +199,7 @@ export const shipmentCreate = api(
   { expose: true, auth: true, method: "POST", path: "/shipments" },
   async (req: ShipmentCreateRequest): Promise<ShipmentCreateResponse> => {
     const { jobNumber, ...data } = req;
-    return shipmentService.create(getAuthData()!.companyID, data);
+    const auth = getAuthData()!;
+    return shipmentService.create(auth.companyID, data, auth.userID);
   },
 );

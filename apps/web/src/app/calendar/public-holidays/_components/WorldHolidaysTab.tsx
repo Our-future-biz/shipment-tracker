@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, DatePicker, Input, Popconfirm, Select, Table, message } from "antd";
+import { Button, DatePicker, Input, Popconfirm, Select, Table } from "antd";
+import { useToast } from "@/lib/toast";
 import { DeleteOutlined, SearchOutlined } from "@ant-design/icons";
 import type { ColumnsType } from "antd/es/table";
 import type { Dayjs } from "dayjs";
@@ -20,13 +21,14 @@ interface WorldHolidaysTabProps {
 }
 
 export function WorldHolidaysTab({ items, loading }: WorldHolidaysTabProps) {
+  const toast = useToast();
   const { deleteHoliday } = usePublicHolidays();
   const [search, setSearch] = useState("");
   const [countries, setCountries] = useState<string[]>([]);
   const [kind, setKind] = useState<Kind>("all");
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null);
 
-  const handleDelete = (id: string) => deleteHoliday(id).catch(() => message.error("Could not delete the holiday"));
+  const handleDelete = (id: string) => deleteHoliday(id).catch(() => toast.error("Could not delete the holiday"));
 
   const countryOptions = useMemo(
     () =>

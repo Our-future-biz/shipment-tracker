@@ -8,7 +8,8 @@ export function useToast() {
 
   return {
     success: (content: string) => message.success(content),
-    error: (content: string) => message.error(content),
+    // duration in seconds, for an error long enough to need more reading time than the default
+    error: (content: string, duration?: number) => message.error(content, duration),
     warning: (content: string) => message.warning(content),
     info: (content: string) => message.info(content),
 

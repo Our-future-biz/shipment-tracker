@@ -1,5 +1,6 @@
 "use client";
 
+import "./antdReact19";
 import { ConfigProvider, App } from "antd";
 import { lightTheme } from "./themeConfig";
 import type { ReactNode } from "react";

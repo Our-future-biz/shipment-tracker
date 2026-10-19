@@ -3,7 +3,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { CURRENCIES } from "@/lib/enums";
-import { Modal, Tabs, Input, InputNumber, Select, Button, Alert, message } from "antd";
+import { Modal, Tabs, Input, InputNumber, Select, Button, Alert } from "antd";
+import { useToast } from "@/lib/toast";
 import { ArrowLeftOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -240,6 +241,7 @@ function MachineProcessingTab({
   masterNumber: string;
   onDone: () => void;
 }) {
+  const toast = useToast();
   const queryClient = useQueryClient();
   const [step, setStep] = useState<"input" | "review">("input");
   const [invoiceValue, setInvoiceValue] = useState<number | null>(null);
@@ -316,10 +318,10 @@ function MachineProcessingTab({
         if (l.written) queryClient.invalidateQueries({ queryKey: ["invoicing", l.shipmentId] });
       }
       setSubmitDone(true);
-      message.success("Pushed to Invoicing");
+      toast.success("Pushed to Invoicing");
       setTimeout(() => onDone(), 1100);
     } catch {
-      message.error("Failed to push to Invoicing");
+      toast.error("Failed to push to Invoicing");
     } finally {
       setSubmitting(false);
     }

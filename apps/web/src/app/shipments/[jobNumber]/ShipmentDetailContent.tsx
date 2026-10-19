@@ -4,7 +4,8 @@ import React, { useState } from "react";
 import { partyUpdate, type PartyField } from "@/app/shipments/_lib/parties";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Spin, Dropdown, message, Modal, Tag, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
+import { Spin, Dropdown, Modal, Tag, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
+import { useToast } from "@/lib/toast";
 import dayjs from "dayjs";
 import { api, apiErrorMessage } from "@/lib/api";
 import {
@@ -25,6 +26,7 @@ import {
 } from "@ant-design/icons";
 import { useShipment } from "@/hooks/useShipment";
 import { useInvoicing } from "@/hooks/useInvoicing";
+import { useCanDeleteShipments } from "@/lib/auth/AuthContext";
 import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
@@ -414,6 +416,7 @@ function InvoiceRow({
   styleFor,
   labelW = "w-[140px]",
 }: InvoiceRowProps) {
+  const toast = useToast();
   const { updateShipment } = useShipments();
   const [open, setOpen] = useState(false);
   const value =
@@ -438,7 +441,7 @@ function InvoiceRow({
         onClose={() => setOpen(false)}
         onSave={(s, commercialInvoices) =>
           updateShipment({ id: s.id, data: { commercialInvoices } }).catch((e) => {
-            message.error("Could not save the commercial invoices");
+            toast.error("Could not save the commercial invoices");
             throw e;
           })
         }
@@ -891,6 +894,7 @@ function RouteLine({ segments }: RouteLineProps) {
 /* ── Main component ── */
 
 export function ShipmentDetailContent() {
+  const toast = useToast();
   const { jobNumber } = useParams<{ jobNumber: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -899,6 +903,7 @@ export function ShipmentDetailContent() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
   const [notesOpen, setNotesOpen] = useState(false);
+  const canDelete = useCanDeleteShipments();
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [releaseOpen, setReleaseOpen] = useState(false);
@@ -989,25 +994,25 @@ export function ShipmentDetailContent() {
 
   const handleCopy = () => {
     navigator.clipboard.writeText(shipment.jobNumber ?? shipment.id);
-    message.success("Copied to clipboard");
+    toast.success("Copied to clipboard");
   };
 
   const handleAssignMasterJob = async (ids: string[], mczNumber: string) => {
     try {
       await Promise.all(ids.map((id) => linkMasterJob({ shipmentId: id, mczNumber })));
-      message.success(`Linked to ${mczNumber}`);
+      toast.success(`Linked to ${mczNumber}`);
       setAssignOpen(false);
     } catch {
-      message.error("Failed to link to master job");
+      toast.error("Failed to link to master job");
     }
   };
 
   const handleUnlinkMasterJob = async () => {
     try {
       await unlinkMasterJob(shipment.id);
-      message.success("Removed from master job");
+      toast.success("Removed from master job");
     } catch {
-      message.error("Failed to remove from master job");
+      toast.error("Failed to remove from master job");
     }
   };
 
@@ -1018,10 +1023,10 @@ export function ShipmentDetailContent() {
     try {
       await api.shipments.shipmentReleaseHouseBol(shipment.id);
       await queryClient.invalidateQueries({ queryKey: ["shipments"] });
-      message.success("House BoL released");
+      toast.success("House BoL released");
       setReleaseOpen(false);
     } catch {
-      message.error("Failed to release the House BoL");
+      toast.error("Failed to release the House BoL");
     } finally {
       setReleasing(false);
     }
@@ -1031,11 +1036,11 @@ export function ShipmentDetailContent() {
     setDeleting(true);
     try {
       await deleteShipment(shipment.id);
-      message.success("Order deleted");
+      toast.success("Order deleted");
       setDeleteOpen(false);
       router.push("/shipments");
     } catch {
-      message.error("Failed to delete order");
+      toast.error("Failed to delete order");
     } finally {
       setDeleting(false);
     }
@@ -1138,12 +1143,14 @@ export function ShipmentDetailContent() {
               </button>
             </Tooltip>
 
-            {/* Actions dropdown */}
-            <Dropdown menu={actionsMenu} trigger={["click"]}>
-              <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 cursor-pointer text-slate-600">
-                Actions <DownOutlined className="text-[10px]" />
-              </button>
-            </Dropdown>
+            {/* Actions dropdown: its one action is delete, which is for managers and up */}
+            {canDelete && (
+              <Dropdown menu={actionsMenu} trigger={["click"]}>
+                <button className="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-200 rounded bg-white hover:bg-slate-50 cursor-pointer text-slate-600">
+                  Actions <DownOutlined className="text-[10px]" />
+                </button>
+              </Dropdown>
+            )}
           </div>
         </div>
 
@@ -1322,7 +1329,7 @@ export function ShipmentDetailContent() {
                   ];
                   // A refused value (e.g. a CZ postcode that is not five digits) is rolled back and said.
                   const saveStop = (data: controllers.ShipmentUpdateRequest) =>
-                    updateShipment({ id: shipment.id, data }).catch((err) => message.error(apiErrorMessage(err)));
+                    updateShipment({ id: shipment.id, data }).catch((err) => toast.error(apiErrorMessage(err)));
 
                   const custom: Record<string, React.ReactNode> = {
                     pickupPlace: (
@@ -1579,7 +1586,7 @@ export function ShipmentDetailContent() {
             shipment={shipment}
             focusContainerId={cargoFocusId}
             // A refused line (e.g. a UN number that is not four digits) is rolled back and said.
-            onChange={(data) => updateShipment({ id: shipment.id, data }).catch((err) => message.error(apiErrorMessage(err)))}
+            onChange={(data) => updateShipment({ id: shipment.id, data }).catch((err) => toast.error(apiErrorMessage(err)))}
           />
         )}
 

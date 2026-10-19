@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Button, Spin, message } from "antd";
+import { Button, Spin } from "antd";
+import { useToast } from "@/lib/toast";
 import { DeleteOutlined, EyeOutlined, PlusOutlined } from "@ant-design/icons";
 import { CURRENCIES } from "@/lib/enums";
 import { AppCard } from "@/components/AppCard";
@@ -39,6 +40,7 @@ interface CustomsInvoicingProps {
 // What is being typed is kept as a draft over the saved lines, so a save or refetch of
 // another line never overwrites it.
 export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
+  const toast = useToast();
   const { lines, issuedInvoiceNumber, isLoading, addLine, isAdding, updateLine, deleteLine, setIssuedInvoiceNumber } =
     useCustomsInvoicing(shipment.id);
 
@@ -74,7 +76,7 @@ export function CustomsInvoicing({ shipment }: CustomsInvoicingProps) {
     if (!saved) return;
     const value = parseAmount(row.value);
     if (value === null) {
-      message.error(`"${row.value}" is not an amount — use e.g. 1 250,50`);
+      toast.error(`"${row.value}" is not an amount — use e.g. 1 250,50`);
       return;
     }
     const sent: LineDraft = { category: row.category, currency: row.currency, value: row.value };
