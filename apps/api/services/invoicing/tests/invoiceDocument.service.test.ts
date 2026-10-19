@@ -429,16 +429,17 @@ describe("queue", () => {
   });
 
   it("lists the shipments of the view and adds the amount still to bill from the selling lines", async () => {
-    clients.shipmentList.mockImplementation(async (req: { invoicing: string; limit: number }) => {
+    clients.shipmentList.mockImplementation(async (req: { invoicing: string; limit: number; sortDirection?: string }) => {
       if (req.limit === 1) return { pagination: { total: { billing: 2, "not-invoiced": 5, invoiced: 1 }[req.invoicing] }, data: [] };
-      return { pagination: { total: 2 }, data: [listed({}), listed({ id: "s2", jobNumber: "CZ00000030" })] };
+      const oldestFirst = [listed({}), listed({ id: "s2", jobNumber: "CZ00000030" })];
+      return { pagination: { total: 2 }, data: req.sortDirection === "desc" ? oldestFirst.reverse() : oldestFirst };
     });
     selling.listTickedByCompany.mockResolvedValue([{ id: "r1", shipmentId: SHIPMENT, qty: "1.00", amount: "1000.00", currency: "EUR" }]);
     repo.listOpenInvoicesWithSources.mockResolvedValue([]);
     settings.listByCompany.mockResolvedValue([{ shipmentId: SHIPMENT, billingCurrency: "CZK" }]);
 
     const r = await invoiceDocumentService.queue(COMPANY, "to_bill");
-    expect(clients.shipmentList).toHaveBeenCalledWith(expect.objectContaining({ invoicing: "billing", limit: 200, offset: 0 }));
+    expect(clients.shipmentList).toHaveBeenCalledWith(expect.objectContaining({ invoicing: "billing", limit: 200, offset: 0, sortDirection: "desc" }));
     expect(r.counts).toEqual({ toBill: 2, notInvoiced: 5, invoiced: 1 });
     expect(r.truncated).toBe(false);
     expect(r.queue.map((x) => [x.jobNumber, x.shipmentStatus, x.billingState, x.amountToBill])).toEqual([
@@ -446,5 +447,26 @@ describe("queue", () => {
       // a Billing job without selling lines is still listed, flagged as having none
       ["CZ00000030", "Billing [EXP]", "none", 0],
     ]);
+  });
+
+  it("past its limit leaves out the oldest jobs, never the newest, and says so", async () => {
+    // 1,200 jobs; the list endpoint pages them 200 at a time, newest (highest number) first.
+    const all = Array.from({ length: 1200 }, (_, n) => listed({ id: `s${n}`, jobNumber: `CZ${String(n).padStart(8, "0")}` }));
+    clients.shipmentList.mockImplementation(async (req: { limit: number; offset?: number; sortDirection?: string }) => {
+      if (req.limit === 1) return { pagination: { total: 1200 }, data: [] };
+      const ordered = req.sortDirection === "desc" ? [...all].reverse() : all;
+      return { pagination: { total: 1200 }, data: ordered.slice(req.offset ?? 0, (req.offset ?? 0) + req.limit) };
+    });
+    selling.listTickedByCompany.mockResolvedValue([]);
+    repo.listOpenInvoicesWithSources.mockResolvedValue([]);
+    settings.listByCompany.mockResolvedValue([]);
+
+    const r = await invoiceDocumentService.queue(COMPANY, "not_invoiced");
+    expect(r.truncated).toBe(true);
+    expect(r.queue).toHaveLength(1000);
+    expect(r.queue.map((x) => x.jobNumber)).toContain("CZ00001199");
+    expect(r.queue.map((x) => x.jobNumber)).not.toContain("CZ00000000");
+    // still shown oldest first
+    expect(r.queue[0]!.jobNumber).toBe("CZ00000200");
   });
 });

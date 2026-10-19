@@ -626,15 +626,18 @@ class InvoiceDocumentService {
     const q = search?.trim() || undefined;
     const countOf = async (filter: string) => (await shipments.shipmentList({ invoicing: filter, search: q, limit: 1 })).pagination.total;
 
-    // the shipments of this view, 200 per page (the list endpoint's maximum)
+    // The shipments of this view, 200 per page (the list endpoint's maximum), newest first: past
+    // QUEUE_MAX it is the oldest jobs that are left out (the client is told), never the latest.
     const listed: Awaited<ReturnType<typeof shipments.shipmentList>>["data"] = [];
     let total = 0;
     do {
-      const page = await shipments.shipmentList({ invoicing: QUEUE_VIEWS[view], search: q, limit: 200, offset: listed.length, sortDirection: "asc" });
+      const page = await shipments.shipmentList({ invoicing: QUEUE_VIEWS[view], search: q, limit: 200, offset: listed.length, sortDirection: "desc" });
       total = page.pagination.total;
       listed.push(...page.data);
       if (page.data.length === 0) break;
     } while (listed.length < total && listed.length < QUEUE_MAX);
+    // Shown oldest first, as before.
+    listed.reverse();
 
     const [rows, openInvoices, settings, today, toBill, notInvoiced, invoiced] = await Promise.all([
       sellingCostRepository.listTickedByCompany(companyId),

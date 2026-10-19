@@ -7,12 +7,14 @@ import type { ColumnsType } from "antd/es/table";
 import type { interfaces } from "@/lib/api/client";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useInvoiceQueue, type BillingQueueView } from "@/hooks/useInvoiceQueue";
+import { useUrlParam } from "@/hooks/useUrlParam";
 import { formatDate } from "@/lib/date";
 import { moneyCz } from "@/lib/money";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
 
 type Row = interfaces.BillingQueueItem;
 type View = BillingQueueView;
+const VIEWS = ["to_bill", "not_invoiced", "invoiced"] as const satisfies readonly View[];
 
 /** The date a job is billed by: ETD for exports, ETA otherwise. */
 const serviceDateOf = (r: Row) => ((r.tradeDirection ?? "").toLowerCase() === "export" ? r.estimatedDeparture : r.estimatedArrival) ?? "";
@@ -35,7 +37,8 @@ interface BillingQueueProps {
 }
 
 export function BillingQueue({ onOpen }: BillingQueueProps) {
-  const [view, setView] = useState<View>("to_bill");
+  // The view is kept in the URL, so Back and a refresh come back to it.
+  const [view, setView] = useUrlParam<View>("queue", VIEWS, "to_bill");
   const [search, setSearch] = useState("");
   // search runs on the server (across all shipments), so wait until typing pauses
   const debounced = useDebounced(search.trim(), 300);
@@ -145,9 +148,11 @@ export function BillingQueue({ onOpen }: BillingQueueProps) {
       </div>
       {isError && <Alert type="error" showIcon className="mb-3" message="Could not load the invoicing queue." />}
       {truncated && (
-        <Alert type="info" showIcon className="mb-3" message={`Showing the first ${rows.length} jobs — use the search to narrow the list.`} />
+        <Alert type="info" showIcon className="mb-3" message={`Showing the newest ${rows.length} jobs — older ones are left out; use the search to find them.`} />
       )}
       <Table<Row>
+        // A new view or search starts again on the first page.
+        key={`${view}|${debounced}`}
         size="middle"
         rowKey="shipmentId"
         loading={isFetching && !hasData}

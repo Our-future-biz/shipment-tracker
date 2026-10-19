@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { db, type Tx } from "../db/db";
 import {
   truckingHaulierInvoiceLineTable,
@@ -43,6 +43,11 @@ export interface TargetUse {
 }
 
 const liveLine = (companyId: string) => and(eq(li.companyId, companyId), isNull(li.deletedAt));
+
+// Not on an approved invoice yet. Filtered in SQL, before the list limit: otherwise a haulier's
+// already billed old trips fill the limit and their newer ones can never be invoiced.
+const notOnApprovedInvoice = (companyId: string, kind: HaulierInvoiceTargetKind, targetId: AnyColumn): SQL =>
+  sql`NOT EXISTS (SELECT 1 FROM ${li} JOIN ${i} ON ${i.id} = ${li.invoiceId} WHERE ${li.companyId} = ${companyId} AND ${li.deletedAt} IS NULL AND ${li.live} AND ${li.targetKind} = ${kind} AND ${li.targetId} = ${targetId} AND ${i.deletedAt} IS NULL AND ${i.status} = 'APPROVED')`;
 
 // Haulier invoices and their lines. Every write runs in the caller's transaction after
 // lockHaulier, so two saves for one haulier never interleave: the duplicate-number and
@@ -172,7 +177,7 @@ class HaulierInvoiceRepository {
 
   // ---- what a haulier may invoice ---------------------------------------------------------------
 
-  /** The haulier's done, priced, not cancelled trips. */
+  /** The haulier's done, priced, not cancelled trips that no approved invoice has billed yet. */
   async doneTrips(companyId: string, haulierCustomerId: string): Promise<TruckingTripRecord[]> {
     const t = truckingTripTable;
     return db
@@ -186,13 +191,14 @@ class HaulierInvoiceRepository {
           isNull(t.cancelledAt),
           isNull(t.deletedAt),
           isNotNull(t.buy),
+          notOnApprovedInvoice(companyId, "TRIP", t.id),
         ),
       )
       .orderBy(asc(t.plannedPickupDate), asc(t.ref))
       .limit(MAX_LIST);
   }
 
-  /** The haulier's done, priced partner deliveries (delivery legs on no trip) of live consignments, with the consignment. */
+  /** The haulier's done, priced partner deliveries (delivery legs on no trip) of live consignments not yet billed by an approved invoice, with the consignment. */
   async donePartnerLegs(companyId: string, haulierCustomerId: string): Promise<{ leg: TruckingLegRecord; consignment: TruckingConsignmentRecord }[]> {
     const l = truckingLegTable;
     const c = truckingConsignmentTable;
@@ -211,6 +217,7 @@ class HaulierInvoiceRepository {
           isNotNull(l.buy),
           isNull(c.cancelledAt),
           isNull(c.deletedAt),
+          notOnApprovedInvoice(companyId, "PARTNER_LEG", l.id),
         ),
       )
       .orderBy(asc(c.deliveredAt), asc(c.ref))
