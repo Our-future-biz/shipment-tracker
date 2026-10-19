@@ -1,16 +1,20 @@
 import { iso } from "../../../lib/db/serialize";
 import type { ContactRecord } from "../schemas/contact.schema";
 import type { CustomerAddressRecord } from "../schemas/customerAddress.schema";
-import type { CustomerRecord } from "../schemas/customer.schema";
+import type { CustomerItemRow, CustomerRecord } from "../schemas/customer.schema";
 import type { CustomerInvoiceRecord } from "../schemas/customerInvoice.schema";
 import type { CustomerNoteRecord } from "../schemas/customerNote.schema";
 import type { CustomerSiteRecord } from "../schemas/customerSite.schema";
 import type { AddressItem, ContactItem, CustomerItem, CustomerSiteItem, DocumentItem, InvoiceItem, NoteItem } from "../interfaces/interfaces";
 import { dateOutput } from "./dates";
+import { customerLogoUrl } from "./logoUrl";
 
 // Rows → API items: only the declared fields go out (no companyId, deletedAt, file bytes).
 
-export const toCustomerItem = (r: CustomerRecord): CustomerItem => ({
+// A logo goes out as a link, never as its bytes. Its length tells a changed logo apart.
+const logoLength = (r: CustomerItemRow | CustomerRecord) => ("logoLength" in r ? r.logoLength : (r.logoData ?? "").length);
+
+export const toCustomerItem = (r: CustomerItemRow | CustomerRecord): CustomerItem => ({
   id: r.id,
   ico: r.ico,
   dic: r.dic,
@@ -37,7 +41,7 @@ export const toCustomerItem = (r: CustomerRecord): CustomerItem => ({
   freightPaymentTerms: r.freightPaymentTerms,
   dutyPaymentTerms: r.dutyPaymentTerms,
   companyWebsite: r.companyWebsite,
-  logoData: r.logoData,
+  logoUrl: logoLength(r) > 0 ? customerLogoUrl(r.id, r.companyId, `${r.logoUpdatedAt}-${logoLength(r)}`) : "",
   logoSource: r.logoSource,
   logoUpdatedAt: r.logoUpdatedAt,
   totalRevenue: r.totalRevenue,

@@ -1,4 +1,4 @@
-import { and, eq, or, ilike, inArray, isNotNull, isNull, desc, asc, count, sql } from "drizzle-orm";
+import { and, eq, or, ilike, inArray, isNotNull, isNull, notInArray, desc, asc, count, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
@@ -569,11 +569,26 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   }
 
   // Company-scoped full scan for the dashboard aggregates.
-  async listAllForCompany(companyId: string, limit = 5000) {
+  /**
+   * What the dashboard reads of the company's live shipments, newest first: only the columns it
+   * counts and lists (not whole ~150-column rows), and none whose status is in `excludedStatuses`.
+   */
+  async dashboardRows(companyId: string, excludedStatuses: string[], limit = 5000) {
     return this.db
-      .select()
+      .select({
+        id: shipmentTable.id,
+        jobNumber: shipmentTable.jobNumber,
+        shipper: shipmentTable.shipper,
+        consignee: shipmentTable.consignee,
+        status: shipmentTable.status,
+        estimatedDeparture: shipmentTable.estimatedDeparture,
+        estimatedArrival: shipmentTable.estimatedArrival,
+        closingDate: shipmentTable.closingDate,
+        cargoReadinessDate: shipmentTable.cargoReadinessDate,
+        pickupDate: shipmentTable.pickupDate,
+      })
       .from(shipmentTable)
-      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)))
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), or(isNull(shipmentTable.status), notInArray(shipmentTable.status, excludedStatuses))))
       .orderBy(desc(shipmentTable.createdAt))
       .limit(limit);
   }

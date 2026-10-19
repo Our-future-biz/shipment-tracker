@@ -57,7 +57,8 @@ export interface CustomerItem {
   freightPaymentTerms: string;
   dutyPaymentTerms: string;
   companyWebsite: string;
-  logoData: string;
+  /** Where the browser loads the logo from (an API path with a short-lived token); "" when there is none. */
+  logoUrl: string;
   logoSource: string;
   logoUpdatedAt: string;
   totalRevenue: number;

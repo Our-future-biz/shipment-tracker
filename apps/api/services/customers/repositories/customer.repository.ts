@@ -1,8 +1,8 @@
-import { and, arrayContains, asc, count, eq, inArray, desc, isNull, ne } from "drizzle-orm";
+import { and, arrayContains, asc, count, eq, getTableColumns, inArray, desc, isNull, ne, sql } from "drizzle-orm";
 import { containsAllWords } from "../../../lib/db/textSearch";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
-import { customerTable, type CustomerRecord, type NewCustomerRecord } from "../schemas/customer.schema";
+import { customerTable, type CustomerItemRow, type CustomerRecord, type NewCustomerRecord } from "../schemas/customer.schema";
 import { contactTable, type NewContactRecord } from "../schemas/contact.schema";
 import { customerAddressTable, type NewCustomerAddressRecord } from "../schemas/customerAddress.schema";
 import { customerNoteTable } from "../schemas/customerNote.schema";
@@ -20,6 +20,10 @@ export interface CustomerListFilters {
   role?: CustomerRole;
   limit?: number;
 }
+
+// Every column but the logo (up to 2 MB of base64 per customer), and the logo's length instead.
+const { logoData: _logoData, ...withoutLogo } = getTableColumns(customerTable);
+const ITEM_COLUMNS = { ...withoutLogo, logoLength: sql<number>`length(${customerTable.logoData})`.mapWith(Number) };
 
 class CustomerRepository extends TenantRepository<typeof customerTable> {
   constructor() {
@@ -84,13 +88,33 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
       .orderBy(asc(customerTable.companyName));
   }
 
+  /** A live customer of the company as reads show it: without the logo's bytes. */
+  async getItemForCompany(id: string, companyId: string): Promise<CustomerItemRow | null> {
+    const [row] = await this.db
+      .select(ITEM_COLUMNS)
+      .from(customerTable)
+      .where(and(eq(customerTable.id, id), eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)))
+      .limit(1);
+    return row ?? null;
+  }
+
+  /** The logo (a data URL) of a live customer of the company; "" when it has none. */
+  async logoOf(id: string, companyId: string): Promise<string | null> {
+    const [row] = await this.db
+      .select({ logoData: customerTable.logoData })
+      .from(customerTable)
+      .where(and(eq(customerTable.id, id), eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)))
+      .limit(1);
+    return row ? row.logoData : null;
+  }
+
   async findByIco(ico: string, companyId: string): Promise<CustomerRecord | null> {
     return this.getByColumnForCompany(customerTable.ico, ico, companyId);
   }
 
   // Server-side filtered list, always scoped to the company: the newest `limit` (2000) rows, and
   // how many match in all.
-  async listFiltered(companyId: string, f: CustomerListFilters): Promise<{ rows: CustomerRecord[]; total: number }> {
+  async listFiltered(companyId: string, f: CustomerListFilters): Promise<{ rows: CustomerItemRow[]; total: number }> {
     const clauses = [eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)];
     if (f.status) clauses.push(eq(customerTable.status, f.status));
     if (f.label) clauses.push(eq(customerTable.label, f.label));
@@ -104,7 +128,7 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     const where = and(...clauses);
     const [rows, [{ value: total }]] = await Promise.all([
       this.db
-        .select()
+        .select(ITEM_COLUMNS)
         .from(customerTable)
         .where(where)
         .orderBy(desc(customerTable.createdAt), desc(customerTable.id))

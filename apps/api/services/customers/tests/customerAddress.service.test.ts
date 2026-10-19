@@ -6,6 +6,8 @@ const addresses = vi.hoisted(() => ({
   softDeleteForCompany: vi.fn(),
 }));
 const requireLive = vi.hoisted(() => vi.fn());
+// Logo links are signed with a secret, which needs the Encore runtime.
+vi.mock("encore.dev/config", () => ({ secret: () => () => "test-secret" }));
 vi.mock("../repositories/customerAddress.repository", () => ({ customerAddressRepository: addresses }));
 vi.mock("../services/customer.service", () => ({ customerService: { requireLive } }));
 // The Encore runtime isn't loaded under vitest; APIError only needs to carry its message here.

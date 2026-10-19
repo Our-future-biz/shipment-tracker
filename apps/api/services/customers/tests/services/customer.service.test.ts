@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The service is run for real against a stand-in for the repository.
+// Logo links are signed with a secret, which needs the Encore runtime.
+vi.mock("encore.dev/config", () => ({ secret: () => () => "test-secret" }));
 vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("../../db/db", () => ({ db: {} }));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn(), error: vi.fn(), debug: vi.fn() } }));

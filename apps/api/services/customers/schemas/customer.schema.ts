@@ -84,4 +84,6 @@ export const customerTable = pgTable(
 );
 
 export type CustomerRecord = typeof customerTable.$inferSelect;
+/** A customer as lists and reads load it: every column but the logo's bytes, and the logo's length. */
+export type CustomerItemRow = Omit<CustomerRecord, "logoData"> & { logoLength: number };
 export type NewCustomerRecord = typeof customerTable.$inferInsert;

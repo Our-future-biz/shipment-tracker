@@ -21,6 +21,7 @@ import { isUniqueViolation } from "../../../lib/db/errors";
 import { isUuid } from "../../../lib/uuid";
 import { dateInput } from "../lib/dates";
 import { toCustomerItem } from "../lib/mappers";
+import { companyOfLogoToken } from "../lib/logoUrl";
 import { aresService } from "./ares.service";
 import { fullName } from "./contact.service";
 
@@ -151,7 +152,7 @@ class CustomerService {
   }
 
   async get(id: string, companyId: string): Promise<CustomerItem> {
-    const row = await customerRepository.getByIdForCompany(id, companyId);
+    const row = await customerRepository.getItemForCompany(id, companyId);
     if (!row) throw APIError.notFound("Customer not found");
     return toCustomerItem(row);
   }
@@ -304,6 +305,17 @@ class CustomerService {
       throw APIError.invalidArgument("Logo must be under 2 MB");
     }
     return this.setLogo(id, companyId, { logoData: dataUrl, logoSource: "upload", logoUpdatedAt: today() });
+  }
+
+  /**
+   * The logo's bytes for the public image endpoint: only with a valid token for this customer,
+   * and only from the company the token names. Null otherwise, or when there is no logo.
+   */
+  async logoImage(id: string, token: string | null): Promise<{ contentType: string; buffer: Buffer } | null> {
+    const companyId = companyOfLogoToken(token, id);
+    if (!companyId) return null;
+    const match = /^data:(image\/[a-z+]+);base64,(.+)$/.exec((await customerRepository.logoOf(id, companyId)) ?? "");
+    return match ? { contentType: match[1]!, buffer: Buffer.from(match[2]!, "base64") } : null;
   }
 
   async deleteLogo(id: string, companyId: string): Promise<CustomerItem> {

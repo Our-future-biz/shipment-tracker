@@ -14,6 +14,8 @@ const contacts = vi.hoisted(() => ({
   getByIdForCompany: vi.fn(),
   updateForCompany: vi.fn(),
 }));
+// Logo links are signed with a secret, which needs the Encore runtime.
+vi.mock("encore.dev/config", () => ({ secret: () => () => "test-secret" }));
 vi.mock("../repositories/customer.repository", () => ({ customerRepository: customers }));
 vi.mock("../repositories/contact.repository", () => ({ contactRepository: contacts }));
 vi.mock("../services/ares.service", () => ({ aresService: { lookup: vi.fn() } }));

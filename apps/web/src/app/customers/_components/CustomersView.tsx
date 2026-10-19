@@ -44,6 +44,7 @@ import { CustomerFiltersPopover, type FilterTemplate, type StoredFilter } from "
 import { TOOLBAR_BUTTON_CLASS, matchesGridFilters, storedGridFilters, withFilterId, type GridFilter } from "@/components/gridFilters";
 import { filtersFromSearchParams, writeFiltersToSearchParams } from "../_lib/customerListFilters";
 import { useCanSeeConcepts } from "@/lib/auth/AuthContext";
+import { apiFileUrl } from "@/lib/api";
 
 const STATUS_PILLS = [
   { key: "all", label: "All" },
@@ -337,9 +338,9 @@ export function CustomersView() {
     render: (name: string, record) => (
       <div className="flex items-center gap-2.5">
         <div className="w-7 h-7 rounded-md bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
-          {record.logoData ? (
+          {record.logoUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={record.logoData} alt="" className="w-full h-full object-contain" />
+            <img src={apiFileUrl(record.logoUrl)} alt="" className="w-full h-full object-contain" />
           ) : (
             <span className="text-[11px] font-semibold text-slate-400">
               {name.slice(0, 2).toUpperCase()}

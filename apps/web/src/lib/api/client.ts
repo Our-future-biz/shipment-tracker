@@ -515,6 +515,7 @@ export namespace customers {
             this.invoiceList = this.invoiceList.bind(this)
             this.invoiceUpdate = this.invoiceUpdate.bind(this)
             this.logoDelete = this.logoDelete.bind(this)
+            this.logoImage = this.logoImage.bind(this)
             this.logoUpload = this.logoUpload.bind(this)
             this.noteCreate = this.noteCreate.bind(this)
             this.noteDelete = this.noteDelete.bind(this)
@@ -737,6 +738,14 @@ export namespace customers {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("DELETE", `/customers/${encodeURIComponent(id)}/logo`)
             return await resp.json() as controllers.LogoDeleteResponse
+        }
+
+        /**
+         * The customer's logo as an image, for <img src> in lists and on the customer page.
+         * Path: /customers/:id/logo/image?t=<token>&v=<version>
+         */
+        public async logoImage(method: "GET", id: string, body?: RequestInit["body"], options?: CallParameters): Promise<globalThis.Response> {
+            return this.baseClient.callAPI(method, `/customers/${encodeURIComponent(id)}/logo/image`, body, options)
         }
 
         public async logoUpload(id: string, params: controllers.LogoUploadRequest): Promise<controllers.LogoUploadResponse> {
@@ -9679,7 +9688,11 @@ export namespace interfaces {
         freightPaymentTerms: string
         dutyPaymentTerms: string
         companyWebsite: string
-        logoData: string
+        /**
+         * Where the browser loads the logo from (an API path with a short-lived token); "" when there is none.
+         */
+        logoUrl: string
+
         logoSource: string
         logoUpdatedAt: string
         totalRevenue: number

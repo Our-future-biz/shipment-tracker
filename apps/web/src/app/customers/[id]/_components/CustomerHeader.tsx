@@ -16,6 +16,7 @@ import { CustomerHaulierBadge } from "../../_components/CustomerHaulierBadge";
 import { statusDotClass } from "../../_lib/constants";
 import { CustomerSalesOwnerSelect } from "./CustomerSalesOwnerSelect";
 import { useCustomerListHref } from "../../_lib/customerListHref";
+import { apiFileUrl } from "@/lib/api";
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 
@@ -69,7 +70,7 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
 
   const actionItems: MenuProps["items"] = [
     { key: "upload-logo", label: "Upload logo", onClick: () => fileRef.current?.click() },
-    ...(customer.logoData ? [{ key: "remove-logo", label: "Remove logo", onClick: handleRemoveLogo }] : []),
+    ...(customer.logoUrl ? [{ key: "remove-logo", label: "Remove logo", onClick: handleRemoveLogo }] : []),
     { type: "divider" },
     { key: "delete", label: "Delete customer", danger: true, onClick: () => setDeleteOpen(true) },
   ];
@@ -81,9 +82,9 @@ export function CustomerHeader({ customer }: CustomerHeaderProps) {
       <div className="flex flex-wrap items-center justify-between gap-4 mb-2 bg-white border border-slate-200 rounded-xl shadow-sm px-5 py-4">
         <div className="flex items-center gap-4 min-w-0">
           <div className="w-14 h-14 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center overflow-hidden shrink-0">
-            {customer.logoData ? (
+            {customer.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={customer.logoData} alt="" className="w-full h-full object-contain" />
+              <img src={apiFileUrl(customer.logoUrl)} alt="" className="w-full h-full object-contain" />
             ) : (
               <span className="text-lg font-semibold text-indigo-500">{customer.companyName.slice(0, 2).toUpperCase()}</span>
             )}

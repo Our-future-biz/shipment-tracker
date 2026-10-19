@@ -19,7 +19,14 @@ function sign(secret: string, payload: string): string {
 
 /** A token for `claim`, valid for `ttlSeconds` (default 1 hour). */
 export function signContentToken(secret: string, claim: ContentClaim, ttlSeconds = 3600): string {
-  const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
+  return signContentTokenUntil(secret, claim, Math.floor(Date.now() / 1000) + ttlSeconds);
+}
+
+/**
+ * A token for `claim`, valid until `exp` (Unix seconds). The same claim and `exp` give the same
+ * token, so a link built with it stays the same and the browser can cache what it serves.
+ */
+export function signContentTokenUntil(secret: string, claim: ContentClaim, exp: number): string {
   const payload = b64url(Buffer.from(JSON.stringify({ ...claim, exp })));
   return `${payload}.${sign(secret, payload)}`;
 }

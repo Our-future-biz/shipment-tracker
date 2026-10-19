@@ -10,7 +10,7 @@ const customer = (over: Partial<CustomerItem> = {}): CustomerItem => ({
   registrationDate: "2010-01-01", nace: "20110", industry: "", typicalCargo: "", stability: "", riskLevel: "", roles: ["customer"],
   dataSource: "", lastRegistryUpdate: "", status: "Active", salesOwner: "", salesOwnerUserId: "u", label: "STANDARD",
   creditLimit: 1000, currency: "EUR", paymentTerms: "30 days", freightPaymentTerms: "", dutyPaymentTerms: "",
-  companyWebsite: "", logoData: "", logoSource: "", logoUpdatedAt: "", totalRevenue: 0, totalProfit: 0, totalShipments: 0,
+  companyWebsite: "", logoUrl: "", logoSource: "", logoUpdatedAt: "", totalRevenue: 0, totalProfit: 0, totalShipments: 0,
   lastActivityDate: "", createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
   ...over,
 });

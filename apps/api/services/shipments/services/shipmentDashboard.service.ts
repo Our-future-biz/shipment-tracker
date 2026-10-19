@@ -16,7 +16,9 @@ const KPI_STATUS_MAP: Record<string, keyof DashboardKpis> = {
   "Booking Confirmation Pending [EXP]": "missingSailing",
 };
 
-const DATE_FIELDS: { field: keyof ShipmentRecord; label: string }[] = [
+type DashboardRow = Awaited<ReturnType<typeof shipmentRepository.dashboardRows>>[number];
+
+const DATE_FIELDS: { field: keyof DashboardRow & keyof ShipmentRecord; label: string }[] = [
   { field: "estimatedDeparture", label: "ETD" },
   { field: "estimatedArrival", label: "ETA" },
   { field: "closingDate", label: "Closing" },
@@ -26,7 +28,8 @@ const DATE_FIELDS: { field: keyof ShipmentRecord; label: string }[] = [
 
 class ShipmentDashboardService {
   async get(companyId: string, now = new Date()): Promise<ShipmentDashboard> {
-    const shipments = await shipmentRepository.listAllForCompany(companyId, 5000);
+    // Cancelled shipments count nowhere; billed ones are done and have no deadlines.
+    const shipments = await shipmentRepository.dashboardRows(companyId, [CANCELLED_STATUS, ...BILLED_STATUSES]);
     const kpis: DashboardKpis = {
       totalActive: 0,
       waitingUnload: 0,
@@ -48,7 +51,7 @@ class ShipmentDashboardService {
 
       for (const { field, label } of DATE_FIELDS) {
         const raw = shipment[field];
-        const date = raw instanceof Date ? raw.toISOString().slice(0, 10) : typeof raw === "string" ? raw : "";
+        const date = typeof raw === "string" ? raw : "";
         const period = date ? deadlinePeriod(date, now) : null;
         if (!period) continue;
         byPeriod.get(period)!.push({

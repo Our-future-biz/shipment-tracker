@@ -462,32 +462,54 @@ function outboxRow(
   return { companyId: m.companyId, movementId: m.id, shipmentId: m.shipmentId!, kind, stamp, payload, actingUserId: userId, actingRole: role };
 }
 
+/** Rows by the movement they belong to. */
+function groupByMovement<R extends { movementId: string | null }>(rows: R[]): Map<string, R[]> {
+  const byMovement = new Map<string, R[]>();
+  for (const row of rows) {
+    if (!row.movementId) continue;
+    const list = byMovement.get(row.movementId);
+    if (list) list.push(row);
+    else byMovement.set(row.movementId, [row]);
+  }
+  return byMovement;
+}
+
 class GateMovementService {
   // The Gate Log. `archived` lists archived records only. Reads only — the customs status of
   // linked records is brought up to date by followShipments (its own POST endpoint).
   async list(companyId: string, opts: { archived?: boolean } = {}) {
     const movements = opts.archived ? await gateMovementRepository.listArchived(companyId) : await gateMovementRepository.listAll(companyId);
     const ids = movements.map((m) => m.id);
-    const containers = await containerRepository.listForMovements(ids, companyId);
-    const outbox = await shipmentOutboxRepository.openForMovements(ids, companyId);
-    const exceptions = await gateExceptionRepository.listForMovements(ids, companyId);
-    const slots = await dockSlotRepository.listForMovements(ids, companyId);
-    const houses = await houseContexts(ids, companyId);
-    const reweighs = await reweighRepository.listForMovements(ids, companyId);
     const linked = [...new Set(movements.filter(isLinkedOutbound).map((m) => m.shipmentId!))];
-    const sections = await warehouseSectionRepository.findPickupForShipments(linked, companyId);
-    const pickupOf = (shipmentId: string | null) => readPickup(sections.find((x) => x.shipmentId === shipmentId)?.data);
+    // The related rows of every listed movement, read at the same time (none depends on another).
+    const [containers, outbox, exceptions, slots, houses, reweighs, sections] = await Promise.all([
+      containerRepository.listForMovements(ids, companyId),
+      shipmentOutboxRepository.openForMovements(ids, companyId),
+      gateExceptionRepository.listForMovements(ids, companyId),
+      dockSlotRepository.listForMovements(ids, companyId),
+      houseContexts(ids, companyId),
+      reweighRepository.listForMovements(ids, companyId),
+      warehouseSectionRepository.findPickupForShipments(linked, companyId),
+    ]);
+    // Grouped once by movement, instead of looking through all of them for every movement.
+    const containersOf = groupByMovement(containers);
+    const outboxOf = groupByMovement(outbox);
+    const exceptionsOf = groupByMovement(exceptions);
+    const slotsOf = groupByMovement(slots);
+    const reweighsOf = groupByMovement(reweighs);
+    const sectionOf = new Map(sections.map((x) => [x.shipmentId, x]));
+    const pickupOf = (shipmentId: string | null) => readPickup(shipmentId ? sectionOf.get(shipmentId)?.data : undefined);
     const now = new Date();
     return movements.map((m) =>
       toItem(
         m,
-        containers.filter((c) => c.movementId === m.id),
+        containersOf.get(m.id) ?? [],
         isLinkedOutbound(m) ? pickupOf(m.shipmentId) : undefined,
-        outbox.filter((o) => o.movementId === m.id),
-        exceptions.filter((e) => e.movementId === m.id),
+        outboxOf.get(m.id) ?? [],
+        exceptionsOf.get(m.id) ?? [],
         now,
-        dockSlotsOf(slots, m.id),
-        { house: houses.get(m.id), reweighs: reweighs.filter((r) => r.movementId === m.id) },
+        dockSlotsOf(slotsOf.get(m.id) ?? [], m.id),
+        { house: houses.get(m.id), reweighs: reweighsOf.get(m.id) ?? [] },
       ),
     );
   }
