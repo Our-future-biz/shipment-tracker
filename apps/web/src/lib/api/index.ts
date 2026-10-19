@@ -10,15 +10,26 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:400
 export const apiFileUrl = (contentUrl: string, download = false): string =>
   `${API_BASE}${contentUrl}${download ? `${contentUrl.includes("?") ? "&" : "?"}download=1` : ""}`;
 
+// A 401 on a request that carried the token: the session is over (expired, signed out everywhere
+// by a new password, or the user was deactivated). The token is dropped and the login page opened
+// once, instead of every screen failing on its own.
+let sessionEnded = false;
+function endSession(): void {
+  if (sessionEnded) return;
+  sessionEnded = true;
+  localStorage.removeItem("auth_token");
+  if (!window.location.pathname.startsWith("/login")) window.location.href = "/login";
+}
+
 // Attach the logged-in user's bearer token so authenticated endpoints can
 // derive the actor (e.g. who deleted a shipment) server-side.
-const authFetcher: typeof fetch = (input, init) => {
+const authFetcher: typeof fetch = async (input, init) => {
   const headers = new Headers(init?.headers);
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("auth_token");
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-  }
-  return fetch(input, { ...init, headers });
+  const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  const res = await fetch(input, { ...init, headers });
+  if (res.status === 401 && token) endSession();
+  return res;
 };
 
 export const api = new Client(API_BASE, { fetcher: authFetcher });

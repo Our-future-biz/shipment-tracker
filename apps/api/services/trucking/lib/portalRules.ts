@@ -1,13 +1,15 @@
 import { APIError } from "encore.dev/api";
 import type { PortalUserRecord } from "../schemas/portal.schema";
 import type { PortalUserItem } from "../interfaces/portal.interfaces";
+import { isLocked, type FailureRule } from "../../../lib/loginRules";
+
+// The password policy, the failure counter and the client IP are shared with the app login.
+export { clientIp, isLocked, LOCK_MEMORY_MS, MAX_PASSWORD, MIN_PASSWORD, nextFailure, passwordRefusal, throttleKey } from "../../../lib/loginRules";
+export type { FailureRule, FailureState } from "../../../lib/loginRules";
 
 // Haulier portal rules: passwords, the login throttle, session lifetimes, the one-time links and
 // how a portal user is shown. Pure (the tokens themselves are made and hashed by haulierToken.ts).
 
-export const MIN_PASSWORD = 12;
-/** argon2 hashes whatever it is given: a cap keeps a huge "password" from costing the server. */
-export const MAX_PASSWORD = 200;
 export const MAX_FAILED_LOGINS = 5;
 export const LOCK_MS = 15 * 60 * 1000;
 /** An account's lock doubles with each lock in a row (15 min, 30 min, 1 h), never longer: a stranger knowing the e-mail cannot shut it out for days. */
@@ -16,8 +18,6 @@ export const ACCOUNT_MAX_LOCK_MS = 60 * 60 * 1000;
 export const IP_MAX_FAILURES = 20;
 export const IP_WINDOW_MS = 15 * 60 * 1000;
 export const IP_MAX_LOCK_MS = 24 * 60 * 60 * 1000;
-/** A lock that ended longer ago than this starts the progression again. */
-export const LOCK_MEMORY_MS = 24 * 60 * 60 * 1000;
 export const SESSION_IDLE_MS = 12 * 60 * 60 * 1000;
 export const SESSION_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 export const LINK_VALID_MS = 72 * 60 * 60 * 1000;
@@ -41,81 +41,8 @@ export function normaliseEmail(v: unknown): string | null {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : null;
 }
 
-/** Why a password may not be set, or null: at least 12 characters, at most 200, not the e-mail. */
-export function passwordRefusal(password: unknown, email: string): string | null {
-  if (typeof password !== "string" || password.length < MIN_PASSWORD) return `The password must have at least ${MIN_PASSWORD} characters`;
-  if (password.length > MAX_PASSWORD) return `The password can have at most ${MAX_PASSWORD} characters`;
-  if (password.trim().toLowerCase() === email.toLowerCase()) return "The password cannot be your e-mail";
-  return null;
-}
-
-export const isLocked = (u: { lockedUntil: Date | null }, now: Date) => !!u.lockedUntil && u.lockedUntil.getTime() > now.getTime();
-
-/** A login failure counter (an account's or an IP's). */
-export interface FailureState {
-  failures: number;
-  /** When the counting window began (IP); null = counted without a window (account) */
-  windowStartedAt: Date | null;
-  lockedUntil: Date | null;
-  lockLevel: number;
-}
-
-export interface FailureRule {
-  max: number;
-  /** Failures older than this are forgotten; null = kept until a lock or a login */
-  windowMs: number | null;
-  baseLockMs: number;
-  maxLockMs: number;
-}
-
 export const ACCOUNT_RULE: FailureRule = { max: MAX_FAILED_LOGINS, windowMs: null, baseLockMs: LOCK_MS, maxLockMs: ACCOUNT_MAX_LOCK_MS };
 export const IP_RULE: FailureRule = { max: IP_MAX_FAILURES, windowMs: IP_WINDOW_MS, baseLockMs: LOCK_MS, maxLockMs: IP_MAX_LOCK_MS };
-
-/**
- * The counter after one more failure at `now`. At `max` failures it locks - 15 minutes, doubled
- * for each lock that follows within 24 h of the previous one's end, capped - and counts from 0 again.
- */
-export function nextFailure(st: FailureState, now: Date, rule: FailureRule): FailureState {
-  const t = now.getTime();
-  const windowOver = rule.windowMs !== null && (!st.windowStartedAt || t - st.windowStartedAt.getTime() >= rule.windowMs);
-  const failures = (windowOver ? 0 : st.failures) + 1;
-  const windowStartedAt = rule.windowMs === null ? null : windowOver ? now : st.windowStartedAt;
-  if (failures < rule.max) return { failures, windowStartedAt, lockedUntil: st.lockedUntil, lockLevel: st.lockLevel };
-  const recent = !!st.lockedUntil && t - st.lockedUntil.getTime() < LOCK_MEMORY_MS;
-  const lockLevel = recent ? st.lockLevel + 1 : 0;
-  const ms = Math.min(rule.baseLockMs * 2 ** Math.min(lockLevel, 20), rule.maxLockMs);
-  return { failures: 0, windowStartedAt, lockedUntil: new Date(t + ms), lockLevel };
-}
-
-/**
- * The client's IP from X-Forwarded-For as the last `trustedHops` proxies saw it: each trusted
- * proxy appends the address it was called from, so the client's own entries (which it may forge)
- * come first and the one our nearest trusted proxy appended is counted from the end. "" when the
- * header has fewer entries (a direct call).
- */
-export function clientIp(forwardedFor: string | undefined, trustedHops: number): { ip: string; trusted: boolean } {
-  const hops = (forwardedFor ?? "")
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
-  if (!hops.length) return { ip: "", trusted: false };
-  const n = Math.max(1, Math.floor(trustedHops));
-  // Fewer entries than proxies expected: the leftmost one there is, but not trusted as the client's
-  // own address (it may be a proxy that every user shares).
-  return { ip: hops[Math.max(0, hops.length - n)]!.slice(0, 100), trusted: hops.length >= n };
-}
-
-/**
- * The login throttle bucket. A trusted client IP gets its own bucket. An untrusted one (a header
- * shorter than expected) is combined with the e-mail, so an address all users may share can never
- * lock the portal for everybody, and a short header still never turns the throttle off. No IP at
- * all (local dev): the e-mail alone. Null only without an e-mail (nothing to log in as).
- */
-export function throttleKey(client: { ip: string; ipTrusted: boolean }, email: string): string | null {
-  if (client.ip && client.ipTrusted) return `ip:${client.ip}`;
-  if (!email) return null;
-  return client.ip ? `ipmail:${client.ip}|${email}` : `mail:${email}`;
-}
 
 /** A new session's expiry and its absolute end. */
 export function sessionTimes(now: Date): { expiresAt: Date; absoluteExpiresAt: Date } {

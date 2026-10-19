@@ -62,10 +62,23 @@ class UserRepository extends BaseRepository<typeof userTable> {
     return row ?? null;
   }
 
+  // What the auth handler checks on each request (through a short cache): live, its company,
+  // current role and token version.
+  async sessionState(id: string): Promise<{ companyId: string; role: string; tokenVersion: number; isSystem: boolean } | null> {
+    const [row] = await this.db
+      .select({ companyId: userTable.companyId, role: userTable.role, tokenVersion: userTable.tokenVersion, isSystem: userTable.isSystem })
+      .from(userTable)
+      .where(and(eq(userTable.id, id), isNull(userTable.deletedAt)))
+      .limit(1);
+    return row ?? null;
+  }
+
+  // A new password raises the token version: every token issued before is refused from then on.
   async updateInCompany(id: string, companyId: string, patch: UserPatch) {
+    const signOut = patch.passwordHash ? { tokenVersion: sql`${userTable.tokenVersion} + 1` } : {};
     const [row] = await this.db
       .update(userTable)
-      .set({ ...patch, updatedAt: new Date() })
+      .set({ ...patch, ...signOut, updatedAt: new Date() })
       .where(and(eq(userTable.id, id), eq(userTable.companyId, companyId), isNull(userTable.deletedAt), person))
       .returning();
     return row ?? null;
@@ -89,7 +102,7 @@ class UserRepository extends BaseRepository<typeof userTable> {
   async softDeleteInCompany(id: string, companyId: string) {
     const [row] = await this.db
       .update(userTable)
-      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .set({ deletedAt: new Date(), tokenVersion: sql`${userTable.tokenVersion} + 1`, updatedAt: new Date() })
       .where(and(eq(userTable.id, id), eq(userTable.companyId, companyId), isNull(userTable.deletedAt), person))
       .returning();
     return row ?? null;

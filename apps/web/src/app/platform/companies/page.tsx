@@ -97,7 +97,7 @@ export default function PlatformCompaniesPage() {
             <Form.Item name="adminEmail" label="Admin email" rules={[{ required: true, type: "email", message: "Valid email required" }]}>
               <Input />
             </Form.Item>
-            <Form.Item name="adminPassword" label="Admin password" rules={[{ required: true, min: 8, message: "At least 8 characters" }]}>
+            <Form.Item name="adminPassword" label="Admin password" rules={[{ required: true, min: 12, message: "At least 12 characters" }]}>
               <Input.Password />
             </Form.Item>
           </div>

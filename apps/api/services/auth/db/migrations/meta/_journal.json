@@ -134,6 +134,13 @@
       "when": 1792143170115,
       "tag": "0018_drop_company_hidden_modules",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792418250363,
+      "tag": "0019_login_throttle_token_version",
+      "breakpoints": true
     }
   ]
 }

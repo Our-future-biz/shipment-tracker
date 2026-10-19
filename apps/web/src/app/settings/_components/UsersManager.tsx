@@ -166,7 +166,7 @@ export function UsersManager({
           <Form.Item name="email" label="Email" rules={[{ required: true, type: "email", message: "Valid email required" }]}>
             <Input />
           </Form.Item>
-          <Form.Item name="password" label="Password" rules={[{ required: true, min: 8, message: "At least 8 characters" }]}>
+          <Form.Item name="password" label="Password" rules={[{ required: true, min: 12, message: "At least 12 characters" }]}>
             <Input.Password />
           </Form.Item>
           <Form.Item name="role" label="Role">
@@ -185,7 +185,7 @@ export function UsersManager({
             <Select options={roleOptions} disabled={editTarget?.id === currentUserId} />
           </Form.Item>
           {orgUnitFields}
-          <Form.Item name="password" label="New password (leave blank to keep)" rules={[{ min: 8, message: "At least 8 characters" }]}>
+          <Form.Item name="password" label="New password (leave blank to keep)" rules={[{ min: 12, message: "At least 12 characters" }]}>
             <Input.Password placeholder="••••••••" />
           </Form.Item>
         </Form>

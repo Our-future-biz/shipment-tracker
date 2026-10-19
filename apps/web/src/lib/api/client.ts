@@ -226,8 +226,19 @@ export namespace auth {
         }
 
         public async authLogin(params: controllers.AuthLoginRequest): Promise<controllers.AuthLoginResponse> {
+            // Convert our params into the objects we need for the request
+            const headers = makeRecord<string, string>({
+                "x-forwarded-for": params.forwardedFor,
+            })
+
+            // Construct the body with only the fields which we want encoded within the body (excluding query string or header fields)
+            const body: Record<string, any> = {
+                email:    params.email,
+                password: params.password,
+            }
+
             // Now make the actual call to the API
-            const resp = await this.baseClient.callTypedAPI("POST", `/auth/login`, JSON.stringify(params))
+            const resp = await this.baseClient.callTypedAPI("POST", `/auth/login`, JSON.stringify(body), {headers})
             return await resp.json() as controllers.AuthLoginResponse
         }
 
@@ -4508,6 +4519,7 @@ export namespace controllers {
     export interface AuthLoginRequest {
         email: string
         password: string
+        forwardedFor?: string
     }
 
     export interface AuthLoginResponse {

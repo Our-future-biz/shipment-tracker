@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, uuid, boolean, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, boolean, integer, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { defaultTableColumns, defaultTableIndexes, tenantIndex } from "../../../lib/db/defaults";
 import { companyTable } from "./company.schema";
 import { departmentTable, branchTable } from "./orgUnit.schema";
@@ -21,6 +21,9 @@ export const userTable = pgTable(
     // causes in other services is sent as this user. It has no password and can never sign in,
     // and it is not shown in user lists or pickers.
     isSystem: boolean("is_system").notNull().default(false),
+    // Carried in every token as "tv"; a token with another number is refused. Raised when the
+    // password changes or the user is deactivated, which signs them out everywhere.
+    tokenVersion: integer("token_version").notNull().default(0),
   },
   (table) => [
     ...defaultTableIndexes("app_user", table),

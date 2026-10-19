@@ -18,7 +18,8 @@ export const auth = authHandler(async (params: AuthParams): Promise<AuthData> =>
     throw APIError.unauthenticated("Missing authorization header");
   }
   const token = header.startsWith("Bearer ") ? header.slice(7) : header;
-  const { userId, companyId, role } = await authService.verifyToken(token);
+  // Checks the user too (still live, same token version), and takes role and company from them.
+  const { userId, companyId, role } = await authService.authenticate(token);
   return { userID: userId, companyID: companyId, role };
 });
 
