@@ -103,8 +103,8 @@ interface OrgPlacement {
 class AuthService {
   /**
    * E-mail and password, throttled per e-mail and per client IP (see ACCOUNT_RULE / IP_RULE): a
-   * locked bucket refuses even the right password. Every failure - unknown e-mail included -
-   * counts in both and costs the same argon2 work.
+   * locked bucket refuses even the right password. Every attempt - unknown e-mail included - counts
+   * in both and costs the same argon2 work; a successful one is given back.
    */
   async login(email: string, password: string, client: LoginClient = { ip: "", ipTrusted: false }): Promise<{ token: string; user: SessionUser }> {
     const now = new Date();
@@ -113,23 +113,25 @@ class AuthService {
     const buckets: [string, FailureRule][] = [[accountKey, ACCOUNT_RULE]];
     const clientKey = throttleKey(client, address);
     if (clientKey) buckets.push([clientKey, IP_RULE]);
-    const counters = await loginThrottleRepository.byKeys(buckets.map(([key]) => key));
-    if (counters.some((c) => isLocked(c, now))) {
+    const tooMany = async () => {
       await burn(password);
-      throw APIError.resourceExhausted(TOO_MANY_LOGINS);
-    }
-    const failed = async () => {
-      for (const [key, rule] of buckets) await loginThrottleRepository.fail(key, now, rule);
-      return APIError.unauthenticated(LOGIN_FAILED);
+      return APIError.resourceExhausted(TOO_MANY_LOGINS);
     };
+    const counters = await loginThrottleRepository.byKeys(buckets.map(([key]) => key));
+    if (counters.some((c) => isLocked(c, now))) throw await tooMany();
+    // Every attempt is counted as a failure first, atomically, and given back if the password is
+    // right: parallel guesses can't all pass the check above before any failure is recorded, as
+    // the attempt that reaches the limit locks the bucket for every one after it.
+    const reserved = await Promise.all(buckets.map(([key, rule]) => loginThrottleRepository.fail(key, now, rule)));
+    if (reserved.some((c) => isLocked(c, now))) throw await tooMany();
     const found = await userRepository.findByEmail(address);
     // The service identity ("Trucking (system)") never signs in: it has no password.
     if (!found || found.isSystem || !found.passwordHash) {
       await burn(password);
-      throw await failed();
+      throw APIError.unauthenticated(LOGIN_FAILED);
     }
-    if (!(await verify(found.passwordHash, password).catch(() => false))) throw await failed();
-    await loginThrottleRepository.clearFailures(accountKey);
+    if (!(await verify(found.passwordHash, password).catch(() => false))) throw APIError.unauthenticated(LOGIN_FAILED);
+    await Promise.all([loginThrottleRepository.clearFailures(accountKey), ...buckets.filter(([key]) => key !== accountKey).map(([key]) => loginThrottleRepository.giveBack(key))]);
     const token = await this.#createToken(found.id, found.companyId, found.role, found.tokenVersion);
     return {
       token,

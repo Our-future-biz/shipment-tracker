@@ -26,7 +26,12 @@ vi.mock("../repositories/user.repository", () => ({ userRepository: users }));
 const companies = vi.hoisted(() => ({ getById: vi.fn(async () => null) }));
 vi.mock("../repositories/company.repository", () => ({ companyRepository: companies }));
 vi.mock("../repositories/orgUnit.repository", () => ({ departmentRepository: {}, branchRepository: {} }));
-const throttle = vi.hoisted(() => ({ byKeys: vi.fn(async () => [] as { key: string; lockedUntil: Date | null }[]), fail: vi.fn(), clearFailures: vi.fn() }));
+const throttle = vi.hoisted(() => ({
+  byKeys: vi.fn(async () => [] as { key: string; lockedUntil: Date | null }[]),
+  fail: vi.fn(async (key: string) => ({ key, lockedUntil: null as Date | null })),
+  giveBack: vi.fn(),
+  clearFailures: vi.fn(),
+}));
 vi.mock("../repositories/loginThrottle.repository", () => ({ loginThrottleRepository: throttle }));
 
 import { hash } from "@node-rs/argon2";
@@ -89,11 +94,21 @@ describe("signing in: the failed-login throttle", () => {
     expect(users.findByEmail).not.toHaveBeenCalled();
   });
 
-  it("starts the e-mail's count again after a successful sign-in", async () => {
+  it("refuses the attempt whose own count locks the bucket, before the password is checked", async () => {
+    // Parallel guesses all pass the first check; the one counted past the limit is refused.
+    users.findByEmail.mockClear();
+    throttle.fail.mockImplementationOnce(async (key: string) => ({ key, lockedUntil: new Date(Date.now() + 60_000) }));
+    await expect(authService.login("jan@example.com", "the-right-password", office)).rejects.toThrow(TOO_MANY_LOGINS);
+    expect(users.findByEmail).not.toHaveBeenCalled();
+  });
+
+  it("starts the e-mail's count again after a successful sign-in, and gives the IP its attempt back", async () => {
     throttle.clearFailures.mockClear();
+    throttle.giveBack.mockClear();
     users.findByEmail.mockResolvedValue({ id: "u-login", companyId: "c1", email: "jan@example.com", passwordHash: await hash("the-right-password"), displayName: "Jan", role: "user", isSystem: false, tokenVersion: 3 });
     const { token } = await authService.login("jan@example.com", "the-right-password", office);
     expect(throttle.clearFailures).toHaveBeenCalledWith("acct:jan@example.com");
+    expect(throttle.giveBack).toHaveBeenCalledWith("ip:203.0.113.7");
     expect((await authService.verifyToken(token)).tokenVersion).toBe(3);
   });
 });

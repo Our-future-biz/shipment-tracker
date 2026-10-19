@@ -30,6 +30,11 @@ class LoginThrottleRepository {
     });
   }
 
+  /** Takes back one counted attempt (it was a successful sign-in). */
+  async giveBack(key: string): Promise<void> {
+    await db.update(th).set({ failures: sql`GREATEST(${th.failures} - 1, 0)`, updatedAt: new Date() }).where(eq(th.key, key));
+  }
+
   /** A signed-in account starts counting from zero again (its lock history stays until it ages out). */
   async clearFailures(key: string): Promise<void> {
     await db.update(th).set({ failures: 0, updatedAt: new Date() }).where(eq(th.key, key));
