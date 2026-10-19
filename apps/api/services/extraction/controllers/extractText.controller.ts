@@ -1,4 +1,6 @@
 import { api } from "encore.dev/api";
+import { getAuthData } from "~encore/auth";
+import { chargeReading } from "../lib/readingBudget";
 import type { MaxLen, MinLen } from "encore.dev/validate";
 import { extractFromTextByDestination } from "../services/extraction.service";
 import type { ExtractionResult } from "../interfaces/interfaces";
@@ -12,6 +14,8 @@ interface ExtractTextRequest {
 export const extractText = api(
   { expose: true, auth: true, method: "POST", path: "/extraction/text" },
   async (req: ExtractTextRequest): Promise<ExtractionResult> => {
+    // One paid Claude read: counted against the user's hourly reading budget.
+    chargeReading(getAuthData()!.userID, 1);
     return extractFromTextByDestination(req.text, req.destination);
   },
 );

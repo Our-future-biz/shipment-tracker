@@ -7,6 +7,7 @@ import { SHIPMENT_FIELDS } from "../lib/fields";
 import { MASTER_JOB_PROMPT, PLACE_RULES } from "../lib/prompts";
 import { groupHblPages } from "../lib/hblGroups";
 import { canonicalizeRecords } from "./places.service";
+import { chargeReading } from "../lib/readingBudget";
 import type { PrepareResult, ExtractMblResult, ExtractHblResult, PipelineFile } from "../interfaces/interfaces";
 
 interface PipelinePage {
@@ -42,6 +43,25 @@ const SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes
 const BATCH_SIZE = 3;
 // Classify at most this many pages per vision call to keep requests bounded.
 const CLASSIFY_CHUNK = 8;
+// Bounds on what one upload may cost and what the sessions may hold in memory: pages per
+// pre-alert, live sessions per user (a new one drops the user's oldest), pages held in all.
+export const MAX_PAGES = 200;
+const MAX_SESSIONS_PER_USER = 3;
+const MAX_PAGES_HELD = 2000;
+
+// Makes room for a new session of `newPages` pages: the owner keeps at most 2 older sessions,
+// and the oldest sessions of anyone go while all would hold more than MAX_PAGES_HELD pages.
+function makeRoom(owner: SessionOwner, newPages: number) {
+  // A Map iterates in insertion order: oldest first.
+  const mine = [...sessions].filter(([, session]) => ownsSession(session, owner));
+  for (const [id] of mine.slice(0, Math.max(0, mine.length - (MAX_SESSIONS_PER_USER - 1)))) sessions.delete(id);
+  let held = [...sessions.values()].reduce((n, session) => n + session.pages.length, 0);
+  for (const [id, session] of sessions) {
+    if (held + newPages <= MAX_PAGES_HELD) break;
+    sessions.delete(id);
+    held -= session.pages.length;
+  }
+}
 
 function cleanup() {
   const now = Date.now();
@@ -83,7 +103,12 @@ export async function prepare(files: PipelineFile[], owner: SessionOwner): Promi
     }
     rawPages.push(...filePages.map((p) => ({ ...p, fileName })));
     fileSummary.push({ fileName, pageCount: filePages.length });
+    if (rawPages.length > MAX_PAGES) {
+      throw APIError.invalidArgument(`A pre-alert can have at most ${MAX_PAGES} pages - please read it in smaller batches`);
+    }
   }
+  // Every page is read by Claude: counted against the user's hourly reading budget.
+  chargeReading(owner.userId, rawPages.length);
 
   // Classify pages in chunks so we never send an unbounded request.
   const types: string[] = [];
@@ -118,6 +143,7 @@ export async function prepare(files: PipelineFile[], owner: SessionOwner): Promi
   }));
 
   cleanup();
+  makeRoom(owner, sessionPages.length);
   const sessionId = `pipe-${randomUUID()}`;
   sessions.set(sessionId, {
     owner,
