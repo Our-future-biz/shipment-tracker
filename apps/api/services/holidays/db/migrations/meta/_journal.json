@@ -8,6 +8,13 @@
       "when": 1791829679007,
       "tag": "0000_public_holidays",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792419814367,
+      "tag": "0001_index_cleanup",
+      "breakpoints": true
     }
   ]
 }

@@ -73,7 +73,8 @@ class ShipmentCommentRepository extends TenantRepository<typeof shipmentCommentT
           eq(shipmentCommentTable.companyId, companyId),
           isNull(shipmentCommentTable.deletedAt),
           isNull(shipmentTable.deletedAt),
-          sql`${userId}::uuid = ANY(${shipmentCommentTable.mentionedUserIds})`,
+          // @> (contains), not = ANY: only this form can use the GIN index on the tags.
+          sql`${shipmentCommentTable.mentionedUserIds} @> ARRAY[${userId}::uuid]`,
           sql`(${read.readAt} is null or ${shipmentCommentTable.createdAt} > ${read.readAt})`,
         ),
       )

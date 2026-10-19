@@ -29,6 +29,13 @@
       "when": 1791995907989,
       "tag": "0003_fx_constraints",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792419814009,
+      "tag": "0004_index_cleanup",
+      "breakpoints": true
     }
   ]
 }

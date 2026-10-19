@@ -71,6 +71,13 @@
       "when": 1792138877754,
       "tag": "0009_fks_and_gross_check",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792419816323,
+      "tag": "0010_index_cleanup",
+      "breakpoints": true
     }
   ]
 }

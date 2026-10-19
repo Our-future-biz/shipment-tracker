@@ -64,6 +64,13 @@
       "when": 1791998904228,
       "tag": "0008_quote_indexes_and_version_check",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792419815116,
+      "tag": "0009_index_cleanup",
+      "breakpoints": true
     }
   ]
 }

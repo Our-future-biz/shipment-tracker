@@ -29,6 +29,13 @@
       "when": 1791992859676,
       "tag": "0003_typed_shipment_and_due_date",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792419816662,
+      "tag": "0004_index_cleanup",
+      "breakpoints": true
     }
   ]
 }

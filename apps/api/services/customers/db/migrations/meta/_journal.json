@@ -134,6 +134,13 @@
       "when": 1792138878168,
       "tag": "0018_customer_site_one_default",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792419813668,
+      "tag": "0019_index_cleanup",
+      "breakpoints": true
     }
   ]
 }

@@ -18,6 +18,8 @@ export const shipmentCommentTable = pgTable(
     ...defaultTableIndexes("shipment_comment", table),
     tenantIndex("shipment_comment", table),
     index("shipment_comment_shipment_id_idx").on(table.shipmentId),
+    // "Messages that tag me" (polled by every signed-in page): mentioned_user_ids @> '{me}'.
+    index("shipment_comment_mentioned_user_ids_idx").using("gin", table.mentionedUserIds),
   ],
 );
 

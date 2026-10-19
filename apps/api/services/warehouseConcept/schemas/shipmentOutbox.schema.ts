@@ -35,7 +35,6 @@ export const shipmentOutboxTable = pgTable(
     index("warehouse_shipment_outbox_shipment_idx").on(table.shipmentId, table.createdAt).where(sql`status = 'pending'`),
     index("warehouse_shipment_outbox_movement_idx").on(table.movementId),
     foreignKey({ name: "wh_outbox_movement_fk", columns: [table.movementId], foreignColumns: [gateMovementTable.id] }).onDelete("restrict"),
-    index("wh_outbox_movement_idx").on(table.movementId),
     check("wh_outbox_kind_check", sql`${table.kind} IN ('received', 'released', 'plate')`),
     outboxStatusCheck("wh_outbox_status_check", table),
   ],
