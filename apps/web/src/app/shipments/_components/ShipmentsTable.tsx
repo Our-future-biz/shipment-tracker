@@ -22,7 +22,8 @@ import {
   arrayMove,
   horizontalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { getFieldValue, buildRowData, useShipments, type ShipmentItem } from "@/hooks/useShipments";
+import { getFieldValue, buildRowData, useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
+import { ListCapNotice } from "@/components/ListCapNotice";
 import { COLUMNS, COLUMN_MAP, getCellConditionalStyle, getFilteredStatusOptions, getRowConditionalStyle, getShipmentUrgency, isFixedColumn, type CellStyle } from "@/lib/columnConfig";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useColumnView } from "@/hooks/useColumnView";
@@ -43,6 +44,7 @@ import { CustomerCell } from "./CustomerCell";
 import { statusLabel } from "@/lib/shipmentStatus";
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
+import { foldIncludes } from "@/lib/fold";
 
 // --- Props ---
 
@@ -72,6 +74,11 @@ export interface ShipmentsTableProps {
   selectionActions?: { label: string; secondary?: boolean; onClick: (selectedShipmentIds: string[]) => void }[];
   /** Shown at the left end of the toolbar, before any buttons (e.g. a count the page keeps). */
   toolbarLead?: React.ReactNode;
+  /**
+   * How many shipments the page loaded (`shown`, the newest) of all its search finds (`total`):
+   * when that is not all of them, the list says so.
+   */
+  cap?: { shown: number; total: number };
 }
 
 type ColFilter = { key: string; value: string };
@@ -129,12 +136,13 @@ export const ShipmentsTable = ({
   view,
   selectionActions,
   toolbarLead,
+  cap,
 }: ShipmentsTableProps) => {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, token } = useAuth();
-  const { updateField, updateShipment } = useShipments();
+  const { updateField, updateShipment } = useShipmentMutations();
   const viewKey = view?.key;
   const viewDefaults = view?.defaultColumns;
   const columnScope = useMemo(
@@ -394,7 +402,7 @@ export const ShipmentsTable = ({
         : shipments;
     if (activeFilters.length === 0) return quickRows;
     return quickRows.filter((s) =>
-      activeFilters.every((f) => cellText(s, f.key).toLowerCase().includes(f.value.toLowerCase().trim())),
+      activeFilters.every((f) => foldIncludes(cellText(s, f.key), f.value)),
     );
   }, [shipments, activeFilters, quickColumn, quick]);
 
@@ -517,7 +525,7 @@ export const ShipmentsTable = ({
             >
               <Checkbox
                 checked={receivedValue(record, field)}
-                onChange={() => updateField(record.id, field, toggledReceivedOverride(record, field))}
+                onChange={() => updateField(record.id, field, toggledReceivedOverride(record, field), record)}
               />
             </Tooltip>
           );
@@ -546,7 +554,7 @@ export const ShipmentsTable = ({
             fieldKey={col.key}
             value={val}
             options={col.key === "status" ? getFilteredStatusOptions(record.tradeDirection) : undefined}
-            onCommit={(fieldKey, value) => updateField(record.id, fieldKey, value)}
+            onCommit={(fieldKey, value) => updateField(record.id, fieldKey, value, record)}
             placeholder={"\u2014"}
             displayClassName="text-slate-600"
             emptyClassName="text-slate-300"
@@ -639,7 +647,7 @@ export const ShipmentsTable = ({
   // Reset to the first page whenever the result set or page size changes.
   useEffect(() => {
     setCurrentPage(1);
-  }, [search, statusFilter, quick, activeFilters, pageSize]);
+  }, [search, statusFilter, quick, activeFilters, pageSize, activeTile]);
 
   return (
     <div className="flex flex-col gap-5">
@@ -906,6 +914,8 @@ export const ShipmentsTable = ({
           </Button>
         </div>
       )}
+
+      {cap && <ListCapNotice shown={cap.shown} total={cap.total} noun="shipments" />}
 
       {/* Table */}
       <div className="shipments-table bg-white border border-slate-200 rounded-2xl overflow-hidden">

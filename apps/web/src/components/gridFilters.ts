@@ -1,5 +1,7 @@
+import { foldIncludes } from "@/lib/fold";
+
 // "Filter by column" rows shared by the app's grids (AppGrid and the Customer Database list):
-// each row keeps the rows whose cell in `key` contains `value`, any case. A row has its own id,
+// each row keeps the rows whose cell in `key` contains `value`, ignoring case and diacritics. A row has its own id,
 // so removing one in the middle never shifts what the others show.
 
 export interface GridFilter {
@@ -32,7 +34,7 @@ export const storedGridFilters = (filters: readonly { key: string; value: string
 
 /** Whether a row passes every active filter; `cellText` gives the row's text in a column. */
 export function matchesGridFilters<T>(row: T, filters: readonly { key: string; value: string }[], cellText: (row: T, key: string) => string): boolean {
-  return activeGridFilters(filters).every((f) => cellText(row, f.key).toLowerCase().includes(f.value.toLowerCase().trim()));
+  return activeGridFilters(filters).every((f) => foldIncludes(cellText(row, f.key), f.value));
 }
 
 /** The grid toolbar's square icon button. */

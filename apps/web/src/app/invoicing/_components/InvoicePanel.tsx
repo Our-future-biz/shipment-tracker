@@ -9,7 +9,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
-import { useShipments } from "@/hooks/useShipments";
+import { useShipmentMutations } from "@/hooks/useShipments";
 import { useCustomers } from "@/hooks/useCustomers";
 import { downloadInvoicePdf, useInvoiceDocs, type InvoiceDoc } from "@/hooks/useInvoiceDocs";
 import { useToast } from "@/lib/toast";
@@ -78,7 +78,7 @@ export function InvoicePanel({ shipment }: InvoicePanelProps) {
   const toast = useToast();
   const queryClient = useQueryClient();
   const { data, billingCur, totals } = useCostsData(shipment);
-  const { updateShipment } = useShipments();
+  const { updateShipment } = useShipmentMutations();
   const { customers } = useCustomers();
 
   const [customerId, setCustomerId] = useState<string | undefined>(undefined);

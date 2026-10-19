@@ -1,4 +1,5 @@
-import { and, arrayContains, asc, eq, inArray, or, ilike, desc, isNull, ne } from "drizzle-orm";
+import { and, arrayContains, asc, count, eq, inArray, desc, isNull, ne } from "drizzle-orm";
+import { containsAllWords } from "../../../lib/db/textSearch";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { customerTable, type CustomerRecord, type NewCustomerRecord } from "../schemas/customer.schema";
@@ -87,29 +88,30 @@ class CustomerRepository extends TenantRepository<typeof customerTable> {
     return this.getByColumnForCompany(customerTable.ico, ico, companyId);
   }
 
-  // Server-side filtered list, always scoped to the company.
-  async listFiltered(companyId: string, f: CustomerListFilters): Promise<CustomerRecord[]> {
+  // Server-side filtered list, always scoped to the company: the newest `limit` (2000) rows, and
+  // how many match in all.
+  async listFiltered(companyId: string, f: CustomerListFilters): Promise<{ rows: CustomerRecord[]; total: number }> {
     const clauses = [eq(customerTable.companyId, companyId), isNull(customerTable.deletedAt)];
     if (f.status) clauses.push(eq(customerTable.status, f.status));
     if (f.label) clauses.push(eq(customerTable.label, f.label));
     if (f.country) clauses.push(eq(customerTable.country, f.country));
     if (f.role) clauses.push(arrayContains(customerTable.roles, [f.role]));
+    // Every word typed, anywhere in these columns, without regard to diacritics or case.
     if (f.search) {
-      const s = `%${f.search}%`;
-      const match = or(
-        ilike(customerTable.companyName, s),
-        ilike(customerTable.ico, s),
-        ilike(customerTable.dic, s),
-        ilike(customerTable.city, s),
-      );
+      const match = containsAllWords([customerTable.companyName, customerTable.ico, customerTable.dic, customerTable.city], f.search);
       if (match) clauses.push(match);
     }
-    return this.db
-      .select()
-      .from(customerTable)
-      .where(and(...clauses))
-      .orderBy(desc(customerTable.createdAt))
-      .limit(f.limit ?? 2000);
+    const where = and(...clauses);
+    const [rows, [{ value: total }]] = await Promise.all([
+      this.db
+        .select()
+        .from(customerTable)
+        .where(where)
+        .orderBy(desc(customerTable.createdAt), desc(customerTable.id))
+        .limit(f.limit ?? 2000),
+      this.db.select({ value: count() }).from(customerTable).where(where),
+    ]);
+    return { rows, total: Number(total) };
   }
 
   // A new customer together with its first contact and its registered address, in one transaction:

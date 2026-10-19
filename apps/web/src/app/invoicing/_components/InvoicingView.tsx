@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Select, Tag } from "antd";
 import { DownOutlined, RightOutlined } from "@ant-design/icons";
-import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
+import { useShipmentMutations, useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useShipment } from "@/hooks/useShipment";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useInvoiceDocList } from "@/hooks/useInvoiceDocs";
@@ -58,7 +58,7 @@ interface ShipmentProps {
  */
 function ShipmentSummary({ shipment }: ShipmentProps) {
   const toast = useToast();
-  const { updateShipment } = useShipments();
+  const { updateShipment } = useShipmentMutations();
   const [saving, setSaving] = useState(false);
   const { data } = useInvoiceDocList(shipment.id);
   const open = (data?.invoices ?? []).filter((d) => d.kind === "invoice" && d.status === "issued");

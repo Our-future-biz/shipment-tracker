@@ -15,7 +15,7 @@ import {
   DownloadOutlined,
 } from "@ant-design/icons";
 import { api, apiFileUrl } from "@/lib/api";
-import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
+import { useShipmentMutations, type ShipmentItem } from "@/hooks/useShipments";
 import { DetailCard, makeStyleFor, type CommitFn } from "../ShipmentDetailContent";
 import { formatDateTime } from "@/lib/date";
 import { useShipmentAttachments } from "@/hooks/useShipmentAttachments";
@@ -270,7 +270,7 @@ export function CustomsTab({
 }) {
   const toast = useToast();
   const [search, setSearch] = useState("");
-  const { updateShipment } = useShipments();
+  const { updateShipment } = useShipmentMutations();
   // Commercial Invoice(s) Value is the total of the cargo lines per currency whenever they
   // carry values; the shipment's own field is only the fallback.
   const cardShipment = useMemo(

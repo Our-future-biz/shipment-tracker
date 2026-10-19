@@ -14,12 +14,15 @@ interface CustomerListRequest {
 }
 
 interface CustomerListResponse {
+  /** The newest matching customers, at most 2000. */
   data: CustomerItem[];
+  /** How many customers match in all (more than `data` holds when it is cut). */
+  total: number;
 }
 
 export const customerList = api(
   { expose: true, auth: true, method: "GET", path: "/customers" },
   async (req: CustomerListRequest): Promise<CustomerListResponse> => {
-    return { data: await customerService.list(getAuthData()!.companyID, req) };
+    return customerService.list(getAuthData()!.companyID, req);
   },
 );

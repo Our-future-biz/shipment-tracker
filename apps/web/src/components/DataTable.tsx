@@ -3,6 +3,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { Table, Select, Pagination } from "antd";
 import type { TableProps } from "antd";
+import type { SorterResult } from "antd/es/table/interface";
+
+// A column's own compare function, as antd's `sorter` may carry it.
+type Compare<T> = (a: T, b: T) => number;
+function compareOf<T>(sorter: unknown): Compare<T> | null {
+  if (typeof sorter === "function") return sorter as Compare<T>;
+  if (sorter && typeof sorter === "object" && typeof (sorter as { compare?: unknown }).compare === "function") return (sorter as { compare: Compare<T> }).compare;
+  return null;
+}
 
 // The page size a table starts with, and the ones it offers.
 export const DEFAULT_PAGE_SIZE = 50;
@@ -73,9 +82,12 @@ export function DataTableFooter({ page, pageSize, total, counted = true, onChang
 // Shared table style used across the app: rounded card, compact rows, and a
 // bottom bar with the rows-per-page selector on the left and pagination on the
 // right — matching the shipments table.
-export function DataTable<T extends object>({ dataSource, resetKey, server, ...tableProps }: DataTableProps<T>) {
+export function DataTable<T extends object>({ dataSource, resetKey, server, onChange, ...tableProps }: DataTableProps<T>) {
   const [ownPageSize, setOwnPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [ownPage, setOwnPage] = useState(1);
+  // The column sort the user chose, applied here to ALL the rows before they are cut into pages:
+  // antd alone would sort only the page it is shown.
+  const [sort, setSort] = useState<{ compare: Compare<T>; descending: boolean } | null>(null);
 
   const serverPaged = server !== undefined;
   const pageSize = server?.pageSize ?? ownPageSize;
@@ -87,8 +99,21 @@ export function DataTable<T extends object>({ dataSource, resetKey, server, ...t
   const paged = useMemo(() => {
     const rows = (dataSource ?? []) as readonly T[];
     // The server's page is shown as it came.
-    return (serverPaged ? rows : rows.slice((safePage - 1) * pageSize, safePage * pageSize)) as T[];
-  }, [dataSource, serverPaged, safePage, pageSize]);
+    if (serverPaged) return rows as T[];
+    const ordered = sort ? [...rows].sort((a, b) => (sort.descending ? -1 : 1) * sort.compare(a, b)) : rows;
+    return ordered.slice((safePage - 1) * pageSize, safePage * pageSize) as T[];
+  }, [dataSource, serverPaged, safePage, pageSize, sort]);
+
+  const handleChange: TableProps<T>["onChange"] = (pagination, filters, sorter, extra) => {
+    if (!serverPaged) {
+      const chosen = (Array.isArray(sorter) ? sorter[0] : sorter) as SorterResult<T> | undefined;
+      const compare = chosen?.order ? compareOf<T>(chosen.column?.sorter) : null;
+      setSort(compare ? { compare, descending: chosen?.order === "descend" } : null);
+      // A new order starts again from the first page.
+      setOwnPage(1);
+    }
+    onChange?.(pagination, filters, sorter, extra);
+  };
 
   useEffect(() => {
     setOwnPage(1);
@@ -96,7 +121,7 @@ export function DataTable<T extends object>({ dataSource, resetKey, server, ...t
 
   return (
     <div className="data-table bg-white border border-slate-200 rounded-2xl overflow-hidden">
-      <Table<T> {...tableProps} size="small" dataSource={paged} pagination={false} />
+      <Table<T> {...tableProps} onChange={handleChange} size="small" dataSource={paged} pagination={false} />
       <DataTableFooter
         className="px-4 py-3 border-t border-slate-100"
         page={safePage}

@@ -144,8 +144,10 @@ async function insertUnique<T>(insert: () => Promise<T>, what: string): Promise<
 }
 
 class CustomerService {
-  async list(companyId: string, filters: CustomerListFilters = {}): Promise<CustomerItem[]> {
-    return (await customerRepository.listFiltered(companyId, filters)).map(toCustomerItem);
+  /** The newest matching customers (at most 2000) and how many match in all. */
+  async list(companyId: string, filters: CustomerListFilters = {}): Promise<{ data: CustomerItem[]; total: number }> {
+    const { rows, total } = await customerRepository.listFiltered(companyId, filters);
+    return { data: rows.map(toCustomerItem), total };
   }
 
   async get(id: string, companyId: string): Promise<CustomerItem> {

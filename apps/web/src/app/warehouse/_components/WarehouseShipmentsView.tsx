@@ -24,13 +24,13 @@ export function WarehouseShipmentsView({
   const searchParams = useSearchParams();
   const search = useDebounced(searchParams.get("q") ?? "", 300);
   const statusBucket = searchParams.get("status") ?? "all";
-  const { shipments: all, isLoading } = useShipments({ search, statusBucket, warehouse: section });
+  const { shipments: all, total, isLoading } = useShipments({ search, statusBucket, warehouse: section });
   const shipments = useMemo(() => all.filter(WAREHOUSE_RULES[section]), [all, section]);
 
   return (
     <div className="bg-slate-50 min-h-full px-8 py-6">
       <div className="max-w-[1400px] mx-auto">
-        <ShipmentsTable shipments={shipments} isLoading={isLoading} view={{ key: `warehouse-${section}`, title: WAREHOUSE_SECTIONS[section], detailHref: `/warehouse/:id?from=${section}`, defaultColumns: WAREHOUSE_DEFAULT_COLUMNS, leadColumn: WAREHOUSE_LEAD_COLUMN[section] }} selectionActions={selectionActions} />
+        <ShipmentsTable shipments={shipments} cap={{ shown: all.length, total }} isLoading={isLoading} view={{ key: `warehouse-${section}`, title: WAREHOUSE_SECTIONS[section], detailHref: `/warehouse/:id?from=${section}`, defaultColumns: WAREHOUSE_DEFAULT_COLUMNS, leadColumn: WAREHOUSE_LEAD_COLUMN[section] }} selectionActions={selectionActions} />
       </div>
     </div>
   );

@@ -52,8 +52,9 @@ export function MasterJobDetailModal({
   open: boolean;
   onClose: () => void;
 }) {
-  const { shipments } = useShipments();
   const target = String(mcz).trim();
+  // The master job's houses, found by the server among all shipments (not only the newest).
+  const { shipments } = useShipments({ masterJobMcz: target, enabled: open && !!target });
 
   const rows = useMemo(() => {
     const masterShipments = shipments.filter(

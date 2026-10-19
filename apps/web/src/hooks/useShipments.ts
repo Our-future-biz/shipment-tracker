@@ -64,8 +64,12 @@ export interface ShipmentQueryParams {
   warehouse?: string;
   /** Customs page filter (urgent), matched server-side. */
   customs?: string;
+  /** The houses of the master job with this MCZ number, matched server-side. */
+  masterJobMcz?: string;
   /** Refresh every this many ms — for lists that depend on the clock. */
   refetchInterval?: number;
+  /** False to not load the list (yet), e.g. while the dialog that shows it is closed. */
+  enabled?: boolean;
 }
 
 // Fields that trigger automation when changed
@@ -74,6 +78,9 @@ const AUTOMATION_FIELDS = new Set(["department", "status", "holidayCover"]);
 /** Views computed from shipments (needs-attention list, tiles) — stale after any status change. */
 /** Mutation key of every shipment write, so a reader can wait for writes of shipments only. */
 export const SHIPMENT_WRITE_KEY = ["shipment-write"] as const;
+
+/** How many shipments one list holds: the newest this many (the list endpoint's maximum). */
+export const SHIPMENT_LIST_LIMIT = 200;
 
 export function invalidateShipmentDerivedViews(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: NEEDS_ATTENTION_KEY });
@@ -89,24 +96,22 @@ export function invalidateShipmentCustomerViews(queryClient: QueryClient) {
   queryClient.invalidateQueries({ queryKey: ["customers"], refetchType: "none" });
 }
 
-export const useShipments = (params: ShipmentQueryParams = {}) => {
+/** A shipment as some cached shipments query holds it: a list page or a shipment read on its own. */
+function cachedShipment(queryClient: QueryClient, id: string): ShipmentItem | undefined {
+  for (const [, cached] of queryClient.getQueriesData<CachedShipments>({ queryKey: ["shipments"] })) {
+    const found = cached?.shipment?.id === id ? cached.shipment : cached?.data?.find((s) => s.id === id);
+    if (found) return found;
+  }
+  return undefined;
+}
+
+/**
+ * The shipment writes, without loading any list: what a page that only edits shipments needs.
+ * (useShipments adds them to its list.)
+ */
+export const useShipmentMutations = () => {
   const queryClient = useQueryClient();
   const { message } = App.useApp();
-
-  const search = params.search?.trim() || undefined;
-  const statusBucket = params.statusBucket && params.statusBucket !== "all" ? params.statusBucket : undefined;
-  const tile = params.tile && params.tile !== "all" ? params.tile : undefined;
-  const warehouse = params.warehouse || undefined;
-  const customs = params.customs || undefined;
-
-  // Search and status are applied server-side (scoped to the company), so they cover the
-  // whole dataset rather than only the rows already loaded in the browser.
-  const query = useQuery({
-    queryKey: ["shipments", search ?? "", statusBucket ?? "", tile ?? "", warehouse ?? "", customs ?? ""],
-    queryFn: () => api.shipments.shipmentList({ limit: 200, search, statusBucket, tile, warehouse, customs }),
-    placeholderData: (prev) => prev,
-    refetchInterval: params.refetchInterval,
-  });
 
   // Shipment writes recompute the linked customer's rollups server-side and change the rows of
   // the customer page, so its caches must not keep serving the old copy.
@@ -134,7 +139,7 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     mutationKey: SHIPMENT_WRITE_KEY,
     mutationFn: ({ id, data }: { id: string; data: controllers.ShipmentUpdateRequest }) =>
       api.shipments.shipmentUpdate(id, data),
-    // Optimistic update for snappy inline editing. The query key now carries the active
+    // Optimistic update for snappy inline editing. The query key carries the active
     // search/status, so patch every cached shipments page rather than one fixed key - and the
     // shipment read on its own, which is what the page of a shipment outside the list shows.
     // The rollback below restores every one of them.
@@ -190,17 +195,16 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shipments"] }),
   });
 
-  const shipments: ShipmentItem[] = useMemo(() => query.data?.data ?? [], [query.data]);
-
   // Update a single field (handles API field vs extra field routing). `loaded` is the shipment as
-  // its page shows it, for one that is not among the rows of this list (useShipment).
+  // the caller shows it; without it the shipment is looked up in whatever shipments are cached
+  // (the list on screen, a shipment page), so an edit of any shown row knows its old value.
   const updateField = useCallback(
     (shipmentId: string, fieldKey: string, value: string, loaded?: ShipmentItem) => {
       const col = COLUMN_MAP.get(fieldKey);
       if (!col) return;
 
-      // Get old value for automation comparison
-      const shipment = loaded ?? shipments.find((s) => s.id === shipmentId);
+      // Get old value for automation comparison - before the optimistic edit below changes it.
+      const shipment = loaded ?? cachedShipment(queryClient, shipmentId);
       const oldValue = shipment ? getFieldValue(shipment, fieldKey) : "";
 
       if (col.apiField) {
@@ -224,16 +228,10 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
         }).catch(() => { /* fire and forget */ });
       }
     },
-    [updateMutation, shipments, message],
+    [updateMutation, queryClient, message],
   );
 
   return {
-    shipments,
-    // How many shipments the search and filters find in all - the list above holds the newest of them.
-    total: query.data?.pagination.total ?? 0,
-    isLoading: query.isLoading,
-    // The last request failed; rows read earlier may still be listed.
-    isError: query.isError,
     createShipment: createMutation.mutateAsync,
     updateShipment: updateMutation.mutateAsync,
     updateField,
@@ -243,6 +241,39 @@ export const useShipments = (params: ShipmentQueryParams = {}) => {
     isCreating: createMutation.isPending,
     isDeleting: deleteMutation.isPending,
     isLinkingMasterJob: linkMasterJobMutation.isPending,
+  };
+};
+
+/** The newest 200 shipments the filters find (filtered server-side), with the shipment writes. */
+export const useShipments = (params: ShipmentQueryParams = {}) => {
+  const search = params.search?.trim() || undefined;
+  const statusBucket = params.statusBucket && params.statusBucket !== "all" ? params.statusBucket : undefined;
+  const tile = params.tile && params.tile !== "all" ? params.tile : undefined;
+  const warehouse = params.warehouse || undefined;
+  const customs = params.customs || undefined;
+  const masterJobMcz = params.masterJobMcz?.trim() || undefined;
+
+  // Search and status are applied server-side (scoped to the company), so they cover the
+  // whole dataset rather than only the rows already loaded in the browser.
+  const query = useQuery({
+    queryKey: ["shipments", search ?? "", statusBucket ?? "", tile ?? "", warehouse ?? "", customs ?? "", masterJobMcz ?? ""],
+    queryFn: () => api.shipments.shipmentList({ limit: SHIPMENT_LIST_LIMIT, search, statusBucket, tile, warehouse, customs, masterJobMcz }),
+    placeholderData: (prev) => prev,
+    refetchInterval: params.refetchInterval,
+    enabled: params.enabled ?? true,
+  });
+
+  const shipments: ShipmentItem[] = useMemo(() => query.data?.data ?? [], [query.data]);
+  const mutations = useShipmentMutations();
+
+  return {
+    shipments,
+    // How many shipments the search and filters find in all - the list above holds the newest of them.
+    total: query.data?.pagination.total ?? 0,
+    isLoading: query.isLoading,
+    // The last request failed; rows read earlier may still be listed.
+    isError: query.isError,
+    ...mutations,
   };
 };
 

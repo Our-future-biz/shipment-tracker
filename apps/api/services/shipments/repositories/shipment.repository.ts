@@ -5,6 +5,8 @@ import { db } from "../db/db";
 import { shipmentTable, type NewShipmentRecord, type ShipmentRecord } from "../schemas/shipment.schema";
 import { CANCELLED_STATUS } from "../lib/fieldDefaults";
 import { shipmentRefCounterRepository } from "./shipmentRefCounter.repository";
+import { masterJobTable } from "../schemas/masterJob.schema";
+import { containsAllWords } from "../../../lib/db/textSearch";
 
 /** A new shipment's own fields; the repository sets the company and the job number. */
 export type NewShipmentData = Omit<NewShipmentRecord, "companyId" | "jobNumber">;
@@ -141,6 +143,8 @@ export interface ShipmentListFilters {
   /** Overview tile filter: active | attention | import | export | week | nextweek */
   tile?: string;
   customerId?: string;
+  /** The houses of the master job with this MCZ number. */
+  masterJobMcz?: string;
   status?: string;
   /** UI status bucket — a coarse grouping over the many free-text status values. */
   statusBucket?: string;
@@ -414,6 +418,17 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
   async listFiltered(companyId: string, f: ShipmentListFilters) {
     const clauses = [eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt)];
     if (f.customerId) clauses.push(eq(shipmentTable.customerId, f.customerId));
+    if (f.masterJobMcz) {
+      clauses.push(
+        inArray(
+          shipmentTable.masterJobId,
+          this.db
+            .select({ id: masterJobTable.id })
+            .from(masterJobTable)
+            .where(and(eq(masterJobTable.companyId, companyId), eq(masterJobTable.mczNumber, f.masterJobMcz), isNull(masterJobTable.deletedAt))),
+        ),
+      );
+    }
     if (f.status) clauses.push(eq(shipmentTable.status, f.status));
     if (f.statusBucket && f.statusBucket !== "all") {
       const fragments = STATUS_BUCKETS[f.statusBucket];
@@ -438,16 +453,9 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       const predicate = INVOICING_PREDICATES[f.invoicing as InvoicingFilterId];
       if (predicate) clauses.push(predicate);
     }
+    // Every word typed, anywhere in these columns, without regard to diacritics or case.
     if (f.search) {
-      const s = `%${f.search}%`;
-      const match = or(
-        ilike(shipmentTable.jobNumber, s),
-        ilike(shipmentTable.shipper, s),
-        ilike(shipmentTable.consignee, s),
-        ilike(shipmentTable.customer, s),
-        ilike(shipmentTable.pol, s),
-        ilike(shipmentTable.pod, s),
-      );
+      const match = containsAllWords([shipmentTable.jobNumber, shipmentTable.shipper, shipmentTable.consignee, shipmentTable.customer, shipmentTable.pol, shipmentTable.pod], f.search);
       if (match) clauses.push(match);
     }
     const where = and(...clauses);

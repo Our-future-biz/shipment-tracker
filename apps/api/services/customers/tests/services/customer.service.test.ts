@@ -56,10 +56,11 @@ describe("roles", () => {
   const CONTACT = { firstName: "Jana", lastName: "Nová", email: "jana@example.cz" };
 
   it("are passed on as a list filter, and every item carries its roles", async () => {
-    repository.listFiltered.mockResolvedValue([customerRow({ roles: ["customer", "haulier"] })]);
-    const [item] = await customerService.list(COMPANY, { role: "haulier" });
+    repository.listFiltered.mockResolvedValue({ rows: [customerRow({ roles: ["customer", "haulier"] })], total: 1 });
+    const { data: [item], total } = await customerService.list(COMPANY, { role: "haulier" });
     expect(repository.listFiltered).toHaveBeenCalledWith(COMPANY, { role: "haulier" });
     expect(item!.roles).toEqual(["customer", "haulier"]);
+    expect(total).toBe(1);
   });
 
   it("make a new company a customer unless others are given", async () => {

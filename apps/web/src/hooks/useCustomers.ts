@@ -69,6 +69,8 @@ export const useCustomers = (params: CustomerQueryParams = {}, { enabled = true 
 
   return {
     customers: query.data?.data ?? NO_CUSTOMERS,
+    // How many customers the search finds in all; the list holds the newest 2000 of them.
+    total: query.data?.total ?? 0,
     // True during every request, including a filter change where the previous rows stay on screen (placeholderData).
     isFetching: query.isFetching,
     isError: query.isError,

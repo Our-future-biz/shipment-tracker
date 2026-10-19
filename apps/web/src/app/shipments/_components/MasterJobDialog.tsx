@@ -3,19 +3,23 @@
 import { useState, useMemo, useEffect } from "react";
 import { Modal, Button, Input, Checkbox, Tag, Radio, Space } from "antd";
 import { SearchOutlined } from "@ant-design/icons";
-import { type ShipmentItem } from "@/hooks/useShipments";
+import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
 import { useMasterJobs } from "@/hooks/useMasterJobs";
 import { nextMczNumber } from "@/lib/mcz";
 
 interface MasterJobDialogProps {
   open: boolean;
   onClose: () => void;
-  shipments: ShipmentItem[];
+  /** The shipments to pick from; without them the dialog loads the newest itself while open. */
+  shipments?: ShipmentItem[];
   onLink: (shipmentIds: string[], mczNumber: string) => void | Promise<void>;
   initialSelectedIds?: string[];
 }
 
-export const MasterJobDialog = ({ open, onClose, shipments, onLink, initialSelectedIds }: MasterJobDialogProps) => {
+export const MasterJobDialog = ({ open, onClose, shipments: given, onLink, initialSelectedIds }: MasterJobDialogProps) => {
+  // A page with no list of its own (a shipment's page) has the newest loaded here, only while open.
+  const own = useShipments({ enabled: open && !given });
+  const shipments = given ?? own.shipments;
   const [mode, setMode] = useState<"new" | "existing">("new");
   const [selected, setSelected] = useState<Set<string>>(new Set(initialSelectedIds ?? []));
 

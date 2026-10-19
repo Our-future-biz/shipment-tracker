@@ -1,7 +1,7 @@
 "use client";
 
 import { api } from "@/lib/api";
-import { useShipments } from "@/hooks/useShipments";
+import { useShipmentMutations } from "@/hooks/useShipments";
 import { useToast } from "@/lib/toast";
 import { todayIso } from "@/lib/date";
 
@@ -35,7 +35,7 @@ export function useWarehouseMove(
   movedTo: string,
   { assignReference = false, clearTruck = false }: { assignReference?: boolean; clearTruck?: boolean } = {},
 ) {
-  const { updateShipment } = useShipments();
+  const { updateShipment } = useShipmentMutations();
   const toast = useToast();
 
   return async (ids: string[], truck?: string): Promise<boolean> => {

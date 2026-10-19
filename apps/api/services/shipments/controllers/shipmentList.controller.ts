@@ -8,6 +8,8 @@ interface ShipmentListRequest {
   offset?: number;
   sortDirection?: "asc" | "desc";
   customerId?: string;
+  /** The houses of the master job with this MCZ number */
+  masterJobMcz?: string;
   // Server-side filtering.
   status?: string;
   /** Coarse UI status bucket: active | in-transit | customs | delivered */
@@ -37,6 +39,7 @@ export const shipmentList = api(
   async (req: ShipmentListRequest): Promise<ShipmentListResponse> => {
     return shipmentService.list(getAuthData()!.companyID, {
       customerId: req.customerId,
+      masterJobMcz: req.masterJobMcz?.trim() || undefined,
       status: req.status,
       statusBucket: req.statusBucket,
       tile: req.tile,
@@ -44,8 +47,8 @@ export const shipmentList = api(
       customs: req.customs,
       invoicing: req.invoicing,
       search: req.search,
-      limit: Math.min(req.limit ?? 100, 200),
-      offset: req.offset ?? 0,
+      limit: Math.min(Math.max(req.limit ?? 100, 1), 200),
+      offset: Math.max(req.offset ?? 0, 0),
       sortDirection: req.sortDirection ?? "desc",
     });
   },

@@ -13,6 +13,7 @@ import { ColumnFilterRows } from "@/components/ColumnFilterRows";
 import { TOOLBAR_BUTTON_CLASS, activeGridFilters, matchesGridFilters, type GridFilter } from "@/components/gridFilters";
 import { downloadCsv } from "@/lib/csv";
 import { businessToday } from "@/lib/date";
+import { foldIncludes } from "@/lib/fold";
 
 // The app's grid, with the same structure as the Shipments grid: title row, toolbar
 // (actions left; search, filters, column filters, columns and export right), bulk bar
@@ -154,9 +155,9 @@ export function AppGrid<T extends object>({
   const activeFilters = useMemo(() => activeGridFilters(colFilters), [colFilters]);
 
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.trim();
     return rows.filter((r) => {
-      if (q && !columns.some((c) => c.text(r).toLowerCase().includes(q))) return false;
+      if (q && !columns.some((c) => foldIncludes(c.text(r), q))) return false;
       // A filter on a column this grid no longer has narrows nothing.
       return matchesGridFilters(
         r,

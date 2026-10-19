@@ -27,7 +27,7 @@ import {
 import { useShipment } from "@/hooks/useShipment";
 import { useInvoicing } from "@/hooks/useInvoicing";
 import { useCanDeleteShipments } from "@/lib/auth/AuthContext";
-import { useShipments, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
+import { useShipmentMutations, getFieldValue, buildRowData, type ShipmentItem } from "@/hooks/useShipments";
 import { getCellConditionalStyle, getRowConditionalStyle } from "@/lib/columnConfig";
 import { formatDate } from "@/lib/date";
 import { statusLabel, statusTagColor } from "@/lib/shipmentStatus";
@@ -417,7 +417,7 @@ function InvoiceRow({
   labelW = "w-[140px]",
 }: InvoiceRowProps) {
   const toast = useToast();
-  const { updateShipment } = useShipments();
+  const { updateShipment } = useShipmentMutations();
   const [open, setOpen] = useState(false);
   const value =
     fieldKey === "commercialInvoiceValue"
@@ -898,7 +898,7 @@ export function ShipmentDetailContent() {
   const { jobNumber } = useParams<{ jobNumber: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { shipments, isLoading: listLoading, updateField, updateShipment, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipments();
+  const { updateField, updateShipment, deleteShipment, linkMasterJob, unlinkMasterJob } = useShipmentMutations();
   const [masterJobOpen, setMasterJobOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
   const [attachmentsOpen, setAttachmentsOpen] = useState(false);
@@ -915,9 +915,8 @@ export function ShipmentDetailContent() {
   // container-number link.
   const [cargoFocusId, setCargoFocusId] = useState<string | null>(null);
 
-  // From the loaded list when the shipment is among its rows, otherwise read on its own: a
-  // shipment opened by link need not be one of the newest.
-  const { shipment, isLoading, notFound, error, reload } = useShipment(jobNumber, { shipments, isLoading: listLoading });
+  // Read on its own: the page loads no list (a shipment opened by link need not be one of the newest).
+  const { shipment, isLoading, notFound, error, reload } = useShipment(jobNumber);
 
   // The invoicing data loads with the shipment, so the Costs Breakdown tab has it at once.
   const { data: invoicingData } = useInvoicing(shipment?.id ?? null);
@@ -1625,7 +1624,6 @@ export function ShipmentDetailContent() {
       <MasterJobDialog
         open={assignOpen}
         onClose={() => setAssignOpen(false)}
-        shipments={shipments}
         onLink={handleAssignMasterJob}
         initialSelectedIds={[shipment.id]}
       />

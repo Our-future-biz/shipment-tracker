@@ -18,6 +18,7 @@ import {
 import { SortableContext, arrayMove, horizontalListSortingStrategy } from "@dnd-kit/sortable";
 import type { ColumnsType } from "antd/es/table";
 import { DataTable } from "@/components/DataTable";
+import { ListCapNotice } from "@/components/ListCapNotice";
 import { DraggableHeaderCell } from "@/components/DraggableHeaderCell";
 import { PillTabs } from "@/components/SectionCard";
 import { useCustomers, type CustomerItem } from "@/hooks/useCustomers";
@@ -151,7 +152,7 @@ export function CustomersView() {
   }, [urlQuery]);
   const debouncedSearch = useDebounced(urlQuery, 300).trim();
 
-  const { customers, isFetching, isError, createCustomer, createManualCustomer, isCreating } =
+  const { customers, total, isFetching, isError, createCustomer, createManualCustomer, isCreating } =
     useCustomers({
       search: debouncedSearch,
       status: status || undefined,
@@ -473,6 +474,8 @@ export function CustomersView() {
             again when you are done.
           </div>
         )}
+
+        <ListCapNotice shown={customers.length} total={total} noun="customers" />
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={visibleColumns} strategy={horizontalListSortingStrategy}>

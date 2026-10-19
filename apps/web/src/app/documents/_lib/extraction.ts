@@ -1,5 +1,4 @@
 import type { controllers, interfaces } from "@/lib/api/client";
-import type { ShipmentItem } from "@/hooks/useShipments";
 import { CURRENCIES } from "@/lib/enums";
 import { extractContainerNumbers } from "@/lib/container";
 import { CONTAINER_TYPES, PACK_TYPES } from "@/lib/cargo";
@@ -132,21 +131,6 @@ export function normalizeExtracted(raw: Record<string, string>): Record<string, 
   return out;
 }
 
-// Next "CZ00000001"-style job number, considering both persisted shipments and
-// numbers already assigned earlier in the same session (batch creation).
-export function nextCzNumber(shipments: ShipmentItem[], sessionAssigned: string[] = []): string {
-  let max = 0;
-  const consider = (jn: string | null | undefined) => {
-    if (jn && jn.startsWith("CZ") && !jn.startsWith("CZQ")) {
-      const num = parseInt(jn.substring(2), 10);
-      if (!isNaN(num) && num > max) max = num;
-    }
-  };
-  for (const s of shipments) consider(s.jobNumber);
-  for (const jn of sessionAssigned) consider(jn);
-  return `CZ${String(max + 1).padStart(8, "0")}`;
-}
-
 // A document's "Container Number" field can hold several numbers and use spaces or
 // hyphens ("MSMU 272727-7"). Strip separators and pull out each canonical
 // 4-letter+7-digit number so they're stored uniformly (e.g. → "MSMU2727277").
@@ -185,10 +169,10 @@ export function normalizeCurrency(raw?: string): string {
   return (CURRENCIES as readonly string[]).includes(c) ? c : "CZK";
 }
 
-// No Created By: the server stamps it from the signed-in user.
-export function baseCreatePayload(jobNumber: string): controllers.ShipmentCreateRequest {
+// No job number and no Created By: the server gives the next job number when it stores the
+// shipment, and stamps who created it.
+export function baseCreatePayload(): controllers.ShipmentCreateRequest {
   return {
-    jobNumber,
     tradeDirection: "Import",
     freightMode: "Sea Freight",
     department: "Operation Department",

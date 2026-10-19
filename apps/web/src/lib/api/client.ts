@@ -1881,6 +1881,7 @@ export namespace shipments {
                 customs:       params.customs,
                 invoicing:     params.invoicing,
                 limit:         params.limit === undefined ? undefined : String(params.limit),
+                masterJobMcz:  params.masterJobMcz,
                 offset:        params.offset === undefined ? undefined : String(params.offset),
                 search:        params.search,
                 sortDirection: params.sortDirection === undefined ? undefined : String(params.sortDirection),
@@ -5025,7 +5026,15 @@ export namespace controllers {
     }
 
     export interface CustomerListResponse {
+        /**
+         * The newest matching customers, at most 2000.
+         */
         data: interfaces.CustomerItem[]
+
+        /**
+         * How many customers match in all (more than `data` holds when it is cut).
+         */
+        total: number
     }
 
     export interface CustomerShipmentFinancialsRequest {
@@ -7047,6 +7056,11 @@ export namespace controllers {
         offset?: number
         sortDirection?: "asc" | "desc"
         customerId?: string
+        /**
+         * The houses of the master job with this MCZ number
+         */
+        masterJobMcz?: string
+
         /**
          * Server-side filtering.
          */

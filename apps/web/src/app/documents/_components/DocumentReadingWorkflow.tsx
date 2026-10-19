@@ -29,6 +29,7 @@ import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
+import { useNextJobNumber } from "@/hooks/useNextJobNumber";
 import { FieldReviewTable } from "./FieldReviewTable";
 import { QuoteOpenButton, QuoteReview, QuoteTarget } from "./QuoteReading";
 import {
@@ -44,7 +45,6 @@ import {
   type InputMode,
   INVOICE_FIELD_LABELS,
   type InvoiceExtracted,
-  nextCzNumber,
   normalizeCurrency,
   normalizeExtracted,
   parseContainerNumbers,
@@ -178,7 +178,8 @@ export function DocumentReadingWorkflow() {
         .map((s) => ({ value: s.id, label: `${s.jobNumber} — ${s.shipper || s.consignee || ""}` })),
     [shipments],
   );
-  const newShipmentPreview = useMemo(() => nextCzNumber(shipments), [shipments]);
+  // Only a preview: the server gives the number out when the shipment is stored.
+  const { nextJobNumber: newShipmentPreview } = useNextJobNumber(true);
   const { masterJobs } = useMasterJobs();
   const createMasterJob = useCreateMasterJob();
   const updateMasterJob = useUpdateMasterJob();
@@ -380,15 +381,15 @@ export function DocumentReadingWorkflow() {
         await updateShipment({ id: targetShipmentId, data });
         setCommittedJobNumber(target?.jobNumber || "");
       } else {
-        const jobNumber = nextCzNumber(shipments);
-        const created = await createShipment(baseCreatePayload(jobNumber));
+        const created = await createShipment(baseCreatePayload());
         let data = toShipmentUpdate(approved);
         if (newContainers.length > 0) data.containers = newContainers;
         data = withContainerType(data, approved);
         data = withCargoLine(data, approved);
         data = withPackageType(data, approved["Type Of Packages"]);
         await updateShipment({ id: created.shipment.id, data });
-        setCommittedJobNumber(jobNumber);
+        // The number the server gave the shipment (a parallel create may have taken the preview).
+        setCommittedJobNumber(created.shipment.jobNumber);
       }
       setStep("committed");
     } catch {
@@ -584,8 +585,7 @@ export function DocumentReadingWorkflow() {
     const approved = fieldsToLabelValues(masterFields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
     try {
-      const jobNumber = nextCzNumber(shipments, masterCreatedJobs);
-      const created = await createShipment(baseCreatePayload(jobNumber));
+      const created = await createShipment(baseCreatePayload());
       let data = toShipmentUpdate(approved);
       const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
       if (newContainers.length > 0) data.containers = newContainers;
@@ -596,7 +596,7 @@ export function DocumentReadingWorkflow() {
       const linked = await linkMasterJob({ shipmentId: created.shipment.id, mczNumber: activeMcz });
       if (masterMode === "new") setBatchMcz(activeMcz);
       if (!mblFiled && linked.shipment.masterJobId) await fileMblToMasterJob(linked.shipment.masterJobId);
-      setMasterCreatedJobs((prev) => [...prev, jobNumber]);
+      setMasterCreatedJobs((prev) => [...prev, created.shipment.jobNumber]);
       advanceMaster();
     } catch {
       toast.error("Failed to create shipment.");

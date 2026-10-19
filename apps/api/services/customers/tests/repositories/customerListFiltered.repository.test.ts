@@ -11,7 +11,8 @@ const fake = vi.hoisted(() => {
       from: () => ({
         where: (where: unknown) => {
           state.wheres.push(where);
-          return { orderBy: () => ({ limit: async () => [] }) };
+          // The rows (ordered, limited) or, awaited as it is, the count of all that match.
+          return { orderBy: () => ({ limit: async () => [] }), then: (resolve: (rows: { value: number }[]) => unknown) => resolve([{ value: 0 }]) };
         },
       }),
     }),
@@ -43,5 +44,16 @@ describe("listFiltered by role", () => {
   it("does not filter on roles when none is asked for", async () => {
     await customerRepository.listFiltered(COMPANY, {});
     expect(lastWhere().sql).not.toContain("roles");
+  });
+});
+
+describe("listFiltered by search", () => {
+  it("looks for every word typed in the name, IČO, DIČ and city, folded: no diacritics, no case, % and _ literal", async () => {
+    await customerRepository.listFiltered(COMPANY, { search: "Železný 50%" });
+    const { sql, params } = lastWhere();
+    expect(sql).toContain(`concat_ws(' ', "customer"."company_name", "customer"."ico", "customer"."dic", "customer"."city")`);
+    expect(sql).toContain("normalize(");
+    expect(params).toContain("%zelezny%");
+    expect(params).toContain("%50\\%%");
   });
 });

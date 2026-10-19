@@ -22,7 +22,7 @@ export const ShipmentsView = () => {
   // "Create shipment" on a quote's page leads here with ?fromQuote=QCZ...
   const fromQuote = searchParams.get("fromQuote");
 
-  const { shipments, isLoading, createShipment, linkMasterJob, isCreating } =
+  const { shipments, total, isLoading, createShipment, linkMasterJob, isCreating } =
     useShipments({ search, statusBucket, tile });
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
@@ -69,6 +69,7 @@ export const ShipmentsView = () => {
       <div className="max-w-[1400px] mx-auto">
       <ShipmentsTable
         shipments={shipments}
+        cap={{ shown: shipments.length, total }}
         isLoading={isLoading}
         onCreateClick={() => setCreateOpen(true)}
         onAddMasterJob={(ids) => {
