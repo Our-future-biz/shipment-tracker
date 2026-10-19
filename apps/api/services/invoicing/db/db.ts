@@ -1,6 +1,6 @@
 import { SQLDatabase } from "encore.dev/storage/sqldb";
 import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
+import { servicePool } from "../../../lib/db/pool";
 import * as invoiceCostSchema from "../schemas/invoiceCost.schema";
 import * as invoiceAdditionalChargeSchema from "../schemas/invoiceAdditionalCharge.schema";
 import * as billingSettingsSchema from "../schemas/billingSettings.schema";
@@ -12,15 +12,11 @@ import * as customsInvoiceSchema from "../schemas/customsInvoice.schema";
 import * as invoiceProfileSchema from "../schemas/invoiceProfile.schema";
 import * as invoiceSchema from "../schemas/invoice.schema";
 
-const { Pool } = pg;
-
 export const DB = new SQLDatabase("invoicing", {
   migrations: { path: "migrations", source: "drizzle" },
 });
 
-const pool = new Pool({
-  connectionString: DB.connectionString,
-});
+const pool = servicePool(DB.connectionString);
 
 export const db = drizzle(pool, {
   schema: {

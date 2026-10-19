@@ -1,19 +1,15 @@
 import { SQLDatabase } from "encore.dev/storage/sqldb";
 import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
+import { servicePool } from "../../../lib/db/pool";
 import * as quoteSchema from "../schemas/quote.schema";
 import * as quoteRefSequenceSchema from "../schemas/quoteRefSequence.schema";
 import * as quoteAttachmentSchema from "../schemas/quoteAttachment.schema";
-
-const { Pool } = pg;
 
 export const DB = new SQLDatabase("quotes", {
   migrations: { path: "migrations", source: "drizzle" },
 });
 
-const pool = new Pool({
-  connectionString: DB.connectionString,
-});
+const pool = servicePool(DB.connectionString);
 
 export const db = drizzle(pool, {
   schema: {

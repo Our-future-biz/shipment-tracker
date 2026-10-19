@@ -1,6 +1,6 @@
 import { SQLDatabase } from "encore.dev/storage/sqldb";
 import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
+import { servicePool } from "../../../lib/db/pool";
 import * as companySchema from "../schemas/company.schema";
 import * as userSchema from "../schemas/user.schema";
 import * as columnTemplateSchema from "../schemas/columnTemplate.schema";
@@ -9,14 +9,10 @@ import * as announcementSchema from "../schemas/announcement.schema";
 import * as locationSchema from "../schemas/location.schema";
 import * as loginThrottleSchema from "../schemas/loginThrottle.schema";
 
-const { Pool } = pg;
-
 export const DB = new SQLDatabase("auth", {
   migrations: { path: "migrations", source: "drizzle" },
 });
 
-const pool = new Pool({
-  connectionString: DB.connectionString,
-});
+const pool = servicePool(DB.connectionString);
 
 export const db = drizzle(pool, { schema: { ...companySchema, ...userSchema, ...columnTemplateSchema, ...orgUnitSchema, ...announcementSchema, ...locationSchema, ...loginThrottleSchema } });

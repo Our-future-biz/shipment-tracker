@@ -1,6 +1,6 @@
 import { SQLDatabase } from "encore.dev/storage/sqldb";
 import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
+import { servicePool } from "../../../lib/db/pool";
 import * as warehouseTaskSchema from "../schemas/warehouseTask.schema";
 import * as warehouseSectionSchema from "../schemas/warehouseSection.schema";
 import * as gateMovementSchema from "../schemas/gateMovement.schema";
@@ -14,15 +14,11 @@ import * as warehouseExceptionSchema from "../schemas/warehouseException.schema"
 import * as warehouseReweighSchema from "../schemas/warehouseReweigh.schema";
 import * as warehouseSettingsSchema from "../schemas/warehouseSettings.schema";
 
-const { Pool } = pg;
-
 export const DB = new SQLDatabase("warehouse", {
   migrations: { path: "migrations", source: "drizzle" },
 });
 
-const pool = new Pool({
-  connectionString: DB.connectionString,
-});
+const pool = servicePool(DB.connectionString);
 
 export const db = drizzle(pool, {
   schema: {

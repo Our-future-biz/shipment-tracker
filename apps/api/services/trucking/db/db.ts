@@ -1,6 +1,6 @@
 import { SQLDatabase } from "encore.dev/storage/sqldb";
 import { drizzle } from "drizzle-orm/node-postgres";
-import pg from "pg";
+import { servicePool } from "../../../lib/db/pool";
 import * as truckingSettingsSchema from "../schemas/truckingSettings.schema";
 import * as truckingHaulierSchema from "../schemas/truckingHaulier.schema";
 import * as truckingEventSchema from "../schemas/truckingEvent.schema";
@@ -14,15 +14,11 @@ import * as internalSchema from "../schemas/internal.schema";
 import * as rateGapSchema from "../schemas/rateGap.schema";
 import * as portalSchema from "../schemas/portal.schema";
 
-const { Pool } = pg;
-
 export const DB = new SQLDatabase("trucking", {
   migrations: { path: "migrations", source: "drizzle" },
 });
 
-const pool = new Pool({
-  connectionString: DB.connectionString,
-});
+const pool = servicePool(DB.connectionString);
 
 export const db = drizzle(pool, {
   schema: {
