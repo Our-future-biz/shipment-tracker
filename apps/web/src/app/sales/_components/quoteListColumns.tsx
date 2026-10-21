@@ -161,7 +161,7 @@ export const QUOTE_COLUMNS: QuoteColumn[] = [
   },
   {
     key: "shipment",
-    title: "Shipment",
+    title: "Shipment(s)",
     width: 112,
     // The shipment that carries the quote as its Sales Number - the oldest when there are several.
     // A click on the row opens the quote; the job number opens the shipment.
