@@ -96,7 +96,7 @@ export function CostLinesEditor({
           </colgroup>
           <thead>
             <tr>
-              <th scope="col" className={LINE_TH_CLASS}>Type</th>
+              <th scope="col" className={LINE_TH_CLASS}>Service</th>
               <th scope="col" className={LINE_TH_CLASS}>Description</th>
               {buying && <th scope="col" className={LINE_TH_CLASS}>Supplier</th>}
               <th scope="col" className={LINE_TH_CLASS}>Ccy</th>
@@ -116,7 +116,7 @@ export function CostLinesEditor({
                     <Select
                       size="small"
                       className="w-full"
-                      aria-label="Type"
+                      aria-label="Service"
                       value={l.chargeCode || toChargeCode(l.type)}
                       onChange={(v) => patch(i, chargeOf(v))}
                       options={chargeOptions(l.chargeCode || toChargeCode(l.type))}
