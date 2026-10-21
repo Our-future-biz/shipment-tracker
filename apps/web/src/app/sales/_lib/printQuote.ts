@@ -128,25 +128,32 @@ export function quoteDocument(
 
   // Rate offer (selling) — never expose buying / cost / margin. Every line is shown in the quote's
   // currency, converted and rounded the way the total adds it up, so the lines sum to the total.
+  // The customer reads a line by its description, not by its type (the charge code it is booked
+  // under); a line nobody described keeps its type, so that no amount stands without a name.
   const sellingLines: CostLine[] = data.sellingLines ?? [];
-  const sellingRows = sellingLines
+  const lineRows = sellingLines
     .map(
       (l: CostLine) => `<tr>
-        <td>${esc(l.type)}</td>
-        <td>${esc(l.description)}</td>
+        <td>${esc(l.description?.trim() || l.type)}</td>
         <td style="text-align:right">${money(convertLine(l, data, sheet, { selling: true, live: exchange }))}</td>
       </tr>`,
     )
     .join("");
+  // An all-in quote offers the total as one price.
+  const allInRow = `<tr>
+        <td>All-in rate</td>
+        <td style="text-align:right">${money(totals.selling)}</td>
+      </tr>`;
+  const sellingRows = lineRows && data.allIn ? allInRow : lineRows;
 
   // A quote without selling lines has no price to offer yet, so its document has no rate offer:
   // a "Total price 0.00 EUR" in its place would read as the offer.
   const rateOffer = sellingRows
     ? `<h2>Rate offer</h2>
       <table>
-        <thead><tr><th>Service</th><th>Description</th><th style="text-align:right">Amount</th></tr></thead>
+        <thead><tr><th>Description</th><th style="text-align:right">Amount</th></tr></thead>
         <tbody>${sellingRows}</tbody>
-        <tfoot><tr class="totals"><td colspan="2">Total</td><td style="text-align:right">${money(totals.selling)}</td></tr></tfoot>
+        <tfoot><tr class="totals"><td>Total</td><td style="text-align:right">${money(totals.selling)}</td></tr></tfoot>
       </table>${clause ? `<p class="fx-clause">${esc(clause)}</p>` : ""}`
     : "";
 
@@ -258,16 +265,21 @@ export function quoteDocument(
 }
 
 // Export PDF: hands the document to the browser's print dialog. Returns why that did not happen,
-// or null once it did.
+// or null once it did. `target` is a window opened beforehand - on the click, when the document is
+// printed only after an answer from the server, so the browser does not take it for a pop-up.
 export function printQuote(
   quoteNumber: string,
   data: SalesQuoteData,
   exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">,
   company: StoredCompanyDetails,
+  target?: Window | null,
 ): string | null {
   const doc = quoteDocument(quoteNumber, data, exchange, company);
-  if (doc.blocked !== null) return doc.blocked;
-  const w = window.open("", "_blank");
+  if (doc.blocked !== null) {
+    target?.close();
+    return doc.blocked;
+  }
+  const w = target === undefined ? window.open("", "_blank") : target;
   // A blocked pop-up must not look like a button that does nothing.
   if (!w) return "The browser blocked the print window. Allow pop-ups for this site and try again.";
   w.document.write(doc.html);

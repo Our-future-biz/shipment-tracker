@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Input, InputNumber, Select } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ExchangeRates } from "@/lib/exchangeRates";
@@ -9,6 +9,7 @@ import type { CostLine, SalesQuoteData } from "@/app/sales/_lib/types";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { convertLine, quoteCurrency, type LivePricing } from "@/app/sales/_lib/salesQuote";
 import { LockedAmountInput } from "./LockedAmountInput";
 import { MiniButton, RemoveLineButton } from "./QuoteButtons";
@@ -26,7 +27,7 @@ const FREIGHT_LINE_CODE: Record<string, string> = {
 // A line stores its charge code and, for the print and older readers, its label as the type.
 const chargeOf = (code: string): Pick<CostLine, "type" | "chargeCode"> => ({ type: chargeLabel(code), chargeCode: code });
 
-// The description a charge pre-types ("Ocean freight"); "Other" leaves it to be written.
+// The description a service pre-types ("Ocean freight"); "Other" leaves it to be written.
 const describedAs = (code: string): string => (code === "other" ? "" : chargeLabel(code));
 
 /** A line's amount as a number: a quote's JSON may hold it as text, or not at all (priced by qty × unit price). */
@@ -35,13 +36,16 @@ export const amountOf = (line: CostLine): number => Number(line.amount) || 0;
 type ListKeys = ReturnType<typeof useListKeys>;
 
 /**
- * A line given another charge: its type, and the description that charge pre-types - unless the
- * description was written by hand (anything but blank or the old charge's own text).
+ * A line given another service: its type and code and, when its description is blank or the old
+ * service's own name, the new service's name. A description written by hand is kept, and `ask`
+ * says the user is to be asked whether it gives way.
  */
-export function withCharge(line: CostLine, code: string): CostLine {
+export function serviceChange(line: CostLine, code: string): { line: CostLine; ask: boolean } {
+  const next = chargeOf(code);
   const description = (line.description ?? "").trim();
   const preTyped = !description || description === describedAs(line.chargeCode || toChargeCode(line.type)) || description === line.type;
-  return { ...line, ...chargeOf(code), ...(preTyped ? { description: describedAs(code) } : {}) };
+  if (preTyped) return { line: { ...line, ...next, description: describedAs(code) }, ask: false };
+  return { line: { ...line, ...next }, ask: description !== next.type };
 }
 
 // A new cost line is in the quote's currency, so adding one never mixes currencies by accident.
@@ -100,6 +104,17 @@ export function CostLinesEditor({
   const buying = kind === "buying";
   const currency = quoteCurrency(quote);
   const patch = (i: number, p: Partial<CostLine>) => onChange(lines.map((x, j) => (j === i ? { ...x, ...p } : x)));
+  // The line whose service was changed while its description held text of its own: whether that
+  // text gives way to the service's name is asked.
+  const [asked, setAsked] = useState<{ index: number; description: string; service: string } | null>(null);
+
+  const chooseService = (i: number, code: string) => {
+    const current = lines[i];
+    if (!current) return;
+    const { line, ask } = serviceChange(current, code);
+    onChange(lines.map((x, j) => (j === i ? line : x)));
+    if (ask) setAsked({ index: i, description: line.description, service: line.type });
+  };
 
   return (
     <LineBlock
@@ -129,13 +144,13 @@ export function CostLinesEditor({
           </colgroup>
           <thead>
             <tr>
-              <th scope="col" className={LINE_TH_CLASS}>Item</th>
+              <th scope="col" className={LINE_TH_CLASS}>Service</th>
               <th scope="col" className={LINE_TH_CLASS}>Description</th>
               {buying && <th scope="col" className={LINE_TH_CLASS}>Supplier</th>}
               <th scope="col" className={LINE_TH_CLASS}>Ccy</th>
               <th scope="col" className={LINE_TH_CLASS}>Amount</th>
               <th scope="col" className={LINE_TH_RIGHT_CLASS}>In {currency}</th>
-              <th scope="col" className={LINE_TH_CLASS}>Value</th>
+              <th scope="col" className={LINE_TH_CLASS}>Quantity</th>
               <th scope="col" aria-label="Remove line" className={LINE_TH_CLASS} />
             </tr>
           </thead>
@@ -149,12 +164,12 @@ export function CostLinesEditor({
                     <Select
                       size="small"
                       className="w-full"
-                      aria-label="Item"
+                      aria-label="Service"
                       // Typing narrows the list ("oce" → Ocean freight), so nobody has to scroll for it.
                       showSearch
                       optionFilterProp="label"
                       value={l.chargeCode || toChargeCode(l.type)}
-                      onChange={(v) => onChange(lines.map((x, j) => (j === i ? withCharge(x, v) : x)))}
+                      onChange={(v) => chooseService(i, v)}
                       options={chargeOptions(l.chargeCode || toChargeCode(l.type))}
                     />
                   </td>
@@ -169,9 +184,11 @@ export function CostLinesEditor({
                   )}
                   <td className={LINE_TD_CLASS}>
                     <Select
+                      showSearch
                       size="small"
                       className="w-full"
                       aria-label="Currency"
+                      optionFilterProp="label"
                       value={l.currency}
                       onChange={(v) => patch(i, { currency: v })}
                       options={CURRENCIES.map((c) => ({ value: c, label: c }))}
@@ -195,7 +212,7 @@ export function CostLinesEditor({
                     <InputNumber
                       size="small"
                       className="!w-full"
-                      aria-label="Value"
+                      aria-label="Quantity"
                       min={0}
                       precision={2}
                       parser={moneyInputParser}
@@ -219,6 +236,20 @@ export function CostLinesEditor({
             })}
           </tbody>
         </LineTable>
+      )}
+      {asked && (
+        <ConfirmModal
+          open
+          onClose={() => setAsked(null)}
+          onConfirm={() => {
+            patch(asked.index, { description: asked.service });
+            setAsked(null);
+          }}
+          title="Change the description?"
+          description={`The description says "${asked.description}". Keep it, or change it to "${asked.service}"?`}
+          confirmLabel={`Change to ${asked.service}`}
+          cancelLabel="Keep"
+        />
       )}
     </LineBlock>
   );

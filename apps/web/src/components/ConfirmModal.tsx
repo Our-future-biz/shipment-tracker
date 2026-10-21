@@ -9,6 +9,7 @@ interface ConfirmModalProps {
   title: string;
   description: string;
   confirmLabel?: string;
+  cancelLabel?: string;
   danger?: boolean;
   loading?: boolean;
 }
@@ -20,6 +21,7 @@ export function ConfirmModal({
   title,
   description,
   confirmLabel = "Confirm",
+  cancelLabel = "Cancel",
   danger = false,
   loading = false,
 }: ConfirmModalProps) {
@@ -48,7 +50,7 @@ export function ConfirmModal({
         </div>
       </div>
       <div className="flex justify-end gap-2 mt-5">
-        <Button onClick={onClose}>Cancel</Button>
+        <Button onClick={onClose}>{cancelLabel}</Button>
         <Button
           type="primary"
           danger={danger}

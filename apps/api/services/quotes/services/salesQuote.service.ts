@@ -5,7 +5,7 @@ import { businessDay, isRealYmd } from "../../../lib/businessDate";
 import type { PaginatedResponse } from "../../../lib/db/interface";
 import type { Actor } from "../../../lib/rbac";
 import { canApproveMargin, canSetOwner, quoteDeletePermission } from "../../../lib/salesPolicy";
-import { baseReference, formatReference, nextSequence, nextVariant, salesPrefix } from "../../../lib/salesReference";
+import { baseReference, formatReference, nextRevision, nextSequence, nextVariant, revisionRoot, salesPrefix } from "../../../lib/salesReference";
 import { isUuid } from "../../../lib/uuid";
 import type { RateLevelResult, ServiceLevelCode } from "../../trucking/interfaces/interfaces";
 import type {
@@ -27,8 +27,11 @@ import { currenciesToResolve, formatMargin, marginGateMessage, roadMargin, roadM
 import { choosePricing, pricedComment, rateRequestOf, replaceTruckingLines, roadPricingOf, truckingLines } from "../lib/roadPricing";
 import {
   LifecycleError,
+  PRICING_CLOSED,
+  PRICING_KEYS,
   isShownStatus,
   applyFollowUp,
+  applyRevision,
   applyOwner,
   applyShipmentLinks,
   applyTransition,
@@ -41,6 +44,7 @@ import {
   mirrorOf,
   newQuote,
   pricingEntry,
+  revisionOf,
   stateOf,
   wasEverSent,
   type LifecycleContext,
@@ -345,10 +349,13 @@ class SalesQuoteService {
     const stored = await salesQuoteRepository.loadSales(companyID, quoteNumber);
     if (!stored) throw notFound();
     if (stored.dataVersion !== expectedDataVersion) throw conflict();
+    // The prices of a quote that went out stay what the customer was given: a save keeps them as
+    // stored, whatever the editor sends. The version check below makes this the status saved on.
+    const carry = PRICING_CLOSED.includes(stored.status) ? [...carryKeys(), ...PRICING_KEYS] : carryKeys();
     const saved = await salesQuoteRepository.saveDocument(
       companyID,
       quoteNumber,
-      { data, carry: carryKeys() },
+      { data, carry },
       { dataVersion: expectedDataVersion },
     );
     // Nothing was written: somebody saved, or deleted, the quote in this very moment.
@@ -396,6 +403,46 @@ class SalesQuoteService {
     return { quote: await this.item(result.quote, names, actor, at), changed: result.changed };
   }
 
+  // A quote that was sent, revised: a new quote - its reference with the next -R1, -R2, ... and
+  // everything the quote holds, prices included - is made Revised, so it can be priced again and
+  // sent; the quote itself becomes Replaced and stays as the record of what the customer was
+  // given. Both happen in one transaction or not at all.
+  async revise(actor: Actor, quoteNumber: string, expectedDataVersion?: number): Promise<{ quote: SalesQuoteItem; revision: SalesQuoteItem }> {
+    const at = new Date();
+    const names = await userNames();
+    const ctx = contextOf(actor, at, names);
+    const root = revisionRoot(quoteNumber);
+    const result = await salesQuoteRepository.revise(actor.companyID, quoteNumber, `${root}-R`, (quote, existing) => {
+      if (expectedDataVersion !== undefined && expectedDataVersion !== quote.dataVersion) throw conflict();
+      const reference = nextRevision(revisionRoot(quote.quoteNumber), existing);
+      const state = stateOf(quote);
+      const replaced = ruled(() => applyRevision(state, reference, ctx));
+      const fresh = revisionOf(state, quote.quoteNumber, ctx);
+      const fields = isPlainObject(quote.data) ? quote.data : {};
+      // The prices go with what they were given: the tariff pricing they came from and the
+      // approval of their margin - the server's keys, which newDocument leaves out.
+      const carried = ["roadPricing", "marginApproval"] as const;
+      const priced = Object.fromEntries(carried.filter((key) => key in fields).map((key) => [key, fields[key]]));
+      return {
+        reference,
+        row: {
+          data: { ...newDocument(reference, fields, { ...mirrorOf(fresh.state).set, timeline: [fresh.entry] }), ...priced },
+          ...columnsOf(fresh.state),
+          // The owner is the quote's, already a user or already compared with the users.
+          ownerMatchCheckedAt: quote.ownerMatchCheckedAt ?? at,
+        },
+        // The quote names its revision, for the screens that lead from the one to the other.
+        write: { state: replaced.state, entries: [replaced.entry], document: { replacedBy: reference } },
+      };
+    });
+    if (!result) throw notFound();
+    const margins = await marginsFor([result.quote, result.revision], at);
+    return {
+      quote: toItem(result.quote, names, actor, at, margins),
+      revision: toItem(result.revision, names, actor, at, margins),
+    };
+  }
+
   // What the road margin of a quote is judged with, read from the quote as it is before any lock.
   // The quote may change before it is locked; a currency it then needs and was not read counts as
   // a missing rate, never as converted at 1.
@@ -415,6 +462,7 @@ class SalesQuoteService {
     const expectPriceable = (quote: SalesQuoteRecord) => {
       if (quote.dataVersion !== request.expectedDataVersion) throw conflict();
       if (DECIDED_STATUSES.includes(quote.status)) throw APIError.failedPrecondition("A won or lost quote cannot be priced again");
+      if (PRICING_CLOSED.includes(quote.status)) throw APIError.failedPrecondition("A quote that was sent cannot be priced again - revise it");
     };
     expectPriceable(stored);
 

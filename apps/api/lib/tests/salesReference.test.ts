@@ -5,7 +5,9 @@ import {
   formatReference,
   isSalesReference,
   nextSequence,
+  nextRevision,
   nextVariant,
+  revisionRoot,
   salesPrefix,
 } from "../salesReference";
 
@@ -16,6 +18,16 @@ describe("isSalesReference", () => {
     expect(isSalesReference("QCZ20261010001-12")).toBe(true);
     // The sequence grows past 999.
     expect(isSalesReference("QCZ202610101000")).toBe(true);
+  });
+
+  it("accepts revisions, of a quote and of a variant", () => {
+    expect(isSalesReference("QCZ20261010001-R1")).toBe(true);
+    expect(isSalesReference("QCZ20261010001-R12")).toBe(true);
+    expect(isSalesReference("QCZ20261010001-2-R1")).toBe(true);
+    expect(isSalesReference("QCZ20261010001-R")).toBe(false);
+    expect(isSalesReference("QCZ20261010001-R1-2")).toBe(false);
+    expect(isSalesReference("QCZ20261010001-R1-R2")).toBe(false);
+    expect(isSalesReference("QCZ20261010001-r1")).toBe(false);
   });
 
   it("refuses anything else", () => {
@@ -115,10 +127,47 @@ describe("baseReference", () => {
   it("leaves a base reference alone", () => {
     expect(baseReference("QCZ20261010001")).toBe("QCZ20261010001");
   });
+
+  it("drops a revision suffix, also one of a variant", () => {
+    expect(baseReference("QCZ20261010001-R1")).toBe("QCZ20261010001");
+    expect(baseReference("QCZ20261010001-2-R3")).toBe("QCZ20261010001");
+  });
+});
+
+describe("revisionRoot", () => {
+  it("is the quote a revision is counted from", () => {
+    expect(revisionRoot("QCZ20261010001")).toBe("QCZ20261010001");
+    expect(revisionRoot("QCZ20261010001-R2")).toBe("QCZ20261010001");
+    expect(revisionRoot("QCZ20261010001-2")).toBe("QCZ20261010001-2");
+    expect(revisionRoot("QCZ20261010001-2-R1")).toBe("QCZ20261010001-2");
+  });
+});
+
+describe("nextRevision", () => {
+  const root = "QCZ20261010001";
+
+  it("makes the first revision -R1", () => {
+    expect(nextRevision(root, [])).toBe("QCZ20261010001-R1");
+    expect(nextRevision(root, [root, `${root}-2`])).toBe("QCZ20261010001-R1");
+  });
+
+  it("is the highest revision + 1, gaps or not", () => {
+    expect(nextRevision(root, [`${root}-R1`])).toBe("QCZ20261010001-R2");
+    expect(nextRevision(root, [`${root}-R1`, `${root}-R4`])).toBe("QCZ20261010001-R5");
+  });
+
+  it("ignores the revisions of a variant and suffixes it cannot read", () => {
+    expect(nextRevision(root, [`${root}-2-R7`, `${root}-Rx`, `${root}-R`])).toBe("QCZ20261010001-R1");
+    expect(nextRevision(`${root}-2`, [`${root}-R3`, `${root}-2-R1`])).toBe("QCZ20261010001-2-R2");
+  });
 });
 
 describe("nextVariant", () => {
   const base = "QCZ20261010001";
+
+  it("ignores revisions", () => {
+    expect(nextVariant(base, [`${base}-R1`, `${base}-2-R1`])).toBe("QCZ20261010001-2");
+  });
 
   it("makes the first duplicate -2: the base is variant 1", () => {
     expect(nextVariant(base, [])).toBe("QCZ20261010001-2");

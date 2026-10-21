@@ -1318,6 +1318,7 @@ export namespace quotes {
             this.salesQuoteList = this.salesQuoteList.bind(this)
             this.salesQuoteMarginApprove = this.salesQuoteMarginApprove.bind(this)
             this.salesQuoteOwner = this.salesQuoteOwner.bind(this)
+            this.salesQuoteRevise = this.salesQuoteRevise.bind(this)
             this.salesQuoteRoadPrice = this.salesQuoteRoadPrice.bind(this)
             this.salesQuoteSave = this.salesQuoteSave.bind(this)
             this.salesQuoteTransition = this.salesQuoteTransition.bind(this)
@@ -1413,6 +1414,12 @@ export namespace quotes {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PUT", `/sales-quotes/${encodeURIComponent(quoteNumber)}/owner`, JSON.stringify(params))
             return await resp.json() as controllers.SalesQuoteOwnerResponse
+        }
+
+        public async salesQuoteRevise(quoteNumber: string, params: controllers.SalesQuoteReviseRequest): Promise<controllers.SalesQuoteReviseResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/sales-quotes/${encodeURIComponent(quoteNumber)}/revise`, JSON.stringify(params))
+            return await resp.json() as controllers.SalesQuoteReviseResponse
         }
 
         /**
@@ -6644,6 +6651,25 @@ export namespace controllers {
          * False when the quote already had that owner: nothing was written.
          */
         changed: boolean
+    }
+
+    export interface SalesQuoteReviseRequest {
+        /**
+         * The dataVersion the caller's copy is based on; a quote changed since is not revised (HTTP 409).
+         */
+        expectedDataVersion?: number
+    }
+
+    export interface SalesQuoteReviseResponse {
+        /**
+         * The quote revised, now Replaced.
+         */
+        quote: interfaces.SalesQuoteItem
+
+        /**
+         * Its revision: the next -R1, -R2, ... with the same content, Revised, to be priced again and sent.
+         */
+        revision: interfaces.SalesQuoteItem
     }
 
     export interface SalesQuoteRoadPriceRequest {

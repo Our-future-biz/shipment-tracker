@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Alert, Button, Dropdown, Form, Input, Select, Tooltip } from "antd";
 import { CheckOutlined, DownOutlined, LockOutlined } from "@ant-design/icons";
 import dayjs from "dayjs";
@@ -18,7 +19,7 @@ import {
   winProbClass,
 } from "../../../_lib/types";
 import { asData, businessToday, statusLines, validUntilAfter } from "../../../_lib/salesQuote";
-import type { StatusChange } from "../../../_lib/statusChange";
+import { DEFAULT_VALIDITY_DAYS, asksValidity, type StatusChange } from "../../../_lib/statusChange";
 import { SalesDialog } from "../../../_components/SalesDialog";
 import { toolbarButtonClass } from "../../../_components/ToolbarButton";
 import { OwnerTile } from "./OwnerTile";
@@ -33,6 +34,8 @@ interface Props {
   // Asks the server for the change. Resolves with why it was refused - a sentence that finishes
   // "QCZ… - …" - or with null once the quote is changed.
   onChange: (change: StatusChange) => Promise<string | null>;
+  // Where a quote is opened: the revision a Replaced quote names is a link.
+  hrefOf: (quoteNumber: string) => string;
   // Asks the server to record that the customer was contacted, with the note if one was left.
   // Resolves like onChange.
   // The owner is being changed: its control waits for the server's answer.
@@ -43,9 +46,6 @@ interface Props {
 
 // The main forward flow shown as a chain of steps.
 const FLOW: readonly QuoteStatus[] = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won"];
-
-// What "valid N days" starts at for a quote that was never sent with days.
-const DEFAULT_VALIDITY_DAYS = 15;
 
 const anyOf = new Intl.ListFormat("en", { type: "disjunction" });
 
@@ -67,7 +67,7 @@ function validityNote(validUntil: string | null, today: string): string {
 // The moves the margin floor stops until a manager approves the margin.
 const SENDING_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
 
-export function LifecycleBar({ quote, sendBlocked, onChange, changingOwner, onChangeOwner }: Props) {
+export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwner, onChangeOwner }: Props) {
   const data = asData(quote.data);
   // The status that counts: Expired for a Quoted or Feedback quote whose validity has passed.
   const current = quote.effectiveStatus;
@@ -78,6 +78,8 @@ export function LifecycleBar({ quote, sendBlocked, onChange, changingOwner, onCh
   // says the quote left.
   const history = statusLines(data);
   const visited = new Set(history.flatMap((entry) => [entry.status, entry.from]));
+  // The revision that took a Replaced quote's place: the server names it on the quote.
+  const revision = current === "replaced" ? (data.replacedBy ?? null) : null;
   // Whether the quote has a step of the chain behind it. Only steps it really took are ticked: a
   // quote that went from Quoted straight to Won never was in Feedback or Revised, and one that
   // was sent again after a revision still has both behind it.
@@ -96,8 +98,10 @@ export function LifecycleBar({ quote, sendBlocked, onChange, changingOwner, onCh
   // A quote that expired by its date is still stored as Quoted or Feedback, with that status's
   // probability; what is shown goes with the status that is shown.
   const winProb = (current === quote.status ? data.winProbability : undefined) ?? def?.winProbability ?? 0;
-  // What the server lets the quote be set to now, in its order.
-  const targets = quote.allowedTransitions.flatMap((key) => SETTABLE_QUOTE_STATUSES.find((status) => status === key) ?? []);
+  // What the server lets the quote be set to now, in its order. Revised is not among them here: a
+  // revision is a new quote, made only when the user clicks Revise in the quote's toolbar.
+  const targets = quote.allowedTransitions.flatMap((key) => (key === "revised" ? [] : (SETTABLE_QUOTE_STATUSES.find((status) => status === key) ?? [])));
+  const revisable = quote.allowedTransitions.includes("revised");
   const targetLabels = targets.map((key) => QUOTE_STATUS_MAP[key]?.label ?? key);
   // Expired because its validity date has passed - and so back in play once that date is moved.
   // A quote the old bulk menu stored as Expired is not.
@@ -108,7 +112,7 @@ export function LifecycleBar({ quote, sendBlocked, onChange, changingOwner, onCh
   // use them: the quote has no validity date, or the one it has is past - by the same calendar
   // day the server goes by.
   const today = businessToday();
-  const askValidityDays = quote.validUntil === null || quote.validUntil < today;
+  const askValidityDays = asksValidity(quote.validUntil, today);
 
   const [target, setTarget] = useState<SettableQuoteStatus | null>(null);
   const [validityDays, setValidityDays] = useState<number>(DEFAULT_VALIDITY_DAYS);
@@ -169,18 +173,34 @@ export function LifecycleBar({ quote, sendBlocked, onChange, changingOwner, onCh
   return (
     <div className="bg-white border-b border-slate-200 px-6 py-3.5">
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
-        {current === "lost" || expired ? (
+        {current === "lost" || current === "replaced" || expired ? (
           // A quote that left the chain: one line says where it is and, for Expired, the ways out.
           <div className="flex-[1_1_560px] min-w-0 flex items-center gap-2 text-[13px]">
             <span className={`w-2 h-2 rounded-full shrink-0 ${def?.tone.dot ?? ""}`} />
             <span className={`shrink-0 font-medium ${def?.tone.text ?? ""}`}>
               {def?.label}
             </span>
-            {expired ? (
+            {current === "replaced" ? (
+              <span className="text-slate-500">
+                — kept as it was sent.{" "}
+                {revision ? (
+                  <>
+                    Replaced by its revision{" "}
+                    <Link href={hrefOf(revision)} className="font-medium text-indigo-600 hover:underline">
+                      {revision}
+                    </Link>
+                    .
+                  </>
+                ) : (
+                  "Replaced by its revision."
+                )}
+              </span>
+            ) : expired ? (
               // The ways out of Expired, as the server allows them.
               <span className="text-slate-500">
                 — {expiredByDate && `its validity ended on ${formatDate(quote.validUntil)}. `}
                 Change its status to {anyOf.format(targetLabels)}
+                {revisable && ", revise it with Revise above"}
                 {expiredByDate && ", or set a later Valid until under Shipping terms"}.
               </span>
             ) : (

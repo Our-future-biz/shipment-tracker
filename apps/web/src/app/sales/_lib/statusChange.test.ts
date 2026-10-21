@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { transitionRequest } from "./statusChange";
+import { asksValidity, transitionRequest } from "./statusChange";
+
+describe("asksValidity", () => {
+  it("asks for days when the quote has no validity, or one that has passed", () => {
+    expect(asksValidity(null, "2026-10-21")).toBe(true);
+    expect(asksValidity("2026-10-20", "2026-10-21")).toBe(true);
+    expect(asksValidity("2026-10-21", "2026-10-21")).toBe(false);
+  });
+});
 
 describe("transitionRequest", () => {
   it("sends validity only to Quoted and the reason only to Lost", () => {

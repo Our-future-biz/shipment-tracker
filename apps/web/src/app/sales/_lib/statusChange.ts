@@ -1,6 +1,17 @@
 import type { controllers } from "@/lib/api/client";
 import type { SettableQuoteStatus } from "./types";
 
+/** What "valid N days" starts at for a quote that was never sent with days. */
+export const DEFAULT_VALIDITY_DAYS = 15;
+
+/**
+ * Whether sending asks for the days: when the quote has no validity date, or one that has passed
+ * by the same calendar day the server goes by. A validity that still holds is kept as it is.
+ */
+export function asksValidity(validUntil: string | null, today: string): boolean {
+  return validUntil === null || validUntil < today;
+}
+
 /** What the user chose when changing a quote's status. */
 export interface StatusChange {
   status: SettableQuoteStatus;

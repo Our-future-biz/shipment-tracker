@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { InputNumber } from "antd";
+import { ConfigProvider, InputNumber } from "antd";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { fmtMoney, moneyInputParser } from "@/lib/money";
 
@@ -22,6 +22,8 @@ interface LockedAmountInputProps {
 // The locked view is no read-only input on purpose: switching an input that has the caret between
 // read-only and editable was unreliable (antd sometimes rebuilt it, which reads as leaving it).
 export function LockedAmountInput({ value, onChange, "aria-label": label, currency, onCommit }: LockedAmountInputProps) {
+  // Disabled with the form around it (a quote whose prices are closed): shown, never opened.
+  const { componentDisabled: disabled } = ConfigProvider.useConfig();
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   // The amount when editing began, which Esc puts back.
@@ -49,7 +51,7 @@ export function LockedAmountInput({ value, onChange, "aria-label": label, curren
   };
 
   const requestEdit = () => {
-    if (editing || confirming) return;
+    if (disabled || editing || confirming) return;
     if (value) setConfirming(true);
     else startEditing();
   };
@@ -95,11 +97,14 @@ export function LockedAmountInput({ value, onChange, "aria-label": label, curren
       <div
         ref={box}
         role="button"
-        tabIndex={0}
-        aria-label={`${label}: ${value.toFixed(2)}, double-click to change`}
-        title="Double-click to change"
+        tabIndex={disabled ? -1 : 0}
+        aria-disabled={disabled || undefined}
+        aria-label={disabled ? `${label}: ${value.toFixed(2)}` : `${label}: ${value.toFixed(2)}, double-click to change`}
+        title={disabled ? undefined : "Double-click to change"}
         // Looks like the small input it stands for; no text selection on the double-click.
-        className="flex items-center h-6 w-full px-[7px] rounded-md border border-slate-200 bg-white text-sm tabular-nums cursor-default select-none hover:border-slate-300"
+        className={`flex items-center h-6 w-full px-[7px] rounded-md border border-slate-200 text-sm tabular-nums cursor-default select-none ${
+          disabled ? "bg-slate-50 text-slate-400" : "bg-white hover:border-slate-300"
+        }`}
         onDoubleClick={requestEdit}
         onKeyDown={(e) => {
           if (e.key === "Enter") requestEdit();

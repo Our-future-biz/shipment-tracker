@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { Alert, Button, Checkbox, DatePicker, Dropdown, Input, InputNumber, Select, Spin, Tooltip } from "antd";
+import { Alert, Button, Checkbox, ConfigProvider, DatePicker, Dropdown, Input, InputNumber, Select, Spin, Tooltip } from "antd";
 import dayjs from "dayjs";
 import {
   ContainerOutlined,
@@ -12,6 +12,7 @@ import {
   DownOutlined,
   EyeOutlined,
   FilePdfOutlined,
+  HistoryOutlined,
   ImportOutlined,
   MailOutlined,
   MoreOutlined,
@@ -44,7 +45,9 @@ import type { QuoteProblem } from "../../_lib/quoteProblem";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES } from "../../_lib/types";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
-import { cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, stripProtected, type QuoteTotals } from "../../_lib/salesQuote";
+import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, revisionRoot, stripProtected, withoutPricing, type QuoteTotals } from "../../_lib/salesQuote";
+import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
+import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import { NO_CUSTOMER, changesCustomer, customerLinkFields, withCustomerUnit } from "../../_lib/quoteCustomer";
 import { useQuoteCustomerFields } from "@/hooks/useQuoteCustomerFields";
 import { useQuoteListHref } from "../../_lib/quoteListHref";
@@ -139,7 +142,7 @@ export function QuoteWorkflow() {
   const { terms } = useTermsConditions();
 
   const [modal, setModal] = useState<
-    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "roadPrice" | "approveMargin"
+    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "closeQuote" | "revise" | "roadPrice" | "approveMargin"
   >(null);
   // The template chosen under Shipping terms while the user is asked whether its text may replace
   // what the quote says; null when no question is open.
@@ -325,8 +328,45 @@ export function QuoteWorkflow() {
 
   // The customer's document goes out only with a complete total; until then the reason is shown.
   const documentBlocked = documentBlock(totals, exchange.isError);
-  const exportPdf = () => {
+  // A quote that went out (or is decided) has its buying and selling closed: the server keeps
+  // them as stored, and the page shows them locked. New prices are a revision of the quote.
+  const pricingClosed = !!quote && !exportClosesQuote(quote.status);
+  const printNow = () => {
     const blocked = printQuote(ref, draft, exchange, company);
+    if (blocked) toast.error(blocked);
+  };
+  // Export PDF closes a quote that has not gone out yet: it is sent as it stands (Quoted), which
+  // the user confirms first - unless the margin floor stops the sending, which is said instead.
+  // A closed quote is printed again as it is.
+  const exportPdf = () => {
+    if (pricingClosed) printNow();
+    else if (documentBlocked) toast.error(documentBlocked);
+    else if (sendBlocked) toast.error(sendBlocked);
+    else setModal("closeQuote");
+  };
+  // The print window is opened on the click itself - after the server's answer the browser would
+  // take it for a pop-up - and gets the quote as the server stored it when it was sent. A window
+  // that does not open closes nothing: the user allows pop-ups and tries again.
+  const exportAndClose = async (validityDays?: number) => {
+    const target = window.open("", "_blank");
+    if (!target) {
+      toast.error(PRINT_WINDOW_BLOCKED);
+      return;
+    }
+    let sent: SalesQuoteData | null = null;
+    const refused = await act(async (expectedDataVersion) => {
+      const answer = await api.quotes.salesQuoteTransition(ref, { ...transitionRequest({ status: "quoted", validityDays }), expectedDataVersion });
+      sent = asData(answer.quote.data);
+      return answer;
+    }, { versioned: true });
+    if (refused) {
+      target.close();
+      toast.error(`${ref} - ${refused}`);
+      return;
+    }
+    setModal(null);
+    toast.success(`${ref} closed and marked as sent`);
+    const blocked = printQuote(ref, sent ?? draft, exchange, company, target);
     if (blocked) toast.error(blocked);
   };
   const openEmail = () => {
@@ -335,6 +375,22 @@ export function QuoteWorkflow() {
   };
   // The user's word that the quotation went out. Resolves like changeStatus: a refusal is shown
   // by the email dialog, which stays open for it.
+  // Revise: the server makes the revision, a new quote QCZ…-R1 with this one's content, and this
+  // quote becomes Replaced. The page then goes to the revision, where prices can be changed.
+  const reviseQuote = async () => {
+    let revision: string | null = null;
+    const refused = await act(async (expectedDataVersion) => {
+      const answer = await api.quotes.salesQuoteRevise(ref, { expectedDataVersion });
+      revision = answer.revision.quoteNumber;
+      return answer;
+    }, { versioned: true });
+    if (refused) return refused;
+    if (revision) {
+      toast.success(`${ref} revised as ${revision}`);
+      router.push(hrefOf(revision));
+    }
+    return null;
+  };
   const markSent = async () => {
     const refused = await changeStatus({ status: "quoted" });
     if (!refused) toast.success(`${ref} marked as sent`);
@@ -816,6 +872,20 @@ export function QuoteWorkflow() {
       subtitle: "Buying & selling breakdown with margin",
       content: (
         <div className="flex flex-col gap-3">
+          {pricingClosed && (
+            <Alert
+              type="info"
+              showIcon
+              message={
+                quote.status === "replaced"
+                  ? "This quote was replaced by its revision: its buying and selling stay as they were sent."
+                  : "This quote is closed: its buying and selling are what the customer was given. To change prices, click Revise at the top - the revision is a new quote."
+              }
+            />
+          )}
+          {/* Locked as a whole while closed: every control of the prices, antd's and plain buttons alike. */}
+          <ConfigProvider componentDisabled={pricingClosed}>
+          <fieldset disabled={pricingClosed} className="contents">
           <div className="flex items-center gap-2.5 min-h-6">
             <span className={FIELD_LABEL_CLASS}>Currency</span>
             <Select
@@ -867,17 +937,39 @@ export function QuoteWorkflow() {
             lineKeys={sellingKeys}
             onRemove={(index) => removeLine("selling", index)}
             actions={
-              <MiniButton
-                icon={<CopyOutlined />}
-                disabled={buyingLines.length === 0}
-                title={buyingLines.length === 0 ? "No buying lines to copy" : undefined}
-                onClick={() => (sellingLines.length ? setModal("replaceSelling") : copyBuyingToSelling())}
-              >
-                Copy buying → selling
-              </MiniButton>
+              <>
+                {/* Quoting as all-in changes what the customer is shown, so it is asked about first;
+                    going back to the breakdown is not. */}
+                {draft.allIn ? (
+                  <MiniButton onClick={() => set({ allIn: false })}>Show breakdown</MiniButton>
+                ) : (
+                  <MiniButton
+                    disabled={sellingLines.length === 0}
+                    title={sellingLines.length === 0 ? "No selling lines to quote as all-in" : undefined}
+                    onClick={() => setModal("allIn")}
+                  >
+                    Quote as all-in
+                  </MiniButton>
+                )}
+                <MiniButton
+                  icon={<CopyOutlined />}
+                  disabled={buyingLines.length === 0}
+                  title={buyingLines.length === 0 ? "No buying lines to copy" : undefined}
+                  onClick={() => (sellingLines.length ? setModal("replaceSelling") : copyBuyingToSelling())}
+                >
+                  Copy buying → selling
+                </MiniButton>
+              </>
             }
           />
           {sideOverrideNote("selling", sellingLines)}
+          {draft.allIn && (
+            <div className="text-[12px] font-semibold text-slate-700">
+              Quoted as all-in: the customer&apos;s quotation shows one price of {fmtMoney(totals.selling, totals.currency)}, without the selling lines.
+            </div>
+          )}
+          </fieldset>
+          </ConfigProvider>
           <QuoteRatesEditor data={draft} exchange={exchange} />
           {/* Rates that could not be read leave lines out just the same, but they are not missing:
               the user gets a Retry. */}
@@ -1010,6 +1102,12 @@ export function QuoteWorkflow() {
               <ToolbarButton icon={<CopyOutlined />} onClick={() => setModal("duplicate")}>
                 Duplicate
               </ToolbarButton>
+              {/* Only when the user asks: a sent quote the server lets be revised (Quoted, Feedback, Expired). */}
+              {quote.allowedTransitions.includes("revised") && (
+                <ToolbarButton icon={<HistoryOutlined />} onClick={() => setModal("revise")}>
+                  Revise
+                </ToolbarButton>
+              )}
               {/* The shipment that carries this quote as its Sales Number - the oldest when there are
                   several, the others are in the history - or the way to make one. */}
               {quote.shipmentId ? (
@@ -1126,7 +1224,14 @@ export function QuoteWorkflow() {
       </div>
 
       {/* ── Lifecycle ── */}
-      <LifecycleBar quote={quote} sendBlocked={sendBlocked} onChange={changeStatus} changingOwner={changingOwner} onChangeOwner={changeOwner} />
+      <LifecycleBar
+        quote={quote}
+        sendBlocked={sendBlocked}
+        onChange={changeStatus}
+        hrefOf={hrefOf}
+        changingOwner={changingOwner}
+        onChangeOwner={changeOwner}
+      />
 
       {/* ── Form and summary ── */}
       <div className="p-6 flex flex-col gap-3">
@@ -1153,9 +1258,10 @@ export function QuoteWorkflow() {
         </div>
       </div>
 
-      <ImportInquiryModal open={modal === "import"} onClose={() => setModal(null)} onApply={(p) => set(p)} />
-      <CopyFromModal open={modal === "copyQuote"} mode="quote" currentRef={ref} onClose={() => setModal(null)} onApply={(p) => set(p)} />
-      <CopyFromModal open={modal === "copyShipment"} mode="shipment" currentRef={ref} onClose={() => setModal(null)} onApply={(p) => set(p)} />
+      {/* On a closed quote an import fills in everything but the prices: the server keeps those as stored. */}
+      <ImportInquiryModal open={modal === "import"} onClose={() => setModal(null)} onApply={(p) => set(pricingClosed ? withoutPricing(p) : p)} />
+      <CopyFromModal open={modal === "copyQuote"} mode="quote" currentRef={ref} onClose={() => setModal(null)} onApply={(p) => set(pricingClosed ? withoutPricing(p) : p)} />
+      <CopyFromModal open={modal === "copyShipment"} mode="shipment" currentRef={ref} onClose={() => setModal(null)} onApply={(p) => set(pricingClosed ? withoutPricing(p) : p)} />
       <DuplicateWizardModal
         open={modal === "duplicate"}
         baseRef={ref}
@@ -1166,7 +1272,7 @@ export function QuoteWorkflow() {
           router.push(hrefOf(r));
         }}
       />
-      <PdfPreviewModal open={modal === "preview"} quoteNumber={ref} data={draft} family={family} onClose={() => setModal(null)} />
+      <PdfPreviewModal open={modal === "preview"} quoteNumber={ref} data={draft} family={family} onExport={exportPdf} onClose={() => setModal(null)} />
       <EmailQuoteModal
         open={modal === "email"}
         quoteNumber={ref}
@@ -1229,6 +1335,36 @@ export function QuoteWorkflow() {
           description={`Replace the ${sellingLines.length} selling ${sellingLines.length === 1 ? "line" : "lines"} with copies of the buying lines?`}
           confirmLabel="Replace"
           danger
+        />
+      )}
+      {modal === "revise" && (
+        <ConfirmModal
+          open
+          onClose={() => setModal(null)}
+          onConfirm={async () => {
+            const refused = await reviseQuote();
+            if (refused) toast.error(`${ref} - ${refused}`);
+            setModal(null);
+          }}
+          title="Revise as a new quote"
+          description={`${ref} stays as it was sent and becomes Replaced. Its revision - a new quote with the same content and the next free revision number of ${revisionRoot(ref)} (-R1, -R2, ...) - opens, ready for new prices. Revise it?`}
+          confirmLabel="Revise"
+        />
+      )}
+      {modal === "closeQuote" && (
+        <ExportCloseDialog quoteNumber={ref} validUntil={quote.validUntil} validityDays={draft.validityDays} onConfirm={exportAndClose} onClose={() => setModal(null)} />
+      )}
+      {modal === "allIn" && (
+        <ConfirmModal
+          open
+          onClose={() => setModal(null)}
+          onConfirm={() => {
+            set({ allIn: true });
+            setModal(null);
+          }}
+          title="Quote as all-in"
+          description={`Do you intend to quote this as an all-in rate? The customer's quotation will show one price of ${fmtMoney(totals.selling, totals.currency)}, without the selling lines. The lines stay here.`}
+          confirmLabel="Quote as all-in"
         />
       )}
       {/* Cancel leaves the quote as it was, the template it names included. */}

@@ -876,11 +876,21 @@ describe("shipmentLinks", () => {
   });
 });
 
+describe("countOpenByTariffVersions", () => {
+  it("counts the live sales quotes priced with one of the versions that are still open - not won, lost or replaced", async () => {
+    fake.state.total = 2;
+    await expect(salesQuoteRepository.countOpenByTariffVersions(COMPANY, ["946e01e8-a4ed-4aa7-932b-2c5d5e991c30"])).resolves.toBe(2);
+    const { sql, params } = rendered(fake.state.counts[0]);
+    expect(sql).toContain(`"quote"."status" NOT IN ('won', 'lost', 'replaced')`);
+    expect(params[0]).toBe(COMPANY);
+  });
+});
+
 describe("customerFacts", () => {
   const LIVE = '"quote"."company_id" = $1 and "quote"."deleted_at" is null and "quote"."status" is not null';
   // A quote that went out: a first sent date, or a status that proves it.
   const SENT = '("quote"."first_sent_at" is not null or "quote"."status" in ($1, $2, $3, $4, $5))';
-  const SENT_STATUSES = ["quoted", "feedback", "revised", "won", "expired"];
+  const SENT_STATUSES = ["quoted", "feedback", "won", "expired", "replaced"];
   const FIRST_SENT = `min(coalesce("quote"."first_sent_at", "quote"."created_at")) filter (where ${SENT})`;
 
   it("groups the company's live sales quotes that are for a customer by that customer, and counts the sent ones that are for none", async () => {

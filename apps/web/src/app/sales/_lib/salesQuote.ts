@@ -4,7 +4,7 @@ import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, roundCents } from "@/lib/money";
 import type { SalesQuoteData, CostLine, PackageLine, TimelineEntry } from "./types";
 import { businessDay, businessToday, formatDate } from "@/lib/date";
-import { FX_DRAFT_STATUSES, PROTECTED_KEYS, type QuoteStatus } from "./types";
+import { FX_DRAFT_STATUSES, PRICING_CLOSED_STATUSES, PRICING_KEYS, PROTECTED_KEYS, type QuoteStatus } from "./types";
 
 // A sales quote as the lists, reports and pickers work with it: its document, and next to it what
 // the server keeps and works out about the quote. Those facts are read from here and not from the
@@ -79,28 +79,78 @@ export function statusLines(data: SalesQuoteData): TimelineEntry[] {
   return timeline.filter((entry) => entry && typeof entry === "object" && (!entry.kind || entry.kind === "status") && typeof entry.status === "string");
 }
 
-// The reference of a sales quote - QCZ, the day, that day's number and for a variant -2, -3, ... -
-// as the server gives them out (SALES_REFERENCE_PATTERN in apps/api/lib/salesReference.ts).
-const SALES_QUOTE_REF = /^QCZ[0-9]{8}[0-9]{3,}(-[0-9]+)?$/;
+// The reference of a sales quote - QCZ, the day, that day's number, for a variant -2, -3, ... and
+// for a revision -R1, -R2, ... - as the server gives them out (SALES_REFERENCE_PATTERN in
+// apps/api/lib/salesReference.ts).
+const SALES_QUOTE_REF = /^QCZ[0-9]{8}[0-9]{3,}(-[0-9]+)?(-R[0-9]+)?$/;
 
 /** Whether a text is the reference of a sales quote, and not a number of the old quotes module or anything else. */
 export function isSalesQuoteRef(ref: string): boolean {
   return SALES_QUOTE_REF.test(ref);
 }
 
-// Duplicates branch off their base reference as QCZ…-2, -3, …; together they
-// form a "family" of variants (e.g. an AIR and a SEA option for one enquiry).
-export function baseRef(ref: string): string {
-  return ref.replace(/-\d+$/, "");
+// Duplicates branch off their base reference as QCZ…-2, -3, … and the revisions of a quote that
+// was sent add -R1, -R2, … (to a variant: QCZ…-2-R1). Together they form a "family" (e.g. an AIR
+// and a SEA option for one enquiry, and the prices sent for each) - read as the server reads them
+// (baseReference and revisionRoot in apps/api/lib/salesReference.ts).
+
+/** The quote a revision is counted from: QCZ…001-R2 revises QCZ…001, QCZ…001-2-R1 the variant QCZ…001-2. */
+export function revisionRoot(ref: string): string {
+  return ref.replace(/-R\d+$/, "");
 }
 
+/** The quote a variant or a revision branches off: QCZ…001-3, QCZ…001-R2 and QCZ…001-3-R1 belong to QCZ…001. */
+export function baseRef(ref: string): string {
+  return revisionRoot(ref).replace(/-\d+$/, "");
+}
+
+// A quote's place in its family: its variant (the base is 1), then its revision (the quote sent first is 0).
+function familyOrder(ref: string, base: string): [variant: number, revision: number] {
+  const root = revisionRoot(ref);
+  const variant = root === base ? 1 : parseInt(root.slice(base.length + 1), 10) || 1;
+  const revision = root === ref ? 0 : parseInt(ref.slice(root.length + 2), 10) || 0;
+  return [variant, revision];
+}
+
+/** The family of `ref`, in order: each variant followed by its revisions. */
 export function quoteFamily(quotes: SalesQuote[], ref: string): SalesQuote[] {
   const base = baseRef(ref);
-  const suffix = (q: SalesQuote) =>
-    q.quoteNumber === base ? 1 : parseInt(q.quoteNumber.slice(base.length + 1), 10) || 1;
+  const order = (q: SalesQuote) => familyOrder(q.quoteNumber, base);
   return quotes
     .filter((q) => baseRef(q.quoteNumber) === base)
-    .sort((a, b) => suffix(a) - suffix(b));
+    .sort((a, b) => {
+      const [variantA, revisionA] = order(a);
+      const [variantB, revisionB] = order(b);
+      return variantA - variantB || revisionA - revisionB;
+    });
+}
+
+/**
+ * The draft after the server answered with the stored quote: the keys only the server writes are
+ * taken from it and, for a quote whose prices are closed (PRICING_CLOSED_STATUSES), so are the
+ * prices - the server keeps those as stored on every save, and the page shows what is stored.
+ * Everything else stays as the user has it.
+ */
+export function followStored(draft: Partial<SalesQuoteData>, stored: SalesQuoteData, status: QuoteStatus): Partial<SalesQuoteData> {
+  const next: Record<string, unknown> = stripProtected(draft);
+  const data = stored as Record<string, unknown>;
+  for (const key of PROTECTED_KEYS) {
+    if (key in data) next[key] = data[key];
+  }
+  if (PRICING_CLOSED_STATUSES.includes(status)) {
+    for (const key of PRICING_KEYS) {
+      if (key in data) next[key] = data[key];
+      else delete next[key];
+    }
+  }
+  return next;
+}
+
+/** A patch without the keys that hold prices: what an import may change on a quote whose prices are closed. */
+export function withoutPricing(patch: Partial<SalesQuoteData>): Partial<SalesQuoteData> {
+  const own: Record<string, unknown> = { ...patch };
+  for (const key of PRICING_KEYS) delete own[key];
+  return own;
 }
 
 // Newest first, the order quotes are listed in; the reference settles it for two quotes created
