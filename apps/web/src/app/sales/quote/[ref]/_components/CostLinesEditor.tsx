@@ -102,7 +102,7 @@ export function CostLinesEditor({
               <th scope="col" className={LINE_TH_CLASS}>Ccy</th>
               <th scope="col" className={LINE_TH_CLASS}>Amount</th>
               <th scope="col" className={LINE_TH_RIGHT_CLASS}>In {currency}</th>
-              <th scope="col" className={LINE_TH_CLASS}>Value</th>
+              <th scope="col" className={LINE_TH_CLASS}>Quantity</th>
               <th scope="col" aria-label="Remove line" className={LINE_TH_CLASS} />
             </tr>
           </thead>
@@ -161,7 +161,7 @@ export function CostLinesEditor({
                     <InputNumber
                       size="small"
                       className="!w-full"
-                      aria-label="Value"
+                      aria-label="Quantity"
                       min={0}
                       precision={2}
                       parser={moneyInputParser}
