@@ -7,7 +7,7 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn() },
-  customers: { customerUpdate: vi.fn(), customerGet: vi.fn() },
+  customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn() },
   invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
 }));
@@ -36,7 +36,7 @@ vi.mock("../../topics", () => ({ shipmentDeleted: { publish: vi.fn() } }));
 vi.mock("../../services/quoteLinks.service", () => ({ quoteLinksService: { syncReference: vi.fn(), markDirty: vi.fn() } }));
 
 import log from "encore.dev/log";
-import { auth, invoicing, quotes } from "~encore/clients";
+import { auth, customers, invoicing, quotes } from "~encore/clients";
 import { APIError } from "../../../../lib/tests/encoreApi.stub";
 import type { QuoteSyncResult } from "../../interfaces/interfaces";
 import { cargoDimensionRepository } from "../../repositories/cargoDimension.repository";
@@ -389,6 +389,61 @@ describe("update", () => {
     expect(links.markDirty).toHaveBeenCalledWith(COMPANY);
     // The old quote is still tried after the new one failed.
     expect(links.syncReference).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("a shipper or consignee picked from the Customer Database", () => {
+  const PARTY = "3c1e2f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5b";
+  const update = (data: Record<string, unknown>) => shipmentService.update(SHIPMENT, COMPANY, data as never, USER);
+  const written = () => repository.updateForCompany.mock.calls[0]![2] as Record<string, unknown>;
+  const SITE_ID = "946e01e8-a4ed-4aa7-932b-2c5d5e991c30";
+
+  beforeEach(() => {
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { companyName: "Alza.cz a.s.", registeredAddress: "Jankovcova, 1522/53, Praha, 17000", country: "CZ" } } as never);
+    vi.mocked(customers.addressList).mockResolvedValue({
+      data: [
+        { type: "Registered", street: "Jankovcova 1522/53", city: "Praha", postalCode: "170 00", country: "CZ" },
+        { type: "Delivery", street: "Dopravní", city: "Praha 11", postalCode: "18000", country: "CZ" },
+      ],
+    } as never);
+  });
+
+  it("fills the consignee's delivery from its Delivery address and clears the old site and hours", async () => {
+    stored.set(SHIPMENT, row({ consigneeId: null, deliveryAddress: "old street", deliverySiteId: SITE_ID, consigneeOpeningFrom: "08:00" }));
+    await update({ consignee: "Alza.cz a.s.", consigneeId: PARTY });
+    expect(customers.addressList).toHaveBeenCalledWith({ customerId: PARTY });
+    expect(written()).toMatchObject({
+      deliveryAddress: "Dopravní, Praha 11",
+      deliveryPostcode: "18000",
+      deliveryCountry: "CZ",
+      deliverySiteId: null,
+      consigneeOpeningFrom: "",
+      consigneeOpeningTo: "",
+    });
+  });
+
+  it("fills the shipper's pick-up from the Registered address when there is no Pickup one", async () => {
+    await shipmentService.create(COMPANY, { shipper: "Alza.cz a.s.", shipperId: PARTY, pickupAddress: "" } as never);
+    expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({
+      pickupAddress: "Jankovcova 1522/53, Praha",
+      pickupPostcode: "17000",
+      pickupCountry: "CZ",
+    });
+  });
+
+  it("leaves the stop alone when the party is the same, unlinked, sent with its own address, or has no address", async () => {
+    stored.set(SHIPMENT, row({ consigneeId: PARTY }));
+    await update({ consigneeId: PARTY });
+    await update({ consigneeId: null });
+    await update({ consigneeId: "7d2e1f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5c", deliveryAddress: "typed by hand" });
+    expect(customers.addressList).not.toHaveBeenCalled();
+
+    vi.mocked(customers.customerGet).mockResolvedValue({ customer: { companyName: "X", registeredAddress: "", country: "CZ" } } as never);
+    vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
+    stored.set(SHIPMENT, row({ consigneeId: null, deliveryAddress: "kept" }));
+    await update({ consigneeId: "8d2e1f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5d" });
+    for (const [, , data] of repository.updateForCompany.mock.calls) expect(data).not.toHaveProperty("deliverySiteId");
+    expect(repository.updateForCompany.mock.calls[2]![2]).toMatchObject({ deliveryAddress: "typed by hand" });
   });
 });
 

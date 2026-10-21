@@ -42,6 +42,7 @@ import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
 import { normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
+import { partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { shipmentDeleted } from "../topics";
 
 // Extra detail rows accepted alongside the shipment's own fields on create/update.
@@ -559,6 +560,35 @@ class ShipmentService {
     );
   }
 
+  /**
+   * A shipper or consignee newly picked from the Customer Database fills its stop - the
+   * shipper's pick-up, the consignee's delivery - from that customer's Pickup / Delivery
+   * address, else its registered one. A write that sends that stop itself, or a customer with
+   * no address, keeps it.
+   */
+  private async fillPartyStops(data: Partial<NewShipmentRecord>, existing?: ShipmentRecord): Promise<void> {
+    const parties = [
+      ["shipper", "shipperId"],
+      ["consignee", "consigneeId"],
+    ] as const satisfies readonly (readonly [Party, keyof ShipmentRecord])[];
+    const written: Record<string, unknown> = data;
+    await Promise.all(
+      parties.map(async ([party, idKey]) => {
+        const id = data[idKey];
+        if (!id || id === existing?.[idKey]) return;
+        const keys = stopKeys(party);
+        if (Object.values(keys).some((k) => String(written[k] ?? "").trim())) return;
+        const [{ customer }, { data: addresses }] = await Promise.all([
+          customers.customerGet({ id }),
+          customers.addressList({ customerId: id }),
+        ]);
+        const stop = partyStop(party, customer, addresses);
+        if (!stop) return;
+        for (const field of Object.keys(keys) as (keyof typeof keys)[]) written[keys[field]] = stop[field];
+      }),
+    );
+  }
+
   /** The classified documents uploaded to one shipment, with their customs review. */
   private async documentsOf(id: string, companyId: string): Promise<ShipmentDocument[]> {
     const rows = await shipmentAttachmentRepository.documentTypesByShipmentIds([id], companyId);
@@ -659,6 +689,7 @@ class ShipmentService {
     const stored: Record<string, unknown> = shipmentData;
     normalizeCustomsPriority(stored, (key) => stored[key] as string);
     await this.resolveCustomerLinks(shipmentData);
+    await this.fillPartyStops(shipmentData);
     Object.assign(
       shipmentData,
       exportBolDefaults(shipmentData.tradeDirection ?? "", {
@@ -728,6 +759,7 @@ class ShipmentService {
       }
     }
     await this.resolveCustomerLinks(shipmentData);
+    await this.fillPartyStops(shipmentData, existing);
 
     // ATA / ATD is the tax date; once the job is invoiced it is final (owner decision,
     // 14 Oct 2026) — correct it by crediting the invoice first. A trade-direction switch
