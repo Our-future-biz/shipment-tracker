@@ -25,14 +25,30 @@ const FREIGHT_LINE_CODE: Record<string, string> = {
 // A line stores its charge code and, for the print and older readers, its label as the type.
 const chargeOf = (code: string): Pick<CostLine, "type" | "chargeCode"> => ({ type: chargeLabel(code), chargeCode: code });
 
+// The description a charge pre-types ("Ocean freight"); "Other" leaves it to be written.
+const describedAs = (code: string): string => (code === "other" ? "" : chargeLabel(code));
+
+/**
+ * A line given another charge: its type, and the description that charge pre-types - unless the
+ * description was written by hand (anything but blank or the old charge's own text).
+ */
+export function withCharge(line: CostLine, code: string): CostLine {
+  const description = (line.description ?? "").trim();
+  const preTyped = !description || description === describedAs(line.chargeCode || toChargeCode(line.type)) || description === line.type;
+  return { ...line, ...chargeOf(code), ...(preTyped ? { description: describedAs(code) } : {}) };
+}
+
 // A new cost line is in the quote's currency, so adding one never mixes currencies by accident.
-const newCostLine = (quote: SalesQuoteData): CostLine => ({
-  ...chargeOf(FREIGHT_LINE_CODE[quote.serviceType ?? ""] ?? "other"),
-  description: "",
-  supplier: "",
-  currency: quoteCurrency(quote),
-  amount: 0,
-});
+const newCostLine = (quote: SalesQuoteData): CostLine => {
+  const code = FREIGHT_LINE_CODE[quote.serviceType ?? ""] ?? "other";
+  return {
+    ...chargeOf(code),
+    description: describedAs(code),
+    supplier: "",
+    currency: quoteCurrency(quote),
+    amount: 0,
+  };
+};
 
 interface CostLinesEditorProps {
   kind: "buying" | "selling";
@@ -118,7 +134,7 @@ export function CostLinesEditor({
                       className="w-full"
                       aria-label="Type"
                       value={l.chargeCode || toChargeCode(l.type)}
-                      onChange={(v) => patch(i, chargeOf(v))}
+                      onChange={(v) => onChange(lines.map((x, j) => (j === i ? withCharge(x, v) : x)))}
                       options={chargeOptions(l.chargeCode || toChargeCode(l.type))}
                     />
                   </td>
