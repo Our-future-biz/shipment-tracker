@@ -133,9 +133,11 @@ export function CostLinesEditor({
                   )}
                   <td className={LINE_TD_CLASS}>
                     <Select
+                      showSearch
                       size="small"
                       className="w-full"
                       aria-label="Currency"
+                      optionFilterProp="label"
                       value={l.currency}
                       onChange={(v) => patch(i, { currency: v })}
                       options={CURRENCIES.map((c) => ({ value: c, label: c }))}
