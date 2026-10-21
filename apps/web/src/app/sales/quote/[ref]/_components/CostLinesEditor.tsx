@@ -112,7 +112,7 @@ export function CostLinesEditor({
           </colgroup>
           <thead>
             <tr>
-              <th scope="col" className={LINE_TH_CLASS}>Type</th>
+              <th scope="col" className={LINE_TH_CLASS}>Item</th>
               <th scope="col" className={LINE_TH_CLASS}>Description</th>
               {buying && <th scope="col" className={LINE_TH_CLASS}>Supplier</th>}
               <th scope="col" className={LINE_TH_CLASS}>Ccy</th>
@@ -132,7 +132,10 @@ export function CostLinesEditor({
                     <Select
                       size="small"
                       className="w-full"
-                      aria-label="Type"
+                      aria-label="Item"
+                      // Typing narrows the list ("oce" → Ocean freight), so nobody has to scroll for it.
+                      showSearch
+                      optionFilterProp="label"
                       value={l.chargeCode || toChargeCode(l.type)}
                       onChange={(v) => onChange(lines.map((x, j) => (j === i ? withCharge(x, v) : x)))}
                       options={chargeOptions(l.chargeCode || toChargeCode(l.type))}
