@@ -22,6 +22,14 @@ const COUNTRY_OPTIONS: CountryOption[] = getCountries()
   .map((country) => ({ value: country, dialCode: getCountryCallingCode(country), name: COUNTRY_NAMES.get(country) ?? country }))
   .sort((a, b) => a.name.localeCompare(b.name));
 
+const CALLING_COUNTRIES = new Set<string>(getCountries());
+
+// The country a new number starts in: the customer's own (Tokyo, JP → +81), else Czech.
+export function phoneCountry(country?: string | null): CountryCode {
+  const code = (country ?? "").trim().toUpperCase();
+  return CALLING_COUNTRIES.has(code) ? (code as CountryCode) : DEFAULT_PHONE_COUNTRY;
+}
+
 interface PhoneParts {
   country: CountryCode;
   national: string;
@@ -60,18 +68,26 @@ interface ContactPhoneInputProps {
   onChange?: (value: string) => void;
   onPressEnter?: () => void;
   id?: string;
+  // The customer's country: the code an empty number starts with, followed until a number is typed.
+  defaultCountry?: string | null;
 }
 
 // Country (flag and dialling code) and the number. The parts are kept here as typed: read back from the joined
 // value, a code shared by several countries (+1) would jump to another one.
 // A value set from outside (the form reset or filled) is split again; the echo of this field's own
-// change is not, so the country picked stays.
-export function ContactPhoneInput({ value = "", onChange, onPressEnter, id }: ContactPhoneInputProps) {
-  const [parts, setParts] = useState<PhoneParts>(() => splitPhone(value));
+// change is not, so the country picked stays. With no number yet, the code follows `defaultCountry`.
+export function ContactPhoneInput({ value = "", onChange, onPressEnter, id, defaultCountry }: ContactPhoneInputProps) {
+  const startCountry = phoneCountry(defaultCountry);
+  const [parts, setParts] = useState<PhoneParts>(() => (value.trim() ? splitPhone(value) : { country: startCountry, national: "" }));
   const [known, setKnown] = useState(value);
+  const [knownStart, setKnownStart] = useState(startCountry);
   if (value !== known) {
     setKnown(value);
-    if (value !== joinPhone(parts)) setParts(splitPhone(value));
+    if (value !== joinPhone(parts)) setParts(value.trim() ? splitPhone(value) : { country: startCountry, national: "" });
+  }
+  if (startCountry !== knownStart) {
+    setKnownStart(startCountry);
+    if (!parts.national.trim()) setParts({ ...parts, country: startCountry });
   }
 
   const update = (next: PhoneParts) => {

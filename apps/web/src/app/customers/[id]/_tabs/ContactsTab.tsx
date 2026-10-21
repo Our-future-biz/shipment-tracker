@@ -7,6 +7,7 @@ import type { ColumnsType } from "antd/es/table";
 import { ConfirmModal } from "@/components/ConfirmModal";
 import { SectionCard } from "@/components/SectionCard";
 import { useCustomerContacts } from "@/hooks/useCustomerContacts";
+import { useCustomer } from "@/hooks/useCustomers";
 import type { ContactItem } from "@/hooks/useCustomerContacts";
 import { useToast } from "@/lib/toast";
 import { contactRoleColor } from "../../_lib/constants";
@@ -25,6 +26,7 @@ interface ContactDialogState {
 
 export function ContactsTab({ customerId }: { customerId: string }) {
   const { contacts, isLoading, isError, createContact, updateContact, deleteContact } = useCustomerContacts(customerId);
+  const { customer } = useCustomer(customerId);
   const toast = useToast();
   const [dialog, setDialog] = useState<ContactDialogState>({ key: 0, open: false, contact: null });
   const [saving, setSaving] = useState(false);
@@ -176,6 +178,7 @@ export function ContactsTab({ customerId }: { customerId: string }) {
         open={dialog.open}
         contact={dialog.contact}
         saving={saving}
+        country={customer?.country}
         onCancel={handleCloseDialog}
         onSubmit={handleSubmit}
       />

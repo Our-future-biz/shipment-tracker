@@ -22,6 +22,8 @@ interface CustomerContactDialogProps {
   saving: boolean;
   onCancel: () => void;
   onSubmit: (values: CustomerContactFormValues) => void;
+  // The customer's country, which a new phone number starts in.
+  country?: string | null;
 }
 
 const NEW_CONTACT: CustomerContactFormValues = { firstName: "", lastName: "", email: "", phone: "", role: "Logistics Manager", isMain: false };
@@ -35,7 +37,7 @@ const requiredName = (message: string) => [{ required: true, whitespace: true, m
 
 // Add / edit dialog of a customer contact. The form takes `contact` only when its instance is created, so the owner
 // must mount the dialog anew (a new React key) for every opening.
-export function CustomerContactDialog({ open, contact, saving, onCancel, onSubmit }: CustomerContactDialogProps) {
+export function CustomerContactDialog({ open, contact, saving, onCancel, onSubmit, country }: CustomerContactDialogProps) {
   const [form] = Form.useForm<CustomerContactFormValues>();
 
   // `normalize` runs only on typed input, so the stored texts are trimmed here: contacts saved before the dialog trimmed
@@ -112,7 +114,7 @@ export function CustomerContactDialog({ open, contact, saving, onCancel, onSubmi
           label="Phone"
           rules={[{ validator: (_, value?: string) => (!value || isPossiblePhone(value) ? Promise.resolve() : Promise.reject(new Error("Enter a valid phone number"))) }]}
         >
-          <ContactPhoneInput onPressEnter={handleSubmit} />
+          <ContactPhoneInput onPressEnter={handleSubmit} defaultCountry={country} />
         </Form.Item>
         <Form.Item name="role" label="Role">
           <Select options={ROLE_OPTIONS} />

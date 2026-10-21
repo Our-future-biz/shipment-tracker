@@ -484,7 +484,7 @@ export function AddCustomerModal({
                 },
               ]}
             >
-              <ContactPhoneInput />
+              <ContactPhoneInput defaultCountry={country} />
             </Form.Item>
           </Form>
         </div>
