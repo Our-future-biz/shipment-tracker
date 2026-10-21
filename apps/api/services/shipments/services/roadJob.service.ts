@@ -42,7 +42,7 @@ class RoadJobService {
       // A quote named here is linked to the job (not marked Won, its costs not copied: Trucking pushes its own).
       salesNumber: input.quoteNumber ?? "",
       createdBy: input.createdBy,
-    });
+    }, undefined, { allowUnfinishedQuote: true });
     return { shipmentId: shipment.id, jobNumber: shipment.jobNumber };
   }
 

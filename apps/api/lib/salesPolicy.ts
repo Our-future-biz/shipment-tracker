@@ -15,6 +15,28 @@ export function canManageSales(role: string): boolean {
   return (SALES_MANAGE_ROLES as readonly string[]).includes(role);
 }
 
+// How a quote's stored status is named in a refusal.
+const QUOTE_STATUS_LABELS: Readonly<Record<string, string>> = {
+  draft: "Draft",
+  ready_to_send: "Ready to Send",
+  quoted: "Quoted",
+  feedback: "Feedback",
+  revised: "Revised",
+  lost: "Lost",
+  expired: "Expired",
+};
+
+/**
+ * Why no shipment may be linked to a quote in this status (as stored), finishing the sentence
+ * "QCZ… - …"; null when one may. Only a Won quote is linked to a shipment - neither made from it
+ * nor given its number as Sales Number before it is Won. A link made before this rule stays.
+ */
+export function shipmentLinkRefusal(status: string): string | null {
+  if (status === "won") return null;
+  const label = Object.hasOwn(QUOTE_STATUS_LABELS, status) ? QUOTE_STATUS_LABELS[status] : `"${status}"`;
+  return `the quote is ${label} - only a Won quote can be linked to a shipment`;
+}
+
 /**
  * Whether the user may change what all of Sales shares: the Terms & Conditions templates and the
  * company details printed on quotations. Reading them is open to everybody - no quotation prints

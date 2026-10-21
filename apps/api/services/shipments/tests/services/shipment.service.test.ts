@@ -91,7 +91,7 @@ const synced = (over: Partial<QuoteSyncResult> = {}): QuoteSyncResult => ({
 });
 // What the database layer throws when a statement fails: the statement and what went into it.
 const DATABASE_FAILURE = new Error('Failed query: insert into "container" ("id", "container_number") values (default, $1)\nparams: MSKU1234567');
-const quote = (over: Record<string, unknown> = {}) => ({ quote: { quoteNumber: REF, ownerName: "Martin Koubek", data: {}, ...over } }) as Awaited<ReturnType<typeof quotes.salesQuoteGet>>;
+const quote = (over: Record<string, unknown> = {}) => ({ quote: { quoteNumber: REF, ownerName: "Martin Koubek", status: "won", data: {}, ...over } }) as Awaited<ReturnType<typeof quotes.salesQuoteGet>>;
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -173,6 +173,15 @@ describe("create from a quote", () => {
     salesQuoteGet.mockRejectedValue(new Error("quotes is unreachable"));
     await expect(fromQuote()).rejects.toThrow("quotes is unreachable");
     expect(repository.createFromQuote).not.toHaveBeenCalled();
+  });
+
+  it("refuses a quote that is not Won, before anything is written - also one whose number is no QCZ reference", async () => {
+    for (const over of [{ status: "quoted" }, { status: "lost" }, { quoteNumber: "TEST-FX-Q1", status: "revised" }]) {
+      salesQuoteGet.mockResolvedValueOnce(quote(over));
+      await expect(fromQuote()).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/ - the quote is (Quoted|Lost|Revised) - only a Won quote can be linked to a shipment$/) });
+    }
+    expect(repository.createFromQuote).not.toHaveBeenCalled();
+    expect(links.syncReference).not.toHaveBeenCalled();
   });
 
   it("refuses a second shipment from the same quote with a conflict that names the first - and does nothing else", async () => {
@@ -278,21 +287,43 @@ describe("create without a quote", () => {
     expect(result).toMatchObject({ shipment: { salesPerson: "Martin Koubek" } });
   });
 
-  it("keeps a Sales Person the request names itself, without asking the quote", async () => {
+  it("keeps a Sales Person the request names itself - the quote is still checked", async () => {
     await create({ salesNumber: REF, salesPerson: "Jana Nováková" });
-    expect(salesQuoteGet).not.toHaveBeenCalled();
+    expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: REF });
     expect(repository.createWithJobNumber.mock.calls[0]![1]).toMatchObject({ salesPerson: "Jana Nováková" });
   });
 
-  it("leaves the Sales Person empty for a Sales Number that is no sales quote, a quote nobody owns and a quote that cannot be read", async () => {
+  it("leaves the Sales Person empty for a Sales Number that is no sales quote and a quote nobody owns", async () => {
     salesQuoteGet.mockRejectedValueOnce(APIError.notFound("Quote not found"));
     await create({ salesNumber: "PO 4411" });
     salesQuoteGet.mockResolvedValueOnce(quote({ ownerName: "" }));
     await create({ salesNumber: REF });
-    salesQuoteGet.mockRejectedValueOnce(new Error("quotes is unreachable"));
-    await create({ salesNumber: REF });
-    expect(repository.createWithJobNumber).toHaveBeenCalledTimes(3);
+    expect(repository.createWithJobNumber).toHaveBeenCalledTimes(2);
     for (const [, data] of repository.createWithJobNumber.mock.calls) expect(data).not.toHaveProperty("salesPerson");
+  });
+
+  it("refuses a Sales Number naming a quote that is not Won, before anything is written", async () => {
+    for (const status of ["draft", "ready_to_send", "quoted", "lost"]) {
+      salesQuoteGet.mockResolvedValueOnce(quote({ status }));
+      await expect(create({ salesNumber: REF })).rejects.toMatchObject({ code: "failed_precondition", message: expect.stringMatching(/^QCZ\S+ - the quote is [A-Z][A-Za-z ]+ - only a Won quote can be linked to a shipment$/) });
+    }
+    expect(repository.createWithJobNumber).not.toHaveBeenCalled();
+    expect(links.syncReference).not.toHaveBeenCalled();
+  });
+
+  it("refuses a quote reference that cannot be checked, and lets free text pass when the quotes cannot be read", async () => {
+    salesQuoteGet.mockRejectedValueOnce(new Error("quotes is unreachable"));
+    await expect(create({ salesNumber: REF })).rejects.toThrow("quotes is unreachable");
+    expect(repository.createWithJobNumber).not.toHaveBeenCalled();
+    salesQuoteGet.mockRejectedValueOnce(new Error("quotes is unreachable"));
+    await create({ salesNumber: "PO 4411" });
+    expect(repository.createWithJobNumber).toHaveBeenCalledTimes(1);
+  });
+
+  it("links a quote that is not Won for a caller that allows it (Trucking's road jobs)", async () => {
+    salesQuoteGet.mockResolvedValueOnce(quote({ status: "draft" }));
+    await shipmentService.create(COMPANY, { salesNumber: REF } as never, undefined, { allowUnfinishedQuote: true });
+    expect(links.syncReference).toHaveBeenCalledWith(COMPANY, REF);
   });
 
   it("does not make up a Sales Number for a request that sends none", async () => {
@@ -360,7 +391,7 @@ describe("update", () => {
     stored.set(SHIPMENT, row({ salesNumber: REF, salesPerson: "Martin Koubek" }));
     await update({ salesNumber: OTHER_REF, salesPerson: "Jana Nováková" });
     expect(repository.updateForCompany.mock.calls[0]![2]).toMatchObject({ salesPerson: "Jana Nováková" });
-    expect(salesQuoteGet).not.toHaveBeenCalled();
+    expect(salesQuoteGet).toHaveBeenCalledWith({ quoteNumber: OTHER_REF });
 
     salesQuoteGet.mockRejectedValueOnce(APIError.notFound("Quote not found"));
     await update({ salesNumber: "PO 4411" });
@@ -369,8 +400,24 @@ describe("update", () => {
     await update({ salesNumber: "" });
     await update({ salesNumber: "" });
     await update({ pol: "Shanghai" });
-    expect(salesQuoteGet).toHaveBeenCalledTimes(1);
+    expect(salesQuoteGet).toHaveBeenCalledTimes(2);
     for (const [, , data] of repository.updateForCompany.mock.calls.slice(2)) expect(data).not.toHaveProperty("salesPerson");
+  });
+
+  it("refuses a Sales Number naming a quote that is not Won: nothing is written or told", async () => {
+    stored.set(SHIPMENT, row({ salesNumber: REF }));
+    salesQuoteGet.mockResolvedValue(quote({ quoteNumber: OTHER_REF, status: "draft" }));
+    await expect(update({ salesNumber: OTHER_REF })).rejects.toMatchObject({ code: "failed_precondition" });
+    expect(repository.updateForCompany).not.toHaveBeenCalled();
+    expect(links.syncReference).not.toHaveBeenCalled();
+  });
+
+  it("leaves a link made before the rule alone: a shipment that already names a draft quote is saved", async () => {
+    stored.set(SHIPMENT, row({ salesNumber: REF }));
+    salesQuoteGet.mockResolvedValue(quote({ status: "draft" }));
+    await update({ pol: "Shanghai" });
+    expect(repository.updateForCompany).toHaveBeenCalledTimes(1);
+    expect(salesQuoteGet).not.toHaveBeenCalled();
   });
 
   it("tells nobody when the Sales Number is the same once trimmed, or is not part of the update", async () => {

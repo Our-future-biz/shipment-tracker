@@ -41,7 +41,7 @@ import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAc
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import type { SalesQuoteData, PackageLine, CostLine } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
-import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES } from "../../_lib/types";
+import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES, notWonQuoteText } from "../../_lib/types";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
 import { cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, stripProtected, type QuoteTotals } from "../../_lib/salesQuote";
@@ -964,9 +964,14 @@ export function QuoteWorkflow() {
                   Shipment {quote.shipmentJobNumber}
                 </ToolbarButton>
               ) : (
-                <ToolbarButton icon={<ContainerOutlined />} onClick={createShipment}>
-                  Create shipment
-                </ToolbarButton>
+                // Only a Won quote can be made into a shipment.
+                <Tooltip title={notWonQuoteText(quote.status)}>
+                  <span>
+                    <ToolbarButton icon={<ContainerOutlined />} onClick={createShipment} disabled={!!notWonQuoteText(quote.status)}>
+                      Create shipment
+                    </ToolbarButton>
+                  </span>
+                </Tooltip>
               )}
               <span aria-hidden className="w-px h-6 bg-slate-200" />
               <ToolbarButton icon={<EyeOutlined />} onClick={() => setModal("preview")}>
