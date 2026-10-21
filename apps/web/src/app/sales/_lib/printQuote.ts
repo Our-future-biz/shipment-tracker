@@ -263,16 +263,21 @@ export function quoteDocument(
 }
 
 // Export PDF: hands the document to the browser's print dialog. Returns why that did not happen,
-// or null once it did.
+// or null once it did. `target` is a window opened beforehand - on the click, when the document is
+// printed only after an answer from the server, so the browser does not take it for a pop-up.
 export function printQuote(
   quoteNumber: string,
   data: SalesQuoteData,
   exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">,
   company: StoredCompanyDetails,
+  target?: Window | null,
 ): string | null {
   const doc = quoteDocument(quoteNumber, data, exchange, company);
-  if (doc.blocked !== null) return doc.blocked;
-  const w = window.open("", "_blank");
+  if (doc.blocked !== null) {
+    target?.close();
+    return doc.blocked;
+  }
+  const w = target === undefined ? window.open("", "_blank") : target;
   // A blocked pop-up must not look like a button that does nothing.
   if (!w) return "The browser blocked the print window. Allow pop-ups for this site and try again.";
   w.document.write(doc.html);

@@ -579,9 +579,10 @@ export function QuotesList() {
       },
     },
     { type: "divider" as const },
-    // Expired is not offered: a quote expires by its validity date, nobody sets it. A status is
-    // asked about before it is set - one click would change every ticked quote, and Won for good.
-    ...SETTABLE_QUOTE_STATUSES.map((key) => ({
+    // Expired is not offered: a quote expires by its validity date, nobody sets it. Nor is Revised:
+    // a revision is a new quote, made from the quote's own page. A status is asked about before it
+    // is set - one click would change every ticked quote, and Won for good.
+    ...SETTABLE_QUOTE_STATUSES.filter((key) => key !== "revised").map((key) => ({
       key: `st:${key}`,
       label: `Set status: ${statusLabel(key)}`,
       onClick: () => setStatusTarget({ status: key, quotes: selected.map((q) => ({ quoteNumber: q.quoteNumber, status: q.status })) }),

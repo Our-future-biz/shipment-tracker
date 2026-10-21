@@ -210,5 +210,8 @@ export interface CustomerOpenQuote {
 /** A status a sales quote can be set to. */
 export type SettableQuoteStatus = "draft" | "ready_to_send" | "quoted" | "feedback" | "revised" | "won" | "lost";
 
-/** A status a sales quote can show: one it can be set to, or Expired (its validity has passed). */
-export type ShownQuoteStatus = SettableQuoteStatus | "expired";
+/**
+ * A status a sales quote can show: one it can be set to, Expired (its validity has passed), or
+ * Replaced (it was revised, and its revision QCZ…-R1 took its place).
+ */
+export type ShownQuoteStatus = SettableQuoteStatus | "expired" | "replaced";

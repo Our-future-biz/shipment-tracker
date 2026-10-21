@@ -153,6 +153,8 @@ export const NEXT: Record<ShownQuoteStatus, readonly SettableQuoteStatus[]> = {
   won: [],
   lost: ["draft"],
   expired: ["draft", "revised"],
+  // Its revision took its place: the quote stays as the record of what was sent.
+  replaced: [],
 };
 
 // A status this code does not know (old data) can only be brought back into the flow.
@@ -165,7 +167,20 @@ export const OPEN: readonly string[] = ["draft", "ready_to_send", "quoted", "fee
 export const AWAITING: readonly string[] = ["quoted", "feedback"];
 
 /** A quote in one of these went out to the customer at some point, even if no sent date was recorded. */
-export const SENT_EVIDENCE: readonly string[] = ["quoted", "feedback", "revised", "won", "expired"];
+export const SENT_EVIDENCE: readonly string[] = ["quoted", "feedback", "revised", "won", "expired", "replaced"];
+
+/**
+ * A quote in one of these went out as it stands, or is decided: its buying and selling are what
+ * the customer was given and stay as they are. New prices for a sent quote are a revision of it
+ * (applyRevision); a Lost or Expired quote reopened as a Draft can be priced again.
+ */
+export const PRICING_CLOSED: readonly string[] = ["quoted", "feedback", "won", "lost", "expired", "replaced"];
+
+/** The keys of the document that hold a quote's prices: those a save cannot change once PRICING_CLOSED. */
+export const PRICING_KEYS: readonly string[] = ["buyingLines", "sellingLines", "currency", "allIn", "road"];
+
+// The statuses (as shown) a quote is revised from: it went out and is not decided.
+const REVISABLE: readonly string[] = ["quoted", "feedback", "expired"];
 
 /** The statuses a quote can be set to, each with the win probability it carries. */
 export const WIN_PROBABILITY: Record<SettableQuoteStatus, number> = {
@@ -179,7 +194,7 @@ export const WIN_PROBABILITY: Record<SettableQuoteStatus, number> = {
 };
 
 /** Every status a quote can show: the ones it can be set to, and Expired. */
-export const SHOWN_STATUSES: readonly ShownQuoteStatus[] = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won", "lost", "expired"];
+export const SHOWN_STATUSES: readonly ShownQuoteStatus[] = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won", "lost", "expired", "replaced"];
 
 /** Whether a stored or requested text is a status a quote can be set to. */
 export function isSettableStatus(status: string): status is SettableQuoteStatus {
@@ -202,6 +217,7 @@ const LABELS: Record<string, string> = {
   won: "Won",
   lost: "Lost",
   expired: "Expired",
+  replaced: "Replaced",
 };
 
 function label(status: string): string {
@@ -309,6 +325,11 @@ export function applyTransition(state: LifecycleState, change: StatusChange, ctx
 
   const from = effectiveStatus(state.status, state.validUntil, ctx.today);
   if (to === from) return { changed: false };
+  // Revised is among the next statuses - it is what says the quote can be revised - but the quote
+  // that was sent does not become it: a new quote, its revision, does (applyRevision).
+  if (to === "revised") {
+    throw new LifecycleError("not_allowed", "a quote that was sent is revised as a new quote - use Revise");
+  }
   if (!allowedTransitions(state, ctx.today).includes(to)) {
     throw new LifecycleError("not_allowed", `a quote cannot go from ${label(from)} to ${label(to)}`);
   }
@@ -339,6 +360,48 @@ export function applyTransition(state: LifecycleState, change: StatusChange, ctx
   if (comment) entry.comment = comment;
   if (next.lostReason) entry.lostReason = next.lostReason;
   return { changed: true, state: next, entry };
+}
+
+/**
+ * A quote that was sent, revised: it becomes Replaced - kept as the record of what the customer
+ * was given, out of the open quotes - and names its revision. Judged on the effective status, so
+ * an expired quote can be revised. Nothing is decided by it: no decision date, as quote_lifecycle_of
+ * (migration 0005) gives one only to Won and Lost.
+ */
+export function applyRevision(state: LifecycleState, revision: string, ctx: LifecycleContext): { state: LifecycleState; entry: TimelineEntry } {
+  const from = effectiveStatus(state.status, state.validUntil, ctx.today);
+  if (!REVISABLE.includes(from)) {
+    throw new LifecycleError("not_allowed", `only a Quoted, Feedback or Expired quote can be revised - this one is ${label(from)}`);
+  }
+  return {
+    state: { ...state, status: "replaced", substatus: null, lostReason: null, lostComment: null, decidedAt: null },
+    entry: { ...statusEntry("replaced", ctx), comment: `Replaced by ${revision}` },
+  };
+}
+
+/**
+ * What the revision of a quote starts with: Revised, so it is priced again and then sent; the
+ * owner and the validity of the quote it revises (a validity that has passed is chosen anew
+ * when it is sent); no sending, contact or shipment of its own yet.
+ */
+export function revisionOf(source: LifecycleState, sourceReference: string, ctx: LifecycleContext): { state: LifecycleState; entry: TimelineEntry } {
+  const state: LifecycleState = {
+    status: "revised",
+    substatus: null,
+    lostReason: null,
+    lostComment: null,
+    sentAt: null,
+    firstSentAt: null,
+    decidedAt: null,
+    validUntil: source.validUntil,
+    lastContactAt: null,
+    ownerUserId: source.ownerUserId,
+    ownerLabel: source.ownerLabel,
+    shipmentId: null,
+    shipmentJobNumber: null,
+    createdAt: ctx.at,
+  };
+  return { state, entry: { ...statusEntry("revised", ctx), comment: `Revision of ${sourceReference}` } };
 }
 
 /**

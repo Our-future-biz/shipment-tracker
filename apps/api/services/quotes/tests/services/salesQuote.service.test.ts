@@ -24,6 +24,7 @@ vi.mock("../../repositories/salesQuote.repository", () => ({
     writeLifecycle: vi.fn(),
     saveDocument: vi.fn(),
     createWithReference: vi.fn(),
+    revise: vi.fn(),
     unexaminedOwnerLabels: vi.fn(),
     recordOwnerMatch: vi.fn(),
     shipmentLinks: vi.fn(),
@@ -454,6 +455,89 @@ describe("save", () => {
     stored = null;
     await expect(salesQuoteService.save(martin, REF, {}, 1)).rejects.toMatchObject({ code: "not_found" });
   });
+
+  it("keeps the prices of a quote that went out as stored", async () => {
+    const pricing = ["buyingLines", "sellingLines", "currency", "allIn", "road"];
+    for (const status of ["quoted", "feedback", "won", "lost", "replaced"]) {
+      stored = quote({ status });
+      repository.saveDocument.mockResolvedValue(quote({ status, dataVersion: 4 }));
+      await salesQuoteService.save(martin, REF, { sellingLines: [] }, 3);
+      expect(repository.saveDocument).toHaveBeenLastCalledWith(martin.companyID, REF, { data: { sellingLines: [] }, carry: [...PROTECTED_KEYS, ...pricing] }, { dataVersion: 3 });
+    }
+    for (const status of ["draft", "ready_to_send", "revised"]) {
+      stored = quote({ status });
+      repository.saveDocument.mockResolvedValue(quote({ status, dataVersion: 4 }));
+      await salesQuoteService.save(martin, REF, { sellingLines: [] }, 3);
+      expect(repository.saveDocument).toHaveBeenLastCalledWith(martin.companyID, REF, { data: { sellingLines: [] }, carry: [...PROTECTED_KEYS] }, { dataVersion: 3 });
+    }
+  });
+});
+
+describe("revise", () => {
+  const sent = () =>
+    quote({
+      status: "feedback",
+      sentAt: SENT,
+      firstSentAt: SENT,
+      validUntil: "2026-10-25",
+      ownerUserId: U_JANA,
+      ownerLabel: "Jana Nováková",
+      data: { reference: REF, quoteStatus: "feedback", timeline: [{ status: "quoted" }], sellingLines: [{ type: "Air freight", amount: 650 }], allIn: true, fx: { date: "2026-10-01" } },
+    });
+  // The plan the service hands the repository, run on the stored quote and the references there are.
+  let planned: ReturnType<Parameters<typeof salesQuoteRepository.revise>[3]> | undefined;
+  beforeEach(() => {
+    planned = undefined;
+    repository.revise.mockImplementation(async (_companyId, _quoteNumber, _prefix, plan) => {
+      if (!stored) return null;
+      planned = plan(stored, [REF, `${REF}-2`, `${REF}-R1`]);
+      return {
+        quote: { ...stored, ...columnsOf(planned.write.state) },
+        revision: { ...stored, ...planned.row, quoteNumber: planned.reference } as SalesQuoteRecord,
+      };
+    });
+  });
+
+  it("makes the next revision with everything the quote holds, Revised, and replaces the quote", async () => {
+    stored = sent();
+    const result = await salesQuoteService.revise(martin, REF, 3);
+    expect(repository.revise.mock.calls[0]!.slice(0, 3)).toEqual([martin.companyID, REF, `${REF}-R`]);
+    expect(planned!.reference).toBe(`${REF}-R2`);
+    expect(result.quote).toMatchObject({ quoteNumber: REF, status: "replaced" });
+    expect(result.revision).toMatchObject({ quoteNumber: `${REF}-R2`, status: "revised" });
+    expect(planned!.write.entries).toEqual([
+      { kind: "status", status: "replaced", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN, comment: `Replaced by ${REF}-R2` },
+    ]);
+    const { data, ...columns } = planned!.row;
+    // The owner and validity are the quote's; nothing of its sending, its history or its rates.
+    expect(columns).toMatchObject({ status: "revised", ownerUserId: U_JANA, ownerLabel: "Jana Nováková", validUntil: "2026-10-25", sentAt: null, firstSentAt: null });
+    expect(data).toMatchObject({ reference: `${REF}-R2`, quoteStatus: "revised", sellingLines: [{ type: "Air freight", amount: 650 }], allIn: true });
+    expect(data).not.toHaveProperty("fx");
+    expect((data as { timeline: unknown[] }).timeline).toEqual([
+      { kind: "status", status: "revised", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN, comment: `Revision of ${REF}` },
+    ]);
+  });
+
+  it("numbers a revision of a revision from the same quote", async () => {
+    stored = { ...sent(), quoteNumber: `${REF}-R1` };
+    await salesQuoteService.revise(martin, `${REF}-R1`);
+    expect(repository.revise.mock.calls[0]![2]).toBe(`${REF}-R`);
+    expect(planned!.reference).toBe(`${REF}-R2`);
+  });
+
+  it("refuses a quote that was not sent or is decided, and one changed since the caller saw it", async () => {
+    stored = quote({ status: "draft" });
+    await expect(salesQuoteService.revise(martin, REF)).rejects.toMatchObject({ code: "failed_precondition" });
+    stored = quote({ status: "won" });
+    await expect(salesQuoteService.revise(martin, REF)).rejects.toMatchObject({ code: "failed_precondition" });
+    stored = sent();
+    await expect(salesQuoteService.revise(martin, REF, 2)).rejects.toMatchObject({ code: "aborted" });
+  });
+
+  it("is not found for a quote that is not there", async () => {
+    stored = null;
+    await expect(salesQuoteService.revise(martin, REF)).rejects.toMatchObject({ code: "not_found" });
+  });
 });
 
 describe("transition", () => {
@@ -506,11 +590,11 @@ describe("transition", () => {
 
   it("compares the expected status with the one shown: Expired for a quote whose validity has passed", async () => {
     stored = quote({ status: "quoted", sentAt: SENT, firstSentAt: SENT, validUntil: YESTERDAY });
-    await expect(salesQuoteService.transition(martin, REF, { to: "revised", expectedStatus: "quoted" })).rejects.toMatchObject({
+    await expect(salesQuoteService.transition(martin, REF, { to: "draft", expectedStatus: "quoted" })).rejects.toMatchObject({
       code: "failed_precondition",
       message: "the quote is now Expired",
     });
-    await expect(salesQuoteService.transition(martin, REF, { to: "revised", expectedStatus: "expired" })).resolves.toMatchObject({ changed: true });
+    await expect(salesQuoteService.transition(martin, REF, { to: "draft", expectedStatus: "expired" })).resolves.toMatchObject({ changed: true });
   });
 
   describe("customer of a won quote", () => {
@@ -603,9 +687,9 @@ describe("transition", () => {
       expect(order).toEqual(["rates", "lock"]);
     });
 
-    it("drops the rates of a quote that is revised", async () => {
-      stored = quote({ status: "quoted", data: { reference: REF, quoteStatus: "quoted", fx: STORED_FX } });
-      await salesQuoteService.transition(martin, REF, { to: "revised" });
+    it("drops the rates of a quote reopened as a Draft", async () => {
+      stored = quote({ status: "lost", data: { reference: REF, quoteStatus: "lost", fx: STORED_FX } });
+      await salesQuoteService.transition(martin, REF, { to: "draft" });
       expect(written().document).toEqual({ fx: null });
     });
 

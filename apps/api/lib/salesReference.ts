@@ -1,12 +1,13 @@
 // The reference of a sales quote: QCZ + the business day it was created on (YYYYMMDD) + that
 // day's sequence within the company (001, 002, ... 999, 1000). A variant made by duplicating
-// keeps the reference of the quote it branches off and adds -2, -3, ...
+// keeps the reference of the quote it branches off and adds -2, -3, ... A revision of a quote
+// that was sent keeps that quote's reference and adds -R1, -R2, ... (QCZ…001-R1, QCZ…001-2-R1).
 
 /**
  * One definition of the format for TypeScript and SQL: this text is the RegExp below and is
  * also handed to Postgres as a parameter, so it uses only syntax both read the same way.
  */
-export const SALES_REFERENCE_PATTERN = "^QCZ[0-9]{8}[0-9]{3,}(-[0-9]+)?$";
+export const SALES_REFERENCE_PATTERN = "^QCZ[0-9]{8}[0-9]{3,}(-[0-9]+)?(-R[0-9]+)?$";
 
 const SALES_REFERENCE = new RegExp(SALES_REFERENCE_PATTERN);
 
@@ -45,9 +46,30 @@ export function formatReference(prefix: string, seq: bigint): string {
   return `${prefix}${String(seq).padStart(3, "0")}`;
 }
 
-/** The reference a variant branches off: QCZ…001-3 belongs to QCZ…001. */
+/** The reference a variant or a revision branches off: QCZ…001-3, QCZ…001-R2 and QCZ…001-3-R1 belong to QCZ…001. */
 export function baseReference(ref: string): string {
-  return ref.replace(/-[0-9]+$/, "");
+  return ref.replace(/-R[0-9]+$/, "").replace(/-[0-9]+$/, "");
+}
+
+/** The quote a revision revises, counted from: QCZ…001-R2 and QCZ…001 both revise as QCZ…001. */
+export function revisionRoot(ref: string): string {
+  return ref.replace(/-R[0-9]+$/, "");
+}
+
+/**
+ * The reference of the next revision of `root`, given every reference that exists: -R1 for the
+ * first, then the next free number - a revision of a revision is numbered from the same root.
+ */
+export function nextRevision(root: string, existing: string[]): string {
+  let highest = 0n;
+  for (const ref of existing) {
+    if (!ref.startsWith(`${root}-R`)) continue;
+    const suffix = ref.slice(root.length + 2);
+    if (!/^[0-9]+$/.test(suffix)) continue;
+    const revision = BigInt(suffix);
+    if (revision > highest) highest = revision;
+  }
+  return `${root}-R${highest + 1n}`;
 }
 
 /**

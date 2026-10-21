@@ -879,8 +879,8 @@ describe("shipmentLinks", () => {
 describe("customerFacts", () => {
   const LIVE = '"quote"."company_id" = $1 and "quote"."deleted_at" is null and "quote"."status" is not null';
   // A quote that went out: a first sent date, or a status that proves it.
-  const SENT = '("quote"."first_sent_at" is not null or "quote"."status" in ($1, $2, $3, $4, $5))';
-  const SENT_STATUSES = ["quoted", "feedback", "revised", "won", "expired"];
+  const SENT = '("quote"."first_sent_at" is not null or "quote"."status" in ($1, $2, $3, $4, $5, $6))';
+  const SENT_STATUSES = ["quoted", "feedback", "revised", "won", "expired", "replaced"];
   const FIRST_SENT = `min(coalesce("quote"."first_sent_at", "quote"."created_at")) filter (where ${SENT})`;
 
   it("groups the company's live sales quotes that are for a customer by that customer, and counts the sent ones that are for none", async () => {
@@ -905,7 +905,7 @@ describe("customerFacts", () => {
     expect(read!.groupBy).toHaveLength(1);
     expect(read!.groupBy[0]).toBe(quoteTable.customerId);
     expect(rendered(fake.state.counts[0])).toMatchObject({
-      sql: `((${LIVE}) and "quote"."customer_id" is null and ${SENT.replace("$1, $2, $3, $4, $5", "$2, $3, $4, $5, $6")})`,
+      sql: `((${LIVE}) and "quote"."customer_id" is null and ${SENT.replace("$1, $2, $3, $4, $5, $6", "$2, $3, $4, $5, $6, $7")})`,
       params: [COMPANY, ...SENT_STATUSES],
     });
   });

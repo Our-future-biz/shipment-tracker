@@ -198,7 +198,7 @@ export interface SalesQuoteData {
 }
 
 /** A quote's lifecycle status as the server names it. */
-export type KnownQuoteStatus = "draft" | "ready_to_send" | "quoted" | "feedback" | "revised" | "won" | "lost" | "expired";
+export type KnownQuoteStatus = "draft" | "ready_to_send" | "quoted" | "feedback" | "revised" | "won" | "lost" | "expired" | "replaced";
 /** A status as stored: one of the known ones, or one a newer version wrote that this one can't name. */
 export type QuoteStatus = KnownQuoteStatus | (string & {});
 
@@ -230,6 +230,8 @@ export const QUOTE_STATUSES: QuoteStatusDef[] = [
   { key: "won", label: "Won", winProbability: 100, tone: { pill: "bg-green-100 text-green-600", dot: "bg-green-600", text: "text-green-600" } },
   { key: "lost", label: "Lost", winProbability: 0, tone: { pill: "bg-red-100 text-red-600", dot: "bg-red-600", text: "text-red-600" } },
   { key: "expired", label: "Expired", winProbability: 0, tone: NEUTRAL_STATUS_TONE },
+  // Revised as a new quote (QCZ…-R1), which took its place.
+  { key: "replaced", label: "Replaced", winProbability: 0, tone: { pill: "bg-slate-200 text-slate-600", dot: "bg-slate-400", text: "text-slate-600" } },
 ];
 
 export const QUOTE_STATUS_MAP: Record<string, QuoteStatusDef> = Object.fromEntries(
@@ -252,6 +254,11 @@ export const AWAITING_QUOTE_STATUSES: readonly QuoteStatus[] = ["quoted", "feedb
 // it was revised or reopened since. Sending it makes the quote Quoted; in any other status it either
 // went out already or is closed.
 export const UNSENT_QUOTE_STATUSES: readonly QuoteStatus[] = ["draft", "ready_to_send", "revised"];
+
+// In these statuses (as stored) the quote went out as it stands, or is decided: its buying and
+// selling are closed - the server keeps them as they are. New prices for a sent quote are its
+// revision, a new quote (QCZ…-R1).
+export const PRICING_CLOSED_STATUSES: readonly QuoteStatus[] = ["quoted", "feedback", "won", "lost", "expired", "replaced"];
 
 export const LOST_REASONS: Record<string, string[]> = {
   Pricing: ["Price too high", "Competitor cheaper", "Margin too low"],

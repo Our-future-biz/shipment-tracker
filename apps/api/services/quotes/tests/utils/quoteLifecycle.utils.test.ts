@@ -6,12 +6,14 @@ import {
   LifecycleError,
   NEXT,
   OPEN,
+  PRICING_CLOSED,
   SENT_EVIDENCE,
   SHOWN_STATUSES,
   WIN_PROBABILITY,
   allowedTransitions,
   applyFollowUp,
   applyOwner,
+  applyRevision,
   applyShipmentLinks,
   applyTransition,
   applyValidity,
@@ -25,6 +27,7 @@ import {
   legacyUnreadable,
   mirrorOf,
   newQuote,
+  revisionOf,
   stateOf,
   wasEverSent,
   type LifecycleContext,
@@ -92,6 +95,7 @@ const ALLOWED: Record<string, string[]> = {
   lost: ["draft"],
   // stored by the old bulk menu
   expired: ["draft", "revised"],
+  replaced: [],
   // a status this code does not know
   on_hold: ["draft"],
 };
@@ -169,7 +173,8 @@ describe("status sets", () => {
   it("names the open, awaiting and sent statuses", () => {
     expect(OPEN).toEqual(["draft", "ready_to_send", "quoted", "feedback", "revised"]);
     expect(AWAITING).toEqual(["quoted", "feedback"]);
-    expect(SENT_EVIDENCE).toEqual(["quoted", "feedback", "revised", "won", "expired"]);
+    expect(SENT_EVIDENCE).toEqual(["quoted", "feedback", "revised", "won", "expired", "replaced"]);
+    expect(PRICING_CLOSED).toEqual(["quoted", "feedback", "won", "lost", "expired", "replaced"]);
     expect(FOLLOW_UP_INTERVAL_DAYS).toBe(3);
   });
 
@@ -184,8 +189,8 @@ describe("status sets", () => {
     }
   });
 
-  it("names every status a quote can show: the settable ones, and Expired", () => {
-    expect(SHOWN_STATUSES).toEqual([...TARGETS, "expired"]);
+  it("names every status a quote can show: the settable ones, Expired and Replaced", () => {
+    expect(SHOWN_STATUSES).toEqual([...TARGETS, "expired", "replaced"]);
   });
 });
 
@@ -270,7 +275,7 @@ describe("applyTransition", () => {
         const run = () => applyTransition(state({ status: from }), { to }, ctx);
         if (to === from) {
           expect(run(), `${from} -> ${to}`).toEqual({ changed: false });
-        } else if (next.includes(to)) {
+        } else if (next.includes(to) && to !== "revised") {
           const result = run();
           expect(result.changed, `${from} -> ${to}`).toBe(true);
           if (result.changed) expect(result.state.status).toBe(to);
@@ -278,6 +283,12 @@ describe("applyTransition", () => {
           expect(refusal(run), `${from} -> ${to}`).toBe("not_allowed");
         }
       }
+    }
+  });
+
+  it("never makes a quote Revised itself: its revision is a new quote (applyRevision)", () => {
+    for (const from of ["quoted", "feedback", "expired"]) {
+      expect(() => applyTransition(state({ status: from }), { to: "revised" }, ctx)).toThrow("a quote that was sent is revised as a new quote");
     }
   });
 
@@ -384,7 +395,7 @@ describe("applyTransition", () => {
 
     it("leaves the validity alone on every other change", () => {
       const quoted = state({ status: "quoted", validUntil: "2026-10-25", sentAt: SENT, firstSentAt: SENT });
-      for (const to of ["feedback", "revised", "won", "lost"]) {
+      for (const to of ["feedback", "won", "lost"]) {
         expect(changed(quoted, { to, validityDays: 30 }).state.validUntil, to).toBe("2026-10-25");
       }
     });
@@ -415,7 +426,7 @@ describe("applyTransition", () => {
 
     it("loses its sub-status when the quote moves on", () => {
       const feedback = state({ status: "feedback", substatus: "Negotiation", sentAt: SENT, firstSentAt: SENT });
-      for (const to of ["revised", "won", "lost", "quoted"]) {
+      for (const to of ["won", "lost", "quoted"]) {
         expect(changed(feedback, { to }).state.substatus, to).toBeNull();
       }
     });
@@ -437,7 +448,7 @@ describe("applyTransition", () => {
 
     it("keeps a comment as the lost comment on no change but Lost", () => {
       for (const [from, next] of Object.entries(ALLOWED)) {
-        for (const to of next.filter((status) => status !== "lost")) {
+        for (const to of next.filter((status) => status !== "lost" && status !== "revised")) {
           const { state: after, entry } = changed(state({ status: from }), { to, comment: "checked with ops" });
           expect(after.lostComment, `${from} -> ${to}`).toBeNull();
           expect(entry.comment, `${from} -> ${to}`).toBe("checked with ops");
@@ -497,12 +508,6 @@ describe("applyTransition", () => {
       expect(next.lastContactAt).toEqual(SENT);
     });
 
-    it("clears the sub-status when a quote is revised", () => {
-      const feedback = state({ status: "feedback", substatus: "Rate Revision Requested", sentAt: SENT, firstSentAt: SENT });
-      const { state: next } = changed(feedback, { to: "revised" });
-      expect(next.substatus).toBeNull();
-      expect(next.sentAt).toEqual(SENT);
-    });
 
     it("dates nothing", () => {
       const { state: next } = changed(state({ status: "draft" }), { to: "ready_to_send" });
@@ -518,7 +523,7 @@ describe("applyTransition", () => {
       expect(() => applyTransition(expired, { to: "won" }, ctx)).toThrow("a quote cannot go from Expired to Won");
       expect(refusal(() => applyTransition(expired, { to: "feedback" }, ctx))).toBe("not_allowed");
       expect(refusal(() => applyTransition(expired, { to: "lost" }, ctx))).toBe("not_allowed");
-      expect(changed(expired, { to: "revised" }).state.status).toBe("revised");
+      expect(allowedTransitions(expired, TODAY)).toEqual(["draft", "revised"]);
       expect(changed(expired, { to: "draft" }).state.status).toBe("draft");
     });
 
@@ -1531,5 +1536,57 @@ describe("legacyUnreadable", () => {
 
   it("keeps the first unreadable history only", () => {
     expect(legacyUnreadable(state(), { timeline: "second", timelineUnreadable: "first" })).toEqual({});
+  });
+});
+
+describe("applyRevision", () => {
+  const sent = state({
+    status: "feedback",
+    substatus: "Negotiation",
+    sentAt: SENT,
+    firstSentAt: FIRST_SENT,
+    lastContactAt: SENT,
+    validUntil: "2026-10-25",
+    ownerUserId: "user-2",
+    ownerLabel: "Jana",
+  });
+
+  it("replaces a sent quote, keeping what it was sent with, and names its revision", () => {
+    const { state: next, entry } = applyRevision(sent, "QCZ20261010001-R1", ctx);
+    expect(next).toEqual({ ...sent, status: "replaced", substatus: null });
+    expect(entry).toEqual({ kind: "status", at: AT.toISOString(), userId: "user-1", user: "Martin", status: "replaced", comment: "Replaced by QCZ20261010001-R1" });
+  });
+
+  it("revises Quoted, Feedback and Expired quotes only", () => {
+    expect(applyRevision(state({ status: "quoted", sentAt: SENT }), "R", ctx).state.status).toBe("replaced");
+    expect(applyRevision(state({ status: "quoted", validUntil: YESTERDAY }), "R", ctx).state.status).toBe("replaced");
+    for (const status of ["draft", "ready_to_send", "revised", "won", "lost", "replaced", "on_hold"]) {
+      expect(refusal(() => applyRevision(state({ status }), "R", ctx)), status).toBe("not_allowed");
+    }
+  });
+
+  it("decides nothing: a decision date is only Won's and Lost's", () => {
+    expect(applyRevision(sent, "R", ctx).state.decidedAt).toBeNull();
+  });
+
+  it("leaves a Replaced quote nowhere to go and out of the open quotes", () => {
+    const replaced = applyRevision(sent, "R", ctx).state;
+    expect(allowedTransitions(replaced, TODAY)).toEqual([]);
+    expect(OPEN).not.toContain("replaced");
+    expect(effectiveStatus("replaced", YESTERDAY, TODAY)).toBe("replaced");
+    expect(wasEverSent(replaced, [])).toBe(true);
+  });
+});
+
+describe("revisionOf", () => {
+  it("starts the revision Revised, with the owner and validity of the quote it revises and nothing sent", () => {
+    const source = state({ status: "quoted", sentAt: SENT, firstSentAt: FIRST_SENT, lastContactAt: SENT, validUntil: "2026-10-25", ownerUserId: "user-2", ownerLabel: "Jana", shipmentId: "s-1", shipmentJobNumber: "CZ1" });
+    const { state: next, entry } = revisionOf(source, "QCZ20261010001", ctx);
+    expect(next).toEqual(state({ status: "revised", validUntil: "2026-10-25", ownerUserId: "user-2", ownerLabel: "Jana", createdAt: AT }));
+    expect(entry).toEqual({ kind: "status", at: AT.toISOString(), userId: "user-1", user: "Martin", status: "revised", comment: "Revision of QCZ20261010001" });
+  });
+
+  it("can be priced: Revised is not among the closed statuses", () => {
+    expect(PRICING_CLOSED).not.toContain("revised");
   });
 });

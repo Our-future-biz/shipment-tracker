@@ -580,6 +580,49 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     }
   }
 
+  /**
+   * A quote and the revision that replaces it, in ONE transaction: the quote is locked, `plan`
+   * gets it as stored and every reference of the company that starts with `prefix` (deleted
+   * quotes included), and returns the revision's reference and row and the quote's lifecycle
+   * write. Both are written or neither is. References are chosen under the same advisory lock as
+   * createWithReference, and the whole is tried again should the unique index refuse the insert.
+   * Null, without calling `plan`, when there is no such quote.
+   */
+  async revise(
+    companyId: string,
+    quoteNumber: string,
+    prefix: string,
+    plan: (quote: SalesQuoteRecord, existing: string[]) => { reference: string; row: NewSalesQuote; write: LifecycleWrite },
+  ): Promise<{ quote: SalesQuoteRecord; revision: SalesQuoteRecord } | null> {
+    const adoptions = this.adoptions(companyId);
+    for (let retries = 0; ; retries++) {
+      try {
+        const result = await db.transaction(async (tx) => {
+          await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`quote-ref:${companyId}`}))`);
+          const quote = await this.loadSales(companyId, quoteNumber, { lock: tx });
+          if (!quote) return null;
+          const used = await tx
+            .select({ quoteNumber: quoteTable.quoteNumber })
+            .from(quoteTable)
+            .where(and(eq(quoteTable.companyId, companyId), like(quoteTable.quoteNumber, `${escapeLike(prefix)}%`)));
+          const { reference, row, write } = plan(quote, used.map((r) => r.quoteNumber));
+          const inserted = await tx
+            .insert(quoteTable)
+            .values({ ...row, companyId, quoteNumber: reference })
+            .returning();
+          const [revision] = salesRows(inserted);
+          if (!revision) throw new Error(`quote ${reference} was not inserted`);
+          return { quote: await this.writeLifecycle(tx, quote, write), revision };
+        });
+        // As in withLockedQuote: an adoption made inside the transaction counts once it is committed.
+        if (this.adoptions(companyId) !== adoptions) this.countAdoption(companyId);
+        return result;
+      } catch (err) {
+        if (!isUniqueViolation(err) || retries >= MAX_REFERENCE_RETRIES) throw err;
+      }
+    }
+  }
+
   private countAdoption(companyId: string): void {
     this.adoptionsMade.set(companyId, this.adoptions(companyId) + 1);
   }

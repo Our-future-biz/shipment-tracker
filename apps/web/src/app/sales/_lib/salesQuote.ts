@@ -79,9 +79,10 @@ export function statusLines(data: SalesQuoteData): TimelineEntry[] {
   return timeline.filter((entry) => entry && typeof entry === "object" && (!entry.kind || entry.kind === "status") && typeof entry.status === "string");
 }
 
-// The reference of a sales quote - QCZ, the day, that day's number and for a variant -2, -3, ... -
-// as the server gives them out (SALES_REFERENCE_PATTERN in apps/api/lib/salesReference.ts).
-const SALES_QUOTE_REF = /^QCZ[0-9]{8}[0-9]{3,}(-[0-9]+)?$/;
+// The reference of a sales quote - QCZ, the day, that day's number, for a variant -2, -3, ... and
+// for a revision -R1, -R2, ... - as the server gives them out (SALES_REFERENCE_PATTERN in
+// apps/api/lib/salesReference.ts).
+const SALES_QUOTE_REF = /^QCZ[0-9]{8}[0-9]{3,}(-[0-9]+)?(-R[0-9]+)?$/;
 
 /** Whether a text is the reference of a sales quote, and not a number of the old quotes module or anything else. */
 export function isSalesQuoteRef(ref: string): boolean {
