@@ -695,8 +695,6 @@ const REFS_ROUTING: FieldDef[] = [
   { key: "pod", label: "POD" },
   { key: "origin", label: "Origin" },
   { key: "destination", label: "Destination" },
-  { key: "cargoOrigin", label: "Cargo Origin" },
-  { key: "countryCode", label: "Country Code" },
 ];
 const PARTIES_AGENTS: FieldDef[] = [
   { key: "customerPic", label: "Customer's PIC" },
@@ -749,6 +747,7 @@ const CARGO_COMMERCIAL_L: CargoField[] = [
   { key: "typeOfPackages", label: "Type of packages" },
   { key: "hsCode", label: "HS code", highlight: true },
   { key: "cargoDescription", label: "Cargo description", highlight: true },
+  { key: "cargoOrigin", label: "Cargo origin" },
   { key: "commercialInvoice", label: "Commercial invoice number(s)" },
   { key: "commercialInvoiceValue", label: "Commercial invoice value" },
 ];
