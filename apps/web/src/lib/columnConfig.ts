@@ -250,7 +250,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "surface", title: "Surface", width: 100, type: "computed", readonly: true },
 
   // Quote
-  { key: "salesNumber", title: "Sales Number", width: 140, type: "text", apiField: "salesNumber" },
+  { key: "salesNumber", title: "Sales Reference", width: 140, type: "text", apiField: "salesNumber" },
   { key: "selling", title: "Total Selling Costs", width: 140, type: "text", apiField: "selling" },
   { key: "buying", title: "Total Buying Costs", width: 140, type: "text", apiField: "buying" },
   { key: "profit", title: "Profit", width: 120, type: "computed", readonly: true },

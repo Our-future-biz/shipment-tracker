@@ -889,7 +889,7 @@ class ShipmentService {
     if (!existing) throw APIError.notFound("Shipment not found");
     const won = markWon && (existing.createdFromQuote || canManageSales(actor.role));
     const synced = await quoteLinksService.syncReference(companyId, existing.salesNumber.trim(), won ? { wonByShipmentId: id } : {});
-    if (!synced) throw APIError.failedPrecondition("the Sales Number of this shipment is not the reference of a sales quote");
+    if (!synced) throw APIError.failedPrecondition("the Sales Reference of this shipment is not the reference of a sales quote");
     return synced;
   }
 

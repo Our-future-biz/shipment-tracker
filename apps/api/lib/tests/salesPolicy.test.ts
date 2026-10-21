@@ -116,7 +116,7 @@ describe("quoteDeletePermission", () => {
 
   const blockedByShipment = {
     allowed: false,
-    reason: `shipment ${JOB} was created from this quote - remove the Sales Number from the shipment first`,
+    reason: `shipment ${JOB} was created from this quote - remove the Sales Reference from the shipment first`,
     blockedBy: "shipment",
   };
   const managersOnly = { allowed: false, reason: "only a manager can delete this quote", blockedBy: "role" };
@@ -216,7 +216,7 @@ describe("quoteDeletePermission", () => {
   it("goes by the link itself: a shipment whose job number is not known still stops the delete", () => {
     expect(quoteDeletePermission(actor("admin"), quote({ shipmentId: LINKED.shipmentId, shipmentJobNumber: null }))).toEqual({
       allowed: false,
-      reason: "a shipment was created from this quote - remove the Sales Number from the shipment first",
+      reason: "a shipment was created from this quote - remove the Sales Reference from the shipment first",
       blockedBy: "shipment",
     });
     // A job number without a link is a leftover, not a shipment.

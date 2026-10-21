@@ -114,7 +114,7 @@ export function quoteDeletePermission(
     const shipment = quote.shipmentJobNumber ? `shipment ${quote.shipmentJobNumber}` : "a shipment";
     return {
       allowed: false,
-      reason: `${shipment} was created from this quote - remove the Sales Number from the shipment first`,
+      reason: `${shipment} was created from this quote - remove the Sales Reference from the shipment first`,
       blockedBy: "shipment",
     };
   }

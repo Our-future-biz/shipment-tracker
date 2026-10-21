@@ -115,7 +115,7 @@ function Cut({ full, maxWidthClass, children }: CutProps) {
 export const QUOTE_COLUMNS: QuoteColumn[] = [
   {
     key: "reference",
-    title: "Sales Number",
+    title: "Sales Reference",
     width: 146,
     sortBy: "quoteNumber",
     render: (q) => <QuoteRefLink quoteNumber={q.quoteNumber} />,

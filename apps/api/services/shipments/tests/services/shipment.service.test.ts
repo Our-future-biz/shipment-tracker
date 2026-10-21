@@ -489,7 +489,7 @@ describe("linkQuote", () => {
     links.syncReference.mockResolvedValue(null);
     await expect(shipmentService.linkQuote(SHIPMENT, USER_ACTOR, false)).rejects.toMatchObject({
       code: "failed_precondition",
-      message: "the Sales Number of this shipment is not the reference of a sales quote",
+      message: "the Sales Reference of this shipment is not the reference of a sales quote",
     });
   });
 

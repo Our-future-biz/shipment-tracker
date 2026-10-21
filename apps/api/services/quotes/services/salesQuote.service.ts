@@ -646,7 +646,7 @@ class SalesQuoteService {
     const { shipments: naming } = await shipments._internalShipmentsNamingQuote({ reference: quoteNumber });
     if (naming.length > 0) {
       throw APIError.failedPrecondition(
-        `shipment ${naming.map((s) => s.jobNumber).join(", ")} names this quote in its Sales Number - change that first`,
+        `shipment ${naming.map((s) => s.jobNumber).join(", ")} names this quote in its Sales Reference - change that first`,
       );
     }
     const at = new Date();

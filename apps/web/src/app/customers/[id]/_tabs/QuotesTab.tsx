@@ -88,7 +88,7 @@ export function QuotesTab({ customerId }: QuotesTabProps) {
 
   const columns: ColumnsType<SalesQuote> = [
     {
-      title: "Sales Number",
+      title: "Sales Reference",
       dataIndex: "quoteNumber",
       width: 170,
       // The whole row opens the quote too.

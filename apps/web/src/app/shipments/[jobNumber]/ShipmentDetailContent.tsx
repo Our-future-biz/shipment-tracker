@@ -709,7 +709,7 @@ const PARTIES_AGENTS: FieldDef[] = [
 ];
 // Selling, buying and profit are read-only here: they are the totals of the Costs Breakdown tab.
 const QUOTE_L: FieldDef[] = [
-  { key: "salesNumber", label: "Sales Number" },
+  { key: "salesNumber", label: "Sales Reference" },
   { key: "selling", label: "Total Selling Costs", ro: true },
   { key: "buying", label: "Total Buying Costs", ro: true },
   { key: "profit", label: "Profit", ro: true },
@@ -1196,7 +1196,7 @@ export function ShipmentDetailContent() {
                     { key: "loadType", label: "Load Type" },
                     { key: "serviceType", label: "Service Type" },
                     { key: "customerReference", label: "Customer Reference" },
-                    { key: "salesNumber", label: "Sales Number" },
+                    { key: "salesNumber", label: "Sales Reference" },
                     { key: "serviceName", label: "Service Name" },
                     { key: "customer", label: "Customer", ro: true },
                     { key: "shipper", label: "Shipper", ro: true },
