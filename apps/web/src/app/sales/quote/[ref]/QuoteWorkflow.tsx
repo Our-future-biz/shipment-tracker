@@ -145,8 +145,15 @@ export function QuoteWorkflow() {
   const pickedCustomer = useRef<string | null>(null);
   const { customerContactFields } = useQuoteCustomerFields();
   // The steps that are unfolded. Each folds on its own; a new quote starts at the first.
-  // The step of the form that is on screen; the others wait behind their tiles.
-  const [activeSection, setActiveSection] = useState<SectionKey>("customer");
+  // The step of the form that is on screen; the others wait behind their tiles. Null until the
+  // quote is here: a quote opens on Pricing, a new one without a customer yet on Customer.
+  const [activeSection, setActiveSection] = useState<SectionKey | null>(null);
+  const startSection: SectionKey = draft.customerName ? "pricing" : "customer";
+  // The step is chosen once, as the quote arrives, so typing the customer of a new quote does
+  // not move the form on to Pricing.
+  useEffect(() => {
+    if (quote && activeSection === null) setActiveSection(startSection);
+  }, [quote, activeSection, startSection]);
   // The date picked as "Valid until" while the server is storing it; undefined when none is on
   // its way. The field shows it meanwhile, so the picker does not hand the same date in again.
   const [pendingValidity, setPendingValidity] = useState<string | null>();
@@ -916,7 +923,8 @@ export function QuoteWorkflow() {
     saveNow();
     setActiveSection(to);
   };
-  const shownIndex = Math.max(0, sections.findIndex((s) => s.key === activeSection));
+  const shownSection = activeSection ?? startSection;
+  const shownIndex = Math.max(0, sections.findIndex((s) => s.key === shownSection));
   const shown = sections[shownIndex];
   const nextSection = sections[shownIndex + 1];
 
@@ -1071,7 +1079,7 @@ export function QuoteWorkflow() {
       <div className="p-6 flex flex-col gap-3">
         <QuoteStepTiles
           steps={sections.map((s) => ({ key: s.key, title: s.title, status: sectionStatus(s.key) }))}
-          active={activeSection}
+          active={shownSection}
           onSelect={(key) => setActiveSection(key as SectionKey)}
         />
 
