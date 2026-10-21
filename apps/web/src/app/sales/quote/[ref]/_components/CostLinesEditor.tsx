@@ -10,6 +10,7 @@ import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
 import { convertLine, quoteCurrency, type LivePricing } from "@/app/sales/_lib/salesQuote";
+import { LockedAmountInput } from "./LockedAmountInput";
 import { MiniButton, RemoveLineButton } from "./QuoteButtons";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./LineBlock";
 
@@ -161,17 +162,7 @@ export function CostLinesEditor({
                     />
                   </td>
                   <td className={LINE_TD_CLASS}>
-                    {/* Width needs "!": antd's own input-number width is unlayered CSS and would win over a plain utility. */}
-                    <InputNumber
-                      size="small"
-                      className="!w-full"
-                      aria-label="Amount"
-                      min={0}
-                      precision={2}
-                      parser={moneyInputParser}
-                      value={l.amount}
-                      onChange={(v) => patch(i, { amount: v ?? 0 })}
-                    />
+                    <LockedAmountInput aria-label="Amount" value={l.amount} currency={l.currency} onChange={(amount) => patch(i, { amount })} />
                   </td>
                   <td className={`${LINE_TD_CLASS} text-right font-medium tabular-nums whitespace-nowrap ${converted === null ? "text-red-600" : "text-slate-600"}`}>
                     {converted === null ? "no rate" : fmtMoney(converted, currency)}
