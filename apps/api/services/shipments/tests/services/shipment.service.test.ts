@@ -22,6 +22,7 @@ vi.mock("../../repositories/shipment.repository", () => ({
     customerRollups: vi.fn(),
     customerFacts: vi.fn(),
     truckPlate: vi.fn(),
+    liveBySalesNumbers: vi.fn(),
   },
 }));
 vi.mock("../../repositories/shipmentAttachment.repository", () => ({ shipmentAttachmentRepository: { documentTypesByShipmentIds: vi.fn() } }));
@@ -532,5 +533,31 @@ describe("customerFacts", () => {
     expect(repository.customerFacts).toHaveBeenCalledWith(COMPANY);
     // A read of facts: no quote is told anything, nothing is reconciled.
     expect(links.syncReference).not.toHaveBeenCalled();
+  });
+});
+
+describe("shipmentsNamingQuotes", () => {
+  it("answers every reference asked for - trimmed, once - with the shipments that name it, the oldest first", async () => {
+    repository.liveBySalesNumbers.mockResolvedValue([
+      { reference: REF, id: "s-1", jobNumber: "CZ00000101", status: "Booked" },
+      { reference: REF, id: "s-2", jobNumber: "CZ00000102", status: "Delivered" },
+    ]);
+    await expect(shipmentService.shipmentsNamingQuotes(COMPANY, [` ${REF} `, REF, OTHER_REF, "  "])).resolves.toEqual([
+      {
+        reference: REF,
+        shipments: [
+          { id: "s-1", jobNumber: "CZ00000101", status: "Booked" },
+          { id: "s-2", jobNumber: "CZ00000102", status: "Delivered" },
+        ],
+      },
+      { reference: OTHER_REF, shipments: [] },
+    ]);
+    expect(repository.liveBySalesNumbers).toHaveBeenCalledWith(COMPANY, [REF, OTHER_REF]);
+  });
+
+  it("refuses more than a page of quotes at once, before reading anything", async () => {
+    const references = Array.from({ length: 201 }, (_, i) => `QCZ20261010${String(i).padStart(3, "0")}`);
+    await expect(shipmentService.shipmentsNamingQuotes(COMPANY, references)).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(repository.liveBySalesNumbers).not.toHaveBeenCalled();
   });
 });

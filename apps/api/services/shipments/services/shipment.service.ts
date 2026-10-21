@@ -30,6 +30,7 @@ import type {
   CostImportOutcome,
   CustomerShipmentFacts,
   QuoteLinkOutcome,
+  QuoteShipments,
   QuoteSyncResult,
   ShipmentDueItem,
   ShipmentItem,
@@ -243,6 +244,8 @@ const DATE_FIELDS = new Set([
   "equipmentDeliveryDate",
 ]);
 const MONEY_FIELDS = new Set(["selling", "buying"]);
+// How many quotes one request may ask the shipments of: a page of the Quotes list at most.
+const MAX_QUOTE_REFERENCES = 200;
 
 // Requests may send "" for the customs priority; it is stored as Standard.
 type BlankablePriority = { customsPriority?: CustomsPriority | "" };
@@ -859,6 +862,21 @@ class ShipmentService {
 
   async shipmentsNamingQuote(companyId: string, reference: string): Promise<{ id: string; jobNumber: string }[]> {
     return shipmentRepository.liveBySalesNumber(companyId, reference.trim());
+  }
+
+  /**
+   * The live shipments that name each of `references` as their Sales Number, the oldest first:
+   * what the Quotes list counts and lists per quote. Every reference asked for is answered, one
+   * no shipment names with none.
+   */
+  async shipmentsNamingQuotes(companyId: string, references: string[]): Promise<QuoteShipments[]> {
+    const wanted = [...new Set(references.map((reference) => reference.trim()).filter(Boolean))];
+    if (wanted.length > MAX_QUOTE_REFERENCES) throw APIError.invalidArgument(`At most ${MAX_QUOTE_REFERENCES} quotes at once`);
+    const byReference = new Map(wanted.map((reference): [string, QuoteShipments["shipments"]] => [reference, []]));
+    for (const { reference, ...shipment } of await shipmentRepository.liveBySalesNumbers(companyId, wanted)) {
+      byReference.get(reference)?.push(shipment);
+    }
+    return [...byReference].map(([reference, shipments]) => ({ reference, shipments }));
   }
 
   async customerFacts(companyId: string): Promise<{ customers: CustomerShipmentFacts[]; shipmentsWithoutCustomer: number }> {

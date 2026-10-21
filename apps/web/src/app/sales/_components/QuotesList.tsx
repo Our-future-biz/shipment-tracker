@@ -33,6 +33,8 @@ import type { SalesQuoteFilter } from "@/hooks/salesQueryKeys";
 import { useDebounced } from "@/hooks/useDebounced";
 import { useQuoteFamily } from "@/hooks/useQuoteFamily";
 import { useSalesQuoteList } from "@/hooks/useSalesQuoteList";
+import { useQuoteShipments } from "@/hooks/useQuoteShipments";
+import { QuoteShipmentsContext } from "./QuoteShipmentsCell";
 import { useSalesQuotes, type QuoteCall } from "@/hooks/useSalesQuotes";
 import { useSalesPref, useCompanyDetails } from "@/hooks/useSalesPrefs";
 import { useCurrentExchangeRates, type CurrentExchangeRates } from "@/hooks/useExchangeRates";
@@ -293,6 +295,10 @@ export function QuotesList() {
     [matching, sortedBy, sortDirection, page, pageSize],
   );
   const { quotes, total, isLoading: isReading, isError, reload } = useSalesQuoteList(request, { enabled: settled });
+  // How many shipments each quote on the page has, asked for the page at once - only while the
+  // Shipment(s) column is shown.
+  const pageReferences = useMemo(() => quotes.map((q) => q.quoteNumber), [quotes]);
+  const { byReference: shipmentsByQuote } = useQuoteShipments(visibleKeys.includes("shipment") ? pageReferences : []);
   // The rows on screen are not yet the ones the address names: they are being read, or the search
   // is still being typed.
   const isLoading = !settled || isReading;
@@ -685,29 +691,31 @@ export function QuotesList() {
       <ExchangeRatesError exchange={exchange} />
       {isError && <QuotesLoadError onRetry={() => reload()} />}
 
-      <div>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <SortableContext items={visibleKeys} strategy={horizontalListSortingStrategy}>
-            <DataTable<SalesQuote>
-              dataSource={quotes}
-              columns={columns}
-              rowKey="quoteNumber"
-              loading={isLoading || exchange.isLoading}
-              scroll={{ x: "max-content" }}
-              components={{ header: { cell: DraggableHeaderCell } }}
-              // The rows are the server's page; the total is the number of quotes the search and filters find.
-              server={{ total, page, pageSize, onChange: (nextPage, nextPageSize) => show({ page: nextPage, pageSize: nextPageSize }) }}
-              onChange={handleTableChange}
-              locale={{ emptyText }}
-              rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys, columnWidth: 40 }}
-              onRow={(record) => ({
-                onClick: () => router.push(quoteHref(record.quoteNumber)),
-                className: "cursor-pointer",
-              })}
-            />
-          </SortableContext>
-        </DndContext>
-      </div>
+      <QuoteShipmentsContext.Provider value={shipmentsByQuote}>
+        <div>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={visibleKeys} strategy={horizontalListSortingStrategy}>
+              <DataTable<SalesQuote>
+                dataSource={quotes}
+                columns={columns}
+                rowKey="quoteNumber"
+                loading={isLoading || exchange.isLoading}
+                scroll={{ x: "max-content" }}
+                components={{ header: { cell: DraggableHeaderCell } }}
+                // The rows are the server's page; the total is the number of quotes the search and filters find.
+                server={{ total, page, pageSize, onChange: (nextPage, nextPageSize) => show({ page: nextPage, pageSize: nextPageSize }) }}
+                onChange={handleTableChange}
+                locale={{ emptyText }}
+                rowSelection={{ selectedRowKeys: selectedKeys, onChange: setSelectedKeys, columnWidth: 40 }}
+                onRow={(record) => ({
+                  onClick: () => router.push(quoteHref(record.quoteNumber)),
+                  className: "cursor-pointer",
+                })}
+              />
+            </SortableContext>
+          </DndContext>
+        </div>
+      </QuoteShipmentsContext.Provider>
 
       <NewQuoteDialog open={newOpen} onClose={() => setNewOpen(false)} />
 
