@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Input, InputNumber, Select } from "antd";
 import { PlusOutlined } from "@ant-design/icons";
 import type { ExchangeRates } from "@/lib/exchangeRates";
@@ -9,6 +9,7 @@ import type { CostLine, SalesQuoteData } from "@/app/sales/_lib/types";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
+import { ConfirmModal } from "@/components/ConfirmModal";
 import { convertLine, quoteCurrency, type LivePricing } from "@/app/sales/_lib/salesQuote";
 import { MiniButton, RemoveLineButton } from "./QuoteButtons";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./LineBlock";
@@ -67,6 +68,22 @@ export function CostLinesEditor({
   const currency = quoteCurrency(quote);
   const patch = (i: number, p: Partial<CostLine>) => onChange(lines.map((x, j) => (j === i ? { ...x, ...p } : x)));
   const lineKeys = useListKeys(lines.length);
+  // The line whose service was changed while its description held text of its own: whether that
+  // text gives way to the service's name is asked.
+  const [asked, setAsked] = useState<{ index: number; description: string; service: string } | null>(null);
+
+  // Choosing a service names the line after it. An empty description takes the name at once; one
+  // that says something else is kept until the user says to replace it.
+  const chooseService = (i: number, code: string) => {
+    const next = chargeOf(code);
+    const description = lines[i]?.description?.trim() ?? "";
+    if (!description || description === next.type) {
+      patch(i, { ...next, description: next.type });
+      return;
+    }
+    patch(i, next);
+    setAsked({ index: i, description, service: next.type });
+  };
 
   return (
     <LineBlock
@@ -118,7 +135,7 @@ export function CostLinesEditor({
                       className="w-full"
                       aria-label="Service"
                       value={l.chargeCode || toChargeCode(l.type)}
-                      onChange={(v) => patch(i, chargeOf(v))}
+                      onChange={(v) => chooseService(i, v)}
                       options={chargeOptions(l.chargeCode || toChargeCode(l.type))}
                     />
                   </td>
@@ -184,6 +201,20 @@ export function CostLinesEditor({
             })}
           </tbody>
         </LineTable>
+      )}
+      {asked && (
+        <ConfirmModal
+          open
+          onClose={() => setAsked(null)}
+          onConfirm={() => {
+            patch(asked.index, { description: asked.service });
+            setAsked(null);
+          }}
+          title="Change the description?"
+          description={`The description says "${asked.description}". Keep it, or change it to "${asked.service}"?`}
+          confirmLabel={`Change to ${asked.service}`}
+          cancelLabel="Keep"
+        />
       )}
     </LineBlock>
   );
