@@ -3,9 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button, InputNumber, Modal, type GetRef } from "antd";
 import type { CostLine } from "@/app/sales/_lib/types";
-import { fmtMoney, moneyInputParser } from "@/lib/money";
-
-const round2 = (n: number) => Math.round(n * 100) / 100;
+import { fmtMoney, moneyInputParser, round2 } from "@/lib/money";
 
 /** The selling line a buying line becomes with a markup in %: the same charge, its amount marked up. */
 export function sellingFromBuying(line: CostLine, markupPct: number): CostLine {
@@ -33,7 +31,7 @@ export function AddToSellingDialog({ line, onAdd, onClose }: AddToSellingDialogP
   const [markup, setMarkup] = useState<number | null>(null);
   const [lump, setLump] = useState<number | null>(null);
   const [selling, setSelling] = useState<number | null>(null);
-  const name = line.description.trim() || line.type;
+  const name = (line.description ?? "").trim() || line.type;
   const markupInput = useRef<GetRef<typeof InputNumber>>(null);
 
   // The caret goes to the markup once the dialog is up - after the amount that opened it has

@@ -15,14 +15,28 @@ const textOf = (line: CostLine) => (line.description ?? "").trim().toLowerCase()
 /**
  * The index of the line on the other side that goes with `line`: the one sharing its pairId (none
  * when that one was removed alone); for lines from before pairs, the first unpaired one with the
- * same item and description, else with the same item. -1 when there is none.
+ * same item and description - the item alone is no match ("Other" least of all). -1 when there is none.
  */
 export function counterpartIndex(line: CostLine, others: readonly CostLine[]): number {
   if (line.pairId) return others.findIndex((o) => o.pairId === line.pairId);
   // A line paired with another one is not taken for a guess.
-  const sameItem = (o: CostLine) => !o.pairId && itemOf(o) === itemOf(line);
-  const exact = others.findIndex((o) => sameItem(o) && textOf(o) === textOf(line));
-  return exact >= 0 ? exact : others.findIndex(sameItem);
+  return others.findIndex((o) => !o.pairId && itemOf(o) === itemOf(line) && textOf(o) === textOf(line));
+}
+
+/** Whether a buying line that just got its amount is offered to selling: not when selling has it already. */
+export const offerToSelling = (line: CostLine, selling: readonly CostLine[]): boolean => counterpartIndex(line, selling) < 0;
+
+export type LineSide = "buying" | "selling";
+export interface LineRemoval {
+  side: LineSide;
+  index: number;
+}
+
+/** The removal of the line at `index` on `side` - and of its counterpart at `other` on the other side, when `both`. */
+export function lineRemovals(side: LineSide, index: number, other: number, both: boolean): LineRemoval[] {
+  const removals: LineRemoval[] = [{ side, index }];
+  if (both) removals.push({ side: side === "buying" ? "selling" : "buying", index: other });
+  return removals;
 }
 
 /** Copies of the buying lines for selling, each pair sharing an id (the buying lines get theirs). */

@@ -429,6 +429,12 @@ describe("a shipper or consignee picked from the Customer Database", () => {
     expect(repository.updateForCompany.mock.calls[2]![2]).not.toHaveProperty("consigneeContact");
   });
 
+  it("reads the customer once: the link check and the fill share it", async () => {
+    stored.set(SHIPMENT, row({ consigneeId: null }));
+    await update({ consigneeId: PARTY });
+    expect(customers.customerGet).toHaveBeenCalledTimes(1);
+  });
+
   it("fills the consignee's delivery from its Delivery address and clears the old site and hours", async () => {
     stored.set(SHIPMENT, row({ consigneeId: null, deliveryAddress: "old street", deliverySiteId: SITE_ID, consigneeOpeningFrom: "08:00" }));
     await update({ consignee: "Alza.cz a.s.", consigneeId: PARTY });

@@ -30,7 +30,8 @@ export function RemoveBothDialog({ side, line, counterpart, onBoth, onOnly, onCl
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button onClick={onOnly}>Only from {side}</Button>
-          <Button type="primary" danger autoFocus onClick={onBoth}>
+          {/* Not focused on purpose: a reflex Enter must not take the other side's line. */}
+          <Button type="primary" danger onClick={onBoth}>
             Remove from both
           </Button>
         </div>

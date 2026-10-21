@@ -2,6 +2,8 @@
 // Addresses: the shipper's pick-up from a Pickup address, the consignee's delivery from a
 // Delivery address - address, postcode / country - and its Contact from the customer's contacts.
 
+import { normalizeCountry, normalizePostcode } from "./roadFreight";
+
 export type Party = "shipper" | "consignee";
 
 /** The parts of a Customer Database customer an address is read from. */
@@ -53,20 +55,28 @@ export const stopKeys = (party: Party) => STOP_KEYS[party];
 
 const ADDRESS_TYPE: Record<Party, PartyAddress["type"]> = { shipper: "Pickup", consignee: "Delivery" };
 
-/** A postcode as a shipment stores it: a Czech one as its five digits, null when it is not one. */
-function storedPostcode(postcode: string, country: string): string | null {
-  const value = postcode.trim().toUpperCase().replace(/\s+/g, " ");
-  if (!value) return null;
-  if (country !== "CZ") return value;
-  const digits = value.replace(/\s/g, "");
-  return /^\d{5}$/.test(digits) ? digits : null;
-}
+// The stop's own rules (lib/roadFreight), as far as the customer's data meets them: what a rule
+// refuses is left out rather than refused - nobody typed it into this write.
+const lenient = <T>(read: () => T): T | null => {
+  try {
+    return read();
+  } catch {
+    return null;
+  }
+};
 
-const fromAddress = (a: PartyAddress): StopFill | null => {
+/** The country of a stop: the address's, else the customer's, else CZ. */
+const stopCountry = (address: string, customer: PartyCustomer): string =>
+  lenient(() => normalizeCountry(address, "Address")) ?? lenient(() => normalizeCountry(customer.country, "Customer")) ?? "CZ";
+
+/** A postcode as the shipment stores it; null when it is none by the country's rule (five digits for CZ). */
+const stopPostcode = (postcode: string, country: string): string | null => lenient(() => normalizePostcode(postcode, country, "Address"));
+
+const fromAddress = (a: PartyAddress, customer: PartyCustomer): StopFill | null => {
   const address = [a.street, a.city].map((p) => p.trim()).filter(Boolean).join(", ");
   if (!address) return null;
-  const country = (a.country || "CZ").trim().toUpperCase();
-  return { address, postcode: storedPostcode(a.postalCode, country), country, siteId: null, openingFrom: "", openingTo: "" };
+  const country = stopCountry(a.country, customer);
+  return { address, postcode: stopPostcode(a.postalCode, country), country, siteId: null, openingFrom: "", openingTo: "" };
 };
 
 /**
@@ -76,7 +86,7 @@ const fromAddress = (a: PartyAddress): StopFill | null => {
 export function partyStop(party: Party, customer: PartyCustomer, addresses: readonly PartyAddress[]): StopFill | null {
   for (const type of [ADDRESS_TYPE[party], "Registered"] as const) {
     for (const a of addresses.filter((x) => x.type === type)) {
-      const stop = fromAddress(a);
+      const stop = fromAddress(a, customer);
       if (stop) return stop;
     }
   }
@@ -85,9 +95,9 @@ export function partyStop(party: Party, customer: PartyCustomer, addresses: read
   // ("811 01 Bratislava") is not taken.
   const address = customer.registeredAddress.trim();
   if (!address) return null;
-  const country = (customer.country || "CZ").trim().toUpperCase();
+  const country = stopCountry("", customer);
   const last = address.includes(",") ? address.split(",").pop()!.trim() : "";
-  const postcode = /\d/.test(last) && /^[A-Z0-9][A-Z0-9 -]{2,9}$/i.test(last) ? storedPostcode(last, country) : null;
+  const postcode = /\d/.test(last) && /^[A-Z0-9][A-Z0-9 -]{2,9}$/i.test(last) ? stopPostcode(last, country) : null;
   return { address, postcode, country, siteId: null, openingFrom: "", openingTo: "" };
 }
 

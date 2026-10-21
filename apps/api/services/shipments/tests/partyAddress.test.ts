@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("encore.dev/api", () => import("../../../lib/tests/encoreApi.stub"));
+
 import { partyContact, partyStop, type PartyAddress } from "../lib/partyAddress";
 
 const address = (over: Partial<PartyAddress> = {}): PartyAddress => ({
@@ -43,6 +46,11 @@ describe("partyStop", () => {
 
   it("gives nothing for a customer with no address", () => {
     expect(partyStop("shipper", customer("  "), [address({ type: "Delivery" })])).toBeNull();
+  });
+
+  it("gives an address with no country the customer's, and reads its postcode by that country's rule", () => {
+    expect(partyStop("shipper", customer("", "DE"), [address({ country: "", postalCode: "10115" })])).toMatchObject({ country: "DE", postcode: "10115" });
+    expect(partyStop("shipper", customer("", "de"), [address({ country: "", postalCode: "1100" })])).toMatchObject({ country: "DE", postcode: "1100" });
   });
 
   it("keeps a Czech postcode out when it is not five digits; a foreign one as typed", () => {

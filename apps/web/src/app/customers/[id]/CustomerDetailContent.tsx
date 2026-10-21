@@ -90,7 +90,7 @@ export function CustomerDetailContent() {
 
       <div className="p-6">
         {activeTab === "overview" && <OverviewTab customerId={id} onSelectTab={handleSelectTab} />}
-        {activeTab === "contacts" && <ContactsTab customerId={id} />}
+        {activeTab === "contacts" && <ContactsTab customerId={id} country={customer.country} />}
         {activeTab === "sites" && <SitesTab customerId={id} />}
         {activeTab === "addresses" && <AddressesTab customerId={id} />}
         {activeTab === "shipments" && <ShipmentsTab customerId={id} />}

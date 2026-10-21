@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { CostLine } from "@/app/sales/_lib/types";
-import { withCharge } from "./CostLinesEditor";
+import { amountOf, withCharge } from "./CostLinesEditor";
 
 const line = (over: Partial<CostLine> = {}): CostLine => ({ type: "Other", chargeCode: "other", description: "", supplier: "", currency: "USD", amount: 0, ...over });
+
+describe("amountOf", () => {
+  it("reads a stored amount as a number, whether it was saved as one, as text, or not at all", () => {
+    expect(amountOf(line({ amount: 750 }))).toBe(750);
+    expect(amountOf({ ...line(), amount: "750" as unknown as number })).toBe(750);
+    expect(amountOf({ ...line(), amount: undefined as unknown as number })).toBe(0);
+  });
+});
 
 describe("withCharge", () => {
   it("pre-types the description from the chosen type", () => {

@@ -45,6 +45,11 @@ import { normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
 import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { shipmentDeleted } from "../topics";
 
+// The customers a write links to, by the field holding the link: read once, for the link check
+// and for the party fill after it.
+type LinkedCustomer = Awaited<ReturnType<typeof customers.customerGet>>["customer"];
+type LinkedCustomers = Partial<Record<"customerId" | "shipperId" | "consigneeId" | "principalPartyId", LinkedCustomer>>;
+
 // Extra detail rows accepted alongside the shipment's own fields on create/update.
 export interface DetailRows {
   containers?: ContainerLine[];
@@ -532,13 +537,14 @@ class ShipmentService {
    * caller's company: an unknown id is refused and a blank one unlinks. The Principal Party
    * also stores the customer's own name.
    */
-  private async resolveCustomerLinks(data: Partial<NewShipmentRecord>): Promise<void> {
+  private async resolveCustomerLinks(data: Partial<NewShipmentRecord>): Promise<LinkedCustomers> {
     const links = [
       ["customerId", "customer"],
       ["shipperId", "shipper"],
       ["consigneeId", "consignee"],
       ["principalPartyId", "principal party"],
     ] as const;
+    const linked: LinkedCustomers = {};
     await Promise.all(
       links.map(async ([key, label]) => {
         if (!(key in data)) return;
@@ -549,6 +555,7 @@ class ShipmentService {
         }
         try {
           const { customer } = await customers.customerGet({ id });
+          linked[key] = customer;
           if (key === "principalPartyId") data.principalParty = customer.companyName;
         } catch (err) {
           if (err instanceof APIError && err.code === ErrCode.NotFound) {
@@ -558,6 +565,7 @@ class ShipmentService {
         }
       }),
     );
+    return linked;
   }
 
   /**
@@ -567,7 +575,7 @@ class ShipmentService {
    * Manager, else anyone). A write that sends the stop or the contact itself keeps that part,
    * as does a customer with no address or no contact.
    */
-  private async fillPartyStops(data: Partial<NewShipmentRecord>, existing?: ShipmentRecord): Promise<void> {
+  private async fillPartyStops(data: Partial<NewShipmentRecord>, linked: LinkedCustomers, existing?: ShipmentRecord): Promise<void> {
     const parties = [
       ["shipper", "shipperId", "shipperContact"],
       ["consignee", "consigneeId", "consigneeContact"],
@@ -577,13 +585,13 @@ class ShipmentService {
     await Promise.all(
       parties.map(async ([party, idKey, contactKey]) => {
         const id = data[idKey];
-        if (!id || id === existing?.[idKey]) return;
+        const customer = linked[idKey];
+        if (!id || !customer || id === existing?.[idKey]) return;
         const keys = stopKeys(party);
         const fillStop = !Object.values(keys).some(sent);
         const fillContact = !sent(contactKey);
         if (!fillStop && !fillContact) return;
-        const [{ customer }, { data: addresses }, { data: contacts }] = await Promise.all([
-          customers.customerGet({ id }),
+        const [{ data: addresses }, { data: contacts }] = await Promise.all([
           fillStop ? customers.addressList({ customerId: id }) : { data: [] },
           fillContact ? customers.contactList({ customerId: id }) : { data: [] },
         ]);
@@ -694,8 +702,8 @@ class ShipmentService {
     if (directionStatus) shipmentData.status = directionStatus;
     const stored: Record<string, unknown> = shipmentData;
     normalizeCustomsPriority(stored, (key) => stored[key] as string);
-    await this.resolveCustomerLinks(shipmentData);
-    await this.fillPartyStops(shipmentData);
+    const linked = await this.resolveCustomerLinks(shipmentData);
+    await this.fillPartyStops(shipmentData, linked);
     Object.assign(
       shipmentData,
       exportBolDefaults(shipmentData.tradeDirection ?? "", {
@@ -764,8 +772,8 @@ class ShipmentService {
         throw APIError.invalidArgument(`customsStatus can only be set to: ${[PAPERWORK_VERIFIED, ...AFTER_VERIFIED].join(", ")}`);
       }
     }
-    await this.resolveCustomerLinks(shipmentData);
-    await this.fillPartyStops(shipmentData, existing);
+    const linked = await this.resolveCustomerLinks(shipmentData);
+    await this.fillPartyStops(shipmentData, linked, existing);
 
     // ATA / ATD is the tax date; once the job is invoiced it is final (owner decision,
     // 14 Oct 2026) — correct it by crediting the invoice first. A trade-direction switch

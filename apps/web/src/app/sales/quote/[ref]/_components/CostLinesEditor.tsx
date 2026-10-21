@@ -29,6 +29,11 @@ const chargeOf = (code: string): Pick<CostLine, "type" | "chargeCode"> => ({ typ
 // The description a charge pre-types ("Ocean freight"); "Other" leaves it to be written.
 const describedAs = (code: string): string => (code === "other" ? "" : chargeLabel(code));
 
+/** A line's amount as a number: a quote's JSON may hold it as text, or not at all (priced by qty × unit price). */
+export const amountOf = (line: CostLine): number => Number(line.amount) || 0;
+
+type ListKeys = ReturnType<typeof useListKeys>;
+
 /**
  * A line given another charge: its type, and the description that charge pre-types - unless the
  * description was written by hand (anything but blank or the old charge's own text).
@@ -66,11 +71,13 @@ interface CostLinesEditorProps {
   actions?: ReactNode;
   // Marks under a line's description, e.g. the tariff it was priced from.
   lineTag?: (line: CostLine) => ReactNode;
+  // The rows' React keys (useListKeys over `lines`), owned by the caller: a removal it makes on
+  // its own - of a counterpart on the other side - drops that row's key as well.
+  lineKeys: ListKeys;
   // A line whose amount was 0 and was just set by hand.
   onAmountSet?: (line: CostLine, index: number) => void;
-  // Asked before a line is removed; without it the line goes at once. `dropRow` keeps the rows
-  // after it on their own React keys and must be called when the line is in fact removed.
-  onRemove?: (index: number, dropRow: () => void) => void;
+  // Takes over removing a line (to ask about its counterpart first); without it the line goes at once.
+  onRemove?: (index: number) => void;
 }
 
 // The buying or the selling lines of a quote. Every line keeps its own currency; the "In EUR"
@@ -86,13 +93,13 @@ export function CostLinesEditor({
   onChange,
   actions,
   lineTag,
+  lineKeys,
   onAmountSet,
   onRemove,
 }: CostLinesEditorProps) {
   const buying = kind === "buying";
   const currency = quoteCurrency(quote);
   const patch = (i: number, p: Partial<CostLine>) => onChange(lines.map((x, j) => (j === i ? { ...x, ...p } : x)));
-  const lineKeys = useListKeys(lines.length);
 
   return (
     <LineBlock
@@ -173,7 +180,7 @@ export function CostLinesEditor({
                   <td className={LINE_TD_CLASS}>
                     <LockedAmountInput
                       aria-label="Amount"
-                      value={l.amount}
+                      value={amountOf(l)}
                       currency={l.currency}
                       onChange={(amount) => patch(i, { amount })}
                       onCommit={(amount, before) => {
@@ -201,9 +208,8 @@ export function CostLinesEditor({
                     <RemoveLineButton
                       label={`Remove ${kind} line ${i + 1}`}
                       onClick={() => {
-                        const dropRow = () => lineKeys.remove(i);
-                        if (onRemove) return onRemove(i, dropRow);
-                        dropRow();
+                        if (onRemove) return onRemove(i);
+                        lineKeys.remove(i);
                         onChange(lines.filter((_, j) => j !== i));
                       }}
                     />

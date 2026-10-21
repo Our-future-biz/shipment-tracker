@@ -69,7 +69,7 @@ import { PdfPreviewModal } from "./_components/PdfPreviewModal";
 import { EmailQuoteModal } from "./_components/EmailQuoteModal";
 import { AddToSellingDialog } from "./_components/AddToSellingDialog";
 import { RemoveBothDialog } from "./_components/RemoveBothDialog";
-import { counterpartIndex, newPairId, pairedCopies } from "../../_lib/costPairs";
+import { counterpartIndex, lineRemovals, newPairId, offerToSelling, pairedCopies, type LineRemoval, type LineSide } from "../../_lib/costPairs";
 import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./_components/LineBlock";
@@ -147,7 +147,7 @@ export function QuoteWorkflow() {
   // A buying line that just got its amount (and its place), offered to selling as well with a markup.
   const [toSelling, setToSelling] = useState<{ line: CostLine; index: number } | null>(null);
   // A line being removed that has a counterpart on the other side: asked whether both go.
-  const [removing, setRemoving] = useState<{ side: "buying" | "selling"; index: number; other: number; dropRow: () => void } | null>(null);
+  const [removing, setRemoving] = useState<{ side: LineSide; index: number; other: number } | null>(null);
   // The customer picked last in the Customer box, while its contact person is still being read.
   const pickedCustomer = useRef<string | null>(null);
   const { customerContactFields } = useQuoteCustomerFields();
@@ -292,6 +292,10 @@ export function QuoteWorkflow() {
   // Packages
   const packages = draft.packages ?? [];
   const packageKeys = useListKeys(packages.length);
+  // The cost lines' row keys live here, not in their editors: a line removed with its counterpart
+  // drops a row on each side.
+  const buyingKeys = useListKeys((draft.buyingLines ?? []).length);
+  const sellingKeys = useListKeys((draft.sellingLines ?? []).length);
   const cargo = useMemo(() => computeCargo(draft), [draft]);
   // The quote's own weight and volume - typed into an inquiry, for cargo without package lines -
   // are not the editor's to write: they count while there are no lines and are still there when
@@ -449,23 +453,29 @@ export function QuoteWorkflow() {
     set({ buyingLines: buying, sellingLines: selling });
   };
 
-  // Removing a line that has a counterpart on the other side asks first; one without goes at once.
-  const removeLine = (side: "buying" | "selling", index: number, dropRow: () => void) => {
-    const [own, others] = side === "buying" ? [buyingLines, sellingLines] : [sellingLines, buyingLines];
-    const other = counterpartIndex(own[index]!, others);
-    if (other >= 0) return setRemoving({ side, index, other, dropRow });
-    dropRow();
-    updateLines(side === "buying" ? "buyingLines" : "sellingLines", own.filter((_, j) => j !== index));
+  const linesOf = (side: LineSide) => (side === "buying" ? buyingLines : sellingLines);
+  const keysOf = (side: LineSide) => (side === "buying" ? buyingKeys : sellingKeys);
+  // The lines without those removed, as one change (two would each start from the same draft and
+  // the second undo the first); each removed row's key goes with it, so the rows after keep theirs.
+  const applyRemovals = (removals: LineRemoval[]) => {
+    const patch: Partial<SalesQuoteData> = {};
+    for (const side of ["buying", "selling"] as const) {
+      const own = removals.filter((r) => r.side === side).sort((a, b) => b.index - a.index);
+      if (!own.length) continue;
+      for (const { index } of own) keysOf(side).remove(index);
+      patch[side === "buying" ? "buyingLines" : "sellingLines"] = linesOf(side).filter((_, j) => !own.some((r) => r.index === j));
+    }
+    set(patch);
   };
-  // One change for both sides: two would each start from the same draft and the second undo the first.
+  // Removing a line that has a counterpart on the other side asks first; one without goes at once.
+  const removeLine = (side: LineSide, index: number) => {
+    const other = counterpartIndex(linesOf(side)[index]!, linesOf(side === "buying" ? "selling" : "buying"));
+    if (other >= 0) return setRemoving({ side, index, other });
+    applyRemovals(lineRemovals(side, index, other, false));
+  };
   const finishRemoving = (both: boolean) => {
     if (!removing) return;
-    const { side, index, other, dropRow } = removing;
-    dropRow();
-    const without = (lines: CostLine[], at: number) => lines.filter((_, j) => j !== at);
-    const buying = side === "buying" ? without(buyingLines, index) : both ? without(buyingLines, other) : buyingLines;
-    const selling = side === "selling" ? without(sellingLines, index) : both ? without(sellingLines, other) : sellingLines;
-    set({ buyingLines: buying, sellingLines: selling });
+    applyRemovals(lineRemovals(removing.side, removing.index, removing.other, both));
     setRemoving(null);
   };
 
@@ -837,8 +847,12 @@ export function QuoteWorkflow() {
             live={exchange}
             onChange={(l) => updateLines("buyingLines", l)}
             lineTag={buyingTag}
-            onAmountSet={(line, index) => setToSelling({ line, index })}
-            onRemove={(index, dropRow) => removeLine("buying", index, dropRow)}
+            lineKeys={buyingKeys}
+            onAmountSet={(line, index) => {
+              // Not offered when selling has the line already (a copy made before its amount was set).
+              if (offerToSelling(line, sellingLines)) setToSelling({ line, index });
+            }}
+            onRemove={(index) => removeLine("buying", index)}
           />
           {sideOverrideNote("buying", buyingLines)}
           <CostLinesEditor
@@ -850,7 +864,8 @@ export function QuoteWorkflow() {
             live={exchange}
             onChange={(l) => updateLines("sellingLines", l)}
             lineTag={sellingTag}
-            onRemove={(index, dropRow) => removeLine("selling", index, dropRow)}
+            lineKeys={sellingKeys}
+            onRemove={(index) => removeLine("selling", index)}
             actions={
               <MiniButton
                 icon={<CopyOutlined />}
