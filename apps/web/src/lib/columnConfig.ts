@@ -192,7 +192,6 @@ export const COLUMNS: ColumnDef[] = [
   { key: "plannedDeliveryTime", title: "Planned Delivery Time", width: 140, type: "date", apiField: "plannedDeliveryTime" },
   { key: "cargoOrigin", title: "Cargo Origin", width: 160, type: "country", apiField: "cargoOrigin" },
   { key: "origin", title: "Origin", width: 160, type: "place", apiField: "origin" },
-  { key: "countryCode", title: "Country Code", width: 110, type: "countryCode", apiField: "countryCode" },
 
   // Commercial
   { key: "commercialInvoice", title: "Commercial Invoice number(s)", width: 170, type: "text", apiField: "commercialInvoice" },
