@@ -27,8 +27,9 @@ export const IMPORT_TASK_KEYS = [
   "imp_departed_port",
   "imp_arrived_hub",
   "imp_customs_cleared",
-  "imp_delivered",
   "imp_billed",
+  "imp_delivered",
+  "imp_extra_costs",
 ] as const;
 
 export const EXPORT_TASK_KEYS = [

@@ -22,8 +22,9 @@ export const IMPORT_TASKS: TaskDef[] = [
   { key: "imp_departed_port", label: "Cargo departed from port", description: "Cargo departed from port", stage: 2 },
   { key: "imp_arrived_hub", label: "Cargo arrived to HUB", description: "Cargo arrived to HUB", stage: 3 },
   { key: "imp_customs_cleared", label: "Cargo customs cleared", description: "Cargo customs cleared", stage: 4 },
-  { key: "imp_delivered", label: "Delivered", description: "Shipment delivered to final destination", stage: 5 },
   { key: "imp_billed", label: "Billed", description: "Shipment has been billed", stage: 5 },
+  { key: "imp_delivered", label: "Delivered", description: "Shipment delivered to final destination", stage: 5 },
+  { key: "imp_extra_costs", label: "Extra costs processed", description: "Extra costs processed", stage: 5 },
 ];
 
 export const EXPORT_TASKS: TaskDef[] = [
