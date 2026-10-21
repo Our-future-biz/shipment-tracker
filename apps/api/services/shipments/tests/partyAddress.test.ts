@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { partyStop, type PartyAddress } from "../lib/partyAddress";
+import { partyContact, partyStop, type PartyAddress } from "../lib/partyAddress";
 
 const address = (over: Partial<PartyAddress> = {}): PartyAddress => ({
   type: "Pickup",
@@ -48,5 +48,27 @@ describe("partyStop", () => {
   it("keeps a Czech postcode out when it is not five digits; a foreign one as typed", () => {
     expect(partyStop("shipper", customer(), [address({ postalCode: "1100" })])?.postcode).toBeNull();
     expect(partyStop("shipper", customer(), [address({ postalCode: " sw1a 1aa", country: "gb" })])).toMatchObject({ postcode: "SW1A 1AA", country: "GB" });
+  });
+});
+
+describe("partyContact", () => {
+  const contact = (name: string, role: string, isMain = false) => ({ name, role, isMain });
+
+  it("takes Customer Service, else the Logistics Manager, else anyone", () => {
+    const all = [contact("Eva Sales", "Sales", true), contact("Petr Logistika", "Logistics Manager"), contact("Jana Servis", "Customer Service")];
+    expect(partyContact(all)).toBe("Jana Servis");
+    expect(partyContact(all.slice(0, 2))).toBe("Petr Logistika");
+    expect(partyContact(all.slice(0, 1))).toBe("Eva Sales");
+  });
+
+  it("prefers the main contact within a role, else keeps the order given", () => {
+    expect(partyContact([contact("První", "Customer Service"), contact("Hlavní", "Customer Service", true)])).toBe("Hlavní");
+    expect(partyContact([contact("První", "Customer Service"), contact("Druhý", "Customer Service")])).toBe("První");
+    expect(partyContact([contact("Účetní", "Finance / Accounting"), contact("Hlavní", "Owner", true)])).toBe("Hlavní");
+  });
+
+  it("gives nothing with no named contact", () => {
+    expect(partyContact([])).toBeNull();
+    expect(partyContact([contact("  ", "Customer Service")])).toBeNull();
   });
 });

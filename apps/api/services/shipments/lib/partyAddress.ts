@@ -1,6 +1,6 @@
 // Picking a shipper or consignee from the Customer Database fills its stop from the customer's
 // Addresses: the shipper's pick-up from a Pickup address, the consignee's delivery from a
-// Delivery address - address, postcode / country.
+// Delivery address - address, postcode / country - and its Contact from the customer's contacts.
 
 export type Party = "shipper" | "consignee";
 
@@ -89,4 +89,26 @@ export function partyStop(party: Party, customer: PartyCustomer, addresses: read
   const last = address.includes(",") ? address.split(",").pop()!.trim() : "";
   const postcode = /\d/.test(last) && /^[A-Z0-9][A-Z0-9 -]{2,9}$/i.test(last) ? storedPostcode(last, country) : null;
   return { address, postcode, country, siteId: null, openingFrom: "", openingTo: "" };
+}
+
+/** The parts of a customer contact the shipment's Contact is chosen by. */
+export interface PartyContact {
+  name: string;
+  role: string;
+  isMain: boolean;
+}
+
+// Who a shipment's Contact is, by role: Customer Service, else the Logistics Manager, else anyone.
+const CONTACT_ROLES = ["Customer Service", "Logistics Manager"];
+
+/** The name of the contact a party's Contact is filled with; the main one first within a role. Null with none. */
+export function partyContact(contacts: readonly PartyContact[]): string | null {
+  const named = contacts.filter((c) => c.name.trim());
+  const rank = (c: PartyContact) => {
+    const role = CONTACT_ROLES.indexOf(c.role);
+    return (role < 0 ? CONTACT_ROLES.length : role) * 2 + (c.isMain ? 0 : 1);
+  };
+  // A stable sort keeps the order the Customer Database gives within one rank.
+  const best = [...named].sort((a, b) => rank(a) - rank(b))[0];
+  return best ? best.name.trim() : null;
 }

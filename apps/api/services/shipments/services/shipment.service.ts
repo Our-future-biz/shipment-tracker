@@ -42,7 +42,7 @@ import { isUuid } from "../../../lib/uuid";
 import { publicFields } from "../lib/rows";
 import { changesTaxDate } from "../lib/taxDate";
 import { normalizeCargoDimensions, normalizeStops } from "../lib/roadFreight";
-import { partyStop, stopKeys, type Party } from "../lib/partyAddress";
+import { partyContact, partyStop, stopKeys, type Party } from "../lib/partyAddress";
 import { shipmentDeleted } from "../topics";
 
 // Extra detail rows accepted alongside the shipment's own fields on create/update.
@@ -563,28 +563,34 @@ class ShipmentService {
   /**
    * A shipper or consignee newly picked from the Customer Database fills its stop - the
    * shipper's pick-up, the consignee's delivery - from that customer's Pickup / Delivery
-   * address, else its registered one. A write that sends that stop itself, or a customer with
-   * no address, keeps it.
+   * address, else its registered one, and its Contact (Customer Service, else Logistics
+   * Manager, else anyone). A write that sends the stop or the contact itself keeps that part,
+   * as does a customer with no address or no contact.
    */
   private async fillPartyStops(data: Partial<NewShipmentRecord>, existing?: ShipmentRecord): Promise<void> {
     const parties = [
-      ["shipper", "shipperId"],
-      ["consignee", "consigneeId"],
-    ] as const satisfies readonly (readonly [Party, keyof ShipmentRecord])[];
+      ["shipper", "shipperId", "shipperContact"],
+      ["consignee", "consigneeId", "consigneeContact"],
+    ] as const satisfies readonly (readonly [Party, keyof ShipmentRecord, keyof ShipmentRecord])[];
     const written: Record<string, unknown> = data;
+    const sent = (key: string) => !!String(written[key] ?? "").trim();
     await Promise.all(
-      parties.map(async ([party, idKey]) => {
+      parties.map(async ([party, idKey, contactKey]) => {
         const id = data[idKey];
         if (!id || id === existing?.[idKey]) return;
         const keys = stopKeys(party);
-        if (Object.values(keys).some((k) => String(written[k] ?? "").trim())) return;
-        const [{ customer }, { data: addresses }] = await Promise.all([
+        const fillStop = !Object.values(keys).some(sent);
+        const fillContact = !sent(contactKey);
+        if (!fillStop && !fillContact) return;
+        const [{ customer }, { data: addresses }, { data: contacts }] = await Promise.all([
           customers.customerGet({ id }),
-          customers.addressList({ customerId: id }),
+          fillStop ? customers.addressList({ customerId: id }) : { data: [] },
+          fillContact ? customers.contactList({ customerId: id }) : { data: [] },
         ]);
-        const stop = partyStop(party, customer, addresses);
-        if (!stop) return;
-        for (const field of Object.keys(keys) as (keyof typeof keys)[]) written[keys[field]] = stop[field];
+        const stop = fillStop ? partyStop(party, customer, addresses) : null;
+        if (stop) for (const field of Object.keys(keys) as (keyof typeof keys)[]) written[keys[field]] = stop[field];
+        const contact = partyContact(contacts);
+        if (contact) written[contactKey] = contact;
       }),
     );
   }

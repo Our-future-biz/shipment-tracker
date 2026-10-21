@@ -7,7 +7,7 @@ vi.mock("encore.dev/api", () => import("../../../../lib/tests/encoreApi.stub"));
 vi.mock("encore.dev/log", () => ({ default: { warn: vi.fn() } }));
 vi.mock("~encore/clients", () => ({
   auth: { usersList: vi.fn() },
-  customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn() },
+  customers: { customerUpdate: vi.fn(), customerGet: vi.fn(), addressList: vi.fn(), contactList: vi.fn() },
   invoicing: { invoicingImportQuote: vi.fn(), openInvoiceCount: vi.fn() },
   quotes: { salesQuoteGet: vi.fn() },
 }));
@@ -406,6 +406,27 @@ describe("a shipper or consignee picked from the Customer Database", () => {
         { type: "Delivery", street: "Dopravní", city: "Praha 11", postalCode: "18000", country: "CZ" },
       ],
     } as never);
+    vi.mocked(customers.contactList).mockResolvedValue({
+      data: [
+        { name: "Eva Prodej", role: "Sales", isMain: true },
+        { name: "Jana Servis", role: "Customer Service", isMain: false },
+      ],
+    } as never);
+  });
+
+  it("fills the Contact with the Customer Service contact, unless the write sends one", async () => {
+    stored.set(SHIPMENT, row({ consigneeId: null, consigneeContact: "Old Person" }));
+    await update({ consigneeId: PARTY });
+    expect(written()).toMatchObject({ consigneeContact: "Jana Servis", deliveryAddress: "Dopravní, Praha 11" });
+
+    stored.set(SHIPMENT, row({ consigneeId: null }));
+    await update({ consigneeId: PARTY, consigneeContact: "Typed Person" });
+    expect(repository.updateForCompany.mock.calls[1]![2]).toMatchObject({ consigneeContact: "Typed Person", deliveryAddress: "Dopravní, Praha 11" });
+
+    vi.mocked(customers.contactList).mockResolvedValue({ data: [] } as never);
+    stored.set(SHIPMENT, row({ consigneeId: null }));
+    await update({ consigneeId: PARTY });
+    expect(repository.updateForCompany.mock.calls[2]![2]).not.toHaveProperty("consigneeContact");
   });
 
   it("fills the consignee's delivery from its Delivery address and clears the old site and hours", async () => {
@@ -437,6 +458,9 @@ describe("a shipper or consignee picked from the Customer Database", () => {
     await update({ consigneeId: null });
     await update({ consigneeId: "7d2e1f0a-5b6d-4e7f-8a9b-0c1d2e3f4a5c", deliveryAddress: "typed by hand" });
     expect(customers.addressList).not.toHaveBeenCalled();
+    // The address typed by hand keeps the address, not the contact.
+    expect(customers.contactList).toHaveBeenCalledTimes(1);
+    expect(repository.updateForCompany.mock.calls[2]![2]).toMatchObject({ consigneeContact: "Jana Servis" });
 
     vi.mocked(customers.customerGet).mockResolvedValue({ customer: { companyName: "X", registeredAddress: "", country: "CZ" } } as never);
     vi.mocked(customers.addressList).mockResolvedValue({ data: [] } as never);
