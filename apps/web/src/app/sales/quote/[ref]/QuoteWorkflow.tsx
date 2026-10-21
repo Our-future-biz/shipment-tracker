@@ -136,7 +136,7 @@ export function QuoteWorkflow() {
   const { terms } = useTermsConditions();
 
   const [modal, setModal] = useState<
-    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "roadPrice" | "approveMargin"
+    null | "import" | "copyQuote" | "copyShipment" | "duplicate" | "preview" | "email" | "delete" | "replaceSelling" | "allIn" | "roadPrice" | "approveMargin"
   >(null);
   // The template chosen under Shipping terms while the user is asked whether its text may replace
   // what the quote says; null when no question is open.
@@ -806,17 +806,37 @@ export function QuoteWorkflow() {
             onChange={(l) => updateLines("sellingLines", l)}
             lineTag={sellingTag}
             actions={
-              <MiniButton
-                icon={<CopyOutlined />}
-                disabled={buyingLines.length === 0}
-                title={buyingLines.length === 0 ? "No buying lines to copy" : undefined}
-                onClick={() => (sellingLines.length ? setModal("replaceSelling") : copyBuyingToSelling())}
-              >
-                Copy buying → selling
-              </MiniButton>
+              <>
+                {/* Quoting as all-in changes what the customer is shown, so it is asked about first;
+                    going back to the breakdown is not. */}
+                {draft.allIn ? (
+                  <MiniButton onClick={() => set({ allIn: false })}>Show breakdown</MiniButton>
+                ) : (
+                  <MiniButton
+                    disabled={sellingLines.length === 0}
+                    title={sellingLines.length === 0 ? "No selling lines to quote as all-in" : undefined}
+                    onClick={() => setModal("allIn")}
+                  >
+                    Quote as all-in
+                  </MiniButton>
+                )}
+                <MiniButton
+                  icon={<CopyOutlined />}
+                  disabled={buyingLines.length === 0}
+                  title={buyingLines.length === 0 ? "No buying lines to copy" : undefined}
+                  onClick={() => (sellingLines.length ? setModal("replaceSelling") : copyBuyingToSelling())}
+                >
+                  Copy buying → selling
+                </MiniButton>
+              </>
             }
           />
           {sideOverrideNote("selling", sellingLines)}
+          {draft.allIn && (
+            <div className="text-[12px] font-semibold text-slate-700">
+              Quoted as all-in: the customer&apos;s quotation shows one price of {fmtMoney(totals.selling, totals.currency)}, without the selling lines.
+            </div>
+          )}
           <QuoteRatesEditor data={draft} exchange={exchange} />
           {/* Rates that could not be read leave lines out just the same, but they are not missing:
               the user gets a Retry. */}
@@ -1143,6 +1163,19 @@ export function QuoteWorkflow() {
           description={`Replace the ${sellingLines.length} selling ${sellingLines.length === 1 ? "line" : "lines"} with copies of the buying lines?`}
           confirmLabel="Replace"
           danger
+        />
+      )}
+      {modal === "allIn" && (
+        <ConfirmModal
+          open
+          onClose={() => setModal(null)}
+          onConfirm={() => {
+            set({ allIn: true });
+            setModal(null);
+          }}
+          title="Quote as all-in"
+          description={`Do you intend to quote this as an all-in rate? The customer's quotation will show one price of ${fmtMoney(totals.selling, totals.currency)}, without the selling lines. The lines stay here.`}
+          confirmLabel="Quote as all-in"
         />
       )}
       {/* Cancel leaves the quote as it was, the template it names included. */}

@@ -129,7 +129,7 @@ export function quoteDocument(
   // Rate offer (selling) — never expose buying / cost / margin. Every line is shown in the quote's
   // currency, converted and rounded the way the total adds it up, so the lines sum to the total.
   const sellingLines: CostLine[] = data.sellingLines ?? [];
-  const sellingRows = sellingLines
+  const lineRows = sellingLines
     .map(
       (l: CostLine) => `<tr>
         <td>${esc(l.type)}</td>
@@ -138,6 +138,14 @@ export function quoteDocument(
       </tr>`,
     )
     .join("");
+  // An all-in quote offers the total as one price, on one line naming the services it covers.
+  const services = [...new Set(sellingLines.map((l) => l.type).filter(Boolean))].join(", ");
+  const allInRow = `<tr>
+        <td>All-in rate</td>
+        <td>${services ? `Includes: ${esc(services)}` : ""}</td>
+        <td style="text-align:right">${money(totals.selling)}</td>
+      </tr>`;
+  const sellingRows = lineRows && data.allIn ? allInRow : lineRows;
 
   // A quote without selling lines has no price to offer yet, so its document has no rate offer:
   // a "Total price 0.00 EUR" in its place would read as the offer.

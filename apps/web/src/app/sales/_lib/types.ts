@@ -152,6 +152,9 @@ export interface SalesQuoteData {
   // Pricing
   buyingLines?: CostLine[];
   sellingLines?: CostLine[];
+  // Quoted as an all-in rate: the customer's document shows the selling total as one price, without
+  // the lines it is made of. The lines stay on the quote as they are.
+  allIn?: boolean;
   // The currency the quote is presented in (EUR when empty); each line keeps its own.
   currency?: string;
   // The quote's own snapshot of the rates its lines are converted with, by currency, so a quote
