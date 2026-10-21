@@ -390,7 +390,7 @@ export function QuoteWorkflow() {
   const partial: Record<SectionKey, boolean> = {
     customer: !!(draft.customerName || draft.customerContact || draft.customerEmail || draft.customerPhone),
     shipment: !!(draft.direction || draft.serviceType || draft.incoterm || readyDate),
-    routing: !!(draft.origin || draft.destination || draft.pickup || draft.delivery),
+    routing: !!(draft.origin || draft.destination || draft.pol || draft.pod || draft.pickup || draft.delivery),
     cargo: !!(draft.commodity || packages.length || draft.stackable || draft.dangerous),
     pricing: !!(draft.buyingLines?.length || draft.sellingLines?.length),
     terms: !!(draft.shippingTerms || draft.shippingIncludes || draft.shippingExcludes),
@@ -605,7 +605,7 @@ export function QuoteWorkflow() {
     {
       key: "routing",
       title: "Routing",
-      subtitle: "Origin, destination and addresses",
+      subtitle: "Origin, destination, ports and addresses",
       content: (
         <div className={FIELD_COLUMNS_CLASS}>
           <div className="min-w-0">
@@ -613,6 +613,12 @@ export function QuoteWorkflow() {
               <span className="flex items-center">
                 <GeoSelect kind="place" size="small" className="w-full" value={draft.origin} onChange={(v) => set({ origin: v })} />
                 <GeoFlag kind="place" value={draft.origin} />
+              </span>
+            </InfoRow>
+            <InfoRow label="POL">
+              <span className="flex items-center">
+                <GeoSelect kind="place" size="small" className="w-full" placeholder="Port of loading" value={draft.pol} onChange={(v) => set({ pol: v })} />
+                <GeoFlag kind="place" value={draft.pol} />
               </span>
             </InfoRow>
             <InfoRow label="Pickup">
@@ -624,6 +630,12 @@ export function QuoteWorkflow() {
               <span className="flex items-center">
                 <GeoSelect kind="place" size="small" className="w-full" value={draft.destination} onChange={(v) => set({ destination: v })} />
                 <GeoFlag kind="place" value={draft.destination} />
+              </span>
+            </InfoRow>
+            <InfoRow label="POD">
+              <span className="flex items-center">
+                <GeoSelect kind="place" size="small" className="w-full" placeholder="Port of discharge" value={draft.pod} onChange={(v) => set({ pod: v })} />
+                <GeoFlag kind="place" value={draft.pod} />
               </span>
             </InfoRow>
             <InfoRow label="Delivery">

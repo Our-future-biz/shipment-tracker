@@ -140,6 +140,8 @@ export interface SalesQuoteData {
   // Routing
   origin?: string;
   destination?: string;
+  pol?: string; // port of loading
+  pod?: string; // port of discharge
   pickup?: string;
   delivery?: string;
   // Cargo

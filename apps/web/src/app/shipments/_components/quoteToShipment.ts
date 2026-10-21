@@ -56,8 +56,9 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
   set("loadType", LOAD_TYPE[data.serviceType ?? ""] ?? "");
   set("incotermOrigin", data.incoterm ?? "");
 
-  set("pol", data.origin ?? "");
-  set("pod", data.destination ?? "");
+  // The ports the quote names; a quote from before POL / POD has only its origin and destination.
+  set("pol", data.pol || data.origin || "");
+  set("pod", data.pod || data.destination || "");
   set("pickupAddress", data.pickup ?? "");
   set("deliveryAddress", data.delivery ?? "");
   if (isIsoDate(data.readyDate)) set("cargoReadinessDate", data.readyDate);
@@ -225,6 +226,8 @@ export function shipmentToQuoteData(shipment: interfaces.ShipmentItem): SalesQuo
 
     origin: text(shipment.pol),
     destination: text(shipment.pod),
+    pol: text(shipment.pol),
+    pod: text(shipment.pod),
     pickup: text(shipment.pickupAddress),
     delivery: text(shipment.deliveryAddress),
 
