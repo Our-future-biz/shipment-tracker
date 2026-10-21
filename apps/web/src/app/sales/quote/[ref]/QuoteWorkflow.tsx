@@ -42,10 +42,12 @@ import { CustomerAccountTypeBadge } from "@/app/customers/_components/CustomerAc
 import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import type { SalesQuoteData, PackageLine, CostLine } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
-import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES, PRICING_CLOSED_STATUSES } from "../../_lib/types";
+import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES } from "../../_lib/types";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
-import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, stripProtected, type QuoteTotals } from "../../_lib/salesQuote";
+import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, revisionRoot, stripProtected, withoutPricing, type QuoteTotals } from "../../_lib/salesQuote";
+import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../../_lib/exportClose";
+import { ExportCloseDialog } from "../../_components/ExportCloseDialog";
 import { NO_CUSTOMER, changesCustomer, customerLinkFields, withCustomerUnit } from "../../_lib/quoteCustomer";
 import { useQuoteCustomerFields } from "@/hooks/useQuoteCustomerFields";
 import { useQuoteListHref } from "../../_lib/quoteListHref";
@@ -317,30 +319,37 @@ export function QuoteWorkflow() {
   const documentBlocked = documentBlock(totals, exchange.isError);
   // A quote that went out (or is decided) has its buying and selling closed: the server keeps
   // them as stored, and the page shows them locked. New prices are a revision of the quote.
-  const pricingClosed = !!quote && PRICING_CLOSED_STATUSES.includes(quote.status);
+  const pricingClosed = !!quote && !exportClosesQuote(quote.status);
   const printNow = () => {
     const blocked = printQuote(ref, draft, exchange, company);
     if (blocked) toast.error(blocked);
   };
   // Export PDF closes a quote that has not gone out yet: it is sent as it stands (Quoted), which
-  // the user confirms first. A closed quote is printed again as it is.
+  // the user confirms first - unless the margin floor stops the sending, which is said instead.
+  // A closed quote is printed again as it is.
   const exportPdf = () => {
     if (pricingClosed) printNow();
     else if (documentBlocked) toast.error(documentBlocked);
+    else if (sendBlocked) toast.error(sendBlocked);
     else setModal("closeQuote");
   };
   // The print window is opened on the click itself - after the server's answer the browser would
-  // take it for a pop-up - and gets the quote as the server stored it when it was sent.
-  const exportAndClose = async () => {
+  // take it for a pop-up - and gets the quote as the server stored it when it was sent. A window
+  // that does not open closes nothing: the user allows pop-ups and tries again.
+  const exportAndClose = async (validityDays?: number) => {
     const target = window.open("", "_blank");
+    if (!target) {
+      toast.error(PRINT_WINDOW_BLOCKED);
+      return;
+    }
     let sent: SalesQuoteData | null = null;
     const refused = await act(async (expectedDataVersion) => {
-      const answer = await api.quotes.salesQuoteTransition(ref, { ...transitionRequest({ status: "quoted" }), expectedDataVersion });
+      const answer = await api.quotes.salesQuoteTransition(ref, { ...transitionRequest({ status: "quoted", validityDays }), expectedDataVersion });
       sent = asData(answer.quote.data);
       return answer;
     }, { versioned: true });
     if (refused) {
-      target?.close();
+      target.close();
       toast.error(`${ref} - ${refused}`);
       return;
     }
@@ -1188,9 +1197,10 @@ export function QuoteWorkflow() {
         </div>
       </div>
 
-      <ImportInquiryModal open={modal === "import"} onClose={() => setModal(null)} onApply={(p) => set(p)} />
-      <CopyFromModal open={modal === "copyQuote"} mode="quote" currentRef={ref} onClose={() => setModal(null)} onApply={(p) => set(p)} />
-      <CopyFromModal open={modal === "copyShipment"} mode="shipment" currentRef={ref} onClose={() => setModal(null)} onApply={(p) => set(p)} />
+      {/* On a closed quote an import fills in everything but the prices: the server keeps those as stored. */}
+      <ImportInquiryModal open={modal === "import"} onClose={() => setModal(null)} onApply={(p) => set(pricingClosed ? withoutPricing(p) : p)} />
+      <CopyFromModal open={modal === "copyQuote"} mode="quote" currentRef={ref} onClose={() => setModal(null)} onApply={(p) => set(pricingClosed ? withoutPricing(p) : p)} />
+      <CopyFromModal open={modal === "copyShipment"} mode="shipment" currentRef={ref} onClose={() => setModal(null)} onApply={(p) => set(pricingClosed ? withoutPricing(p) : p)} />
       <DuplicateWizardModal
         open={modal === "duplicate"}
         baseRef={ref}
@@ -1201,7 +1211,7 @@ export function QuoteWorkflow() {
           router.push(hrefOf(r));
         }}
       />
-      <PdfPreviewModal open={modal === "preview"} quoteNumber={ref} data={draft} family={family} onClose={() => setModal(null)} />
+      <PdfPreviewModal open={modal === "preview"} quoteNumber={ref} data={draft} family={family} onExport={exportPdf} onClose={() => setModal(null)} />
       <EmailQuoteModal
         open={modal === "email"}
         quoteNumber={ref}
@@ -1251,19 +1261,12 @@ export function QuoteWorkflow() {
             setModal(null);
           }}
           title="Revise as a new quote"
-          description={`${ref} stays as it was sent and becomes Replaced. Its revision - a new quote with the same content and the next free revision number of ${ref.replace(/-R[0-9]+$/, "")} (-R1, -R2, ...) - opens, ready for new prices. Revise it?`}
+          description={`${ref} stays as it was sent and becomes Replaced. Its revision - a new quote with the same content and the next free revision number of ${revisionRoot(ref)} (-R1, -R2, ...) - opens, ready for new prices. Revise it?`}
           confirmLabel="Revise"
         />
       )}
       {modal === "closeQuote" && (
-        <ConfirmModal
-          open
-          onClose={() => setModal(null)}
-          onConfirm={exportAndClose}
-          title="Export and close the quote"
-          description={`Exporting the PDF closes ${ref}: it is marked as sent (Quoted) and its buying and selling can no longer be changed. New prices will need a revision. Export and close it?`}
-          confirmLabel="Export & close"
-        />
+        <ExportCloseDialog quoteNumber={ref} validUntil={quote.validUntil} validityDays={draft.validityDays} onConfirm={exportAndClose} onClose={() => setModal(null)} />
       )}
       {modal === "allIn" && (
         <ConfirmModal

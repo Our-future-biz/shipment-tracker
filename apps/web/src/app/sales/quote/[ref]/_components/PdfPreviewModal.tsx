@@ -14,6 +14,7 @@ import type { SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { SalesDialog } from "@/app/sales/_components/SalesDialog";
 import { hasCompanyDetails } from "@/app/sales/_lib/companyDetails";
 import { printQuote, quoteDocument } from "@/app/sales/_lib/printQuote";
+import { exportClosesQuote } from "@/app/sales/_lib/exportClose";
 import { salesSettingsHref } from "@/app/sales/_lib/tabs";
 
 interface PdfPreviewModalProps {
@@ -26,6 +27,9 @@ interface PdfPreviewModalProps {
   // Given when the variants could not be loaded: the preview says so and offers to ask again -
   // without their tabs it would look like that of a quote without variants.
   familyError?: { onRetry: () => void };
+  // Exports the PDF of the quote the preview is of, as its page does: that closes a quote that
+  // has not gone out yet. Without it the document is printed as shown.
+  onExport?: () => void;
   onClose: () => void;
 }
 
@@ -35,6 +39,7 @@ export function PdfPreviewModal({
   data,
   family,
   familyError,
+  onExport,
   onClose,
 }: PdfPreviewModalProps) {
   const exchange = useCurrentExchangeRates();
@@ -57,7 +62,17 @@ export function PdfPreviewModal({
   // What did not load can be asked for again right here.
   const retry = company.status === "error" ? company.reload : exchange.isError ? exchange.reload : null;
 
+  // Export PDF closes a quote that has not gone out yet, so the quote the preview is of is
+  // exported by its owner (`onExport`). Another variant is printed as it is when it is closed;
+  // one still open is exported from its own page.
+  const own = shownRef === quoteNumber;
+  const variantOpen = !own && activeQuote !== undefined && exportClosesQuote(activeQuote.storedStatus);
   const exportPdf = () => {
+    if (own && onExport) {
+      onClose();
+      onExport();
+      return;
+    }
     const blocked = printQuote(shownRef, shown, exchange, company);
     if (blocked) toast.error(blocked);
   };
@@ -71,7 +86,12 @@ export function PdfPreviewModal({
       footer={
         <>
           <Button onClick={onClose}>Close</Button>
-          <Button type="primary" disabled={doc.blocked !== null} onClick={exportPdf}>
+          <Button
+            type="primary"
+            disabled={doc.blocked !== null || variantOpen}
+            title={variantOpen ? `Open ${shownRef} to export it: exporting closes a quote that has not gone out yet` : undefined}
+            onClick={exportPdf}
+          >
             Export PDF
           </Button>
         </>

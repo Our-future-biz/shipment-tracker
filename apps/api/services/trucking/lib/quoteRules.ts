@@ -42,9 +42,14 @@ export function quoteRefusal(q: QuoteFacts, use: QuoteUse): string | null {
   const name = `Quote ${q.quoteNumber}`;
   if (q.customerId !== use.customerId) return `${name} is for another customer`;
   if (q.status === "lost" || q.effectiveStatus === "lost") return `${name} is lost`;
+  const data = isObject(q.data) ? q.data : {};
+  // Replaced: sent, then revised - the revision (data.replacedBy, the server's key) is the quote now.
+  if (q.status === "replaced") {
+    const revision = typeof data.replacedBy === "string" && data.replacedBy ? ` ${data.replacedBy}` : "";
+    return `${name} was replaced by its revision${revision}: price from that one`;
+  }
   if (!PRICEABLE_QUOTE_STATUSES.includes(q.status)) return `${name} has not been sent to the customer: only a quoted or won quote can price a consignment`;
   if (q.effectiveStatus === "expired" || (q.validUntil !== null && q.validUntil < use.today)) return `${name} is no longer valid (valid until ${q.validUntil ?? "—"})`;
-  const data = isObject(q.data) ? q.data : {};
   if (!isObject(data.roadPricing) || !isObject(data.roadPricing.sell)) return `${name} was not priced from the trucking tariffs`;
   if (q.roadMargin?.needsApproval) return `${name} has a margin below the floor that no manager approved`;
   const road = isObject(data.road) ? data.road : null;

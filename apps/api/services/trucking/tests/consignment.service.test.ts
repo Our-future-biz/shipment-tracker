@@ -252,6 +252,8 @@ describe("create and price sources", () => {
 
     it("refuses a draft, an expired one, an unapproved low margin, another lane or scope", async () => {
       await refused({ status: "draft", effectiveStatus: "draft" }, /has not been sent to the customer/);
+      // A replaced quote was sent - its revision is the one to price from now.
+      await refused({ status: "replaced", effectiveStatus: "replaced", data: { ...data, replacedBy: "QCZ20261010001-R1" } }, "Quote QCZ20261010001 was replaced by its revision QCZ20261010001-R1: price from that one");
       await refused({ effectiveStatus: "expired" }, /is no longer valid/);
       await refused({ validUntil: "2026-10-14" }, "Quote QCZ20261010001 is no longer valid (valid until 2026-10-14)");
       await refused({ roadMargin: { needsApproval: true } }, "Quote QCZ20261010001 has a margin below the floor that no manager approved");

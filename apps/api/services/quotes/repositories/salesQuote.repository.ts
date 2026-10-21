@@ -435,8 +435,9 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   }
 
   /**
-   * How many of the company's live sales quotes that are not won or lost were road-priced (the
-   * document's roadPricing) with one of these trucking tariff versions, on the sell or the buy side.
+   * How many of the company's live sales quotes that are still open - not won, lost or replaced
+   * by a revision - were road-priced (the document's roadPricing) with one of these trucking
+   * tariff versions, on the sell or the buy side.
    */
   async countOpenByTariffVersions(companyId: string, versionIds: string[]): Promise<number> {
     if (!versionIds.length) return 0;
@@ -449,7 +450,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
           eq(quoteTable.companyId, companyId),
           isNull(quoteTable.deletedAt),
           isSalesQuote,
-          sql`${quoteTable.status} NOT IN ('won', 'lost')`,
+          sql`${quoteTable.status} NOT IN ('won', 'lost', 'replaced')`,
           sql`(${quoteTable.data}->'roadPricing'->'sell'->>'tariffVersionId' = ANY(${ids}) OR ${quoteTable.data}->'roadPricing'->'buy'->>'tariffVersionId' = ANY(${ids}))`,
         ),
       );
@@ -543,20 +544,14 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
   }
 
   /**
-   * Inserts a sales quote under a reference chosen while nobody else can choose one: `pick` gets
-   * every reference of the company that starts with `prefix` - deleted quotes included, so a
-   * reference is never reused - and returns the new one; `build` makes the row for it, lifecycle
-   * columns and document in one insert. An advisory lock keeps two parallel calls from picking
-   * the same reference. Code that does not take the lock can still get there first: the unique
-   * index then refuses this insert and the whole allocation is tried again with the next
-   * reference.
+   * Runs `body` in a transaction while nobody else can choose a reference: it gets every
+   * reference of the company that starts with `prefix` - deleted quotes included, so a reference
+   * is never reused - and inserts under the one it picks (insertQuote). An advisory lock keeps
+   * two parallel calls from picking the same reference. Code that does not take the lock can
+   * still get there first: the unique index then refuses the insert and the whole of `body` is
+   * run again, with the references as they are by then.
    */
-  async createWithReference(
-    companyId: string,
-    prefix: string,
-    pick: (existing: string[]) => string,
-    build: (reference: string) => NewSalesQuote,
-  ): Promise<SalesQuoteRecord> {
+  private async withReferences<T>(companyId: string, prefix: string, body: (tx: QuoteTransaction, existing: string[]) => Promise<T>): Promise<T> {
     for (let retries = 0; ; retries++) {
       try {
         return await db.transaction(async (tx) => {
@@ -565,14 +560,7 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
             .select({ quoteNumber: quoteTable.quoteNumber })
             .from(quoteTable)
             .where(and(eq(quoteTable.companyId, companyId), like(quoteTable.quoteNumber, `${escapeLike(prefix)}%`)));
-          const reference = pick(used.map((r) => r.quoteNumber));
-          const inserted = await tx
-            .insert(quoteTable)
-            .values({ ...build(reference), companyId, quoteNumber: reference })
-            .returning();
-          const [row] = salesRows(inserted);
-          if (!row) throw new Error(`quote ${reference} was not inserted`);
-          return row;
+          return body(tx, used.map((r) => r.quoteNumber));
         });
       } catch (err) {
         if (!isUniqueViolation(err) || retries >= MAX_REFERENCE_RETRIES) throw err;
@@ -580,13 +568,39 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     }
   }
 
+  /** One sales quote inserted under `reference`: its lifecycle columns and document in one insert. */
+  private async insertQuote(tx: QuoteTransaction, companyId: string, reference: string, row: NewSalesQuote): Promise<SalesQuoteRecord> {
+    const inserted = await tx
+      .insert(quoteTable)
+      .values({ ...row, companyId, quoteNumber: reference })
+      .returning();
+    const [record] = salesRows(inserted);
+    if (!record) throw new Error(`quote ${reference} was not inserted`);
+    return record;
+  }
+
+  /**
+   * Inserts a sales quote under a reference chosen while nobody else can choose one
+   * (withReferences): `pick` gets the references that start with `prefix` and returns the new
+   * one; `build` makes the row for it.
+   */
+  async createWithReference(
+    companyId: string,
+    prefix: string,
+    pick: (existing: string[]) => string,
+    build: (reference: string) => NewSalesQuote,
+  ): Promise<SalesQuoteRecord> {
+    return this.withReferences(companyId, prefix, async (tx, existing) => {
+      const reference = pick(existing);
+      return this.insertQuote(tx, companyId, reference, build(reference));
+    });
+  }
+
   /**
    * A quote and the revision that replaces it, in ONE transaction: the quote is locked, `plan`
-   * gets it as stored and every reference of the company that starts with `prefix` (deleted
-   * quotes included), and returns the revision's reference and row and the quote's lifecycle
-   * write. Both are written or neither is. References are chosen under the same advisory lock as
-   * createWithReference, and the whole is tried again should the unique index refuse the insert.
-   * Null, without calling `plan`, when there is no such quote.
+   * gets it as stored and the references that start with `prefix` (withReferences), and returns
+   * the revision's reference and row and the quote's lifecycle write. Both are written or
+   * neither is. Null, without calling `plan`, when there is no such quote.
    */
   async revise(
     companyId: string,
@@ -595,32 +609,16 @@ class SalesQuoteRepository extends TenantRepository<typeof quoteTable> {
     plan: (quote: SalesQuoteRecord, existing: string[]) => { reference: string; row: NewSalesQuote; write: LifecycleWrite },
   ): Promise<{ quote: SalesQuoteRecord; revision: SalesQuoteRecord } | null> {
     const adoptions = this.adoptions(companyId);
-    for (let retries = 0; ; retries++) {
-      try {
-        const result = await db.transaction(async (tx) => {
-          await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`quote-ref:${companyId}`}))`);
-          const quote = await this.loadSales(companyId, quoteNumber, { lock: tx });
-          if (!quote) return null;
-          const used = await tx
-            .select({ quoteNumber: quoteTable.quoteNumber })
-            .from(quoteTable)
-            .where(and(eq(quoteTable.companyId, companyId), like(quoteTable.quoteNumber, `${escapeLike(prefix)}%`)));
-          const { reference, row, write } = plan(quote, used.map((r) => r.quoteNumber));
-          const inserted = await tx
-            .insert(quoteTable)
-            .values({ ...row, companyId, quoteNumber: reference })
-            .returning();
-          const [revision] = salesRows(inserted);
-          if (!revision) throw new Error(`quote ${reference} was not inserted`);
-          return { quote: await this.writeLifecycle(tx, quote, write), revision };
-        });
-        // As in withLockedQuote: an adoption made inside the transaction counts once it is committed.
-        if (this.adoptions(companyId) !== adoptions) this.countAdoption(companyId);
-        return result;
-      } catch (err) {
-        if (!isUniqueViolation(err) || retries >= MAX_REFERENCE_RETRIES) throw err;
-      }
-    }
+    const result = await this.withReferences(companyId, prefix, async (tx, existing) => {
+      const quote = await this.loadSales(companyId, quoteNumber, { lock: tx });
+      if (!quote) return null;
+      const { reference, row, write } = plan(quote, existing);
+      const revision = await this.insertQuote(tx, companyId, reference, row);
+      return { quote: await this.writeLifecycle(tx, quote, write), revision };
+    });
+    // As in withLockedQuote: an adoption made inside the transaction counts once it is committed.
+    if (this.adoptions(companyId) !== adoptions) this.countAdoption(companyId);
+    return result;
   }
 
   private countAdoption(companyId: string): void {

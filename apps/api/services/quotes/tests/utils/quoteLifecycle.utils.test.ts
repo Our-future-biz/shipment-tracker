@@ -173,7 +173,8 @@ describe("status sets", () => {
   it("names the open, awaiting and sent statuses", () => {
     expect(OPEN).toEqual(["draft", "ready_to_send", "quoted", "feedback", "revised"]);
     expect(AWAITING).toEqual(["quoted", "feedback"]);
-    expect(SENT_EVIDENCE).toEqual(["quoted", "feedback", "revised", "won", "expired", "replaced"]);
+    // Not Revised: since revisions are new quotes, that is what a quote starts as before it is sent.
+    expect(SENT_EVIDENCE).toEqual(["quoted", "feedback", "won", "expired", "replaced"]);
     expect(PRICING_CLOSED).toEqual(["quoted", "feedback", "won", "lost", "expired", "replaced"]);
     expect(FOLLOW_UP_INTERVAL_DAYS).toBe(3);
   });
@@ -569,7 +570,6 @@ describe("applyTransition", () => {
       for (const [from, to] of [
         ["quoted", "lost"],
         ["feedback", "lost"],
-        ["revised", "lost"],
         ["quoted", "feedback"],
         ["expired", "draft"],
       ]) {
@@ -1325,22 +1325,31 @@ describe("wasEverSent", () => {
     return { state: change.state, timeline: [...quote.timeline, ...change.entries] };
   };
 
+  it("does not count a revision that was never sent: Revised is what a new quote starts as", () => {
+    const { state: revision, entry } = revisionOf(state({ status: "quoted", sentAt: SENT, firstSentAt: FIRST_SENT }), "QCZ20261010001", ctx);
+    expect(wasEverSent(revision, [entry])).toBe(false);
+    // Once sent, the sent date tells - and the history, for a quote stored without one.
+    const sent = moved(revision, ["quoted", "feedback"]);
+    expect(wasEverSent(sent.state, sent.timeline)).toBe(true);
+    expect(wasEverSent({ ...sent.state, firstSentAt: null, status: "revised" }, sent.timeline)).toBe(true);
+  });
+
   it("is told by the first sent date, whatever the status and the history", () => {
     expect(wasEverSent(state({ status: "draft", firstSentAt: FIRST_SENT }), [])).toBe(true);
     expect(wasEverSent(state({ status: "lost", firstSentAt: FIRST_SENT }), undefined)).toBe(true);
   });
 
   it("is told by a stored status that proves the quote went out, also when no sent date was recorded", () => {
-    for (const status of ["quoted", "feedback", "revised", "won", "expired"]) {
+    for (const status of ["quoted", "feedback", "won", "expired", "replaced"]) {
       expect(wasEverSent(state({ status }), []), status).toBe(true);
     }
-    for (const status of ["draft", "ready_to_send", "lost", "on_hold"]) {
+    for (const status of ["draft", "ready_to_send", "revised", "lost", "on_hold"]) {
       expect(wasEverSent(state({ status }), []), status).toBe(false);
     }
   });
 
   it("is told by a history line that set such a status, or that names it as the status the quote left", () => {
-    for (const status of ["quoted", "feedback", "revised", "won", "expired"]) {
+    for (const status of ["quoted", "feedback", "won", "expired", "replaced"]) {
       expect(wasEverSent(state(), [line({ status: "draft" }), line({ status })]), `set ${status}`).toBe(true);
       expect(wasEverSent(state(), [line({ status: "lost", from: status }), line({ status: "draft" })]), `left ${status}`).toBe(true);
     }
@@ -1355,7 +1364,8 @@ describe("wasEverSent", () => {
   });
 
   it("still knows a quote that was Quoted without a sent date after it was reopened through Lost", () => {
-    for (const status of ["quoted", "feedback", "revised"]) {
+    // Not Revised: a revision starts as that before it is sent, so the status alone proves nothing.
+    for (const status of ["quoted", "feedback"]) {
       const reopened = moved(state({ status }), ["lost", "draft"]);
       // Nothing in the facts says it went out any more - the line to Lost does.
       expect(reopened.state, status).toMatchObject({ status: "draft", firstSentAt: null, sentAt: null });

@@ -103,6 +103,7 @@ export const PROTECTED_KEYS = [
   "rates",
   "roadPricing",
   "marginApproval",
+  "replacedBy",
 ] as const satisfies readonly (keyof SalesQuoteData)[];
 
 // The road transport of a quote as the Sales editor enters it; the trucking tariffs price it.
@@ -155,6 +156,8 @@ export interface SalesQuoteData {
   // Quoted as an all-in rate: the customer's document shows the selling total as one price, without
   // the lines it is made of. The lines stay on the quote as they are.
   allIn?: boolean;
+  // The revision that replaced this quote (QCZ…-R1): written by the server when it is revised.
+  replacedBy?: string;
   // The currency the quote is presented in (EUR when empty); each line keeps its own.
   currency?: string;
   // The quote's own snapshot of the rates its lines are converted with, by currency, so a quote
@@ -259,6 +262,10 @@ export const UNSENT_QUOTE_STATUSES: readonly QuoteStatus[] = ["draft", "ready_to
 // selling are closed - the server keeps them as they are. New prices for a sent quote are its
 // revision, a new quote (QCZ…-R1).
 export const PRICING_CLOSED_STATUSES: readonly QuoteStatus[] = ["quoted", "feedback", "won", "lost", "expired", "replaced"];
+
+// The keys of the document that hold a quote's prices: what the server keeps as stored once the
+// quote is in one of the statuses above (its PRICING_KEYS).
+export const PRICING_KEYS = ["buyingLines", "sellingLines", "currency", "allIn", "road"] as const satisfies readonly (keyof SalesQuoteData)[];
 
 export const LOST_REASONS: Record<string, string[]> = {
   Pricing: ["Price too high", "Competitor cheaper", "Margin too low"],

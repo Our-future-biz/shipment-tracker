@@ -166,8 +166,12 @@ export const OPEN: readonly string[] = ["draft", "ready_to_send", "quoted", "fee
 /** With the customer, waiting for an answer: these expire and get followed up. */
 export const AWAITING: readonly string[] = ["quoted", "feedback"];
 
-/** A quote in one of these went out to the customer at some point, even if no sent date was recorded. */
-export const SENT_EVIDENCE: readonly string[] = ["quoted", "feedback", "revised", "won", "expired", "replaced"];
+/**
+ * A quote in one of these went out to the customer at some point, even if no sent date was
+ * recorded. Not Revised: a revision is a new quote (revisionOf) that starts as Revised before it
+ * is sent, so the status proves nothing - a quote revised in place after sending has its dates.
+ */
+export const SENT_EVIDENCE: readonly string[] = ["quoted", "feedback", "won", "expired", "replaced"];
 
 /**
  * A quote in one of these went out as it stands, or is decided: its buying and selling are what

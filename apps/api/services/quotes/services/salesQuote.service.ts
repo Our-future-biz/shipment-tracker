@@ -419,15 +419,20 @@ class SalesQuoteService {
       const replaced = ruled(() => applyRevision(state, reference, ctx));
       const fresh = revisionOf(state, quote.quoteNumber, ctx);
       const fields = isPlainObject(quote.data) ? quote.data : {};
+      // The prices go with what they were given: the tariff pricing they came from and the
+      // approval of their margin - the server's keys, which newDocument leaves out.
+      const carried = ["roadPricing", "marginApproval"] as const;
+      const priced = Object.fromEntries(carried.filter((key) => key in fields).map((key) => [key, fields[key]]));
       return {
         reference,
         row: {
-          data: newDocument(reference, fields, { ...mirrorOf(fresh.state).set, timeline: [fresh.entry] }),
+          data: { ...newDocument(reference, fields, { ...mirrorOf(fresh.state).set, timeline: [fresh.entry] }), ...priced },
           ...columnsOf(fresh.state),
           // The owner is the quote's, already a user or already compared with the users.
           ownerMatchCheckedAt: quote.ownerMatchCheckedAt ?? at,
         },
-        write: { state: replaced.state, entries: [replaced.entry] },
+        // The quote names its revision, for the screens that lead from the one to the other.
+        write: { state: replaced.state, entries: [replaced.entry], document: { replacedBy: reference } },
       };
     });
     if (!result) throw notFound();

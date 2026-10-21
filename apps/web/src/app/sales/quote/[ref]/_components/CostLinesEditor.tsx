@@ -26,6 +26,22 @@ const FREIGHT_LINE_CODE: Record<string, string> = {
 // A line stores its charge code and, for the print and older readers, its label as the type.
 const chargeOf = (code: string): Pick<CostLine, "type" | "chargeCode"> => ({ type: chargeLabel(code), chargeCode: code });
 
+// The description a service pre-types ("Ocean freight"); "Other" leaves it to be written.
+const describedAs = (code: string): string => (code === "other" ? "" : chargeLabel(code));
+
+/**
+ * A line given another service: its type and code and, when its description is blank or the old
+ * service's own name, the new service's name. A description written by hand is kept, and `ask`
+ * says the user is to be asked whether it gives way.
+ */
+export function serviceChange(line: CostLine, code: string): { line: CostLine; ask: boolean } {
+  const next = chargeOf(code);
+  const description = (line.description ?? "").trim();
+  const preTyped = !description || description === describedAs(line.chargeCode || toChargeCode(line.type)) || description === line.type;
+  if (preTyped) return { line: { ...line, ...next, description: describedAs(code) }, ask: false };
+  return { line: { ...line, ...next }, ask: description !== next.type };
+}
+
 // A new cost line is in the quote's currency, so adding one never mixes currencies by accident.
 const newCostLine = (quote: SalesQuoteData): CostLine => ({
   ...chargeOf(FREIGHT_LINE_CODE[quote.serviceType ?? ""] ?? "other"),
@@ -72,17 +88,12 @@ export function CostLinesEditor({
   // text gives way to the service's name is asked.
   const [asked, setAsked] = useState<{ index: number; description: string; service: string } | null>(null);
 
-  // Choosing a service names the line after it. An empty description takes the name at once; one
-  // that says something else is kept until the user says to replace it.
   const chooseService = (i: number, code: string) => {
-    const next = chargeOf(code);
-    const description = lines[i]?.description?.trim() ?? "";
-    if (!description || description === next.type) {
-      patch(i, { ...next, description: next.type });
-      return;
-    }
-    patch(i, next);
-    setAsked({ index: i, description, service: next.type });
+    const current = lines[i];
+    if (!current) return;
+    const { line, ask } = serviceChange(current, code);
+    onChange(lines.map((x, j) => (j === i ? line : x)));
+    if (ask) setAsked({ index: i, description: line.description, service: line.type });
   };
 
   return (

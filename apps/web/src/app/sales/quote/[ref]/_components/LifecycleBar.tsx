@@ -19,7 +19,7 @@ import {
   winProbClass,
 } from "../../../_lib/types";
 import { asData, businessToday, statusLines, validUntilAfter } from "../../../_lib/salesQuote";
-import type { StatusChange } from "../../../_lib/statusChange";
+import { DEFAULT_VALIDITY_DAYS, asksValidity, type StatusChange } from "../../../_lib/statusChange";
 import { SalesDialog } from "../../../_components/SalesDialog";
 import { toolbarButtonClass } from "../../../_components/ToolbarButton";
 import { OwnerTile } from "./OwnerTile";
@@ -47,9 +47,6 @@ interface Props {
 // The main forward flow shown as a chain of steps.
 const FLOW: readonly QuoteStatus[] = ["draft", "ready_to_send", "quoted", "feedback", "revised", "won"];
 
-// What "valid N days" starts at for a quote that was never sent with days.
-const DEFAULT_VALIDITY_DAYS = 15;
-
 const anyOf = new Intl.ListFormat("en", { type: "disjunction" });
 
 // What stands under the validity date of a quote that is still in play: how long the date holds,
@@ -70,12 +67,6 @@ function validityNote(validUntil: string | null, today: string): string {
 // The moves the margin floor stops until a manager approves the margin.
 const SENDING_STATUSES: readonly string[] = ["ready_to_send", "quoted"];
 
-// The revision a Replaced quote names in the last line of its history that made it Replaced.
-function replacedBy(history: { status?: string; comment?: string }[]): string | null {
-  const line = history.findLast((entry) => entry.status === "replaced");
-  return line?.comment?.match(/^Replaced by (\S+)$/)?.[1] ?? null;
-}
-
 export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwner, onChangeOwner }: Props) {
   const data = asData(quote.data);
   // The status that counts: Expired for a Quoted or Feedback quote whose validity has passed.
@@ -87,7 +78,8 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
   // says the quote left.
   const history = statusLines(data);
   const visited = new Set(history.flatMap((entry) => [entry.status, entry.from]));
-  const revision = current === "replaced" ? replacedBy(history) : null;
+  // The revision that took a Replaced quote's place: the server names it on the quote.
+  const revision = current === "replaced" ? (data.replacedBy ?? null) : null;
   // Whether the quote has a step of the chain behind it. Only steps it really took are ticked: a
   // quote that went from Quoted straight to Won never was in Feedback or Revised, and one that
   // was sent again after a revision still has both behind it.
@@ -120,7 +112,7 @@ export function LifecycleBar({ quote, sendBlocked, onChange, hrefOf, changingOwn
   // use them: the quote has no validity date, or the one it has is past - by the same calendar
   // day the server goes by.
   const today = businessToday();
-  const askValidityDays = quote.validUntil === null || quote.validUntil < today;
+  const askValidityDays = asksValidity(quote.validUntil, today);
 
   const [target, setTarget] = useState<SettableQuoteStatus | null>(null);
   const [validityDays, setValidityDays] = useState<number>(DEFAULT_VALIDITY_DAYS);

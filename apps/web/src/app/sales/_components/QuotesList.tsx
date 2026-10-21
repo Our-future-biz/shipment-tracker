@@ -39,11 +39,13 @@ import { useCurrentExchangeRates, type CurrentExchangeRates } from "@/hooks/useE
 import { useUsers } from "@/hooks/useUsers";
 import { api, apiErrorMessage } from "@/lib/api";
 import { useToast } from "@/lib/toast";
-import { exportQuotesCsv, type SalesQuote } from "../_lib/salesQuote";
+import { asData, exportQuotesCsv, type SalesQuote } from "../_lib/salesQuote";
 import type { SettableQuoteStatus } from "../_lib/types";
 import type { StoredCompanyDetails } from "../_lib/companyDetails";
 import { QUOTE_STATUS_MAP, SETTABLE_QUOTE_STATUSES } from "../_lib/types";
 import { printQuote } from "../_lib/printQuote";
+import { PRINT_WINDOW_BLOCKED, exportClosesQuote } from "../_lib/exportClose";
+import { ExportCloseDialog } from "./ExportCloseDialog";
 import { quoteHref } from "../_lib/quoteHref";
 import { rememberQuoteListQuery } from "../_lib/quoteListHref";
 import {
@@ -74,31 +76,14 @@ import { DEFAULT_QUOTE_COLUMNS, QUOTE_COLUMNS, ValidityDot, quoteCsvColumns, sho
 
 interface ExportPdfButtonProps {
   quote: SalesQuote;
-  exchange: Pick<CurrentExchangeRates, "rates" | "isError" | "isLoading" | "roePct" | "fixingDate">;
-  company: StoredCompanyDetails;
+  onExport: (quote: SalesQuote) => void;
 }
 
-// The row's PDF action. A document that cannot be produced - its total cannot be worked out, the
-// company details or the exchange rates did not load, the print window was blocked - is not; the
-// reason is shown instead.
-function ExportPdfButton({
-  quote,
-  exchange,
-  company,
-}: ExportPdfButtonProps) {
-  const toast = useToast();
+// The row's PDF action: as on the quote's page, it closes a quote that has not gone out yet
+// (`onExport` asks first). A document that cannot be produced is not; the reason is shown instead.
+function ExportPdfButton({ quote, onExport }: ExportPdfButtonProps) {
   return (
-    <Button
-      size="small"
-      type="text"
-      icon={<FilePdfOutlined />}
-      title="Export PDF"
-      aria-label={`Export PDF of ${quote.quoteNumber}`}
-      onClick={() => {
-        const blocked = printQuote(quote.quoteNumber, quote.data, exchange, company);
-        if (blocked) toast.error(`${quote.quoteNumber}: ${blocked}`);
-      }}
-    />
+    <Button size="small" type="text" icon={<FilePdfOutlined />} title="Export PDF" aria-label={`Export PDF of ${quote.quoteNumber}`} onClick={() => onExport(quote)} />
   );
 }
 
@@ -263,6 +248,11 @@ export function QuotesList() {
   const settled = debouncedSearch === list.search.trim();
 
   const [preview, setPreview] = useState<SalesQuote | null>(null);
+  // The quote whose Export PDF is being confirmed, since it closes the quote.
+  const [exportTarget, setExportTarget] = useState<SalesQuote | null>(null);
+  // The row's Export PDF reaches the handler of the current render through this, so the columns
+  // need not be rebuilt for it.
+  const exportQuoteRef = useRef<(quote: SalesQuote) => void>(() => {});
   const [selectedKeys, setSelectedKeys] = useState<React.Key[]>([]);
   // What the last bulk action could not do; null when it did all of it.
   const [bulkFailed, setBulkFailed] = useState<BulkFailure | null>(null);
@@ -387,7 +377,7 @@ export function QuotesList() {
             aria-label={`Preview PDF of ${record.quoteNumber}`}
             onClick={() => setPreview(record)}
           />
-          <ExportPdfButton quote={record} exchange={exchange} company={company} />
+          <ExportPdfButton quote={record} onExport={(quote) => exportQuoteRef.current(quote)} />
         </div>
       ),
     });
@@ -457,6 +447,49 @@ export function QuotesList() {
     setStatusTarget(null);
   };
   const isBulkRunning = isRunningOnQuotes;
+
+  // Export PDF: a quote that went out is printed as it is; one that has not is closed first -
+  // marked as sent (Quoted) through the same request as on its page, after the user confirms.
+  const printNow = (quote: SalesQuote, target?: Window | null) => {
+    const blocked = printQuote(quote.quoteNumber, quote.data, exchange, company, target);
+    if (blocked) toast.error(`${quote.quoteNumber}: ${blocked}`);
+  };
+  const exportQuote = (quote: SalesQuote) => {
+    if (exportClosesQuote(quote.storedStatus)) setExportTarget(quote);
+    else printNow(quote);
+  };
+  exportQuoteRef.current = exportQuote;
+  // The print window is opened on the click itself - after the server's answer the browser would
+  // take it for a pop-up - and gets the quote as the server stored it when it was sent. A window
+  // that does not open closes nothing: the user allows pop-ups and tries again.
+  const exportAndClose = async (validityDays?: number) => {
+    if (!exportTarget) return;
+    const quote = exportTarget;
+    const target = window.open("", "_blank");
+    if (!target) {
+      toast.error(PRINT_WINDOW_BLOCKED);
+      return;
+    }
+    setExportTarget(null);
+    const answers: SalesQuote["data"][] = [];
+    const { failed } = await runOnQuotes({
+      quoteNumbers: [quote.quoteNumber],
+      call: async (quoteNumber) => {
+        const answer = await api.quotes.salesQuoteTransition(quoteNumber, { ...transitionRequest({ status: "quoted", validityDays }), expectedStatus: quote.status });
+        answers.push(asData(answer.quote.data));
+        return answer;
+      },
+    });
+    const stored = answers[0];
+    const refused = failed[0]?.reason;
+    if (refused !== undefined || stored === undefined) {
+      target.close();
+      toast.error(`${quote.quoteNumber}: ${refused ?? "not closed"}`);
+      return;
+    }
+    toast.success(`${quote.quoteNumber} closed and marked as sent`);
+    printNow({ ...quote, data: stored }, target);
+  };
 
   const bulkExport = () => exportQuotesCsv(selected, csvColumns());
 
@@ -802,6 +835,15 @@ export function QuotesList() {
         />
       )}
 
+      {exportTarget && (
+        <ExportCloseDialog
+          quoteNumber={exportTarget.quoteNumber}
+          validUntil={exportTarget.validUntil}
+          validityDays={exportTarget.data.validityDays}
+          onConfirm={exportAndClose}
+          onClose={() => setExportTarget(null)}
+        />
+      )}
       {preview && (
         <PdfPreviewModal
           open
@@ -809,6 +851,11 @@ export function QuotesList() {
           data={preview.data}
           family={variants.family}
           familyError={variants.isError ? { onRetry: () => variants.reload() } : undefined}
+          onExport={() => {
+            const quote = preview;
+            setPreview(null);
+            exportQuote(quote);
+          }}
           onClose={() => setPreview(null)}
         />
       )}

@@ -6,8 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, clientForBody } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
-import { PROTECTED_KEYS } from "@/app/sales/_lib/types";
-import { asData, stripProtected, unsavedChanges } from "@/app/sales/_lib/salesQuote";
+import { asData, followStored, unsavedChanges } from "@/app/sales/_lib/salesQuote";
 import { quoteProblem, type QuoteProblem } from "@/app/sales/_lib/quoteProblem";
 import { invalidateQuoteLists } from "./useSalesQuotes";
 import { salesQuoteKeys } from "@/hooks/salesQueryKeys";
@@ -156,10 +155,9 @@ export function useSalesQuoteDraft(ref: string) {
       const s = session.current;
       const data = asData(stored.data);
       s.base = data;
-      const next = stripProtected(s.draft);
-      for (const key of PROTECTED_KEYS) {
-        if (key in data) Object.assign(next, { [key]: data[key] });
-      }
+      // A quote whose prices are closed keeps them as stored, on every save: the draft follows
+      // them too, so the page never shows prices the quote does not hold.
+      const next = followStored(s.draft, data, stored.status);
       s.draft = next;
       setDraft(next);
       setQuote(stored);

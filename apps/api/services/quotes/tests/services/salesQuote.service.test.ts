@@ -482,7 +482,16 @@ describe("revise", () => {
       validUntil: "2026-10-25",
       ownerUserId: U_JANA,
       ownerLabel: "Jana Nováková",
-      data: { reference: REF, quoteStatus: "feedback", timeline: [{ status: "quoted" }], sellingLines: [{ type: "Air freight", amount: 650 }], allIn: true, fx: { date: "2026-10-01" } },
+      data: {
+        reference: REF,
+        quoteStatus: "feedback",
+        timeline: [{ status: "quoted" }],
+        sellingLines: [{ type: "Air freight", amount: 650 }],
+        allIn: true,
+        fx: { date: "2026-10-01" },
+        roadPricing: { sell: { tariffVersionId: "946e01e8-a4ed-4aa7-932b-2c5d5e991c30" } },
+        marginApproval: { marginCzk: 100, byUserId: U_JANA, at: "2026-10-02T00:00:00.000Z" },
+      },
     });
   // The plan the service hands the repository, run on the stored quote and the references there are.
   let planned: ReturnType<Parameters<typeof salesQuoteRepository.revise>[3]> | undefined;
@@ -508,11 +517,22 @@ describe("revise", () => {
     expect(planned!.write.entries).toEqual([
       { kind: "status", status: "replaced", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN, comment: `Replaced by ${REF}-R2` },
     ]);
+    // The quote names its revision, for the screens that lead to it.
+    expect(planned!.write.document).toEqual({ replacedBy: `${REF}-R2` });
     const { data, ...columns } = planned!.row;
     // The owner and validity are the quote's; nothing of its sending, its history or its rates.
     expect(columns).toMatchObject({ status: "revised", ownerUserId: U_JANA, ownerLabel: "Jana Nováková", validUntil: "2026-10-25", sentAt: null, firstSentAt: null });
-    expect(data).toMatchObject({ reference: `${REF}-R2`, quoteStatus: "revised", sellingLines: [{ type: "Air freight", amount: 650 }], allIn: true });
+    // The prices as they stand, with the tariff pricing and the margin approval they were given.
+    expect(data).toMatchObject({
+      reference: `${REF}-R2`,
+      quoteStatus: "revised",
+      sellingLines: [{ type: "Air freight", amount: 650 }],
+      allIn: true,
+      roadPricing: { sell: { tariffVersionId: "946e01e8-a4ed-4aa7-932b-2c5d5e991c30" } },
+      marginApproval: { marginCzk: 100 },
+    });
     expect(data).not.toHaveProperty("fx");
+    expect(data).not.toHaveProperty("replacedBy");
     expect((data as { timeline: unknown[] }).timeline).toEqual([
       { kind: "status", status: "revised", at: NOW.toISOString(), user: "Martin Koubek", userId: U_MARTIN, comment: `Revision of ${REF}` },
     ]);
