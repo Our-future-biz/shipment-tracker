@@ -14,8 +14,8 @@ export type ContactRole =
   | "Sales"
   | "Management"
   | "Owner";
-/** Registered is the company's seat; the others are where invoices go and goods are picked up or delivered. */
-export type AddressType = "Registered" | "Billing" | "Pickup" | "Delivery" | "Warehouse";
+/** Registered is the company's seat; the others are where invoices and paperwork go and goods are picked up or delivered. */
+export type AddressType = "Registered" | "Billing" | "Paperwork" | "Pickup" | "Delivery" | "Warehouse";
 /** A risk level set by hand, or "" when it is derived from the registry data. */
 export type RiskLevelOverride = "" | "Low" | "Medium" | "High";
 export type NoteType = "Note" | "Email" | "Call" | "Follow-up" | "Visit";

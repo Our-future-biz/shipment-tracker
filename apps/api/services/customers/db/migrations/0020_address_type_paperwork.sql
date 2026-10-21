@@ -1,0 +1,2 @@
+ALTER TABLE "customer_address" DROP CONSTRAINT "customer_address_type_check";--> statement-breakpoint
+ALTER TABLE "customer_address" ADD CONSTRAINT "customer_address_type_check" CHECK ("customer_address"."type" IN ('Registered', 'Billing', 'Paperwork', 'Pickup', 'Delivery', 'Warehouse'));

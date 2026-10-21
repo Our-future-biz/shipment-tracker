@@ -141,6 +141,13 @@
       "when": 1792419813668,
       "tag": "0019_index_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792574817076,
+      "tag": "0020_address_type_paperwork",
+      "breakpoints": true
     }
   ]
 }

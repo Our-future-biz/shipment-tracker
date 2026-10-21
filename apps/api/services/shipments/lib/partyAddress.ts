@@ -12,7 +12,7 @@ export interface PartyCustomer {
 
 /** The parts of a customer address (the Addresses tab) a stop is read from. */
 export interface PartyAddress {
-  type: "Registered" | "Billing" | "Pickup" | "Delivery" | "Warehouse";
+  type: string;
   street: string;
   city: string;
   postalCode: string;

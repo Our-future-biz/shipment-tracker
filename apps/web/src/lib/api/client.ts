@@ -8760,9 +8760,9 @@ export namespace interfaces {
     }
 
     /**
-     * Registered is the company's seat; the others are where invoices go and goods are picked up or delivered.
+     * Registered is the company's seat; the others are where invoices and paperwork go and goods are picked up or delivered.
      */
-    export type AddressType = "Registered" | "Billing" | "Pickup" | "Delivery" | "Warehouse"
+    export type AddressType = "Registered" | "Billing" | "Paperwork" | "Pickup" | "Delivery" | "Warehouse"
 
     export type AdrPackingGroup = "I" | "II" | "III"
 
