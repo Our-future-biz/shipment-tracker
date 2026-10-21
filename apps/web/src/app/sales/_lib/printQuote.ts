@@ -128,21 +128,20 @@ export function quoteDocument(
 
   // Rate offer (selling) — never expose buying / cost / margin. Every line is shown in the quote's
   // currency, converted and rounded the way the total adds it up, so the lines sum to the total.
+  // The customer reads a line by its description, not by its type (the charge code it is booked
+  // under); a line nobody described keeps its type, so that no amount stands without a name.
   const sellingLines: CostLine[] = data.sellingLines ?? [];
   const lineRows = sellingLines
     .map(
       (l: CostLine) => `<tr>
-        <td>${esc(l.type)}</td>
-        <td>${esc(l.description)}</td>
+        <td>${esc(l.description?.trim() || l.type)}</td>
         <td style="text-align:right">${money(convertLine(l, data, sheet, { selling: true, live: exchange }))}</td>
       </tr>`,
     )
     .join("");
-  // An all-in quote offers the total as one price, on one line naming the services it covers.
-  const services = [...new Set(sellingLines.map((l) => l.type).filter(Boolean))].join(", ");
+  // An all-in quote offers the total as one price.
   const allInRow = `<tr>
         <td>All-in rate</td>
-        <td>${services ? `Includes: ${esc(services)}` : ""}</td>
         <td style="text-align:right">${money(totals.selling)}</td>
       </tr>`;
   const sellingRows = lineRows && data.allIn ? allInRow : lineRows;
@@ -152,9 +151,9 @@ export function quoteDocument(
   const rateOffer = sellingRows
     ? `<h2>Rate offer</h2>
       <table>
-        <thead><tr><th>Service</th><th>Description</th><th style="text-align:right">Amount</th></tr></thead>
+        <thead><tr><th>Description</th><th style="text-align:right">Amount</th></tr></thead>
         <tbody>${sellingRows}</tbody>
-        <tfoot><tr class="totals"><td colspan="2">Total</td><td style="text-align:right">${money(totals.selling)}</td></tr></tfoot>
+        <tfoot><tr class="totals"><td>Total</td><td style="text-align:right">${money(totals.selling)}</td></tr></tfoot>
       </table>${clause ? `<p class="fx-clause">${esc(clause)}</p>` : ""}`
     : "";
 
