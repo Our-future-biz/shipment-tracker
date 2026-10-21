@@ -48,6 +48,8 @@ const newCostLine = (quote: SalesQuoteData): CostLine => {
     supplier: "",
     currency: quoteCurrency(quote),
     amount: 0,
+    // 1 unless the user sets another.
+    value: 1,
   };
 };
 
@@ -64,6 +66,11 @@ interface CostLinesEditorProps {
   actions?: ReactNode;
   // Marks under a line's description, e.g. the tariff it was priced from.
   lineTag?: (line: CostLine) => ReactNode;
+  // A line whose amount was 0 and was just set by hand.
+  onAmountSet?: (line: CostLine, index: number) => void;
+  // Asked before a line is removed; without it the line goes at once. `dropRow` keeps the rows
+  // after it on their own React keys and must be called when the line is in fact removed.
+  onRemove?: (index: number, dropRow: () => void) => void;
 }
 
 // The buying or the selling lines of a quote. Every line keeps its own currency; the "In EUR"
@@ -79,6 +86,8 @@ export function CostLinesEditor({
   onChange,
   actions,
   lineTag,
+  onAmountSet,
+  onRemove,
 }: CostLinesEditorProps) {
   const buying = kind === "buying";
   const currency = quoteCurrency(quote);
@@ -162,7 +171,15 @@ export function CostLinesEditor({
                     />
                   </td>
                   <td className={LINE_TD_CLASS}>
-                    <LockedAmountInput aria-label="Amount" value={l.amount} currency={l.currency} onChange={(amount) => patch(i, { amount })} />
+                    <LockedAmountInput
+                      aria-label="Amount"
+                      value={l.amount}
+                      currency={l.currency}
+                      onChange={(amount) => patch(i, { amount })}
+                      onCommit={(amount, before) => {
+                        if (!before && amount > 0) onAmountSet?.({ ...l, amount }, i);
+                      }}
+                    />
                   </td>
                   <td className={`${LINE_TD_CLASS} text-right font-medium tabular-nums whitespace-nowrap ${converted === null ? "text-red-600" : "text-slate-600"}`}>
                     {converted === null ? "no rate" : fmtMoney(converted, currency)}
@@ -181,8 +198,12 @@ export function CostLinesEditor({
                     />
                   </td>
                   <td className={`${LINE_TD_CLASS} pl-0`}>
-                    <RemoveLineButton label={`Remove ${kind} line ${i + 1}`} onClick={() => {
-                        lineKeys.remove(i);
+                    <RemoveLineButton
+                      label={`Remove ${kind} line ${i + 1}`}
+                      onClick={() => {
+                        const dropRow = () => lineKeys.remove(i);
+                        if (onRemove) return onRemove(i, dropRow);
+                        dropRow();
                         onChange(lines.filter((_, j) => j !== i));
                       }}
                     />

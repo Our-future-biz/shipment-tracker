@@ -11,6 +11,8 @@ interface LockedAmountInputProps {
   "aria-label": string;
   // The line's currency, for the question before an amount is changed.
   currency?: string;
+  // Once an edit is done (left or Enter; not Esc): the amount it ended with and the one before it.
+  onCommit?: (value: number, before: number) => void;
 }
 
 // An amount that a stray click and typing cannot change. Locked, it is shown, not an input; a
@@ -19,7 +21,7 @@ interface LockedAmountInputProps {
 // amount already there is changed only after the user confirms it.
 // The locked view is no read-only input on purpose: switching an input that has the caret between
 // read-only and editable was unreliable (antd sometimes rebuilt it, which reads as leaving it).
-export function LockedAmountInput({ value, onChange, "aria-label": label, currency }: LockedAmountInputProps) {
+export function LockedAmountInput({ value, onChange, "aria-label": label, currency, onCommit }: LockedAmountInputProps) {
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   // The amount when editing began, which Esc puts back.
@@ -27,15 +29,22 @@ export function LockedAmountInput({ value, onChange, "aria-label": label, curren
   // Set when the input is left by Enter / Esc, so the locked view takes the keyboard focus back.
   const refocus = useRef(false);
   const box = useRef<HTMLDivElement>(null);
+  // Set by Esc: that edit is given back, not done.
+  const cancelled = useRef(false);
+  // The amount last typed, read when the edit is done (the prop may not have caught up yet).
+  const typed = useRef(value);
 
   useEffect(() => {
     if (editing || !refocus.current) return;
     refocus.current = false;
-    box.current?.focus();
+    // Only where nothing else took it meanwhile (e.g. a dialog the edit opened).
+    if (!document.activeElement || document.activeElement === document.body) box.current?.focus();
   }, [editing]);
 
   const startEditing = () => {
     before.current = value;
+    typed.current = value;
+    cancelled.current = false;
     setEditing(true);
   };
 
@@ -59,15 +68,24 @@ export function LockedAmountInput({ value, onChange, "aria-label": label, curren
         parser={moneyInputParser}
         value={value}
         onFocus={(e) => e.target.select()}
-        onChange={(v) => onChange(v ?? 0)}
+        onChange={(v) => {
+          typed.current = v ?? 0;
+          onChange(v ?? 0);
+        }}
         onKeyDown={(e) => {
           if (e.key !== "Enter" && e.key !== "Escape") return;
           // Esc gives the amount back as it was; Enter keeps what was typed.
-          if (e.key === "Escape") onChange(before.current);
+          if (e.key === "Escape") {
+            cancelled.current = true;
+            onChange(before.current);
+          }
           refocus.current = true;
           e.currentTarget.blur();
         }}
-        onBlur={() => setEditing(false)}
+        onBlur={() => {
+          setEditing(false);
+          if (!cancelled.current) onCommit?.(typed.current, before.current);
+        }}
       />
     );
   }

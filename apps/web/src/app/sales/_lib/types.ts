@@ -35,6 +35,8 @@ export interface CostLine {
   unitPrice?: number;
   // The tariff the line was priced from.
   tariffRef?: string;
+  // Shared by a buying line and the selling line made from it (_lib/costPairs.ts).
+  pairId?: string;
 }
 
 // One exchange rate an older quote kept for itself (the weekly Exchange sheet's, or typed). Read

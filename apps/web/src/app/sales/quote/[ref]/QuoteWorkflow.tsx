@@ -67,6 +67,9 @@ import { CopyFromModal } from "./_components/CopyFromModal";
 import { DuplicateWizardModal } from "./_components/DuplicateWizardModal";
 import { PdfPreviewModal } from "./_components/PdfPreviewModal";
 import { EmailQuoteModal } from "./_components/EmailQuoteModal";
+import { AddToSellingDialog } from "./_components/AddToSellingDialog";
+import { RemoveBothDialog } from "./_components/RemoveBothDialog";
+import { counterpartIndex, newPairId, pairedCopies } from "../../_lib/costPairs";
 import { CostLinesEditor } from "./_components/CostLinesEditor";
 import { QuoteRatesEditor } from "./_components/QuoteRatesEditor";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LineBlock, LineBlockEmpty, LineTable } from "./_components/LineBlock";
@@ -141,6 +144,10 @@ export function QuoteWorkflow() {
   // The template chosen under Shipping terms while the user is asked whether its text may replace
   // what the quote says; null when no question is open.
   const [templateAsked, setTemplateAsked] = useState<string | null>(null);
+  // A buying line that just got its amount (and its place), offered to selling as well with a markup.
+  const [toSelling, setToSelling] = useState<{ line: CostLine; index: number } | null>(null);
+  // A line being removed that has a counterpart on the other side: asked whether both go.
+  const [removing, setRemoving] = useState<{ side: "buying" | "selling"; index: number; other: number; dropRow: () => void } | null>(null);
   // The customer picked last in the Customer box, while its contact person is still being read.
   const pickedCustomer = useRef<string | null>(null);
   const { customerContactFields } = useQuoteCustomerFields();
@@ -436,7 +443,31 @@ export function QuoteWorkflow() {
   // the copy is asked about first, and made straight away only into an empty Selling.
   const buyingLines = draft.buyingLines ?? [];
   const sellingLines = draft.sellingLines ?? [];
-  const copyBuyingToSelling = () => set({ sellingLines: buyingLines.map((l) => ({ ...l, supplier: undefined })) });
+  // Each copy shares a pairId with its buying line, so removing one can offer to remove the other.
+  const copyBuyingToSelling = () => {
+    const { buying, selling } = pairedCopies(buyingLines);
+    set({ buyingLines: buying, sellingLines: selling });
+  };
+
+  // Removing a line that has a counterpart on the other side asks first; one without goes at once.
+  const removeLine = (side: "buying" | "selling", index: number, dropRow: () => void) => {
+    const [own, others] = side === "buying" ? [buyingLines, sellingLines] : [sellingLines, buyingLines];
+    const other = counterpartIndex(own[index]!, others);
+    if (other >= 0) return setRemoving({ side, index, other, dropRow });
+    dropRow();
+    updateLines(side === "buying" ? "buyingLines" : "sellingLines", own.filter((_, j) => j !== index));
+  };
+  // One change for both sides: two would each start from the same draft and the second undo the first.
+  const finishRemoving = (both: boolean) => {
+    if (!removing) return;
+    const { side, index, other, dropRow } = removing;
+    dropRow();
+    const without = (lines: CostLine[], at: number) => lines.filter((_, j) => j !== at);
+    const buying = side === "buying" ? without(buyingLines, index) : both ? without(buyingLines, other) : buyingLines;
+    const selling = side === "selling" ? without(sellingLines, index) : both ? without(sellingLines, other) : sellingLines;
+    set({ buyingLines: buying, sellingLines: selling });
+    setRemoving(null);
+  };
 
   // What choosing a template puts on the quote: its name, and its text where it has any - a
   // field the template leaves empty keeps what the quote says.
@@ -806,6 +837,8 @@ export function QuoteWorkflow() {
             live={exchange}
             onChange={(l) => updateLines("buyingLines", l)}
             lineTag={buyingTag}
+            onAmountSet={(line, index) => setToSelling({ line, index })}
+            onRemove={(index, dropRow) => removeLine("buying", index, dropRow)}
           />
           {sideOverrideNote("buying", buyingLines)}
           <CostLinesEditor
@@ -817,6 +850,7 @@ export function QuoteWorkflow() {
             live={exchange}
             onChange={(l) => updateLines("sellingLines", l)}
             lineTag={sellingTag}
+            onRemove={(index, dropRow) => removeLine("selling", index, dropRow)}
             actions={
               <MiniButton
                 icon={<CopyOutlined />}
@@ -1143,6 +1177,31 @@ export function QuoteWorkflow() {
         <QuoteMarginApproveDialog quoteNumber={ref} margin={roadMargin} onApprove={approveMargin} onClose={() => setModal(null)} />
       )}
       {modal === "delete" && <DeleteQuoteModal quoteNumber={ref} onDelete={deleteThisQuote} onClose={() => setModal(null)} />}
+      {toSelling && (
+        <AddToSellingDialog
+          line={toSelling.line}
+          onClose={() => setToSelling(null)}
+          onAdd={(line) => {
+            // The two lines share a pairId, so removing one later offers to remove the other.
+            const pairId = buyingLines[toSelling.index]?.pairId ?? newPairId();
+            set({
+              buyingLines: buyingLines.map((l, j) => (j === toSelling.index ? { ...l, pairId } : l)),
+              sellingLines: [...sellingLines, { ...line, pairId }],
+            });
+            setToSelling(null);
+          }}
+        />
+      )}
+      {removing && (
+        <RemoveBothDialog
+          side={removing.side}
+          line={(removing.side === "buying" ? buyingLines : sellingLines)[removing.index]!}
+          counterpart={(removing.side === "buying" ? sellingLines : buyingLines)[removing.other]!}
+          onBoth={() => finishRemoving(true)}
+          onOnly={() => finishRemoving(false)}
+          onClose={() => setRemoving(null)}
+        />
+      )}
       {modal === "replaceSelling" && (
         <ConfirmModal
           open
