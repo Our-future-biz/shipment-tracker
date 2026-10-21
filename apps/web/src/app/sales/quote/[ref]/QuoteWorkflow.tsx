@@ -478,7 +478,7 @@ export function QuoteWorkflow() {
   // What the header says under the reference: who the quote is for and what it moves where.
   const headline = [
     draft.customerName ? (
-      <CustomerLink customerId={customerPageId} deleted={customerDeleted} name={draft.customerName} className="text-[13px]" />
+      <CustomerLink customerId={customerPageId} deleted={customerDeleted} name={draft.customerName} className="text-base font-bold" />
     ) : (
       <span className="text-slate-400">No customer yet</span>
     ),
@@ -942,7 +942,7 @@ export function QuoteWorkflow() {
               <h1 className="text-[22px] font-bold font-mono text-slate-800 m-0">{ref}</h1>
               <QuoteStatusPill status={quote.effectiveStatus} />
             </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-slate-500">
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[15px] font-bold text-slate-500">
               {headline.map((part, i) => (
                 <Fragment key={i}>
                   {i > 0 && <span aria-hidden>·</span>}
