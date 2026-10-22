@@ -79,12 +79,21 @@ export function statusLines(data: SalesQuoteData): TimelineEntry[] {
   return timeline.filter((entry) => entry && typeof entry === "object" && (!entry.kind || entry.kind === "status") && typeof entry.status === "string");
 }
 
-// The follow-ups recorded on a quote, newest first: who contacted the customer, when, and the note
-// they left, if any (applyFollowUp in apps/api/services/quotes/utils/quoteLifecycle.utils.ts).
+// The contacts with the customer recorded on a quote, newest first: who, when, and the note they
+// left, if any. A recorded follow-up is one (applyFollowUp in
+// apps/api/services/quotes/utils/quoteLifecycle.utils.ts), and so is a change to Feedback - the
+// server starts the follow-up clock again on it too.
 export function followUpLines(data: SalesQuoteData): TimelineEntry[] {
   const { timeline } = data;
   if (!Array.isArray(timeline)) return [];
-  return timeline.filter((entry) => entry && typeof entry === "object" && entry.kind === "follow_up" && typeof entry.at === "string").reverse();
+  return timeline
+    .filter((entry) => entry && typeof entry === "object" && typeof entry.at === "string" && (entry.kind === "follow_up" || isFeedbackLine(entry)))
+    .reverse();
+}
+
+/** Whether a line of a quote's history is the change of its status to Feedback. */
+export function isFeedbackLine(entry: TimelineEntry): boolean {
+  return (!entry.kind || entry.kind === "status") && entry.status === "feedback";
 }
 
 // The reference of a sales quote - QCZ, the day, that day's number, for a variant -2, -3, ... and

@@ -50,14 +50,16 @@ describe("quoteFamily", () => {
 });
 
 describe("followUpLines", () => {
-  it("is the follow-ups of a quote's history, newest first", () => {
+  it("is the follow-ups and changes to Feedback of a quote's history, newest first", () => {
     const timeline = [
       { kind: "status" as const, status: "quoted" as const, at: "2026-10-01T08:00:00Z" },
       { kind: "follow_up" as const, at: "2026-10-05T09:00:00Z", user: "Lukáš" },
       { kind: "owner" as const, at: "2026-10-06T09:00:00Z", comment: "Owner: Jana" },
       { kind: "follow_up" as const, at: "2026-10-09T10:30:00Z", user: "Jana", comment: "decision next week" },
+      { kind: "status" as const, status: "feedback" as const, at: "2026-10-12T11:00:00Z", comment: "price too high" },
+      { status: "feedback" as const, at: "2026-10-13T11:00:00Z" },
     ];
-    expect(followUpLines({ timeline }).map((e) => e.at)).toEqual(["2026-10-09T10:30:00Z", "2026-10-05T09:00:00Z"]);
+    expect(followUpLines({ timeline }).map((e) => e.at)).toEqual(["2026-10-13T11:00:00Z", "2026-10-12T11:00:00Z", "2026-10-09T10:30:00Z", "2026-10-05T09:00:00Z"]);
     expect(followUpLines({})).toEqual([]);
   });
 });

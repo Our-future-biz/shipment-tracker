@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { Alert, Button, Form, Input } from "antd";
 import { businessDateTime } from "@/lib/date";
+import { isFeedbackLine } from "../_lib/salesQuote";
 import type { TimelineEntry } from "../_lib/types";
+import { QuoteStatusPill } from "./QuoteStatusPill";
 import { SalesDialog } from "./SalesDialog";
 
 // The longest note the server takes (MAX_FOLLOW_UP_NOTE in the API's quoteLifecycle.utils.ts).
@@ -11,7 +13,7 @@ const MAX_NOTE_LENGTH = 2000;
 
 interface FollowUpDialogProps {
   quoteNumber: string;
-  // The follow-ups already recorded on the quote, newest first (followUpLines).
+  // The follow-ups already recorded on the quote and its changes to Feedback, newest first (followUpLines).
   history: TimelineEntry[];
   onRecord: (note?: string) => Promise<string | null>;
   onClose: () => void;
@@ -83,8 +85,9 @@ export function FollowUpDialog({
   );
 }
 
-// The follow-ups recorded before, newest first: when, who, and the first line of the note. A note
-// that is cut opens in full on a click, and closes again on another.
+// The follow-ups recorded before, newest first: when, who, and the first line of the note. A change
+// of the status to Feedback is one too, tagged as such, with the comment left on it. A note that
+// is cut opens in full on a click, and closes again on another.
 function FollowUpHistory({ history }: { history: TimelineEntry[] }) {
   // The lines whose note is shown in full, by their place in the list.
   const [open, setOpen] = useState<Set<number>>(new Set());
@@ -111,6 +114,11 @@ function FollowUpHistory({ history }: { history: TimelineEntry[] }) {
               <div className="flex items-baseline gap-2 text-xs">
                 <span className="font-medium text-slate-700 tabular-nums whitespace-nowrap">{businessDateTime(entry.at)}</span>
                 {entry.user && <span className="truncate text-slate-500">{entry.user}</span>}
+                {isFeedbackLine(entry) && (
+                  <span className="ml-auto shrink-0">
+                    <QuoteStatusPill status="feedback" />
+                  </span>
+                )}
               </div>
             );
             if (!entry.comment) {
