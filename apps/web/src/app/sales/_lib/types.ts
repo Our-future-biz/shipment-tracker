@@ -314,6 +314,14 @@ export const AWAITING_QUOTE_STATUSES: readonly QuoteStatus[] = ["quoted", "feedb
 // went out already or is closed.
 export const UNSENT_QUOTE_STATUSES: readonly QuoteStatus[] = ["draft", "ready_to_send", "revised"];
 
+// In these statuses (as shown) the quote went out to the customer: sent and awaiting an answer, or
+// answered (won / lost), or left without one (expired - only a sent quote expires), or revised as a
+// new quote after it went out (replaced). The Sales Report counts these: drafts, quotes ready to
+// send and revisions not sent yet are not quotes the customer has seen.
+export const SENT_QUOTE_STATUSES: readonly QuoteStatus[] = ["quoted", "feedback", "won", "lost", "expired", "replaced"];
+
+export const isSentQuote = (status: string) => (SENT_QUOTE_STATUSES as readonly string[]).includes(status);
+
 // In these statuses (as stored) the quote went out as it stands, or is decided: its buying and
 // selling are closed - the server keeps them as they are. New prices for a sent quote are its
 // revision, a new quote (QCZ…-R1).

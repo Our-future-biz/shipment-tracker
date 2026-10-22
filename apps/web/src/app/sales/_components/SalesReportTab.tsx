@@ -6,7 +6,7 @@ import type { ColumnsType } from "antd/es/table";
 import { useAllSalesQuotes } from "@/hooks/useAllSalesQuotes";
 import { useCurrentExchangeRates } from "@/hooks/useExchangeRates";
 import { computeTotals, fmtByCurrency, newestFirst, type CurrencyAmount, type QuoteTotals, type SalesQuote } from "@/app/sales/_lib/salesQuote";
-import { QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
+import { isSentQuote, QUOTE_STATUS_MAP } from "@/app/sales/_lib/types";
 import { toCzkAt, usePeriodAverages } from "@/app/sales/_lib/usePeriodAverages";
 import { ExchangeRatesError } from "./ExchangeRatesError";
 import { QuotesLoadError } from "./QuotesLoadError";
@@ -132,32 +132,35 @@ export function SalesReportTab() {
     [quotes, exchange, avg],
   );
 
+  // The report counts the quotes that went to the customer (Quotes Sent); only By status lists every quote.
+  const sent = useMemo(() => priced.filter((q) => isSentQuote(q.status)), [priced]);
+
   // Their figures leave lines out; the report says so instead of passing partial sums for whole ones.
   const incomplete = priced.filter((q) => q.totals.missingRates.length > 0);
   // Quotes whose month has no ČNB average for their currency are not in the CZK sums.
   const unconvertible = priced.filter((q) => q.czk === null);
 
   const kpis = useMemo<Kpi[]>(() => {
-    const total = priced.length;
-    const won = priced.filter((q) => q.status === "won");
-    const lost = priced.filter((q) => q.status === "lost");
+    const total = sent.length;
+    const won = sent.filter((q) => q.status === "won");
+    const lost = sent.filter((q) => q.status === "lost");
     const wonRevenue = fmtByCurrency(won.flatMap((q): CurrencyAmount[] => (q.czk ? [["CZK", q.czk.selling]] : [])));
-    const avgMargin = total ? Math.round(priced.reduce((sum, q) => sum + marginOf(q), 0) / total) : 0;
+    const avgMargin = total ? Math.round(sent.reduce((sum, q) => sum + marginOf(q), 0) / total) : 0;
     const decided = won.length + lost.length;
     const conversion = decided ? Math.round((won.length / decided) * 100) : 0;
     return [
-      { label: "Total Quotes", value: String(total) },
+      { label: "Quotes Sent", value: String(total) },
       { label: "Won", value: String(won.length) },
       { label: "Lost", value: String(lost.length) },
       { label: "Revenue (Won)", value: wonRevenue || "—" },
       { label: "Avg Margin", value: `${avgMargin}%` },
       { label: "Conversion", value: `${conversion}%` },
     ];
-  }, [priced]);
+  }, [sent]);
 
   const serviceRows = useMemo<ServiceRow[]>(
     () =>
-      groupQuotes(priced, serviceOf).map(([serviceType, g]) => ({
+      groupQuotes(sent, serviceOf).map(([serviceType, g]) => ({
         serviceType,
         quotes: g.quotes,
         won: g.won,
@@ -165,7 +168,7 @@ export function SalesReportTab() {
         profit: fmtByCurrency(g.profit),
         avgMargin: Math.round(g.marginSum / g.quotes),
       })),
-    [priced],
+    [sent],
   );
 
   // By the status that is shown: a quote whose validity has passed counts as Expired, not as Quoted.
@@ -181,7 +184,7 @@ export function SalesReportTab() {
 
   const ownerRows = useMemo<OwnerRow[]>(
     () =>
-      groupQuotes(priced, ownerOf).map(([owner, g]) => {
+      groupQuotes(sent, ownerOf).map(([owner, g]) => {
         const decided = g.won + g.lost;
         return {
           owner,
@@ -193,7 +196,7 @@ export function SalesReportTab() {
           conversion: decided ? Math.round((g.won / decided) * 100) : 0,
         };
       }),
-    [priced],
+    [sent],
   );
 
   const ownerColumns: ColumnsType<OwnerRow> = [
@@ -203,7 +206,7 @@ export function SalesReportTab() {
       // Opens the quotes counted in the row.
       render: (v: string) => <GroupLink onClick={() => setGroup({ by: "owner", value: v })}>{v}</GroupLink>,
     },
-    { title: "Quotes", dataIndex: "quotes" },
+    { title: "Quotes Sent", dataIndex: "quotes" },
     { title: "Won", dataIndex: "won" },
     { title: "Lost", dataIndex: "lost" },
     { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: money },
@@ -217,7 +220,7 @@ export function SalesReportTab() {
       dataIndex: "serviceType",
       render: (v: string) => <GroupLink onClick={() => setGroup({ by: "service", value: v })}>{v}</GroupLink>,
     },
-    { title: "Quotes", dataIndex: "quotes" },
+    { title: "Quotes Sent", dataIndex: "quotes" },
     { title: "Won", dataIndex: "won" },
     { title: "Total Selling Costs", dataIndex: "selling", align: "right", render: money },
     { title: "Profit", dataIndex: "profit", align: "right", render: money },
@@ -258,7 +261,10 @@ export function SalesReportTab() {
   return (
     <div className="space-y-4">
       {/* What the figures cover: the quotes that were really loaded - all of them, or the report would not be shown. */}
-      <div className="text-xs text-slate-500">All {quotes.length.toLocaleString("en-US")} quotes</div>
+      <div className="text-xs text-slate-500">
+        {sent.length.toLocaleString("en-US")} quotes sent of all {quotes.length.toLocaleString("en-US")}: the figures count the quotes that went to
+        the customer (Quoted, Feedback, Won, Lost, Expired, Replaced); By status lists every quote.
+      </div>
       <div className="text-xs text-slate-500">Amounts in CZK at the ČNB average of the month each quote was sent (or created).</div>
       {/* Rates that could not be read leave the same lines out, but nothing is missing. */}
       <ExchangeRatesError exchange={exchange} />
@@ -295,11 +301,17 @@ export function SalesReportTab() {
           dataSource={ownerRows}
           columns={ownerColumns}
           pagination={false}
-          locale={{ emptyText: "No quotes yet" }}
+          locale={{ emptyText: "No quotes sent yet" }}
         />
       </div>
 
-      {group && <GroupQuotesDialog group={group} quotes={priced.filter((q) => GROUP_KEY[group.by](q) === group.value)} onClose={() => setGroup(null)} />}
+      {group && (
+        <GroupQuotesDialog
+          group={group}
+          quotes={(group.by === "status" ? priced : sent).filter((q) => GROUP_KEY[group.by](q) === group.value)}
+          onClose={() => setGroup(null)}
+        />
+      )}
 
       <div className="bg-white border border-slate-200 rounded-2xl p-4">
         <div className="text-sm font-semibold text-slate-800 mb-3">By service type</div>
@@ -309,7 +321,7 @@ export function SalesReportTab() {
           dataSource={serviceRows}
           columns={serviceColumns}
           pagination={false}
-          locale={{ emptyText: "No quotes yet" }}
+          locale={{ emptyText: "No quotes sent yet" }}
         />
       </div>
 
