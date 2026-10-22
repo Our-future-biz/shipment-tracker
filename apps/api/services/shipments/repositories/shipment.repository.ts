@@ -228,6 +228,19 @@ class ShipmentRepository extends TenantRepository<typeof shipmentTable> {
       .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
   }
 
+  /**
+   * The live shipments of the company whose Sales Number is one of `references`, with that
+   * reference and the shipment's status, the oldest first.
+   */
+  async liveBySalesNumbers(companyId: string, references: string[]): Promise<(NamingShipment & { reference: string; status: string })[]> {
+    if (!references.length) return [];
+    return this.db
+      .select({ id: shipmentTable.id, jobNumber: shipmentTable.jobNumber, reference: SALES_NUMBER, status: shipmentTable.status })
+      .from(shipmentTable)
+      .where(and(eq(shipmentTable.companyId, companyId), isNull(shipmentTable.deletedAt), inArray(SALES_NUMBER, references)))
+      .orderBy(asc(shipmentTable.createdAt), asc(shipmentTable.id));
+  }
+
   /** Every company that has shipments, deleted ones included (a deleted shipment can leave a quote to unlink). */
   async companyIds(): Promise<string[]> {
     const rows = await this.db.selectDistinct({ companyId: shipmentTable.companyId }).from(shipmentTable);

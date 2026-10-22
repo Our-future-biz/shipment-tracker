@@ -351,6 +351,13 @@
       "when": 1792419815916,
       "tag": "0049_index_cleanup",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1792648384587,
+      "tag": "0050_alert_read",
+      "breakpoints": true
     }
   ]
 }

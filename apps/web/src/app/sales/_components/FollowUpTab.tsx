@@ -13,7 +13,7 @@ import { formatDate } from "@/lib/date";
 import { useToast } from "@/lib/toast";
 import { quoteHref, type QuoteOrigin } from "../_lib/quoteHref";
 import { quoteProblem } from "../_lib/quoteProblem";
-import { needsFollowUp, daysOpen, lastContactAgo, type SalesQuote } from "../_lib/salesQuote";
+import { needsFollowUp, daysOpen, followUpLines, lastContactAgo, type SalesQuote } from "../_lib/salesQuote";
 import { AWAITING_QUOTE_STATUSES } from "../_lib/types";
 import { CustomerLink } from "./CustomerLink";
 import { FollowUpDialog } from "./FollowUpDialog";
@@ -58,8 +58,9 @@ export function FollowUpTab() {
   const due = useSalesQuoteList({ ...withCustomer, followUp: "due", limit: 1 });
   const { followUpQuote } = useSalesQuotes();
   const toast = useToast();
-  // The quote "Followed up" was pressed on, while its dialog is open.
-  const [followUpFor, setFollowUpFor] = useState<string | null>(null);
+  // The quote "Followed up" was pressed on, while its dialog is open - as it was then, so the dialog
+  // and its earlier follow-ups stay when the quote leaves the list.
+  const [followUpFor, setFollowUpFor] = useState<SalesQuote | null>(null);
 
   // Quotes leave the list when they are decided, reworked or expire: a page past the end would be
   // an empty table under a list that has rows.
@@ -81,7 +82,7 @@ export function FollowUpTab() {
 
   const quoteColumns: ColumnsType<SalesQuote> = [
     {
-      title: "Sales Number",
+      title: "Sales Reference",
       dataIndex: "quoteNumber",
       width: 150,
       // The whole row opens the quote too.
@@ -159,7 +160,7 @@ export function FollowUpTab() {
           onClick={(e) => {
             // The row itself opens the quote.
             e.stopPropagation();
-            setFollowUpFor(r.quoteNumber);
+            setFollowUpFor(r);
           }}
         >
           Followed up
@@ -243,7 +244,12 @@ export function FollowUpTab() {
       <FollowUpTasksCard />
 
       {followUpFor && (
-        <FollowUpDialog quoteNumber={followUpFor} onRecord={(note) => recordFollowUp(followUpFor, note)} onClose={() => setFollowUpFor(null)} />
+        <FollowUpDialog
+          quoteNumber={followUpFor.quoteNumber}
+          history={followUpLines(followUpFor.data)}
+          onRecord={(note) => recordFollowUp(followUpFor.quoteNumber, note)}
+          onClose={() => setFollowUpFor(null)}
+        />
       )}
     </>
   );

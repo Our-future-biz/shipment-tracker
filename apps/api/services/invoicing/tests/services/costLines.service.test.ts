@@ -56,6 +56,17 @@ vi.mock("../../repositories/invoiceCost.repository", async () => {
       async findByCategory(shipmentId: string, companyId: string, category: string) {
         return rows.find((r) => r.shipmentId === shipmentId && r.companyId === companyId && r.category === category) ?? null;
       },
+      async hasQuoteRows(companyId: string, shipmentId: string) {
+        return rows.some((r) => r.shipmentId === shipmentId && r.companyId === companyId && r.sourceQuoteNumber !== "");
+      },
+      async findLine(id: string, companyId: string, shipmentId: string) {
+        return rows.find((r) => r.id === id && r.companyId === companyId && r.shipmentId === shipmentId && !r.deletedAt) ?? null;
+      },
+      async softDeleteLine(id: string, companyId: string, shipmentId: string) {
+        const row = rows.find((r) => r.id === id && r.companyId === companyId && r.shipmentId === shipmentId && !r.deletedAt);
+        if (row) row.deletedAt = new Date();
+        return !!row;
+      },
       async updateLine(id: string, companyId: string, shipmentId: string, data: Partial<Row>) {
         const row = rows.find((r) => r.id === id && r.companyId === companyId && r.shipmentId === shipmentId);
         if (!row) return null;
@@ -201,5 +212,48 @@ describe("splitCost", () => {
     await expect(split({ total: "0" })).rejects.toMatchObject({ code: "invalid_argument" });
     await expect(split({ lines: [{ shipmentId: SHIP_A, weight: 1 }, { shipmentId: SHIP_A, weight: 1 }] })).rejects.toMatchObject({ code: "invalid_argument" });
     await expect(split({ lines: [{ shipmentId: "x", weight: 1 }] })).rejects.toMatchObject({ code: "invalid_argument" });
+  });
+});
+
+describe("a shipment priced from a quote", () => {
+  // The line Copy from quote leaves: the quote's charge and estimate, marked with the quote.
+  const quoteLine = () =>
+    costRepo.invoiceCostRepository.createForCompany(COMPANY, {
+      shipmentId: SHIP_A,
+      category: "ocean_freight",
+      description: "Ocean freight",
+      estQty: "1.00",
+      estAmount: "150.00",
+      estCurrency: "EUR",
+      sourceQuoteNumber: "QCZ20261022001",
+    });
+
+  it("keeps the quote's estimate on its line and takes the real cost and vendor", async () => {
+    const line = await quoteLine();
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { estAmount: "140" })).rejects.toMatchObject({ code: "failed_precondition" });
+    await expect(invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { category: "handling" })).rejects.toMatchObject({ code: "failed_precondition" });
+    const saved = await invoicingService.updateBuyingCost(line.id, COMPANY, SHIP_A, { estAmount: "150", vendor: "Maersk", realAmount: "160", realCurrency: "EUR" });
+    // the mock keeps amounts as written; the database pads them
+    expect(saved).toMatchObject({ estAmount: "150", vendor: "Maersk", realAmount: "160", sourceQuoteNumber: "QCZ20261022001" });
+  });
+
+  it("does not delete the quote's line", async () => {
+    const line = await quoteLine();
+    await expect(invoicingService.deleteBuyingCost(line.id, COMPANY, SHIP_A)).rejects.toMatchObject({ code: "failed_precondition" });
+  });
+
+  it("gives a line added by hand a real cost only", async () => {
+    await quoteLine();
+    await expect(invoicingService.addBuyingCost(SHIP_A, COMPANY, { estQty: "1", estAmount: "50" })).rejects.toMatchObject({ code: "failed_precondition" });
+    const added = await invoicingService.addBuyingCost(SHIP_A, COMPANY, { realQty: "1", realAmount: "40", realCurrency: "EUR", category: "handling" });
+    await expect(invoicingService.updateBuyingCost(added.id, COMPANY, SHIP_A, { estAmount: "40" })).rejects.toMatchObject({ code: "failed_precondition" });
+    // a shipment without the quote's lines takes an estimate typed in
+    await expect(invoicingService.addBuyingCost(SHIP_B, COMPANY, { estQty: "1", estAmount: "50" })).resolves.toMatchObject({ estAmount: "50" });
+  });
+
+  it("lands a cost posted by code on the quote's line without touching its estimate", async () => {
+    await quoteLine();
+    await invoicingService.upsertCost(SHIP_A, COMPANY, "ocean_freight", { estAmount: "999", realAmount: "155.00", realCurrency: "EUR" });
+    expect(rows.filter((r) => r.shipmentId === SHIP_A)).toMatchObject([{ estAmount: "150.00", realAmount: "155.00" }]);
   });
 });

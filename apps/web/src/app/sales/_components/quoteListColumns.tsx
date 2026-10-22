@@ -1,8 +1,6 @@
 "use client";
 
-import Link from "next/link";
 import { EMPTY_CELL } from "@/components/EmptyCell";
-import { LINK_CLASS } from "@/components/linkClass";
 import { formatDate } from "@/lib/date";
 import {
   businessDay,
@@ -21,6 +19,7 @@ import { CustomerLink } from "./CustomerLink";
 import { QuoteRefLink } from "./QuoteRefLink";
 import { QuoteRoute } from "./QuoteRoute";
 import { QuoteSelling } from "./QuoteSelling";
+import { QuoteShipmentsCell } from "./QuoteShipmentsCell";
 import { QuoteStatusPill } from "./QuoteStatusPill";
 
 export type SortDirection = "ascend" | "descend";
@@ -115,7 +114,7 @@ function Cut({ full, maxWidthClass, children }: CutProps) {
 export const QUOTE_COLUMNS: QuoteColumn[] = [
   {
     key: "reference",
-    title: "Sales Number",
+    title: "Sales Reference",
     width: 146,
     sortBy: "quoteNumber",
     render: (q) => <QuoteRefLink quoteNumber={q.quoteNumber} />,
@@ -161,23 +160,10 @@ export const QUOTE_COLUMNS: QuoteColumn[] = [
   },
   {
     key: "shipment",
-    title: "Shipment",
+    title: "Shipment(s)",
     width: 112,
-    // The shipment that carries the quote as its Sales Number - the oldest when there are several.
-    // A click on the row opens the quote; the job number opens the shipment.
-    render: (q) =>
-      q.shipmentId ? (
-        <Link
-          href={`/shipments/${q.shipmentId}`}
-          onClick={(e) => e.stopPropagation()}
-          title={`Open shipment ${q.shipmentJobNumber}`}
-          className={`font-mono text-xs font-semibold ${LINK_CLASS}`}
-        >
-          {q.shipmentJobNumber}
-        </Link>
-      ) : (
-        EMPTY_CELL
-      ),
+    // How many shipments name the quote; a click on the number lists them.
+    render: (q) => <QuoteShipmentsCell quote={q} />,
   },
   { key: "service", title: "Freight Mode", width: 104, render: (q) => q.data.serviceType || EMPTY_CELL },
   { key: "incoterm", title: "Incoterm", width: 80, render: (q) => q.data.incoterm || EMPTY_CELL },

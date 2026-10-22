@@ -1,13 +1,13 @@
 // Maps a sales quote's data blob onto a new shipment: create-request fields and
-// cargo lines (the quote's package lines become cargo_dimension rows, the
-// commodity becomes a cargo_item row). The quote's cost lines are not mapped
+// cargo lines (the quote's container lines become container rows, its package
+// lines cargo_dimension rows, the commodity a cargo_item row). The quote's cost lines are not mapped
 // here: the server copies them into Costs Breakdown, one row per line, when it
 // creates the shipment from the quote.
 // The same mapping read the other way round is at the end: what a quote takes
 // from a shipment ("Copy from shipment").
 
 import { computeCargo, computeTotals, quoteCurrency } from "@/app/sales/_lib/salesQuote";
-import { DIRECTIONS, type PackageLine, type SalesQuoteData } from "@/app/sales/_lib/types";
+import { DIRECTIONS, type PackageLine, type QuoteContainerLine, type SalesQuoteData } from "@/app/sales/_lib/types";
 import type { controllers, interfaces } from "@/lib/api/client";
 import { num } from "@/lib/cargo";
 import type { ExchangeRates } from "@/lib/exchangeRates";
@@ -75,6 +75,22 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
   if (totals.selling && !totals.missingSellingRates.length) set("selling", totals.selling.toFixed(2));
   if (totals.buying && !totals.missingBuyingRates.length) set("buying", totals.buying.toFixed(2));
 
+  // Containers: one row per box of the type the quote names. Their numbers and seals come with
+  // the booking; the cargo weight the quote declares per box goes with each row.
+  const containers: interfaces.ContainerLine[] = (data.containers ?? []).flatMap((c) =>
+    Array.from({ length: Math.max(0, Math.floor(Number(c.qty) || 0)) }, () => ({
+      containerNumber: "",
+      sealNumber: "",
+      type: c.type ?? "",
+      teu: "",
+      packages: "",
+      packageType: "",
+      grossWeight: s(c.weight),
+      volume: "",
+    })),
+  );
+  if (containers.length > 0) out.containers = containers;
+
   // Cargo: package lines → dimension rows; the commodity → one cargo item.
   const packages = data.packages ?? [];
   const dimensions: interfaces.CargoDimensionLine[] = packages
@@ -109,12 +125,13 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
     ];
   }
 
-  // Quote-level weight/volume only matter when there are no package lines to
-  // derive them from (the projections handle the rest).
-  if (dimensions.length === 0) {
-    if (data.weight) set("totalWeightTons", (Number(data.weight) / 1000).toFixed(3));
-    if (data.cbm) set("totalVolumeCbm", String(data.cbm));
-  }
+  // The weight and volume typed for the whole shipment go with it where the lines give none -
+  // the figures the quote's screens and the printed quotation show then (computeCargo), each on
+  // its own. Where the container or package lines give a figure, the shipment works it out from
+  // its own rows; a stored total is what it shows when its rows carry none.
+  const cargo = computeCargo(data);
+  if (data.weight && !cargo.weightFromLines) set("totalWeightTons", (Number(data.weight) / 1000).toFixed(3));
+  if (data.cbm && !cargo.cbmFromLines) set("totalVolumeCbm", String(data.cbm));
 
   return out;
 }
@@ -123,10 +140,9 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
 
 export function quotePreview(data: SalesQuoteData, sheet: ExchangeRates): { label: string; value: string }[] {
   // The cargo as the quote's own screens and the printed quotation count it (computeCargo): the
-  // package lines added up, and the weight and volume stored for the whole shipment only while
-  // there are no lines. A stored total beside lines that carry no weight is on none of those
-  // screens and is not sent with the shipment above, so the preview does not show it either.
-  const { totalPackages: pieces, grossWeight: weight, cbm } = computeCargo(data);
+  // lines added up, and the weight and volume typed for the whole shipment where the lines give
+  // none - the figures the shipment above gets as well.
+  const { totalPackages: pieces, grossWeight: weight, cbm, equipment, teu } = computeCargo(data);
   // The selling lines converted into the quote's currency. Lines that cannot be converted are not
   // in the figure, and it says so: a partial total must not pass for the price.
   const totals = computeTotals(data, sheet);
@@ -142,6 +158,7 @@ export function quotePreview(data: SalesQuoteData, sheet: ExchangeRates): { labe
     { label: "POL", value: data.origin ?? "" },
     { label: "POD", value: data.destination ?? "" },
     { label: "Commodity", value: data.commodity ?? "" },
+    { label: "Containers", value: equipment ? `${equipment} (${teu} TEU)` : "" },
     { label: "Packages", value: pieces ? String(pieces) : "" },
     { label: "Gross Weight", value: weight ? `${weight.toLocaleString("en-US", { maximumFractionDigits: 2 })} kg` : "" },
     { label: "Volume", value: cbm ? `${cbm.toLocaleString("en-US", { maximumFractionDigits: 3 })} m³` : "" },
@@ -206,6 +223,20 @@ export function shipmentToQuoteData(shipment: interfaces.ShipmentItem): SalesQuo
     }))
     .filter((p) => p.qty || p.length || p.width || p.height || p.weight);
 
+  // Container rows → container lines: the boxes of one type and one declared cargo weight are
+  // counted together, as the quote lists them. A row without a type is no box yet.
+  const boxes = new Map<string, QuoteContainerLine>();
+  for (const row of shipment.containers ?? []) {
+    const type = (row.type ?? "").trim();
+    if (!type) continue;
+    const weight = num(row.grossWeight) || undefined;
+    const key = `${type}|${weight ?? ""}`;
+    const line = boxes.get(key);
+    if (line) line.qty += 1;
+    else boxes.set(key, { qty: 1, type, weight });
+  }
+  const containers = [...boxes.values()];
+
   // Weight and volume of the whole shipment: its totals - the containers' declared figures, else
   // the cargo rows added up. A shipment without such rows has only the tons and CBM stored on it,
   // which is where a quote without package lines puts its figures.
@@ -235,6 +266,7 @@ export function shipmentToQuoteData(shipment: interfaces.ShipmentItem): SalesQuo
     // description on itself.
     commodity: text(shipment.cargoItems?.[0]?.cargoDescription) ?? text(shipment.cargoDescription),
     packages: packages.length > 0 ? packages : undefined,
+    containers: containers.length > 0 ? containers : undefined,
     weight: weight || undefined,
     cbm: cbm || undefined,
   };

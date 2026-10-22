@@ -192,7 +192,6 @@ export const COLUMNS: ColumnDef[] = [
   { key: "plannedDeliveryTime", title: "Planned Delivery Time", width: 140, type: "date", apiField: "plannedDeliveryTime" },
   { key: "cargoOrigin", title: "Cargo Origin", width: 160, type: "country", apiField: "cargoOrigin" },
   { key: "origin", title: "Origin", width: 160, type: "place", apiField: "origin" },
-  { key: "countryCode", title: "Country Code", width: 110, type: "countryCode", apiField: "countryCode" },
 
   // Commercial
   { key: "commercialInvoice", title: "Commercial Invoice number(s)", width: 170, type: "text", apiField: "commercialInvoice" },
@@ -251,7 +250,7 @@ export const COLUMNS: ColumnDef[] = [
   { key: "surface", title: "Surface", width: 100, type: "computed", readonly: true },
 
   // Quote
-  { key: "salesNumber", title: "Sales Number", width: 140, type: "text", apiField: "salesNumber" },
+  { key: "salesNumber", title: "Sales Reference", width: 140, type: "text", apiField: "salesNumber" },
   { key: "selling", title: "Total Selling Costs", width: 140, type: "text", apiField: "selling" },
   { key: "buying", title: "Total Buying Costs", width: 140, type: "text", apiField: "buying" },
   { key: "profit", title: "Profit", width: 120, type: "computed", readonly: true },

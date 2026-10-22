@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SALES_MANAGE_ROLES, canApproveMargin, canEditSalesSettings, canManageSales, canSetOwner, ownerChangeRight, quoteDeletePermission } from "../salesPolicy";
+import { SALES_MANAGE_ROLES, canApproveMargin, canEditSalesSettings, canManageSales, canSetOwner, ownerChangeRight, quoteDeletePermission, shipmentLinkRefusal } from "../salesPolicy";
 
 const ME = "user-me";
 const COLLEAGUE = "user-colleague";
@@ -116,7 +116,7 @@ describe("quoteDeletePermission", () => {
 
   const blockedByShipment = {
     allowed: false,
-    reason: `shipment ${JOB} was created from this quote - remove the Sales Number from the shipment first`,
+    reason: `shipment ${JOB} was created from this quote - remove the Sales Reference from the shipment first`,
     blockedBy: "shipment",
   };
   const managersOnly = { allowed: false, reason: "only a manager can delete this quote", blockedBy: "role" };
@@ -216,7 +216,7 @@ describe("quoteDeletePermission", () => {
   it("goes by the link itself: a shipment whose job number is not known still stops the delete", () => {
     expect(quoteDeletePermission(actor("admin"), quote({ shipmentId: LINKED.shipmentId, shipmentJobNumber: null }))).toEqual({
       allowed: false,
-      reason: "a shipment was created from this quote - remove the Sales Number from the shipment first",
+      reason: "a shipment was created from this quote - remove the Sales Reference from the shipment first",
       blockedBy: "shipment",
     });
     // A job number without a link is a leftover, not a shipment.
@@ -240,5 +240,24 @@ describe("quoteDeletePermission", () => {
     expect(quoteDeletePermission(user, quote({ ownerUserId: null })).allowed).toBe(false);
     expect(canSetOwner(user, nobodys, ME)).toBe(true);
     expect(quoteDeletePermission(user, quote({ ownerUserId: ME })).allowed).toBe(true);
+  });
+});
+
+describe("shipmentLinkRefusal", () => {
+  it("lets only a Won quote link", () => {
+    expect(shipmentLinkRefusal("won")).toBeNull();
+  });
+
+  it("refuses every other status, named as the screens name it", () => {
+    expect(shipmentLinkRefusal("draft")).toBe("the quote is Draft - only a Won quote can be linked to a shipment");
+    expect(shipmentLinkRefusal("ready_to_send")).toBe("the quote is Ready to Send - only a Won quote can be linked to a shipment");
+    expect(shipmentLinkRefusal("expired")).toBe("the quote is Expired - only a Won quote can be linked to a shipment");
+    expect(shipmentLinkRefusal("replaced")).toBe("the quote is Replaced - only a Won quote can be linked to a shipment");
+    for (const status of ["quoted", "feedback", "revised", "lost"]) expect(shipmentLinkRefusal(status)).toMatch(/^the quote is [A-Z]/);
+  });
+
+  it("refuses a status it does not know, a name of Object.prototype too", () => {
+    expect(shipmentLinkRefusal("on_hold")).toBe('the quote is "on_hold" - only a Won quote can be linked to a shipment');
+    expect(shipmentLinkRefusal("toString")).toBe('the quote is "toString" - only a Won quote can be linked to a shipment');
   });
 });

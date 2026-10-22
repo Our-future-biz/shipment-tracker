@@ -152,3 +152,27 @@ export function quoteLinesToCostRows(data: unknown, opts: { skipTrucking?: boole
     })),
   };
 }
+
+/**
+ * What a buying row copied from a quote keeps as the quote has it: its charge, its words and its
+ * estimate. The vendor and the real cost stay the user's to fill in.
+ */
+export const QUOTE_FIXED_FIELDS = ["category", "description", "estQty", "estAmount", "estCurrency", "unit"] as const;
+const DECIMAL_FIELDS: readonly string[] = ["estQty", "estAmount"];
+
+/**
+ * The fields of `QUOTE_FIXED_FIELDS` that `changes` would give another value than the row has.
+ * An amount is the same however it is written ("150" is "150.00"); a field left out is no change.
+ */
+export function quoteFixedChanged(
+  row: Record<(typeof QUOTE_FIXED_FIELDS)[number], string | null>,
+  changes: Partial<Record<string, unknown>>,
+): string[] {
+  return QUOTE_FIXED_FIELDS.filter((field) => {
+    if (changes[field] === undefined) return false;
+    const was = row[field];
+    const next = changes[field] as string | null;
+    if (DECIMAL_FIELDS.includes(field)) return (was === null ? null : Number(was)) !== (next === null ? null : Number(next));
+    return (was ?? "") !== (next ?? "");
+  });
+}

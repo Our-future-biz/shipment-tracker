@@ -1615,6 +1615,8 @@ export namespace shipments {
 
         constructor(baseClient: BaseClient) {
             this.baseClient = baseClient
+            this.alertMarkRead = this.alertMarkRead.bind(this)
+            this.alertReadGet = this.alertReadGet.bind(this)
             this.attachmentClassify = this.attachmentClassify.bind(this)
             this.attachmentContent = this.attachmentContent.bind(this)
             this.attachmentCreate = this.attachmentCreate.bind(this)
@@ -1652,10 +1654,33 @@ export namespace shipments {
             this.shipmentTileCounts = this.shipmentTileCounts.bind(this)
             this.shipmentUnlinkMasterJob = this.shipmentUnlinkMasterJob.bind(this)
             this.shipmentUpdate = this.shipmentUpdate.bind(this)
+            this.shipmentsNamingQuotes = this.shipmentsNamingQuotes.bind(this)
             this.taskList = this.taskList.bind(this)
             this.taskUpsert = this.taskUpsert.bind(this)
             this.userPrefGet = this.userPrefGet.bind(this)
             this.userPrefSet = this.userPrefSet.bind(this)
+        }
+
+        /**
+         * Marks a shipment's Alerts as seen up to now (called when the Alerts tab is opened).
+         */
+        public async alertMarkRead(shipmentId: string): Promise<{
+    ok: boolean
+}> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/${encodeURIComponent(shipmentId)}/alerts/read`)
+            return await resp.json() as {
+    ok: boolean
+}
+        }
+
+        /**
+         * When this user last opened a shipment's Alerts: what came later is new to them.
+         */
+        public async alertReadGet(shipmentId: string): Promise<controllers.AlertReadResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("GET", `/shipments/${encodeURIComponent(shipmentId)}/alerts/read`)
+            return await resp.json() as controllers.AlertReadResponse
         }
 
         public async attachmentClassify(shipmentId: string, attachmentId: string, params: controllers.AttachmentClassifyRequest): Promise<controllers.AttachmentClassifyResponse> {
@@ -1983,6 +2008,17 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/shipments/${encodeURIComponent(shipmentId)}`, JSON.stringify(params))
             return await resp.json() as controllers.ShipmentUpdateResponse
+        }
+
+        /**
+         * How many shipments each quote has, and which: the live shipments of the caller's company whose
+         * Sales Number is the quote's reference. Read from the shipments themselves - a quote keeps only
+         * the oldest. The Quotes list asks it for the page it shows.
+         */
+        public async shipmentsNamingQuotes(params: controllers.ShipmentsNamingQuotesRequest): Promise<controllers.ShipmentsNamingQuotesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/naming-quotes`, JSON.stringify(params))
+            return await resp.json() as controllers.ShipmentsNamingQuotesResponse
         }
 
         public async taskList(shipmentId: string): Promise<controllers.TaskListResponse> {
@@ -4415,6 +4451,13 @@ export namespace controllers {
 
     export interface AddressUpdateResponse {
         address: interfaces.AddressItem
+    }
+
+    export interface AlertReadResponse {
+        /**
+         * When this user last opened the shipment's Alerts; null when never - every alert is new then.
+         */
+        readAt: string | null
     }
 
     export interface AlertsResponse {
@@ -7398,6 +7441,20 @@ export namespace controllers {
 
     export interface ShipmentUpdateResponse {
         shipment: interfaces.ShipmentItem
+    }
+
+    export interface ShipmentsNamingQuotesRequest {
+        /**
+         * Quote references, at most 200: the quotes on one page of the Quotes list.
+         */
+        references: string[]
+    }
+
+    export interface ShipmentsNamingQuotesResponse {
+        /**
+         * Every reference asked for, with the live shipments that name it - the oldest first.
+         */
+        quotes: interfaces.QuoteShipments[]
     }
 
     export interface SplitCostRequest {
@@ -11422,6 +11479,11 @@ export namespace interfaces {
          * The Trucking consignment / trip the row was pushed from ("trucking:trip:<id>"); null otherwise. Read-only then.
          */
         sourceTruckingRef: string | null
+
+        /**
+         * The sales quote the row was copied from; "" for a row entered by hand. Its category, description and estimate are the quote's then, and it is not deleted.
+         */
+        sourceQuoteNumber: string
     }
 
     /**
@@ -12657,6 +12719,18 @@ export namespace interfaces {
             waitingHours: number
             declaredValueCzk: number | null
         }
+    }
+
+    /**
+     * The live shipments that name one quote as their Sales Number, the oldest first.
+     */
+    export interface QuoteShipments {
+        reference: string
+        shipments: {
+            id: string
+            jobNumber: string
+            status: string
+        }[]
     }
 
     /**

@@ -176,7 +176,7 @@ describe("toItem", () => {
   describe("permissions", () => {
     const MANAGERS_ONLY = "only a manager can delete this quote";
     const SHIPMENT = { shipmentId: "5f0c1c5e-3a0d-4d0e-9a39-7c2a4b1d9e10", shipmentJobNumber: "CZ2610001" };
-    const BLOCKED_BY_SHIPMENT = "shipment CZ2610001 was created from this quote - remove the Sales Number from the shipment first";
+    const BLOCKED_BY_SHIPMENT = "shipment CZ2610001 was created from this quote - remove the Sales Reference from the shipment first";
     const permissions = (over: Partial<SalesQuoteRecord>, actor: { userID: string; role: string }) => toItem(row(over), names, actor, NOW).permissions;
 
     it("lets a manager reassign and delete any quote", () => {

@@ -511,6 +511,12 @@ export interface ShipmentDueItem {
   deadlines: ShipmentDeadline[];
 }
 
+/** The live shipments that name one quote as their Sales Number, the oldest first. */
+export interface QuoteShipments {
+  reference: string;
+  shipments: { id: string; jobNumber: string; status: string }[];
+}
+
 /** What the sales quote a Sales Number names made of its shipments, as the quotes service answers. */
 export interface QuoteSyncResult {
   quoteNumber: string;
