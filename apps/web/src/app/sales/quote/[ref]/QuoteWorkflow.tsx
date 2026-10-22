@@ -718,8 +718,9 @@ export function QuoteWorkflow() {
                 <GeoFlag kind="place" value={draft.pol} />
               </span>
             </InfoRow>
-            <InfoRow label="Pickup">
-              <Input size="small" aria-label="Pickup" value={draft.pickup ?? ""} onChange={(e) => set({ pickup: e.target.value })} />
+            {/* The shipment's Pick-up Address: copied there when a shipment is created from the quote, and back by Copy from shipment. */}
+            <InfoRow label="Pickup Address">
+              <Input size="small" aria-label="Pickup Address" value={draft.pickup ?? ""} onChange={(e) => set({ pickup: e.target.value })} />
             </InfoRow>
           </div>
           <div className="min-w-0">
@@ -735,8 +736,9 @@ export function QuoteWorkflow() {
                 <GeoFlag kind="place" value={draft.pod} />
               </span>
             </InfoRow>
-            <InfoRow label="Delivery">
-              <Input size="small" aria-label="Delivery" value={draft.delivery ?? ""} onChange={(e) => set({ delivery: e.target.value })} />
+            {/* The shipment's Delivery Address, the same way. */}
+            <InfoRow label="Delivery Address">
+              <Input size="small" aria-label="Delivery Address" value={draft.delivery ?? ""} onChange={(e) => set({ delivery: e.target.value })} />
             </InfoRow>
           </div>
         </div>
