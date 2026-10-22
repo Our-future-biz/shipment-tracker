@@ -5,10 +5,10 @@ import type { interfaces } from "@/lib/api/client";
 
 export const CONTAINER_SIZES = ["20'", "40'", "45'"] as const;
 export const CONTAINER_KINDS = ["GP", "HC", "RF", "HR", "OT", "HOT", "FR"] as const;
-// 45-foot equipment only comes as a high cube.
+// 45-foot equipment only comes as a high cube; the high-cube flat rack (HFR) only as a 40'.
 export const CONTAINER_KINDS_BY_SIZE: Record<string, readonly string[]> = {
   "20'": CONTAINER_KINDS,
-  "40'": CONTAINER_KINDS,
+  "40'": [...CONTAINER_KINDS, "HFR"],
   "45'": ["HQ"],
 };
 export const CONTAINER_TYPES = CONTAINER_SIZES.flatMap((s) => (CONTAINER_KINDS_BY_SIZE[s] ?? CONTAINER_KINDS).map((k) => `${s} ${k}`));

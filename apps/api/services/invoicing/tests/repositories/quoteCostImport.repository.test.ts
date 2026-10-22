@@ -8,10 +8,11 @@ import { PgDialect } from "drizzle-orm/pg-core";
 const fake = vi.hoisted(() => {
   const state = {
     /** What the next reads of a side find, first come first served; nothing = an empty side. */
-    sides: [] as { copied: string; last: number | null }[],
+    sides: [] as { copied: string; quoted?: string; last: number | null }[],
     steps: [] as { did: string; table?: unknown }[],
     locks: [] as unknown[],
     reads: [] as { table: unknown; fields: Record<string, unknown>; where: unknown }[],
+    updates: [] as { table: unknown; values: Record<string, unknown>; where: unknown }[],
     inserts: [] as { table: unknown; rows: Record<string, unknown>[] }[],
     upserts: [] as { table: unknown; row: Record<string, unknown>; conflict: Record<string, unknown> }[],
   };
@@ -26,6 +27,14 @@ const fake = vi.hoisted(() => {
           state.steps.push({ did: "read", table });
           state.reads.push({ table, fields, where });
           return [state.sides.shift() ?? { copied: "0", last: null }];
+        },
+      }),
+    }),
+    update: (table: unknown) => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async (where: unknown) => {
+          state.steps.push({ did: "update", table });
+          state.updates.push({ table, values, where });
         },
       }),
     }),
@@ -95,6 +104,7 @@ beforeEach(() => {
   fake.state.steps = [];
   fake.state.locks = [];
   fake.state.reads = [];
+  fake.state.updates = [];
   fake.state.inserts = [];
   fake.state.upserts = [];
 });
@@ -180,6 +190,40 @@ describe("copy", () => {
   it("inserts nothing for a side without lines, and still records the quote on the shipment", async () => {
     await expect(copy({ buying: [], selling: SELLING })).resolves.toEqual({ buying: 0, selling: 1 });
     expect(steps()).toEqual(["begin", "lock", "read invoice_cost", "read invoice_selling_cost", "insert invoice_selling_cost", "upsert billing_settings", "commit"]);
+  });
+
+  it("asks the buying side how many of its rows came from any quote, and leaves a side that has none as it is", async () => {
+    await copy({ buying: BUYING, selling: SELLING });
+    const [cost] = fake.state.reads;
+    expect(sent(cost!.fields.quoted)).toEqual({ sql: `count(*) filter (where "invoice_cost"."source_quote_number" <> '')`, params: [] });
+    expect(steps()).not.toContain("update invoice_cost");
+  });
+
+  it("makes way for the new buying lines: an earlier quote's line with nothing of the user's on it goes, one with a real cost, an invoice or a receipt stays as a line of its own, without the estimate", async () => {
+    fake.state.sides = [{ copied: "0", quoted: "2", last: 3 }];
+    await expect(copy({ buying: BUYING })).resolves.toEqual({ buying: 2, selling: 0 });
+    expect(steps()).toEqual(["begin", "lock", "read invoice_cost", "update invoice_cost", "update invoice_cost", "insert invoice_cost", "upsert billing_settings", "commit"]);
+    const [gone, kept] = fake.state.updates;
+    expect(gone!.values).toEqual({ deletedAt: expect.any(Date), updatedAt: expect.any(Date) });
+    expect(sent(gone!.where)).toEqual({
+      sql:
+        '("invoice_cost"."company_id" = $1 and "invoice_cost"."shipment_id" = $2 and "invoice_cost"."deleted_at" is null and "invoice_cost"."source_trucking_ref" is null and "invoice_cost"."source_quote_number" <> \'\' and "invoice_cost"."real_amount" is null and "invoice_cost"."invoice_number" = $3 and "invoice_cost"."received" = $4)',
+      params: [COMPANY, SHIPMENT, "", false],
+    });
+    expect(kept!.values).toEqual({ sourceQuoteNumber: "", estQty: null, estAmount: null, updatedAt: expect.any(Date) });
+    expect(sent(kept!.where)).toEqual({
+      sql: '("invoice_cost"."company_id" = $1 and "invoice_cost"."shipment_id" = $2 and "invoice_cost"."deleted_at" is null and "invoice_cost"."source_trucking_ref" is null and "invoice_cost"."source_quote_number" <> \'\')',
+      params: [COMPANY, SHIPMENT],
+    });
+  });
+
+  it("leaves the selling side's earlier copies as they are - those can be deleted by hand", async () => {
+    fake.state.sides = [
+      { copied: "0", quoted: "0", last: null },
+      { copied: "1", quoted: "1", last: 0 },
+    ];
+    await expect(copy({ buying: BUYING, selling: SELLING }, true)).resolves.toEqual({ buying: 2, selling: 1 });
+    expect(steps()).not.toContain("update invoice_selling_cost");
   });
 
   it("sets the quote reference of the shipment's one settings row of the caller's company and nothing else of it", async () => {

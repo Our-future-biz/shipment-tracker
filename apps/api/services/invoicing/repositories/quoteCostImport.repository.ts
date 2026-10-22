@@ -39,6 +39,9 @@ class QuoteCostImportRepository {
 
       const from = { companyId, shipmentId, sourceQuoteNumber: quoteNumber };
       if (buying?.rows.length) {
+        // The buying estimate is the quote's alone, and its lines stay as the quote has them
+        // (invoicing.service): what an earlier copy left - of this quote or another - makes way.
+        if (buying.quoted > 0) await this.retireBuyingQuoteRows(tx, companyId, shipmentId);
         const values: NewInvoiceCostRecord[] = buying.rows.map((row, i) => ({ ...row, ...from, sortOrder: buying.next + i }));
         await tx.insert(invoiceCostTable).values(values);
       }
@@ -59,23 +62,44 @@ class QuoteCostImportRepository {
     });
   }
 
+  /**
+   * Retires the buying lines earlier copies left on a shipment, before a new copy lands. A line
+   * with nothing of the user's on it - no real cost, no invoice, not received - goes; one that has
+   * them stays as a line of its own with the quote's estimate taken off it, so what was typed on
+   * it is kept and the estimate is the new copy's alone. Trucking's own lines are not touched.
+   */
+  private async retireBuyingQuoteRows(tx: ImportTransaction, companyId: string, shipmentId: string): Promise<void> {
+    const c = invoiceCostTable;
+    const now = new Date();
+    const quoteRows = [eq(c.companyId, companyId), eq(c.shipmentId, shipmentId), isNull(c.deletedAt), isNull(c.sourceTruckingRef), sql`${c.sourceQuoteNumber} <> ''`];
+    await tx
+      .update(c)
+      .set({ deletedAt: now, updatedAt: now })
+      .where(and(...quoteRows, isNull(c.realAmount), eq(c.invoiceNumber, ""), eq(c.received, false)));
+    await tx
+      .update(c)
+      .set({ sourceQuoteNumber: "", estQty: null, estAmount: null, updatedAt: now })
+      .where(and(...quoteRows));
+  }
+
   // How one side of a shipment's Costs Breakdown stands: how many of its rows came from the
-  // quote, and the sort order the next row gets - one more than the last.
+  // quote, how many from any quote, and the sort order the next row gets - one more than the last.
   private async sideOf(
     tx: ImportTransaction,
     table: CostTable,
     companyId: string,
     shipmentId: string,
     quoteNumber: string,
-  ): Promise<{ copied: number; next: number }> {
+  ): Promise<{ copied: number; quoted: number; next: number }> {
     const [found] = await tx
       .select({
         copied: sql<string>`count(*) filter (where ${table.sourceQuoteNumber} = ${quoteNumber})`,
+        quoted: sql<string>`count(*) filter (where ${table.sourceQuoteNumber} <> '')`,
         last: max(table.sortOrder),
       })
       .from(table as PgTable)
       .where(and(eq(table.companyId, companyId), eq(table.shipmentId, shipmentId), isNull(table.deletedAt)));
-    return { copied: Number(found?.copied ?? 0), next: found?.last == null ? 0 : found.last + 1 };
+    return { copied: Number(found?.copied ?? 0), quoted: Number(found?.quoted ?? 0), next: found?.last == null ? 0 : found.last + 1 };
   }
 }
 

@@ -1,10 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { partyUpdate, type PartyField } from "@/app/shipments/_lib/parties";
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Spin, Dropdown, Modal, Tag, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
+import { Badge, Spin, Dropdown, Modal, Tag, Drawer, Tooltip, Select, TimePicker, Button } from "antd";
 import { useToast } from "@/lib/toast";
 import dayjs from "dayjs";
 import { api, apiErrorMessage } from "@/lib/api";
@@ -46,6 +46,8 @@ import { ContainerDetailsTab } from "./tabs/ContainerDetailsTab";
 import { CargoDetailsTab } from "./tabs/CargoDetailsTab";
 import { DocumentsTab } from "./tabs/DocumentsTab";
 import { TrackingTab } from "./tabs/TrackingTab";
+import { NotificationsTab } from "./tabs/NotificationsTab";
+import { useShipmentAlerts } from "@/hooks/useShipmentAlerts";
 import { WarehouseTab } from "./tabs/WarehouseTab";
 import { CustomsTab } from "./tabs/CustomsTab";
 import { EditableCell, TradeDirectionContext } from "./_components/EditableCell";
@@ -75,6 +77,7 @@ const TABS = [
   { key: "warehouse", label: "Warehouse" },
   { key: "tracking", label: "Tracking" },
   { key: "claim", label: "Claim" },
+  { key: "alerts", label: "Alerts" },
 ];
 
 /* ── Stepper stages ── */
@@ -931,6 +934,13 @@ export function ShipmentDetailContent() {
   const rawTab = searchParams.get("tab");
   const activeTab = rawTab && TAB_KEYS.includes(rawTab) ? rawTab : "details";
 
+  // New alerts are counted on the Alerts tab; they are seen once the tab is open - also those
+  // that come while it is.
+  const { newCount: newAlerts, markRead: markAlertsRead } = useShipmentAlerts(shipment?.id ?? "");
+  useEffect(() => {
+    if (activeTab === "alerts" && newAlerts > 0) markAlertsRead();
+  }, [activeTab, newAlerts, markAlertsRead]);
+
   const setActiveTab = (key: string) => {
     const params = new URLSearchParams(searchParams.toString());
     if (key === "details") {
@@ -1167,7 +1177,13 @@ export function ShipmentDetailContent() {
                   : "font-normal text-slate-400 border-transparent hover:text-slate-600"
               }`}
             >
-              {tab.label}
+              {tab.key === "alerts" && newAlerts > 0 ? (
+                <Badge count={newAlerts} size="small" color="#ef4444" offset={[8, -2]} title={`${newAlerts} new`}>
+                  <span className="text-inherit">{tab.label}</span>
+                </Badge>
+              ) : (
+                tab.label
+              )}
             </div>
           ))}
         </div>
@@ -1610,6 +1626,8 @@ export function ShipmentDetailContent() {
         {activeTab === "customs" && <CustomsTab shipment={shipment} onCommit={handleCommit} />}
 
         {activeTab === "claim" && <ClaimsTab shipment={shipment} />}
+
+        {activeTab === "alerts" && <NotificationsTab shipment={shipment} onOpen={setActiveTab} />}
       </div>
 
       {shipment.masterJobMczNumber && (

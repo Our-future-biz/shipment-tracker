@@ -14,6 +14,7 @@ import { generatedInvoiceRepository } from "../repositories/generatedInvoice.rep
 import { sellingCostRepository } from "../repositories/sellingCost.repository";
 import { customsInvoiceLineRepository, customsInvoiceRepository } from "../repositories/customsInvoice.repository";
 import { quoteCostImportRepository } from "../repositories/quoteCostImport.repository";
+import { quoteFixedChanged } from "../utils/quoteCostImport.utils";
 import { truckingLinesRepository } from "../repositories/truckingLines.repository";
 import { sameCostCodes } from "../utils/truckingLines.utils";
 import { quoteLinesToCostRows } from "../utils/quoteCostImport.utils";
@@ -65,6 +66,7 @@ const toCostItem = (r: InvoiceCostRecord): InvoiceCostItem => ({
   haulierId: r.haulierId,
   sortOrder: r.sortOrder,
   sourceTruckingRef: r.sourceTruckingRef,
+  sourceQuoteNumber: r.sourceQuoteNumber,
 });
 
 const toSellingItem = (r: InvoiceSellingCostRecord): SellingCostItem => ({
@@ -147,6 +149,14 @@ export function buyingChanges(input: BuyingCostInput): Partial<NewInvoiceCostRec
   });
 }
 
+/** Whether a buying write gives the line an estimated quantity or amount. */
+export function setsEstimate(changes: Partial<NewInvoiceCostRecord>): boolean {
+  return (changes.estQty ?? null) !== null || (changes.estAmount ?? null) !== null;
+}
+
+const quoteEstimateOnly = () =>
+  APIError.failedPrecondition("this shipment's estimated buying costs come from its quote: a line added here gets a real cost only");
+
 export function sellingChanges(input: SellingCostInput): Partial<NewInvoiceSellingCostRecord> {
   return definedOnly({
     ...input,
@@ -206,19 +216,38 @@ class InvoicingService {
   }
 
   // ── Buying costs: free lines of the Costs Breakdown ──
+  // Once a shipment holds buying lines copied from a quote, the estimate is the quote's alone: a
+  // line added by hand carries a real cost only (setsEstimate / quoteEstimateOnly).
   async addBuyingCost(shipmentId: string, companyId: string, input: BuyingCostInput): Promise<InvoiceCostItem> {
     const values = { shipmentId, category: "", ...buyingChanges(input) };
     await assertShipmentExists(shipmentId);
+    if (setsEstimate(values) && (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId))) throw quoteEstimateOnly();
     return toCostItem(await invoiceCostRepository.createForCompany(companyId, values));
   }
 
+  // A row copied from a quote keeps the quote's charge, words and estimate (QUOTE_FIXED_FIELDS):
+  // a change to them is refused, the same value sent back with the rest of the row is not one.
+  // Which quote a row came from is set when it is copied and never changes afterwards.
   async updateBuyingCost(id: string, companyId: string, shipmentId: string, input: BuyingCostInput): Promise<InvoiceCostItem> {
-    const row = await invoiceCostRepository.updateLine(id, companyId, shipmentId, buyingChanges(input));
+    const changes = buyingChanges(input);
+    const current = await invoiceCostRepository.findLine(id, companyId, shipmentId);
+    if (!current) throw APIError.notFound("Buying cost not found");
+    if (current.sourceQuoteNumber && quoteFixedChanged(current, changes).length) {
+      throw APIError.failedPrecondition(`this cost was copied from ${current.sourceQuoteNumber}: its category, description and estimate stay as the quote has them`);
+    }
+    if (!current.sourceQuoteNumber && setsEstimate(changes) && (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId))) throw quoteEstimateOnly();
+    const row = await invoiceCostRepository.updateLine(id, companyId, shipmentId, changes);
     if (!row) throw APIError.notFound("Buying cost not found");
     return toCostItem(row);
   }
 
+  // A row copied from a quote is not deleted: the estimate stays the quote's.
   async deleteBuyingCost(id: string, companyId: string, shipmentId: string): Promise<void> {
+    const current = await invoiceCostRepository.findLine(id, companyId, shipmentId);
+    if (!current) throw APIError.notFound("Buying cost not found");
+    if (current.sourceQuoteNumber) {
+      throw APIError.failedPrecondition(`this cost was copied from ${current.sourceQuoteNumber}: it stays as the quote has it`);
+    }
     if (!(await invoiceCostRepository.softDeleteLine(id, companyId, shipmentId))) throw APIError.notFound("Buying cost not found");
   }
 
@@ -236,13 +265,16 @@ class InvoicingService {
     return truckingLinesRepository.withShipmentLock(shipmentId, async () => {
       await assertNotKeptByTrucking(companyId, [shipmentId], code);
       const existing = await invoiceCostRepository.findByCategory(shipmentId, companyId, code);
+      // On a shipment priced from a quote the real cost lands and the estimate stays the quote's.
+      const quoted = existing?.sourceQuoteNumber || (await invoiceCostRepository.hasQuoteRows(companyId, shipmentId));
+      const kept = quoted ? definedOnly({ ...changes, estAmount: undefined, estCurrency: undefined }) : changes;
       if (existing) {
-        const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, changes);
+        const row = await invoiceCostRepository.updateLine(existing.id, companyId, shipmentId, kept);
         if (!row) throw APIError.notFound("Buying cost not found");
         return toCostItem(row);
       }
       await assertShipmentExists(shipmentId);
-      return toCostItem(await invoiceCostRepository.createForCompany(companyId, { shipmentId, category: code, ...changes }));
+      return toCostItem(await invoiceCostRepository.createForCompany(companyId, { shipmentId, category: code, ...kept }));
     });
   }
 

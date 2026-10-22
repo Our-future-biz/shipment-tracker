@@ -2,7 +2,8 @@ import type { interfaces } from "@/lib/api/client";
 import { downloadCsv } from "@/lib/csv";
 import type { ExchangeRates } from "@/lib/exchangeRates";
 import { fmtMoney, roundCents } from "@/lib/money";
-import type { SalesQuoteData, CostLine, PackageLine, TimelineEntry } from "./types";
+import type { SalesQuoteData, CostLine, PackageLine, QuoteContainerLine, TimelineEntry } from "./types";
+import { teuForType } from "@/lib/cargo";
 import { businessDay, businessToday, formatDate } from "@/lib/date";
 import { FX_DRAFT_STATUSES, PRICING_CLOSED_STATUSES, PRICING_KEYS, PROTECTED_KEYS, type QuoteStatus } from "./types";
 
@@ -77,6 +78,23 @@ export function statusLines(data: SalesQuoteData): TimelineEntry[] {
   const { timeline } = data;
   if (!Array.isArray(timeline)) return [];
   return timeline.filter((entry) => entry && typeof entry === "object" && (!entry.kind || entry.kind === "status") && typeof entry.status === "string");
+}
+
+// The contacts with the customer recorded on a quote, newest first: who, when, and the note they
+// left, if any. A recorded follow-up is one (applyFollowUp in
+// apps/api/services/quotes/utils/quoteLifecycle.utils.ts), and so is a change to Feedback - the
+// server starts the follow-up clock again on it too.
+export function followUpLines(data: SalesQuoteData): TimelineEntry[] {
+  const { timeline } = data;
+  if (!Array.isArray(timeline)) return [];
+  return timeline
+    .filter((entry) => entry && typeof entry === "object" && typeof entry.at === "string" && (entry.kind === "follow_up" || isFeedbackLine(entry)))
+    .reverse();
+}
+
+/** Whether a line of a quote's history is the change of its status to Feedback. */
+export function isFeedbackLine(entry: TimelineEntry): boolean {
+  return (!entry.kind || entry.kind === "status") && entry.status === "feedback";
 }
 
 // The reference of a sales quote - QCZ, the day, that day's number, for a variant -2, -3, ... and
@@ -159,27 +177,85 @@ export function newestFirst(a: SalesQuote, b: SalesQuote): number {
   return b.createdAt.localeCompare(a.createdAt) || b.quoteNumber.localeCompare(a.quoteNumber);
 }
 
-// Freight cargo metrics. With package lines they are the lines added up. A quote without any has
-// only the one weight and volume stored for the whole shipment - what an inquiry import read - and
-// those count then: the printed quotation and the New Shipment wizard go by them, and a figure
-// that reaches the customer has to show on the screens first. Volumetric weight uses the standard
-// air divisor of 6000 (cm³ → kg); chargeable weight is max(gross, volumetric).
+// Freight cargo metrics. Weight and volume are the package lines added up; when the lines give
+// none - no lines, or lines without a weight or without dimensions - the one weight and volume
+// typed (or imported from an inquiry) for the whole shipment count instead, each on its own. The
+// printed quotation and the New Shipment wizard go by them, and a figure that reaches the
+// customer has to show on the screens first. Volumetric weight uses the standard air divisor of
+// 6000 (cm³ → kg); chargeable weight is max(gross, volumetric). Weight / measure is the freight
+// ton of sea freight: 1 t or 1 cbm, whichever is greater.
+// A quote for full containers: its cargo is equipment (so many 40' HC), not packages.
+export function isContainerQuote(data: Pick<SalesQuoteData, "serviceType">): boolean {
+  return data.serviceType === "Sea FCL";
+}
+
+// Whether a container type is a reefer: RF, or HR (the high-cube reefer), of any size.
+export function isReeferType(type: string | undefined): boolean {
+  return /\b(RF|HR)$/.test((type ?? "").trim());
+}
+
+// Whether a quote carries a reefer container: its reefer requirements are then asked.
+export function hasReefer(data: Pick<SalesQuoteData, "serviceType" | "containers">): boolean {
+  return isContainerQuote(data) && (data.containers ?? []).some((c) => isReeferType(c.type));
+}
+
+// What a reefer quote still lacks: the set-point is required, and a tolerance asked for needs its
+// value. Null when nothing is missing or the quote has no reefer.
+export function reeferMissing(data: Pick<SalesQuoteData, "serviceType" | "containers" | "reefer">): string | null {
+  if (!hasReefer(data)) return null;
+  const r = data.reefer ?? {};
+  if (typeof r.setPoint !== "number") return "Enter the reefer set-point temperature";
+  if (r.toleranceRequired && typeof r.tolerance !== "number") return "Enter the set-point tolerance";
+  return null;
+}
+
+// A quote's containers in one phrase, "2× 40' HC, 1× 20' GP" - the shipment's own summary of its
+// boxes. Lines of one type are counted together; a line of no type or no quantity says nothing.
+export function fmtEquipment(lines: QuoteContainerLine[]): string {
+  const counts = new Map<string, number>();
+  for (const line of lines) {
+    const type = (line.type ?? "").trim();
+    const qty = Number(line.qty) || 0;
+    if (type && qty > 0) counts.set(type, (counts.get(type) ?? 0) + qty);
+  }
+  return [...counts].map(([type, qty]) => `${qty}× ${type}`).join(", ");
+}
+
 export function computeCargo(data: SalesQuoteData) {
   const pkgs = data.packages ?? [];
+  const boxes = data.containers ?? [];
   const n = (v: unknown) => Number(v) || 0;
-  const fromLines = pkgs.length > 0;
   const totalPackages = pkgs.reduce((s, p) => s + n(p.qty), 0);
-  const grossWeight = fromLines ? pkgs.reduce((s, p) => s + n(p.qty) * n(p.weight), 0) : n(data.weight);
-  const cbm = fromLines ? pkgs.reduce((s, p) => s + (n(p.qty) * n(p.length) * n(p.width) * n(p.height)) / 1_000_000, 0) : n(data.cbm);
-  const volumetricWeight = fromLines
-    ? pkgs.reduce((s, p) => s + (n(p.qty) * n(p.length) * n(p.width) * n(p.height)) / 6000, 0)
-    : (n(data.cbm) * 1_000_000) / 6000;
+  // A full-container quote: its boxes, their TEU, and the cargo weight it declares per box. That
+  // weight comes before the packages' (the packages ride in the boxes) and before a typed total.
+  const totalContainers = boxes.reduce((s, c) => s + n(c.qty), 0);
+  const teu = boxes.reduce((s, c) => s + n(c.qty) * teuForType(c.type), 0);
+  const containersWeight = boxes.reduce((s, c) => s + n(c.qty) * n(c.weight), 0);
+  const packagesWeight = pkgs.reduce((s, p) => s + n(p.qty) * n(p.weight), 0);
+  const weightFromContainers = containersWeight > 0;
+  const linesWeight = weightFromContainers ? containersWeight : packagesWeight;
+  const linesCcm = pkgs.reduce((s, p) => s + n(p.qty) * n(p.length) * n(p.width) * n(p.height), 0);
+  const weightFromLines = linesWeight > 0;
+  const cbmFromLines = linesCcm > 0;
+  const grossWeight = weightFromLines ? linesWeight : n(data.weight);
+  const cbm = cbmFromLines ? linesCcm / 1_000_000 : n(data.cbm);
+  const volumetricWeight = (cbm * 1_000_000) / 6000;
   return {
     totalPackages,
+    totalContainers,
+    teu,
+    /** The containers in one phrase, "2× 40' HC, 1× 20' GP"; empty without container lines. */
+    equipment: fmtEquipment(boxes),
     grossWeight: Math.round(grossWeight * 100) / 100,
     cbm: Math.round(cbm * 1000) / 1000,
+    /** Whether the weight / the volume are the lines' sum (containers' or packages'); otherwise they are the shipment's typed total. */
+    weightFromLines,
+    /** Whether the weight is the container lines' sum. */
+    weightFromContainers,
+    cbmFromLines,
     volumetricWeight: Math.round(volumetricWeight * 100) / 100,
     chargeableWeight: Math.round(Math.max(grossWeight, volumetricWeight) * 100) / 100,
+    weightMeasure: Math.round(Math.max(grossWeight / 1000, cbm) * 1000) / 1000,
   };
 }
 
@@ -322,6 +398,17 @@ export function computeTotals(data: SalesQuoteData, sheet: ExchangeRates, live?:
     fxLocked: !!data.fx,
     lockedAt: data.fx?.lockedAt ?? null,
   };
+}
+
+// The profit a quote calculated, in `currency`: converted from the quote's currency at the quote's
+// own rates (those stored when it was sent), so it stays the figure the quote was sold at. Null
+// when a rate it needs is missing.
+export function quoteProfitIn(data: SalesQuoteData, sheet: ExchangeRates, currency: string): number | null {
+  const { profit, currency: from } = computeTotals(data, sheet);
+  if (from === currency) return profit;
+  const fromRate = rateOf(from, data, sheet);
+  const toRate = rateOf(currency, data, sheet);
+  return fromRate === null || toRate === null ? null : roundCents((profit * fromRate) / toRate);
 }
 
 // One line saying which rates a quote's totals use - for the people pricing it.

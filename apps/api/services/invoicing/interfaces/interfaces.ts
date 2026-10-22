@@ -19,6 +19,8 @@ export interface InvoiceCostItem {
   sortOrder: number;
   /** The Trucking consignment / trip the row was pushed from ("trucking:trip:<id>"); null otherwise. Read-only then. */
   sourceTruckingRef: string | null;
+  /** The sales quote the row was copied from; "" for a row entered by hand. Its category, description and estimate are the quote's then, and it is not deleted. */
+  sourceQuoteNumber: string;
 }
 
 /** Selling cost line of the Costs Breakdown (mockup: #sellTable) */

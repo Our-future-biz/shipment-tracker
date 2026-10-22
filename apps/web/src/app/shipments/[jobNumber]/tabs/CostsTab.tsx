@@ -4,14 +4,15 @@ import { useRef, useState } from "react";
 import { CURRENCIES } from "@/lib/cargo";
 import Link from "next/link";
 import { App, Input, Select, Checkbox, Tooltip, Modal } from "antd";
-import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined, WarningOutlined } from "@ant-design/icons";
+import { DeleteOutlined, UndoOutlined, DownOutlined, CopyOutlined, WarningOutlined, LockOutlined } from "@ant-design/icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage, ErrCode, isAPIError } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import type { ShipmentItem } from "@/hooks/useShipments";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { normaliseAmount } from "@/lib/money";
-import { isSalesQuoteRef } from "@/app/sales/_lib/salesQuote";
+import { asData, computeTotals, isSalesQuoteRef, quoteProfitIn } from "@/app/sales/_lib/salesQuote";
+import { useSalesQuoteByRef } from "@/hooks/useSalesQuote";
 import { chargeLabel, chargeOptions } from "@/lib/chargeCodes";
 import { money, signed, num, type BuyingRow, type SellingRow } from "./costsCalc";
 import { useCostsData } from "./useCostsData";
@@ -185,6 +186,24 @@ export function CostsTab({ shipment }: CostsTabProps) {
   const truckingRefs = new Map(
     [...(data?.costs ?? []), ...(data?.sellingCosts ?? [])].filter((c) => isTruckingCost(c.sourceTruckingRef)).map((c) => [c.id, c.sourceTruckingRef ?? ""]),
   );
+  // Buying rows copied from a quote keep the quote's category, description and estimate, and are
+  // not deleted (the server refuses both); the vendor and the real cost stay editable.
+  const quoteRefs = new Map((data?.costs ?? []).filter((c) => c.sourceQuoteNumber).map((c) => [c.id, c.sourceQuoteNumber]));
+  // Once a quote's lines are in, the estimate is the quote's alone: a line added by hand gets a
+  // real cost only, its Estimated cells stay empty and closed (the server refuses an estimate).
+  const quotePriced = quoteRefs.size > 0;
+
+  // The quote the Report compares the profit with: the one the costs were last copied from (the
+  // shipment's quote reference), else the one its buying lines name, else the one the Sales
+  // Reference names. Its profit is the quote's own figure, at its own rates.
+  const copiedFrom = (data?.billingSettings?.quoteRef ?? "").trim();
+  const shipmentQuote = (shipment.salesNumber ?? "").trim();
+  const profitQuoteRef = (isSalesQuoteRef(copiedFrom) ? copiedFrom : null) ?? [...quoteRefs.values()][0] ?? (isSalesQuoteRef(shipmentQuote) ? shipmentQuote : null);
+  const profitQuote = useSalesQuoteByRef(profitQuoteRef);
+  const profitQuoteData = profitQuote.data?.quote ? asData(profitQuote.data.quote.data) : null;
+  // The job's profit against the quote's, in CZK, for the Report's bar.
+  const quoteProfitCZK = profitQuoteData ? quoteProfitIn(profitQuoteData, rates, "CZK") : null;
+  const vsQuoteCZK = t.hasAny && quoteProfitCZK !== null ? t.profitCZK - quoteProfitCZK : null;
   // Only the trips these rows name are read (a few), not the whole trips list.
   const tripIds = [...new Set([...truckingRefs.values()].flatMap((ref) => {
     const parsed = parseTruckingRef(ref);
@@ -212,11 +231,12 @@ export function CostsTab({ shipment }: CostsTabProps) {
   };
 
   /* ── Buying costs ── */
-  // a new row: Qty = 1, currencies of the chosen billing currency
+  // a new row: Qty = 1, currencies of the chosen billing currency - on Real only when the
+  // shipment's estimate comes from its quote
   const addBuy = useMutation({
     mutationFn: () => api.invoicing.invoicingAddBuyingCost(shipment.id, {
-      estQty: "1", realQty: "1",
-      estCurrency: billingCur, realCurrency: billingCur,
+      ...(quotePriced ? {} : { estQty: "1", estCurrency: billingCur }),
+      realQty: "1", realCurrency: billingCur,
       sortOrder: buyRows.length,
     }),
     onSuccess: (res) => { unlock(res.cost.id); invalidate(); },
@@ -359,9 +379,10 @@ export function CostsTab({ shipment }: CostsTabProps) {
      Invoice number and Received are not copied: they belong to one particular invoice.
      A selling copy does not keep the link to its source row: it is a new, independent row. */
   const duplicateBuy = async (r: BuyingRow, index: number) => {
+    // the copy is a line added by hand: no estimate of its own once the quote's lines are in
     await api.invoicing.invoicingAddBuyingCost(shipment.id, {
       category: r.category, description: r.description, vendor: r.vendor,
-      estQty: r.estQty, estAmount: r.estAmount, estCurrency: r.estCurrency,
+      ...(quotePriced ? {} : { estQty: r.estQty, estAmount: r.estAmount, estCurrency: r.estCurrency }),
       realQty: r.realQty, realAmount: r.realAmount, realCurrency: r.realCurrency,
       sortOrder: index + 1,
     });
@@ -567,6 +588,13 @@ export function CostsTab({ shipment }: CostsTabProps) {
                 }
                 const locked = buyLocked(r);
                 const fld = lockedField(locked);
+                const fromQuote = quoteRefs.get(r.id);
+                // the quote's fields look like text and do not open, whatever the rest of the row does
+                const fixed = lockedField(locked || !!fromQuote);
+                // the Estimated cells: the quote's on its lines, and nobody's on a line added by hand -
+                // one typed before the quote's lines came stays open until it is cleared
+                const estClosed = !!fromQuote || (quotePriced && !num(r.estQty) && !num(r.estAmount));
+                const est = lockedField(locked || estClosed);
                 return (
                 <tr
                   key={r.id}
@@ -582,15 +610,19 @@ export function CostsTab({ shipment }: CostsTabProps) {
                       className={`w-full [&_.ant-select-selector]:!h-[30px] [&_.ant-select-selector]:!border
                                  [&_.ant-select-selector]:!border-slate-200 [&_.ant-select-selector]:!rounded-md
                                  [&_.ant-select-selection-item]:!text-[13px]${
-                        locked ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
+                        locked || fromQuote ? " [&_.ant-select-selector]:!border-transparent [&_.ant-select-arrow]:!hidden pointer-events-none" : ""
                       }`}
                       options={chargeOptions(r.category)}
+                      open={fromQuote ? false : undefined}
+                      tabIndex={fromQuote ? -1 : undefined}
                       onChange={(v) => updateBuy.mutate({ id: r.id, category: v })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
-                      className={`${FIELD}${fld}`}
+                      className={`${FIELD}${fixed}`}
+                      readOnly={!!fromQuote}
+                      tabIndex={fromQuote ? -1 : undefined}
                       defaultValue={r.description}
                       onBlur={(e) => e.target.value !== r.description && updateBuy.mutate({ id: r.id, description: e.target.value })}
                     />
@@ -605,20 +637,28 @@ export function CostsTab({ shipment }: CostsTabProps) {
                   {/* Estimated */}
                   <td className={CELL}>
                     <input
-                      className={`${FIELD} text-center${fld}`}
+                      className={`${FIELD} text-center${est}`}
+                      readOnly={estClosed}
+                      tabIndex={estClosed ? -1 : undefined}
                       defaultValue={r.estQty}
                       onBlur={(e) => e.target.value !== r.estQty && updateBuy.mutate({ id: r.id, estQty: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
-                      className={`${FIELD} text-right${fld}`}
+                      className={`${FIELD} text-right${est}`}
+                      readOnly={estClosed}
+                      tabIndex={estClosed ? -1 : undefined}
                       defaultValue={r.estAmount}
                       onBlur={(e) => e.target.value !== r.estAmount && updateBuy.mutate({ id: r.id, estAmount: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
-                    <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
+                    {estClosed ? (
+                      <span className="block px-[11px] text-[13px] text-slate-800">{fromQuote || num(r.estAmount) ? r.estCurrency : ""}</span>
+                    ) : (
+                      <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
+                    )}
                   </td>
                   {/* Real */}
                   <td className={`${CELL} ${SPLIT}`}>
@@ -672,16 +712,28 @@ export function CostsTab({ shipment }: CostsTabProps) {
                         <CopyOutlined />
                       </button>
                     </Tooltip>
-                    <Tooltip title="Delete row">
-                      <button
-                        onClick={() => removeBuy(r, rowIndex)}
-                        aria-label="Delete buying cost row"
-                        className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
-                                   hover:bg-danger-soft hover:text-danger border-0 bg-transparent cursor-pointer inline-grid"
-                      >
-                        <DeleteOutlined />
-                      </button>
-                    </Tooltip>
+                    {fromQuote ? (
+                      <Tooltip title={`Copied from ${fromQuote}: category, description and estimate stay as the quote has them, and the row can't be deleted`}>
+                        <span
+                          role="img"
+                          aria-label={`Copied from ${fromQuote}, estimate fixed`}
+                          className="w-[26px] h-[26px] rounded-md place-items-center text-slate-400 inline-grid"
+                        >
+                          <LockOutlined />
+                        </span>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip title="Delete row">
+                        <button
+                          onClick={() => removeBuy(r, rowIndex)}
+                          aria-label="Delete buying cost row"
+                          className="w-[26px] h-[26px] rounded-md grid place-items-center text-slate-400
+                                     hover:bg-danger-soft hover:text-danger border-0 bg-transparent cursor-pointer inline-grid"
+                        >
+                          <DeleteOutlined />
+                        </button>
+                      </Tooltip>
+                    )}
                   </td>
                 </tr>
                 );
@@ -1025,6 +1077,18 @@ export function CostsTab({ shipment }: CostsTabProps) {
                 </span>
               </span>
             ))}
+            {vsQuoteCZK !== null && (
+              <span className="flex items-center gap-2" title={`The job's profit minus the profit ${profitQuoteRef} calculated, in CZK`}>
+                <span className="text-[11.5px] font-semibold text-white/45">vs quote</span>
+                <span
+                  className={`text-[13px] font-bold tabular-nums ${
+                    vsQuoteCZK > 0.004 ? "text-green-400" : vsQuoteCZK < -0.004 ? "text-red-400" : "text-white/70"
+                  }`}
+                >
+                  {signed(vsQuoteCZK)}
+                </span>
+              </span>
+            )}
           </span>
         </button>
 
@@ -1066,6 +1130,7 @@ export function CostsTab({ shipment }: CostsTabProps) {
                     ))}
                   </tr>
                 ))}
+                {profitQuoteRef && <QuoteProfitRows quoteRef={profitQuoteRef} data={profitQuoteData} loading={profitQuote.isLoading} rates={rates} profitCZK={t.profitCZK} hasAny={t.hasAny} />}
               </tbody>
             </table>
 
@@ -1155,5 +1220,63 @@ export function CostsTab({ shipment }: CostsTabProps) {
         </div>
       </Modal>
     </div>
+  );
+}
+
+// The Report's comparison with the quote: the profit the quote calculated - in each column's
+// currency, at the quote's own rates - and how far the job's profit is from it now. A difference
+// below zero is profit lost against the quote.
+function QuoteProfitRows({ quoteRef, data, loading, rates, profitCZK, hasAny }: {
+  quoteRef: string;
+  data: ReturnType<typeof asData> | null;
+  loading: boolean;
+  rates: Record<string, number>;
+  profitCZK: number;
+  hasAny: boolean;
+}) {
+  const label = "px-[15px] py-[10px] text-[13px] text-slate-700 border-b border-slate-100";
+  const cell = "px-[15px] py-[10px] text-right text-[13px] tabular-nums border-b border-slate-100 whitespace-nowrap";
+  const columns = ["CZK", "USD", "EUR"];
+  if (!data) {
+    return (
+      <tr>
+        <td className={label}>Quote profit ({quoteRef})</td>
+        <td colSpan={3} className={`${cell} text-slate-400`}>{loading ? "Loading the quote…" : "The quote could not be read"}</td>
+      </tr>
+    );
+  }
+  const quoted = columns.map((c) => quoteProfitIn(data, rates, c));
+  // A quote line in a currency without a rate is not in the quote's own profit either.
+  const incomplete = computeTotals(data, rates).missingRates.length > 0;
+  const now = columns.map((c) => (c === "CZK" ? profitCZK : rates[c] ? profitCZK / rates[c] : null));
+  const diff = columns.map((_, i) => (quoted[i] === null || now[i] === null ? null : now[i]! - quoted[i]!));
+  const tone = (v: number) => (v > 0.004 ? "text-ok" : v < -0.004 ? "text-danger" : "text-slate-500");
+  return (
+    <>
+      <tr>
+        <td className={label}>
+          Quote profit{" "}
+          <Link href={`/sales/quote/${quoteRef}`} className="text-indigo-600 hover:underline">{quoteRef}</Link>
+          {incomplete && (
+            <Tooltip title="A line of the quote is in a currency without a rate and is left out of its profit">
+              <WarningOutlined className="ml-1.5 text-warn" />
+            </Tooltip>
+          )}
+        </td>
+        {quoted.map((v, i) => (
+          <td key={i} className={`${cell} ${v === null ? "text-slate-300" : "text-slate-900"}`}>{v === null ? "—" : signed(v)}</td>
+        ))}
+      </tr>
+      <tr className="font-bold">
+        <td className={label}>
+          <Tooltip title="The job's profit now minus the profit the quote calculated. Below zero, the job earns less than the quote did.">
+            <span>Difference vs quote</span>
+          </Tooltip>
+        </td>
+        {diff.map((v, i) => (
+          <td key={i} className={`${cell} ${!hasAny || v === null ? "text-slate-300" : tone(v)}`}>{hasAny && v !== null ? signed(v) : "—"}</td>
+        ))}
+      </tr>
+    </>
   );
 }

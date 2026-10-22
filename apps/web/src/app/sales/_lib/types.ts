@@ -16,6 +16,52 @@ export interface PackageLine {
   stackable?: boolean;
 }
 
+// A container line of a full-container quote (Sea FCL): so many boxes of one type, named as the
+// shipment's Container Details name them ("40' HC"). The weight is the cargo in one such box
+// (kg), absent until somebody enters it.
+export interface QuoteContainerLine {
+  qty: number;
+  type: string;
+  weight?: number;
+}
+
+// What a reefer box of a quote has to be run at, and the papers and power the cold chain needs -
+// asked as soon as a container line is a reefer (hasReefer). Only the set-point is required; the
+// rest is said where the cargo or the shipper needs it.
+export interface QuoteReefer {
+  // 1. Cargo and set-point: °C, with a tolerance (± °C) where one is required (pharma ±2 °C).
+  setPoint?: number;
+  toleranceRequired?: boolean;
+  tolerance?: number;
+  // 2. Atmosphere and airflow: the fresh-air vent closed, or open at m³/h or at a % of opening;
+  // a target humidity only where the unit controls it.
+  ventMode?: "closed" | "m3h" | "percent";
+  ventValue?: number;
+  humidityControl?: boolean;
+  humidity?: number;
+  // 3. Drain holes.
+  drains?: "open" | "closed";
+  // 4. Monitoring and documentation.
+  dataLogger?: boolean;
+  recorderCertificate?: boolean;
+  genset?: boolean;
+  plugIn?: boolean;
+  shorePower?: "available" | "check" | "none";
+  phytosanitary?: boolean;
+  sanitary?: boolean;
+  veterinary?: boolean;
+}
+
+// The cargo of a quote with an open top or flat rack among its containers (hasOogEquipment):
+// whether it stays within the box, and if not its overall length (all pieces together), the widest
+// and the highest piece, in cm - what the out-of-gauge check (checkOog) goes by.
+export interface QuoteOog {
+  inGauge?: boolean;
+  length?: number;
+  width?: number;
+  height?: number;
+}
+
 export interface CostLine {
   // The label of the charge ("Road freight"); quotes saved before the catalogue hold only this.
   type: string;
@@ -152,6 +198,12 @@ export interface SalesQuoteData {
   stackable?: boolean;
   dangerous?: boolean;
   packages?: PackageLine[];
+  // The equipment of a full-container quote (isContainerQuote), in place of package lines.
+  containers?: QuoteContainerLine[];
+  // The reefer requirements of a quote with a reefer container among its lines.
+  reefer?: QuoteReefer;
+  // The out-of-gauge details of a quote with an open top or flat rack among its lines.
+  oog?: QuoteOog;
   weight?: number;
   cbm?: number;
   // Pricing

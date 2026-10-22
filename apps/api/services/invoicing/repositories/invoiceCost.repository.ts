@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { TenantRepository } from "../../../lib/db/repository";
 import { db } from "../db/db";
 import { invoiceCostTable as t, type InvoiceCostRecord, type NewInvoiceCostRecord } from "../schemas/invoiceCost.schema";
@@ -29,6 +29,22 @@ class InvoiceCostRepository extends TenantRepository<typeof t> {
       .from(t)
       .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt)))
       .orderBy(asc(t.sortOrder), asc(t.createdAt));
+  }
+
+  /** Whether the shipment has a live buying line copied from a quote: its estimate is then the quote's alone. */
+  async hasQuoteRows(companyId: string, shipmentId: string): Promise<boolean> {
+    const [row] = await this.db
+      .select({ id: t.id })
+      .from(t)
+      .where(and(eq(t.companyId, companyId), eq(t.shipmentId, shipmentId), isNull(t.deletedAt), ne(t.sourceQuoteNumber, "")))
+      .limit(1);
+    return !!row;
+  }
+
+  /** A live line of the shipment that may be written here (not one of Trucking's), or null. */
+  async findLine(id: string, companyId: string, shipmentId: string): Promise<InvoiceCostRecord | null> {
+    const [row] = await this.db.select().from(t).where(lineOf(id, companyId, shipmentId)).limit(1);
+    return row ?? null;
   }
 
   async updateLine(id: string, companyId: string, shipmentId: string, data: Partial<NewInvoiceCostRecord>): Promise<InvoiceCostRecord | null> {
