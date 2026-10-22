@@ -27,6 +27,8 @@ import { FULL_LOAD } from "@/lib/enums";
 import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
+import { shipmentAttachmentsKey } from "@/hooks/useShipmentAttachments";
+import { DOCUMENT_TYPES, isReviewedDocumentType } from "@/lib/documentTypes";
 import { chargeLabel, chargeOptions, toChargeCode } from "@/lib/chargeCodes";
 import { useCreateMasterJob, useMasterJobs, useUpdateMasterJob } from "@/hooks/useMasterJobs";
 import { useNextJobNumber } from "@/hooks/useNextJobNumber";
@@ -63,6 +65,7 @@ import {
   withPackageType,
 } from "../_lib/extraction";
 import { useQuoteReading } from "../_lib/useQuoteReading";
+import { documentNumber, savedDocumentName, suggestedDocumentType } from "../_lib/savedDocument";
 
 type PipelineStep = "idle" | "classified" | "extracting" | "ready";
 
@@ -80,10 +83,10 @@ const DESTINATION_OPTIONS = [
 ] as const;
 
 const DESTINATION_HINT: Record<Destination, string> = {
-  shipment: "Extract shipping data (B/L, booking, waybill) into Shipments columns.",
+  shipment: "Extract shipping data (B/L, booking, waybill) into Shipments columns; an uploaded file is also saved to the shipment's documents.",
   invoicing: "Extract cost data (invoice, debit note) — amount, vendor, invoice number.",
   quote: "Read a customer's request (inquiry email, rate request, packing list) into a Sales quote: customer, route, cargo and readiness date. Prices are not read.",
-  masterjob: "Extract multiple shipments from a pre-alert and create them under a Master Job (MCZ).",
+  masterjob: "Extract multiple shipments from a pre-alert and create them under a Master Job (MCZ); each House B/L's pages are saved to its shipment's documents.",
   booking: "Read a carrier's booking confirmation into a new or an existing Master Job (MCZ); its details also reach the master job's shipments.",
   customs: "Read the MRN Number, Shipper, Consignee, Total Weight and Container Numbers from a customs declaration into one shipment.",
 };
@@ -119,6 +122,7 @@ export function DocumentReadingWorkflow() {
   // Input
   const [fileBase64, setFileBase64] = useState("");
   const [fileName, setFileName] = useState("");
+  const [fileMeta, setFileMeta] = useState({ type: "", size: 0 });
   // A pre-alert can come as several files; all of them are read as one batch
   // under one master job, and listed so the user sees exactly what was taken.
   const [masterFiles, setMasterFiles] = useState<MasterFile[]>([]);
@@ -131,6 +135,13 @@ export function DocumentReadingWorkflow() {
   const [shipmentMode, setShipmentMode] = useState<TargetMode>("existing");
   const [targetShipmentId, setTargetShipmentId] = useState("");
   const [committedJobNumber, setCommittedJobNumber] = useState("");
+  // A file read into Shipments is also saved to the shipment's documents, named after its
+  // document number. The user approves the name and type on Review; until they edit them
+  // (null) both follow the fields as read.
+  const [saveDocument, setSaveDocument] = useState(true);
+  const [docNameEdit, setDocNameEdit] = useState<string | null>(null);
+  const [docTypeEdit, setDocTypeEdit] = useState<string | null>(null);
+  const [savedDocName, setSavedDocName] = useState("");
   // Booking confirmations go to a new master job or to an existing one (by MCZ).
   const [bookingMode, setBookingMode] = useState<TargetMode>("new");
   const [bookingMcz, setBookingMcz] = useState("");
@@ -165,6 +176,9 @@ export function DocumentReadingWorkflow() {
   const [masterIdx, setMasterIdx] = useState(0);
   const [masterFields, setMasterFields] = useState<ExtractedField[]>([]);
   const [masterCreatedJobs, setMasterCreatedJobs] = useState<string[]>([]);
+  // Each House B/L's own pages, in step with masterShipments, saved to the shipment made from it.
+  const [masterDocs, setMasterDocs] = useState<(interfaces.HblDocument | null)[]>([]);
+  const [masterDocsSaved, setMasterDocsSaved] = useState(0);
   const [hblBatchIndex, setHblBatchIndex] = useState(0);
   const [hblTotalBatches, setHblTotalBatches] = useState(0);
   const [hblLoading, setHblLoading] = useState(false);
@@ -198,6 +212,27 @@ export function DocumentReadingWorkflow() {
   const approvedCount = fields.filter((f) => f.approved).length;
   const conflictCount = fields.filter((f) => f.hasConflict).length;
 
+  // The file Review offers to save to the shipment: the uploaded file of a Shipments read
+  // (pasted text has no file), or the current House B/L's own pages of a pre-alert.
+  const masterDoc = destination === "masterjob" ? masterDocs[masterIdx] ?? null : null;
+  const docToSave =
+    destination === "shipment" && inputMode === "file" && fileBase64
+      ? { base64: fileBase64, type: fileMeta.type, size: fileMeta.size, name: fileName }
+      : masterDoc
+        ? { base64: masterDoc.fileBase64, type: masterDoc.fileType, size: masterDoc.fileSize, name: masterDoc.fileName }
+        : null;
+  // A pre-alert's shipments share the Master B/L and the booking, so only the House B/L names one.
+  const docFields = masterDoc ? masterFields.filter((f) => f.column === "House BoL Number") : fields;
+  const docName = docNameEdit ?? (docToSave ? savedDocumentName(docFields, docToSave.name) : "");
+  const docType = docTypeEdit ?? suggestedDocumentType(docFields, docToSave?.name ?? "");
+  const docNumberLabel = documentNumber(docFields).label;
+  const docHint = masterDoc
+    ? `${masterDoc.pages.length === 1 ? "Page" : "Pages"} ${masterDoc.pages.join(", ")} of ${masterDoc.sourceFileName}, named after the House B/L number.`
+    : docNumberLabel
+      ? `Named after the ${docNumberLabel.replace("BoL", "B/L")}. Original file: ${fileName}`
+      : "No House B/L, Master B/L or Booking number was read, so the original name is kept.";
+  const docNameMissing = !!docToSave && saveDocument && !docName.trim();
+
   const successTitle = (() => {
     if (destination === "masterjob")
       return `${masterCreatedJobs.length} shipment${masterCreatedJobs.length !== 1 ? "s" : ""} created`;
@@ -213,9 +248,12 @@ export function DocumentReadingWorkflow() {
   const successSubtitle =
     destination === "masterjob"
       ? masterCreatedJobs.length > 0
-        ? `Under ${activeMcz}: ${masterCreatedJobs.join(", ")}`
+        ? `Under ${activeMcz}: ${masterCreatedJobs.join(", ")}` +
+          (masterDocsSaved > 0 ? ` · ${masterDocsSaved} House B/L${masterDocsSaved !== 1 ? "s" : ""} saved to their shipments' documents` : "")
         : `Master Job ${activeMcz}`
-      : "The extracted data has been saved.";
+      : savedDocName
+        ? `The extracted data has been saved, and ${savedDocName} is in the shipment's documents.`
+        : "The extracted data has been saved.";
 
   // ─── Input handling ──────────────────────────────────────────────
   const beforeUpload = (file: File) => {
@@ -237,6 +275,7 @@ export function DocumentReadingWorkflow() {
       .then((b64) => {
         setFileBase64(b64);
         setFileName(file.name);
+        setFileMeta({ type: file.type, size: file.size });
         setError(null);
       })
       .catch(() => setError("Could not read the selected file."));
@@ -264,6 +303,11 @@ export function DocumentReadingWorkflow() {
   const handleExtract = async () => {
     setStep("extracting");
     setError(null);
+    // A new read starts from its own name and type, not ones edited for an earlier file.
+    setSaveDocument(true);
+    setDocNameEdit(null);
+    setDocTypeEdit(null);
+    setSavedDocName("");
     try {
       if (destination === "shipment") {
         const result =
@@ -364,7 +408,10 @@ export function DocumentReadingWorkflow() {
   const commitShipment = async () => {
     const approved = fieldsToLabelValues(fields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
+    if (docNameMissing) return toast.warning("Enter a file name for the document, or untick saving it.");
     const newContainers = containerRowsFromNumbers(parseContainerNumbers(approved["Container Number"]));
+    let shipmentId = targetShipmentId;
+    let jobNumber = "";
     try {
       if (shipmentMode === "existing") {
         const target = shipments.find((s) => s.id === targetShipmentId);
@@ -379,9 +426,10 @@ export function DocumentReadingWorkflow() {
         data = withCargoLine(data, approved, target?.cargoItems ?? []);
         data = withPackageType(data, approved["Type Of Packages"], target?.cargoItems ?? []);
         await updateShipment({ id: targetShipmentId, data });
-        setCommittedJobNumber(target?.jobNumber || "");
+        jobNumber = target?.jobNumber || "";
       } else {
         const created = await createShipment(baseCreatePayload());
+        shipmentId = created.shipment.id;
         let data = toShipmentUpdate(approved);
         if (newContainers.length > 0) data.containers = newContainers;
         data = withContainerType(data, approved);
@@ -389,11 +437,36 @@ export function DocumentReadingWorkflow() {
         data = withPackageType(data, approved["Type Of Packages"]);
         await updateShipment({ id: created.shipment.id, data });
         // The number the server gave the shipment (a parallel create may have taken the preview).
-        setCommittedJobNumber(created.shipment.jobNumber);
+        jobNumber = created.shipment.jobNumber;
       }
-      setStep("committed");
+      setCommittedJobNumber(jobNumber);
     } catch {
-      toast.error("Failed to write shipment data.");
+      return toast.error("Failed to write shipment data.");
+    }
+    if (await saveReadDocument(shipmentId, jobNumber)) setSavedDocName(docName.trim());
+    setStep("committed");
+  };
+
+  // Saves the file shown on Review to the shipment's documents, when the user left it ticked.
+  // The shipment's customs status follows its documents as for any other upload. A failure
+  // doesn't undo the fields already written. True when a document was saved.
+  const saveReadDocument = async (shipmentId: string, jobNumber: string): Promise<boolean> => {
+    if (!docToSave || !saveDocument) return false;
+    const name = docName.trim();
+    try {
+      await api.shipments.attachmentCreate(shipmentId, {
+        fileName: name,
+        fileSize: docToSave.size,
+        fileType: docToSave.type || "application/octet-stream",
+        contentBase64: docToSave.base64,
+        documentType: docType,
+      });
+      queryClient.invalidateQueries({ queryKey: ["shipments"] });
+      queryClient.invalidateQueries({ queryKey: shipmentAttachmentsKey(shipmentId) });
+      return true;
+    } catch {
+      toast.error(`The fields were written, but ${name} could not be saved to ${jobNumber || "the shipment"}. Add it on its Documents tab.`);
+      return false;
     }
   };
 
@@ -468,8 +541,16 @@ export function DocumentReadingWorkflow() {
   };
 
   // ─── Master job pipeline ─────────────────────────────────────────
-  const loadMasterFields = (record: Record<string, string> | undefined) =>
+  // Each shipment of a pre-alert starts from its own document name and type.
+  const loadMasterFields = (record: Record<string, string> | undefined) => {
     setMasterFields(record ? recordToFields(record) : []);
+    setSaveDocument(true);
+    setDocNameEdit(null);
+    setDocTypeEdit(null);
+  };
+
+  // A batch's House B/L documents, one per shipment (none from a server that sends none).
+  const batchDocs = (res: interfaces.ExtractHblResult) => (res.shipments ?? []).map((_, i) => res.documents?.[i] ?? null);
 
   const startMasterExtraction = async () => {
     setPipelineStep("extracting");
@@ -486,6 +567,8 @@ export function DocumentReadingWorkflow() {
       const hbl = await api.extraction.pipelineExtractHbl({ sessionId: pipelineSessionId, batchIndex: 0 });
       const extracted = (hbl.shipments || []).map(normalizeExtracted);
       setMasterShipments(extracted);
+      setMasterDocs(batchDocs(hbl));
+      setMasterDocsSaved(0);
       setHblBatchIndex(1);
       setHblTotalBatches(hbl.totalBatches || 1);
       setMasterIdx(0);
@@ -506,6 +589,7 @@ export function DocumentReadingWorkflow() {
     try {
       const res = await api.extraction.pipelineExtractHbl({ sessionId: pipelineSessionId, batchIndex: hblBatchIndex });
       setMasterShipments((prev) => [...prev, ...(res.shipments || []).map(normalizeExtracted)]);
+      setMasterDocs((prev) => [...prev, ...batchDocs(res)]);
       setHblBatchIndex((prev) => prev + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load next batch.");
@@ -584,6 +668,7 @@ export function DocumentReadingWorkflow() {
     if (!activeMcz) return toast.warning("No MCZ number available.");
     const approved = fieldsToLabelValues(masterFields);
     if (Object.keys(approved).length === 0) return toast.warning("No fields approved.");
+    if (docNameMissing) return toast.warning("Enter a file name for the document, or untick saving it.");
     try {
       const created = await createShipment(baseCreatePayload());
       let data = toShipmentUpdate(approved);
@@ -596,6 +681,7 @@ export function DocumentReadingWorkflow() {
       const linked = await linkMasterJob({ shipmentId: created.shipment.id, mczNumber: activeMcz });
       if (masterMode === "new") setBatchMcz(activeMcz);
       if (!mblFiled && linked.shipment.masterJobId) await fileMblToMasterJob(linked.shipment.masterJobId);
+      if (await saveReadDocument(created.shipment.id, created.shipment.jobNumber)) setMasterDocsSaved((n) => n + 1);
       setMasterCreatedJobs((prev) => [...prev, created.shipment.jobNumber]);
       advanceMaster();
     } catch {
@@ -615,6 +701,11 @@ export function DocumentReadingWorkflow() {
     setError(null);
     setFileBase64("");
     setFileName("");
+    setFileMeta({ type: "", size: 0 });
+    setSaveDocument(true);
+    setDocNameEdit(null);
+    setDocTypeEdit(null);
+    setSavedDocName("");
     setMasterFiles([]);
     setPreparedFiles([]);
     setTextInput("");
@@ -644,6 +735,8 @@ export function DocumentReadingWorkflow() {
     setMasterIdx(0);
     setMasterFields([]);
     setMasterCreatedJobs([]);
+    setMasterDocs([]);
+    setMasterDocsSaved(0);
     setHblBatchIndex(0);
     setHblTotalBatches(0);
     setHblLoading(false);
@@ -918,11 +1011,22 @@ export function DocumentReadingWorkflow() {
           </div>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}
           <FieldReviewTable fields={fields} onToggle={toggleField} editable onEdit={editField} />
+          {docToSave && (
+            <SaveDocumentBox
+              checked={saveDocument}
+              onCheck={setSaveDocument}
+              name={docName}
+              onName={setDocNameEdit}
+              hint={docHint}
+              type={docType}
+              onType={setDocTypeEdit}
+            />
+          )}
           <div className="flex gap-2 mt-4">
             <Button onClick={() => setStep("upload")}>Back</Button>
             <Button
               type="primary"
-              disabled={approvedCount === 0}
+              disabled={approvedCount === 0 || docNameMissing}
               onClick={destination === "customs" ? commitCustoms : destination === "booking" ? handleCommitBooking : commitShipment}
               loading={destination === "booking" && bookingSaving}
             >
@@ -1099,13 +1203,24 @@ export function DocumentReadingWorkflow() {
                     showExisting={false}
                     accent="amber"
                   />
+                  {docToSave && (
+                    <SaveDocumentBox
+                      checked={saveDocument}
+                      onCheck={setSaveDocument}
+                      name={docName}
+                      onName={setDocNameEdit}
+                      hint={docHint}
+                      type={docType}
+                      onType={setDocTypeEdit}
+                    />
+                  )}
 
                   <div className="flex gap-2 mt-4">
                     <Button onClick={() => setStep("upload")}>Back</Button>
                     <Button onClick={advanceMaster}>Skip</Button>
                     <Button
                       type="primary"
-                      disabled={masterFields.filter((f) => f.approved).length === 0}
+                      disabled={masterFields.filter((f) => f.approved).length === 0 || docNameMissing}
                       onClick={validateAndCreate}
                     >
                       Validate &amp; Create
@@ -1194,6 +1309,52 @@ function MasterFileList({ files, onRemove }: MasterFileListProps) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+interface SaveDocumentBoxProps {
+  checked: boolean;
+  onCheck: (checked: boolean) => void;
+  name: string;
+  onName: (name: string) => void;
+  /** Where the file comes from and what it is named after. */
+  hint: string;
+  type: string;
+  onType: (type: string) => void;
+}
+
+// The read file, to be saved to the shipment's documents under its document number. The user
+// approves the name and the document type here; both are saved with the fields on Write.
+function SaveDocumentBox({ checked, onCheck, name, onName, hint, type, onType }: SaveDocumentBoxProps) {
+  return (
+    <div className="mt-4 border border-slate-200 rounded-lg px-3 py-3">
+      <Checkbox checked={checked} onChange={(e) => onCheck(e.target.checked)}>
+        <span className="text-sm font-semibold text-slate-800">Save the document to the shipment&apos;s documents</span>
+      </Checkbox>
+      {checked && (
+        <div className="mt-3 grid grid-cols-1 lg:grid-cols-[1fr_220px] gap-3">
+          <div>
+            <div className="text-xs font-medium text-slate-500 mb-1.5">
+              File name <span className="text-red-500">*</span>
+            </div>
+            <Input value={name} onChange={(e) => onName(e.target.value)} status={name.trim() ? undefined : "error"} />
+            <p className="mt-1 mb-0 text-[11px] text-slate-400">{hint}</p>
+          </div>
+          <div>
+            <div className="text-xs font-medium text-slate-500 mb-1.5">Document type</div>
+            <Select
+              className="w-full"
+              value={type}
+              onChange={onType}
+              options={DOCUMENT_TYPES.map((t) => ({ value: t, label: t }))}
+            />
+            {isReviewedDocumentType(type) && (
+              <p className="mt-1 mb-0 text-[11px] text-amber-600">Customs reviews this type of document.</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

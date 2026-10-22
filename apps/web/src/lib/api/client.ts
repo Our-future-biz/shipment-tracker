@@ -10055,6 +10055,11 @@ export namespace interfaces {
 
     export interface ExtractHblResult {
         shipments: { [key: string]: string }[]
+        /**
+         * The House B/L's own pages for each shipment, in the same order; null when they couldn't be cut out.
+         */
+        documents: (HblDocument | null)[]
+
         batchIndex: number
         totalBatches: number
         totalExtracted: number
@@ -11229,6 +11234,26 @@ export namespace interfaces {
     }
 
     export type HaulierStatus = "ok" | "warning" | "blocked"
+
+    /**
+     * The pages of one House B/L, cut out of the pre-alert as its own file.
+     */
+    export interface HblDocument {
+        /**
+         * Suggested name: the House B/L number as printed (characters a file name can't hold become "-").
+         */
+        fileName: string
+
+        fileType: string
+        fileSize: number
+        fileBase64: string
+        /**
+         * The uploaded file the pages came from, and their page numbers in it.
+         */
+        sourceFileName: string
+
+        pages: number[]
+    }
 
     export interface HolidayImportResult {
         added: number

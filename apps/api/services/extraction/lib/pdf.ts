@@ -19,6 +19,25 @@ export async function splitPdfToPages(fileBase64: string): Promise<string[]> {
   return pages;
 }
 
+// Join pages (single-page PDFs, or JPG/PNG images) into one PDF (base64), in the given
+// order. Used to keep the pages of one House B/L together as its own document.
+export async function mergePagesToPdf(pages: { base64: string; mediaType: string }[]): Promise<string> {
+  const doc = await PDFDocument.create();
+  for (const { base64, mediaType } of pages) {
+    const bytes = Buffer.from(base64, "base64");
+    if (mediaType === "application/pdf") {
+      const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+      for (const page of await doc.copyPages(src, src.getPageIndices())) doc.addPage(page);
+    } else if (mediaType === "image/jpeg" || mediaType === "image/png") {
+      const image = mediaType === "image/png" ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+      doc.addPage([image.width, image.height]).drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
+    } else {
+      throw new Error(`A ${mediaType} page can't be put into a PDF`);
+    }
+  }
+  return doc.saveAsBase64();
+}
+
 export async function extractTextFromPdf(buffer: Buffer): Promise<string> {
   try {
     const parser = new PDFParse({ data: new Uint8Array(buffer) });

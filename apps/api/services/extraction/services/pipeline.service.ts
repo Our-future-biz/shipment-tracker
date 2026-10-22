@@ -2,18 +2,19 @@ import { randomUUID } from "node:crypto";
 import { APIError } from "encore.dev/api";
 import log from "encore.dev/log";
 import { classifyPages, extractFromPages } from "./extraction.service";
-import { splitPdfToPages, detectMediaType } from "../lib/pdf";
+import { splitPdfToPages, detectMediaType, mergePagesToPdf } from "../lib/pdf";
 import { SHIPMENT_FIELDS } from "../lib/fields";
 import { MASTER_JOB_PROMPT, PLACE_RULES } from "../lib/prompts";
 import { groupHblPages } from "../lib/hblGroups";
 import { canonicalizeRecords } from "./places.service";
 import { chargeReading } from "../lib/readingBudget";
-import type { PrepareResult, ExtractMblResult, ExtractHblResult, PipelineFile } from "../interfaces/interfaces";
+import type { PrepareResult, ExtractMblResult, ExtractHblResult, HblDocument, PipelineFile } from "../interfaces/interfaces";
 
 interface PipelinePage {
   pageNum: number;
-  /** The uploaded file the page came from. */
+  /** The uploaded file the page came from, and the page's number in it. */
   fileName: string;
+  filePageNum: number;
   type: string;
   /** House B/L number read on an HBL page; "" when none. */
   ref: string;
@@ -90,7 +91,7 @@ function getPagesByType(session: PipelineSession, type: string): PipelinePage[] 
 // All files of one pre-alert go into a single session, so their pages are
 // classified and extracted together and end up under one master job.
 export async function prepare(files: PipelineFile[], owner: SessionOwner): Promise<PrepareResult> {
-  const rawPages: { base64: string; mediaType: string; fileName: string }[] = [];
+  const rawPages: { base64: string; mediaType: string; fileName: string; filePageNum: number }[] = [];
   const fileSummary: { fileName: string; pageCount: number }[] = [];
   for (const { fileBase64, fileName } of files) {
     const mediaType = detectMediaType(fileName);
@@ -101,7 +102,7 @@ export async function prepare(files: PipelineFile[], owner: SessionOwner): Promi
       const pageB64s = await splitPdfToPages(fileBase64);
       if (pageB64s.length > 0) filePages = pageB64s.map((b) => ({ base64: b, mediaType: "application/pdf" }));
     }
-    rawPages.push(...filePages.map((p) => ({ ...p, fileName })));
+    rawPages.push(...filePages.map((p, i) => ({ ...p, fileName, filePageNum: i + 1 })));
     fileSummary.push({ fileName, pageCount: filePages.length });
     if (rawPages.length > MAX_PAGES) {
       throw APIError.invalidArgument(`A pre-alert can have at most ${MAX_PAGES} pages - please read it in smaller batches`);
@@ -136,6 +137,7 @@ export async function prepare(files: PipelineFile[], owner: SessionOwner): Promi
   const sessionPages: PipelinePage[] = rawPages.map((p, i) => ({
     pageNum: i + 1,
     fileName: p.fileName,
+    filePageNum: p.filePageNum,
     type: types[i] || "HBL",
     ref: refs[i] || "",
     base64: p.base64,
@@ -209,6 +211,7 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
   if (batchIndex >= totalBatches) {
     return {
       shipments: [],
+      documents: [],
       batchIndex,
       totalBatches,
       totalExtracted: session.shipments.length,
@@ -230,8 +233,12 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
       ),
     ),
   );
-  // Exactly one shipment per House B/L, even if the model split it.
-  const shipments = perHbl.map((rows) => rows[0]).filter((s): s is Record<string, string> => !!s);
+  // Exactly one shipment per House B/L, even if the model split it; each keeps its own pages.
+  const read = await Promise.all(
+    perHbl.map(async (rows, i) => ({ shipment: rows[0], document: rows[0] ? await hblDocument(batch[i]) : null })),
+  );
+  const found = read.filter((r): r is { shipment: Record<string, string>; document: HblDocument | null } => !!r.shipment);
+  const shipments = found.map((r) => r.shipment);
 
   await canonicalizeRecords(shipments);
 
@@ -251,9 +258,39 @@ export async function extractHblBatch(sessionId: string, batchIndex: number, who
 
   return {
     shipments,
+    documents: found.map((r) => r.document),
     batchIndex,
     totalBatches,
     totalExtracted: session.shipments.length,
     done,
   };
+}
+
+/**
+ * The pages of one House B/L as a file of its own, to be saved to the shipment made from it:
+ * named after the B/L number as printed on it. Copies of the B/L sent in other uploaded files
+ * go into the same file. A page that can't be put into a PDF leaves the shipment without one.
+ */
+async function hblDocument(pages: PipelinePage[]): Promise<HblDocument | null> {
+  const source = pages[0];
+  if (!source) return null;
+  try {
+    const single = pages.length === 1;
+    const fileBase64 = single ? source.base64 : await mergePagesToPdf(pages);
+    const fileType = single ? source.mediaType : "application/pdf";
+    const extension = fileType === "image/jpeg" ? ".jpg" : fileType === "image/png" ? ".png" : ".pdf";
+    const number = (pages.find((p) => p.ref)?.ref ?? "").trim().replace(/[\\/:*?"<>|]+/g, "-");
+    const stem = source.fileName.replace(/\.[a-z0-9]+$/i, "");
+    return {
+      fileName: `${number || `${stem} p${pages.map((p) => p.filePageNum).join("-")}`}${extension}`,
+      fileType,
+      fileSize: Buffer.byteLength(fileBase64, "base64"),
+      fileBase64,
+      sourceFileName: [...new Set(pages.map((p) => p.fileName))].join(", "),
+      pages: pages.map((p) => p.filePageNum),
+    };
+  } catch (err) {
+    log.warn("pipeline: House B/L pages could not be cut out", { error: err instanceof Error ? err.message : String(err) });
+    return null;
+  }
 }
