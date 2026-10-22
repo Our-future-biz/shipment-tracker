@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Alert, Button, Form, Input } from "antd";
+import { businessDateTime } from "@/lib/date";
+import type { TimelineEntry } from "../_lib/types";
 import { SalesDialog } from "./SalesDialog";
 
 // The longest note the server takes (MAX_FOLLOW_UP_NOTE in the API's quoteLifecycle.utils.ts).
@@ -9,6 +11,8 @@ const MAX_NOTE_LENGTH = 2000;
 
 interface FollowUpDialogProps {
   quoteNumber: string;
+  // The follow-ups already recorded on the quote, newest first (followUpLines).
+  history: TimelineEntry[];
   onRecord: (note?: string) => Promise<string | null>;
   onClose: () => void;
 }
@@ -19,9 +23,10 @@ interface FollowUpDialogProps {
 // that finishes "QCZ… - …" - or with null once it is recorded; a refusal is shown here, with the
 // note still there. Whoever opens the dialog keeps it outside the row or card of the button: a
 // refusal usually means the quote has just left that list or lost that card, and the dialog must
-// not go with it before the reason was read.
+// not go with it before the reason was read. Under the note, the follow-ups recorded before.
 export function FollowUpDialog({
   quoteNumber,
+  history,
   onRecord,
   onClose,
 }: FollowUpDialogProps) {
@@ -73,6 +78,66 @@ export function FollowUpDialog({
           />
         </Form.Item>
       </Form>
+      <FollowUpHistory history={history} />
     </SalesDialog>
+  );
+}
+
+// The follow-ups recorded before, newest first: when, who, and the first line of the note. A note
+// that is cut opens in full on a click, and closes again on another.
+function FollowUpHistory({ history }: { history: TimelineEntry[] }) {
+  // The lines whose note is shown in full, by their place in the list.
+  const [open, setOpen] = useState<Set<number>>(new Set());
+  const toggle = (i: number) =>
+    setOpen((was) => {
+      const next = new Set(was);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+
+  return (
+    <div className="mt-5">
+      <div className="mb-2 text-sm font-medium text-slate-700">
+        Earlier follow-ups{history.length > 0 && <span className="ml-1 font-normal text-slate-500">({history.length})</span>}
+      </div>
+      {history.length === 0 ? (
+        <div className="text-xs text-slate-500">No follow-up recorded yet</div>
+      ) : (
+        <ul className="max-h-60 overflow-y-auto divide-y divide-slate-100 rounded-md border border-slate-200">
+          {history.map((entry, i) => {
+            const expanded = open.has(i);
+            const head = (
+              <div className="flex items-baseline gap-2 text-xs">
+                <span className="font-medium text-slate-700 tabular-nums whitespace-nowrap">{businessDateTime(entry.at)}</span>
+                {entry.user && <span className="truncate text-slate-500">{entry.user}</span>}
+              </div>
+            );
+            if (!entry.comment) {
+              return (
+                <li key={i} className="px-3 py-2">
+                  {head}
+                  <div className="mt-0.5 text-xs italic text-slate-400">No note</div>
+                </li>
+              );
+            }
+            return (
+              <li key={i}>
+                <button
+                  type="button"
+                  className="block w-full px-3 py-2 text-left hover:bg-slate-50"
+                  aria-expanded={expanded}
+                  title={expanded ? "Click to collapse" : "Click to see the full note"}
+                  onClick={() => toggle(i)}
+                >
+                  {head}
+                  <div className={`mt-0.5 text-sm text-slate-700 ${expanded ? "whitespace-pre-wrap break-words" : "truncate"}`}>{entry.comment}</div>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }

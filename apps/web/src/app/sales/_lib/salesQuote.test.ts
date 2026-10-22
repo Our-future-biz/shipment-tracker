@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseRef, followStored, quoteFamily, revisionRoot, withoutPricing, type SalesQuote } from "./salesQuote";
+import { baseRef, followStored, followUpLines, quoteFamily, revisionRoot, withoutPricing, type SalesQuote } from "./salesQuote";
 
 const quote = (quoteNumber: string): SalesQuote => ({ quoteNumber }) as SalesQuote;
 
@@ -46,5 +46,18 @@ describe("quoteFamily", () => {
     const refs = ["QCZ20261010001-2-R1", "QCZ20261010001-R2", "QCZ20261010001-2", "QCZ20261010001", "QCZ20261010001-R1", "QCZ20261010002"];
     const family = quoteFamily(refs.map(quote), "QCZ20261010001-R1").map((q) => q.quoteNumber);
     expect(family).toEqual(["QCZ20261010001", "QCZ20261010001-R1", "QCZ20261010001-R2", "QCZ20261010001-2", "QCZ20261010001-2-R1"]);
+  });
+});
+
+describe("followUpLines", () => {
+  it("is the follow-ups of a quote's history, newest first", () => {
+    const timeline = [
+      { kind: "status" as const, status: "quoted" as const, at: "2026-10-01T08:00:00Z" },
+      { kind: "follow_up" as const, at: "2026-10-05T09:00:00Z", user: "Lukáš" },
+      { kind: "owner" as const, at: "2026-10-06T09:00:00Z", comment: "Owner: Jana" },
+      { kind: "follow_up" as const, at: "2026-10-09T10:30:00Z", user: "Jana", comment: "decision next week" },
+    ];
+    expect(followUpLines({ timeline }).map((e) => e.at)).toEqual(["2026-10-09T10:30:00Z", "2026-10-05T09:00:00Z"]);
+    expect(followUpLines({})).toEqual([]);
   });
 });

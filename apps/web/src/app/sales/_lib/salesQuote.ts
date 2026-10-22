@@ -79,6 +79,14 @@ export function statusLines(data: SalesQuoteData): TimelineEntry[] {
   return timeline.filter((entry) => entry && typeof entry === "object" && (!entry.kind || entry.kind === "status") && typeof entry.status === "string");
 }
 
+// The follow-ups recorded on a quote, newest first: who contacted the customer, when, and the note
+// they left, if any (applyFollowUp in apps/api/services/quotes/utils/quoteLifecycle.utils.ts).
+export function followUpLines(data: SalesQuoteData): TimelineEntry[] {
+  const { timeline } = data;
+  if (!Array.isArray(timeline)) return [];
+  return timeline.filter((entry) => entry && typeof entry === "object" && entry.kind === "follow_up" && typeof entry.at === "string").reverse();
+}
+
 // The reference of a sales quote - QCZ, the day, that day's number, for a variant -2, -3, ... and
 // for a revision -R1, -R2, ... - as the server gives them out (SALES_REFERENCE_PATTERN in
 // apps/api/lib/salesReference.ts).
