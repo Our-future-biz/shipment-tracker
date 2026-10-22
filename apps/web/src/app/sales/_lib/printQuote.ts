@@ -72,9 +72,25 @@ export function quoteDocument(
     </div>`
     : "";
 
-  // Cargo table rows: one per package line, with per-line total weight and CBM.
+  // Cargo table rows: one per container line of a full-container quote (the type stands where a
+  // package's packing does, with the cargo weight per box), then one per package line, with
+  // per-line total weight and CBM.
+  const containerRows = (data.containers ?? [])
+    .map((c) => {
+      const totalWeight = num(c.qty) * num(c.weight);
+      return `<tr>
+        <td>${esc(data.commodity) || "—"}</td>
+        <td>${esc(c.type)} container</td>
+        <td style="text-align:right">${esc(c.qty)}</td>
+        <td style="text-align:right">—</td>
+        <td style="text-align:right">${esc(c.weight) || "—"}</td>
+        <td style="text-align:right">${totalWeight ? esc(Math.round(totalWeight * 100) / 100) : "—"}</td>
+        <td style="text-align:right">—</td>
+      </tr>`;
+    })
+    .join("");
   const packages: PackageLine[] = data.packages ?? [];
-  const cargoRows = packages
+  const packageRows = packages
     .map((p: PackageLine) => {
       const totalWeight = num(p.qty) * num(p.weight);
       const cbm = (num(p.qty) * num(p.length) * num(p.width) * num(p.height)) / 1_000_000;
@@ -89,6 +105,7 @@ export function quoteDocument(
       </tr>`;
     })
     .join("");
+  const cargoRows = containerRows + packageRows;
 
   // Without package lines the cargo is the one weight and volume typed or imported for the whole
   // shipment - the figures the quote's own screens show for it then (computeCargo). Totals are
@@ -111,7 +128,7 @@ export function quoteDocument(
   const cargoFoot = cargoRows
     ? `<tfoot><tr class="totals">
         <td colspan="2">Totals</td>
-        <td style="text-align:right">${esc(cargo.totalPackages)}</td>
+        <td style="text-align:right">${esc(cargo.totalPackages || cargo.totalContainers)}</td>
         <td></td>
         <td></td>
         <td style="text-align:right">${cargo.grossWeight ? `${esc(cargo.grossWeight)} kg` : "—"}</td>

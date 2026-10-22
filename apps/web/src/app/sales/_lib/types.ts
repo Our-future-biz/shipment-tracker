@@ -16,6 +16,15 @@ export interface PackageLine {
   stackable?: boolean;
 }
 
+// A container line of a full-container quote (Sea FCL): so many boxes of one type, named as the
+// shipment's Container Details name them ("40' HC"). The weight is the cargo in one such box
+// (kg), absent until somebody enters it.
+export interface QuoteContainerLine {
+  qty: number;
+  type: string;
+  weight?: number;
+}
+
 export interface CostLine {
   // The label of the charge ("Road freight"); quotes saved before the catalogue hold only this.
   type: string;
@@ -152,6 +161,8 @@ export interface SalesQuoteData {
   stackable?: boolean;
   dangerous?: boolean;
   packages?: PackageLine[];
+  // The equipment of a full-container quote (isContainerQuote), in place of package lines.
+  containers?: QuoteContainerLine[];
   weight?: number;
   cbm?: number;
   // Pricing

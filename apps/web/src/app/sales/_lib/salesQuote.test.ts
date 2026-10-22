@@ -103,6 +103,21 @@ describe("computeCargo", () => {
   });
 
   it("has nothing to measure without weight and volume", () => {
-    expect(computeCargo({})).toMatchObject({ grossWeight: 0, cbm: 0, weightMeasure: 0 });
+    expect(computeCargo({})).toMatchObject({ grossWeight: 0, cbm: 0, weightMeasure: 0, totalContainers: 0, teu: 0, equipment: "" });
+  });
+
+  it("counts a full-container quote's boxes, their TEU and the cargo weight declared per box", () => {
+    const cargo = computeCargo({
+      serviceType: "Sea FCL",
+      containers: [{ qty: 2, type: "40' HC", weight: 18000 }, { qty: 1, type: "20' GP" }],
+      weight: 999,
+      cbm: 100,
+    });
+    expect(cargo).toMatchObject({ totalContainers: 3, teu: 5, equipment: "2× 40' HC, 1× 20' GP", grossWeight: 36000, weightFromLines: true, weightFromContainers: true, cbm: 100 });
+  });
+
+  it("takes the typed total of a full-container quote whose boxes declare no weight", () => {
+    const cargo = computeCargo({ containers: [{ qty: 1, type: "40' HC" }, { qty: 1, type: "40' HC" }], weight: 21000 });
+    expect(cargo).toMatchObject({ totalContainers: 2, teu: 4, equipment: "2× 40' HC", grossWeight: 21000, weightFromLines: false, weightFromContainers: false });
   });
 });
