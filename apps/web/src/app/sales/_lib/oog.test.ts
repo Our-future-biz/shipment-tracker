@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { checkOog, gaugeAdvice, hasGauge, hasOogEquipment, inGaugeMaximum, isOogType, oogMissing, oogSummary, oogTypes } from "./oog";
+import { answerInGauge, checkOog, gaugeAdvice, hasGauge, hasOogEquipment, inGaugeMaximum, isOogType, oogMissing, oogSummary, oogTypes } from "./oog";
+
+describe("answerInGauge", () => {
+  it("pre-fills the most the equipment takes in gauge when Yes is answered before any measure is typed", () => {
+    expect(answerInGauge({}, true, ["40' FR"])).toEqual({ inGauge: true, length: 1150, width: 244, height: 194 });
+    // a type without known measures has nothing to pre-fill
+    expect(answerInGauge({ inGauge: false }, true, ["40' HC"])).toEqual({ inGauge: true });
+  });
+
+  it("keeps measures already typed whichever way the answer goes - a mis-click does not put the maximum in their place", () => {
+    const typed = { inGauge: false, length: 1262, width: 300, height: 250 };
+    expect(answerInGauge(typed, true, ["40' FR"])).toEqual({ inGauge: true });
+    expect(answerInGauge({ ...typed, inGauge: true }, false, ["40' FR"])).toEqual({ inGauge: false });
+  });
+});
 
 describe("out-of-gauge equipment", () => {
   it("knows open tops and flat racks by their type", () => {

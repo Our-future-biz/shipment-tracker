@@ -90,7 +90,6 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
     })),
   );
   if (containers.length > 0) out.containers = containers;
-  const containersWeight = containers.some((c) => c.grossWeight);
 
   // Cargo: package lines → dimension rows; the commodity → one cargo item.
   const packages = data.packages ?? [];
@@ -126,12 +125,13 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
     ];
   }
 
-  // Quote-level weight/volume only matter when there are no container or package lines to
-  // derive them from (the projections handle the rest).
-  if (dimensions.length === 0) {
-    if (data.weight && !containersWeight) set("totalWeightTons", (Number(data.weight) / 1000).toFixed(3));
-    if (data.cbm) set("totalVolumeCbm", String(data.cbm));
-  }
+  // The weight and volume typed for the whole shipment go with it where the lines give none -
+  // the figures the quote's screens and the printed quotation show then (computeCargo), each on
+  // its own. Where the container or package lines give a figure, the shipment works it out from
+  // its own rows; a stored total is what it shows when its rows carry none.
+  const cargo = computeCargo(data);
+  if (data.weight && !cargo.weightFromLines) set("totalWeightTons", (Number(data.weight) / 1000).toFixed(3));
+  if (data.cbm && !cargo.cbmFromLines) set("totalVolumeCbm", String(data.cbm));
 
   return out;
 }
@@ -140,9 +140,8 @@ export function quoteToCreateRequest(quoteNumber: string, data: SalesQuoteData, 
 
 export function quotePreview(data: SalesQuoteData, sheet: ExchangeRates): { label: string; value: string }[] {
   // The cargo as the quote's own screens and the printed quotation count it (computeCargo): the
-  // package lines added up, and the weight and volume stored for the whole shipment only while
-  // there are no lines. A stored total beside lines that carry no weight is on none of those
-  // screens and is not sent with the shipment above, so the preview does not show it either.
+  // lines added up, and the weight and volume typed for the whole shipment where the lines give
+  // none - the figures the shipment above gets as well.
   const { totalPackages: pieces, grossWeight: weight, cbm, equipment, teu } = computeCargo(data);
   // The selling lines converted into the quote's currency. Lines that cannot be converted are not
   // in the figure, and it says so: a partial total must not pass for the price.

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { Alert, InputNumber, Radio } from "antd";
 import { fmtQuantity } from "../_lib/fmtQuantity";
 import { moneyInputParser } from "@/lib/money";
-import { checkOog, gaugeAdvice, hasGauge, inGaugeMaximum, type OogCheck } from "../../../_lib/oog";
+import { answerInGauge, checkOog, gaugeAdvice, hasGauge, inGaugeMaximum, type OogCheck } from "../../../_lib/oog";
 import type { QuoteOog } from "../../../_lib/types";
 import { LINE_TD_CLASS, LINE_TH_CLASS, LINE_TH_RIGHT_CLASS, LineBlock, LineTable } from "./LineBlock";
 
@@ -82,11 +82,8 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
           <Radio.Group
             size="small"
             value={o.inGauge}
-            onChange={(e) => {
-              const inGauge = e.target.value as boolean;
-              // In gauge: the equipment's maximum is typed in, to be corrected to the real cargo.
-              onChange(inGauge && max ? { inGauge, length: max.length, width: max.width, height: max.height } : { inGauge });
-            }}
+            // Yes before any measure is typed brings the equipment's maximum with it; typed measures stay.
+            onChange={(e) => onChange(answerInGauge(o, e.target.value as boolean, types))}
           >
             <Radio value={true}>Yes</Radio>
             <Radio value={false}>No</Radio>
@@ -109,7 +106,7 @@ export function QuoteOogBlock({ value, types, onChange, missing }: QuoteOogBlock
             })}
             {o.inGauge && max && (
               <div className="text-[11px] text-slate-500">
-                Pre-filled with the maximum in gauge for {max.limitedBy}: {max.length.toLocaleString("en-US")} × {max.width} × {max.height} cm. Correct it to the real cargo.
+                In gauge on {max.limitedBy} is at most {max.length.toLocaleString("en-US")} × {max.width} × {max.height} cm - what Yes starts from while no measure is typed. Enter the real cargo.
               </div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

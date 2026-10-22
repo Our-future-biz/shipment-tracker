@@ -58,3 +58,26 @@ describe("quote ↔ shipment containers", () => {
     expect(data.containers).toEqual([{ qty: 2, type: "40' HC", weight: 18000 }, { qty: 1, type: "20' GP" }]);
   });
 });
+
+describe("quote → shipment totals", () => {
+  it("sends the weight typed for the whole shipment when the package lines carry none, as the quote shows it", () => {
+    const req = quoteToCreateRequest("QCZ1", { packages: [{ qty: 2, type: "Pallets", length: 120, width: 80, height: 100 }], weight: 1800 }, NO_RATES);
+    expect(req.cargoDimensions).toHaveLength(1);
+    expect(req.totalWeightTons).toBe("1.800");
+    // the volume is the lines': 2 × 1.2 × 0.8 × 1 = 1.92 cbm
+    expect(req.totalVolumeCbm).toBeUndefined();
+  });
+
+  it("sends the volume typed for the whole shipment when the package lines have no dimensions", () => {
+    const req = quoteToCreateRequest("QCZ1", { packages: [{ qty: 2, type: "Pallets", weight: 300 }], weight: 999, cbm: 2.5 }, NO_RATES);
+    expect(req.totalVolumeCbm).toBe("2.5");
+    // the weight is the lines': 2 × 300 kg
+    expect(req.totalWeightTons).toBeUndefined();
+  });
+
+  it("sends neither when the lines give both", () => {
+    const req = quoteToCreateRequest("QCZ1", { packages: [{ qty: 1, type: "Pallets", length: 100, width: 100, height: 100, weight: 500 }], weight: 999, cbm: 9 }, NO_RATES);
+    expect(req.totalWeightTons).toBeUndefined();
+    expect(req.totalVolumeCbm).toBeUndefined();
+  });
+});

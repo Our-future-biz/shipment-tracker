@@ -806,7 +806,10 @@ export function QuoteWorkflow() {
             />
           )}
 
-          {containerQuote && (
+          {/* A full-container quote lists its boxes; container lines a quote still has after its
+              service type changed stay in view too - they count in its weight and go with a shipment
+              made from it - rather than counting unseen. */}
+          {(containerQuote || containers.length > 0) && (
             <LineBlock
               title="Containers"
               actions={

@@ -193,10 +193,12 @@ export function CostsTab({ shipment }: CostsTabProps) {
   // real cost only, its Estimated cells stay empty and closed (the server refuses an estimate).
   const quotePriced = quoteRefs.size > 0;
 
-  // The quote the Report compares the profit with: the one the buying lines were copied from,
-  // else the one the Sales Number names. Its profit is the quote's own figure, at its own rates.
+  // The quote the Report compares the profit with: the one the costs were last copied from (the
+  // shipment's quote reference), else the one its buying lines name, else the one the Sales
+  // Reference names. Its profit is the quote's own figure, at its own rates.
+  const copiedFrom = (data?.billingSettings?.quoteRef ?? "").trim();
   const shipmentQuote = (shipment.salesNumber ?? "").trim();
-  const profitQuoteRef = [...quoteRefs.values()][0] ?? (isSalesQuoteRef(shipmentQuote) ? shipmentQuote : null);
+  const profitQuoteRef = (isSalesQuoteRef(copiedFrom) ? copiedFrom : null) ?? [...quoteRefs.values()][0] ?? (isSalesQuoteRef(shipmentQuote) ? shipmentQuote : null);
   const profitQuote = useSalesQuoteByRef(profitQuoteRef);
   const profitQuoteData = profitQuote.data?.quote ? asData(profitQuote.data.quote.data) : null;
   // The job's profit against the quote's, in CZK, for the Report's bar.
@@ -589,8 +591,9 @@ export function CostsTab({ shipment }: CostsTabProps) {
                 const fromQuote = quoteRefs.get(r.id);
                 // the quote's fields look like text and do not open, whatever the rest of the row does
                 const fixed = lockedField(locked || !!fromQuote);
-                // the Estimated cells: the quote's on its lines, and nobody's on a line added by hand
-                const estClosed = !!fromQuote || quotePriced;
+                // the Estimated cells: the quote's on its lines, and nobody's on a line added by hand -
+                // one typed before the quote's lines came stays open until it is cleared
+                const estClosed = !!fromQuote || (quotePriced && !num(r.estQty) && !num(r.estAmount));
                 const est = lockedField(locked || estClosed);
                 return (
                 <tr

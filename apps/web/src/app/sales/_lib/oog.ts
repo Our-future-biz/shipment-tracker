@@ -1,4 +1,4 @@
-import type { QuoteContainerLine, SalesQuoteData } from "./types";
+import type { QuoteContainerLine, QuoteOog, SalesQuoteData } from "./types";
 import { isContainerQuote } from "./salesQuote";
 
 // Out-of-gauge cargo on open-top and flat-rack boxes: whether the cargo stands out of the box,
@@ -206,6 +206,18 @@ export function inGaugeMaximum(types: string[]): { length: number; width: number
     height: Math.min(...known.map(([, g]) => g.height)),
     limitedBy,
   };
+}
+
+/**
+ * The in-gauge answer as it goes on the quote. Yes, answered before any measure is typed, brings
+ * the most the equipment takes in gauge with it, to be corrected to the real cargo; measures
+ * already typed stay whichever way the answer goes, so a mis-click does not put the maximum in
+ * their place.
+ */
+export function answerInGauge(current: QuoteOog, inGauge: boolean, types: string[]): Partial<QuoteOog> {
+  const typed = !!(current.length || current.width || current.height);
+  const max = inGauge && !typed ? inGaugeMaximum(types) : null;
+  return max ? { inGauge, length: max.length, width: max.width, height: max.height } : { inGauge };
 }
 
 /** What the user is told of a box besides its measures ("Roof opening is 223 cm wide"), or null. */
