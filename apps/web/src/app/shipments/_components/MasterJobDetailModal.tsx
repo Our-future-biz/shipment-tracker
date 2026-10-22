@@ -10,7 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, apiErrorMessage } from "@/lib/api";
 import type { controllers } from "@/lib/api/client";
 import { useShipments, type ShipmentItem } from "@/hooks/useShipments";
-import { computeDimensionTotals } from "@/lib/columnConfig";
+import { shipmentFreight } from "@/lib/freightTons";
 
 interface DerivedRow {
   shipment: ShipmentItem;
@@ -26,19 +26,12 @@ function deriveRows(masterShipments: ShipmentItem[]): DerivedRow[] {
   return masterShipments.map((s) => {
     const dims = s.cargoDimensions ?? [];
     const dimsJson = dims.length > 0 ? JSON.stringify(dims) : "";
-    const { weightKg, volumeCbm } = computeDimensionTotals(dims);
-    const manualTons = parseFloat(String(s.totalWeightTons ?? "")) || 0;
-    const manualCbm = parseFloat(String(s.totalVolumeCbm ?? "")) || 0;
-    const tons = weightKg > 0 ? weightKg / 1000 : manualTons;
-    const cbm = volumeCbm > 0 ? volumeCbm : manualCbm;
     return {
       shipment: s,
       shipmentId: s.id,
       jobNumber: s.jobNumber ?? s.id,
       dimsJson,
-      tons,
-      cbm,
-      freightTon: Math.max(tons, cbm),
+      ...shipmentFreight(s),
     };
   });
 }

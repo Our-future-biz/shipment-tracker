@@ -148,6 +148,8 @@ export interface CostSplitInput {
   total: string;
   currency: string;
   invoiceNumber: string;
+  /** who issued the invoice, recorded on each part; left as it is when not given */
+  vendor?: string;
   lines: CostSplitLine[];
   /** shipments whose real cost of the code is replaced; the others keep theirs */
   overwriteShipmentIds?: string[];

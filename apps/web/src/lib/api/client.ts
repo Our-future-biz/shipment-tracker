@@ -7470,6 +7470,11 @@ export namespace controllers {
 
         currency: string
         invoiceNumber: string
+        /**
+         * who issued the invoice, recorded on each part
+         */
+        vendor?: string
+
         lines: interfaces.CostSplitLine[]
         /**
          * shipments whose real cost of the code is replaced; the others keep theirs

@@ -80,7 +80,7 @@ vi.mock("../../repositories/invoiceCost.repository", async () => {
 import * as costRepo from "../../repositories/invoiceCost.repository";
 import { invoicingService } from "../../services/invoicing.service";
 
-const rows = (costRepo as unknown as { rows: { shipmentId: string; category: string; estAmount: string | null; realAmount: string | null }[] }).rows;
+const rows = (costRepo as unknown as { rows: { shipmentId: string; category: string; estAmount: string | null; realAmount: string | null; vendor: string }[] }).rows;
 
 const COMPANY = "86f202b1-7449-441b-9c5b-5bf4d89f8d88";
 const SHIP_A = "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01";
@@ -180,6 +180,11 @@ describe("splitCost", () => {
       [SHIP_B, "ocean_freight", "33.33"],
       [SHIP_C, "ocean_freight", "33.33"],
     ]);
+  });
+
+  it("records the vendor on each part when given", async () => {
+    await split({ vendor: " Vanguard Logistics " });
+    expect(rows.map((r) => r.vendor)).toEqual(["Vanguard Logistics", "Vanguard Logistics", "Vanguard Logistics"]);
   });
 
   it("writes nothing on a dry run", async () => {

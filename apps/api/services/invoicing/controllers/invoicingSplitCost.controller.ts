@@ -11,6 +11,8 @@ interface SplitCostRequest {
   total: string & MinLen<1> & MaxLen<20>;
   currency: string & MinLen<1> & MaxLen<10>;
   invoiceNumber: string & MinLen<1> & MaxLen<100>;
+  /** who issued the invoice, recorded on each part */
+  vendor?: string & MaxLen<200>;
   lines: CostSplitLine[];
   /** shipments whose real cost of the code is replaced; the others keep theirs */
   overwriteShipmentIds?: string[];

@@ -20,10 +20,10 @@ import {
 } from "antd";
 import { DeleteOutlined, FileOutlined, InboxOutlined, ReloadOutlined } from "@ant-design/icons";
 import { useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, apiErrorMessage } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import { fileToBase64, formatFileSize } from "@/lib/files";
-import { FULL_LOAD } from "@/lib/enums";
+import { CURRENCIES, FULL_LOAD } from "@/lib/enums";
 import { existingMczNumbers, nextMczNumber } from "@/lib/mcz";
 import { useToast } from "@/lib/toast";
 import { useShipments, getFieldValue } from "@/hooks/useShipments";
@@ -65,7 +65,10 @@ import {
   withPackageType,
 } from "../_lib/extraction";
 import { useQuoteReading } from "../_lib/useQuoteReading";
-import { documentNumber, savedDocumentName, suggestedDocumentType } from "../_lib/savedDocument";
+import { documentNumber, numberedFileName, savedDocumentName, suggestedDocumentType } from "../_lib/savedDocument";
+import { missingWm, splitLines, type SplitMethod } from "../_lib/masterInvoice";
+import { MasterInvoiceShipments, type MasterInvoiceShipment } from "./MasterInvoiceShipments";
+import { shipmentFreight } from "@/lib/freightTons";
 
 type PipelineStep = "idle" | "classified" | "extracting" | "ready";
 
@@ -84,7 +87,8 @@ const DESTINATION_OPTIONS = [
 
 const DESTINATION_HINT: Record<Destination, string> = {
   shipment: "Extract shipping data (B/L, booking, waybill) into Shipments columns; an uploaded file is also saved to the shipment's documents.",
-  invoicing: "Extract cost data (invoice, debit note) — amount, vendor, invoice number.",
+  invoicing:
+    "Extract cost data (invoice, debit note) — amount, vendor, invoice number — into one shipment, or split it over the shipments of a master job.",
   quote: "Read a customer's request (inquiry email, rate request, packing list) into a Sales quote: customer, route, cargo and readiness date. Prices are not read.",
   masterjob: "Extract multiple shipments from a pre-alert and create them under a Master Job (MCZ); each House B/L's pages are saved to its shipment's documents.",
   booking: "Read a carrier's booking confirmation into a new or an existing Master Job (MCZ); its details also reach the master job's shipments.",
@@ -152,6 +156,17 @@ export function DocumentReadingWorkflow() {
   const [invoiceData, setInvoiceData] = useState<InvoiceExtracted>({});
   const [invoiceCategory, setInvoiceCategory] = useState("");
   const [invoiceTargetShipmentId, setInvoiceTargetShipmentId] = useState("");
+  // An invoice can instead cover a master job: it is split over the shipments the user ticks,
+  // by W/M or in equal parts, and each part is posted as that shipment's real cost.
+  const [invoiceTarget, setInvoiceTarget] = useState<"shipment" | "masterjob">("shipment");
+  const [invoiceMcz, setInvoiceMcz] = useState("");
+  const [invoiceUnticked, setInvoiceUnticked] = useState<Set<string>>(new Set());
+  const [splitMethod, setSplitMethod] = useState<SplitMethod | null>(null);
+  const [splitOverwrite, setSplitOverwrite] = useState<Set<string>>(new Set());
+  const [splitPreview, setSplitPreview] = useState<interfaces.CostSplitResultLine[] | null>(null);
+  const [splitError, setSplitError] = useState("");
+  const [splitSaving, setSplitSaving] = useState(false);
+  const [splitDone, setSplitDone] = useState<{ written: string[]; kept: string[]; docs: number } | null>(null);
 
   // Master Job pipeline
   const [masterMode, setMasterMode] = useState<TargetMode>("new");
@@ -212,21 +227,77 @@ export function DocumentReadingWorkflow() {
   const approvedCount = fields.filter((f) => f.approved).length;
   const conflictCount = fields.filter((f) => f.hasConflict).length;
 
+  // ─── Invoice for a master job ───
+  const invoiceToMaster = destination === "invoicing" && invoiceTarget === "masterjob";
+  const { shipments: mczShipments } = useShipments({ masterJobMcz: invoiceMcz, enabled: invoiceToMaster && !!invoiceMcz });
+  const invoiceRows = useMemo<MasterInvoiceShipment[]>(
+    () =>
+      mczShipments
+        .filter((s) => String(s.masterJobMczNumber ?? "").trim() === invoiceMcz)
+        .map((s) => ({
+          shipmentId: s.id,
+          jobNumber: s.jobNumber || s.id,
+          party: s.shipper || s.consignee || "",
+          ...shipmentFreight(s),
+        })),
+    [mczShipments, invoiceMcz],
+  );
+  const invoiceTicked = useMemo(
+    () => new Set(invoiceRows.filter((r) => !invoiceUnticked.has(r.shipmentId)).map((r) => r.shipmentId)),
+    [invoiceRows, invoiceUnticked],
+  );
+  const invoiceMissingWm = splitMethod ? missingWm(invoiceRows, invoiceTicked, splitMethod) : [];
+  const invoiceTotal = Number(invoiceData.total_amount ?? "");
+  const invoiceCurrency = normalizeCurrency(invoiceData.currency);
+  // The split as the server will post it; asked as a dry run while the user reviews.
+  const splitRequest = useMemo(
+    () =>
+      splitMethod && invoiceCategory && invoiceTotal > 0 && invoiceData.invoice_number?.trim() && invoiceTicked.size > 0
+        ? {
+            category: invoiceCategory,
+            total: invoiceTotal.toFixed(2),
+            currency: invoiceCurrency,
+            invoiceNumber: invoiceData.invoice_number.trim(),
+            vendor: invoiceData.vendor?.trim() || undefined,
+            lines: splitLines(invoiceRows, invoiceTicked, splitMethod),
+          }
+        : null,
+    [splitMethod, invoiceCategory, invoiceTotal, invoiceCurrency, invoiceData.invoice_number, invoiceData.vendor, invoiceRows, invoiceTicked],
+  );
+  const splitReady = !!splitRequest && invoiceMissingWm.length === 0;
+  const tickInvoiceShipment = (shipmentId: string, ticked: boolean) =>
+    setInvoiceUnticked((prev) => {
+      const next = new Set(prev);
+      if (ticked) next.delete(shipmentId);
+      else next.add(shipmentId);
+      return next;
+    });
+
   // The file Review offers to save to the shipment: the uploaded file of a Shipments read
   // (pasted text has no file), or the current House B/L's own pages of a pre-alert.
   const masterDoc = destination === "masterjob" ? masterDocs[masterIdx] ?? null : null;
   const docToSave =
-    destination === "shipment" && inputMode === "file" && fileBase64
+    (destination === "shipment" || invoiceToMaster) && inputMode === "file" && fileBase64
       ? { base64: fileBase64, type: fileMeta.type, size: fileMeta.size, name: fileName }
       : masterDoc
         ? { base64: masterDoc.fileBase64, type: masterDoc.fileType, size: masterDoc.fileSize, name: masterDoc.fileName }
         : null;
   // A pre-alert's shipments share the Master B/L and the booking, so only the House B/L names one.
   const docFields = masterDoc ? masterFields.filter((f) => f.column === "House BoL Number") : fields;
-  const docName = docNameEdit ?? (docToSave ? savedDocumentName(docFields, docToSave.name) : "");
-  const docType = docTypeEdit ?? suggestedDocumentType(docFields, docToSave?.name ?? "");
+  // A master job's vendor invoice is named after its invoice number and filed as "Other", so
+  // customs never takes it for the shipment's commercial invoice.
+  const docName =
+    docNameEdit ??
+    (!docToSave
+      ? ""
+      : invoiceToMaster
+        ? numberedFileName(invoiceData.invoice_number ?? "", docToSave.name)
+        : savedDocumentName(docFields, docToSave.name));
+  const docType = docTypeEdit ?? (invoiceToMaster ? "Other" : suggestedDocumentType(docFields, docToSave?.name ?? ""));
   const docNumberLabel = documentNumber(docFields).label;
-  const docHint = masterDoc
+  const docHint = invoiceToMaster
+    ? `Saved to each ticked shipment the invoice is posted to, named after the invoice number. Original file: ${fileName}`
+    : masterDoc
     ? `${masterDoc.pages.length === 1 ? "Page" : "Pages"} ${masterDoc.pages.join(", ")} of ${masterDoc.sourceFileName}, named after the House B/L number.`
     : docNumberLabel
       ? `Named after the ${docNumberLabel.replace("BoL", "B/L")}. Original file: ${fileName}`
@@ -236,6 +307,8 @@ export function DocumentReadingWorkflow() {
   const successTitle = (() => {
     if (destination === "masterjob")
       return `${masterCreatedJobs.length} shipment${masterCreatedJobs.length !== 1 ? "s" : ""} created`;
+    if (destination === "invoicing" && splitDone)
+      return `Invoice split over ${splitDone.written.length} shipment${splitDone.written.length !== 1 ? "s" : ""} of ${invoiceMcz}`;
     if (destination === "invoicing") return `Invoice data written to ${committedJobNumber || "shipment"}`;
     if (destination === "booking")
       return `${approvedCount} field${approvedCount !== 1 ? "s" : ""} written to ${committedJobNumber}`;
@@ -251,6 +324,14 @@ export function DocumentReadingWorkflow() {
         ? `Under ${activeMcz}: ${masterCreatedJobs.join(", ")}` +
           (masterDocsSaved > 0 ? ` · ${masterDocsSaved} House B/L${masterDocsSaved !== 1 ? "s" : ""} saved to their shipments' documents` : "")
         : `Master Job ${activeMcz}`
+      : destination === "invoicing" && splitDone
+        ? [
+            splitDone.written.length > 0 && `Real cost posted to ${splitDone.written.join(", ")}.`,
+            splitDone.kept.length > 0 && `${splitDone.kept.join(", ")} kept the cost they had.`,
+            splitDone.docs > 0 && `The invoice is in the documents of ${splitDone.docs} shipment${splitDone.docs !== 1 ? "s" : ""}.`,
+          ]
+            .filter(Boolean)
+            .join(" ")
       : savedDocName
         ? `The extracted data has been saved, and ${savedDocName} is in the shipment's documents.`
         : "The extracted data has been saved.";
@@ -291,7 +372,7 @@ export function DocumentReadingWorkflow() {
   const canExtract = (() => {
     const textLength = textInput.trim().length;
     const hasInput = inputMode === "file" ? !!fileBase64 : textLength >= 10 && textLength <= textMaxLength;
-    if (destination === "invoicing") return hasInput && !!invoiceTargetShipmentId;
+    if (destination === "invoicing") return hasInput && (invoiceToMaster ? invoiceTicked.size > 0 : !!invoiceTargetShipmentId);
     if (destination === "quote") return hasInput && quoteReading.ready;
     if (destination === "booking") return hasInput && (bookingMode === "new" || !!bookingMasterJob);
     if (destination === "customs") return hasInput && !!customsShipmentId;
@@ -308,6 +389,9 @@ export function DocumentReadingWorkflow() {
     setDocNameEdit(null);
     setDocTypeEdit(null);
     setSavedDocName("");
+    setSplitPreview(null);
+    setSplitOverwrite(new Set());
+    setSplitDone(null);
     try {
       if (destination === "shipment") {
         const result =
@@ -488,6 +572,51 @@ export function DocumentReadingWorkflow() {
       setStep("committed");
     } catch {
       toast.error("Failed to save invoicing data.");
+    }
+  };
+
+  // While the user reviews a master job's invoice: each ticked shipment's part, and the real
+  // cost it already has under the charge (asked of the server without writing anything).
+  useEffect(() => {
+    if (step !== "review" || !invoiceToMaster || !splitReady || !splitRequest) {
+      setSplitPreview(null);
+      return;
+    }
+    let cancelled = false;
+    setSplitPreview(null);
+    setSplitError("");
+    api.invoicing
+      .invoicingSplitCost({ ...splitRequest, dryRun: true })
+      .then(({ lines }) => !cancelled && setSplitPreview(lines))
+      .catch((err) => !cancelled && setSplitError(apiErrorMessage(err)));
+    return () => {
+      cancelled = true;
+    };
+  }, [step, invoiceToMaster, splitReady, splitRequest]);
+
+  // ─── Commit: invoice split over a master job ─────────────────────
+  const commitMasterInvoice = async () => {
+    if (!splitRequest || !splitReady || splitSaving) return;
+    if (docNameMissing) return toast.warning("Enter a file name for the document, or untick saving it.");
+    setSplitSaving(true);
+    try {
+      const { lines } = await api.invoicing.invoicingSplitCost({ ...splitRequest, overwriteShipmentIds: [...splitOverwrite] });
+      const jobOf = (id: string) => invoiceRows.find((r) => r.shipmentId === id)?.jobNumber ?? id;
+      const written = lines.filter((l) => l.written);
+      for (const l of written) queryClient.invalidateQueries({ queryKey: ["invoicing", l.shipmentId] });
+      // The invoice goes to the documents of each shipment it was posted to.
+      let docs = 0;
+      for (const l of written) if (await saveReadDocument(l.shipmentId, jobOf(l.shipmentId))) docs += 1;
+      setSplitDone({
+        written: written.map((l) => jobOf(l.shipmentId)),
+        kept: lines.filter((l) => !l.written).map((l) => jobOf(l.shipmentId)),
+        docs,
+      });
+      setStep("committed");
+    } catch (err) {
+      toast.error(`Failed to split the invoice: ${apiErrorMessage(err)}`);
+    } finally {
+      setSplitSaving(false);
     }
   };
 
@@ -722,6 +851,14 @@ export function DocumentReadingWorkflow() {
     setInvoiceData({});
     setInvoiceCategory("");
     setInvoiceTargetShipmentId("");
+    setInvoiceTarget("shipment");
+    setInvoiceMcz("");
+    setInvoiceUnticked(new Set());
+    setSplitMethod(null);
+    setSplitOverwrite(new Set());
+    setSplitPreview(null);
+    setSplitError("");
+    setSplitDone(null);
     setMasterMode("new");
     setMasterMczExisting("");
     setBatchMcz("");
@@ -804,16 +941,53 @@ export function DocumentReadingWorkflow() {
 
           {destination === "invoicing" && (
             <div className="mb-4">
-              <div className="text-xs font-medium text-slate-500 mb-1.5">Target shipment for invoice costs</div>
-              <Select
-                showSearch
-                className="w-full"
-                placeholder="Select shipment…"
-                value={invoiceTargetShipmentId || undefined}
-                onChange={(v) => setInvoiceTargetShipmentId(v || "")}
-                options={shipmentOptions}
-                filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
-              />
+              <Radio.Group value={invoiceTarget} onChange={(e) => setInvoiceTarget(e.target.value)} className="mb-3">
+                <Radio value="shipment">One shipment</Radio>
+                <Radio value="masterjob">Master Job</Radio>
+              </Radio.Group>
+              {invoiceTarget === "shipment" ? (
+                <>
+                  <div className="text-xs font-medium text-slate-500 mb-1.5">Target shipment for invoice costs</div>
+                  <Select
+                    showSearch
+                    className="w-full"
+                    placeholder="Select shipment…"
+                    value={invoiceTargetShipmentId || undefined}
+                    onChange={(v) => setInvoiceTargetShipmentId(v || "")}
+                    options={shipmentOptions}
+                    filterOption={(input, option) => (option?.label ?? "").toLowerCase().includes(input.toLowerCase())}
+                  />
+                </>
+              ) : (
+                <>
+                  <div className="text-xs font-medium text-slate-500 mb-1.5">Master Job Number</div>
+                  {existingMcz.length === 0 ? (
+                    <div className="text-xs italic text-slate-400">No existing MCZ numbers found.</div>
+                  ) : (
+                    <Select
+                      showSearch
+                      className="w-full !mb-4"
+                      placeholder="Select master job…"
+                      value={invoiceMcz || undefined}
+                      onChange={(v) => {
+                        setInvoiceMcz(v || "");
+                        setInvoiceUnticked(new Set());
+                      }}
+                      options={existingMcz.map((m) => ({ value: m, label: m }))}
+                    />
+                  )}
+                  {invoiceMcz && (
+                    <MasterInvoiceShipments
+                      rows={invoiceRows}
+                      ticked={invoiceTicked}
+                      onTick={tickInvoiceShipment}
+                      onTickAll={(on) => setInvoiceUnticked(on ? new Set() : new Set(invoiceRows.map((r) => r.shipmentId)))}
+                      method={splitMethod}
+                      onMethod={setSplitMethod}
+                    />
+                  )}
+                </>
+              )}
             </div>
           )}
 
@@ -1049,7 +1223,109 @@ export function DocumentReadingWorkflow() {
       )}
 
       {/* ─── STEP: Review — invoicing ─── */}
-      {step === "review" && destination === "invoicing" && (
+      {step === "review" && invoiceToMaster && (
+        <Card>
+          <div className="text-sm font-semibold mb-3">
+            Invoice for master job <span className="font-mono">{invoiceMcz}</span>
+          </div>
+          {error && <Alert className="mb-3" type="error" showIcon message={error} />}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_110px_1fr_1fr] gap-3 mb-4">
+            <div>
+              <div className="text-xs font-medium text-slate-500 mb-1.5">
+                Invoice total <span className="text-red-500">*</span>
+              </div>
+              <Input
+                value={invoiceData.total_amount ?? ""}
+                onChange={(e) => setInvoiceData((d) => ({ ...d, total_amount: e.target.value.replace(",", ".") }))}
+                status={invoiceTotal > 0 ? undefined : "error"}
+              />
+            </div>
+            <div>
+              <div className="text-xs font-medium text-slate-500 mb-1.5">Currency</div>
+              <Select
+                className="w-full"
+                value={invoiceCurrency}
+                onChange={(v) => setInvoiceData((d) => ({ ...d, currency: v }))}
+                options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+              />
+            </div>
+            <div>
+              <div className="text-xs font-medium text-slate-500 mb-1.5">
+                Invoice number <span className="text-red-500">*</span>
+              </div>
+              <Input
+                value={invoiceData.invoice_number ?? ""}
+                onChange={(e) => setInvoiceData((d) => ({ ...d, invoice_number: e.target.value }))}
+                status={invoiceData.invoice_number?.trim() ? undefined : "error"}
+              />
+            </div>
+            <div>
+              <div className="text-xs font-medium text-slate-500 mb-1.5">Vendor</div>
+              <Input value={invoiceData.vendor ?? ""} onChange={(e) => setInvoiceData((d) => ({ ...d, vendor: e.target.value }))} />
+            </div>
+          </div>
+          <div className="mb-4">
+            <div className="text-xs font-medium text-slate-500 mb-1.5">
+              Cost Category <span className="text-red-500">*</span>
+            </div>
+            <Select
+              className="w-72"
+              placeholder="Select category…"
+              value={invoiceCategory || undefined}
+              onChange={setInvoiceCategory}
+              options={chargeOptions().map((c) => ({
+                value: c.value,
+                label: c.value === toChargeCode(invoiceData.service_type || "") ? `${c.label} (suggested)` : c.label,
+              }))}
+            />
+          </div>
+          <MasterInvoiceShipments
+            rows={invoiceRows}
+            ticked={invoiceTicked}
+            onTick={tickInvoiceShipment}
+            onTickAll={(on) => setInvoiceUnticked(on ? new Set() : new Set(invoiceRows.map((r) => r.shipmentId)))}
+            method={splitMethod}
+            onMethod={setSplitMethod}
+            parts={Object.fromEntries((splitPreview ?? []).map((l) => [l.shipmentId, l.amount]))}
+            existing={Object.fromEntries((splitPreview ?? []).map((l) => [l.shipmentId, l.existing ?? null]))}
+            overwrite={splitOverwrite}
+            onOverwrite={(id, on) =>
+              setSplitOverwrite((prev) => {
+                const next = new Set(prev);
+                if (on) next.add(id);
+                else next.delete(id);
+                return next;
+              })
+            }
+            currency={invoiceCurrency}
+          />
+          {splitError && <Alert className="mt-3" type="error" showIcon message={splitError} />}
+          {docToSave && (
+            <SaveDocumentBox
+              checked={saveDocument}
+              onCheck={setSaveDocument}
+              name={docName}
+              onName={setDocNameEdit}
+              hint={docHint}
+              type={docType}
+              onType={setDocTypeEdit}
+            />
+          )}
+          <div className="flex gap-2 mt-4">
+            <Button onClick={() => setStep("upload")}>Back</Button>
+            <Button
+              type="primary"
+              disabled={!splitReady || !splitPreview || !!splitError || docNameMissing}
+              loading={splitSaving}
+              onClick={commitMasterInvoice}
+            >
+              Split to {invoiceTicked.size} shipment{invoiceTicked.size !== 1 ? "s" : ""} (Real Cost)
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {step === "review" && destination === "invoicing" && !invoiceToMaster && (
         <Card>
           <div className="text-sm font-semibold mb-3">Invoice data extracted</div>
           {error && <Alert className="mb-3" type="error" showIcon message={error} />}

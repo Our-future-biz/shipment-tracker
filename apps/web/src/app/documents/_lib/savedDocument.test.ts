@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExtractedField } from "./extraction";
-import { documentNumber, savedDocumentName, suggestedDocumentType } from "./savedDocument";
+import { documentNumber, numberedFileName, savedDocumentName, suggestedDocumentType } from "./savedDocument";
 
 const field = (column: string, extractedValue: string): ExtractedField => ({
   column,
@@ -35,6 +35,13 @@ describe("savedDocumentName", () => {
 
   it("keeps the original name when no number was read", () => {
     expect(savedDocumentName([field("Shipper", "ACME")], "waybill.png")).toBe("waybill.png");
+  });
+});
+
+describe("numberedFileName", () => {
+  it("names a file after any document number, such as an invoice number", () => {
+    expect(numberedFileName(" FV/2026/0042 ", "Invoice scan.PDF")).toBe("FV-2026-0042.pdf");
+    expect(numberedFileName("", "invoice.pdf")).toBe("invoice.pdf");
   });
 });
 

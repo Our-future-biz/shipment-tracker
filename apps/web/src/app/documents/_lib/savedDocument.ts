@@ -22,10 +22,19 @@ export function documentNumber(fields: ExtractedField[]): { label: string; value
  * without a number the original name is kept.
  */
 export function savedDocumentName(fields: ExtractedField[], originalName: string): string {
-  const number = documentNumber(fields).value.replace(/[\\/:*?"<>|]+/g, "-");
-  if (!number) return originalName;
+  return numberedFileName(documentNumber(fields).value, originalName);
+}
+
+/**
+ * A file named after a document number (an invoice number, a B/L number) with the original
+ * extension. Characters a file name can't hold become "-"; without a number the original
+ * name is kept.
+ */
+export function numberedFileName(number: string, originalName: string): string {
+  const safe = number.trim().replace(/[\\/:*?"<>|]+/g, "-");
+  if (!safe) return originalName;
   const extension = /\.[a-z0-9]+$/i.exec(originalName)?.[0].toLowerCase() ?? "";
-  return `${number}${extension}`;
+  return `${safe}${extension}`;
 }
 
 /**

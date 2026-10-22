@@ -313,6 +313,7 @@ class InvoicingService {
           realAmount: amount,
           realCurrency: input.currency,
           invoiceNumber: input.invoiceNumber.trim(),
+          ...(input.vendor?.trim() ? { vendor: input.vendor.trim() } : {}),
         });
       }
       result.push({ shipmentId: line.shipmentId, amount, existing, written: write });
