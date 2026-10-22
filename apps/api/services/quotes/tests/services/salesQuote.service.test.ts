@@ -185,7 +185,7 @@ describe("get", () => {
     stored = quote({ shipmentId: "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01", shipmentJobNumber: "CZ00000101" });
     expect((await salesQuoteService.get(manager, REF)).permissions).toMatchObject({
       canDelete: false,
-      deleteBlockedReason: "shipment CZ00000101 was created from this quote - remove the Sales Number from the shipment first",
+      deleteBlockedReason: "shipment CZ00000101 was created from this quote - remove the Sales Reference from the shipment first",
     });
   });
 
@@ -1172,7 +1172,7 @@ describe("delete", () => {
   const SHIPMENT = { shipmentId: "7b0e4d53-08a5-4e5e-9a0b-0e2f6a1f1c01", shipmentJobNumber: "CZ00000101" };
   const linked = {
     code: "failed_precondition",
-    message: "shipment CZ00000101 was created from this quote - remove the Sales Number from the shipment first",
+    message: "shipment CZ00000101 was created from this quote - remove the Sales Reference from the shipment first",
   };
   /** A quote of Martin's that is with the customer. */
   const quoted = (over: Partial<SalesQuoteRecord> = {}) => quote({ status: "quoted", sentAt: SENT, firstSentAt: SENT, lastContactAt: SENT, ...over });

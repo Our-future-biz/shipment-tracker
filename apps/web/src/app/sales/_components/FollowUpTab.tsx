@@ -81,7 +81,7 @@ export function FollowUpTab() {
 
   const quoteColumns: ColumnsType<SalesQuote> = [
     {
-      title: "Sales Number",
+      title: "Sales Reference",
       dataIndex: "quoteNumber",
       width: 150,
       // The whole row opens the quote too.

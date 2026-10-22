@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import type { interfaces } from "@/lib/api/client";
 import type { SalesQuoteData } from "@/app/sales/_lib/types";
 import { quoteProblem } from "@/app/sales/_lib/quoteProblem";
-import { customerQuotesKeys, salesQuoteKeys } from "@/hooks/salesQueryKeys";
+import { customerQuotesKeys, quoteShipmentsKeys, salesQuoteKeys } from "@/hooks/salesQueryKeys";
 
 // How many quotes a bulk action changes at the same time.
 const BULK_CONCURRENCY = 4;
@@ -29,6 +29,9 @@ export const invalidateQuoteLists = (queryClient: QueryClient, { refetchType }: 
     queryClient.invalidateQueries({ queryKey: salesQuoteKeys.lists, refetchType }),
     // The header of a shipment shows the quote its Sales Number names, read one by one.
     queryClient.invalidateQueries({ queryKey: salesQuoteKeys.quotes, refetchType }),
+    // The Shipment(s) column counts the shipments naming each quote: a shipment created, deleted
+    // or given another Sales Reference changes it.
+    queryClient.invalidateQueries({ queryKey: quoteShipmentsKeys.all, refetchType }),
   ]);
 
 // What Sales does to whole quotes: creating, duplicating and deleting them, and changing them

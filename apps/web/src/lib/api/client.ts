@@ -1652,6 +1652,7 @@ export namespace shipments {
             this.shipmentTileCounts = this.shipmentTileCounts.bind(this)
             this.shipmentUnlinkMasterJob = this.shipmentUnlinkMasterJob.bind(this)
             this.shipmentUpdate = this.shipmentUpdate.bind(this)
+            this.shipmentsNamingQuotes = this.shipmentsNamingQuotes.bind(this)
             this.taskList = this.taskList.bind(this)
             this.taskUpsert = this.taskUpsert.bind(this)
             this.userPrefGet = this.userPrefGet.bind(this)
@@ -1983,6 +1984,17 @@ export namespace shipments {
             // Now make the actual call to the API
             const resp = await this.baseClient.callTypedAPI("PATCH", `/shipments/${encodeURIComponent(shipmentId)}`, JSON.stringify(params))
             return await resp.json() as controllers.ShipmentUpdateResponse
+        }
+
+        /**
+         * How many shipments each quote has, and which: the live shipments of the caller's company whose
+         * Sales Number is the quote's reference. Read from the shipments themselves - a quote keeps only
+         * the oldest. The Quotes list asks it for the page it shows.
+         */
+        public async shipmentsNamingQuotes(params: controllers.ShipmentsNamingQuotesRequest): Promise<controllers.ShipmentsNamingQuotesResponse> {
+            // Now make the actual call to the API
+            const resp = await this.baseClient.callTypedAPI("POST", `/shipments/naming-quotes`, JSON.stringify(params))
+            return await resp.json() as controllers.ShipmentsNamingQuotesResponse
         }
 
         public async taskList(shipmentId: string): Promise<controllers.TaskListResponse> {
@@ -7400,6 +7412,20 @@ export namespace controllers {
         shipment: interfaces.ShipmentItem
     }
 
+    export interface ShipmentsNamingQuotesRequest {
+        /**
+         * Quote references, at most 200: the quotes on one page of the Quotes list.
+         */
+        references: string[]
+    }
+
+    export interface ShipmentsNamingQuotesResponse {
+        /**
+         * Every reference asked for, with the live shipments that name it - the oldest first.
+         */
+        quotes: interfaces.QuoteShipments[]
+    }
+
     export interface SplitCostRequest {
         /**
          * the charge code the parts are posted under
@@ -12632,6 +12658,18 @@ export namespace interfaces {
             waitingHours: number
             declaredValueCzk: number | null
         }
+    }
+
+    /**
+     * The live shipments that name one quote as their Sales Number, the oldest first.
+     */
+    export interface QuoteShipments {
+        reference: string
+        shipments: {
+            id: string
+            jobNumber: string
+            status: string
+        }[]
     }
 
     /**

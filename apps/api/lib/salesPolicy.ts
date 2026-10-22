@@ -3,6 +3,7 @@
 // policy is covered by a unit test - and changing it means changing this file.
 
 import type { Role } from "./rbac";
+import { quoteStatusLabel } from "./quoteStatusLabel";
 
 /**
  * Roles that manage Sales: they may reassign and delete any quote and change the settings all of
@@ -13,6 +14,17 @@ export const SALES_MANAGE_ROLES: readonly Role[] = ["superadmin", "admin", "mana
 /** `role` as the login carries it: a Role, or a text this code does not know (never a manager). */
 export function canManageSales(role: string): boolean {
   return (SALES_MANAGE_ROLES as readonly string[]).includes(role);
+}
+
+/**
+ * Why no shipment may be linked to a quote in this status - the one it is shown with, so an
+ * expired quote is refused as Expired - finishing the sentence "QCZ… - …"; null when one may.
+ * Only a Won quote is linked to a shipment - neither made from it nor given its number as Sales
+ * Reference before it is Won. A link made before this rule stays.
+ */
+export function shipmentLinkRefusal(status: string): string | null {
+  if (status === "won") return null;
+  return `the quote is ${quoteStatusLabel(status)} - only a Won quote can be linked to a shipment`;
 }
 
 /**
@@ -92,7 +104,7 @@ export function quoteDeletePermission(
     const shipment = quote.shipmentJobNumber ? `shipment ${quote.shipmentJobNumber}` : "a shipment";
     return {
       allowed: false,
-      reason: `${shipment} was created from this quote - remove the Sales Number from the shipment first`,
+      reason: `${shipment} was created from this quote - remove the Sales Reference from the shipment first`,
       blockedBy: "shipment",
     };
   }

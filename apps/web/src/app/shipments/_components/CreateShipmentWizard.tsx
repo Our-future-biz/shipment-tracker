@@ -18,6 +18,7 @@ import { toSalesQuote, type SalesQuote } from "@/app/sales/_lib/salesQuote";
 import { ExchangeRatesError } from "@/app/sales/_components/ExchangeRatesError";
 import { QuotePicker } from "@/app/sales/_components/QuotePicker";
 import { QuoteStatusPill } from "@/app/sales/_components/QuoteStatusPill";
+import { notWonQuoteText } from "@/app/sales/_lib/shipmentLink";
 import { quoteToCreateRequest, quotePreview } from "./quoteToShipment";
 import type { controllers, interfaces } from "@/lib/api/client";
 
@@ -90,8 +91,8 @@ export const CreateShipmentWizard = ({
   const [step, setStep] = useState<WizardStep>("ask-copy");
   const [copyMode, setCopyMode] = useState<"shipment" | "quote">("shipment");
   const [copyFromId, setCopyFromId] = useState<string>("");
-  // The sales quote picked in "Copy from Quote", whole, as the picker found it: any quote of the
-  // company, in any lifecycle status.
+  // The sales quote picked in "Copy from Quote", whole, as the picker found it: a Won quote of the
+  // company, or the one the wizard was opened for.
   const [selectedQuote, setSelectedQuote] = useState<SalesQuote | null>(null);
   // The shipment the server refused to add another to: the picked quote already has it (HTTP 409).
   const [refusedFor, setRefusedFor] = useState<{ id: string; jobNumber: string } | null>(null);
@@ -135,6 +136,9 @@ export const CreateShipmentWizard = ({
     (selectedQuote?.shipmentId && selectedQuote.shipmentJobNumber
       ? { id: selectedQuote.shipmentId, jobNumber: selectedQuote.shipmentJobNumber }
       : null);
+
+  // Why the picked quote cannot be made into a shipment: it is not Won - by the status it is shown with.
+  const notWon = selectedQuote ? notWonQuoteText(selectedQuote.status) : null;
 
   const jobOptions = useMemo(
     () =>
@@ -374,7 +378,7 @@ export const CreateShipmentWizard = ({
         )}
         {copyMode === "quote" && selectedQuote && (
           // Not before the Exchange sheet is in: the quote's totals would be worked out without it.
-          <Button type="primary" onClick={handleCreateFromQuote} loading={busy} disabled={exchange.isLoading || (!!existing && !another)}>
+          <Button type="primary" onClick={handleCreateFromQuote} loading={busy} disabled={exchange.isLoading || !!notWon || (!!existing && !another)}>
             Create from Quote
           </Button>
         )}
@@ -443,7 +447,8 @@ export const CreateShipmentWizard = ({
           ) : (
             <>
               <label className="block text-[11px] text-slate-500 mb-1">Copy from Quote Number</label>
-              <QuotePicker value={selectedQuote} onChange={pickQuote} />
+              {/* Only Won quotes: no shipment is made from any other. */}
+              <QuotePicker value={selectedQuote} onChange={pickQuote} statuses="won" />
               {preset.loading && <div className="mt-2 text-xs text-slate-400">Loading {fromQuote}…</div>}
               {preset.error && <Alert className="mt-3" type="error" showIcon message={`${fromQuote} - ${preset.error}`} />}
 
@@ -466,15 +471,8 @@ export const CreateShipmentWizard = ({
               )}
               {selectedQuote && <ExchangeRatesError exchange={exchange} className="mt-3" />}
 
-              {/* A Lost quote is linked to the shipment but is not reopened by it. */}
-              {selectedQuote?.status === "lost" && (
-                <Alert
-                  className="mt-3"
-                  type="info"
-                  showIcon
-                  message="This quote is Lost and will stay Lost - reopen it in Sales if the customer ordered after all"
-                />
-              )}
+              {/* A quote the wizard is opened for may not be Won yet: the picker never offers one. */}
+              {notWon && <Alert className="mt-3" type="warning" showIcon message={notWon} />}
 
               {existing && (
                 <Alert

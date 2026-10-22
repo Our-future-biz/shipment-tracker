@@ -1,6 +1,7 @@
 import { APIError, ErrCode } from "encore.dev/api";
 import type { Actor } from "../../../lib/rbac";
-import { canManageSales } from "../../../lib/salesPolicy";
+import { canManageSales, shipmentLinkRefusal } from "../../../lib/salesPolicy";
+import { isSalesReference } from "../../../lib/salesReference";
 import log from "encore.dev/log";
 import { auth, customers, invoicing, quotes } from "~encore/clients";
 import { shipmentAttachmentRepository } from "../repositories/shipmentAttachment.repository";
@@ -29,6 +30,7 @@ import type {
   CostImportOutcome,
   CustomerShipmentFacts,
   QuoteLinkOutcome,
+  QuoteShipments,
   QuoteSyncResult,
   ShipmentDueItem,
   ShipmentItem,
@@ -248,6 +250,8 @@ const DATE_FIELDS = new Set([
   "equipmentDeliveryDate",
 ]);
 const MONEY_FIELDS = new Set(["selling", "buying"]);
+// How many quotes one request may ask the shipments of: a page of the Quotes list at most.
+const MAX_QUOTE_REFERENCES = 200;
 
 // Requests may send "" for the customs priority; it is stored as Standard.
 type BlankablePriority = { customsPriority?: CustomsPriority | "" };
@@ -340,6 +344,13 @@ function daysBetween(from: string, to: string): number {
   return Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
 }
 
+// Refuses a quote no shipment may be linked to yet: one that is not Won. Named by the status it
+// is shown with, so an expired quote is refused as Expired, not as the Quoted it is stored as.
+function assertLinkable(quote: { quoteNumber: string; effectiveStatus: string }): void {
+  const refusal = shipmentLinkRefusal(quote.effectiveStatus);
+  if (refusal) throw APIError.failedPrecondition(`${quote.quoteNumber} - ${refusal}`);
+}
+
 class ShipmentService {
   // The customer's stored rollups (totalRevenue/totalProfit/totalShipments/
   // lastActivityDate) live in the customers service, which cannot query this
@@ -374,18 +385,22 @@ class ShipmentService {
   // The sales person of the quote a shipment was sold from: whoever owns the
   // sales quote its Sales Number names, by the name they have now - as a
   // shipment created from a quote gets it. Empty when the number is no sales quote.
-  private async quoteSalesOwner(quoteNumber: string): Promise<string> {
+  // The quote a Sales Number names, checked before a shipment is linked to it: its sales owner,
+  // "" when the number names no quote - free-text sales numbers are allowed. A quote that is not
+  // Won is refused. A quote reference that could not be checked refuses the
+  // write as well: it would link the quote unchecked.
+  private async linkableQuoteOwner(quoteNumber: string, allowUnfinished = false): Promise<string> {
+    let quote;
     try {
-      const { quote } = await quotes.salesQuoteGet({ quoteNumber });
-      return quote.ownerName.trim();
+      ({ quote } = await quotes.salesQuoteGet({ quoteNumber }));
     } catch (err) {
-      // Free-text sales numbers are allowed; an unknown reference just means
-      // there is no owner to inherit.
-      if (!(err instanceof APIError && err.code === ErrCode.NotFound)) {
-        log.warn(err, "quote sales owner not resolved", { quoteNumber });
-      }
+      if (err instanceof APIError && err.code === ErrCode.NotFound) return "";
+      if (isSalesReference(quoteNumber) && !allowUnfinished) throw err;
+      log.warn(err, "quote sales owner not resolved", { quoteNumber });
       return "";
     }
+    if (!allowUnfinished) assertLinkable(quote);
+    return quote.ownerName.trim();
   }
 
   // Persist the shipment's detail rows. Containers first — cargo lines are
@@ -640,6 +655,7 @@ class ShipmentService {
       if (err instanceof APIError && err.code === ErrCode.NotFound) throw APIError.invalidArgument(`quote ${quoteNumber} not found`);
       throw err;
     }
+    assertLinkable(quote);
     const reference = quote.quoteNumber;
     // Whoever owns the quote sold the shipment - unless the request names somebody itself.
     if (!(shipmentData.salesPerson ?? "").trim() && quote.ownerName) shipmentData.salesPerson = quote.ownerName;
@@ -686,9 +702,10 @@ class ShipmentService {
   /**
    * `creatorUserId` is the signed-in user creating the shipment: Created By is then stamped
    * here from that user. Without it (a caller inside the backend, e.g. Trucking's road jobs)
-   * the caller's own createdBy is kept.
+   * the caller's own createdBy is kept. `allowUnfinishedQuote`: the Sales Number may name a quote
+   * that is not Won - Trucking's road jobs, made for an order as it comes.
    */
-  async create(companyId: string, data: ShipmentCreateData, creatorUserId?: string): Promise<CreatedShipment> {
+  async create(companyId: string, data: ShipmentCreateData, creatorUserId?: string, { allowUnfinishedQuote = false } = {}): Promise<CreatedShipment> {
     const { containers, cargoItems, cargoDimensions: sentDimensions, commercialInvoices, fromQuoteNumber, allowSecondShipment, ...rest } = data;
     assertValidContainerNumbers(containers);
     const cargoDimensions = normalizeCargoDimensions(sentDimensions);
@@ -728,9 +745,9 @@ class ShipmentService {
     const salesNumber = (shipmentData.salesNumber ?? "").trim();
     if ("salesNumber" in shipmentData) shipmentData.salesNumber = salesNumber;
     // A shipment created against a quote inherits that quote's sales owner.
-    if (salesNumber && !(shipmentData.salesPerson ?? "").trim()) {
-      const owner = await this.quoteSalesOwner(salesNumber);
-      if (owner) shipmentData.salesPerson = owner;
+    if (salesNumber) {
+      const owner = await this.linkableQuoteOwner(salesNumber, allowUnfinishedQuote);
+      if (owner && !(shipmentData.salesPerson ?? "").trim()) shipmentData.salesPerson = owner;
     }
     const shipment = await shipmentRepository.createWithJobNumber(companyId, shipmentData);
     await this.syncDetailRows(shipment.id, companyId, { containers, cargoItems, cargoDimensions, commercialInvoices });
@@ -835,9 +852,9 @@ class ShipmentService {
     const previousSalesNumber = existing.salesNumber.trim();
     const nextSalesNumber = shipmentData.salesNumber;
     const salesNumberChanged = nextSalesNumber !== undefined && nextSalesNumber !== previousSalesNumber;
-    if (salesNumberChanged && nextSalesNumber && !("salesPerson" in shipmentData)) {
-      const owner = await this.quoteSalesOwner(nextSalesNumber);
-      if (owner) shipmentData.salesPerson = owner;
+    if (salesNumberChanged && nextSalesNumber) {
+      const owner = await this.linkableQuoteOwner(nextSalesNumber);
+      if (owner && !("salesPerson" in shipmentData)) shipmentData.salesPerson = owner;
     }
 
     // Write audit entries for changed shipment fields
@@ -894,6 +911,22 @@ class ShipmentService {
     return shipmentRepository.liveBySalesNumber(companyId, reference.trim());
   }
 
+  /**
+   * The live shipments that name each of `references` as their Sales Number, the oldest first:
+   * what the Quotes list counts and lists per quote. Every reference asked for is answered, one
+   * no shipment names with none.
+   */
+  async shipmentsNamingQuotes(companyId: string, references: string[]): Promise<QuoteShipments[]> {
+    // Counted as sent, before any of them is looked at.
+    if (references.length > MAX_QUOTE_REFERENCES) throw APIError.invalidArgument(`At most ${MAX_QUOTE_REFERENCES} quotes at once`);
+    const wanted = [...new Set(references.map((reference) => reference.trim()).filter(Boolean))];
+    const byReference = new Map(wanted.map((reference): [string, QuoteShipments["shipments"]] => [reference, []]));
+    for (const { reference, ...shipment } of await shipmentRepository.liveBySalesNumbers(companyId, wanted)) {
+      byReference.get(reference)?.push(shipment);
+    }
+    return [...byReference].map(([reference, shipments]) => ({ reference, shipments }));
+  }
+
   async customerFacts(companyId: string): Promise<{ customers: CustomerShipmentFacts[]; shipmentsWithoutCustomer: number }> {
     const facts = await shipmentRepository.customerFacts(companyId);
     return {
@@ -922,7 +955,7 @@ class ShipmentService {
     if (!existing) throw APIError.notFound("Shipment not found");
     const won = markWon && (existing.createdFromQuote || canManageSales(actor.role));
     const synced = await quoteLinksService.syncReference(companyId, existing.salesNumber.trim(), won ? { wonByShipmentId: id } : {});
-    if (!synced) throw APIError.failedPrecondition("the Sales Number of this shipment is not the reference of a sales quote");
+    if (!synced) throw APIError.failedPrecondition("the Sales Reference of this shipment is not the reference of a sales quote");
     return synced;
   }
 

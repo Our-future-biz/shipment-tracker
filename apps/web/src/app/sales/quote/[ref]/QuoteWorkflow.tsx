@@ -43,6 +43,7 @@ import { GeoFlag, GeoSelect } from "@/components/GeoSelect";
 import type { SalesQuoteData, PackageLine, CostLine } from "../../_lib/types";
 import type { QuoteProblem } from "../../_lib/quoteProblem";
 import { INCOTERMS, SERVICE_TYPES, DIRECTIONS, PACKING_TYPES } from "../../_lib/types";
+import { notWonQuoteText } from "../../_lib/shipmentLink";
 import { CURRENCIES } from "@/lib/enums";
 import { useListKeys } from "@/hooks/useListKeys";
 import { asData, cargoReadyDay, computeTotals, computeCargo, documentBlock, fxNote, revisionRoot, stripProtected, withoutPricing, type QuoteTotals } from "../../_lib/salesQuote";
@@ -155,8 +156,15 @@ export function QuoteWorkflow() {
   const pickedCustomer = useRef<string | null>(null);
   const { customerContactFields } = useQuoteCustomerFields();
   // The steps that are unfolded. Each folds on its own; a new quote starts at the first.
-  // The step of the form that is on screen; the others wait behind their tiles.
-  const [activeSection, setActiveSection] = useState<SectionKey>("customer");
+  // The step of the form that is on screen; the others wait behind their tiles. Null until the
+  // quote is here: a quote opens on Pricing, a new one without a customer yet on Customer.
+  const [activeSection, setActiveSection] = useState<SectionKey | null>(null);
+  const startSection: SectionKey = draft.customerName ? "pricing" : "customer";
+  // The step is chosen once, as the quote arrives, so typing the customer of a new quote does
+  // not move the form on to Pricing.
+  useEffect(() => {
+    if (quote && activeSection === null) setActiveSection(startSection);
+  }, [quote, activeSection, startSection]);
   // The date picked as "Valid until" while the server is storing it; undefined when none is on
   // its way. The field shows it meanwhile, so the picker does not hand the same date in again.
   const [pendingValidity, setPendingValidity] = useState<string | null>();
@@ -568,7 +576,7 @@ export function QuoteWorkflow() {
   // What the header says under the reference: who the quote is for and what it moves where.
   const headline = [
     draft.customerName ? (
-      <CustomerLink customerId={customerPageId} deleted={customerDeleted} name={draft.customerName} className="text-[13px]" />
+      <CustomerLink customerId={customerPageId} deleted={customerDeleted} name={draft.customerName} className="text-base font-bold" />
     ) : (
       <span className="text-slate-400">No customer yet</span>
     ),
@@ -1069,7 +1077,8 @@ export function QuoteWorkflow() {
     saveNow();
     setActiveSection(to);
   };
-  const shownIndex = Math.max(0, sections.findIndex((s) => s.key === activeSection));
+  const shownSection = activeSection ?? startSection;
+  const shownIndex = Math.max(0, sections.findIndex((s) => s.key === shownSection));
   const shown = sections[shownIndex];
   const nextSection = sections[shownIndex + 1];
 
@@ -1087,7 +1096,7 @@ export function QuoteWorkflow() {
               <h1 className="text-[22px] font-bold font-mono text-slate-800 m-0">{ref}</h1>
               <QuoteStatusPill status={quote.effectiveStatus} />
             </div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-slate-500">
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[15px] font-bold text-slate-500">
               {headline.map((part, i) => (
                 <Fragment key={i}>
                   {i > 0 && <span aria-hidden>·</span>}
@@ -1115,9 +1124,14 @@ export function QuoteWorkflow() {
                   Shipment {quote.shipmentJobNumber}
                 </ToolbarButton>
               ) : (
-                <ToolbarButton icon={<ContainerOutlined />} onClick={createShipment}>
-                  Create shipment
-                </ToolbarButton>
+                // Only a Won quote can be made into a shipment - said by the status the pill shows.
+                <Tooltip title={notWonQuoteText(quote.effectiveStatus)}>
+                  <span>
+                    <ToolbarButton icon={<ContainerOutlined />} onClick={createShipment} disabled={!!notWonQuoteText(quote.effectiveStatus)}>
+                      Create shipment
+                    </ToolbarButton>
+                  </span>
+                </Tooltip>
               )}
               <span aria-hidden className="w-px h-6 bg-slate-200" />
               <ToolbarButton icon={<EyeOutlined />} onClick={() => setModal("preview")}>
@@ -1237,7 +1251,7 @@ export function QuoteWorkflow() {
       <div className="p-6 flex flex-col gap-3">
         <QuoteStepTiles
           steps={sections.map((s) => ({ key: s.key, title: s.title, status: sectionStatus(s.key) }))}
-          active={activeSection}
+          active={shownSection}
           onSelect={(key) => setActiveSection(key as SectionKey)}
         />
 
