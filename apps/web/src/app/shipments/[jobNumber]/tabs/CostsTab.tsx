@@ -188,6 +188,9 @@ export function CostsTab({ shipment }: CostsTabProps) {
   // Buying rows copied from a quote keep the quote's category, description and estimate, and are
   // not deleted (the server refuses both); the vendor and the real cost stay editable.
   const quoteRefs = new Map((data?.costs ?? []).filter((c) => c.sourceQuoteNumber).map((c) => [c.id, c.sourceQuoteNumber]));
+  // Once a quote's lines are in, the estimate is the quote's alone: a line added by hand gets a
+  // real cost only, its Estimated cells stay empty and closed (the server refuses an estimate).
+  const quotePriced = quoteRefs.size > 0;
   // Only the trips these rows name are read (a few), not the whole trips list.
   const tripIds = [...new Set([...truckingRefs.values()].flatMap((ref) => {
     const parsed = parseTruckingRef(ref);
@@ -215,11 +218,12 @@ export function CostsTab({ shipment }: CostsTabProps) {
   };
 
   /* ── Buying costs ── */
-  // a new row: Qty = 1, currencies of the chosen billing currency
+  // a new row: Qty = 1, currencies of the chosen billing currency - on Real only when the
+  // shipment's estimate comes from its quote
   const addBuy = useMutation({
     mutationFn: () => api.invoicing.invoicingAddBuyingCost(shipment.id, {
-      estQty: "1", realQty: "1",
-      estCurrency: billingCur, realCurrency: billingCur,
+      ...(quotePriced ? {} : { estQty: "1", estCurrency: billingCur }),
+      realQty: "1", realCurrency: billingCur,
       sortOrder: buyRows.length,
     }),
     onSuccess: (res) => { unlock(res.cost.id); invalidate(); },
@@ -362,9 +366,10 @@ export function CostsTab({ shipment }: CostsTabProps) {
      Invoice number and Received are not copied: they belong to one particular invoice.
      A selling copy does not keep the link to its source row: it is a new, independent row. */
   const duplicateBuy = async (r: BuyingRow, index: number) => {
+    // the copy is a line added by hand: no estimate of its own once the quote's lines are in
     await api.invoicing.invoicingAddBuyingCost(shipment.id, {
       category: r.category, description: r.description, vendor: r.vendor,
-      estQty: r.estQty, estAmount: r.estAmount, estCurrency: r.estCurrency,
+      ...(quotePriced ? {} : { estQty: r.estQty, estAmount: r.estAmount, estCurrency: r.estCurrency }),
       realQty: r.realQty, realAmount: r.realAmount, realCurrency: r.realCurrency,
       sortOrder: index + 1,
     });
@@ -573,6 +578,9 @@ export function CostsTab({ shipment }: CostsTabProps) {
                 const fromQuote = quoteRefs.get(r.id);
                 // the quote's fields look like text and do not open, whatever the rest of the row does
                 const fixed = lockedField(locked || !!fromQuote);
+                // the Estimated cells: the quote's on its lines, and nobody's on a line added by hand
+                const estClosed = !!fromQuote || quotePriced;
+                const est = lockedField(locked || estClosed);
                 return (
                 <tr
                   key={r.id}
@@ -615,25 +623,25 @@ export function CostsTab({ shipment }: CostsTabProps) {
                   {/* Estimated */}
                   <td className={CELL}>
                     <input
-                      className={`${FIELD} text-center${fixed}`}
-                      readOnly={!!fromQuote}
-                      tabIndex={fromQuote ? -1 : undefined}
+                      className={`${FIELD} text-center${est}`}
+                      readOnly={estClosed}
+                      tabIndex={estClosed ? -1 : undefined}
                       defaultValue={r.estQty}
                       onBlur={(e) => e.target.value !== r.estQty && updateBuy.mutate({ id: r.id, estQty: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
                     <input
-                      className={`${FIELD} text-right${fixed}`}
-                      readOnly={!!fromQuote}
-                      tabIndex={fromQuote ? -1 : undefined}
+                      className={`${FIELD} text-right${est}`}
+                      readOnly={estClosed}
+                      tabIndex={estClosed ? -1 : undefined}
                       defaultValue={r.estAmount}
                       onBlur={(e) => e.target.value !== r.estAmount && updateBuy.mutate({ id: r.id, estAmount: e.target.value })}
                     />
                   </td>
                   <td className={CELL}>
-                    {fromQuote ? (
-                      <span className="block px-[11px] text-[13px] text-slate-800">{r.estCurrency}</span>
+                    {estClosed ? (
+                      <span className="block px-[11px] text-[13px] text-slate-800">{fromQuote || num(r.estAmount) ? r.estCurrency : ""}</span>
                     ) : (
                       <CurrencyPicker value={r.estCurrency} onChange={(v) => changeEstCurrency(r, v)} />
                     )}

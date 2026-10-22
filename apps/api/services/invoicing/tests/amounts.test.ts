@@ -15,7 +15,7 @@ vi.mock("../repositories/quoteCostImport.repository", () => ({ quoteCostImportRe
 vi.mock("../../../lib/shipmentRefs", () => ({ assertShipmentExists: vi.fn() }));
 
 import { definedOnly, toDecimal } from "../lib/amounts";
-import { buyingChanges, sellingChanges } from "../services/invoicing.service";
+import { buyingChanges, sellingChanges, setsEstimate } from "../services/invoicing.service";
 
 describe("toDecimal", () => {
   it("keeps undefined, clears blanks, keeps decimals", () => {
@@ -42,5 +42,17 @@ describe("write changes", () => {
   it("carry sortOrder (undo keeps a line where it was) and clear blank amounts", () => {
     expect(buyingChanges({ sortOrder: 3, estAmount: "" })).toEqual({ sortOrder: 3, estAmount: null });
     expect(sellingChanges({ sortOrder: 0, qty: "2" })).toEqual({ sortOrder: 0, qty: "2" });
+  });
+});
+
+describe("setsEstimate", () => {
+  it("is a write that gives a buying line an estimated quantity or amount", () => {
+    expect(setsEstimate(buyingChanges({ estAmount: "150" }))).toBe(true);
+    expect(setsEstimate(buyingChanges({ estQty: "1" }))).toBe(true);
+  });
+
+  it("is not a real cost, a currency, or an estimate cleared", () => {
+    expect(setsEstimate(buyingChanges({ realQty: "1", realAmount: "160", realCurrency: "EUR", estCurrency: "EUR" }))).toBe(false);
+    expect(setsEstimate(buyingChanges({ estAmount: "", estQty: "" }))).toBe(false);
   });
 });
